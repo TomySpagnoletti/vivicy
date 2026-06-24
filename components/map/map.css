@@ -1,0 +1,327 @@
+/*
+ * Map-only styles. The architecture map is intentionally allowed a custom
+ * (non-shadcn) style — a faithful port of the original viewer's slate palette
+ * diagram. These literals are scoped to the React Flow surface and never leak
+ * into the shadcn sidebar.
+ */
+
+.architecture-map-root {
+  width: 100%;
+  height: 100%;
+}
+
+.architecture-node-card {
+  border: 2px solid;
+  border-radius: 8px;
+  box-shadow: 0 10px 22px rgb(15 23 42 / 8%);
+  display: grid;
+  gap: 8px;
+  min-height: 132px;
+  width: 320px;
+  padding: 12px;
+  transition: opacity 0.12s ease;
+}
+
+.architecture-node-card[data-future] {
+  border-style: dashed;
+}
+
+.architecture-node-card[data-selected] {
+  box-shadow: 0 0 0 4px rgb(15 23 42 / 16%), 0 10px 22px rgb(15 23 42 / 8%);
+}
+
+.architecture-node-card[data-dimmed] {
+  opacity: 0.25;
+}
+
+.map-node-handle {
+  background: #0f172a;
+  border: 2px solid #ffffff;
+  height: 10px;
+  width: 10px;
+}
+
+.architecture-node-topline {
+  align-items: center;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+}
+
+.architecture-node-id {
+  color: #475569;
+  font-size: 10px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.architecture-node-pill {
+  border: 1px solid;
+  border-radius: 999px;
+  color: #0f172a;
+  font-size: 10px;
+  font-weight: 800;
+  padding: 3px 7px;
+  white-space: nowrap;
+}
+
+.architecture-node-label {
+  font-size: 15px;
+  line-height: 1.15;
+}
+
+.architecture-node-tech,
+.architecture-node-data {
+  color: #475569;
+  display: -webkit-box;
+  font-size: 11px;
+  line-height: 1.35;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+}
+
+.map-work-pulse {
+  background: #22c55e;
+  border: 2px solid #ffffff;
+  border-radius: 999px;
+  box-shadow: 0 0 0 0 rgb(34 197 94 / 54%);
+  display: inline-block;
+  height: 10px;
+  width: 10px;
+  animation: map-work-pulse 2.1s ease-in-out infinite;
+}
+
+/* Cluster backdrops sit behind the nodes, grouping each layout_cluster. */
+.architecture-map-root .react-flow__viewport-portal {
+  pointer-events: none;
+  z-index: 0;
+}
+
+.map-cluster-backdrop {
+  border: 1.5px solid rgb(148 163 184 / 34%);
+  border-radius: 16px;
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 72%), 0 20px 45px rgb(15 23 42 / 5%);
+  overflow: hidden;
+  pointer-events: none;
+  position: absolute;
+}
+
+.map-cluster-label {
+  background: rgb(248 250 252 / 84%);
+  border: 1px solid rgb(203 213 225 / 78%);
+  border-radius: 999px;
+  color: #64748b;
+  display: inline-flex;
+  font-size: 11px;
+  font-weight: 850;
+  left: 18px;
+  line-height: 1;
+  max-width: calc(100% - 36px);
+  overflow: hidden;
+  padding: 7px 10px;
+  position: absolute;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  top: 14px;
+  white-space: nowrap;
+}
+
+/* Edge protocol labels. */
+.map-edge-label {
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  box-shadow: 0 4px 10px rgb(15 23 42 / 10%);
+  color: #0f172a;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1.1;
+  max-width: 190px;
+  overflow: hidden;
+  padding: 4px 8px;
+  pointer-events: all;
+  position: relative;
+  text-overflow: ellipsis;
+  user-select: none;
+  white-space: nowrap;
+}
+
+.map-edge-label.dimmed {
+  background: #ffffff;
+  border-color: rgb(203 213 225 / 70%);
+  box-shadow: 0 4px 10px rgb(15 23 42 / 7%);
+  color: rgb(100 116 139 / 55%);
+}
+
+.map-edge-label.active-work::after {
+  background: #22c55e;
+  border: 1px solid #ffffff;
+  border-radius: 999px;
+  box-shadow: 0 0 0 0 rgb(34 197 94 / 54%);
+  content: "";
+  height: 8px;
+  position: absolute;
+  right: -4px;
+  top: -4px;
+  width: 8px;
+  animation: map-work-pulse 2.1s ease-in-out infinite;
+}
+
+.map-edge-label.status-in_progress {
+  background: #dbeafe;
+  border-color: #2563eb;
+  color: #172554;
+}
+
+.map-edge-label.status-reviewing {
+  background: #ede9fe;
+  border-color: #7c3aed;
+  color: #4c1d95;
+}
+
+.map-edge-label.status-implemented {
+  background: #fef3c7;
+  border-color: #d97706;
+  color: #78350f;
+}
+
+.map-edge-label.status-verified {
+  background: #dcfce7;
+  border-color: #16a34a;
+  color: #14532d;
+}
+
+.map-edge-label.status-blocked {
+  background: #fee2e2;
+  border-color: #dc2626;
+  color: #7f1d1d;
+}
+
+.map-edge-label:hover,
+.map-edge-label.selected {
+  background: #0f172a;
+  border-color: #0f172a;
+  color: #ffffff;
+}
+
+.map-edge-label-overlay {
+  position: absolute;
+}
+
+.map-edge-label-foreign {
+  overflow: visible;
+  pointer-events: all;
+}
+
+.map-edge-label-host {
+  align-items: center;
+  display: flex;
+  height: 100%;
+  justify-content: center;
+  overflow: visible;
+  pointer-events: none;
+  width: 100%;
+}
+
+.map-selected-edge-overlay {
+  height: 1px;
+  left: 0;
+  overflow: visible;
+  pointer-events: none;
+  position: absolute;
+  top: 0;
+  width: 1px;
+  z-index: 1001;
+}
+
+.map-selected-edge-overlay-path {
+  fill: none;
+  filter: drop-shadow(0 2px 4px rgb(15 23 42 / 18%));
+  stroke: #0f172a;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2.4;
+}
+
+.architecture-map-root .react-flow__edges {
+  z-index: 1;
+}
+
+.architecture-map-root .react-flow__edgelabel-renderer {
+  z-index: 30;
+}
+
+.architecture-map-root .react-flow__nodes {
+  z-index: 20;
+}
+
+/* Legend rendered as a floating overlay on the map. */
+.map-legend {
+  background: rgb(255 255 255 / 92%);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgb(203 213 225 / 82%);
+  border-radius: 8px;
+  box-shadow: 0 10px 30px rgb(15 23 42 / 12%);
+  display: grid;
+  gap: 8px;
+  max-width: 260px;
+  padding: 10px 12px;
+}
+
+.map-legend-title {
+  color: #334155;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.map-legend-items {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.map-legend-item {
+  align-items: center;
+  color: #475569;
+  display: inline-flex;
+  font-size: 11px;
+  gap: 5px;
+}
+
+.map-legend-swatch {
+  border: 1px solid;
+  border-radius: 4px;
+  display: inline-block;
+  height: 13px;
+  width: 13px;
+}
+
+@keyframes map-work-pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgb(34 197 94 / 50%);
+    opacity: 1;
+  }
+  70% {
+    box-shadow: 0 0 0 8px rgb(34 197 94 / 0%);
+    opacity: 0.62;
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgb(34 197 94 / 0%);
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .map-work-pulse,
+  .map-edge-label.active-work::after {
+    animation: none;
+    box-shadow: none;
+  }
+}

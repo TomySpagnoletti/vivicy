@@ -1,0 +1,8 @@
+# Deterministic tool outputs regenerated on every rehearsal run. Only the fixture
+# inputs/artifacts are committed; these are produced by the method tools (into the
+# throwaway run dir, or here when validating with VIVICY_TARGET_ROOT pointed at the
+# fixture) and would otherwise go stale.
+docs/architecture-map/viewer/src/architecture-data.json
+spec/requirements/source-map.json
+spec/requirements/coverage-report.json
+spec/requirements/coverage-report.md

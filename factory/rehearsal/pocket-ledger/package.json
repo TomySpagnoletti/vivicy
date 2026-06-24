@@ -1,0 +1,11 @@
+{
+  "name": "pocket-ledger",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Rehearsal fixture: a tiny personal expense tracker library used to exercise the Naight OS development method end-to-end.",
+  "license": "MIT",
+  "scripts": {
+    "test": "node --test"
+  }
+}
