@@ -121,6 +121,14 @@ export const DEFAULT_QUOTA_PATTERNS = [
 // spawn loop without delaying a genuine short reset noticeably.
 const QUOTA_MIN_WAIT_MS = 30 * 1000;
 
+// The two rolling quota windows the footer surfaces. Keys are the canonical
+// labels used in the quota-state file and the Vivicy footer.
+//   "5h"     — the short rolling window (Codex `primary`, window_minutes 300;
+//              Claude `rate_limit_event.rateLimitType === "five_hour"`).
+//   "weekly" — the long rolling window (Codex `secondary`, window_minutes 10080).
+// A null per-window record means "unknown" — we never fabricate a percentage.
+export const QUOTA_WINDOW_KEYS = ["5h", "weekly"];
+
 // --------------------------------------------------------------------------
 // Pure core (unit-tested)
 // --------------------------------------------------------------------------
@@ -329,6 +337,127 @@ export function computeWaitMs({ message, nowMs, attempt, cfg }) {
   // attempt is 1-based: first hit waits `start`, then 2x, 4x ... capped.
   const backoff = Math.min(start * 2 ** Math.max(0, attempt - 1), cap);
   return { waitMs: backoff, resetAtMs: nowMs + backoff };
+}
+
+// --------------------------------------------------------------------------
+// Real quota-window extraction (pure, unit-tested)
+//
+// PROVEN by probing each CLI (see the R8 probe): the two providers expose very
+// different surfaces, so we extract from each honestly and never fabricate.
+//
+//   Codex   — emits a `token_count` event in its session ROLLOUT JSONL whose
+//             payload carries real `rate_limits` percentages:
+//               rate_limits.primary   = { used_percent, window_minutes: 300,   resets_at }  -> "5h"
+//               rate_limits.secondary = { used_percent, window_minutes: 10080, resets_at }  -> "weekly"
+//             (Not present on `codex exec` stdout — only in the rollout, which the
+//             dev loop already copies into its transcript store.) => real % both windows.
+//
+//   Claude  — emits a `rate_limit_event` in its stream-json transcript:
+//               { status, resetsAt (epoch s), rateLimitType: "five_hour", ... }
+//             which gives a real 5h RESET + status but NO percentage, and no weekly
+//             window. => 5h: used_pct null + reset; weekly: unknown.
+//
+// Each window record is { used_pct: number|null, remaining: number|null,
+// reset_at: ISO|null } or the whole window is absent (=> unknown). A null
+// used_pct is the honest "we don't have a real number" signal the footer shows
+// as "—".
+// --------------------------------------------------------------------------
+
+// Build a single window record from a real used_percent + epoch-seconds reset.
+// used_pct null => unknown percentage (still honest about the reset if present).
+function windowRecord({ usedPct = null, resetAtSec = null } = {}) {
+  const pct = Number.isFinite(usedPct) ? Math.max(0, Math.min(100, usedPct)) : null;
+  const reset_at = Number.isFinite(resetAtSec) ? new Date(resetAtSec * 1000).toISOString() : null;
+  return {
+    used_pct: pct,
+    remaining: pct === null ? null : Math.round((100 - pct) * 10) / 10,
+    reset_at,
+  };
+}
+
+// Parse Codex `rate_limits` (real percentages for both windows) out of a session
+// rollout JSONL. Scans for the LAST `token_count` event (newest state wins) and
+// maps primary->5h, secondary->weekly. Returns a partial windows map; an absent
+// window means we found no data for it (unknown), never a zero.
+export function parseCodexQuotaWindows(rolloutText) {
+  const text = String(rolloutText ?? "");
+  if (!text) return {};
+  let limits = null;
+  for (const line of text.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed || !trimmed.includes("rate_limits")) continue;
+    let obj;
+    try {
+      obj = JSON.parse(trimmed);
+    } catch {
+      continue;
+    }
+    const rl = obj?.payload?.rate_limits ?? obj?.rate_limits;
+    if (rl && typeof rl === "object") limits = rl; // keep the last seen
+  }
+  if (!limits) return {};
+  const windows = {};
+  if (limits.primary && typeof limits.primary === "object") {
+    windows["5h"] = windowRecord({
+      usedPct: Number(limits.primary.used_percent),
+      resetAtSec: Number(limits.primary.resets_at),
+    });
+  }
+  if (limits.secondary && typeof limits.secondary === "object") {
+    windows["weekly"] = windowRecord({
+      usedPct: Number(limits.secondary.used_percent),
+      resetAtSec: Number(limits.secondary.resets_at),
+    });
+  }
+  return windows;
+}
+
+// Parse Claude `rate_limit_event` (real reset + status, NO percentage) out of a
+// stream-json transcript. Maps the five_hour window to "5h" with a null
+// used_pct (honest: Claude does not expose a usage percentage here). The weekly
+// window is left unknown. Returns a partial windows map.
+export function parseClaudeQuotaWindows(transcriptText) {
+  const text = String(transcriptText ?? "");
+  if (!text) return {};
+  let info = null;
+  for (const line of text.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed || !trimmed.includes("rate_limit_event")) continue;
+    let obj;
+    try {
+      obj = JSON.parse(trimmed);
+    } catch {
+      continue;
+    }
+    if (obj?.type === "rate_limit_event" && obj.rate_limit_info) info = obj.rate_limit_info; // last wins
+  }
+  if (!info) return {};
+  const windows = {};
+  if (info.rateLimitType === "five_hour" || info.resetsAt) {
+    windows["5h"] = windowRecord({ usedPct: null, resetAtSec: Number(info.resetsAt) });
+  }
+  return windows;
+}
+
+// Dispatch to the right per-provider parser. `text` is the captured transcript /
+// rollout content for this leg. Falsy/unreadable input => no windows (unknown),
+// which keeps quota state honestly empty rather than fabricated.
+export function parseQuotaWindows(actor, text) {
+  if (actor === "codex") return parseCodexQuotaWindows(text);
+  if (actor === "claude") return parseClaudeQuotaWindows(text);
+  return {};
+}
+
+// Read a captured transcript/rollout file for a leg, tolerantly. Returns "" when
+// the path is missing or unreadable — quota windows are advisory, never
+// load-bearing, so a missing transcript just means "unknown", not an error.
+function readTranscriptText(relPath) {
+  if (!relPath) return "";
+  try {
+    return readFileSync(abs(relPath), "utf8");
+  } catch {
+    return "";
+  }
 }
 
 // --------------------------------------------------------------------------
@@ -630,22 +759,27 @@ function writeQuotaState(cfg, actor, agentState) {
 
 // Record an agent as available (the steady state after a non-rate-limited leg).
 // The single top-level updated_at (set by writeQuotaState) timestamps the file.
-function markAgentAvailable(cfg, leg) {
+// `windows` carries the REAL per-window usage extracted from the leg's transcript
+// (Codex %, Claude reset-only); an empty/absent windows map keeps the prior
+// windows (or none) rather than overwriting real data with nothing.
+function markAgentAvailable(cfg, leg, windows) {
   writeQuotaState(cfg, leg.actor, {
     model: leg.model ?? null,
     status: "available",
     reset_at: null,
     last_message: null,
+    ...(windows && Object.keys(windows).length > 0 ? { windows } : {}),
   });
 }
 
 // Record an agent as throttled while we wait out its quota window.
-function markAgentThrottled(cfg, leg, { message, resetAtMs }) {
+function markAgentThrottled(cfg, leg, { message, resetAtMs, windows }) {
   writeQuotaState(cfg, leg.actor, {
     model: leg.model ?? null,
     status: "throttled",
     reset_at: resetAtMs ? new Date(resetAtMs).toISOString() : null,
     last_message: message ?? null,
+    ...(windows && Object.keys(windows).length > 0 ? { windows } : {}),
   });
 }
 
@@ -663,6 +797,12 @@ export function runLegWithQuota(runLeg, leg, issue, cfg) {
   for (let attempt = 1; ; attempt += 1) {
     const legResult = runLeg(issue, cfg);
     const output = legResult?.output ?? combinedOutput(legResult?.result);
+    // Extract the REAL per-window quota usage from the leg's captured transcript
+    // (Codex rollout -> real %; Claude stream-json -> reset-only). Falls back to
+    // scanning the leg's stdout when no transcript file was captured. Honest by
+    // construction: a provider that exposes nothing yields no windows (unknown).
+    const transcriptText = readTranscriptText(legResult?.transcriptRel) || output;
+    const windows = parseQuotaWindows(leg.actor, transcriptText);
     // A rate-limit always coincides with a non-zero exit, so a SUCCESSFUL leg is
     // never throttled — even when its summary mentions quota/429/rate-limit. The
     // exit code is the spawnSync status; an undefined status (e.g. a test stub
@@ -670,7 +810,7 @@ export function runLegWithQuota(runLeg, leg, issue, cfg) {
     const exitCode = legResult?.result?.status ?? null;
     const detection = detectRateLimit(output, patterns, exitCode);
     if (!detection.hit) {
-      markAgentAvailable(cfg, leg);
+      markAgentAvailable(cfg, leg, windows);
       return { ...legResult, quotaBlocked: false, totalWaitedMs };
     }
 
@@ -679,10 +819,10 @@ export function runLegWithQuota(runLeg, leg, issue, cfg) {
     // Give up only if waiting would push us past the hard cap; never count this
     // against the issue's gate retries.
     if (totalWaitedMs + waitMs > cfg.quotaMaxWaitMs) {
-      markAgentThrottled(cfg, leg, { message: detection.message, resetAtMs });
+      markAgentThrottled(cfg, leg, { message: detection.message, resetAtMs, windows });
       return { ...legResult, quotaBlocked: true, totalWaitedMs };
     }
-    markAgentThrottled(cfg, leg, { message: detection.message, resetAtMs });
+    markAgentThrottled(cfg, leg, { message: detection.message, resetAtMs, windows });
     process.stderr.write(
       `[quota] ${leg.actor} rate-limited (${detection.message}); waiting ${Math.round(waitMs / 1000)}s then retrying the same leg\n`,
     );

@@ -18,6 +18,9 @@ import {
   defaultRunReviewer,
   dependenciesSatisfied,
   detectRateLimit,
+  parseClaudeQuotaWindows,
+  parseCodexQuotaWindows,
+  parseQuotaWindows,
   parseResetMs,
   pickNextIssue,
   runLegWithQuota,
@@ -559,6 +562,99 @@ test("runLegWithQuota writes throttled then available quota state to disk", () =
     assert.equal(state.agents.claude.model, "claude-opus-4-8");
     assert.equal(state.agents.claude.reset_at, null);
     assert.ok(state.updated_at, "the file carries an updated_at timestamp");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// --- real quota-window extraction (R8: prove the data, never fabricate) ---
+
+test("parseCodexQuotaWindows extracts REAL 5h + weekly percentages from a rollout", () => {
+  // The exact shape Codex writes to its session rollout JSONL (proven by probe):
+  // a token_count event whose payload.rate_limits carries real used_percent.
+  const rollout = [
+    `{"type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":100}}}}`,
+    `{"timestamp":"2026-06-24T16:50:57Z","type":"event_msg","payload":{"type":"token_count","rate_limits":{"primary":{"used_percent":38,"window_minutes":300,"resets_at":1782337221},"secondary":{"used_percent":12,"window_minutes":10080,"resets_at":1782373367},"plan_type":"pro"}}}`,
+  ].join("\n");
+  const w = parseCodexQuotaWindows(rollout);
+  assert.equal(w["5h"].used_pct, 38, "real 5h percentage (primary)");
+  assert.equal(w["5h"].remaining, 62);
+  assert.equal(w["5h"].reset_at, new Date(1782337221 * 1000).toISOString());
+  assert.equal(w.weekly.used_pct, 12, "real weekly percentage (secondary)");
+  assert.equal(w.weekly.reset_at, new Date(1782373367 * 1000).toISOString());
+});
+
+test("parseCodexQuotaWindows uses the LAST rate_limits and tolerates junk lines", () => {
+  const rollout = [
+    `not json at all`,
+    `{"payload":{"rate_limits":{"primary":{"used_percent":5,"resets_at":1782300000}}}}`,
+    `{"payload":{"rate_limits":{"primary":{"used_percent":41,"resets_at":1782337221},"secondary":{"used_percent":12,"resets_at":1782373367}}}}`,
+  ].join("\n");
+  const w = parseCodexQuotaWindows(rollout);
+  assert.equal(w["5h"].used_pct, 41, "the newest token_count state wins");
+  assert.equal(w.weekly.used_pct, 12);
+});
+
+test("parseCodexQuotaWindows clamps out-of-range and returns {} for no data", () => {
+  assert.deepEqual(parseCodexQuotaWindows(""), {});
+  assert.deepEqual(parseCodexQuotaWindows("plain log\nno rate limits here"), {});
+  const clamped = parseCodexQuotaWindows(
+    `{"payload":{"rate_limits":{"primary":{"used_percent":150,"resets_at":1782337221}}}}`,
+  );
+  assert.equal(clamped["5h"].used_pct, 100, "percentages clamp to [0,100]");
+});
+
+test("parseClaudeQuotaWindows gives a REAL 5h reset but a null percentage (honest)", () => {
+  // Claude's stream-json rate_limit_event: status + resetsAt + window type, NO %.
+  const transcript = [
+    `{"type":"assistant","message":{"content":[{"type":"text","text":"hi"}]}}`,
+    `{"type":"rate_limit_event","rate_limit_info":{"status":"allowed","resetsAt":1782328800,"rateLimitType":"five_hour"}}`,
+  ].join("\n");
+  const w = parseClaudeQuotaWindows(transcript);
+  assert.equal(w["5h"].used_pct, null, "Claude exposes NO percentage — honest null, never fabricated");
+  assert.equal(w["5h"].remaining, null);
+  assert.equal(w["5h"].reset_at, new Date(1782328800 * 1000).toISOString(), "but the 5h reset IS real");
+  assert.equal(w.weekly, undefined, "Claude exposes no weekly window here");
+});
+
+test("parseClaudeQuotaWindows returns {} when no rate_limit_event is present", () => {
+  assert.deepEqual(parseClaudeQuotaWindows(""), {});
+  assert.deepEqual(
+    parseClaudeQuotaWindows(`{"type":"assistant","message":{"content":[]}}`),
+    {},
+    "a transcript with no rate_limit_event yields no windows (unknown)",
+  );
+});
+
+test("parseQuotaWindows dispatches by actor and is unknown for others", () => {
+  const codex = `{"payload":{"rate_limits":{"primary":{"used_percent":7,"resets_at":1782337221}}}}`;
+  assert.equal(parseQuotaWindows("codex", codex)["5h"].used_pct, 7);
+  const claude = `{"type":"rate_limit_event","rate_limit_info":{"resetsAt":1782328800,"rateLimitType":"five_hour"}}`;
+  assert.equal(parseQuotaWindows("claude", claude)["5h"].used_pct, null);
+  assert.deepEqual(parseQuotaWindows("someone-else", codex), {}, "unknown actor => no windows");
+});
+
+test("runLegWithQuota records REAL windows from a Codex rollout on an available leg", () => {
+  const dir = mkdtempSync(resolve(repoRoot, "_tmp-quota-win-"));
+  const scratchRel = relative(repoRoot, dir);
+  const quotaRel = `${scratchRel}/quota-state.json`;
+  const rolloutRel = `${scratchRel}/codex-rollout.jsonl`;
+  try {
+    // The leg's captured transcript carries Codex's real rate_limits payload.
+    writeFileSync(
+      resolve(repoRoot, rolloutRel),
+      `{"payload":{"type":"token_count","rate_limits":{"primary":{"used_percent":38,"resets_at":1782337221},"secondary":{"used_percent":12,"resets_at":1782373367}}}}\n`,
+    );
+    const { cfg } = fakeClockCfg({ quotaStatePath: quotaRel, quotaMaxWaitMs: 8 * 3600_000 });
+    const runLeg = () => ({ output: "review done", result: { status: 0 }, transcriptRel: rolloutRel });
+    const leg = { actor: "codex", role: "reviewer", model: "gpt-5.5-codex" };
+    const out = runLegWithQuota(runLeg, leg, { id: "X" }, cfg);
+    assert.equal(out.quotaBlocked, false);
+    const state = JSON.parse(readFileSync(resolve(repoRoot, quotaRel), "utf8"));
+    assert.equal(state.agents.codex.status, "available");
+    // The REAL percentages are persisted for the footer to render live.
+    assert.equal(state.agents.codex.windows["5h"].used_pct, 38);
+    assert.equal(state.agents.codex.windows.weekly.used_pct, 12);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

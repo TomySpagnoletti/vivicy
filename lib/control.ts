@@ -79,6 +79,28 @@ export interface RunState {
   mode: "start" | "resume"
 }
 
+/**
+ * One rolling quota window's REAL usage, extracted from a provider's transcript.
+ * `used_pct` is null when the provider does not expose a percentage (honest
+ * unknown — Claude's stream-json gives a reset but no %); the footer shows "—".
+ */
+export interface QuotaWindow {
+  /** Real usage percentage 0–100, or null when the provider exposes none. */
+  used_pct: number | null
+  /** Real remaining percentage (100 - used_pct), or null when unknown. */
+  remaining: number | null
+  /** ISO time this window resets, or null when unknown. */
+  reset_at: string | null
+}
+
+/** The rolling windows the footer surfaces, keyed by canonical label. */
+export interface QuotaWindows {
+  /** Short rolling window (Codex primary / Claude five_hour). */
+  "5h"?: QuotaWindow
+  /** Long rolling window (Codex secondary). */
+  weekly?: QuotaWindow
+}
+
 /** Per-agent quota/rate-limit status, written by the dev-loop quota handler. */
 export interface AgentQuota {
   /** Model id the leg runs (e.g. "claude-opus-4-8"), or null when unknown. */
@@ -89,6 +111,12 @@ export interface AgentQuota {
   reset_at: string | null
   /** The rate-limit line we matched (honest provenance), or null. */
   last_message: string | null
+  /**
+   * Real per-window usage (Codex: % for 5h + weekly; Claude: 5h reset only).
+   * Absent => unknown; a present window with `used_pct: null` is an honest
+   * "we have a reset but no percentage" signal, never a fabricated number.
+   */
+  windows?: QuotaWindows
   updated_at?: string | null
 }
 

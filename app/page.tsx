@@ -10,18 +10,16 @@ import type {
   MapEmptyState as MapEmptyStatePayload,
   ViewMode,
 } from "@/lib/types"
-import {
-  SidebarInset,
-  SidebarProvider,
-  SidebarTrigger,
-} from "@/components/ui/sidebar"
+import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
 import {
   ArchitectureMap,
   type SelectedItem,
 } from "@/components/map/architecture-map"
 import { MapEmptyState } from "@/components/map/map-empty-state"
+import { PanelToggle } from "@/components/sidebar/panel-toggle"
 import { VivicySidebar } from "@/components/sidebar/sidebar"
 import { TranscriptProvider } from "@/components/transcript/transcript-modal"
+import { usePanelState } from "@/hooks/use-panel-state"
 
 type LoadState =
   | { kind: "loading" }
@@ -37,7 +35,10 @@ export default function Page() {
   const [statusFilter, setStatusFilter] = useState("all")
   const [scopeFilter, setScopeFilter] = useState("all")
   const [selectedRef, setSelectedRef] = useState<SelectedRef | null>(null)
-  const [sidebarOpen, setSidebarOpen] = useState(true)
+  // The right panel is a 3-state toggle (peek -> wide -> closed -> peek). The
+  // hook owns the cycle + persistence and derives the shadcn Sidebar's `open`
+  // flag and `--sidebar-width` (two open widths).
+  const panel = usePanelState()
 
   // Track mount so background refreshes don't flash the loading state or apply
   // after unmount.
@@ -133,18 +134,24 @@ export default function Page() {
 
   return (
     <TranscriptProvider>
-      <SidebarProvider open={sidebarOpen} onOpenChange={setSidebarOpen}>
-        {/* Map fills the inset; reclaims width when the right sidebar collapses. */}
+      <SidebarProvider
+        open={panel.open}
+        onOpenChange={panel.setOpen}
+        // Drive the open width (peek vs wide) into the shadcn Sidebar via its
+        // own CSS var, so width is the sidebar's own state, not a custom layout.
+        style={{ "--sidebar-width": panel.width } as React.CSSProperties}
+      >
+        {/* Map fills the inset; reclaims width when the right panel closes and
+            reflows when it changes width (both via the sidebar's CSS var). */}
         <SidebarInset className="relative min-w-0">
-          {/* Discreet sidebar toggle, top-left of the page. Only meaningful once
-              the panel is rendered (i.e. when a graph is present). */}
+          {/* Discreet 3-state toggle on the sidebar's LEFT edge (the boundary
+              with the map). Only meaningful once the panel is rendered. */}
           {state.kind === "ready" ? (
-            <div className="absolute top-3 left-3 z-20">
-              <SidebarTrigger
-                variant="outline"
-                aria-label={sidebarOpen ? "Collapse panel" : "Expand panel"}
-              />
-            </div>
+            <PanelToggle
+              next={panel.next}
+              open={panel.open}
+              onCycle={panel.cycle}
+            />
           ) : null}
 
           {state.kind === "loading" ? (

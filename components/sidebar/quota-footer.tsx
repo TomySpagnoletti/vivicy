@@ -1,10 +1,14 @@
 "use client"
 
 import { useEffect, useState } from "react"
+import { ChevronDown, ChevronUp } from "lucide-react"
 
-import type { AgentQuota } from "@/lib/control"
+import type { AgentQuota, QuotaWindow } from "@/lib/control"
 import { DEFAULT_SETTINGS, type AgentSettings, type AgentsSettings } from "@/lib/settings"
+import { cn } from "@/lib/utils"
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
+import { Progress } from "@/components/ui/progress"
 import { Separator } from "@/components/ui/separator"
 
 /**
@@ -17,6 +21,12 @@ const AGENT_ROLE: Record<string, keyof AgentsSettings> = {
   claude: "implementer",
   codex: "reviewer",
 }
+
+/** The two rolling windows the footer surfaces, in display order. */
+const WINDOWS: Array<{ key: "5h" | "weekly"; short: string; long: string }> = [
+  { key: "5h", short: "5h", long: "5-hour" },
+  { key: "weekly", short: "wk", long: "Weekly" },
+]
 
 /**
  * Friendly display name for a model id, derived from the configured model so the
@@ -35,19 +45,30 @@ interface QuotaState {
   agents: Record<string, AgentQuota>
 }
 
+const COLLAPSE_KEY = "vivicy:quota-footer-collapsed"
+
+/** Read the persisted collapse state (default collapsed). Safe on the server. */
+function readCollapsed(): boolean {
+  if (typeof window === "undefined") return true
+  try {
+    return window.localStorage.getItem(COLLAPSE_KEY) !== "false"
+  } catch {
+    return true
+  }
+}
+
 /**
- * Honest per-agent quota footer.
+ * Honest, collapsible per-agent quota footer.
  *
  * Driven by the live SSE status stream (the same `/api/status/stream` the
- * control bar uses), which now carries the dev-loop's `quota` block. For each
- * agent we show ONLY what is real:
- *   - model + thinking level
- *   - an available / throttled status Badge
- *   - a reset countdown when throttled and a reset time is known
+ * control bar uses), which carries the dev-loop's `quota` block — including the
+ * REAL per-window usage extracted from each provider's transcript:
+ *   - Codex  -> real % for the 5h AND weekly windows (rollout `rate_limits`)
+ *   - Claude -> a real 5h reset, but NO percentage (stream-json exposes none)
  *
- * There is no non-interactive remaining-quota API in the claude/codex CLIs, so
- * we deliberately do NOT render a usage percentage or bar — that would be
- * fabricated. Until a leg is rate-limited, agents read "available".
+ * Where a provider exposes no percentage we render "—", never a fabricated
+ * number. Collapsed shows one compact line per agent; expanded shows a Progress
+ * bar + reset countdown per window. The collapse state is persisted.
  */
 export function QuotaFooter({
   settings = DEFAULT_SETTINGS,
@@ -55,6 +76,9 @@ export function QuotaFooter({
   settings?: AgentsSettings
 }) {
   const [quota, setQuota] = useState<QuotaState | null>(null)
+  // Restore the persisted collapse state via a lazy initializer (no
+  // setState-in-effect); written on toggle.
+  const [collapsed, setCollapsed] = useState(readCollapsed)
 
   useEffect(() => {
     const source = new EventSource("/api/status/stream")
@@ -73,61 +97,191 @@ export function QuotaFooter({
     return () => source.close()
   }, [])
 
+  const toggleCollapsed = () => {
+    setCollapsed((prev) => {
+      const next = !prev
+      try {
+        window.localStorage.setItem(COLLAPSE_KEY, String(next))
+      } catch {
+        // best-effort persistence
+      }
+      return next
+    })
+  }
+
   const agents = quota?.agents ?? {}
   // Render in the known display order; fall back to any unknown agents after.
   const knownNames = Object.keys(AGENT_ROLE).filter((name) => name in agents)
   const extraNames = Object.keys(agents).filter((name) => !(name in AGENT_ROLE))
   const names = [...knownNames, ...extraNames]
+  const hasAgents = names.length > 0
 
   return (
-    <div className="flex flex-col gap-2.5 px-3 py-3">
+    <div className="flex flex-col gap-2 px-3 py-3">
       <Separator />
-      {names.length === 0 ? (
-        <p className="text-xs text-muted-foreground">Agent quota status appears here once a run is active.</p>
-      ) : (
-        names.map((name) => {
-          const role = AGENT_ROLE[name]
-          return (
-            <QuotaRow
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-xs font-medium text-muted-foreground">Quota</p>
+        {hasAgents ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            aria-label={collapsed ? "Expand quota details" : "Collapse quota details"}
+            aria-expanded={!collapsed}
+            onClick={toggleCollapsed}
+          >
+            {collapsed ? <ChevronUp /> : <ChevronDown />}
+          </Button>
+        ) : null}
+      </div>
+
+      {!hasAgents ? (
+        <p className="text-xs text-muted-foreground">
+          Agent quota status appears here once a run is active.
+        </p>
+      ) : collapsed ? (
+        <div className="flex flex-col gap-1">
+          {names.map((name) => (
+            <CollapsedRow
               key={name}
-              name={name}
               agent={agents[name]}
-              config={role ? settings[role] : undefined}
+              config={AGENT_ROLE[name] ? settings[AGENT_ROLE[name]] : undefined}
+              fallbackName={name}
             />
-          )
-        })
+          ))}
+        </div>
+      ) : (
+        <div className="flex flex-col gap-3">
+          {names.map((name) => (
+            <ExpandedAgent
+              key={name}
+              agent={agents[name]}
+              config={AGENT_ROLE[name] ? settings[AGENT_ROLE[name]] : undefined}
+              fallbackName={name}
+            />
+          ))}
+        </div>
       )}
     </div>
   )
 }
 
-function QuotaRow({
-  name,
+/** "Opus 4.8" label derived from settings, falling back to the reported model. */
+function agentLabel(config: AgentSettings | undefined, agent: AgentQuota, fallbackName: string): string {
+  return config ? friendlyModel(config.model) : friendlyModel(agent.model ?? fallbackName)
+}
+
+/** A window's percentage as "38%" or "—" when the provider exposes no number. */
+function pctText(win: QuotaWindow | undefined): string {
+  return win && typeof win.used_pct === "number" ? `${Math.round(win.used_pct)}%` : "—"
+}
+
+/**
+ * Collapsed: one compact line per agent — model + just the window percentages,
+ * e.g. "Opus 4.8  5h 38% · wk 12%" (or "—" per window when unknown).
+ */
+function CollapsedRow({
   agent,
   config,
+  fallbackName,
 }: {
-  name: string
   agent: AgentQuota
   config?: AgentSettings
+  fallbackName: string
 }) {
-  // Prefer the live configured model + thinking level; fall back to the model
-  // the run actually reported (quota state) or the agent name, never a hardcode.
-  const label = config ? friendlyModel(config.model) : friendlyModel(agent.model ?? name)
+  const label = agentLabel(config, agent, fallbackName)
+  const windows = agent.windows ?? {}
+  const throttled = agent.status === "throttled"
+  return (
+    <div className="flex items-baseline justify-between gap-2 text-xs">
+      <span className="truncate font-medium text-foreground">{label}</span>
+      <span
+        className={cn(
+          "shrink-0 tabular-nums",
+          throttled ? "font-medium text-destructive" : "text-muted-foreground"
+        )}
+      >
+        {WINDOWS.map((w, i) => (
+          <span key={w.key}>
+            {i > 0 ? " · " : ""}
+            {w.short} {pctText(windows[w.key])}
+          </span>
+        ))}
+      </span>
+    </div>
+  )
+}
+
+/**
+ * Expanded: model name + thinking level, then a Progress bar per window with its
+ * % + reset countdown. Throttled agents are highlighted.
+ */
+function ExpandedAgent({
+  agent,
+  config,
+  fallbackName,
+}: {
+  agent: AgentQuota
+  config?: AgentSettings
+  fallbackName: string
+}) {
+  const label = agentLabel(config, agent, fallbackName)
   const thinking = config?.effort
   const throttled = agent.status === "throttled"
+  const windows = agent.windows ?? {}
 
   return (
-    <div className="flex items-center justify-between gap-2 text-xs">
-      <span className="truncate font-medium text-foreground">
-        {label}
-        {thinking ? <span className="text-muted-foreground"> · {thinking}</span> : null}
-      </span>
-      <div className="flex shrink-0 items-center gap-1.5">
-        {throttled ? <ResetCountdown resetAt={agent.reset_at} /> : null}
+    <div className="flex flex-col gap-2">
+      <div className="flex items-center justify-between gap-2 text-xs">
+        <span className="truncate font-medium text-foreground">
+          {label}
+          {thinking ? <span className="text-muted-foreground"> · {thinking}</span> : null}
+        </span>
         <Badge variant={throttled ? "destructive" : "secondary"}>
           {throttled ? "throttled" : "available"}
         </Badge>
       </div>
+      <div className="flex flex-col gap-1.5">
+        {WINDOWS.map((w) => (
+          <WindowBar key={w.key} label={w.long} win={windows[w.key]} throttled={throttled} />
+        ))}
+      </div>
+    </div>
+  )
+}
+
+/**
+ * One window's row: label, percentage (or "—"), a Progress bar (only when a real
+ * percentage exists), and a reset countdown when known. Honest by construction —
+ * no bar and no number when the provider exposes nothing.
+ */
+function WindowBar({
+  label,
+  win,
+  throttled,
+}: {
+  label: string
+  win: QuotaWindow | undefined
+  throttled: boolean
+}) {
+  const hasPct = win && typeof win.used_pct === "number"
+  return (
+    <div className="flex flex-col gap-1">
+      <div className="flex items-center justify-between gap-2 text-xs">
+        <span className="text-muted-foreground">{label}</span>
+        <div className="flex items-center gap-1.5">
+          <ResetCountdown resetAt={win?.reset_at ?? null} />
+          <span
+            className={cn(
+              "tabular-nums",
+              throttled ? "font-medium text-destructive" : "text-foreground"
+            )}
+          >
+            {pctText(win)}
+          </span>
+        </div>
+      </div>
+      {hasPct ? <Progress value={win!.used_pct ?? 0} /> : null}
     </div>
   )
 }

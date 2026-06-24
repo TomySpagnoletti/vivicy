@@ -37,7 +37,16 @@ function ageSeconds(ts) {
   const ms = new Date(ts).getTime();
   return Number.isFinite(ms) ? Math.round((Date.now() - ms) / 1000) : null;
 }
+// Render one window's real percentage honestly: "5h 38%" when known, "5h —"
+// when the provider exposes no number (we never fabricate a percentage).
+function formatWindow(label, win) {
+  if (!win) return null;
+  const pct = typeof win.used_pct === "number" ? `${Math.round(win.used_pct)}%` : "—";
+  return `${label} ${pct}`;
+}
+
 // One-line human summary of the per-agent quota block for the text output.
+// Surfaces the REAL 5h + weekly percentages when present (honest "—" otherwise).
 function formatQuotaLine(quota) {
   const agents = quota?.agents ?? {};
   const names = Object.keys(agents);
@@ -46,11 +55,16 @@ function formatQuotaLine(quota) {
     .map((name) => {
       const a = agents[name];
       const model = a.model ? ` ${a.model}` : "";
+      const windows = a.windows ?? {};
+      const pcts = [formatWindow("5h", windows["5h"]), formatWindow("wk", windows.weekly)]
+        .filter(Boolean)
+        .join(" · ");
+      const pctSuffix = pcts ? ` (${pcts})` : "";
       if (a.status === "throttled") {
         const eta = a.reset_at ? `, resets ${a.reset_at}` : "";
-        return `${name}${model}: throttled${eta}`;
+        return `${name}${model}: throttled${eta}${pctSuffix}`;
       }
-      return `${name}${model}: ${a.status ?? "available"}`;
+      return `${name}${model}: ${a.status ?? "available"}${pctSuffix}`;
     })
     .join("; ");
 }
