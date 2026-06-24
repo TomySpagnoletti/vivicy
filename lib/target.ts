@@ -2,19 +2,26 @@
  * Resolve the target project root whose architecture map this viewer renders.
  *
  * Server-only. Resolution order:
- *   1. `VIVICY_TARGET_ROOT` env var (absolute or relative to cwd), when set.
- *   2. The Vivicy parent repository — `..` from the process cwd. In dev this is
+ *   1. The project the user chose from the UI, persisted in the runtime dir
+ *      (R10). A persisted project takes precedence so the picker drives the app.
+ *   2. `VIVICY_TARGET_ROOT` env var (absolute or relative to cwd), when set.
+ *      This stays the override the E2E servers and a headless launch use.
+ *   3. The Vivicy parent repository — `..` from the process cwd. In dev this is
  *      the Naight repo that holds the committed architecture map.
  *
- * No machine-specific paths are hardcoded; everything derives from the
- * environment or the process working directory.
+ * No machine-specific paths are hardcoded; everything derives from the persisted
+ * choice, the environment, or the process working directory.
  */
 
 import { existsSync, statSync } from "node:fs"
 import path from "node:path"
 
+import { readCurrentProjectRoot } from "@/lib/project"
+
 /** Absolute path to the resolved target project root. */
 export function getTargetRoot(): string {
+  const persisted = readCurrentProjectRoot()
+  if (persisted) return path.resolve(persisted)
   const fromEnv = process.env.VIVICY_TARGET_ROOT
   if (fromEnv && fromEnv.trim().length > 0) {
     return path.resolve(fromEnv)

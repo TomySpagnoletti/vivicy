@@ -15,10 +15,17 @@ const EMPTY_PORT = 3101
 const DEMO_URL = `http://127.0.0.1:${DEMO_PORT}`
 const EMPTY_URL = `http://127.0.0.1:${EMPTY_PORT}`
 
-const DEMO_TARGET_ROOT = process.env.VIVICY_TARGET_ROOT ?? "/tmp/vivicy-demo"
+export const DEMO_TARGET_ROOT = process.env.VIVICY_TARGET_ROOT ?? "/tmp/vivicy-demo"
 // Resolved + created in global-setup; exported as a constant so the spec and the
 // webServer env agree on one path.
 export const EMPTY_TARGET_ROOT = "/tmp/vivicy-no-map"
+
+// Each dev server gets its OWN runtime dir so a persisted current-project (R10)
+// from the picker spec on the demo server never bleeds into the onboarding server
+// (they otherwise share the repo's .vivicy-runtime via cwd). Cleared in
+// global-setup so runs start from a known, env-target state.
+export const DEMO_RUNTIME_DIR = "/tmp/vivicy-rt-demo"
+export const EMPTY_RUNTIME_DIR = "/tmp/vivicy-rt-empty"
 
 export default defineConfig({
   testDir: "./e2e",
@@ -55,6 +62,8 @@ export default defineConfig({
         // Distinct dist dir so the two dev servers don't collide on Next's
         // single-instance dev lock (keyed on .next/dev).
         VIVICY_DIST_DIR: ".next-e2e-demo",
+        // Own runtime dir so the picker spec's persisted project stays isolated.
+        VIVICY_RUNTIME_DIR: DEMO_RUNTIME_DIR,
       },
     },
     {
@@ -66,6 +75,7 @@ export default defineConfig({
         VIVICY_TARGET_ROOT: EMPTY_TARGET_ROOT,
         VIVICY_FAKE_SPAWN: "1",
         VIVICY_DIST_DIR: ".next-e2e-empty",
+        VIVICY_RUNTIME_DIR: EMPTY_RUNTIME_DIR,
       },
     },
   ],

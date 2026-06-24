@@ -16,6 +16,7 @@ import {
   type SelectedItem,
 } from "@/components/map/architecture-map"
 import { MapEmptyState } from "@/components/map/map-empty-state"
+import { SetupBar } from "@/components/project/setup-bar"
 import { PanelToggle } from "@/components/sidebar/panel-toggle"
 import { VivicySidebar } from "@/components/sidebar/sidebar"
 import { TranscriptProvider } from "@/components/transcript/transcript-modal"
@@ -119,6 +120,15 @@ export default function Page() {
     void initialLoad()
   }, [loadMap])
 
+  // Surface a single agent-CLI warning toast (deduped) when an agent isn't ready,
+  // since the dev-loop can't run without both installed + signed in.
+  const lastAgentsWarningRef = useRef<string | null>(null)
+  const onAgentsWarning = useCallback((message: string) => {
+    if (lastAgentsWarningRef.current === message) return
+    lastAgentsWarningRef.current = message
+    toast.warning("Agent setup incomplete", { description: message })
+  }, [])
+
   // Keep the selected item in sync with the latest data: a background refresh
   // can replace the node/edge object, so re-resolve it by identity.
   const selected = useMemo<SelectedItem>(() => {
@@ -144,6 +154,15 @@ export default function Page() {
         {/* Map fills the inset; reclaims width when the right panel closes and
             reflows when it changes width (both via the sidebar's CSS var). */}
         <SidebarInset className="relative min-w-0">
+          {/* Always-present setup bar: pick the project (R10) and check agent CLI
+              health (R11). Reachable in every state, including onboarding, so the
+              user can choose a project before any map exists. Selecting one
+              re-fetches the map. */}
+          <SetupBar
+            onProjectChanged={() => void loadMap(true)}
+            onAgentsWarning={onAgentsWarning}
+          />
+
           {/* Discreet 3-state toggle on the sidebar's LEFT edge (the boundary
               with the map). Only meaningful once the panel is rendered. */}
           {state.kind === "ready" ? (

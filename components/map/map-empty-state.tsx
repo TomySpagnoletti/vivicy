@@ -75,7 +75,7 @@ const COPY: Record<
   no_target: {
     icon: FolderSearch,
     title: "No project selected",
-    body: "Vivicy needs a project whose docs/ folder holds the canonical spec. Project selection — a folder picker and start modes — arrives in a later phase. For now, point the app at a target so it can read the spec.",
+    body: "Vivicy needs a project whose docs/ folder holds the canonical spec. Use “Open project” in the top-left to choose the local repository to develop.",
   },
   no_map: {
     icon: Workflow,

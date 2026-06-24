@@ -8,10 +8,12 @@
  *
  * Roots:
  *   factoryRoot = VIVICY_FACTORY_ROOT ?? <cwd>/factory   (the in-package factory)
- *   targetRoot  = VIVICY_TARGET_ROOT  ?? <cwd>/..        (the project being built)
+ *   targetRoot  = the UI-chosen project (persisted) ?? VIVICY_TARGET_ROOT ?? <cwd>/..
+ *                 (the project being built; resolved by {@link getTargetRoot})
  *
- * The factory is bundled inside this package (vivicy/factory). The default
- * target is the project Vivicy is vendored into (the parent of the app dir).
+ * The factory is bundled inside this package (vivicy/factory). The target is the
+ * project the user picked from the UI (R10), falling back to the env override and
+ * then to the project Vivicy is vendored into (the parent of the app dir).
  * Scripts are resolved inside factoryRoot and always invoked with
  * VIVICY_TARGET_ROOT=<targetRoot> (plus `--dir <targetRoot>` where the script
  * documents it). Nothing is ever written or spawned outside these two roots.
@@ -20,8 +22,10 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import path from "node:path"
 
+import { getRuntimeDir } from "@/lib/runtime-dir"
 import { settingsToEnv } from "@/lib/settings"
 import { readSettings } from "@/lib/settings-store"
+import { getTargetRoot } from "@/lib/target"
 
 /** A single detached child process the spawner has launched. */
 export interface DetachedHandle {
@@ -164,7 +168,6 @@ export class ControlError extends Error {
   }
 }
 
-const RUNTIME_DIR_NAME = ".vivicy-runtime"
 const RUN_STATE_FILE = "run-state.json"
 const LOG_FILE = "supervisor.log"
 
@@ -181,17 +184,18 @@ export function getFactoryRoot(): string {
   return path.resolve(process.cwd(), "factory")
 }
 
-/** Resolve the target project the scripts operate on (defaults to the parent of the app). */
+/**
+ * Resolve the target project the scripts operate on. One source of truth with the
+ * viewer: the UI-chosen project (persisted) wins, then `VIVICY_TARGET_ROOT`, then
+ * the parent of the app. The control plane therefore always operates on exactly
+ * the project the picker selected (R10).
+ */
 export function getControlTargetRoot(): string {
-  const fromEnv = process.env.VIVICY_TARGET_ROOT
-  if (fromEnv && fromEnv.trim().length > 0) return path.resolve(fromEnv)
-  return path.resolve(process.cwd(), "..")
+  return getTargetRoot()
 }
 
-/** Absolute path to the Vivicy runtime dir (logs + lock), created on demand. */
-export function getRuntimeDir(): string {
-  return path.join(process.cwd(), RUNTIME_DIR_NAME)
-}
+/** Re-exported runtime dir (logs + lock); one source of truth in runtime-dir.ts. */
+export { getRuntimeDir }
 
 function getRunStatePath(): string {
   return path.join(getRuntimeDir(), RUN_STATE_FILE)

@@ -14,15 +14,13 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import path from "node:path"
 
+import { getRuntimeDir } from "@/lib/runtime-dir"
 import { DEFAULT_SETTINGS, normalizeSettings, type AgentsSettings } from "@/lib/settings"
 
-const RUNTIME_DIR_NAME = ".vivicy-runtime"
 const SETTINGS_FILE = "settings.json"
 
-/** Absolute path to the gitignored Vivicy runtime dir (same as the control plane). */
-export function getRuntimeDir(): string {
-  return path.join(process.cwd(), RUNTIME_DIR_NAME)
-}
+/** Re-exported so existing importers keep working. */
+export { getRuntimeDir }
 
 /** Absolute path to the settings JSON store. */
 export function getSettingsPath(): string {
