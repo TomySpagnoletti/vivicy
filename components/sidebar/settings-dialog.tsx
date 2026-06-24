@@ -6,9 +6,12 @@ import { toast } from "sonner"
 
 import {
   agentDefaultsFor,
+  clampMaxParallel,
   DEFAULT_SETTINGS,
   EFFORT_LEVELS,
   isDistinctAssignment,
+  MAX_PARALLEL,
+  MIN_PARALLEL,
   otherProvider,
   PROVIDER_LABEL,
   PROVIDERS,
@@ -108,6 +111,11 @@ export function SettingsDialog({
     []
   )
 
+  // Set the max parallel issues knob, clamped to [MIN_PARALLEL, MAX_PARALLEL].
+  const setMaxParallel = useCallback((value: number) => {
+    setDraft((prev) => ({ ...prev, maxParallel: clampMaxParallel(value) }))
+  }, [])
+
   // Reassign a role to a different CLI. The two roles must stay distinct, so the
   // OTHER role is forced to the complementary CLI; both roles reset to their new
   // CLI's defaults (model + level are CLI-specific). Picking the CLI the role
@@ -189,6 +197,28 @@ export function SettingsDialog({
               onChange={(patch) => updateAgent(role, patch)}
             />
           ))}
+
+          <fieldset className="flex flex-col gap-2 border border-border p-3" disabled={loading || saving}>
+            <legend className="px-1 text-xs font-medium text-foreground">Concurrency</legend>
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="settings-max-parallel">Max parallel issues</Label>
+              <Input
+                id="settings-max-parallel"
+                type="number"
+                inputMode="numeric"
+                min={MIN_PARALLEL}
+                max={MAX_PARALLEL}
+                step={1}
+                value={draft.maxParallel}
+                onChange={(event) => setMaxParallel(Number(event.target.value))}
+                aria-describedby="settings-max-parallel-help"
+              />
+              <p id="settings-max-parallel-help" className="text-xs text-muted-foreground">
+                Independent issues run at once, each in its own git worktree (1 =
+                sequential). Dependent issues always wait their turn.
+              </p>
+            </div>
+          </fieldset>
         </div>
 
         {!distinct ? (

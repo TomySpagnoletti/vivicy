@@ -204,6 +204,7 @@ describe("QuotaFooter — real % where available, honest — where not", () => {
         settings={{
           implementer: { provider: "claude", model: "claude-opus-4-8", effort: "max" },
           reviewer: { provider: "codex", model: "custom-codex-x", effort: "low" },
+          maxParallel: 1,
         }}
       />
     )

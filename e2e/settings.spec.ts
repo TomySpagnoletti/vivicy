@@ -104,4 +104,34 @@ test.describe("Vivicy agent settings", () => {
     await expect(page.getByText(/Settings saved/i).first()).toBeVisible({ timeout: 15_000 })
     await expect(dialog2).not.toBeVisible()
   })
+
+  test("set max parallel issues, save, and re-read it (concurrency knob)", async ({ page }) => {
+    await page.goto("/")
+
+    await page.getByRole("button", { name: "Settings" }).click()
+    const dialog = page.getByRole("dialog")
+    await expect(dialog.getByText("Agent settings")).toBeVisible()
+
+    // Defaults to 1 (the sequential loop).
+    const maxParallel = dialog.getByLabel("Max parallel issues")
+    await expect(maxParallel).toHaveValue("1")
+
+    // Set it to 3 and save.
+    await maxParallel.fill("3")
+    await dialog.getByRole("button", { name: "Save" }).click()
+    await expect(page.getByText(/Settings saved/i).first()).toBeVisible({ timeout: 15_000 })
+    await expect(dialog).not.toBeVisible()
+
+    // Re-open: the value persisted through the JSON store.
+    await page.getByRole("button", { name: "Settings" }).click()
+    const dialog2 = page.getByRole("dialog")
+    await expect(dialog2.getByText("Agent settings")).toBeVisible()
+    await expect(dialog2.getByLabel("Max parallel issues")).toHaveValue("3")
+
+    // Restore the default (1) so the store is clean for other runs.
+    await dialog2.getByLabel("Max parallel issues").fill("1")
+    await dialog2.getByRole("button", { name: "Save" }).click()
+    await expect(page.getByText(/Settings saved/i).first()).toBeVisible({ timeout: 15_000 })
+    await expect(dialog2).not.toBeVisible()
+  })
 })

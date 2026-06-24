@@ -16,6 +16,10 @@
 # vivicy control-plane runtime (supervisor logs + run-state lock)
 /.vivicy-runtime
 
+# vivicy parallel dev-loop worktrees (one git worktree per concurrently-running
+# issue; created + removed by the loop, never committed)
+/.vivicy-worktrees
+
 # rehearsal self-test report (regenerated on every `factory/dev-rehearsal.mjs` run)
 /factory/rehearsal/reports/
 

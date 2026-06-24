@@ -4,7 +4,7 @@ import { useEffect, useState } from "react"
 import { ChevronDown, ChevronUp } from "lucide-react"
 
 import type { AgentQuota, QuotaWindow } from "@/lib/control"
-import { DEFAULT_SETTINGS, type AgentSettings, type AgentsSettings } from "@/lib/settings"
+import { DEFAULT_SETTINGS, type AgentSettings, type AgentsSettings, type Role } from "@/lib/settings"
 import { cn } from "@/lib/utils"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -17,7 +17,7 @@ import { Separator } from "@/components/ui/separator"
  * (see {@link friendlyModel}), never hardcoded — so editing settings updates the
  * footer.
  */
-const AGENT_ROLE: Record<string, keyof AgentsSettings> = {
+const AGENT_ROLE: Record<string, Role> = {
   claude: "implementer",
   codex: "reviewer",
 }

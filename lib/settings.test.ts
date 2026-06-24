@@ -153,6 +153,15 @@ describe("role -> CLI assignment (R12)", () => {
     expect(isDistinctAssignment(collided)).toBe(true)
   })
 
+  it("normalizeSettings clamps maxParallel to a sane integer (default 1)", () => {
+    expect(normalizeSettings({}).maxParallel).toBe(1)
+    expect(normalizeSettings({ maxParallel: 4 }).maxParallel).toBe(4)
+    expect(normalizeSettings({ maxParallel: 0 }).maxParallel).toBe(1)
+    expect(normalizeSettings({ maxParallel: -2 }).maxParallel).toBe(1)
+    expect(normalizeSettings({ maxParallel: 999 }).maxParallel).toBe(8)
+    expect(normalizeSettings({ maxParallel: 2.7 }).maxParallel).toBe(2)
+  })
+
   it("agentDefaultsFor returns each CLI's latest model + default level", () => {
     expect(agentDefaultsFor("claude")).toEqual({
       provider: "claude",
@@ -200,6 +209,7 @@ describe("settingsToEnv", () => {
     const env = settingsToEnv({
       implementer: { provider: "claude", model: "claude-opus-4-8", effort: "xhigh" },
       reviewer: { provider: "codex", model: "gpt-5.5-codex", effort: "high" },
+      maxParallel: 1,
     })
     expect(env).toEqual({
       VIVICY_IMPLEMENTER_CLI: "claude",
@@ -208,7 +218,18 @@ describe("settingsToEnv", () => {
       VIVICY_CLAUDE_EFFORT: "xhigh",
       VIVICY_CODEX_MODEL: "gpt-5.5-codex",
       VIVICY_CODEX_EFFORT: "high",
+      VIVICY_MAX_PARALLEL: "1",
     })
+  })
+
+  it("carries the concurrency knob, clamped to [1, 8]", () => {
+    const base = {
+      implementer: { provider: "claude", model: "claude-opus-4-8", effort: "xhigh" },
+      reviewer: { provider: "codex", model: "gpt-5.5-codex", effort: "high" },
+    } as const
+    expect(settingsToEnv({ ...base, maxParallel: 3 }).VIVICY_MAX_PARALLEL).toBe("3")
+    expect(settingsToEnv({ ...base, maxParallel: 0 }).VIVICY_MAX_PARALLEL).toBe("1")
+    expect(settingsToEnv({ ...base, maxParallel: 99 }).VIVICY_MAX_PARALLEL).toBe("8")
   })
 
   it("carries a swapped assignment: each CLI's model/level follows the CLI", () => {
@@ -217,6 +238,7 @@ describe("settingsToEnv", () => {
     const env = settingsToEnv({
       implementer: { provider: "codex", model: "gpt-5.5-codex", effort: "minimal" },
       reviewer: { provider: "claude", model: "claude-opus-4-8", effort: "max" },
+      maxParallel: 2,
     })
     expect(env.VIVICY_IMPLEMENTER_CLI).toBe("codex")
     expect(env.VIVICY_REVIEWER_CLI).toBe("claude")

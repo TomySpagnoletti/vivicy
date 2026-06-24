@@ -70,21 +70,41 @@ export interface AgentSettings {
   effort: string
 }
 
-/** The whole settings document: one block per loop role. */
+/** The whole settings document: one block per loop role, plus the concurrency knob. */
 export interface AgentsSettings {
   implementer: AgentSettings
   reviewer: AgentSettings
+  /**
+   * Maximum number of INDEPENDENT issues the dev-loop runs concurrently, each in
+   * its own git worktree. 1 = the sequential default (one issue at a time, today's
+   * exact behavior); >1 enables the parallel scheduler. Clamped to a sane integer
+   * >= 1; an out-of-range value falls back to 1.
+   */
+  maxParallel: number
 }
+
+/** Lower/upper bounds for the concurrency knob (UI + validation share these). */
+export const MIN_PARALLEL = 1
+export const MAX_PARALLEL = 8
 
 /**
  * The default settings. Mirrors the dev-loop's DEFAULT_CONFIG (these two must
  * agree). Default assignment: implementer = Claude, reviewer = Codex. Latest
- * model pinned; thinking level is the user knob.
+ * model pinned; thinking level is the user knob. maxParallel defaults to 1 — the
+ * sequential, byte-for-byte-unchanged loop.
  */
 export const DEFAULT_SETTINGS: AgentsSettings = {
   implementer: { provider: "claude", model: "claude-opus-4-8", effort: "xhigh" },
   reviewer: { provider: "codex", model: "gpt-5.5-codex", effort: "high" },
+  maxParallel: 1,
 } as const
+
+/** Coerce an untrusted concurrency value into an integer within [MIN, MAX]. */
+export function clampMaxParallel(value: unknown): number {
+  const n = Math.floor(Number(value))
+  if (!Number.isFinite(n) || n < MIN_PARALLEL) return MIN_PARALLEL
+  return n > MAX_PARALLEL ? MAX_PARALLEL : n
+}
 
 /** Is `value` one of the CLIs Vivicy can drive? */
 export function isProvider(value: unknown): value is Provider {
@@ -154,6 +174,7 @@ export function normalizeSettings(input: unknown): AgentsSettings {
   return {
     implementer: coerceAgent(raw.implementer, assignment.implementer),
     reviewer: coerceAgent(raw.reviewer, assignment.reviewer),
+    maxParallel: clampMaxParallel(raw.maxParallel),
   }
 }
 
@@ -191,5 +212,8 @@ export function settingsToEnv(settings: AgentsSettings): Record<string, string> 
     VIVICY_CLAUDE_EFFORT: byProvider.claude.effort,
     VIVICY_CODEX_MODEL: byProvider.codex.model,
     VIVICY_CODEX_EFFORT: byProvider.codex.effort,
+    // Max independent issues to run concurrently (1 = sequential default). The
+    // dev-loop reads this via DEFAULT_CONFIG.maxParallel and clamps it again.
+    VIVICY_MAX_PARALLEL: String(clampMaxParallel(settings.maxParallel)),
   }
 }

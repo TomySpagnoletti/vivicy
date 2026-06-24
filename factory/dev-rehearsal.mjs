@@ -15,6 +15,13 @@
 // Modes:
 //   node factory/dev-rehearsal.mjs            run the real two-agent loop
 //   node factory/dev-rehearsal.mjs --dry      validate the harness with fake agents
+//   node factory/dev-rehearsal.mjs --dry --concurrency=N
+//                                             dry harness with N independent issues
+//                                             running concurrently, each in its own
+//                                             git worktree (N=1 is the sequential
+//                                             default; N>1 exercises the parallel
+//                                             scheduler + worktree isolation +
+//                                             integration onto the main branch).
 //   REHEARSAL_KEEP=1 ...                      keep the temp repo for inspection
 import { spawnSync } from "node:child_process";
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
@@ -54,12 +61,42 @@ function readJson(path) {
   return JSON.parse(readFileSync(path, "utf8"));
 }
 
-// Fake agents for --dry: write a minimal transcript and let the real gate run.
+// Fake agents for --dry. The SEQUENTIAL path (runIssueCycle) calls legs
+// synchronously, so the sequential dry legs stay synchronous — byte-for-byte the
+// original harness. The PARALLEL path (runIssueCycleAsync) awaits its legs, so the
+// concurrency rehearsal uses ASYNC dry legs that additionally drop a disjoint
+// per-issue marker into the worktree (cfg.execRoot) — proving worktree isolation +
+// clean integration — and yield briefly so the concurrency is real, not just
+// scheduled. Transcripts always land under the MAIN root (shared state).
 function dryImplementer(temp) {
   return (issue) => writeFakeTranscript(temp, issue, "claude-implementer");
 }
 function dryReviewer(temp) {
   return (issue) => writeFakeTranscript(temp, issue, "codex-reviewer");
+}
+function dryImplementerParallel(temp) {
+  return async (issue, cfg) => {
+    await delay(15);
+    if (cfg?.execRoot) writeWorktreeMarker(cfg.execRoot, issue, "implementer");
+    return writeFakeTranscript(temp, issue, "claude-implementer");
+  };
+}
+function dryReviewerParallel(temp) {
+  return async (issue, cfg) => {
+    await delay(15);
+    if (cfg?.execRoot) writeWorktreeMarker(cfg.execRoot, issue, "reviewer");
+    return writeFakeTranscript(temp, issue, "codex-reviewer");
+  };
+}
+function delay(ms) {
+  return new Promise((r) => setTimeout(r, ms));
+}
+// Each issue writes to a DISJOINT file path keyed by its id, so independent issues
+// never collide and their worktree branches merge cleanly onto main.
+function writeWorktreeMarker(execRoot, issue, who) {
+  const dir = join(execRoot, "src", "generated");
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, `${issue.id}.js`), `// ${who} produced ${issue.id}\nexport const ${issue.id.replace(/[^a-zA-Z0-9]/g, "_")} = true;\n`);
 }
 function writeFakeTranscript(temp, issue, who) {
   const rel = `spec/development/transcripts/${issue.id}/${who}-dry.jsonl`;
@@ -69,8 +106,20 @@ function writeFakeTranscript(temp, issue, who) {
   return { transcriptRel: rel };
 }
 
+// Parse --concurrency=N (default 1). N>1 drives the parallel scheduler so the
+// rehearsal proves multiple INDEPENDENT issues run concurrently, each in its own
+// git worktree, integrating back onto the main branch, while dependent issues
+// still respect order and the ledger ends consistent.
+function parseConcurrency() {
+  const arg = process.argv.find((a) => a.startsWith("--concurrency="));
+  if (!arg) return 1;
+  const n = Math.floor(Number(arg.split("=")[1]));
+  return Number.isFinite(n) && n >= 1 ? n : 1;
+}
+
 async function main() {
   const dry = process.argv.includes("--dry");
+  const concurrency = parseConcurrency();
   const keep = process.env.REHEARSAL_KEEP === "1";
   // REHEARSAL_DIR pins a persistent workspace so a run killed mid-way (e.g. a
   // background-task lifetime limit) RESUMES on relaunch: the dev loop already
@@ -123,12 +172,37 @@ async function main() {
   //    import AFTER setting the env so dev-loop binds repoRoot to the temp repo.
   process.env.VIVICY_TARGET_ROOT = temp;
   const devloop = await import(pathToFileURL(factoryScript("dev-loop.mjs")).href);
-  const steps = dry ? { runImplementer: dryImplementer(temp), runReviewer: dryReviewer(temp) } : {};
+  // Sequential dry legs are synchronous (runIssueCycle calls them sync); parallel
+  // dry legs are async + worktree-aware (runIssueCycleAsync awaits them).
+  const steps = dry
+    ? concurrency > 1
+      ? { runImplementer: dryImplementerParallel(temp), runReviewer: dryReviewerParallel(temp) }
+      : { runImplementer: dryImplementer(temp), runReviewer: dryReviewer(temp) }
+    : {};
   let processed = [];
   try {
-    processed = devloop.runLoop({ defaultGateCommand: "npm test" }, steps);
+    // runLoop returns a Promise on the parallel path (maxParallel > 1), an array
+    // sequentially; await handles both. maxParallel = the --concurrency knob.
+    processed = await devloop.runLoop({ defaultGateCommand: "npm test", maxParallel: concurrency }, steps);
   } catch (error) {
     record("dev-loop two-agent run", false, String(error?.message ?? error));
+  }
+  if (concurrency > 1) {
+    // Prove the parallel scheduler actually ran issues concurrently in distinct
+    // worktrees and integrated them cleanly: every issue done exactly once, in
+    // dependency-respecting order, with no leftover worktrees.
+    const order = processed.map((p) => p.id);
+    const doneOnce = new Set(order).size === order.length;
+    const worktreesLeft = existsSync(join(temp, ".vivicy-worktrees"))
+      ? readdirSync(join(temp, ".vivicy-worktrees")).filter((f) => !f.startsWith(".")).length
+      : 0;
+    record(`parallel (N=${concurrency}): every issue settled exactly once`, doneOnce && order.length > 0, `${order.length} settled: ${order.join(", ")}`);
+    record(`parallel (N=${concurrency}): no leftover worktrees`, worktreesLeft === 0, `${worktreesLeft} worktree dir(s) remain`);
+    record(
+      `parallel (N=${concurrency}): dependency order respected on the integration branch`,
+      dependencyOrderRespected(temp),
+      gitLogOrderDetail(temp),
+    );
   }
   const verified = processed.filter((p) => p.status === "verified").map((p) => p.id);
   const blocked = processed.filter((p) => p.status === "blocked").map((p) => p.id);
@@ -191,6 +265,45 @@ async function main() {
 function generatedData(temp) {
   const path = join(temp, "docs/architecture-map/viewer/src/architecture-data.json");
   return existsSync(path) ? readJson(path) : null;
+}
+
+// Read the integration branch's commit subjects (newest first) so we can assert
+// the parallel loop integrated dependent issues only AFTER their dependencies.
+function integrationCommitOrder(temp) {
+  const r = spawnSync("git", ["log", "--format=%s"], { cwd: temp, encoding: "utf8" });
+  return (r.stdout || "").split("\n").map((s) => s.trim()).filter(Boolean);
+}
+function gitLogOrderDetail(temp) {
+  const subjects = integrationCommitOrder(temp);
+  const issueLines = subjects.filter((s) => /ISS-\d+/.test(s)).slice(0, 6);
+  return issueLines.join(" | ") || "(no issue commits)";
+}
+// Every dependent issue's done/-move commit must appear AFTER its dependencies'
+// on the integration branch (git log is newest-first, so a dependency must have a
+// LATER index = appear later in the list than the issue that depends on it... i.e.
+// the dependency commit is OLDER). We check using the issue-index depends_on.
+function dependencyOrderRespected(temp) {
+  const index = readJson(join(temp, "spec/development/issue-index.json"));
+  const issues = Array.isArray(index.issues) ? index.issues : [];
+  const subjects = integrationCommitOrder(temp); // newest-first
+  // Position of each issue's checkpoint commit (newest-first index). A done/ move
+  // commit subject contains the issue id.
+  const posById = new Map();
+  subjects.forEach((subject, i) => {
+    const m = subject.match(/ISS-\d+/);
+    if (m && !posById.has(m[0])) posById.set(m[0], i); // first (newest) wins
+  });
+  for (const issue of issues) {
+    const here = posById.get(issue.id);
+    if (here === undefined) continue; // not yet integrated (shouldn't happen on full run)
+    for (const dep of issue.depends_on ?? []) {
+      const depPos = posById.get(dep);
+      if (depPos === undefined) return false; // dependency not integrated before this issue
+      // newest-first: the dependency must be OLDER => a LARGER index than `here`.
+      if (depPos <= here) return false;
+    }
+  }
+  return true;
 }
 
 function writeReport(ctx) {

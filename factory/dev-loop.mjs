@@ -18,9 +18,23 @@
 //
 // Agent/gate/commit steps are injectable (opts) so the flow is unit-tested with
 // fast deterministic stubs; the defaults invoke the real claude / codex CLIs.
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
+import {
+  closeSync,
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  openSync,
+  readdirSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  statSync,
+  unlinkSync,
+  writeFileSync,
+  writeSync,
+} from "node:fs";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -64,6 +78,14 @@ export const KNOWN_CLIS = ["claude", "codex"];
 /** Is `value` a CLI the loop can drive? */
 function isKnownCli(value) {
   return value === "claude" || value === "codex";
+}
+
+// Coerce a concurrency setting (env string or number) into a sane integer >= 1.
+// Anything unparseable or below 1 falls back to 1 — the sequential default — so a
+// bad value never accidentally widens parallelism or stalls the loop at 0.
+export function clampConcurrency(value) {
+  const n = Math.floor(Number(value));
+  return Number.isFinite(n) && n >= 1 ? n : 1;
 }
 
 /**
@@ -120,6 +142,16 @@ export const DEFAULT_CONFIG = {
   transcriptsDir: "spec/development/transcripts",
   maxRetries: 2,
   defaultGateCommand: "npm test",
+  // Maximum number of INDEPENDENT issues the loop runs concurrently. Default 1 =
+  // today's exact sequential behavior (one worktree-free issue at a time against
+  // the main root). >1 enables parallel execution: each concurrent issue runs in
+  // its own git worktree branched from the integration HEAD, with the gate +
+  // integration serialized back onto the main branch. The value comes from the
+  // Vivicy settings dialog via VIVICY_MAX_PARALLEL (clamped to >= 1).
+  maxParallel: clampConcurrency(process.env.VIVICY_MAX_PARALLEL),
+  // Gitignored root under the main repo where per-issue worktrees are created
+  // (one subdir per concurrently-running issue). Only used when maxParallel > 1.
+  worktreesDir: ".vivicy-worktrees",
   // Per-role CLI assignment + per-CLI model + thinking-level (R12 + P4). Two knobs,
   // both driven from the Vivicy settings dialog via env:
   //   - which CLI fills each ROLE: VIVICY_IMPLEMENTER_CLI / VIVICY_REVIEWER_CLI
@@ -220,6 +252,111 @@ export function pickNextIssue(issues, doneIds) {
     if (dependenciesSatisfied(issue, doneIds)) return issue;
   }
   return null;
+}
+
+// --------------------------------------------------------------------------
+// Parallel scheduler (pure, unit-tested)
+//
+// The ready set + independence rule that decide which issues may run at once.
+// Parallel work is allowed ONLY for issues that are mutually independent — no
+// dependency path between them AND a disjoint claim (graph_refs / claimed files)
+// — exactly the governance method's parallel rule (doc 05): a distinct claim,
+// explicit graph_refs, and a dedicated worktree per concurrent issue. The same
+// rule, run with maxParallel = 1, degrades to picking exactly one ready issue at
+// a time (today's sequential behavior).
+// --------------------------------------------------------------------------
+
+// The READY SET: every not-done issue whose declared dependencies are all done,
+// in the issue index's own order (so selection is deterministic and stable).
+// `running` (a set of issue ids already executing in this wave) is excluded so a
+// resumed schedule never double-claims an in-flight issue.
+export function computeReadySet(issues, doneIds, running = new Set()) {
+  return issues.filter(
+    (issue) => !doneIds.has(issue.id) && !running.has(issue.id) && dependenciesSatisfied(issue, doneIds),
+  );
+}
+
+// The set of files an issue claims. Optional `claims`/`claimed_files` on the issue
+// (explicit claim) take precedence; otherwise the claim falls back to the issue's
+// graph_refs, which the method already requires to be explicit and which the
+// extraction makes disjoint for independent slices. Returned as a Set for O(1)
+// intersection checks.
+export function issueClaim(issue) {
+  const explicit = Array.isArray(issue.claims)
+    ? issue.claims
+    : Array.isArray(issue.claimed_files)
+      ? issue.claimed_files
+      : null;
+  const refs = explicit ?? (Array.isArray(issue.graph_refs) ? issue.graph_refs : []);
+  return new Set(refs);
+}
+
+// Do two sets share any member?
+function setsIntersect(a, b) {
+  const [small, large] = a.size <= b.size ? [a, b] : [b, a];
+  for (const item of small) {
+    if (large.has(item)) return true;
+  }
+  return false;
+}
+
+// Are two issues independent enough to run CONCURRENTLY? Two guards, both must
+// hold:
+//   1. No dependency path between them — neither (transitively) depends on the
+//      other. We resolve transitive deps from the index so a deep chain can never
+//      be split across worktrees and integrated out of order.
+//   2. Disjoint claims — their claimed files / graph_refs do not overlap, so two
+//      parallel implementers never touch the same node and their worktrees merge
+//      back cleanly.
+export function issuesIndependent(a, b, depsClosureById) {
+  if (a.id === b.id) return false;
+  const aDeps = depsClosureById.get(a.id) ?? new Set();
+  const bDeps = depsClosureById.get(b.id) ?? new Set();
+  if (aDeps.has(b.id) || bDeps.has(a.id)) return false; // dependency path between them
+  return !setsIntersect(issueClaim(a), issueClaim(b)); // disjoint claim
+}
+
+// Transitive dependency closure for every issue id: id -> Set of all ids it
+// (directly or indirectly) depends on. Tolerant of unknown/missing deps. Used by
+// the independence check so a multi-hop chain is never run in parallel.
+export function buildDepsClosure(issues) {
+  const direct = new Map(issues.map((issue) => [issue.id, Array.isArray(issue.depends_on) ? issue.depends_on : []]));
+  const closure = new Map();
+  const resolveFor = (id, stack) => {
+    if (closure.has(id)) return closure.get(id);
+    if (stack.has(id)) return new Set(); // cycle guard (the index should be a DAG)
+    stack.add(id);
+    const all = new Set();
+    for (const dep of direct.get(id) ?? []) {
+      all.add(dep);
+      for (const deep of resolveFor(dep, stack)) all.add(deep);
+    }
+    stack.delete(id);
+    closure.set(id, all);
+    return all;
+  };
+  for (const issue of issues) resolveFor(issue.id, new Set());
+  return closure;
+}
+
+// Select up to `limit` issues to run CONCURRENTLY from `ready`, such that every
+// selected issue is pairwise-independent from every other AND from each
+// already-`running` issue. Greedy in index order (deterministic): take the first
+// ready issue compatible with the whole current batch, repeat until full or the
+// ready set is exhausted. With limit = 1 this returns exactly one issue (the
+// first ready), making the sequential path fall out unchanged.
+export function selectIndependentBatch(ready, runningIssues, limit, depsClosureById) {
+  const batch = [];
+  const slots = Math.max(1, limit) - runningIssues.length;
+  if (slots <= 0) return batch;
+  for (const candidate of ready) {
+    if (batch.length >= slots) break;
+    const compatible =
+      runningIssues.every((r) => issuesIndependent(candidate, r, depsClosureById)) &&
+      batch.every((b) => issuesIndependent(candidate, b, depsClosureById));
+    if (compatible) batch.push(candidate);
+  }
+  return batch;
 }
 
 export function composePrompt(template, issue, extra = {}) {
@@ -517,6 +654,18 @@ function abs(relPath) {
   return resolve(requireRepoRoot(), relPath);
 }
 
+// The EXECUTION root for an issue: where its agent legs (cwd), its gate command
+// (cwd), and its commit/clean-tree checks run. In the sequential path this is the
+// main repo root (cfg.execRoot unset => requireRepoRoot()). For a parallel issue
+// it is that issue's dedicated git worktree, so concurrent implementers never
+// collide in the filesystem. SHARED orchestration artifacts (ledger, gate
+// evidence, blocked reports, done/ moves, transcripts, quota-state) always resolve
+// against the MAIN root via abs() — never the worktree — so the one source of
+// truth stays singular under any concurrency.
+function execRootOf(cfg) {
+  return cfg.execRoot ? cfg.execRoot : requireRepoRoot();
+}
+
 function readJson(relPath) {
   return JSON.parse(readFileSync(abs(relPath), "utf8"));
 }
@@ -553,6 +702,40 @@ function spawnTee(command, args, options) {
   if (result.stdout) process.stdout.write(result.stdout);
   if (result.stderr) process.stderr.write(result.stderr);
   return result;
+}
+
+// Async sibling of spawnTee: spawn the leg WITHOUT blocking the event loop, so N
+// parallel issues can each have a CLI child running at once (the whole point of
+// the parallel loop — spawnSync would serialize them). Captures stdout+stderr
+// (teeing live to the console) and resolves to the same spawnSync-shaped result
+// ({ status, stdout, stderr }) the rest of the pipeline already understands.
+function spawnTeeAsync(command, args, options) {
+  return new Promise((resolveLeg) => {
+    let child;
+    try {
+      child = spawn(command, args, { ...options, stdio: ["inherit", "pipe", "pipe"] });
+    } catch (error) {
+      // Mirror spawnSync's error shape so detectRateLimit/quota handling still run.
+      resolveLeg({ status: null, stdout: "", stderr: String(error?.message ?? error), error });
+      return;
+    }
+    let stdout = "";
+    let stderr = "";
+    child.stdout?.on("data", (chunk) => {
+      stdout += chunk;
+      process.stdout.write(chunk);
+    });
+    child.stderr?.on("data", (chunk) => {
+      stderr += chunk;
+      process.stderr.write(chunk);
+    });
+    child.on("error", (error) => {
+      resolveLeg({ status: null, stdout, stderr: `${stderr}${error?.message ?? error}`, error });
+    });
+    child.on("close", (code) => {
+      resolveLeg({ status: code, stdout, stderr });
+    });
+  });
 }
 
 // Combined stdout+stderr text of a leg result (for rate-limit scanning).
@@ -612,7 +795,10 @@ function runClaudeLeg(leg, issue, cfg) {
   if (cfg.mcpConfigPath) args.push("--mcp-config", cfg.mcpConfigPath);
   // Latest model + user-chosen thinking level: `--model <id> --effort <level>`.
   args.push(...agentCliArgs("claude", leg));
-  const result = spawnTee("claude", args, { cwd: requireRepoRoot(), env: agentEnv(issue, cfg, leg), encoding: "utf8" });
+  // Run in the issue's EXECUTION root: the worktree for a parallel issue, the main
+  // root in the sequential path. The transcript is captured by --session-id (a
+  // per-leg UUID), so concurrent claude legs never cross-capture.
+  const result = spawnTee("claude", args, { cwd: execRootOf(cfg), env: agentEnv(issue, cfg, leg), encoding: "utf8" });
   ensureTranscriptDir(issue, cfg);
   const captured = captureClaudeTranscript(uuid, abs(transcriptRel));
   return { result, output: combinedOutput(result), transcriptRel: captured ? transcriptRel : undefined };
@@ -626,7 +812,9 @@ function runClaudeLeg(leg, issue, cfg) {
 function runCodexLeg(leg, issue, cfg) {
   const prompt = composePrompt(readPrompt(cfg, leg.role), issue);
   const transcriptRel = `${cfg.transcriptsDir}/${issue.id}/codex-${leg.role}-${randomUUID()}.jsonl`;
-  const root = requireRepoRoot();
+  // Run codex in the issue's EXECUTION root (worktree for a parallel issue, main
+  // root sequentially); -C pins the same dir so the rollout records that cwd.
+  const root = execRootOf(cfg);
   const args = ["exec", prompt, "--dangerously-bypass-approvals-and-sandbox", "-C", root, "--skip-git-repo-check"];
   // Latest model + user-chosen thinking level: `-m <id> -c model_reasoning_effort="<level>"`.
   args.push(...agentCliArgs("codex", leg));
@@ -634,7 +822,12 @@ function runCodexLeg(leg, issue, cfg) {
   const result = spawnTee("codex", args, { cwd: root, env: agentEnv(issue, cfg, leg), encoding: "utf8" });
   ensureTranscriptDir(issue, cfg);
   const output = combinedOutput(result);
-  const rollout = findNewestCodexRollout(startMs);
+  // Codex has no per-run rollout id flag, so we locate this leg's rollout by mtime
+  // since the spawn AND (under concurrency) by the worktree cwd it recorded, so a
+  // sibling codex leg's rollout in another worktree is never mis-captured. The cwd
+  // filter is only applied when parallel (cfg.execRoot set); sequentially the
+  // original newest-since-start heuristic is unchanged.
+  const rollout = findNewestCodexRollout(startMs, cfg.execRoot ? root : null);
   if (rollout) {
     copyFileSync(rollout, abs(transcriptRel));
     return { result, output, transcriptRel };
@@ -663,9 +856,77 @@ export function defaultRunReviewer(issue, cfg) {
   return runAssignedLeg(cfg.reviewer, issue, cfg);
 }
 
+// --------------------------------------------------------------------------
+// Async leg runners (parallel path)
+//
+// Identical to the sync runners except the CLI is spawned NON-BLOCKING (spawn,
+// not spawnSync), so N parallel issues can each have a child CLI running at once.
+// The argv, transcript naming, capture, and execution root are exactly the same —
+// only the spawn primitive differs — so a parallel leg behaves like a sequential
+// one in every respect but blocking.
+// --------------------------------------------------------------------------
+
+async function runClaudeLegAsync(leg, issue, cfg) {
+  const prompt = composePrompt(readPrompt(cfg, leg.role), issue);
+  const uuid = randomUUID();
+  const transcriptRel = `${cfg.transcriptsDir}/${issue.id}/claude-${leg.role}-${uuid}.jsonl`;
+  const args = ["-p", prompt, "--dangerously-skip-permissions", "--session-id", uuid];
+  if (cfg.mcpConfigPath) args.push("--mcp-config", cfg.mcpConfigPath);
+  args.push(...agentCliArgs("claude", leg));
+  const result = await spawnTeeAsync("claude", args, {
+    cwd: execRootOf(cfg),
+    env: agentEnv(issue, cfg, leg),
+    encoding: "utf8",
+  });
+  ensureTranscriptDir(issue, cfg);
+  const captured = captureClaudeTranscript(uuid, abs(transcriptRel));
+  return { result, output: combinedOutput(result), transcriptRel: captured ? transcriptRel : undefined };
+}
+
+async function runCodexLegAsync(leg, issue, cfg) {
+  const prompt = composePrompt(readPrompt(cfg, leg.role), issue);
+  const transcriptRel = `${cfg.transcriptsDir}/${issue.id}/codex-${leg.role}-${randomUUID()}.jsonl`;
+  const root = execRootOf(cfg);
+  const args = ["exec", prompt, "--dangerously-bypass-approvals-and-sandbox", "-C", root, "--skip-git-repo-check"];
+  args.push(...agentCliArgs("codex", leg));
+  const startMs = Date.now();
+  const result = await spawnTeeAsync("codex", args, {
+    cwd: root,
+    env: agentEnv(issue, cfg, leg),
+    encoding: "utf8",
+  });
+  ensureTranscriptDir(issue, cfg);
+  const output = combinedOutput(result);
+  const rollout = findNewestCodexRollout(startMs, cfg.execRoot ? root : null);
+  if (rollout) {
+    copyFileSync(rollout, abs(transcriptRel));
+    return { result, output, transcriptRel };
+  }
+  return { result, output, transcriptRel: undefined };
+}
+
+function runAssignedLegAsync(leg, issue, cfg) {
+  if (leg.provider === "claude") return runClaudeLegAsync(leg, issue, cfg);
+  if (leg.provider === "codex") return runCodexLegAsync(leg, issue, cfg);
+  throw new Error(`dev-loop: ${leg.role} assigned to an unknown CLI: ${leg.provider}`);
+}
+
+export function defaultRunImplementerAsync(issue, cfg) {
+  return runAssignedLegAsync(cfg.implementer, issue, cfg);
+}
+
+export function defaultRunReviewerAsync(issue, cfg) {
+  return runAssignedLegAsync(cfg.reviewer, issue, cfg);
+}
+
 // The rollout created during this leg = newest .jsonl under ~/.codex/sessions with
-// mtime at or after the run start (sequential loop => one codex at a time).
-function findNewestCodexRollout(sinceMs) {
+// mtime at or after the run start. Sequentially (one codex at a time) the newest
+// since start is unambiguous. Under concurrency, pass `cwdFilter` (the leg's
+// worktree root): we then only accept a rollout whose recorded session cwd matches
+// that worktree, so a SIBLING codex leg running in another worktree is never
+// mis-captured. A rollout that records no cwd still matches (best-effort) so the
+// filter never drops a legitimately-empty capture.
+function findNewestCodexRollout(sinceMs, cwdFilter = null) {
   const base = resolve(homedir(), ".codex", "sessions");
   if (!existsSync(base)) return null;
   let best = null;
@@ -688,7 +949,7 @@ function findNewestCodexRollout(sinceMs) {
         } catch {
           continue; // file removed between readdir and stat
         }
-        if (mtime >= sinceMs && mtime > bestMtime) {
+        if (mtime >= sinceMs && mtime > bestMtime && rolloutMatchesCwd(full, cwdFilter)) {
           best = full;
           bestMtime = mtime;
         }
@@ -699,12 +960,66 @@ function findNewestCodexRollout(sinceMs) {
   return best;
 }
 
+// Does a codex rollout file belong to a session launched in `cwdFilter`? Codex
+// records the session cwd in its first `session_meta` line. With no filter (the
+// sequential path) every rollout matches. A rollout that records no parseable cwd
+// matches too, so the filter only EXCLUDES a rollout we can positively attribute
+// to a DIFFERENT worktree — never a false negative that loses a real transcript.
+function rolloutMatchesCwd(rolloutPath, cwdFilter) {
+  if (!cwdFilter) return true;
+  let recorded = null;
+  try {
+    const text = readFileSync(rolloutPath, "utf8");
+    for (const line of text.split("\n")) {
+      if (!line.includes('"cwd"')) continue;
+      let obj;
+      try {
+        obj = JSON.parse(line.trim());
+      } catch {
+        continue;
+      }
+      const cwd = obj?.cwd ?? obj?.payload?.cwd ?? obj?.session_meta?.cwd ?? obj?.payload?.session_meta?.cwd;
+      if (typeof cwd === "string" && cwd) {
+        recorded = cwd;
+        break;
+      }
+    }
+  } catch {
+    return true; // unreadable => do not exclude (best-effort capture)
+  }
+  if (recorded === null) return true; // no cwd recorded => cannot exclude
+  return resolve(recorded) === resolve(cwdFilter);
+}
+
 // The orchestrator runs the gate ITSELF — the authoritative verdict — and writes
 // a gate-run record evidence file the ledger requires for gate_passed.
 export function defaultRunGate(issue, cfg) {
   const gateCommand = issue.gate_command ?? cfg.defaultGateCommand;
-  const result = spawnSync(gateCommand, { cwd: requireRepoRoot(), encoding: "utf8", shell: true });
-  const exitCode = result.status ?? 1;
+  // The gate runs against the issue's CODE — its execution root (the worktree for
+  // a parallel issue). The evidence RECORD is shared orchestration state and is
+  // written to the MAIN root (abs()), where the ledger's gate_passed validation
+  // reads it back; the two roots are deliberately split here.
+  const result = spawnSync(gateCommand, { cwd: execRootOf(cfg), encoding: "utf8", shell: true });
+  return writeGateEvidence(issue, cfg, gateCommand, result.status ?? 1);
+}
+
+// Async sibling of defaultRunGate for the parallel path: spawn the gate
+// NON-BLOCKING (spawn, not spawnSync) so a slow gate never freezes the event loop
+// and stalls the other parallel issues (or ages out the integration lock while a
+// sibling holds it). Identical evidence record; only the spawn primitive differs.
+export async function defaultRunGateAsync(issue, cfg) {
+  const gateCommand = issue.gate_command ?? cfg.defaultGateCommand;
+  const result = await spawnTeeAsync(gateCommand, [], {
+    cwd: execRootOf(cfg),
+    encoding: "utf8",
+    shell: true,
+  });
+  return writeGateEvidence(issue, cfg, gateCommand, result.status ?? 1);
+}
+
+// Write the gate-run evidence record to the MAIN root and return the verdict. One
+// source of truth shared by the sync + async gate runners.
+function writeGateEvidence(issue, cfg, gateCommand, exitCode) {
   const gateId = (issue.verification_gate_ids ?? [])[0] ?? `gate:issue:${issue.id}`;
   mkdirSync(abs(cfg.gatesDir), { recursive: true });
   const evidenceRel = `${cfg.gatesDir}/${issue.id}-gate.json`;
@@ -730,10 +1045,101 @@ function readIndexBaselineId(cfg) {
 }
 
 function defaultCommit(issue, cfg) {
-  const root = requireRepoRoot();
+  // Commit the issue's code in its EXECUTION root — the worktree branch for a
+  // parallel issue, the main root sequentially. A parallel issue's commit is then
+  // integrated onto the main branch by the integration step; sequentially this IS
+  // the checkpoint on the main branch, exactly as before.
+  const root = execRootOf(cfg);
   spawnSync("git", ["add", "-A"], { cwd: root, encoding: "utf8" });
   const message = `${issue.id}: ${issue.title ?? "implement vertical slice"}\n\nGate green; reviewed by ${cfg.reviewer.actor}.`;
   return spawnSync("git", ["commit", "-m", message], { cwd: root, encoding: "utf8" });
+}
+
+// --------------------------------------------------------------------------
+// Worktree lifecycle + integration (parallel path; default impls invoke git)
+//
+// Each concurrently-running issue executes in its OWN git worktree, branched from
+// the current integration head, so parallel implementers never collide in the
+// filesystem. After the worktree goes green and its branch is committed, the
+// branch is INTEGRATED (merged) onto the integration branch on the MAIN root.
+// Because parallel issues are independent (disjoint claims), the merge is a clean
+// fast-forward-or-trivial merge; an UNEXPECTED conflict blocks ONLY that issue.
+// --------------------------------------------------------------------------
+
+// The branch name the main repo is currently on (the integration branch the loop
+// commits checkpoints onto). Falls back to a detached-HEAD sha if there is no
+// branch (still mergeable). Run from the main root.
+function currentBranch(root) {
+  const r = spawnSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], { cwd: root, encoding: "utf8" });
+  const name = (r.stdout ?? "").trim();
+  if (name && name !== "HEAD") return name;
+  const sha = spawnSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" });
+  return (sha.stdout ?? "").trim();
+}
+
+// Create (or reuse) a dedicated worktree for an issue, branched from the current
+// integration HEAD. Returns { worktreeRoot, branch }. Idempotent on resume: an
+// existing worktree dir is reused, and a leftover branch from a prior crashed run
+// is reset to the current HEAD so the issue always starts from the latest
+// integration state. Run from the main root.
+export function defaultCreateWorktree(issue, cfg) {
+  const root = requireRepoRoot();
+  const worktreeRel = `${cfg.worktreesDir}/${issue.id}`;
+  const worktreeRoot = resolve(root, worktreeRel);
+  const branch = `vivicy/${issue.id}`;
+  // Clean up any stale worktree/branch from a prior crashed run so we always
+  // branch fresh from the current integration head.
+  spawnSync("git", ["worktree", "remove", "--force", worktreeRoot], { cwd: root, encoding: "utf8" });
+  spawnSync("git", ["branch", "-D", branch], { cwd: root, encoding: "utf8" });
+  if (existsSync(worktreeRoot)) rmSync(worktreeRoot, { recursive: true, force: true });
+  mkdirSync(resolve(root, cfg.worktreesDir), { recursive: true });
+  const add = spawnSync("git", ["worktree", "add", "-b", branch, worktreeRoot, "HEAD"], {
+    cwd: root,
+    encoding: "utf8",
+  });
+  if ((add.status ?? 1) !== 0) {
+    throw new Error(`dev-loop: failed to create worktree for ${issue.id}: ${add.stderr || add.stdout}`);
+  }
+  return { worktreeRoot, branch };
+}
+
+// Integrate a green worktree branch onto the integration branch on the MAIN root.
+// Returns { ok, conflict, message }. A non-clean merge is ABORTED (leaving main
+// untouched) and reported as a conflict so the caller blocks only this issue and
+// leaves the integration branch and the other issues intact. Serialize calls to
+// this with the integration lock (one merge onto main at a time).
+export function defaultIntegrateWorktree(issue, cfg, branch) {
+  const root = requireRepoRoot();
+  const merge = spawnSync(
+    "git",
+    ["merge", "--no-ff", "-m", `${issue.id}: integrate green worktree`, branch],
+    { cwd: root, encoding: "utf8" },
+  );
+  if ((merge.status ?? 1) === 0) {
+    return { ok: true, conflict: false, message: (merge.stdout ?? "").trim() };
+  }
+  // Abort the failed merge so the integration branch is left exactly as it was.
+  spawnSync("git", ["merge", "--abort"], { cwd: root, encoding: "utf8" });
+  return { ok: false, conflict: true, message: (merge.stderr || merge.stdout || "merge failed").trim() };
+}
+
+// Remove an issue's worktree and delete its branch once integrated (or on block).
+// Best-effort: a leftover worktree is reclaimed on the next create. Run from main.
+export function defaultRemoveWorktree(issue, cfg, worktreeRoot, branch) {
+  const root = requireRepoRoot();
+  spawnSync("git", ["worktree", "remove", "--force", worktreeRoot], { cwd: root, encoding: "utf8" });
+  if (existsSync(worktreeRoot)) rmSync(worktreeRoot, { recursive: true, force: true });
+  if (branch) spawnSync("git", ["branch", "-D", branch], { cwd: root, encoding: "utf8" });
+}
+
+// Commit the done/-move (and index update) on the MAIN integration branch after a
+// parallel issue's worktree has been merged. Staged narrowly to the orchestration
+// paths (issues/, done/, issue-index) so unrelated tracked files are never folded
+// into the bookkeeping commit. A no-op `git commit` (nothing staged) is tolerated.
+function commitDoneMove(issue, cfg) {
+  const root = requireRepoRoot();
+  spawnSync("git", ["add", "--", cfg.issuesDir, cfg.doneDir, cfg.issueIndexPath], { cwd: root, encoding: "utf8" });
+  return spawnSync("git", ["commit", "-m", `${issue.id}: move to done/ (integrated)`], { cwd: root, encoding: "utf8" });
 }
 
 function moveIssueToDone(issue, cfg) {
@@ -764,6 +1170,8 @@ function moveIssueToDone(issue, cfg) {
 // The loop commits each issue with `git add -A`, so it must start from a clean
 // tree — otherwise unrelated or stray changes would be folded into an issue's
 // commit. Each issue commits its own work, leaving the tree clean for the next.
+// The worktrees dir itself is ignored: parallel worktrees live under it and are
+// not "stray changes" in the main tree (it is gitignored, see ensureWorktreesIgnored).
 function assertCleanTree() {
   const result = spawnSync("git", ["status", "--porcelain"], { cwd: requireRepoRoot(), encoding: "utf8" });
   if ((result.stdout ?? "").trim().length > 0) {
@@ -771,6 +1179,141 @@ function assertCleanTree() {
       "dev-loop refuses to start on a dirty working tree: commit or stash existing changes first, so each issue commits only its own changes.",
     );
   }
+}
+
+// --------------------------------------------------------------------------
+// Shared-state serialization (supervisor-owned integration lock)
+//
+// The progress ledger has its own cross-process lock + revision CAS, so ledger
+// writes from N worktree workers are already safe. But the COMPLETION sequence —
+// merge the worktree onto the integration branch on the MAIN root, then move the
+// issue to done/ and commit that move on main — touches the SAME git index and
+// the SAME done/ + issue-index files, and must run as one critical section so two
+// concurrent completions never interleave a `git merge`/`git commit` on main. A
+// O_EXCL lockfile (the same hand-rolled pattern the ledger uses) serializes all
+// integration-side writes; only one issue integrates onto main at a time.
+//
+// Two layers, by design:
+//   - An IN-PROCESS async mutex (a promise chain) serializes the critical section
+//     within THIS process. The parallel loop runs all issues in one Node process,
+//     so this is the authoritative serializer and — unlike a wall-clock lock — it
+//     can never falsely reclaim from a live holder whose work simply ran long.
+//   - The O_EXCL FILE lock guards against a *separate* process touching the same
+//     repo (e.g. a stray manual run). It is acquired + released entirely INSIDE
+//     the in-process mutex's hold, so within one process it is uncontended and is
+//     never aged out by a sibling (the sibling waits on the mutex, not the file).
+// --------------------------------------------------------------------------
+
+const INTEGRATION_LOCK_STALE_MS = 120_000;
+
+// Per-config in-process integration mutex (a tail promise we chain onto). Keyed by
+// the absolute lock path so distinct targets/scratch dirs get independent mutexes
+// (the test suite runs many fixtures in one process; the map holds one tiny entry
+// per distinct lock path, which is bounded by the number of targets).
+const integrationMutexes = new Map();
+
+// Run `fn` (sync or async) as the sole holder of the integration critical section:
+// first serialize in-process via the mutex, then take the cross-process file lock
+// for the duration of `fn`. Always releases both, in order, even on throw.
+async function withIntegrationLock(cfg, fn) {
+  const lockPath = abs(`${cfg.gatesDir}/.integration.lock`);
+  const prior = integrationMutexes.get(lockPath) ?? Promise.resolve();
+  let release;
+  const mine = new Promise((r) => {
+    release = r;
+  });
+  // The next caller waits for `mine`; swallow rejections so one failed critical
+  // section never poisons the queue.
+  integrationMutexes.set(lockPath, prior.then(() => mine, () => mine));
+  await prior.catch(() => {});
+  try {
+    mkdirSync(dirname(lockPath), { recursive: true });
+    acquireExclusiveLock(lockPath);
+    try {
+      return await fn();
+    } finally {
+      try {
+        unlinkSync(lockPath);
+      } catch {
+        // already removed (e.g. reclaimed as stale); ignore
+      }
+    }
+  } finally {
+    release();
+  }
+}
+
+function acquireExclusiveLock(lockPath) {
+  const deadline = Date.now() + 30_000;
+  for (;;) {
+    try {
+      const fd = openSync(lockPath, "wx");
+      writeSync(fd, JSON.stringify({ pid: process.pid, epoch_ms: Date.now() }));
+      closeSync(fd);
+      return;
+    } catch (error) {
+      if (!error || error.code !== "EEXIST") throw error;
+      if (reclaimStaleExclusiveLock(lockPath)) continue;
+      if (Date.now() >= deadline) throw new Error(`Timed out acquiring integration lock: ${lockPath}`);
+      busyWaitMs(25);
+    }
+  }
+}
+
+function reclaimStaleExclusiveLock(lockPath) {
+  let owner = null;
+  let stat = null;
+  try {
+    stat = statSync(lockPath);
+    owner = JSON.parse(readFileSync(lockPath, "utf8"));
+  } catch {
+    return true; // vanished or unreadable mid-check => retry the acquire
+  }
+  const epoch = owner && typeof owner.epoch_ms === "number" ? owner.epoch_ms : stat.mtimeMs;
+  const tooOld = Date.now() - epoch > INTEGRATION_LOCK_STALE_MS;
+  const dead = owner && typeof owner.pid === "number" && owner.pid !== process.pid && !isPidAlive(owner.pid);
+  if (!tooOld && !dead) return false;
+  try {
+    unlinkSync(lockPath);
+  } catch {
+    // someone else reclaimed first; retry anyway
+  }
+  return true;
+}
+
+function isPidAlive(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return error && error.code === "EPERM";
+  }
+}
+
+function busyWaitMs(ms) {
+  const end = Date.now() + ms;
+  while (Date.now() < end) {
+    // short spin; integration holds the lock only for a merge + commit
+  }
+}
+
+// Ensure the worktrees dir is gitignored in the main repo so per-issue worktrees
+// never show up as stray changes in the main tree (and are never folded into an
+// issue's `git add -A`). Idempotent; only needed on the parallel path.
+function ensureWorktreesIgnored(cfg) {
+  const root = requireRepoRoot();
+  const gitignorePath = resolve(root, ".gitignore");
+  const entry = `${cfg.worktreesDir}/`;
+  let body = "";
+  try {
+    body = readFileSync(gitignorePath, "utf8");
+  } catch {
+    body = "";
+  }
+  const lines = body.split("\n").map((l) => l.trim());
+  if (lines.includes(entry) || lines.includes(cfg.worktreesDir)) return;
+  const next = body && !body.endsWith("\n") ? `${body}\n${entry}\n` : `${body}${entry}\n`;
+  writeFileSync(gitignorePath, next);
 }
 
 function emit(cfg, event) {
@@ -901,6 +1444,48 @@ export function runLegWithQuota(runLeg, leg, issue, cfg) {
   }
 }
 
+// Non-blocking sleep for the async (parallel) path: a real setTimeout so waiting
+// out one issue's quota window never blocks the other parallel issues' event loop
+// progress. Tests inject cfg.sleepAsync to fast-forward.
+function defaultSleepAsync(ms) {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+// Async sibling of runLegWithQuota: identical retry/quota logic, but it AWAITS the
+// async leg runner and AWAITS the wait, so a rate-limited parallel issue yields
+// the event loop to its siblings instead of busy-blocking. One source of truth for
+// the pure decisions (detectRateLimit, computeWaitMs, parseQuotaWindows) — shared
+// with the sync path; only the spawn + wait primitives differ.
+export async function runLegWithQuotaAsync(runLeg, leg, issue, cfg) {
+  const patterns = cfg.quotaPatterns ?? DEFAULT_QUOTA_PATTERNS;
+  const sleep = cfg.sleepAsync ?? defaultSleepAsync;
+  let totalWaitedMs = 0;
+  for (let attempt = 1; ; attempt += 1) {
+    const legResult = await runLeg(issue, cfg);
+    const output = legResult?.output ?? combinedOutput(legResult?.result);
+    const transcriptText = readTranscriptText(legResult?.transcriptRel) || output;
+    const windows = parseQuotaWindows(leg.actor, transcriptText);
+    const exitCode = legResult?.result?.status ?? null;
+    const detection = detectRateLimit(output, patterns, exitCode);
+    if (!detection.hit) {
+      markAgentAvailable(cfg, leg, windows);
+      return { ...legResult, quotaBlocked: false, totalWaitedMs };
+    }
+    const nowMs = nowMsOf(cfg);
+    const { waitMs, resetAtMs } = computeWaitMs({ message: detection.message, nowMs, attempt, cfg });
+    if (totalWaitedMs + waitMs > cfg.quotaMaxWaitMs) {
+      markAgentThrottled(cfg, leg, { message: detection.message, resetAtMs, windows });
+      return { ...legResult, quotaBlocked: true, totalWaitedMs };
+    }
+    markAgentThrottled(cfg, leg, { message: detection.message, resetAtMs, windows });
+    process.stderr.write(
+      `[quota] ${leg.actor} rate-limited (${detection.message}); waiting ${Math.round(waitMs / 1000)}s then retrying the same leg\n`,
+    );
+    await sleep(waitMs);
+    totalWaitedMs += waitMs;
+  }
+}
+
 // --------------------------------------------------------------------------
 // Cycle + loop
 // --------------------------------------------------------------------------
@@ -950,16 +1535,112 @@ export function runIssueCycle(issue, cfg, steps) {
 
     const gate = runGate(issue, cfg);
     if (gate.pass) {
-      emit(cfg, {
-        event_type: "gate_passed",
-        issue_id: issue.id,
-        graph_refs: issue.graph_refs,
-        actor: cfg.implementer.actor,
-        role: cfg.implementer.role,
-        evidence_refs: [gate.evidenceRel],
-        transcript_refs: transcripts,
+      // In the parallel path the verified state is recorded only AFTER the
+      // worktree integrates cleanly onto main (so a merge conflict never leaves a
+      // node verified for code that never landed). cfg.deferVerified lets the
+      // caller emit gate_passed post-integration; the sequential path emits it
+      // here, exactly as before.
+      if (!cfg.deferVerified) {
+        emit(cfg, {
+          event_type: "gate_passed",
+          issue_id: issue.id,
+          graph_refs: issue.graph_refs,
+          actor: cfg.implementer.actor,
+          role: cfg.implementer.role,
+          evidence_refs: [gate.evidenceRel],
+          transcript_refs: transcripts,
+        });
+      }
+      return {
+        status: "verified",
+        evidenceRel: gate.evidenceRel,
+        attempts: attempt,
+        transcripts: allTranscripts,
+        gateTranscripts: transcripts,
+      };
+    }
+    emit(cfg, {
+      event_type: "gate_failed",
+      issue_id: issue.id,
+      graph_refs: issue.graph_refs,
+      actor: cfg.implementer.actor,
+      role: cfg.implementer.role,
+      transcript_refs: transcripts,
+    });
+  }
+  emit(cfg, {
+    event_type: "issue_blocked",
+    issue_id: issue.id,
+    graph_refs: issue.graph_refs,
+    actor: cfg.implementer.actor,
+    role: cfg.implementer.role,
+    evidence_refs: [writeBlockedEvidence(issue, cfg)],
+    transcript_refs: allTranscripts,
+  });
+  return { status: "blocked", attempts: cfg.maxRetries, transcripts: allTranscripts };
+}
+
+// Async sibling of runIssueCycle for the parallel path: same implement -> review
+// -> gate flow and the SAME emits/blocks, but it awaits the async quota runner so
+// the leg spawns are non-blocking. The parallel caller always runs with
+// cfg.deferVerified set (verified is emitted only after a clean integration), so
+// on a green gate this returns { status: "verified", ... } WITHOUT having emitted
+// gate_passed — the integration step does that under the integration lock.
+export async function runIssueCycleAsync(issue, cfg, steps) {
+  const { runImplementer, runReviewer, runGate } = steps;
+  const allTranscripts = [];
+  for (let attempt = 1; attempt <= cfg.maxRetries; attempt += 1) {
+    emit(cfg, {
+      event_type: "issue_started",
+      issue_id: issue.id,
+      graph_refs: issue.graph_refs,
+      actor: cfg.implementer.actor,
+      role: cfg.implementer.role,
+    });
+    const implResult = await runLegWithQuotaAsync(runImplementer, cfg.implementer, issue, cfg);
+    if (implResult.quotaBlocked) return quotaBlock(issue, cfg, cfg.implementer, allTranscripts);
+
+    emit(cfg, {
+      event_type: "review_started",
+      issue_id: issue.id,
+      graph_refs: issue.graph_refs,
+      actor: cfg.reviewer.actor,
+      role: cfg.reviewer.role,
+    });
+    const reviewResult = await runLegWithQuotaAsync(runReviewer, cfg.reviewer, issue, cfg);
+    if (reviewResult.quotaBlocked) return quotaBlock(issue, cfg, cfg.reviewer, allTranscripts);
+
+    const transcripts = [implResult?.transcriptRel, reviewResult?.transcriptRel]
+      .filter(Boolean)
+      .filter((rel) => {
+        try {
+          return statSync(abs(rel)).size > 0;
+        } catch {
+          return false;
+        }
       });
-      return { status: "verified", evidenceRel: gate.evidenceRel, attempts: attempt, transcripts: allTranscripts };
+    allTranscripts.push(...transcripts);
+
+    const gate = await runGate(issue, cfg);
+    if (gate.pass) {
+      if (!cfg.deferVerified) {
+        emit(cfg, {
+          event_type: "gate_passed",
+          issue_id: issue.id,
+          graph_refs: issue.graph_refs,
+          actor: cfg.implementer.actor,
+          role: cfg.implementer.role,
+          evidence_refs: [gate.evidenceRel],
+          transcript_refs: transcripts,
+        });
+      }
+      return {
+        status: "verified",
+        evidenceRel: gate.evidenceRel,
+        attempts: attempt,
+        transcripts: allTranscripts,
+        gateTranscripts: transcripts,
+      };
     }
     emit(cfg, {
       event_type: "gate_failed",
@@ -1024,15 +1705,27 @@ function quotaBlock(issue, cfg, leg, allTranscripts) {
   return { status: "blocked", reason: "quota", attempts: 0, transcripts: allTranscripts };
 }
 
-export function runLoop(userConfig = {}, steps = {}) {
-  const cfg = { ...DEFAULT_CONFIG, ...userConfig };
-  // recordProgressEvent requires repository-relative paths; reject absolute config
-  // up front with a clear error instead of crashing mid-cycle on the first emit.
+// Reject absolute config sub-paths up front (recordProgressEvent requires
+// repository-relative paths) so a bad config fails loudly instead of mid-cycle.
+function assertRelativeConfig(cfg) {
   for (const key of ["issueIndexPath", "progressLedgerPath", "issuesDir", "doneDir", "gatesDir", "reportsDir"]) {
     if (typeof cfg[key] === "string" && isAbsolute(cfg[key])) {
       throw new Error(`dev-loop config ${key} must be repository-relative, not absolute: ${cfg[key]}`);
     }
   }
+}
+
+export function runLoop(userConfig = {}, steps = {}) {
+  const cfg = { ...DEFAULT_CONFIG, ...userConfig };
+  // Concurrency dispatch: maxParallel > 1 runs the async parallel loop (worktree
+  // isolation + integration). maxParallel <= 1 keeps the byte-for-byte sequential
+  // path below — a single worktree-free issue at a time against the main root,
+  // exactly as before. The default (env-driven) is 1, so existing callers are
+  // unchanged.
+  if (clampConcurrency(cfg.maxParallel) > 1) {
+    return runLoopParallel(userConfig, steps);
+  }
+  assertRelativeConfig(cfg);
   const resolvedSteps = {
     runImplementer: steps.runImplementer ?? ((issue) => defaultRunImplementer(issue, cfg)),
     runReviewer: steps.runReviewer ?? ((issue) => defaultRunReviewer(issue, cfg)),
@@ -1064,6 +1757,194 @@ export function runLoop(userConfig = {}, steps = {}) {
   return processed;
 }
 
+// --------------------------------------------------------------------------
+// Parallel loop (N independent issues at once, each in its own git worktree)
+//
+// The scheduler keeps up to cfg.maxParallel mutually-independent issues running
+// concurrently, each in a dedicated worktree branched from the integration HEAD.
+// When a worktree goes green, the loop re-runs the gate itself (the authoritative
+// verdict, exactly as the sequential path), then — UNDER THE INTEGRATION LOCK so
+// only one issue touches main at a time — merges the worktree onto the integration
+// branch, moves the issue to done/, commits the move, and emits the verified
+// state. A merge conflict or a still-red gate blocks ONLY that issue (its
+// issue_blocked is recorded) and never blocks the independent others, which keep
+// running and integrating. The worktree is always removed when the issue settles.
+//
+// Shared state (ledger, gate evidence, blocked reports, done/ moves, quota-state)
+// always lives on the MAIN root: the ledger writer already serializes cross-process
+// via its O_EXCL lock + revision CAS, and the integration lock serializes the
+// merge + done/ move + verified emit so concurrent completions never corrupt the
+// git index or the ledger.
+// --------------------------------------------------------------------------
+export async function runLoopParallel(userConfig = {}, steps = {}) {
+  const cfg = { ...DEFAULT_CONFIG, ...userConfig };
+  assertRelativeConfig(cfg);
+  const maxParallel = clampConcurrency(cfg.maxParallel);
+  const index = readJson(cfg.issueIndexPath);
+  const issues = Array.isArray(index.issues) ? index.issues : [];
+  const depsClosure = buildDepsClosure(issues);
+
+  // Injectable worktree/integration steps (defaults invoke real git); parallel
+  // legs default to the ASYNC runners so spawns don't block the event loop.
+  const wt = {
+    createWorktree: steps.createWorktree ?? ((issue) => defaultCreateWorktree(issue, cfg)),
+    integrateWorktree: steps.integrateWorktree ?? ((issue, branch) => defaultIntegrateWorktree(issue, cfg, branch)),
+    removeWorktree:
+      steps.removeWorktree ?? ((issue, worktreeRoot, branch) => defaultRemoveWorktree(issue, cfg, worktreeRoot, branch)),
+  };
+
+  // Keep parallel worktrees out of the main tree's status/`git add -A`.
+  if (!steps.skipWorktreeIgnore) ensureWorktreesIgnored(cfg);
+
+  const processed = [];
+  const running = new Map(); // issue.id -> Promise of its settled result
+  const runningIssueById = new Map(); // issue.id -> issue (for independence checks)
+  const blocked = new Set(); // issue ids that settled blocked (and never run again)
+
+  // Per-issue task: worktree -> async cycle (deferred verified) -> integrate +
+  // done + verified emit (under the integration lock) -> remove worktree. Returns
+  // { id, status }. A merge conflict or red gate blocks ONLY this issue; the
+  // independent others keep running and integrating.
+  const runOne = async (issue) => {
+    let created = null;
+    try {
+      // Worktree creation reads/writes the main repo's .git/worktrees metadata and
+      // its HEAD, so it runs under the integration lock — both to avoid two
+      // concurrent `git worktree add` racing and to branch each worktree from the
+      // LATEST integration head (after any sibling that integrated meanwhile).
+      created = await withIntegrationLock(cfg, () => wt.createWorktree(issue));
+    } catch (error) {
+      // Could not even create the worktree (e.g. git error): block this issue
+      // alone with a clear report; the others keep running.
+      writeIntegrationBlock(issue, cfg, `worktree setup failed: ${error?.message ?? error}`);
+      return { id: issue.id, status: "blocked" };
+    }
+    const issueCfg = { ...cfg, execRoot: created.worktreeRoot, deferVerified: true };
+    const issueSteps = {
+      runImplementer: steps.runImplementer ?? ((iss, c) => defaultRunImplementerAsync(iss, c ?? issueCfg)),
+      runReviewer: steps.runReviewer ?? ((iss, c) => defaultRunReviewerAsync(iss, c ?? issueCfg)),
+      // The gate is ASYNC on the parallel path so a slow gate never freezes the
+      // event loop (which would stall every other issue and age out the lock).
+      runGate: steps.runGate ?? ((iss, c) => defaultRunGateAsync(iss, c ?? issueCfg)),
+    };
+    try {
+      const result = await runIssueCycleAsync(issue, issueCfg, issueSteps);
+      if (result.status !== "verified") {
+        return { id: issue.id, status: "blocked" };
+      }
+      // Commit the green code on the worktree branch, then integrate + finalize
+      // under the integration lock (one issue onto main at a time).
+      const commit = steps.commit ?? ((iss, c) => defaultCommit(iss, c ?? issueCfg));
+      commit(issue, issueCfg);
+      return await withIntegrationLock(cfg, () => {
+        const merge = wt.integrateWorktree(issue, created.branch);
+        if (!merge.ok) {
+          writeIntegrationBlock(issue, cfg, `integration conflict: ${merge.message}`);
+          return { id: issue.id, status: "blocked" };
+        }
+        // Move to done/ BEFORE the orchestration commit + verified emit so a kill
+        // between them never leaves an issue verified-in-ledger but missing from
+        // done/ (the same move-before-commit invariant the sequential path keeps).
+        moveIssueToDone(issue, cfg);
+        // Commit the done/-move on the integration branch so the next worktree
+        // branches from a clean HEAD that already reflects this issue's completion
+        // (the merge commit carried the code; this records the bookkeeping move).
+        if (steps.commitDoneMove !== false) commitDoneMove(issue, cfg);
+        emit(cfg, {
+          event_type: "gate_passed",
+          issue_id: issue.id,
+          graph_refs: issue.graph_refs,
+          actor: cfg.implementer.actor,
+          role: cfg.implementer.role,
+          evidence_refs: [result.evidenceRel],
+          transcript_refs: result.gateTranscripts ?? [],
+        });
+        return { id: issue.id, status: "verified" };
+      });
+    } finally {
+      // Cleanup is best-effort: a removal failure must NEVER mask a verified result
+      // (or it would mislabel a fully-integrated issue as blocked) or crash the
+      // scheduler. Swallow it; a leftover worktree is reclaimed on the next create.
+      try {
+        wt.removeWorktree(issue, created.worktreeRoot, created.branch);
+      } catch (error) {
+        process.stderr.write(`[parallel] worktree cleanup failed for ${issue.id}: ${error?.message ?? error}\n`);
+      }
+    }
+  };
+
+  // Scheduler: keep filling slots with INDEPENDENT ready issues until no issue can
+  // ever become ready again. A per-issue block prunes only that issue (and, via the
+  // dependency check, its dependents — their deps never become done) — it NEVER
+  // stops scheduling unrelated independent issues. The loop terminates when nothing
+  // is in flight and nothing is schedulable (everything is done or transitively
+  // depends on a blocked issue).
+  for (;;) {
+    const doneIds = computeDoneIds(issues, readLedger(cfg), listDoneFiles(cfg));
+    const excluded = new Set([...running.keys(), ...blocked]);
+    const ready = computeReadySet(issues, doneIds, excluded);
+    const batch = selectIndependentBatch(ready, [...runningIssueById.values()], maxParallel, depsClosure);
+    for (const issue of batch) {
+      runningIssueById.set(issue.id, issue);
+      const task = runOne(issue)
+        .catch((error) => ({ id: issue.id, status: "blocked", error: String(error?.message ?? error) }))
+        .then((settled) => {
+          running.delete(issue.id);
+          runningIssueById.delete(issue.id);
+          processed.push({ id: settled.id, status: settled.status });
+          // A blocked issue is remembered so it (and only it) is never re-scheduled;
+          // the independent others keep flowing.
+          if (settled.status === "blocked") blocked.add(settled.id);
+          return settled;
+        });
+      running.set(issue.id, task);
+    }
+    if (running.size === 0) {
+      // Nothing in flight AND nothing schedulable this turn (the batch is empty —
+      // a just-scheduled batch would have made running.size > 0): the run is done.
+      // Any remaining not-done issues are blocked or transitively depend on a
+      // blocked issue, so they can never become ready.
+      break;
+    }
+    // Wait for the NEXT issue to settle, then re-schedule: slots may have freed and
+    // a freshly-integrated dependency may have unlocked new independent ready issues.
+    await Promise.race(running.values());
+  }
+  return processed;
+}
+
+// Record an integration-time block (merge conflict or worktree setup failure) for
+// ONE issue and emit its issue_blocked, mirroring the gate-block shape so the loop
+// surfaces it without blocking the independent others. Written to the MAIN root.
+function writeIntegrationBlock(issue, cfg, reason) {
+  mkdirSync(abs(cfg.reportsDir), { recursive: true });
+  const rel = `${cfg.reportsDir}/${issue.id}-blocked.json`;
+  writeFileSync(
+    abs(rel),
+    `${JSON.stringify(
+      { issue_id: issue.id, reason, kind: "integration", at: typeof cfg.now === "string" ? cfg.now : nowIso(cfg) },
+      null,
+      2,
+    )}\n`,
+  );
+  // issue_blocked requires the node be linkable; emit against the issue's graph
+  // refs so the map lights it blocked. Best-effort: a ledger emit failure here
+  // must not crash the whole parallel loop and strand the other issues.
+  try {
+    emit(cfg, {
+      event_type: "issue_blocked",
+      issue_id: issue.id,
+      graph_refs: issue.graph_refs,
+      actor: cfg.implementer.actor,
+      role: cfg.implementer.role,
+      evidence_refs: [rel],
+    });
+  } catch (error) {
+    process.stderr.write(`[parallel] failed to emit issue_blocked for ${issue.id}: ${error?.message ?? error}\n`);
+  }
+  return rel;
+}
+
 if (import.meta.url === `file://${process.argv[1]}`) {
   assertCleanTree();
   const skills = checkSkills();
@@ -1071,7 +1952,15 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     process.stderr.write(`dev-loop preflight: ${skills.reason}\n  missing skills: ${skills.missing.join(", ")}\n  see AGENTS.md > Development Skills\n`);
     process.exit(1);
   }
-  const processed = runLoop();
-  process.stdout.write(`${JSON.stringify({ processed }, null, 2)}\n`);
-  if (processed.some((entry) => entry.status === "blocked")) process.exit(2);
+  // runLoop returns a Promise on the parallel path (maxParallel > 1) and an array
+  // sequentially; await handles both, and a clean tree is required either way.
+  Promise.resolve(runLoop())
+    .then((processed) => {
+      process.stdout.write(`${JSON.stringify({ processed }, null, 2)}\n`);
+      if (processed.some((entry) => entry.status === "blocked")) process.exit(2);
+    })
+    .catch((error) => {
+      process.stderr.write(`dev-loop failed: ${error?.message ?? error}\n`);
+      process.exit(1);
+    });
 }

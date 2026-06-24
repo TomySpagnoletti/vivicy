@@ -9,8 +9,11 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, 
 import { relative, resolve } from "node:path";
 import {
   agentCliArgs,
+  buildDepsClosure,
+  clampConcurrency,
   composePrompt,
   computeDoneIds,
+  computeReadySet,
   computeWaitMs,
   DEFAULT_CONFIG,
   DEFAULT_QUOTA_PATTERNS,
@@ -18,6 +21,8 @@ import {
   defaultRunReviewer,
   dependenciesSatisfied,
   detectRateLimit,
+  issueClaim,
+  issuesIndependent,
   parseClaudeQuotaWindows,
   parseCodexQuotaWindows,
   parseQuotaWindows,
@@ -26,6 +31,8 @@ import {
   resolveAgentLegs,
   runLegWithQuota,
   runLoop,
+  runLoopParallel,
+  selectIndependentBatch,
 } from "./dev-loop.mjs";
 import { REQUIRED_SKILLS, checkSkills, missingSkills } from "./dev-preflight.mjs";
 import { nextSupervisorAction } from "./dev-loop-supervised.mjs";
@@ -781,4 +788,387 @@ test("DEFAULT_QUOTA_PATTERNS is configurable and case-insensitive", () => {
   assert.equal(detectRateLimit("Please Wait and retry", custom).hit, true);
   // Default set is case-insensitive.
   assert.equal(detectRateLimit("RATE_LIMIT", DEFAULT_QUOTA_PATTERNS).hit, true);
+});
+
+// --------------------------------------------------------------------------
+// Parallel scheduler (pure: ready set + independence rule)
+// --------------------------------------------------------------------------
+
+test("clampConcurrency floors bad values to 1 (sequential default)", () => {
+  assert.equal(clampConcurrency(undefined), 1);
+  assert.equal(clampConcurrency("0"), 1);
+  assert.equal(clampConcurrency(-3), 1);
+  assert.equal(clampConcurrency("abc"), 1);
+  assert.equal(clampConcurrency("3"), 3);
+  assert.equal(clampConcurrency(2.9), 2);
+});
+
+test("computeReadySet returns deps-satisfied, not-done, not-running issues in index order", () => {
+  const issues = [
+    { id: "A", depends_on: [] },
+    { id: "B", depends_on: ["A"] },
+    { id: "C", depends_on: [] },
+  ];
+  // Nothing done: only the dependency-free roots are ready, in order.
+  assert.deepEqual(computeReadySet(issues, new Set()).map((i) => i.id), ["A", "C"]);
+  // A done: B becomes ready; A excluded as done.
+  assert.deepEqual(computeReadySet(issues, new Set(["A"])).map((i) => i.id), ["B", "C"]);
+  // C already running: excluded from the ready set so it is never double-claimed.
+  assert.deepEqual(computeReadySet(issues, new Set(), new Set(["C"])).map((i) => i.id), ["A"]);
+});
+
+test("issueClaim prefers explicit claims, falls back to graph_refs", () => {
+  assert.deepEqual([...issueClaim({ graph_refs: ["node:x"] })], ["node:x"]);
+  assert.deepEqual([...issueClaim({ claims: ["file:a"], graph_refs: ["node:x"] })], ["file:a"]);
+  assert.deepEqual([...issueClaim({ claimed_files: ["file:b"] })], ["file:b"]);
+});
+
+test("buildDepsClosure resolves transitive dependencies", () => {
+  const issues = [
+    { id: "A", depends_on: [] },
+    { id: "B", depends_on: ["A"] },
+    { id: "C", depends_on: ["B"] },
+  ];
+  const closure = buildDepsClosure(issues);
+  assert.deepEqual([...closure.get("C")].sort(), ["A", "B"]);
+  assert.deepEqual([...closure.get("B")], ["A"]);
+  assert.deepEqual([...closure.get("A")], []);
+});
+
+test("issuesIndependent requires NO dependency path AND disjoint claims", () => {
+  const issues = [
+    { id: "A", depends_on: [], graph_refs: ["node:x"] },
+    { id: "B", depends_on: ["A"], graph_refs: ["node:y"] }, // depends on A
+    { id: "C", depends_on: [], graph_refs: ["node:x"] }, // shares node:x with A
+    { id: "D", depends_on: [], graph_refs: ["node:z"] }, // truly independent of A
+  ];
+  const closure = buildDepsClosure(issues);
+  const byId = Object.fromEntries(issues.map((i) => [i.id, i]));
+  // A <-> B: dependency path => NOT independent.
+  assert.equal(issuesIndependent(byId.A, byId.B, closure), false);
+  // A <-> C: disjoint? no — both claim node:x => NOT independent.
+  assert.equal(issuesIndependent(byId.A, byId.C, closure), false);
+  // A <-> D: no dep path, disjoint claims => independent.
+  assert.equal(issuesIndependent(byId.A, byId.D, closure), true);
+});
+
+test("selectIndependentBatch with limit 1 returns exactly one ready issue (sequential)", () => {
+  const issues = [
+    { id: "A", depends_on: [], graph_refs: ["node:x"] },
+    { id: "B", depends_on: [], graph_refs: ["node:y"] },
+  ];
+  const closure = buildDepsClosure(issues);
+  const batch = selectIndependentBatch(issues, [], 1, closure);
+  assert.deepEqual(batch.map((i) => i.id), ["A"]);
+});
+
+test("selectIndependentBatch picks only mutually-independent issues up to the limit", () => {
+  const issues = [
+    { id: "A", depends_on: [], graph_refs: ["node:x"] },
+    { id: "B", depends_on: [], graph_refs: ["node:x"] }, // collides with A on node:x
+    { id: "C", depends_on: [], graph_refs: ["node:y"] }, // independent of A
+    { id: "D", depends_on: [], graph_refs: ["node:z"] }, // independent of A and C
+  ];
+  const closure = buildDepsClosure(issues);
+  // limit 3: A selected; B skipped (claims node:x like A); C and D selected.
+  const batch = selectIndependentBatch(issues, [], 3, closure);
+  assert.deepEqual(batch.map((i) => i.id), ["A", "C", "D"]);
+});
+
+test("selectIndependentBatch respects already-running issues (no shared claim with them)", () => {
+  const issues = [
+    { id: "B", depends_on: [], graph_refs: ["node:x"] }, // shares node:x with running A
+    { id: "C", depends_on: [], graph_refs: ["node:y"] },
+  ];
+  const running = [{ id: "A", depends_on: [], graph_refs: ["node:x"] }];
+  const closure = buildDepsClosure([...issues, ...running]);
+  // One slot free (limit 2, one running). B collides with A; C is compatible.
+  const batch = selectIndependentBatch(issues, running, 2, closure);
+  assert.deepEqual(batch.map((i) => i.id), ["C"]);
+});
+
+// --------------------------------------------------------------------------
+// Parallel loop: real git worktrees, real gate + ledger, fake legs
+// --------------------------------------------------------------------------
+
+// Build a parallel-loop fixture. The git ops (worktree add / merge / commit) run
+// against the MAIN root = requireRepoRoot() = the test target root, exactly as in
+// production where the main root IS the git repo and the ledger root. So we init
+// ONE git repo AT repoRoot (idempotent across tests) and give each test a fresh
+// subdir scratch; all cfg paths stay relative to repoRoot for the ledger writer,
+// and worktrees live under the scratch's .wt. The fixture COMMITS the scratch so
+// each parallel issue's worktree branches from a tree that already contains its
+// issue files (the merge then only carries the agent's new disjoint code).
+let parallelGitReady = false;
+function ensureRepoRootGit() {
+  if (parallelGitReady) return;
+  const git = (a) => spawnSync("git", a, { cwd: repoRoot, encoding: "utf8" });
+  if (!existsSync(resolve(repoRoot, ".git"))) {
+    git(["init", "-q"]);
+    git(["config", "user.email", "t@local"]);
+    git(["config", "user.name", "t"]);
+    git(["config", "commit.gpgsign", "false"]);
+    git(["commit", "--allow-empty", "-qm", "root"]);
+  }
+  parallelGitReady = true;
+}
+
+function buildParallelScratch({ issues, gateById = {} }) {
+  ensureRepoRootGit();
+  const dir = mkdtempSync(resolve(repoRoot, "_tmp-parallel-"));
+  const scratchRel = relative(repoRoot, dir);
+  const issuesDir = `${scratchRel}/issues`;
+  const doneDir = `${scratchRel}/issues/done`;
+  const gatesDir = `${scratchRel}/gates`;
+  const reportsDir = `${scratchRel}/reports`;
+  const transcriptsDir = `${scratchRel}/transcripts`;
+  mkdirSync(resolve(repoRoot, issuesDir), { recursive: true });
+  for (const issue of issues) writeFileSync(resolve(repoRoot, `${issuesDir}/${issue.id}.md`), `# ${issue.id}\n`);
+  const indexRel = `${scratchRel}/issue-index.json`;
+  const ledgerRel = `${scratchRel}/progress-ledger.json`;
+  const index = {
+    baseline_id: "baseline-test",
+    verification_evidence_ref_grammar: `^${scratchRel}/(gates|reports)/.+`,
+    issues: issues.map((issue) => ({
+      ...issue,
+      title: issue.title ?? issue.id,
+      verification_gate_ids: [`gate:test:${issue.id}`],
+      gate_command: gateById[issue.id] ?? "true",
+      path: `${issuesDir}/${issue.id}.md`,
+    })),
+  };
+  writeFileSync(resolve(repoRoot, indexRel), `${JSON.stringify(index, null, 2)}\n`);
+  // Commit the scratch into the root repo so worktrees branch from a tree that
+  // already has these issue files (.gitignore keeps prior scratches out of the way).
+  const git = (a) => spawnSync("git", a, { cwd: repoRoot, encoding: "utf8" });
+  git(["add", "--", scratchRel]);
+  git(["commit", "-qm", `scratch ${scratchRel}`]);
+  const cfg = {
+    issueIndexPath: indexRel,
+    progressLedgerPath: ledgerRel,
+    issuesDir,
+    doneDir,
+    gatesDir,
+    reportsDir,
+    transcriptsDir,
+    quotaStatePath: `${reportsDir}/quota-state.json`,
+    baselineId: "baseline-test",
+    worktreesDir: `${scratchRel}/.wt`,
+  };
+  return { dir, scratchRel, cfg };
+}
+
+// Fake async legs that write a DISJOINT per-issue file into the worktree (execRoot)
+// so each worktree branch has real, non-overlapping content to merge. The file is
+// written under the test's scratch path (relative to the worktree root) so after
+// the merge it lands at repoRoot/<scratchRel>/gen/<id>.txt — test-scoped, never
+// colliding across tests. Records the concurrency window (start/end ms) per issue
+// so a test can assert real overlap.
+function parallelFakeSteps(timeline, scratchRel) {
+  const leg = (who) => async (issue, cfg) => {
+    timeline.push({ id: issue.id, who, phase: "start", t: Date.now() });
+    await new Promise((r) => setTimeout(r, 20));
+    if (cfg?.execRoot) {
+      const genDir = resolve(cfg.execRoot, scratchRel, "gen");
+      mkdirSync(genDir, { recursive: true });
+      writeFileSync(resolve(genDir, `${issue.id}.txt`), `${who} ${issue.id}\n`);
+    }
+    timeline.push({ id: issue.id, who, phase: "end", t: Date.now() });
+    return { output: `${who} ${issue.id}`, result: { status: 0 } };
+  };
+  return { runImplementer: leg("impl"), runReviewer: leg("rev") };
+}
+
+test("runLoopParallel runs independent issues concurrently in distinct worktrees and integrates them", async () => {
+  // Two independent roots (A, D) + a chain (A->B, A->C share node:ledger; D->E).
+  const issues = [
+    { id: "ISS-A", depends_on: [], graph_refs: ["node:ledger"] },
+    { id: "ISS-B", depends_on: ["ISS-A"], graph_refs: ["node:ledger"] },
+    { id: "ISS-D", depends_on: [], graph_refs: ["node:cat"] },
+    { id: "ISS-E", depends_on: ["ISS-D"], graph_refs: ["node:cat"] },
+  ];
+  const { dir, scratchRel, cfg } = buildParallelScratch({ issues });
+  const timeline = [];
+  try {
+    const processed = await runLoopParallel(
+      { ...cfg, maxParallel: 2, defaultGateCommand: "true" },
+      { ...parallelFakeSteps(timeline, scratchRel), skipWorktreeIgnore: true },
+    );
+    // (a) Every issue verified exactly once.
+    const verified = processed.filter((p) => p.status === "verified").map((p) => p.id).sort();
+    assert.deepEqual(verified, ["ISS-A", "ISS-B", "ISS-D", "ISS-E"]);
+    assert.equal(new Set(processed.map((p) => p.id)).size, 4, "no issue settled twice");
+    // (a) Concurrency was REAL: the two independent roots A and D overlapped in time.
+    const win = (id) => {
+      const s = Math.min(...timeline.filter((e) => e.id === id && e.phase === "start").map((e) => e.t));
+      const e = Math.max(...timeline.filter((e) => e.id === id && e.phase === "end").map((e) => e.t));
+      return [s, e];
+    };
+    const [as, ae] = win("ISS-A");
+    const [ds, de] = win("ISS-D");
+    assert.ok(as < de && ds < ae, "ISS-A and ISS-D execution windows overlapped (ran concurrently)");
+    // (b) Dependent issues respected order: B started only after A's worktree integrated.
+    const bStart = Math.min(...timeline.filter((e) => e.id === "ISS-B" && e.phase === "start").map((e) => e.t));
+    assert.ok(bStart >= ae, "ISS-B started after ISS-A finished (dependency order)");
+    // Distinct worktrees existed: every issue's disjoint file landed on MAIN after merge.
+    for (const id of ["ISS-A", "ISS-B", "ISS-D", "ISS-E"]) {
+      assert.ok(
+        existsSync(resolve(repoRoot, scratchRel, "gen", `${id}.txt`)),
+        `${id} merged its worktree file onto main`,
+      );
+    }
+    // (c) Ledger ends consistent: every issue verified on its node, no leftover worktrees.
+    const ledger = JSON.parse(readFileSync(resolve(repoRoot, cfg.progressLedgerPath), "utf8"));
+    for (const id of verified) {
+      const node = issues.find((i) => i.id === id).graph_refs[0];
+      const state = ledger.graph_item_states.find((s) => s.graph_ref === node);
+      assert.equal(state.issue_states[id], "verified", `${id} verified in ledger`);
+    }
+    assert.equal((ledger.active_items ?? []).length, 0, "no dangling active items after completion");
+    const wtDir = resolve(repoRoot, cfg.worktreesDir);
+    const leftover = existsSync(wtDir) ? readdirSync(wtDir).filter((f) => !f.startsWith(".")) : [];
+    assert.deepEqual(leftover, [], "all worktrees removed");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("runLoopParallel blocks a forced-red issue WITHOUT blocking the independent others", async () => {
+  // A always-green; B (independent) gate forced red; C independent green.
+  const issues = [
+    { id: "ISS-A", depends_on: [], graph_refs: ["node:a"] },
+    { id: "ISS-B", depends_on: [], graph_refs: ["node:b"] },
+    { id: "ISS-C", depends_on: [], graph_refs: ["node:c"] },
+  ];
+  const { dir, scratchRel, cfg } = buildParallelScratch({ issues, gateById: { "ISS-B": "false" } });
+  const timeline = [];
+  try {
+    const processed = await runLoopParallel(
+      { ...cfg, maxParallel: 3, maxRetries: 1, defaultGateCommand: "true" },
+      { ...parallelFakeSteps(timeline, scratchRel), skipWorktreeIgnore: true },
+    );
+    const byId = Object.fromEntries(processed.map((p) => [p.id, p.status]));
+    // B is blocked (gate red), A and C still verified — the block did NOT cascade.
+    assert.equal(byId["ISS-B"], "blocked", "forced-red B is blocked");
+    assert.equal(byId["ISS-A"], "verified", "independent A still verified");
+    assert.equal(byId["ISS-C"], "verified", "independent C still verified");
+    assert.ok(existsSync(resolve(repoRoot, `${cfg.reportsDir}/ISS-B-blocked.json`)), "B has a blocked report");
+    // A and C merged their code; B did not move to done/.
+    const done = readdirSync(resolve(repoRoot, cfg.doneDir));
+    assert.ok(done.includes("ISS-A.md") && done.includes("ISS-C.md"), "A and C moved to done/");
+    assert.ok(!done.includes("ISS-B.md"), "blocked B NOT moved to done/");
+    // No leftover worktrees even for the blocked issue.
+    const wtDir = resolve(repoRoot, cfg.worktreesDir);
+    const leftover = existsSync(wtDir) ? readdirSync(wtDir).filter((f) => !f.startsWith(".")) : [];
+    assert.deepEqual(leftover, [], "worktrees removed including the blocked issue's");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("runLoopParallel: an EARLY block never stops LATER independent issues from being scheduled", async () => {
+  // 5 fully-independent issues at maxParallel=1 so they are scheduled ONE AT A
+  // TIME, in order. The FIRST (ISS-1) gate is forced red. A naive `stop`-on-block
+  // scheduler would never start ISS-2..5 (they are scheduled in LATER batches,
+  // after the block). The correct scheduler blocks only ISS-1 and runs the rest.
+  const issues = Array.from({ length: 5 }, (_, i) => ({
+    id: `ISS-${i + 1}`,
+    depends_on: [],
+    graph_refs: [`node:m${i + 1}`],
+  }));
+  const { dir, scratchRel, cfg } = buildParallelScratch({ issues, gateById: { "ISS-1": "false" } });
+  try {
+    const processed = await runLoopParallel(
+      { ...cfg, maxParallel: 1, maxRetries: 1, defaultGateCommand: "true" },
+      { ...parallelFakeSteps([], scratchRel), skipWorktreeIgnore: true },
+    );
+    const byId = Object.fromEntries(processed.map((p) => [p.id, p.status]));
+    assert.equal(byId["ISS-1"], "blocked", "the early-blocked issue is blocked");
+    for (const id of ["ISS-2", "ISS-3", "ISS-4", "ISS-5"]) {
+      assert.equal(byId[id], "verified", `${id} (scheduled AFTER the block) still ran and verified`);
+    }
+    // Exactly the four independent issues moved to done/; the blocked one did not.
+    const done = readdirSync(resolve(repoRoot, cfg.doneDir)).sort();
+    assert.deepEqual(done, ["ISS-2.md", "ISS-3.md", "ISS-4.md", "ISS-5.md"]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("runLoopParallel: a worktree-cleanup failure never masks a verified result", async () => {
+  // A green issue whose worktree removal THROWS. The result must stay verified and
+  // the loop must not crash — cleanup is best-effort and must never override the
+  // settled outcome (a thrown cleanup must not mislabel a verified issue as blocked).
+  const issues = [{ id: "ISS-A", depends_on: [], graph_refs: ["node:a"] }]
+  const { dir, scratchRel, cfg } = buildParallelScratch({ issues })
+  try {
+    const processed = await runLoopParallel(
+      { ...cfg, maxParallel: 2, defaultGateCommand: "true" },
+      {
+        ...parallelFakeSteps([], scratchRel),
+        skipWorktreeIgnore: true,
+        // Let the real worktree be created/integrated, but make removal throw.
+        removeWorktree: () => {
+          throw new Error("simulated EBUSY on worktree removal")
+        },
+      },
+    );
+    assert.deepEqual(processed, [{ id: "ISS-A", status: "verified" }], "verified despite cleanup throwing");
+    assert.ok(readdirSync(resolve(repoRoot, cfg.doneDir)).includes("ISS-A.md"), "still moved to done/");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("runLoopParallel keeps the ledger consistent under many concurrent completions (no lost events)", async () => {
+  // 6 fully-independent issues at N=6: maximal concurrent completion pressure on
+  // the shared ledger + integration lock. Every issue must verify exactly once.
+  const issues = Array.from({ length: 6 }, (_, i) => ({
+    id: `ISS-${i + 1}`,
+    depends_on: [],
+    graph_refs: [`node:n${i + 1}`],
+  }));
+  const { dir, scratchRel, cfg } = buildParallelScratch({ issues });
+  try {
+    const processed = await runLoopParallel(
+      { ...cfg, maxParallel: 6, defaultGateCommand: "true" },
+      { ...parallelFakeSteps([], scratchRel), skipWorktreeIgnore: true },
+    );
+    const verified = processed.filter((p) => p.status === "verified").map((p) => p.id);
+    assert.equal(verified.length, 6, "all six verified");
+    assert.equal(new Set(verified).size, 6, "each verified exactly once (no duplicate completion)");
+    const ledger = JSON.parse(readFileSync(resolve(repoRoot, cfg.progressLedgerPath), "utf8"));
+    // Every node verified for its own issue; the revision advanced monotonically.
+    for (const issue of issues) {
+      const state = ledger.graph_item_states.find((s) => s.graph_ref === issue.graph_refs[0]);
+      assert.equal(state?.issue_states[issue.id], "verified", `${issue.id} verified, no lost event`);
+    }
+    assert.ok(typeof ledger.revision === "number" && ledger.revision >= 6, "ledger revision advanced per write");
+    assert.equal((ledger.active_items ?? []).length, 0, "no dangling active items");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("runLoop(maxParallel=1) is the sequential path: returns an array, identical behavior", () => {
+  // The dispatch boundary: at N=1, runLoop stays synchronous and sequential.
+  const issues = [
+    { id: "ISS-A", depends_on: [], graph_refs: ["node:x"] },
+    { id: "ISS-B", depends_on: ["ISS-A"], graph_refs: ["node:y"] },
+  ];
+  const { dir, cfg } = buildParallelScratch({ issues });
+  try {
+    const processed = runLoop(
+      { ...cfg, maxParallel: 1, defaultGateCommand: "true" },
+      { runImplementer: () => {}, runReviewer: () => {}, commit: () => {} },
+    );
+    // Synchronous array return (NOT a promise) — the sequential contract is intact.
+    assert.ok(Array.isArray(processed), "N=1 returns an array synchronously");
+    assert.deepEqual(processed, [
+      { id: "ISS-A", status: "verified" },
+      { id: "ISS-B", status: "verified" },
+    ]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
