@@ -6,11 +6,13 @@ import {
   CornerLeftUp,
   Folder,
   FolderOpen,
+  HardDrive,
   Loader2,
 } from "lucide-react"
 import { toast } from "sonner"
 
 import type { CurrentProject, DirEntry, DirListing } from "@/lib/project-types"
+import { pickDirectoryNative, useIsDesktop } from "@/lib/desktop"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -52,6 +54,11 @@ export function OpenProjectDialog({
   const [loading, setLoading] = useState(false)
   const [selecting, setSelecting] = useState(false)
   const [manualPath, setManualPath] = useState("")
+  // True only in the Tauri desktop shell (hydration-safe: false on SSR + first
+  // client render). False in the browser build → the web server-side folder
+  // browser below is the (unchanged) fallback.
+  const desktop = useIsDesktop()
+  const [pickingNative, setPickingNative] = useState(false)
 
   // Browse a path (null => the server's default root, the user's home dir). On
   // failure, keep the previous listing and toast — never strand the dialog empty.
@@ -127,7 +134,24 @@ export function OpenProjectDialog({
     [onChanged, onOpenChange]
   )
 
-  const busy = loading || selecting
+  // Desktop-only: open the OS-native directory chooser, then persist the chosen
+  // folder through the SAME `/api/project` path the web flow uses. On cancel we do
+  // nothing; on error we toast and the web browser below remains available.
+  const pickNative = useCallback(async () => {
+    setPickingNative(true)
+    try {
+      const chosen = await pickDirectoryNative()
+      if (chosen) await select(chosen)
+    } catch (error) {
+      toast.error("Native folder picker failed", {
+        description: error instanceof Error ? error.message : "unknown error",
+      })
+    } finally {
+      setPickingNative(false)
+    }
+  }, [select])
+
+  const busy = loading || selecting || pickingNative
   const crumbs = listing ? toCrumbs(listing.path) : []
 
   return (
@@ -140,6 +164,21 @@ export function OpenProjectDialog({
             and select it, or paste an absolute path.
           </DialogDescription>
         </DialogHeader>
+
+        {/* Desktop only: the OS-native folder chooser. The in-app browser below
+            stays as the web fallback (and a desktop user can still use it). */}
+        {desktop ? (
+          <Button
+            type="button"
+            size="sm"
+            disabled={busy}
+            onClick={() => void pickNative()}
+            className="justify-start"
+          >
+            <HardDrive />
+            {pickingNative ? "Choosing…" : "Choose folder (native)"}
+          </Button>
+        ) : null}
 
         {/* Breadcrumb of the current directory; each segment navigates to it. */}
         <nav aria-label="Current path" className="min-w-0">

@@ -37,6 +37,8 @@ The method is generic; the spec is whatever project you point it at.
   generator. No framework coupling — plain `node`.
 - `app/`, `components/`, `lib/` — the Next.js App Router control plane that drives
   and visualizes the factory.
+- `src-tauri/` — the Tauri v2 desktop shell (Rust) that wraps the Next server as a
+  localhost sidecar for the native macOS/Windows app. See [Desktop app](#desktop-app-tauri).
 - `scripts/subtree-split.sh` — publish `vivicy/` as its own public repo.
 
 ## Quickstart
@@ -116,6 +118,61 @@ whatever the target's verification gate is), and the spec, issues, and
 architecture map are plain docs + JSON. Point Vivicy at a Rust crate, a Python
 service, a Go binary, or a monorepo — the loop, the map, and the gates are the
 same.
+
+## Desktop app (Tauri)
+
+Vivicy ships as a native desktop app for **macOS and Windows** in addition to the
+web app. Both share one codebase and one Next server: Vivicy's UI requires a live
+Node/Next runtime (its API routes spawn the agent CLIs via `child_process`, browse
+the filesystem, and stream the map/status), so the desktop app **cannot** be a
+static export. Instead it runs that exact Next server as a Tauri **sidecar** on a
+free localhost port, and the Tauri webview loads `http://127.0.0.1:<port>`. Tauri
+owns the sidecar's lifecycle: it spawns it on launch and kills it on quit, so no
+orphaned server is left behind.
+
+In the desktop shell two affordances upgrade to native OS integration (the web
+build is unchanged and remains the fallback):
+
+- **Folder picker** — a "Choose folder (native)" button opens the OS directory
+  dialog (`@tauri-apps/plugin-dialog`) and posts the chosen path to `/api/project`,
+  the same endpoint the web in-app browser uses.
+- **CLI install** — when an agent CLI is missing, a "Run install" button runs the
+  documented install command natively (`@tauri-apps/plugin-shell`), streaming its
+  output inline. The shell allow-list (`src-tauri/capabilities/default.json`) fixes
+  the exact command and arguments, so it can only run those two installs plus the
+  Next sidecar — never an arbitrary shell.
+
+### Toolchain
+
+The desktop build needs the Rust toolchain and the Tauri system prerequisites (on
+macOS: Xcode command-line tools; on Windows: the MSVC build tools + WebView2,
+preinstalled on Windows 11). The Node/Tauri CLIs come from `npm ci`.
+
+```sh
+# Rust (rustup is preferred; `brew install rust` also works on macOS):
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+# or: brew install rust   # then: rustup toolchain link system "$(brew --prefix rust)"
+```
+
+### Build and run
+
+```sh
+npm ci
+npm run tauri:dev      # native window + Next sidecar, hot-reloads on rebuilds
+npm run tauri:build    # produces the installers under src-tauri/target/release/bundle/
+```
+
+`tauri:build` first runs `src-tauri/scripts/prepare-sidecar.mjs`, which builds the
+Next standalone server, stages it as a bundled resource, and downloads an official
+self-contained Node binary named `node-<target-triple>` as the sidecar (so the
+app needs no system Node). On macOS this yields a `.app` and `.dmg`; on Windows,
+an `.exe`/`.msi`.
+
+Cross-OS builds run in CI: [`.github/workflows/desktop.yml`](.github/workflows/desktop.yml)
+builds **both** the macOS and Windows bundles on a `v*` tag (matrix:
+`macos-latest` + `windows-latest`) and attaches them to a draft release. A
+Windows `.exe` cannot be produced from macOS — that leg is built on the
+`windows-latest` runner.
 
 ## Publishing Vivicy
 

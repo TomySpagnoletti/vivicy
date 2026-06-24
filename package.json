@@ -21,7 +21,10 @@
     "e2e": "playwright test",
     "factory:typecheck": "tsc --noEmit -p factory/tsconfig.json",
     "factory:test": "node --test factory/progress-ledger.test.mjs factory/semantic-extraction-check.test.mjs factory/dev-loop.test.mjs factory/traceability-check.test.mjs",
-    "factory:rehearsal": "node factory/dev-rehearsal.mjs"
+    "factory:rehearsal": "node factory/dev-rehearsal.mjs",
+    "tauri": "tauri",
+    "tauri:dev": "tauri dev",
+    "tauri:build": "tauri build"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.29.0",
@@ -42,6 +45,10 @@
   "devDependencies": {
     "@playwright/test": "^1.61.1",
     "@tailwindcss/postcss": "^4",
+    "@tauri-apps/api": "^2.11.1",
+    "@tauri-apps/cli": "^2.11.3",
+    "@tauri-apps/plugin-dialog": "^2.7.1",
+    "@tauri-apps/plugin-shell": "^2.3.5",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
     "@testing-library/user-event": "^14.6.1",

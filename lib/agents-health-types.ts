@@ -37,6 +37,15 @@ export interface AgentGuidance {
   label: string
   /** The shell command to install it (shown copyable; never auto-run in web). */
   installCommand: string
+  /**
+   * The Tauri shell allow-list KEY for running {@link installCommand} natively in
+   * the desktop build. NOT a raw shell string: it names a fixed, argument-locked
+   * entry in the shell plugin's capability allow-list (see
+   * `src-tauri/capabilities/default.json`), so the desktop "Install" button can
+   * only run that one install command — never an arbitrary shell. Unused in the
+   * web build, where install stays copy-only.
+   */
+  installCommandName: string
   /** A short one-line install hint. */
   installHint: string
   /** The command to authenticate it. */
@@ -55,6 +64,7 @@ export const AGENT_GUIDANCE: Record<AgentKey, AgentGuidance> = {
   claude: {
     label: "Claude Code",
     installCommand: "npm install -g @anthropic-ai/claude-code",
+    installCommandName: "install-claude",
     installHint: "Install the Claude Code CLI globally, then restart your shell.",
     authCommand: "claude",
     authHint: "Run `claude` once and complete the in-terminal sign-in.",
@@ -62,6 +72,7 @@ export const AGENT_GUIDANCE: Record<AgentKey, AgentGuidance> = {
   codex: {
     label: "Codex CLI",
     installCommand: "npm install -g @openai/codex",
+    installCommandName: "install-codex",
     installHint: "Install the Codex CLI globally (or `brew install codex`).",
     authCommand: "codex login",
     authHint: "Run `codex login` to authenticate with your ChatGPT account.",

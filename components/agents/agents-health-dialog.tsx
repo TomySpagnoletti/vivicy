@@ -1,7 +1,14 @@
 "use client"
 
-import { useCallback, useEffect, useState } from "react"
-import { CheckCircle2, Copy, HelpCircle, Loader2, XCircle } from "lucide-react"
+import { useCallback, useEffect, useRef, useState } from "react"
+import {
+  CheckCircle2,
+  Copy,
+  Download,
+  HelpCircle,
+  Loader2,
+  XCircle,
+} from "lucide-react"
 import { toast } from "sonner"
 
 import {
@@ -10,6 +17,7 @@ import {
   type AgentKey,
   type AgentsHealth,
 } from "@/lib/agents-health-types"
+import { runAllowedCommandNative, useIsDesktop } from "@/lib/desktop"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -23,6 +31,9 @@ import {
 import { Separator } from "@/components/ui/separator"
 
 type ChipState = "ok" | "warn" | "loading"
+
+/** Cap on the streamed native-install log so the buffer never grows unbounded. */
+const MAX_LOG_LINES = 500
 
 /** Overall chip state: green only when BOTH agents are present and authed. */
 function overallState(health: AgentsHealth | null): ChipState {
@@ -50,6 +61,10 @@ export function AgentsHealthDialog({
   const [open, setOpen] = useState(false)
   const [health, setHealth] = useState<AgentsHealth | null>(null)
   const [loading, setLoading] = useState(false)
+  // Desktop (Tauri) shell? Hydration-safe (false on SSR + first client render),
+  // so the native "Install" button only appears in the desktop build; the web
+  // build stays copy-only.
+  const desktop = useIsDesktop()
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -127,6 +142,8 @@ export function AgentsHealthDialog({
               agentKey={key}
               health={health?.[key] ?? null}
               loading={loading && !health}
+              desktop={desktop}
+              onInstalled={load}
             />
           ))}
         </div>
@@ -140,10 +157,16 @@ function AgentCard({
   agentKey,
   health,
   loading,
+  desktop,
+  onInstalled,
 }: {
   agentKey: AgentKey
   health: AgentHealth | null
   loading: boolean
+  /** True in the Tauri desktop shell → enable native one-click install. */
+  desktop: boolean
+  /** Re-run health detection after a native install completes. */
+  onInstalled: () => void | Promise<void>
 }) {
   const guidance = AGENT_GUIDANCE[agentKey]
   const present = health?.present ?? false
@@ -180,12 +203,19 @@ function AgentCard({
         </div>
       )}
 
-      {/* Guidance: install command when absent; auth command when present-not-authed. */}
+      {/* Guidance: install command when absent; auth command when present-not-authed.
+          Install upgrades to a native one-click run in the desktop shell; auth
+          stays copy-only (it is interactive and must run in the user's terminal). */}
       {!loading && !present ? (
         <Guidance
           hint={guidance.installHint}
           command={guidance.installCommand}
           label={`Install ${guidance.label}`}
+          nativeInstall={
+            desktop
+              ? { commandName: guidance.installCommandName, onDone: onInstalled }
+              : undefined
+          }
         />
       ) : null}
       {!loading && present && auth === false ? (
@@ -236,16 +266,34 @@ function StatusBadge({
   )
 }
 
-/** A copyable command block with a one-line hint. Never auto-runs the command. */
+/**
+ * A copyable command block with a one-line hint. In the WEB build it is copy-only
+ * and never runs anything. In the DESKTOP build, when `nativeInstall` is given,
+ * it adds a "Run install" button that executes the allow-listed install command
+ * natively via the Tauri shell plugin, streams its output inline, and re-checks
+ * health on success. The shell allow-list (see `src-tauri/capabilities`) fixes the
+ * exact command + args, so this can never run an arbitrary shell.
+ */
 function Guidance({
   hint,
   command,
   label,
+  nativeInstall,
 }: {
   hint: string
   command: string
   label: string
+  nativeInstall?: { commandName: string; onDone: () => void | Promise<void> }
 }) {
+  const [running, setRunning] = useState(false)
+  const [output, setOutput] = useState<string[]>([])
+  const [result, setResult] = useState<"ok" | "fail" | null>(null)
+  // Auto-scroll the streamed log to the latest line.
+  const logRef = useRef<HTMLPreElement>(null)
+  useEffect(() => {
+    if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight
+  }, [output])
+
   const copy = useCallback(async () => {
     try {
       await navigator.clipboard.writeText(command)
@@ -254,6 +302,41 @@ function Guidance({
       toast.error("Copy failed", { description: "Select and copy the command manually." })
     }
   }, [command])
+
+  const runNative = useCallback(async () => {
+    if (!nativeInstall) return
+    setRunning(true)
+    setResult(null)
+    setOutput([`$ ${command}`])
+    try {
+      const res = await runAllowedCommandNative(nativeInstall.commandName, (l) =>
+        // Keep only the last MAX_LOG_LINES so a chatty/slow install never grows
+        // the buffer unbounded.
+        setOutput((prev) => {
+          const next = [...prev, l.line]
+          return next.length > MAX_LOG_LINES ? next.slice(-MAX_LOG_LINES) : next
+        })
+      )
+      setResult(res.ok ? "ok" : "fail")
+      if (res.ok) {
+        toast.success("Install complete", { description: command })
+        await nativeInstall.onDone()
+      } else {
+        toast.error("Install failed", { description: `Exited with code ${res.code ?? "?"}` })
+      }
+    } catch (error) {
+      setResult("fail")
+      setOutput((prev) => [
+        ...prev,
+        error instanceof Error ? error.message : "unknown error",
+      ])
+      toast.error("Install failed", {
+        description: error instanceof Error ? error.message : "unknown error",
+      })
+    } finally {
+      setRunning(false)
+    }
+  }, [command, nativeInstall])
 
   return (
     <div className="flex flex-col gap-1.5">
@@ -272,6 +355,33 @@ function Guidance({
           <Copy />
         </Button>
       </div>
+
+      {/* Desktop only: run the install natively (allow-listed command). */}
+      {nativeInstall ? (
+        <>
+          <Button
+            variant="default"
+            size="sm"
+            disabled={running}
+            aria-label={`Run install: ${label}`}
+            onClick={() => void runNative()}
+            className="justify-start"
+          >
+            {running ? <Loader2 className="animate-spin" /> : <Download />}
+            {running ? "Installing…" : "Run install"}
+          </Button>
+          {output.length > 0 ? (
+            <pre
+              ref={logRef}
+              data-install-state={result ?? (running ? "running" : "idle")}
+              className="max-h-40 overflow-auto border border-border bg-muted px-2 py-1.5 font-mono text-xs whitespace-pre-wrap text-muted-foreground"
+            >
+              {output.join("\n")}
+              {result === "ok" ? "\n✓ done" : result === "fail" ? "\n✗ failed" : ""}
+            </pre>
+          ) : null}
+        </>
+      ) : null}
     </div>
   )
 }

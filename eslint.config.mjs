@@ -18,6 +18,11 @@ const eslintConfig = defineConfig([
     // The factory is standalone Node ESM tooling, not part of the Next app; it
     // has its own tsconfig + test suite and must not be linted as React/Next.
     "factory/**",
+    // The Tauri desktop shell: Rust source plus build OUTPUT (the staged Next
+    // standalone server, the bundled Node binary, the placeholder frontend, and
+    // Tauri's generated schemas). None of it is lintable Next app source — the
+    // staged server is a COPY of the whole project and would double-report.
+    "src-tauri/**",
   ]),
 ]);
 

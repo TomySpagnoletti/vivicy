@@ -8,6 +8,27 @@ const nextConfig: NextConfig = {
   turbopack: {
     root: path.resolve(import.meta.dirname),
   },
+  // Desktop (Tauri) packaging: emit a self-contained Node server under
+  // `.next/standalone` so it can run as a Tauri sidecar on localhost. Gated on
+  // VIVICY_DESKTOP so `next dev`, the web `next build`, and the E2E servers are
+  // entirely unaffected — the web build never produces a standalone bundle.
+  ...(process.env.VIVICY_DESKTOP === "1"
+    ? {
+        output: "standalone" as const,
+        // Keep the standalone trace lean and self-consistent: never trace the
+        // Tauri shell, the Rust target, the E2E/test scaffolding, or the staged
+        // sidecar output itself (which would otherwise recurse on rebuilds).
+        outputFileTracingExcludes: {
+          "*": [
+            "src-tauri/**",
+            "e2e/**",
+            "test-results/**",
+            "playwright-report/**",
+            ".next-e2e-*/**",
+          ],
+        },
+      }
+    : {}),
   // The build/dist dir. Overridable so the E2E suite can run two dev servers
   // from this one project dir without colliding on Next's single-instance dev
   // lock (each server gets its own .next-* dir). Defaults to `.next`.
