@@ -1,14 +1,20 @@
 #!/usr/bin/env node
-// Naight OS development orchestrator (the conductor).
+// Vivicy development orchestrator (the conductor).
 //
 // Deterministic loop, NOT a self-looping agent:
-//   pick next ready issue -> implementer agent (Claude) -> reviewer agent
-//   (Codex, review & fix) -> orchestrator RE-RUNS the gate itself (never trusts
-//   an agent's "done") -> on green: emit verified, commit, move the issue to
-//   done/ -> next. Up to maxRetries cycles, then issue_blocked for a human.
+//   pick next ready issue -> implementer agent -> reviewer agent (review & fix)
+//   -> orchestrator RE-RUNS the gate itself (never trusts an agent's "done") ->
+//   on green: emit verified, commit, move the issue to done/ -> next. Up to
+//   maxRetries cycles, then issue_blocked for a human.
 //
 // One issue = one conversation: each leg is a fresh CLI invocation (no carryover).
 // Durable state lives in the repo, canonical docs, issue-index and the ledger.
+//
+// Which CLI fills each ROLE is configurable (R12): the implementer and reviewer
+// are assigned to distinct CLIs (claude / codex) — a CLI never reviews its own
+// work. The assignment + each CLI's model/level come from the Vivicy settings
+// dialog via env (VIVICY_IMPLEMENTER_CLI / VIVICY_REVIEWER_CLI / VIVICY_CLAUDE_* /
+// VIVICY_CODEX_*); see resolveAgentLegs.
 //
 // Agent/gate/commit steps are injectable (opts) so the flow is unit-tested with
 // fast deterministic stubs; the defaults invoke the real claude / codex CLIs.
@@ -44,6 +50,60 @@ function requireRepoRoot() {
   return repoRootOrNull;
 }
 
+// The CLIs Vivicy can assign to a role, with each CLI's latest-known model + the
+// default thinking level. Mirrors lib/settings.ts (the two must agree); the level
+// is the user-tunable knob, the model defaults to always-latest.
+export const CLI_DEFAULTS = {
+  claude: { model: "claude-opus-4-8", effort: "xhigh" },
+  codex: { model: "gpt-5.5-codex", effort: "high" },
+};
+
+/** The set of CLIs the loop knows how to spawn. */
+export const KNOWN_CLIS = ["claude", "codex"];
+
+/** Is `value` a CLI the loop can drive? */
+function isKnownCli(value) {
+  return value === "claude" || value === "codex";
+}
+
+/**
+ * Build the two agent legs (implementer + reviewer) from the environment.
+ *
+ * R12 — role -> CLI assignment is configurable:
+ *   - VIVICY_IMPLEMENTER_CLI / VIVICY_REVIEWER_CLI pick which CLI fills each role
+ *     (defaults implementer=claude, reviewer=codex).
+ *   - The two MUST be distinct (a CLI can never review its own implementation); if
+ *     the env assigns the same CLI to both, the reviewer is repaired to the other
+ *     CLI so the loop never runs a single agent against itself.
+ *   - Each CLI's model + thinking level come from VIVICY_<CLI>_* (claude/codex),
+ *     keyed by the CLI itself, so the values follow the CLI regardless of role.
+ *
+ * A leg carries: role (implementer|reviewer), the assigned CLI as both `provider`
+ * (drives the spawn + flag dialect) and `actor` (drives hook identity, quota
+ * keying, transcript naming), plus the resolved model + effort.
+ */
+export function resolveAgentLegs(env = {}) {
+  const implementerCli = isKnownCli(env.VIVICY_IMPLEMENTER_CLI)
+    ? env.VIVICY_IMPLEMENTER_CLI
+    : "claude";
+  let reviewerCli = isKnownCli(env.VIVICY_REVIEWER_CLI) ? env.VIVICY_REVIEWER_CLI : "codex";
+  // Distinct-CLI invariant: never let one CLI hold both roles.
+  if (reviewerCli === implementerCli) {
+    reviewerCli = implementerCli === "claude" ? "codex" : "claude";
+  }
+  const leg = (role, cli) => ({
+    actor: cli,
+    role,
+    provider: cli,
+    model: env[`VIVICY_${cli.toUpperCase()}_MODEL`] || CLI_DEFAULTS[cli].model,
+    effort: env[`VIVICY_${cli.toUpperCase()}_EFFORT`] || CLI_DEFAULTS[cli].effort,
+  });
+  return {
+    implementer: leg("implementer", implementerCli),
+    reviewer: leg("reviewer", reviewerCli),
+  };
+}
+
 export const DEFAULT_CONFIG = {
   issueIndexPath: "spec/development/issue-index.json",
   progressLedgerPath: "spec/development/progress-ledger.json",
@@ -60,26 +120,15 @@ export const DEFAULT_CONFIG = {
   transcriptsDir: "spec/development/transcripts",
   maxRetries: 2,
   defaultGateCommand: "npm test",
-  // Per-agent model + thinking-level. Policy: always run the latest model; the
-  // THINKING LEVEL is the user-tunable knob (Vivicy settings -> these env vars).
-  // Defaults pin the latest known ids/levels; the Vivicy control plane overrides
-  // them per run via VIVICY_CLAUDE_* / VIVICY_CODEX_*.
-  //   implementer = Claude (Opus 4.8) at xhigh effort
-  //   reviewer    = Codex (GPT 5.5) at high effort
-  implementer: {
-    actor: "claude",
-    role: "implementer",
-    provider: "claude",
-    model: process.env.VIVICY_CLAUDE_MODEL || "claude-opus-4-8",
-    effort: process.env.VIVICY_CLAUDE_EFFORT || "xhigh",
-  },
-  reviewer: {
-    actor: "codex",
-    role: "reviewer",
-    provider: "codex",
-    model: process.env.VIVICY_CODEX_MODEL || "gpt-5.5-codex",
-    effort: process.env.VIVICY_CODEX_EFFORT || "high",
-  },
+  // Per-role CLI assignment + per-CLI model + thinking-level (R12 + P4). Two knobs,
+  // both driven from the Vivicy settings dialog via env:
+  //   - which CLI fills each ROLE: VIVICY_IMPLEMENTER_CLI / VIVICY_REVIEWER_CLI
+  //     (defaults implementer=claude, reviewer=codex). The two MUST differ — a CLI
+  //     can never review its own implementation; resolveAgentLegs enforces it.
+  //   - each CLI's model + level: VIVICY_CLAUDE_* / VIVICY_CODEX_* (always-latest
+  //     model is the default, the thinking level is the user-tunable knob).
+  // resolveAgentLegs() builds the two legs from that env at module load.
+  ...resolveAgentLegs(process.env),
   // Per-agent live quota state, written by the quota handler and read by the
   // status probe / the Vivicy footer.
   quotaStatePath: "spec/development/reports/quota-state.json",
@@ -551,38 +600,38 @@ function captureClaudeTranscript(uuid, destAbs) {
   return false;
 }
 
-// Implementer = Claude Code headless; the full native session transcript is
-// copied into our gitignored store (referenced by --session-id).
-export function defaultRunImplementer(issue, cfg) {
-  const prompt = composePrompt(readPrompt(cfg, "implementer"), issue);
+// Spawn ONE leg with the Claude Code CLI, for whichever role it was assigned
+// (R12). Claude headless writes the full native session transcript keyed by
+// --session-id; we copy it into our gitignored store. The transcript is named
+// `claude-<role>-…` so the file reflects the actual CLI + role pairing.
+function runClaudeLeg(leg, issue, cfg) {
+  const prompt = composePrompt(readPrompt(cfg, leg.role), issue);
   const uuid = randomUUID();
-  const transcriptRel = `${cfg.transcriptsDir}/${issue.id}/claude-implementer-${uuid}.jsonl`;
+  const transcriptRel = `${cfg.transcriptsDir}/${issue.id}/claude-${leg.role}-${uuid}.jsonl`;
   const args = ["-p", prompt, "--dangerously-skip-permissions", "--session-id", uuid];
   if (cfg.mcpConfigPath) args.push("--mcp-config", cfg.mcpConfigPath);
   // Latest model + user-chosen thinking level: `--model <id> --effort <level>`.
-  // The implementer leg is always Claude (the provider is role-fixed, not a
-  // tunable), so we name it literally rather than trusting an optional field.
-  args.push(...agentCliArgs("claude", cfg.implementer));
-  const result = spawnTee("claude", args, { cwd: requireRepoRoot(), env: agentEnv(issue, cfg, cfg.implementer), encoding: "utf8" });
+  args.push(...agentCliArgs("claude", leg));
+  const result = spawnTee("claude", args, { cwd: requireRepoRoot(), env: agentEnv(issue, cfg, leg), encoding: "utf8" });
   ensureTranscriptDir(issue, cfg);
   const captured = captureClaudeTranscript(uuid, abs(transcriptRel));
   return { result, output: combinedOutput(result), transcriptRel: captured ? transcriptRel : undefined };
 }
 
-// Reviewer = Codex CLI non-interactive. Codex writes a full JSONL rollout per
-// session under ~/.codex/sessions/<date>/; we copy the leg's rollout into our
-// store. This is more robust than `codex exec --json` (which can hang) and lands
-// the transcript at the path/format we want instead of the date-partitioned default.
-export function defaultRunReviewer(issue, cfg) {
-  const prompt = composePrompt(readPrompt(cfg, "reviewer"), issue);
-  const transcriptRel = `${cfg.transcriptsDir}/${issue.id}/codex-reviewer-${randomUUID()}.jsonl`;
+// Spawn ONE leg with the Codex CLI, for whichever role it was assigned (R12).
+// Codex writes a full JSONL rollout per session under ~/.codex/sessions/<date>/;
+// we copy the leg's rollout into our store. This is more robust than
+// `codex exec --json` (which can hang) and lands the transcript at the path/format
+// we want instead of the date-partitioned default.
+function runCodexLeg(leg, issue, cfg) {
+  const prompt = composePrompt(readPrompt(cfg, leg.role), issue);
+  const transcriptRel = `${cfg.transcriptsDir}/${issue.id}/codex-${leg.role}-${randomUUID()}.jsonl`;
   const root = requireRepoRoot();
   const args = ["exec", prompt, "--dangerously-bypass-approvals-and-sandbox", "-C", root, "--skip-git-repo-check"];
   // Latest model + user-chosen thinking level: `-m <id> -c model_reasoning_effort="<level>"`.
-  // The reviewer leg is always Codex (role-fixed provider), so name it literally.
-  args.push(...agentCliArgs("codex", cfg.reviewer));
+  args.push(...agentCliArgs("codex", leg));
   const startMs = Date.now();
-  const result = spawnTee("codex", args, { cwd: root, env: agentEnv(issue, cfg, cfg.reviewer), encoding: "utf8" });
+  const result = spawnTee("codex", args, { cwd: root, env: agentEnv(issue, cfg, leg), encoding: "utf8" });
   ensureTranscriptDir(issue, cfg);
   const output = combinedOutput(result);
   const rollout = findNewestCodexRollout(startMs);
@@ -591,6 +640,27 @@ export function defaultRunReviewer(issue, cfg) {
     return { result, output, transcriptRel };
   }
   return { result, output, transcriptRel: undefined };
+}
+
+// Dispatch a leg to the CLI assigned to its role (R12). The CLI is `leg.provider`
+// — NOT the role — so either CLI can fill either role. A leg with an unknown
+// provider is a config error the loop should never reach (resolveAgentLegs only
+// ever produces claude/codex).
+function runAssignedLeg(leg, issue, cfg) {
+  if (leg.provider === "claude") return runClaudeLeg(leg, issue, cfg);
+  if (leg.provider === "codex") return runCodexLeg(leg, issue, cfg);
+  throw new Error(`dev-loop: ${leg.role} assigned to an unknown CLI: ${leg.provider}`);
+}
+
+// The implementer/reviewer entry points dispatch by the ASSIGNED CLI, so the role
+// stays fixed (it picks the prompt + hook identity) while which CLI runs it is
+// the configurable knob.
+export function defaultRunImplementer(issue, cfg) {
+  return runAssignedLeg(cfg.implementer, issue, cfg);
+}
+
+export function defaultRunReviewer(issue, cfg) {
+  return runAssignedLeg(cfg.reviewer, issue, cfg);
 }
 
 // The rollout created during this leg = newest .jsonl under ~/.codex/sessions with

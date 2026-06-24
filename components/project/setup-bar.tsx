@@ -23,9 +23,16 @@ import { OpenProjectDialog } from "@/components/project/open-project-dialog"
 export function SetupBar({
   onProjectChanged,
   onAgentsWarning,
+  reloadSignal,
 }: {
   onProjectChanged: () => void
   onAgentsWarning?: (message: string) => void
+  /**
+   * Bumped by the parent when the current project changes from OUTSIDE the setup
+   * bar (e.g. the onboarding chooser's picker/scaffold dialogs). The bar then
+   * re-fetches its project so its name affordance stays in sync.
+   */
+  reloadSignal?: number
 }) {
   const [project, setProject] = useState<CurrentProject | null>(null)
   const [pickerOpen, setPickerOpen] = useState(false)
@@ -45,7 +52,9 @@ export function SetupBar({
     void (async () => {
       await loadProject()
     })()
-  }, [loadProject])
+    // `reloadSignal` is intentionally a dependency: an external project change
+    // bumps it, re-running this load so the affordance reflects the new project.
+  }, [loadProject, reloadSignal])
 
   return (
     <div className="pointer-events-auto absolute top-2 left-2 z-10 flex items-center gap-1.5">

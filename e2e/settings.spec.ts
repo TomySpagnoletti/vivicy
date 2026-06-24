@@ -57,4 +57,51 @@ test.describe("Vivicy agent settings", () => {
     await expect(page.getByText(/Settings saved/i).first()).toBeVisible({ timeout: 15_000 })
     await expect(dialog2).not.toBeVisible()
   })
+
+  test("swap the role -> CLI assignment, save, and re-read it (R12)", async ({ page }) => {
+    await page.goto("/")
+
+    await page.getByRole("button", { name: "Settings" }).click()
+    const dialog = page.getByRole("dialog")
+    await expect(dialog.getByText("Agent settings")).toBeVisible()
+
+    // Default assignment: implementer = Claude Code, reviewer = Codex.
+    const implementerCli = dialog.getByRole("combobox", { name: "Implementer agent" })
+    const reviewerCli = dialog.getByRole("combobox", { name: "Reviewer agent" })
+    await expect(implementerCli).toContainText("Claude Code")
+    await expect(reviewerCli).toContainText("Codex")
+
+    // Assign the implementer to Codex. The distinct-CLI invariant moves the
+    // reviewer to Claude Code automatically (one CLI can't hold both roles).
+    await implementerCli.click()
+    await page.getByRole("option", { name: "Codex", exact: true }).click()
+    await expect(implementerCli).toContainText("Codex")
+    await expect(reviewerCli).toContainText("Claude Code")
+
+    // Save: PUT /api/settings, success toast, dialog closes.
+    await dialog.getByRole("button", { name: "Save" }).click()
+    await expect(page.getByText(/Settings saved/i).first()).toBeVisible({ timeout: 15_000 })
+    await expect(dialog).not.toBeVisible()
+
+    // Re-open: the swapped assignment was read back from the store.
+    await page.getByRole("button", { name: "Settings" }).click()
+    const dialog2 = page.getByRole("dialog")
+    await expect(dialog2.getByText("Agent settings")).toBeVisible()
+    await expect(
+      dialog2.getByRole("combobox", { name: "Implementer agent" })
+    ).toContainText("Codex")
+    await expect(
+      dialog2.getByRole("combobox", { name: "Reviewer agent" })
+    ).toContainText("Claude Code")
+
+    // Restore the documented default assignment so the store is clean for others.
+    await dialog2.getByRole("combobox", { name: "Implementer agent" }).click()
+    await page.getByRole("option", { name: "Claude Code", exact: true }).click()
+    await expect(
+      dialog2.getByRole("combobox", { name: "Reviewer agent" })
+    ).toContainText("Codex")
+    await dialog2.getByRole("button", { name: "Save" }).click()
+    await expect(page.getByText(/Settings saved/i).first()).toBeVisible({ timeout: 15_000 })
+    await expect(dialog2).not.toBeVisible()
+  })
 })

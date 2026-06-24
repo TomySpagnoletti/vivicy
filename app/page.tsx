@@ -16,6 +16,7 @@ import {
   type SelectedItem,
 } from "@/components/map/architecture-map"
 import { MapEmptyState } from "@/components/map/map-empty-state"
+import { OnboardingChooser } from "@/components/project/onboarding-chooser"
 import { SetupBar } from "@/components/project/setup-bar"
 import { PanelToggle } from "@/components/sidebar/panel-toggle"
 import { VivicySidebar } from "@/components/sidebar/sidebar"
@@ -36,6 +37,9 @@ export default function Page() {
   const [statusFilter, setStatusFilter] = useState("all")
   const [scopeFilter, setScopeFilter] = useState("all")
   const [selectedRef, setSelectedRef] = useState<SelectedRef | null>(null)
+  // Bumped whenever the current project changes (picker or onboarding scaffold),
+  // so the setup bar re-fetches its project-name affordance.
+  const [projectSignal, setProjectSignal] = useState(0)
   // The right panel is a 3-state toggle (peek -> wide -> closed -> peek). The
   // hook owns the cycle + persistence and derives the shadcn Sidebar's `open`
   // flag and `--sidebar-width` (two open widths).
@@ -159,8 +163,12 @@ export default function Page() {
               user can choose a project before any map exists. Selecting one
               re-fetches the map. */}
           <SetupBar
-            onProjectChanged={() => void loadMap(true)}
+            onProjectChanged={() => {
+              setProjectSignal((n) => n + 1)
+              void loadMap(true)
+            }}
             onAgentsWarning={onAgentsWarning}
+            reloadSignal={projectSignal}
           />
 
           {/* Discreet 3-state toggle on the sidebar's LEFT edge (the boundary
@@ -189,7 +197,19 @@ export default function Page() {
             </CenteredMessage>
           ) : null}
 
-          {state.kind === "empty" ? (
+          {/* No project yet => the R9 two-mode onboarding chooser. A project that
+              IS selected but has no map (no_map / empty_map) keeps the Extract
+              empty state. */}
+          {state.kind === "empty" && state.reason === "no_target" ? (
+            <OnboardingChooser
+              onProjectChanged={() => {
+                setProjectSignal((n) => n + 1)
+                void loadMap(true)
+              }}
+            />
+          ) : null}
+
+          {state.kind === "empty" && state.reason !== "no_target" ? (
             <MapEmptyState
               reason={state.reason}
               onExtract={runExtract}

@@ -43,7 +43,9 @@
     ".next-shot-empty/types/**/*.ts",
     ".next-shot-empty/dev/types/**/*.ts",
     ".next-bootcheck/types/**/*.ts",
-    ".next-bootcheck/dev/types/**/*.ts"
+    ".next-bootcheck/dev/types/**/*.ts",
+    ".next-e2e-onboard/types/**/*.ts",
+    ".next-e2e-onboard/dev/types/**/*.ts"
   ],
   "exclude": [
     "node_modules",

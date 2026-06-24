@@ -23,6 +23,7 @@ import {
   parseQuotaWindows,
   parseResetMs,
   pickNextIssue,
+  resolveAgentLegs,
   runLegWithQuota,
   runLoop,
 } from "./dev-loop.mjs";
@@ -176,6 +177,119 @@ test("defaultRunImplementer / defaultRunReviewer spawn with the model + effort f
     assert.ok(xm !== -1 && codex.argv[xm + 1] === "gpt-5.5-codex");
     const xc = codex.argv.indexOf("-c");
     assert.ok(xc !== -1 && codex.argv[xc + 1] === 'model_reasoning_effort="minimal"');
+  } finally {
+    process.env.PATH = prevPath;
+    if (prevOut === undefined) delete process.env.AGENT_SHIM_OUT;
+    else process.env.AGENT_SHIM_OUT = prevOut;
+    rmSync(shimDir, { recursive: true, force: true });
+  }
+});
+
+// R12: the role -> CLI assignment is configurable from settings (env), and the
+// loop must read it instead of hardcoding implementer=claude / reviewer=codex.
+test("resolveAgentLegs reads the role -> CLI assignment from the env", () => {
+  // Default (no env): implementer=claude, reviewer=codex.
+  const def = resolveAgentLegs({});
+  assert.equal(def.implementer.provider, "claude");
+  assert.equal(def.implementer.actor, "claude");
+  assert.equal(def.implementer.role, "implementer");
+  assert.equal(def.reviewer.provider, "codex");
+  assert.equal(def.reviewer.actor, "codex");
+  assert.equal(def.reviewer.role, "reviewer");
+
+  // Swapped: implementer=codex, reviewer=claude, with each CLI's model/level
+  // following the CLI it is assigned to.
+  const swap = resolveAgentLegs({
+    VIVICY_IMPLEMENTER_CLI: "codex",
+    VIVICY_REVIEWER_CLI: "claude",
+    VIVICY_CLAUDE_EFFORT: "max",
+    VIVICY_CODEX_EFFORT: "minimal",
+  });
+  assert.equal(swap.implementer.provider, "codex");
+  assert.equal(swap.implementer.effort, "minimal"); // codex's level follows codex
+  assert.equal(swap.reviewer.provider, "claude");
+  assert.equal(swap.reviewer.effort, "max"); // claude's level follows claude
+});
+
+test("resolveAgentLegs enforces distinct CLIs (rejects same CLI for both roles)", () => {
+  // Same CLI assigned to both roles: the reviewer is repaired to the other CLI so
+  // a CLI never reviews its own implementation.
+  const dupClaude = resolveAgentLegs({
+    VIVICY_IMPLEMENTER_CLI: "claude",
+    VIVICY_REVIEWER_CLI: "claude",
+  });
+  assert.equal(dupClaude.implementer.provider, "claude");
+  assert.equal(dupClaude.reviewer.provider, "codex");
+  assert.notEqual(dupClaude.implementer.provider, dupClaude.reviewer.provider);
+
+  const dupCodex = resolveAgentLegs({
+    VIVICY_IMPLEMENTER_CLI: "codex",
+    VIVICY_REVIEWER_CLI: "codex",
+  });
+  assert.equal(dupCodex.implementer.provider, "codex");
+  assert.equal(dupCodex.reviewer.provider, "claude");
+  assert.notEqual(dupCodex.implementer.provider, dupCodex.reviewer.provider);
+
+  // An unknown CLI falls back to the role default (never strands the loop).
+  const bogus = resolveAgentLegs({ VIVICY_IMPLEMENTER_CLI: "gemini" });
+  assert.equal(bogus.implementer.provider, "claude");
+  assert.equal(bogus.reviewer.provider, "codex");
+});
+
+// The loop must spawn the CLI ASSIGNED to a role — not a role-fixed CLI. With the
+// roles swapped (implementer=codex, reviewer=claude), the implementer leg must
+// spawn `codex` with the implementer prompt's effort and the reviewer leg must
+// spawn `claude`.
+test("defaultRunImplementer / defaultRunReviewer dispatch to the assigned CLI (roles swapped)", () => {
+  const shimDir = mkdtempSync(resolve(repoRoot, "_tmp-swap-shim-"));
+  const shimRel = relative(repoRoot, shimDir);
+  const argvFile = resolve(shimDir, "argv.json");
+  const shim = (name) =>
+    `#!/usr/bin/env node\n` +
+    `import { appendFileSync } from "node:fs";\n` +
+    `appendFileSync(process.env.AGENT_SHIM_OUT, JSON.stringify({ name: ${JSON.stringify(name)}, argv: process.argv.slice(2) }) + "\\n");\n`;
+  writeFileSync(resolve(shimDir, "claude"), shim("claude"), { mode: 0o755 });
+  writeFileSync(resolve(shimDir, "codex"), shim("codex"), { mode: 0o755 });
+
+  const prevPath = process.env.PATH;
+  const prevOut = process.env.AGENT_SHIM_OUT;
+  process.env.PATH = `${shimDir}:${prevPath}`;
+  process.env.AGENT_SHIM_OUT = argvFile;
+  try {
+    const issue = { id: "ISS-SWAP", graph_refs: ["node:x"] };
+    // Build legs as the loop would from a swapped assignment.
+    const legs = resolveAgentLegs({
+      VIVICY_IMPLEMENTER_CLI: "codex",
+      VIVICY_REVIEWER_CLI: "claude",
+      VIVICY_CODEX_EFFORT: "minimal",
+      VIVICY_CLAUDE_EFFORT: "max",
+    });
+    const cfg = {
+      ...DEFAULT_CONFIG,
+      transcriptsDir: `${shimRel}/transcripts`,
+      implementer: legs.implementer,
+      reviewer: legs.reviewer,
+    };
+    defaultRunImplementer(issue, cfg);
+    defaultRunReviewer(issue, cfg);
+
+    const records = readFileSync(argvFile, "utf8")
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line));
+
+    // The implementer leg spawned CODEX (the assigned CLI) with codex flags.
+    const codex = records.find((r) => r.name === "codex");
+    assert.ok(codex, "implementer leg spawned codex");
+    assert.ok(codex.argv.includes("exec"), "codex invoked in exec mode");
+    const xc = codex.argv.indexOf("-c");
+    assert.ok(xc !== -1 && codex.argv[xc + 1] === 'model_reasoning_effort="minimal"');
+
+    // The reviewer leg spawned CLAUDE (the assigned CLI) with claude flags.
+    const claude = records.find((r) => r.name === "claude");
+    assert.ok(claude, "reviewer leg spawned claude");
+    const ce = claude.argv.indexOf("--effort");
+    assert.ok(ce !== -1 && claude.argv[ce + 1] === "max");
   } finally {
     process.env.PATH = prevPath;
     if (prevOut === undefined) delete process.env.AGENT_SHIM_OUT;

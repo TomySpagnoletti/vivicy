@@ -5,11 +5,17 @@ import { Settings } from "lucide-react"
 import { toast } from "sonner"
 
 import {
+  agentDefaultsFor,
   DEFAULT_SETTINGS,
   EFFORT_LEVELS,
+  isDistinctAssignment,
+  otherProvider,
+  PROVIDER_LABEL,
+  PROVIDERS,
   type AgentSettings,
   type AgentsSettings,
   type Provider,
+  type Role,
 } from "@/lib/settings"
 import { Button } from "@/components/ui/button"
 import {
@@ -33,19 +39,32 @@ import {
 } from "@/components/ui/select"
 
 /** Human label for each agent role shown in the dialog. */
-const ROLE_LABEL: Record<keyof AgentsSettings, string> = {
+const ROLE_LABEL: Record<Role, string> = {
   implementer: "Implementer",
   reviewer: "Reviewer",
 }
 
+/** The opposite role — used to keep the two-CLI assignment distinct. */
+const OTHER_ROLE: Record<Role, Role> = {
+  implementer: "reviewer",
+  reviewer: "implementer",
+}
+
 /**
- * Per-agent model + thinking-level settings dialog.
+ * Agent settings dialog: per-role CLI assignment (R12) plus per-role model and
+ * thinking level (P4).
  *
  * Opens from a gear button in the sidebar header. On open it loads the current
  * settings from `GET /api/settings`; Save persists via `PUT /api/settings` and
- * toasts the result. The model is an editable Input (defaulted to the latest
- * model — the owner can correct it, notably the uncertain Codex id); the
- * thinking level is a Select restricted to each provider's allowed levels.
+ * toasts the result.
+ *
+ * Each role gets a CLI Select (which agent implements / which reviews), a model
+ * Input (defaulted to the assigned CLI's latest model — the owner can correct it),
+ * and a thinking-level Select restricted to the assigned CLI's allowed levels.
+ * The two roles must run DISTINCT CLIs (a CLI can never review its own work):
+ * reassigning one role's CLI moves the other role to the complementary CLI and
+ * resets both to that CLI's defaults, so the form can never hold an invalid
+ * same-CLI-both-roles assignment.
  *
  * `onSaved` lets the parent (e.g. the quota footer) reflect the new labels.
  */
@@ -81,12 +100,29 @@ export function SettingsDialog({
     }
   }, [open])
 
+  // Update one field of one role's agent block (model / effort).
   const updateAgent = useCallback(
-    (role: keyof AgentsSettings, patch: Partial<AgentSettings>) => {
+    (role: Role, patch: Partial<AgentSettings>) => {
       setDraft((prev) => ({ ...prev, [role]: { ...prev[role], ...patch } }))
     },
     []
   )
+
+  // Reassign a role to a different CLI. The two roles must stay distinct, so the
+  // OTHER role is forced to the complementary CLI; both roles reset to their new
+  // CLI's defaults (model + level are CLI-specific). Picking the CLI the role
+  // already has is a no-op.
+  const assignCli = useCallback((role: Role, provider: Provider) => {
+    setDraft((prev) => {
+      if (prev[role].provider === provider) return prev
+      const other = OTHER_ROLE[role]
+      return {
+        ...prev,
+        [role]: agentDefaultsFor(provider),
+        [other]: agentDefaultsFor(otherProvider(provider)),
+      } as AgentsSettings
+    })
+  }, [])
 
   const save = useCallback(async () => {
     setSaving(true)
@@ -109,7 +145,7 @@ export function SettingsDialog({
       setDraft(body.settings)
       onSaved?.(body.settings)
       toast.success("Settings saved", {
-        description: "New runs use the updated models and thinking levels.",
+        description: "New runs use the updated agents, models, and thinking levels.",
       })
       setOpen(false)
     } catch (error) {
@@ -120,6 +156,10 @@ export function SettingsDialog({
       setSaving(false)
     }
   }, [draft, onSaved])
+
+  // Defensive: the assignment helpers keep the two roles distinct, but never let
+  // Save send a same-CLI-both-roles document even if state were forced invalid.
+  const distinct = isDistinctAssignment(draft)
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -132,21 +172,30 @@ export function SettingsDialog({
         <DialogHeader>
           <DialogTitle>Agent settings</DialogTitle>
           <DialogDescription>
-            Both agents always run the latest model; the thinking level is yours to choose.
+            Assign each role to an agent CLI, then pick its thinking level. The
+            implementer and reviewer must be different agents — the reviewer never
+            authored the code.
           </DialogDescription>
         </DialogHeader>
 
         <div className="flex flex-col gap-4">
-          {(Object.keys(ROLE_LABEL) as Array<keyof AgentsSettings>).map((role) => (
+          {(Object.keys(ROLE_LABEL) as Role[]).map((role) => (
             <AgentFields
               key={role}
               role={role}
               agent={draft[role]}
               disabled={loading || saving}
+              onAssignCli={(provider) => assignCli(role, provider)}
               onChange={(patch) => updateAgent(role, patch)}
             />
           ))}
         </div>
+
+        {!distinct ? (
+          <p className="text-xs text-destructive">
+            The implementer and reviewer must run different agents.
+          </p>
+        ) : null}
 
         <DialogFooter>
           <DialogClose asChild>
@@ -154,7 +203,7 @@ export function SettingsDialog({
               Cancel
             </Button>
           </DialogClose>
-          <Button onClick={save} disabled={loading || saving}>
+          <Button onClick={save} disabled={loading || saving || !distinct}>
             {saving ? "Saving…" : "Save"}
           </Button>
         </DialogFooter>
@@ -167,24 +216,40 @@ function AgentFields({
   role,
   agent,
   disabled,
+  onAssignCli,
   onChange,
 }: {
-  role: keyof AgentsSettings
+  role: Role
   agent: AgentSettings
   disabled: boolean
+  onAssignCli: (provider: Provider) => void
   onChange: (patch: Partial<AgentSettings>) => void
 }) {
   const provider: Provider = agent.provider
   const levels = EFFORT_LEVELS[provider]
+  const cliId = `settings-${role}-cli`
   const modelId = `settings-${role}-model`
   const effortId = `settings-${role}-effort`
 
   return (
     <fieldset className="flex flex-col gap-2 border border-border p-3" disabled={disabled}>
-      <legend className="px-1 text-xs font-medium text-foreground">
-        {ROLE_LABEL[role]}
-        <span className="text-muted-foreground"> · {provider}</span>
-      </legend>
+      <legend className="px-1 text-xs font-medium text-foreground">{ROLE_LABEL[role]}</legend>
+
+      <div className="flex flex-col gap-1.5">
+        <Label htmlFor={cliId}>Agent</Label>
+        <Select value={provider} onValueChange={(value) => onAssignCli(value as Provider)}>
+          <SelectTrigger id={cliId} aria-label={`${ROLE_LABEL[role]} agent`}>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {PROVIDERS.map((p) => (
+              <SelectItem key={p} value={p}>
+                {PROVIDER_LABEL[p]}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
 
       <div className="flex flex-col gap-1.5">
         <Label htmlFor={modelId}>Model</Label>

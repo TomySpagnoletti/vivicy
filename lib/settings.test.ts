@@ -5,10 +5,13 @@ import path from "node:path"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 
 import {
+  agentDefaultsFor,
   DEFAULT_SETTINGS,
   EFFORT_LEVELS,
+  isDistinctAssignment,
   isValidEffort,
   normalizeSettings,
+  resolveAssignment,
   settingsToEnv,
 } from "@/lib/settings"
 import { getSettingsPath, readSettings, writeSettings } from "@/lib/settings-store"
@@ -79,18 +82,88 @@ describe("effort validation", () => {
     expect(normalized.reviewer.model).toBe("custom-codex")
   })
 
-  it("normalizeSettings forces the provider per role and fills missing fields", () => {
+  it("normalizeSettings fills missing fields with the assigned CLI's defaults", () => {
     const normalized = normalizeSettings({
-      // Attempt to switch the implementer to codex + drop the reviewer entirely.
+      // Assign the implementer to codex (allowed, R12) with an empty model.
       implementer: { provider: "codex", model: "", effort: "high" },
     })
-    // Provider is fixed per role; an empty model falls back to the default.
-    expect(normalized.implementer.provider).toBe("claude")
-    expect(normalized.implementer.model).toBe(DEFAULT_SETTINGS.implementer.model)
-    // "high" is valid for claude, so it is kept.
+    // The implementer now runs codex; an empty model falls back to codex's default.
+    expect(normalized.implementer.provider).toBe("codex")
+    expect(normalized.implementer.model).toBe("gpt-5.5-codex")
+    // "high" is valid for codex, so it is kept.
     expect(normalized.implementer.effort).toBe("high")
-    // Missing reviewer block => full default.
-    expect(normalized.reviewer).toEqual(DEFAULT_SETTINGS.reviewer)
+    // The reviewer was omitted but defaults to codex, which now collides with the
+    // implementer; the distinct-CLI invariant repairs it to claude with claude's
+    // defaults.
+    expect(normalized.reviewer.provider).toBe("claude")
+    expect(normalized.reviewer.model).toBe("claude-opus-4-8")
+    expect(normalized.reviewer.effort).toBe("xhigh")
+    expect(isDistinctAssignment(normalized)).toBe(true)
+  })
+})
+
+describe("role -> CLI assignment (R12)", () => {
+  it("resolveAssignment keeps a valid distinct assignment", () => {
+    expect(
+      resolveAssignment({
+        implementer: { provider: "codex", model: "x", effort: "high" },
+        reviewer: { provider: "claude", model: "y", effort: "max" },
+      })
+    ).toEqual({ implementer: "codex", reviewer: "claude" })
+  })
+
+  it("resolveAssignment repairs same-CLI-for-both to distinct CLIs", () => {
+    // Both claude -> reviewer repaired to codex.
+    expect(
+      resolveAssignment({
+        implementer: { provider: "claude" },
+        reviewer: { provider: "claude" },
+      })
+    ).toEqual({ implementer: "claude", reviewer: "codex" })
+    // Both codex -> reviewer repaired to claude.
+    expect(
+      resolveAssignment({
+        implementer: { provider: "codex" },
+        reviewer: { provider: "codex" },
+      })
+    ).toEqual({ implementer: "codex", reviewer: "claude" })
+  })
+
+  it("resolveAssignment falls back to defaults for unknown CLIs", () => {
+    expect(resolveAssignment({ implementer: { provider: "gemini" } })).toEqual({
+      implementer: "claude",
+      reviewer: "codex",
+    })
+    expect(resolveAssignment(null)).toEqual({ implementer: "claude", reviewer: "codex" })
+  })
+
+  it("normalizeSettings never lets one CLI hold both roles", () => {
+    const swapped = normalizeSettings({
+      implementer: { provider: "codex", model: "gpt-5.5-codex", effort: "minimal" },
+      reviewer: { provider: "claude", model: "claude-opus-4-8", effort: "max" },
+    })
+    expect(swapped.implementer.provider).toBe("codex")
+    expect(swapped.reviewer.provider).toBe("claude")
+    expect(isDistinctAssignment(swapped)).toBe(true)
+
+    const collided = normalizeSettings({
+      implementer: { provider: "claude", model: "claude-opus-4-8", effort: "high" },
+      reviewer: { provider: "claude", model: "claude-opus-4-8", effort: "max" },
+    })
+    expect(isDistinctAssignment(collided)).toBe(true)
+  })
+
+  it("agentDefaultsFor returns each CLI's latest model + default level", () => {
+    expect(agentDefaultsFor("claude")).toEqual({
+      provider: "claude",
+      model: "claude-opus-4-8",
+      effort: "xhigh",
+    })
+    expect(agentDefaultsFor("codex")).toEqual({
+      provider: "codex",
+      model: "gpt-5.5-codex",
+      effort: "high",
+    })
   })
 })
 
@@ -123,16 +196,31 @@ describe("persistence round-trip", () => {
 })
 
 describe("settingsToEnv", () => {
-  it("maps settings to the dev-loop env vars", () => {
+  it("maps the default assignment to the dev-loop env vars", () => {
     const env = settingsToEnv({
       implementer: { provider: "claude", model: "claude-opus-4-8", effort: "xhigh" },
       reviewer: { provider: "codex", model: "gpt-5.5-codex", effort: "high" },
     })
     expect(env).toEqual({
+      VIVICY_IMPLEMENTER_CLI: "claude",
+      VIVICY_REVIEWER_CLI: "codex",
       VIVICY_CLAUDE_MODEL: "claude-opus-4-8",
       VIVICY_CLAUDE_EFFORT: "xhigh",
       VIVICY_CODEX_MODEL: "gpt-5.5-codex",
       VIVICY_CODEX_EFFORT: "high",
     })
+  })
+
+  it("carries a swapped assignment: each CLI's model/level follows the CLI", () => {
+    // implementer=codex, reviewer=claude. The CLI-keyed env vars must hold each
+    // CLI's own model/level regardless of which role it fills.
+    const env = settingsToEnv({
+      implementer: { provider: "codex", model: "gpt-5.5-codex", effort: "minimal" },
+      reviewer: { provider: "claude", model: "claude-opus-4-8", effort: "max" },
+    })
+    expect(env.VIVICY_IMPLEMENTER_CLI).toBe("codex")
+    expect(env.VIVICY_REVIEWER_CLI).toBe("claude")
+    expect(env.VIVICY_CODEX_EFFORT).toBe("minimal")
+    expect(env.VIVICY_CLAUDE_EFFORT).toBe("max")
   })
 })
