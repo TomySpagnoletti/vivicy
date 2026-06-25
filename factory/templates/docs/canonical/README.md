@@ -13,9 +13,9 @@ This directory is where **you, the project owner, write the product and architec
 ## How the factory uses these docs
 
 1. You write canonical docs and give each a maturity tier (see [Source Of Truth](../governance/01-source-of-truth.md)).
-2. You **freeze and hash** the doc set into a Doc Baseline Lock manifest with `factory/doc-baseline.mjs` (see [Documentation Baseline Lock](../governance/08-doc-baseline-lock.md)).
-3. The semantic issue extraction pipeline reads **only** `docs/canonical/**/*.md` from that frozen baseline to produce the Requirement Catalog, Source Map, Traceability Matrix, vertical issues, and the architecture-map issue index (see [Development Traceability Method](../governance/05-development-traceability-method.md)).
-4. After freeze, every product change enters through [Product Change Control](../governance/06-product-change-control.md) and produces a new frozen baseline — never a silent edit.
+2. You **freeze and hash** the doc set into a Doc Baseline Lock manifest with `factory/doc-baseline.mjs` (see [Documentation Baseline Lock](../governance/05-doc-baseline-lock.md)).
+3. The semantic issue extraction pipeline reads **only** `docs/canonical/**/*.md` from that frozen baseline to produce the Requirement Catalog, Source Map, Traceability Matrix, vertical issues, and the architecture-map issue index (see [Development Traceability Method](../governance/02-development-traceability-method.md)).
+4. After freeze, every product change enters through [Product Change Control](../governance/03-product-change-control.md) and produces a new frozen baseline — never a silent edit.
 
 ## Until you write at least one canonical doc
 

@@ -14,7 +14,7 @@
 
 ## Task Type
 
-<One of: implementation | diagnosis | cleanup | rewrite | review_fix. See "Task Type And Writing Discipline" in `docs/governance/05-development-traceability-method.md` for the per-type behavior. For cleanup/rewrite, state the target simplification pattern — the single authority that must remain and the named complexity to remove — plus the exact user-visible behavior and contracts preserved.>
+<One of: implementation | diagnosis | cleanup | rewrite | review_fix. See "Task Type And Writing Discipline" in `docs/governance/02-development-traceability-method.md` for the per-type behavior. For cleanup/rewrite, state the target simplification pattern — the single authority that must remain and the named complexity to remove — plus the exact user-visible behavior and contracts preserved.>
 
 ## Traceability
 
@@ -47,7 +47,7 @@ reader might assume is included.>
 ## Verification
 
 <Define the tests and gates that PROVE the Scope is fully implemented and
-correct before this issue may be reported complete. The bar is owned by `docs/governance/05-development-traceability-method.md`; restate the specifics for this issue and never lower it:
+correct before this issue may be reported complete. The bar is owned by `docs/governance/02-development-traceability-method.md`; restate the specifics for this issue and never lower it:
 
 - Unit tests covering this issue's governed code to the Code Coverage Gate (100% lines, statements, branches, functions), asserting real behavior, boundaries, authorization, errors, and state transitions — happy paths AND negative, edge, and failure cases, including unusual inputs. Lines executed without behavioral assertions do not count.
 - Integration tests using the real components the Anti-Cheating Rules forbid faking (stateful mutations, provider integrations, lifecycle behavior, secrets, persistent state, isolation boundaries), at the highest Adaptive E2E Ladder level available for this area (L2+ DB-backed, contract).

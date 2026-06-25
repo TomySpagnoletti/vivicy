@@ -25,8 +25,8 @@ Use this order when documents appear to overlap. Product and architecture extrac
 2. `AGENTS.md` is the development agent entrypoint and execution rule wrapper. It must stay aligned with this hierarchy and must not override product or architecture truth.
 3. `README.md` summarizes product identity, operating model, and reading order.
 4. `docs/governance/01-source-of-truth.md` defines documentation governance and maturity rules.
-5. `docs/governance/08-doc-baseline-lock.md` governs the versioned and hashed canonical documentation baseline lock used before extraction and implementation.
-6. `docs/governance/06-product-change-control.md` governs post-freeze ideas and controlled canonical-baseline evolution.
+5. `docs/governance/05-doc-baseline-lock.md` governs the versioned and hashed canonical documentation baseline lock used before extraction and implementation.
+6. `docs/governance/03-product-change-control.md` governs post-freeze ideas and controlled canonical-baseline evolution.
 7. `docs/architecture-map/architecture-map.yml` is a derived machine-readable architecture and development-progress index. It indexes the canonical product docs with `source_refs`; if it conflicts with a cited canonical document or executable artifact, the cited source wins and the map must be corrected.
 8. Evidence/spike documents are records, not truth. They resolve doubts only after the accepted decision is written back into the affected canonical product document.
 9. Once implementation starts, generated schemas, database migrations, infrastructure modules, and tested commands become the executable source of truth for their layer.
@@ -44,13 +44,13 @@ Method-level decisions that are true for every project built with this factory:
 - The product brand/name constant is fixed in the codebase, not configurable runtime state. Anything an end user can change is never hardcoded.
 - After a documentation freeze, owner ideas and product changes enter through Product Change Requests. Raw ideas must not directly change active implementation scope.
 - Documentation freeze is locked by a Doc Baseline Lock manifest generated and verified by `factory/doc-baseline.mjs`. Implementation must not run from a draft manifest or from docs whose hashes do not match the active frozen manifest.
-- Development uses the traceability method defined in `docs/governance/05-development-traceability-method.md`: frozen baseline, Requirement Catalog, Source Map, Traceability Matrix, vertical issues, gate-first TDD, adaptive local and pre-production/integration verification gates, traceability coverage report, and coherent green commit checkpoints.
-- Code coverage policy is defined in `docs/governance/05-development-traceability-method.md`, including required counters, thresholds, exclusions, and anti-cheating rules.
+- Development uses the traceability method defined in `docs/governance/02-development-traceability-method.md`: frozen baseline, Requirement Catalog, Source Map, Traceability Matrix, vertical issues, gate-first TDD, adaptive local and pre-production/integration verification gates, traceability coverage report, and coherent green commit checkpoints.
+- Code coverage policy is defined in `docs/governance/02-development-traceability-method.md`, including required counters, thresholds, exclusions, and anti-cheating rules.
 - Implementation must not create a parallel `spec.md -> plan.md -> tasks.md` pipeline or any second source-of-truth authority alongside the canonical baseline and the traceability artifacts.
 - The development agent must manage its own branch or worktree, commits, pushes, validation evidence, and traceability updates autonomously when credentials and remote configuration allow it.
 - Release-quality proof requires pre-production / integration gates for changes that touch deployable runtime behavior, infrastructure, external provider integrations, isolation boundaries, secrets, or persistent state. Local validation alone is not release-quality proof for those areas.
 - Performance budgets are first-class verification contracts. Exact thresholds must come from this project's requirements, evidence, or measured baselines, not another project's numbers.
-- The first development launch prompt lives in `docs/governance/07-development-launch-prompt.md`. It is a prompt wrapper around the traceability method, not a second source of truth.
+- The first development launch prompt lives in `docs/governance/04-development-launch-prompt.md`. It is a prompt wrapper around the traceability method, not a second source of truth.
 
 ## Canonical Decision Homes
 
@@ -60,11 +60,11 @@ When a decision appears in several places, keep the full rule in one canonical h
 |---|---|
 | Machine-readable architecture and progress graph artifact | `docs/architecture-map/architecture-map.yml` |
 | Development agent operating guide | `AGENTS.md` |
-| Documentation-to-code traceability and development method | `docs/governance/05-development-traceability-method.md` |
-| Documentation baseline versioning and hash lock | `docs/governance/08-doc-baseline-lock.md` |
-| Code coverage gates | `docs/governance/05-development-traceability-method.md` |
-| Development launch prompt | `docs/governance/07-development-launch-prompt.md` |
-| Post-freeze product ideas and Change Requests | `docs/governance/06-product-change-control.md` |
+| Documentation-to-code traceability and development method | `docs/governance/02-development-traceability-method.md` |
+| Documentation baseline versioning and hash lock | `docs/governance/05-doc-baseline-lock.md` |
+| Code coverage gates | `docs/governance/02-development-traceability-method.md` |
+| Development launch prompt | `docs/governance/04-development-launch-prompt.md` |
+| Post-freeze product ideas and Change Requests | `docs/governance/03-product-change-control.md` |
 | <product decision> | `docs/canonical/<file>.md` |
 
 ## Document Maturity Vocabulary
@@ -132,9 +132,9 @@ If a coding agent needs to proceed without this conversation, it must first read
 2. `README.md`
 3. `docs/governance/01-source-of-truth.md`
 4. the canonical implementation-contract document(s) the owner designates as the primary stack/architecture entrypoint
-5. `docs/governance/05-development-traceability-method.md`
-6. `docs/governance/08-doc-baseline-lock.md`
-7. `docs/governance/06-product-change-control.md`
-8. `docs/governance/07-development-launch-prompt.md`
+5. `docs/governance/02-development-traceability-method.md`
+6. `docs/governance/05-doc-baseline-lock.md`
+7. `docs/governance/03-product-change-control.md`
+8. `docs/governance/04-development-launch-prompt.md`
 
 This boot list is the single authoritative pre-development reading order. It is a minimal boot subset of the Documentation Operating Hierarchy above, which remains the full precedence order; `AGENTS.md` and `README.md` must point here instead of maintaining competing ordered lists.

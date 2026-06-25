@@ -98,7 +98,7 @@ baseline-v<version>-draft
 
 The tool rejects baseline IDs outside this format and rejects a `-draft` suffix on a non-draft manifest. Manifests stored in `docs/baselines/` must be named `<baseline_id>.json`. The format is repository-agnostic — the product name is not repeated in the ID, since the manifest already lives in a project-named git repository.
 
-Pre-1.0 rule: a `0.y.z` baseline is bootstrap-era. It may be frozen to exercise and govern the lock mechanism itself, but the first frozen baseline used for {{PROJECT_NAME}} product requirement extraction and implementation must be version `1.0.0` or higher, matching the `v1.0.0` example IDs in this document and in [Development Traceability Method](05-development-traceability-method.md). This deliberately overrides SemVer's "anything may change" reading of 0.x for the lock: a frozen 0.x manifest is still immutable, but it is not a valid implementation extraction source. From `1.0.0` on, the MAJOR/MINOR/PATCH rules above apply as written.
+Pre-1.0 rule: a `0.y.z` baseline is bootstrap-era. It may be frozen to exercise and govern the lock mechanism itself, but the first frozen baseline used for {{PROJECT_NAME}} product requirement extraction and implementation must be version `1.0.0` or higher, matching the `v1.0.0` example IDs in this document and in [Development Traceability Method](02-development-traceability-method.md). This deliberately overrides SemVer's "anything may change" reading of 0.x for the lock: a frozen 0.x manifest is still immutable, but it is not a valid implementation extraction source. From `1.0.0` on, the MAJOR/MINOR/PATCH rules above apply as written.
 
 ## Included Sources
 

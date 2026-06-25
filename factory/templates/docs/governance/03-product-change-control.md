@@ -62,7 +62,7 @@ The Change Request registry is not the implementation backlog. A CR becomes impl
 
 ## Registry Validation
 
-CR registry validation is a named step inside `semantic-extraction:check` ([Development Traceability Method](05-development-traceability-method.md)), not a separate validator tool. When the check runs, it must fail on any CR file with:
+CR registry validation is a named step inside `semantic-extraction:check` ([Development Traceability Method](02-development-traceability-method.md)), not a separate validator tool. When the check runs, it must fail on any CR file with:
 
 - a filename/frontmatter ID mismatch or a non-sequential `CR-####` ID;
 - a status or classification outside the allowed enums;
@@ -346,4 +346,4 @@ Accepted CRs must create or update:
 - verification gates;
 - and, when relevant, evidence spike records.
 
-The implementation method remains defined in [Development Traceability Method](05-development-traceability-method.md). This document only defines how new product ideas enter that method after the baseline is frozen.
+The implementation method remains defined in [Development Traceability Method](02-development-traceability-method.md). This document only defines how new product ideas enter that method after the baseline is frozen.

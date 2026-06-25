@@ -115,10 +115,10 @@ describe("scaffoldProject", () => {
       "test/scaffold.test.js",
       "docs/canonical/README.md",
       "docs/governance/01-source-of-truth.md",
-      "docs/governance/05-development-traceability-method.md",
-      "docs/governance/06-product-change-control.md",
-      "docs/governance/07-development-launch-prompt.md",
-      "docs/governance/08-doc-baseline-lock.md",
+      "docs/governance/02-development-traceability-method.md",
+      "docs/governance/03-product-change-control.md",
+      "docs/governance/04-development-launch-prompt.md",
+      "docs/governance/05-doc-baseline-lock.md",
       "spec/development/ISSUE-TEMPLATE.md",
     ]
     for (const rel of expectedFiles) {
@@ -144,7 +144,7 @@ describe("scaffoldProject", () => {
 
     // No Naight-product terms leaked into the generic governance output.
     const method = readFileSync(
-      path.join(target, "docs/governance/05-development-traceability-method.md"),
+      path.join(target, "docs/governance/02-development-traceability-method.md"),
       "utf8"
     )
     expect(method).not.toMatch(/\bNaight\b/i)

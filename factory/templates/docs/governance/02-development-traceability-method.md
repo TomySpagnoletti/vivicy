@@ -94,18 +94,18 @@ Freeze does not mean the documentation can never change. It means:
 - requirement extraction is performed against that baseline;
 - later doc changes create requirement changes instead of silently changing the build target.
 
-The baseline lock process is defined in [Documentation Baseline Lock](08-doc-baseline-lock.md). The only repository-owned lock command is:
+The baseline lock process is defined in [Documentation Baseline Lock](05-doc-baseline-lock.md). The only repository-owned lock command is:
 
 ```text
 node factory/doc-baseline.mjs generate --version <MAJOR.MINOR.PATCH> --status frozen --approved-by <approving-actor> --approval-ref <recorded-approval-reference> --out docs/baselines/<baseline_id>.json
 node factory/doc-baseline.mjs verify --manifest docs/baselines/<baseline_id>.json --require-status frozen
 ```
 
-A freeze requires a clean committed tree and recorded owner-approval evidence; the tool refuses otherwise ([Documentation Baseline Lock](08-doc-baseline-lock.md), Freeze Preconditions).
+A freeze requires a clean committed tree and recorded owner-approval evidence; the tool refuses otherwise ([Documentation Baseline Lock](05-doc-baseline-lock.md), Freeze Preconditions).
 
 The active implementation baseline must be `status='frozen'` without a supersession marker. A `draft` manifest can be used only to test or review the locking mechanism.
 
-If the owner changes the docs after extraction, the change must go through [Product Change Control](06-product-change-control.md), a new baseline must be generated when the CR changes canonical docs, the Requirement Catalog must be updated, and the traceability report must show what changed.
+If the owner changes the docs after extraction, the change must go through [Product Change Control](03-product-change-control.md), a new baseline must be generated when the CR changes canonical docs, the Requirement Catalog must be updated, and the traceability report must show what changed.
 
 ## Requirement Catalog
 
@@ -731,7 +731,7 @@ Do not use mock-only proof for stateful mutations, provider integrations, lifecy
 Do not split tests and implementation into two competing interpretations of the requirement.
 ```
 
-Post-freeze product ideas must not be folded into an implementation issue directly. They must first pass through [Product Change Control](06-product-change-control.md). Only an accepted current-build Change Request can update active issue scope, traceability rows, or verification gates.
+Post-freeze product ideas must not be folded into an implementation issue directly. They must first pass through [Product Change Control](03-product-change-control.md). Only an accepted current-build Change Request can update active issue scope, traceability rows, or verification gates.
 
 ### Definition Of Done
 
@@ -1132,7 +1132,7 @@ Progress reporting is hook-driven for determinism rather than trusting an agent 
 
 Apply this method directly: challenge unclear requirements against the canonical docs and domain language, break requirement groups into vertical implementation issues, implement each issue gate-first with behavior tests, and diagnose any gate that fails. Requirement and issue generation is bound exclusively to the canonical semantic issue extraction process defined below — the `semantic-extraction:write` LLM extraction step controlled by the deterministic `semantic-extraction:check` and `traceability:check` commands and the LLM fidelity review — and no parallel path may become a second extraction authority.
 
-The first development prompt for launching this work is maintained in [Development Launch Prompt](07-development-launch-prompt.md). It is a starting prompt for the coding agent, not a second source of truth. If it conflicts with this method, this method wins.
+The first development prompt for launching this work is maintained in [Development Launch Prompt](04-development-launch-prompt.md). It is a starting prompt for the coding agent, not a second source of truth. If it conflicts with this method, this method wins.
 
 ## Semantic Issue Extraction Process
 
@@ -1202,7 +1202,7 @@ Change Request handling is status-aware:
 - CRs with status `accepted_future` are future options and must not generate current-build issues.
 - CRs with status `idea`, `under_review`, `rejected`, `superseded`, or any unknown status are registry/context/non-goal material for the active build and must not generate current-build issues.
 - If a generated current-build requirement is sourced only from a CR instance file, `semantic-extraction:check` must fail.
-- `semantic-extraction:check` must also run the CR Registry Validation rules defined in [Product Change Control](06-product-change-control.md) and fail on any invalid CR file.
+- `semantic-extraction:check` must also run the CR Registry Validation rules defined in [Product Change Control](03-product-change-control.md) and fail on any invalid CR file.
 
 `semantic-extraction:check` must produce:
 
