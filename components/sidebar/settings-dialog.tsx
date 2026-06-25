@@ -1,20 +1,23 @@
 "use client"
 
 import { useCallback, useEffect, useState } from "react"
-import { Settings } from "lucide-react"
+import { Settings, Zap } from "lucide-react"
 import { toast } from "sonner"
 
 import {
   agentDefaultsFor,
   clampMaxParallel,
   DEFAULT_SETTINGS,
-  EFFORT_LEVELS,
-  isDistinctAssignment,
+  effortsForModel,
+  isSettingsValid,
   MAX_PARALLEL,
   MIN_PARALLEL,
+  MODEL_IDS,
+  modelSupportsFast,
   otherProvider,
   PROVIDER_LABEL,
   PROVIDERS,
+  withModel,
   type AgentSettings,
   type AgentsSettings,
   type Provider,
@@ -40,6 +43,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { Switch } from "@/components/ui/switch"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 
 /** Human label for each agent role shown in the dialog. */
 const ROLE_LABEL: Record<Role, string> = {
@@ -54,20 +64,21 @@ const OTHER_ROLE: Record<Role, Role> = {
 }
 
 /**
- * Agent settings dialog: per-role CLI assignment (R12) plus per-role model and
- * thinking level (P4).
+ * Agent settings dialog: per-role CLI assignment (R12) plus per-role model, thinking
+ * level, and fast mode (P4) — with STRICT per-model compatibility.
  *
  * Opens from a gear button in the sidebar header. On open it loads the current
  * settings from `GET /api/settings`; Save persists via `PUT /api/settings` and
  * toasts the result.
  *
- * Each role gets a CLI Select (which agent implements / which reviews), a model
- * Input (defaulted to the assigned CLI's latest model — the owner can correct it),
- * and a thinking-level Select restricted to the assigned CLI's allowed levels.
- * The two roles must run DISTINCT CLIs (a CLI can never review its own work):
- * reassigning one role's CLI moves the other role to the complementary CLI and
- * resets both to that CLI's defaults, so the form can never hold an invalid
- * same-CLI-both-roles assignment.
+ * Each role gets a CLI Select, a MODEL Select (the curated last-4 list for the
+ * assigned CLI — plus the persisted model as an extra option if it is custom), a
+ * thinking-level Select restricted to THAT MODEL's allowed levels (hidden when the
+ * model has no reasoning control), and a Fast switch enabled ONLY for a model+CLI
+ * that genuinely supports fast on the headless run. The two roles must run DISTINCT
+ * CLIs (a CLI can never review its own work). Save is disabled on any invalid
+ * combination; the schema validators are the source of truth and the form mirrors
+ * them so an impossible combo is never even submitted.
  *
  * `onSaved` lets the parent (e.g. the quota footer) reflect the new labels.
  */
@@ -103,13 +114,16 @@ export function SettingsDialog({
     }
   }, [open])
 
-  // Update one field of one role's agent block (model / effort).
-  const updateAgent = useCallback(
-    (role: Role, patch: Partial<AgentSettings>) => {
-      setDraft((prev) => ({ ...prev, [role]: { ...prev[role], ...patch } }))
-    },
-    []
-  )
+  // Update one field of one role's agent block (effort / fast).
+  const updateAgent = useCallback((role: Role, patch: Partial<AgentSettings>) => {
+    setDraft((prev) => ({ ...prev, [role]: { ...prev[role], ...patch } }))
+  }, [])
+
+  // Change a role's model. The effort + fast flag are re-coerced to the new model
+  // (withModel) so the form can never hold an incompatible model+effort/fast combo.
+  const setModel = useCallback((role: Role, model: string) => {
+    setDraft((prev) => ({ ...prev, [role]: withModel(prev[role], model) }))
+  }, [])
 
   // Set the max parallel issues knob, clamped to [MIN_PARALLEL, MAX_PARALLEL].
   const setMaxParallel = useCallback((value: number) => {
@@ -118,8 +132,8 @@ export function SettingsDialog({
 
   // Reassign a role to a different CLI. The two roles must stay distinct, so the
   // OTHER role is forced to the complementary CLI; both roles reset to their new
-  // CLI's defaults (model + level are CLI-specific). Picking the CLI the role
-  // already has is a no-op.
+  // CLI's defaults (model + level + fast are CLI-specific). Picking the CLI the
+  // role already has is a no-op.
   const assignCli = useCallback((role: Role, provider: Provider) => {
     setDraft((prev) => {
       if (prev[role].provider === provider) return prev
@@ -153,7 +167,7 @@ export function SettingsDialog({
       setDraft(body.settings)
       onSaved?.(body.settings)
       toast.success("Settings saved", {
-        description: "New runs use the updated agents, models, and thinking levels.",
+        description: "New runs use the updated agents, models, thinking levels, and fast mode.",
       })
       setOpen(false)
     } catch (error) {
@@ -165,9 +179,11 @@ export function SettingsDialog({
     }
   }, [draft, onSaved])
 
-  // Defensive: the assignment helpers keep the two roles distinct, but never let
-  // Save send a same-CLI-both-roles document even if state were forced invalid.
-  const distinct = isDistinctAssignment(draft)
+  // The schema validators are the source of truth: Save is disabled unless the two
+  // roles are distinct AND every role block is internally compatible (effort valid
+  // for its model, fast only on a fast-capable model).
+  const valid = isSettingsValid(draft)
+  const distinct = draft.implementer.provider !== draft.reviewer.provider
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -180,46 +196,52 @@ export function SettingsDialog({
         <DialogHeader>
           <DialogTitle>Agent settings</DialogTitle>
           <DialogDescription>
-            Assign each role to an agent CLI, then pick its thinking level. The
-            implementer and reviewer must be different agents — the reviewer never
-            authored the code.
+            Assign each role to an agent CLI, pick its model and thinking level, and
+            optionally turn on fast inference. The implementer and reviewer must be
+            different agents — the reviewer never authored the code.
           </DialogDescription>
         </DialogHeader>
 
-        <div className="flex flex-col gap-4">
-          {(Object.keys(ROLE_LABEL) as Role[]).map((role) => (
-            <AgentFields
-              key={role}
-              role={role}
-              agent={draft[role]}
-              disabled={loading || saving}
-              onAssignCli={(provider) => assignCli(role, provider)}
-              onChange={(patch) => updateAgent(role, patch)}
-            />
-          ))}
-
-          <fieldset className="flex flex-col gap-2 border border-border p-3" disabled={loading || saving}>
-            <legend className="px-1 text-xs font-medium text-foreground">Concurrency</legend>
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="settings-max-parallel">Max parallel issues</Label>
-              <Input
-                id="settings-max-parallel"
-                type="number"
-                inputMode="numeric"
-                min={MIN_PARALLEL}
-                max={MAX_PARALLEL}
-                step={1}
-                value={draft.maxParallel}
-                onChange={(event) => setMaxParallel(Number(event.target.value))}
-                aria-describedby="settings-max-parallel-help"
+        <TooltipProvider>
+          <div className="flex flex-col gap-4">
+            {(Object.keys(ROLE_LABEL) as Role[]).map((role) => (
+              <AgentFields
+                key={role}
+                role={role}
+                agent={draft[role]}
+                disabled={loading || saving}
+                onAssignCli={(provider) => assignCli(role, provider)}
+                onModel={(model) => setModel(role, model)}
+                onChange={(patch) => updateAgent(role, patch)}
               />
-              <p id="settings-max-parallel-help" className="text-xs text-muted-foreground">
-                Independent issues run at once, each in its own git worktree (1 =
-                sequential). Dependent issues always wait their turn.
-              </p>
-            </div>
-          </fieldset>
-        </div>
+            ))}
+
+            <fieldset
+              className="flex flex-col gap-2 border border-border p-3"
+              disabled={loading || saving}
+            >
+              <legend className="px-1 text-xs font-medium text-foreground">Concurrency</legend>
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="settings-max-parallel">Max parallel issues</Label>
+                <Input
+                  id="settings-max-parallel"
+                  type="number"
+                  inputMode="numeric"
+                  min={MIN_PARALLEL}
+                  max={MAX_PARALLEL}
+                  step={1}
+                  value={draft.maxParallel}
+                  onChange={(event) => setMaxParallel(Number(event.target.value))}
+                  aria-describedby="settings-max-parallel-help"
+                />
+                <p id="settings-max-parallel-help" className="text-xs text-muted-foreground">
+                  Independent issues run at once, each in its own git worktree (1 =
+                  sequential). Dependent issues always wait their turn.
+                </p>
+              </div>
+            </fieldset>
+          </div>
+        </TooltipProvider>
 
         {!distinct ? (
           <p className="text-xs text-destructive">
@@ -233,7 +255,7 @@ export function SettingsDialog({
               Cancel
             </Button>
           </DialogClose>
-          <Button onClick={save} disabled={loading || saving || !distinct}>
+          <Button onClick={save} disabled={loading || saving || !valid}>
             {saving ? "Saving…" : "Save"}
           </Button>
         </DialogFooter>
@@ -247,19 +269,32 @@ function AgentFields({
   agent,
   disabled,
   onAssignCli,
+  onModel,
   onChange,
 }: {
   role: Role
   agent: AgentSettings
   disabled: boolean
   onAssignCli: (provider: Provider) => void
+  onModel: (model: string) => void
   onChange: (patch: Partial<AgentSettings>) => void
 }) {
   const provider: Provider = agent.provider
-  const levels = EFFORT_LEVELS[provider]
   const cliId = `settings-${role}-cli`
   const modelId = `settings-${role}-model`
   const effortId = `settings-${role}-effort`
+  const fastId = `settings-${role}-fast`
+
+  // The curated list for this CLI, plus the persisted model as an extra option when
+  // it is custom (not in the list) — so a hand-set model never disappears.
+  const listed = MODEL_IDS[provider]
+  const modelOptions = listed.includes(agent.model) ? listed : [agent.model, ...listed]
+
+  // Strict per-MODEL compatibility drives the rest of the controls.
+  const levels = effortsForModel(provider, agent.model)
+  const hasEffort = levels.length > 0
+  const fastOk = modelSupportsFast(provider, agent.model)
+  const fastDisabledReason = fastReason(provider, agent.model, fastOk)
 
   return (
     <fieldset className="flex flex-col gap-2 border border-border p-3" disabled={disabled}>
@@ -283,33 +318,91 @@ function AgentFields({
 
       <div className="flex flex-col gap-1.5">
         <Label htmlFor={modelId}>Model</Label>
-        <Input
-          id={modelId}
-          value={agent.model}
-          spellCheck={false}
-          autoComplete="off"
-          onChange={(event) => onChange({ model: event.target.value })}
-        />
-      </div>
-
-      <div className="flex flex-col gap-1.5">
-        <Label htmlFor={effortId}>Thinking level</Label>
-        <Select
-          value={agent.effort}
-          onValueChange={(value) => onChange({ effort: value })}
-        >
-          <SelectTrigger id={effortId} aria-label={`${ROLE_LABEL[role]} thinking level`}>
+        <Select value={agent.model} onValueChange={(value) => onModel(value)}>
+          <SelectTrigger id={modelId} aria-label={`${ROLE_LABEL[role]} model`}>
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            {levels.map((level) => (
-              <SelectItem key={level} value={level}>
-                {level}
+            {modelOptions.map((id) => (
+              <SelectItem key={id} value={id}>
+                {id}
+                {!listed.includes(id) ? " (custom)" : ""}
               </SelectItem>
             ))}
           </SelectContent>
         </Select>
       </div>
+
+      {hasEffort ? (
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor={effortId}>Thinking level</Label>
+          <Select value={agent.effort} onValueChange={(value) => onChange({ effort: value })}>
+            <SelectTrigger id={effortId} aria-label={`${ROLE_LABEL[role]} thinking level`}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {levels.map((level) => (
+                <SelectItem key={level} value={level}>
+                  {level}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      ) : (
+        <p className="text-xs text-muted-foreground">
+          {agent.model} has no separate thinking level — it runs at a fixed,
+          low-latency reasoning setting.
+        </p>
+      )}
+
+      <div className="flex items-start justify-between gap-3 pt-1">
+        <div className="flex flex-col gap-0.5">
+          <Label htmlFor={fastId} className="flex items-center gap-1.5">
+            <Zap className="size-3.5" aria-hidden="true" />
+            Fast mode
+          </Label>
+          <p className="text-xs text-muted-foreground">
+            Faster inference — consumes the quota much faster.
+          </p>
+        </div>
+        {fastOk ? (
+          <Switch
+            id={fastId}
+            checked={agent.fast}
+            onCheckedChange={(checked) => onChange({ fast: checked === true })}
+            aria-label={`${ROLE_LABEL[role]} fast mode`}
+          />
+        ) : (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              {/* A disabled switch swallows pointer events, so wrap it to keep the
+                  tooltip reachable on hover/focus. */}
+              <span tabIndex={0} className="inline-flex" aria-label={`${ROLE_LABEL[role]} fast mode unavailable`}>
+                <Switch
+                  id={fastId}
+                  checked={false}
+                  disabled
+                  aria-label={`${ROLE_LABEL[role]} fast mode`}
+                />
+              </span>
+            </TooltipTrigger>
+            <TooltipContent>{fastDisabledReason}</TooltipContent>
+          </Tooltip>
+        )}
+      </div>
     </fieldset>
   )
+}
+
+/** Honest, specific reason a model+CLI cannot offer fast mode. */
+function fastReason(provider: Provider, model: string, fastOk: boolean): string {
+  if (fastOk) return ""
+  if (provider === "codex" && model === "gpt-5.3-codex-spark") {
+    return "Spark is already a low-latency model — fast mode does not apply."
+  }
+  if (provider === "claude") {
+    return `Fast mode is only available on Opus 4.6–4.8. ${model} does not support it.`
+  }
+  return `${model} does not support fast mode.`
 }

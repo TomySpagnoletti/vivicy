@@ -7,12 +7,20 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import {
   agentDefaultsFor,
   DEFAULT_SETTINGS,
+  effortsForModel,
   EFFORT_LEVELS,
+  isAgentCompatible,
   isDistinctAssignment,
+  isSettingsValid,
   isValidEffort,
+  modelCapability,
+  modelSupportsFast,
+  MODEL_IDS,
+  MODELS,
   normalizeSettings,
   resolveAssignment,
   settingsToEnv,
+  withModel,
 } from "@/lib/settings"
 import { getSettingsPath, readSettings, writeSettings } from "@/lib/settings-store"
 
@@ -32,16 +40,18 @@ afterEach(() => {
 })
 
 describe("defaults", () => {
-  it("pins the latest models with the documented default thinking levels", () => {
+  it("pins the latest models with the documented default thinking levels and fast off", () => {
     expect(DEFAULT_SETTINGS.implementer).toEqual({
       provider: "claude",
       model: "claude-opus-4-8",
       effort: "xhigh",
+      fast: false,
     })
     expect(DEFAULT_SETTINGS.reviewer).toEqual({
       provider: "codex",
       model: "gpt-5.5",
       effort: "high",
+      fast: false,
     })
   })
 
@@ -49,56 +59,161 @@ describe("defaults", () => {
     expect(existsSync(getSettingsPath())).toBe(false)
     expect(readSettings()).toEqual(DEFAULT_SETTINGS)
   })
+
+  it("each CLI's default model is the first in its curated list", () => {
+    expect(MODEL_IDS.claude[0]).toBe("claude-opus-4-8")
+    expect(MODEL_IDS.codex[0]).toBe("gpt-5.5")
+    // Last ~4 versions per CLI.
+    expect(MODEL_IDS.claude).toHaveLength(4)
+    expect(MODEL_IDS.codex).toHaveLength(4)
+  })
 })
 
-describe("effort validation", () => {
-  it("accepts only each provider's allowed levels", () => {
-    // Claude levels.
+describe("per-model compatibility map", () => {
+  it("declares the researched models with the right effort + fast support", () => {
+    // Claude Opus line: full effort range; fast on 4.6/4.7/4.8 only.
+    expect(modelCapability("claude", "claude-opus-4-8")).toEqual({
+      efforts: EFFORT_LEVELS.claude,
+      fast: true,
+    })
+    expect(modelSupportsFast("claude", "claude-opus-4-8")).toBe(true)
+    expect(modelSupportsFast("claude", "claude-opus-4-7")).toBe(true)
+    expect(modelSupportsFast("claude", "claude-opus-4-6")).toBe(true)
+    // Older Opus: no fast.
+    expect(modelSupportsFast("claude", "claude-opus-4-5")).toBe(false)
+
+    // Codex: gpt-5.5 + gpt-5.4 support fast; mini does not; spark is speed-first
+    // with NO reasoning levels and no fast.
+    expect(modelSupportsFast("codex", "gpt-5.5")).toBe(true)
+    expect(modelSupportsFast("codex", "gpt-5.4")).toBe(true)
+    expect(modelSupportsFast("codex", "gpt-5.4-mini")).toBe(false)
+    expect(modelSupportsFast("codex", "gpt-5.3-codex-spark")).toBe(false)
+    expect(effortsForModel("codex", "gpt-5.3-codex-spark")).toEqual([])
+  })
+
+  it("every listed model declares a self-consistent capability", () => {
+    for (const provider of ["claude", "codex"] as const) {
+      for (const { id, capability } of MODELS[provider]) {
+        // efforts is the model's own allowed set (subset of the CLI union).
+        for (const level of capability.efforts) {
+          expect(EFFORT_LEVELS[provider]).toContain(level)
+        }
+        // modelSupportsFast mirrors the capability flag for a listed model.
+        expect(modelSupportsFast(provider, id)).toBe(capability.fast)
+      }
+    }
+  })
+
+  it("treats a custom (unlisted) model as fast-incapable but keeps a usable effort set", () => {
+    expect(modelCapability("claude", "claude-experimental-x")).toBeNull()
+    // Custom model: fast off (we never vouch for an unknown model's fast support).
+    expect(modelSupportsFast("claude", "claude-experimental-x")).toBe(false)
+    // But effort falls back to the CLI union so it is never stranded.
+    expect(effortsForModel("claude", "claude-experimental-x")).toEqual(EFFORT_LEVELS.claude)
+  })
+})
+
+describe("effort validation (per model)", () => {
+  it("accepts only the levels the SELECTED model allows", () => {
+    // Claude opus accepts the full claude set.
     for (const level of EFFORT_LEVELS.claude) {
-      expect(isValidEffort("claude", level)).toBe(true)
+      expect(isValidEffort("claude", "claude-opus-4-8", level)).toBe(true)
     }
-    expect(isValidEffort("claude", "minimal")).toBe(false) // codex-only level
-    expect(isValidEffort("claude", "extreme")).toBe(false)
-    expect(isValidEffort("claude", 5)).toBe(false)
+    expect(isValidEffort("claude", "claude-opus-4-8", "minimal")).toBe(false) // codex-only
+    expect(isValidEffort("claude", "claude-opus-4-8", "extreme")).toBe(false)
+    expect(isValidEffort("claude", "claude-opus-4-8", 5)).toBe(false)
 
-    // Codex levels.
+    // Codex frontier model accepts the codex set (incl. xhigh).
     for (const level of EFFORT_LEVELS.codex) {
-      expect(isValidEffort("codex", level)).toBe(true)
+      expect(isValidEffort("codex", "gpt-5.5", level)).toBe(true)
     }
-    expect(isValidEffort("codex", "xhigh")).toBe(false) // claude-only level
-    expect(isValidEffort("codex", "max")).toBe(false)
+    expect(isValidEffort("codex", "gpt-5.5", "max")).toBe(false) // claude-only
+
+    // Spark has NO reasoning levels: nothing is valid.
+    expect(isValidEffort("codex", "gpt-5.3-codex-spark", "high")).toBe(false)
+    expect(isValidEffort("codex", "gpt-5.3-codex-spark", "")).toBe(false)
   })
 
-  it("normalizeSettings rejects an invalid effort and keeps the role default", () => {
+  it("normalizeSettings rejects an incompatible model+effort and repairs to the model default", () => {
     const normalized = normalizeSettings({
-      implementer: { provider: "claude", model: "custom-claude", effort: "extreme" },
-      reviewer: { provider: "codex", model: "custom-codex", effort: "minimal" },
+      implementer: { provider: "claude", model: "claude-opus-4-8", effort: "extreme" },
+      reviewer: { provider: "codex", model: "gpt-5.5", effort: "minimal" },
     })
-    // Bad effort falls back to the default; a valid one is kept. The user-set
-    // model is preserved (always-latest is a default, not a lock).
+    // Bad effort falls back to the model default; a valid one is kept.
     expect(normalized.implementer.effort).toBe(DEFAULT_SETTINGS.implementer.effort)
-    expect(normalized.implementer.model).toBe("custom-claude")
+    expect(normalized.implementer.model).toBe("claude-opus-4-8")
     expect(normalized.reviewer.effort).toBe("minimal")
-    expect(normalized.reviewer.model).toBe("custom-codex")
+    expect(normalized.reviewer.model).toBe("gpt-5.5")
   })
 
-  it("normalizeSettings fills missing fields with the assigned CLI's defaults", () => {
+  it("normalizeSettings empties the effort for a model with no reasoning control", () => {
     const normalized = normalizeSettings({
-      // Assign the implementer to codex (allowed, R12) with an empty model.
-      implementer: { provider: "codex", model: "", effort: "high" },
+      // Reviewer = codex on spark with a stale effort.
+      implementer: { provider: "claude", model: "claude-opus-4-8", effort: "xhigh" },
+      reviewer: { provider: "codex", model: "gpt-5.3-codex-spark", effort: "high" },
     })
-    // The implementer now runs codex; an empty model falls back to codex's default.
-    expect(normalized.implementer.provider).toBe("codex")
-    expect(normalized.implementer.model).toBe("gpt-5.5")
-    // "high" is valid for codex, so it is kept.
-    expect(normalized.implementer.effort).toBe("high")
-    // The reviewer was omitted but defaults to codex, which now collides with the
-    // implementer; the distinct-CLI invariant repairs it to claude with claude's
-    // defaults.
-    expect(normalized.reviewer.provider).toBe("claude")
-    expect(normalized.reviewer.model).toBe("claude-opus-4-8")
-    expect(normalized.reviewer.effort).toBe("xhigh")
-    expect(isDistinctAssignment(normalized)).toBe(true)
+    expect(normalized.reviewer.model).toBe("gpt-5.3-codex-spark")
+    expect(normalized.reviewer.effort).toBe("") // spark has no thinking level
+    expect(isAgentCompatible(normalized.reviewer)).toBe(true)
+  })
+
+  it("preserves a custom model but keeps a valid effort for it", () => {
+    const normalized = normalizeSettings({
+      implementer: { provider: "claude", model: "custom-claude", effort: "max" },
+      reviewer: { provider: "codex", model: "gpt-5.5", effort: "high" },
+    })
+    expect(normalized.implementer.model).toBe("custom-claude")
+    expect(normalized.implementer.effort).toBe("max") // valid in the CLI union fallback
+  })
+})
+
+describe("fast-mode validation", () => {
+  it("normalizeSettings strips fast on a fast-INcapable model", () => {
+    const normalized = normalizeSettings({
+      // Try to force fast on Opus 4.5 (no fast) and on spark (no fast).
+      implementer: { provider: "claude", model: "claude-opus-4-5", effort: "high", fast: true },
+      reviewer: { provider: "codex", model: "gpt-5.3-codex-spark", fast: true },
+    })
+    expect(normalized.implementer.fast).toBe(false)
+    expect(normalized.reviewer.fast).toBe(false)
+    expect(isAgentCompatible(normalized.implementer)).toBe(true)
+    expect(isAgentCompatible(normalized.reviewer)).toBe(true)
+  })
+
+  it("normalizeSettings keeps fast on a fast-capable model", () => {
+    const normalized = normalizeSettings({
+      implementer: { provider: "claude", model: "claude-opus-4-8", effort: "xhigh", fast: true },
+      reviewer: { provider: "codex", model: "gpt-5.5", effort: "high", fast: true },
+    })
+    expect(normalized.implementer.fast).toBe(true)
+    expect(normalized.reviewer.fast).toBe(true)
+  })
+
+  it("withModel drops fast when switching to a fast-incapable model and repairs effort", () => {
+    const fastOpus = { provider: "claude", model: "claude-opus-4-8", effort: "max", fast: true } as const
+    const switched = withModel(fastOpus, "claude-opus-4-5")
+    expect(switched.model).toBe("claude-opus-4-5")
+    expect(switched.fast).toBe(false) // 4.5 has no fast
+    expect(switched.effort).toBe("max") // still a valid claude level
+
+    // Switching codex frontier -> spark drops both fast and effort.
+    const fastCodex = { provider: "codex", model: "gpt-5.5", effort: "high", fast: true } as const
+    const spark = withModel(fastCodex, "gpt-5.3-codex-spark")
+    expect(spark.fast).toBe(false)
+    expect(spark.effort).toBe("")
+    expect(isAgentCompatible(spark)).toBe(true)
+  })
+
+  it("isAgentCompatible rejects an impossible fast/effort combo", () => {
+    expect(
+      isAgentCompatible({ provider: "claude", model: "claude-opus-4-5", effort: "high", fast: true })
+    ).toBe(false) // fast on a no-fast model
+    expect(
+      isAgentCompatible({ provider: "codex", model: "gpt-5.3-codex-spark", effort: "high", fast: false })
+    ).toBe(false) // effort set on a no-reasoning model
+    expect(
+      isAgentCompatible({ provider: "claude", model: "claude-opus-4-8", effort: "xhigh", fast: true })
+    ).toBe(true)
   })
 })
 
@@ -113,14 +228,12 @@ describe("role -> CLI assignment (R12)", () => {
   })
 
   it("resolveAssignment repairs same-CLI-for-both to distinct CLIs", () => {
-    // Both claude -> reviewer repaired to codex.
     expect(
       resolveAssignment({
         implementer: { provider: "claude" },
         reviewer: { provider: "claude" },
       })
     ).toEqual({ implementer: "claude", reviewer: "codex" })
-    // Both codex -> reviewer repaired to claude.
     expect(
       resolveAssignment({
         implementer: { provider: "codex" },
@@ -162,27 +275,35 @@ describe("role -> CLI assignment (R12)", () => {
     expect(normalizeSettings({ maxParallel: 2.7 }).maxParallel).toBe(2)
   })
 
-  it("agentDefaultsFor returns each CLI's latest model + default level", () => {
+  it("agentDefaultsFor returns each CLI's latest model + default level + fast off", () => {
     expect(agentDefaultsFor("claude")).toEqual({
       provider: "claude",
       model: "claude-opus-4-8",
       effort: "xhigh",
+      fast: false,
     })
     expect(agentDefaultsFor("codex")).toEqual({
       provider: "codex",
       model: "gpt-5.5",
       effort: "high",
+      fast: false,
     })
+  })
+
+  it("normalized defaults are valid settings", () => {
+    expect(isSettingsValid(DEFAULT_SETTINGS)).toBe(true)
+    expect(isSettingsValid(normalizeSettings({}))).toBe(true)
   })
 })
 
 describe("persistence round-trip", () => {
   it("writeSettings normalizes, persists, and readSettings reads it back", () => {
     const written = writeSettings({
-      implementer: { provider: "claude", model: "claude-opus-4-8", effort: "max" },
-      reviewer: { provider: "codex", model: "gpt-5.5", effort: "low" },
+      implementer: { provider: "claude", model: "claude-opus-4-8", effort: "max", fast: true },
+      reviewer: { provider: "codex", model: "gpt-5.5", effort: "low", fast: false },
     })
     expect(written.implementer.effort).toBe("max")
+    expect(written.implementer.fast).toBe(true)
     expect(written.reviewer.effort).toBe("low")
     expect(existsSync(getSettingsPath())).toBe(true)
     expect(readSettings()).toEqual(written)
@@ -190,7 +311,6 @@ describe("persistence round-trip", () => {
 
   it("readSettings falls back to defaults on a corrupt file", () => {
     writeSettings(DEFAULT_SETTINGS)
-    // Corrupt the store.
     const file = getSettingsPath()
     writeFileSync(file, "{ not json")
     expect(readSettings()).toEqual(DEFAULT_SETTINGS)
@@ -205,10 +325,10 @@ describe("persistence round-trip", () => {
 })
 
 describe("settingsToEnv", () => {
-  it("maps the default assignment to the dev-loop env vars", () => {
+  it("maps the default assignment to the dev-loop env vars (fast off)", () => {
     const env = settingsToEnv({
-      implementer: { provider: "claude", model: "claude-opus-4-8", effort: "xhigh" },
-      reviewer: { provider: "codex", model: "gpt-5.5", effort: "high" },
+      implementer: { provider: "claude", model: "claude-opus-4-8", effort: "xhigh", fast: false },
+      reviewer: { provider: "codex", model: "gpt-5.5", effort: "high", fast: false },
       maxParallel: 1,
     })
     expect(env).toEqual({
@@ -216,33 +336,57 @@ describe("settingsToEnv", () => {
       VIVICY_REVIEWER_CLI: "codex",
       VIVICY_CLAUDE_MODEL: "claude-opus-4-8",
       VIVICY_CLAUDE_EFFORT: "xhigh",
+      VIVICY_CLAUDE_FAST: "0",
       VIVICY_CODEX_MODEL: "gpt-5.5",
       VIVICY_CODEX_EFFORT: "high",
+      VIVICY_CODEX_FAST: "0",
       VIVICY_MAX_PARALLEL: "1",
     })
   })
 
+  it("emits the fast flag '1' only when fast is on AND the model supports it", () => {
+    const env = settingsToEnv({
+      implementer: { provider: "claude", model: "claude-opus-4-8", effort: "xhigh", fast: true },
+      reviewer: { provider: "codex", model: "gpt-5.5", effort: "high", fast: true },
+      maxParallel: 1,
+    })
+    expect(env.VIVICY_CLAUDE_FAST).toBe("1")
+    expect(env.VIVICY_CODEX_FAST).toBe("1")
+  })
+
+  it("never emits fast '1' for a model that cannot do fast, even if fast is true", () => {
+    // Defence in depth: a forced-fast incapable model (should already be repaired
+    // upstream, but settingsToEnv re-checks) emits "0".
+    const env = settingsToEnv({
+      implementer: { provider: "claude", model: "claude-opus-4-5", effort: "high", fast: true },
+      reviewer: { provider: "codex", model: "gpt-5.3-codex-spark", effort: "", fast: true },
+      maxParallel: 1,
+    })
+    expect(env.VIVICY_CLAUDE_FAST).toBe("0")
+    expect(env.VIVICY_CODEX_FAST).toBe("0")
+  })
+
   it("carries the concurrency knob, clamped to [1, 8]", () => {
     const base = {
-      implementer: { provider: "claude", model: "claude-opus-4-8", effort: "xhigh" },
-      reviewer: { provider: "codex", model: "gpt-5.5", effort: "high" },
+      implementer: { provider: "claude", model: "claude-opus-4-8", effort: "xhigh", fast: false },
+      reviewer: { provider: "codex", model: "gpt-5.5", effort: "high", fast: false },
     } as const
     expect(settingsToEnv({ ...base, maxParallel: 3 }).VIVICY_MAX_PARALLEL).toBe("3")
     expect(settingsToEnv({ ...base, maxParallel: 0 }).VIVICY_MAX_PARALLEL).toBe("1")
     expect(settingsToEnv({ ...base, maxParallel: 99 }).VIVICY_MAX_PARALLEL).toBe("8")
   })
 
-  it("carries a swapped assignment: each CLI's model/level follows the CLI", () => {
-    // implementer=codex, reviewer=claude. The CLI-keyed env vars must hold each
-    // CLI's own model/level regardless of which role it fills.
+  it("carries a swapped assignment: each CLI's model/level/fast follows the CLI", () => {
     const env = settingsToEnv({
-      implementer: { provider: "codex", model: "gpt-5.5", effort: "minimal" },
-      reviewer: { provider: "claude", model: "claude-opus-4-8", effort: "max" },
+      implementer: { provider: "codex", model: "gpt-5.5", effort: "minimal", fast: true },
+      reviewer: { provider: "claude", model: "claude-opus-4-8", effort: "max", fast: false },
       maxParallel: 2,
     })
     expect(env.VIVICY_IMPLEMENTER_CLI).toBe("codex")
     expect(env.VIVICY_REVIEWER_CLI).toBe("claude")
     expect(env.VIVICY_CODEX_EFFORT).toBe("minimal")
+    expect(env.VIVICY_CODEX_FAST).toBe("1") // codex (implementer) wants fast on gpt-5.5
     expect(env.VIVICY_CLAUDE_EFFORT).toBe("max")
+    expect(env.VIVICY_CLAUDE_FAST).toBe("0")
   })
 })

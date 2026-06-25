@@ -202,8 +202,8 @@ describe("QuotaFooter — real % where available, honest — where not", () => {
     render(
       <QuotaFooter
         settings={{
-          implementer: { provider: "claude", model: "claude-opus-4-8", effort: "max" },
-          reviewer: { provider: "codex", model: "custom-codex-x", effort: "low" },
+          implementer: { provider: "claude", model: "claude-opus-4-8", effort: "max", fast: false },
+          reviewer: { provider: "codex", model: "custom-codex-x", effort: "low", fast: false },
           maxParallel: 1,
         }}
       />

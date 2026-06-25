@@ -12,6 +12,17 @@ if (typeof globalThis.ResizeObserver === "undefined") {
   globalThis.ResizeObserver = ResizeObserverPolyfill as unknown as typeof ResizeObserver
 }
 
+// jsdom lacks the pointer-capture + scroll APIs Radix Select calls when its
+// listbox opens; without them, opening a Select throws. Provide harmless no-ops so
+// component tests can drive the model / thinking-level pickers.
+if (typeof Element !== "undefined") {
+  const proto = Element.prototype as unknown as Record<string, unknown>
+  if (!proto.hasPointerCapture) proto.hasPointerCapture = () => false
+  if (!proto.setPointerCapture) proto.setPointerCapture = () => {}
+  if (!proto.releasePointerCapture) proto.releasePointerCapture = () => {}
+  if (!proto.scrollIntoView) proto.scrollIntoView = () => {}
+}
+
 // jsdom only exposes window.localStorage when the document has a concrete
 // (non-opaque) origin; vitest's jsdom environment defaults to an opaque
 // about:blank origin, so accessing window.localStorage throws a SecurityError.

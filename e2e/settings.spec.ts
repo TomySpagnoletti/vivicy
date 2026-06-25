@@ -23,9 +23,9 @@ test.describe("Vivicy agent settings", () => {
     await expect(dialog).toBeVisible()
     await expect(dialog.getByText("Agent settings")).toBeVisible()
 
-    // The implementer block defaults to the latest Claude model.
-    const modelInput = dialog.getByLabel("Model").first()
-    await expect(modelInput).toHaveValue("claude-opus-4-8")
+    // The implementer block defaults to the latest Claude model (now a Select).
+    const modelSelect = dialog.getByRole("combobox", { name: "Implementer model" })
+    await expect(modelSelect).toContainText("claude-opus-4-8")
 
     // Change the implementer thinking level via the shadcn Select to a known,
     // non-default value so the assertion is deterministic across runs.
@@ -103,6 +103,83 @@ test.describe("Vivicy agent settings", () => {
     await dialog2.getByRole("button", { name: "Save" }).click()
     await expect(page.getByText(/Settings saved/i).first()).toBeVisible({ timeout: 15_000 })
     await expect(dialog2).not.toBeVisible()
+  })
+
+  test("pick a model + fast mode, with strict per-model compatibility (P5)", async ({ page }) => {
+    await page.goto("/")
+
+    await page.getByRole("button", { name: "Settings" }).click()
+    const dialog = page.getByRole("dialog")
+    await expect(dialog.getByText("Agent settings")).toBeVisible()
+
+    // The implementer model is a Select listing the curated Claude models.
+    const modelSelect = dialog.getByRole("combobox", { name: "Implementer model" })
+    await expect(modelSelect).toContainText("claude-opus-4-8")
+
+    // Default model (Opus 4.8) is fast-capable: the Fast switch is enabled. Turn it on.
+    const fast = dialog.getByRole("switch", { name: "Implementer fast mode" })
+    await expect(fast).toBeEnabled()
+    await fast.click()
+    await expect(fast).toBeChecked()
+
+    // Switch to an older Opus that has NO fast mode: the toggle becomes disabled.
+    await modelSelect.click()
+    await page.getByRole("option", { name: "claude-opus-4-5", exact: true }).click()
+    await expect(modelSelect).toContainText("claude-opus-4-5")
+    await expect(dialog.getByRole("switch", { name: "Implementer fast mode" })).toBeDisabled()
+
+    // Restore the fast-capable default and turn fast back off, save, re-read.
+    await modelSelect.click()
+    await page.getByRole("option", { name: "claude-opus-4-8", exact: true }).click()
+    const fast2 = dialog.getByRole("switch", { name: "Implementer fast mode" })
+    await expect(fast2).toBeEnabled()
+    await expect(fast2).not.toBeChecked() // reset by the model switch
+    await dialog.getByRole("button", { name: "Save" }).click()
+    await expect(page.getByText(/Settings saved/i).first()).toBeVisible({ timeout: 15_000 })
+    await expect(dialog).not.toBeVisible()
+  })
+
+  // Capture the upgraded modal at 1320x820 with both compatibility cases visible:
+  // implementer = Opus 4.8 with Fast ON (enabled), reviewer = Spark with no thinking
+  // level and Fast DISABLED + its honest tooltip. Lives in the serial settings
+  // describe so it never races the shared on-disk store with the other mutators.
+  test("screenshot — model picker, fast toggle, disabled-fast case (1320x820)", async ({ page }) => {
+    await page.setViewportSize({ width: 1320, height: 820 })
+    await page.goto("/")
+
+    await page.getByRole("button", { name: "Settings" }).click()
+    const dialog = page.getByRole("dialog")
+    await expect(dialog.getByText("Agent settings")).toBeVisible()
+
+    // Implementer = Claude Opus 4.8 (fast-capable). Turn fast ON so the enabled
+    // switch reads active in the shot.
+    const implFast = dialog.getByRole("switch", { name: "Implementer fast mode" })
+    await expect(implFast).toBeEnabled()
+    await implFast.click()
+    await expect(implFast).toBeChecked()
+
+    // Reviewer = Codex on Spark: no separate thinking level, Fast disabled.
+    const reviewerModel = dialog.getByRole("combobox", { name: "Reviewer model" })
+    await reviewerModel.click()
+    await page.getByRole("option", { name: "gpt-5.3-codex-spark", exact: true }).click()
+    await expect(reviewerModel).toContainText("gpt-5.3-codex-spark")
+    await expect(dialog.getByRole("switch", { name: "Reviewer fast mode" })).toBeDisabled()
+
+    // Reveal the honest disabled-fast tooltip so the reason is in the frame.
+    await dialog.getByLabel("Reviewer fast mode unavailable").focus()
+    await expect(page.getByText(/Spark is already a low-latency model/i).first()).toBeVisible()
+
+    await page.waitForTimeout(250)
+    await page.screenshot({ path: "/tmp/vivicy-settings.png" })
+
+    // Restore the documented defaults so the store is clean for other runs.
+    await reviewerModel.click()
+    await page.getByRole("option", { name: "gpt-5.5", exact: true }).click()
+    await implFast.click()
+    await expect(implFast).not.toBeChecked()
+    await dialog.getByRole("button", { name: "Save" }).click()
+    await expect(page.getByText(/Settings saved/i).first()).toBeVisible({ timeout: 15_000 })
+    await expect(dialog).not.toBeVisible()
   })
 
   test("set max parallel issues, save, and re-read it (concurrency knob)", async ({ page }) => {

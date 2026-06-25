@@ -76,6 +76,54 @@ export const CLI_DEFAULTS = {
 /** The set of CLIs the loop knows how to spawn. */
 export const KNOWN_CLIS = ["claude", "codex"];
 
+// The models whose FAST mode genuinely functions on the HEADLESS run each CLI does
+// here. Mirrors lib/settings.ts MODELS[*].capability.fast (the two must agree) — the
+// loop is the authoritative gate: even if the env asks for fast on a model not in
+// this set, agentCliArgs omits the fast flag, so a non-functional fast run is never
+// requested. Provenance (verified 2026-06 against official docs + local CLIs):
+//   - Claude fast mode = `"fastMode": true` in the settings JSON, handed to the
+//     headless `claude -p` via `--settings` (which accepts a JSON string). The
+//     `fastMode` settings key and `--settings <file-or-json>` are both documented;
+//     the headless run reads the settings it is given. Supported ONLY on Opus
+//     4.6/4.7/4.8 (not Sonnet/Haiku/older). Requires a Claude subscription/Console
+//     auth with usage credits; on an API-key-only box it is a no-op, never an error.
+//     (https://code.claude.com/docs/en/fast-mode)
+//   - Codex fast mode = `-c fast_mode=true`, a STABLE feature flag (`codex features
+//     list` shows fast_mode stable) honored by `codex exec`. It prioritises serving
+//     (~1.5x faster inference; 2.5x credit rate on gpt-5.5, 2x on gpt-5.4) and works
+//     ONLY when authenticated via ChatGPT — with an API key it is a no-op. Supported
+//     on gpt-5.5 + gpt-5.4 only; gpt-5.4-mini has no documented fast support and
+//     gpt-5.3-codex-spark is already a separate low-latency model, so neither is a
+//     fast target. (https://developers.openai.com/codex/models,
+//     https://developers.openai.com/codex/speed)
+export const FAST_CAPABLE_MODELS = {
+  claude: new Set(["claude-opus-4-8", "claude-opus-4-7", "claude-opus-4-6"]),
+  codex: new Set(["gpt-5.5", "gpt-5.4"]),
+};
+
+/** Does fast mode genuinely function for this CLI+model on the headless run? */
+function modelSupportsFast(provider, model) {
+  return FAST_CAPABLE_MODELS[provider]?.has(model) ?? false;
+}
+
+// The reasoning/effort levels each CLI accepts, as a defensive gate on env-supplied
+// values. Mirrors lib/settings.ts EFFORT_LEVELS (the two must agree). The settings →
+// env pipeline already normalizes effort, but a hand-edited settings file or a
+// directly-set VIVICY_<CLI>_EFFORT could carry a bad value; gating it here keeps the
+// loop from ever spawning a CLI with an effort flag it would reject. An empty/unset
+// effort is allowed (a model with no reasoning control, e.g. gpt-5.3-codex-spark,
+// runs with no effort flag).
+const VALID_EFFORTS = {
+  claude: new Set(["low", "medium", "high", "xhigh", "max"]),
+  codex: new Set(["minimal", "low", "medium", "high", "xhigh"]),
+};
+
+/** Is `effort` a level the given CLI accepts (empty string = "no effort", allowed)? */
+function isValidEffortFor(provider, effort) {
+  if (!effort) return true;
+  return VALID_EFFORTS[provider]?.has(effort) ?? false;
+}
+
 /** Is `value` a CLI the loop can drive? */
 function isKnownCli(value) {
   return value === "claude" || value === "codex";
@@ -103,7 +151,13 @@ export function clampConcurrency(value) {
  *
  * A leg carries: role (implementer|reviewer), the assigned CLI as both `provider`
  * (drives the spawn + flag dialect) and `actor` (drives hook identity, quota
- * keying, transcript naming), plus the resolved model + effort.
+ * keying, transcript naming), plus the resolved model + effort + fast flag.
+ *
+ * FAST MODE (P5): VIVICY_<CLI>_FAST ("1"/"0") carries the per-role fast toggle from
+ * the settings dialog. The leg's `fast` is true ONLY when the env asks for it AND
+ * the resolved model genuinely supports fast on the headless run — a request to run
+ * fast on an incapable model is dropped here, so the loop never asks a CLI for a
+ * fast run it cannot perform.
  */
 export function resolveAgentLegs(env = {}) {
   const implementerCli = isKnownCli(env.VIVICY_IMPLEMENTER_CLI)
@@ -114,13 +168,24 @@ export function resolveAgentLegs(env = {}) {
   if (reviewerCli === implementerCli) {
     reviewerCli = implementerCli === "claude" ? "codex" : "claude";
   }
-  const leg = (role, cli) => ({
-    actor: cli,
-    role,
-    provider: cli,
-    model: env[`VIVICY_${cli.toUpperCase()}_MODEL`] || CLI_DEFAULTS[cli].model,
-    effort: env[`VIVICY_${cli.toUpperCase()}_EFFORT`] || CLI_DEFAULTS[cli].effort,
-  });
+  const leg = (role, cli) => {
+    const model = env[`VIVICY_${cli.toUpperCase()}_MODEL`] || CLI_DEFAULTS[cli].model;
+    const fastRequested = env[`VIVICY_${cli.toUpperCase()}_FAST`] === "1";
+    // Take the env effort only if the CLI actually accepts it; otherwise fall back to
+    // the CLI default. Symmetrical to the fast gate so a hand-edited/out-of-band env
+    // never reaches agentCliArgs with a level the CLI would reject.
+    const rawEffort = env[`VIVICY_${cli.toUpperCase()}_EFFORT`];
+    const effort = isValidEffortFor(cli, rawEffort) && rawEffort ? rawEffort : CLI_DEFAULTS[cli].effort;
+    return {
+      actor: cli,
+      role,
+      provider: cli,
+      model,
+      effort,
+      // Honor fast ONLY when the model genuinely supports it (authoritative gate).
+      fast: fastRequested && modelSupportsFast(cli, model),
+    };
+  };
   return {
     implementer: leg("implementer", implementerCli),
     reviewer: leg("reviewer", reviewerCli),
@@ -158,8 +223,9 @@ export const DEFAULT_CONFIG = {
   //   - which CLI fills each ROLE: VIVICY_IMPLEMENTER_CLI / VIVICY_REVIEWER_CLI
   //     (defaults implementer=claude, reviewer=codex). The two MUST differ — a CLI
   //     can never review its own implementation; resolveAgentLegs enforces it.
-  //   - each CLI's model + level: VIVICY_CLAUDE_* / VIVICY_CODEX_* (always-latest
-  //     model is the default, the thinking level is the user-tunable knob).
+  //   - each CLI's model + level + fast: VIVICY_CLAUDE_* / VIVICY_CODEX_*
+  //     (always-latest model is the default, the thinking level is the user-tunable
+  //     knob, VIVICY_<CLI>_FAST="1" turns on fast mode for a fast-capable model).
   // resolveAgentLegs() builds the two legs from that env at module load.
   ...resolveAgentLegs(process.env),
   // Per-agent live quota state, written by the quota handler and read by the
@@ -381,22 +447,35 @@ export function composePrompt(template, issue, extra = {}) {
   return template.replace(/\{\{(\w+)\}\}/g, (match, key) => (key in values ? String(values[key]) : match));
 }
 
-// Build the provider-specific model + thinking-level CLI flags appended to an
-// agent leg's argv. Pure (no spawn) so it is unit-tested directly.
-//   - claude (implementer): `--model <id> --effort <level>`
+// Build the provider-specific model + thinking-level + fast CLI flags appended to
+// an agent leg's argv. Pure (no spawn) so it is unit-tested directly.
+//   - claude (implementer): `--model <id> --effort <level>` and, when fast is on
+//     for a fast-capable model, `--settings {"fastMode":true}` (the documented
+//     headless way to enable fast mode for `claude -p`).
 //     level ∈ {low, medium, high, xhigh, max}
-//   - codex  (reviewer):    `-m <id> -c model_reasoning_effort="<level>"`
-//     level ∈ {minimal, low, medium, high}
-// A falsy model or effort omits just that flag pair (never emits a bare flag),
-// so a partially-configured leg degrades gracefully to the CLI's own default.
-export function agentCliArgs(provider, { model, effort } = {}) {
+//   - codex  (reviewer):    `-m <id> -c model_reasoning_effort="<level>"` and, when
+//     fast is on for a fast-capable model, `-c fast_mode=true` (the stable Codex
+//     feature flag honored by `codex exec`).
+//     level ∈ {minimal, low, medium, high, xhigh}
+// A falsy model or effort omits just that flag pair (never emits a bare flag), so a
+// partially-configured leg degrades gracefully to the CLI's own default. The fast
+// flag is emitted ONLY when `fast` is truthy AND the model genuinely supports fast
+// (authoritative gate) — a non-functional fast run is never requested.
+export function agentCliArgs(provider, { model, effort, fast } = {}) {
   const args = [];
+  const useFast = Boolean(fast) && Boolean(model) && modelSupportsFast(provider, model);
   if (provider === "claude") {
     if (model) args.push("--model", model);
     if (effort) args.push("--effort", effort);
+    // Headless fast mode: `claude -p` reads `fastMode` from the settings it is
+    // handed via --settings (a JSON string is accepted), so this turns on fast for
+    // the non-interactive run the loop drives.
+    if (useFast) args.push("--settings", JSON.stringify({ fastMode: true }));
   } else if (provider === "codex") {
     if (model) args.push("-m", model);
     if (effort) args.push("-c", `model_reasoning_effort="${effort}"`);
+    // Codex fast mode: the stable `fast_mode` feature flag, settable per-run via -c.
+    if (useFast) args.push("-c", "fast_mode=true");
   }
   return args;
 }

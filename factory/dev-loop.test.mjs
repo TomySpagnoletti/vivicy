@@ -122,6 +122,45 @@ test("agentCliArgs omits only the missing flag pair, never a bare flag", () => {
   assert.deepEqual(agentCliArgs("other", { model: "x", effort: "high" }), []);
 });
 
+test("agentCliArgs appends fast flags ONLY for a fast-capable model", () => {
+  // Claude fast: `--settings {"fastMode":true}` after the model/effort flags, for a
+  // fast-capable Opus.
+  assert.deepEqual(agentCliArgs("claude", { model: "claude-opus-4-8", effort: "xhigh", fast: true }), [
+    "--model",
+    "claude-opus-4-8",
+    "--effort",
+    "xhigh",
+    "--settings",
+    JSON.stringify({ fastMode: true }),
+  ]);
+  // Codex fast: `-c fast_mode=true` after the model/effort flags, on gpt-5.5.
+  assert.deepEqual(agentCliArgs("codex", { model: "gpt-5.5", effort: "high", fast: true }), [
+    "-m",
+    "gpt-5.5",
+    "-c",
+    'model_reasoning_effort="high"',
+    "-c",
+    "fast_mode=true",
+  ]);
+});
+
+test("agentCliArgs OMITS fast for a model that cannot do fast (honest, even if asked)", () => {
+  // Older Opus has no fast: no --settings emitted even with fast: true.
+  assert.deepEqual(agentCliArgs("claude", { model: "claude-opus-4-5", effort: "high", fast: true }), [
+    "--model",
+    "claude-opus-4-5",
+    "--effort",
+    "high",
+  ]);
+  // Spark is a low-latency model, not a fast target: no -c fast_mode=true.
+  assert.deepEqual(agentCliArgs("codex", { model: "gpt-5.3-codex-spark", fast: true }), [
+    "-m",
+    "gpt-5.3-codex-spark",
+  ]);
+  // gpt-5.4-mini has no documented fast support either.
+  assert.ok(!agentCliArgs("codex", { model: "gpt-5.4-mini", effort: "high", fast: true }).includes("fast_mode=true"));
+});
+
 test("DEFAULT_CONFIG pins the latest models with the documented default thinking levels", () => {
   // Always-latest model; thinking level is the user-tunable knob (env-overridable).
   assert.equal(DEFAULT_CONFIG.implementer.provider, "claude");
@@ -217,6 +256,96 @@ test("resolveAgentLegs reads the role -> CLI assignment from the env", () => {
   assert.equal(swap.implementer.effort, "minimal"); // codex's level follows codex
   assert.equal(swap.reviewer.provider, "claude");
   assert.equal(swap.reviewer.effort, "max"); // claude's level follows claude
+});
+
+test("resolveAgentLegs honors fast ONLY for a fast-capable model (authoritative gate)", () => {
+  // Fast requested on fast-capable defaults => fast true on both legs.
+  const on = resolveAgentLegs({
+    VIVICY_CLAUDE_MODEL: "claude-opus-4-8",
+    VIVICY_CLAUDE_FAST: "1",
+    VIVICY_CODEX_MODEL: "gpt-5.5",
+    VIVICY_CODEX_FAST: "1",
+  });
+  assert.equal(on.implementer.fast, true);
+  assert.equal(on.reviewer.fast, true);
+
+  // Fast requested on incapable models => dropped to false here, before any spawn.
+  const gated = resolveAgentLegs({
+    VIVICY_CLAUDE_MODEL: "claude-opus-4-5",
+    VIVICY_CLAUDE_FAST: "1",
+    VIVICY_CODEX_MODEL: "gpt-5.3-codex-spark",
+    VIVICY_CODEX_FAST: "1",
+  });
+  assert.equal(gated.implementer.fast, false);
+  assert.equal(gated.reviewer.fast, false);
+
+  // Fast off by default (no env).
+  const def = resolveAgentLegs({});
+  assert.equal(def.implementer.fast, false);
+  assert.equal(def.reviewer.fast, false);
+});
+
+test("resolveAgentLegs repairs an out-of-band INVALID effort to the CLI default", () => {
+  // A hand-edited/out-of-band env carrying a level the CLI would reject must never
+  // reach agentCliArgs; the leg falls back to the CLI's documented default.
+  const legs = resolveAgentLegs({
+    VIVICY_CLAUDE_EFFORT: "extreme", // not a claude level
+    VIVICY_CODEX_EFFORT: "max", // claude-only level, invalid for codex
+  });
+  assert.equal(legs.implementer.effort, "xhigh"); // claude default
+  assert.equal(legs.reviewer.effort, "high"); // codex default
+  // A valid env effort is still honored.
+  const ok = resolveAgentLegs({ VIVICY_CLAUDE_EFFORT: "low", VIVICY_CODEX_EFFORT: "minimal" });
+  assert.equal(ok.implementer.effort, "low");
+  assert.equal(ok.reviewer.effort, "minimal");
+});
+
+test("a fast-enabled leg spawns the real fast flags in its argv", () => {
+  const shimDir = mkdtempSync(resolve(repoRoot, "_tmp-agent-fast-shim-"));
+  const shimRel = relative(repoRoot, shimDir);
+  const argvFile = resolve(shimDir, "argv.json");
+  const shim = (name) =>
+    `#!/usr/bin/env node\n` +
+    `import { appendFileSync } from "node:fs";\n` +
+    `appendFileSync(process.env.AGENT_SHIM_OUT, JSON.stringify({ name: ${JSON.stringify(name)}, argv: process.argv.slice(2) }) + "\\n");\n`;
+  writeFileSync(resolve(shimDir, "claude"), shim("claude"), { mode: 0o755 });
+  writeFileSync(resolve(shimDir, "codex"), shim("codex"), { mode: 0o755 });
+
+  const prevPath = process.env.PATH;
+  const prevOut = process.env.AGENT_SHIM_OUT;
+  process.env.PATH = `${shimDir}:${prevPath}`;
+  process.env.AGENT_SHIM_OUT = argvFile;
+  try {
+    const issue = { id: "ISS-FAST", graph_refs: ["node:x"] };
+    const cfg = {
+      ...DEFAULT_CONFIG,
+      transcriptsDir: `${shimRel}/transcripts`,
+      implementer: { ...DEFAULT_CONFIG.implementer, model: "claude-opus-4-8", effort: "xhigh", fast: true },
+      reviewer: { ...DEFAULT_CONFIG.reviewer, model: "gpt-5.5", effort: "high", fast: true },
+    };
+    defaultRunImplementer(issue, cfg);
+    defaultRunReviewer(issue, cfg);
+
+    const records = readFileSync(argvFile, "utf8")
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line));
+    const claude = records.find((r) => r.name === "claude");
+    const codex = records.find((r) => r.name === "codex");
+
+    // Claude fast: a --settings arg whose JSON enables fastMode.
+    const cs = claude.argv.indexOf("--settings");
+    assert.ok(cs !== -1, "claude --settings present for fast");
+    assert.deepEqual(JSON.parse(claude.argv[cs + 1]), { fastMode: true });
+
+    // Codex fast: a `-c fast_mode=true` pair.
+    assert.ok(codex.argv.includes("fast_mode=true"), "codex fast_mode=true present");
+  } finally {
+    process.env.PATH = prevPath;
+    if (prevOut === undefined) delete process.env.AGENT_SHIM_OUT;
+    else process.env.AGENT_SHIM_OUT = prevOut;
+    rmSync(shimDir, { recursive: true, force: true });
+  }
 });
 
 test("resolveAgentLegs enforces distinct CLIs (rejects same CLI for both roles)", () => {
