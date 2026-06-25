@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useMemo } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
   Background,
   BackgroundVariant,
@@ -12,6 +12,10 @@ import {
   MiniMap,
   ReactFlow,
   ReactFlowProvider,
+  useEdgesState,
+  useNodesState,
+  useReactFlow,
+  useViewport,
   ViewportPortal,
   type Edge,
   type EdgeProps,
@@ -26,8 +30,12 @@ import {
   buildEdgeCounts,
   buildGraphStatesByRef,
   buildIssuesByGraphRef,
+  clusterMovedPositions,
   edgeGraphRef,
+  LAYOUT_SNAP_GRID,
   nodeMatchesQuery,
+  snapXY,
+  type XY,
 } from "@/lib/map-data"
 import {
   CLUSTER_TONES,
@@ -50,6 +58,12 @@ const NODE_HEIGHT_ESTIMATE = 150
 const CLUSTER_PADDING_X = 74
 const CLUSTER_PADDING_Y = 66
 const DEFAULT_LABEL_RATIO = 0.5
+const MIN_LABEL_RATIO = 0.08
+const MAX_LABEL_RATIO = 0.92
+const EDGE_LABEL_DRAG_THRESHOLD_PX = 4
+const SNAP_GRID: [number, number] = [LAYOUT_SNAP_GRID, LAYOUT_SNAP_GRID]
+
+type SaveStatus = "idle" | "saving" | "saved" | "error"
 
 export type SelectedItem =
   | { type: "node"; item: MapNode }
@@ -65,6 +79,9 @@ interface EdgeData extends Record<string, unknown> {
   isSelected: boolean
   isConnected: boolean
   labelRatio: number
+  /** Edit-mode flag: drag the protocol label along the edge when true. */
+  editable: boolean
+  onMoveEdgeLabel: (edgeId: string, ratio: number) => void
 }
 
 const nodeTypes = { mapNode: MapNodeCard }
@@ -116,6 +133,39 @@ function ArchitectureMapInner({
     [data.development]
   )
 
+  // Layout editing state. OFF by default = today's read-only pan/select; ON =
+  // draggable nodes + cluster-title handles + draggable edge labels + Save.
+  const [editMode, setEditMode] = useState(false)
+  const [nodePositions, setNodePositions] = useState<Record<string, XY>>({})
+  const [edgeLabelRatios, setEdgeLabelRatios] = useState<Record<string, number>>({})
+  const [layoutDirty, setLayoutDirty] = useState(false)
+  const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle")
+  const [saveError, setSaveError] = useState("")
+  const dirtyNodeIdsRef = useRef<Set<string>>(new Set())
+  const dirtyEdgeLabelIdsRef = useRef<Set<string>>(new Set())
+  const clusterDragStartPositionsRef = useRef<Map<string, XY> | null>(null)
+
+  const nodesById = useMemo(() => new Map(data.nodes.map((n) => [n.id, n])), [data.nodes])
+  const edgesById = useMemo(() => {
+    const map = new Map<string, { edge: MapEdge; index: number }>()
+    data.edges.forEach((edge, i) => map.set(edgeId(edge, i), { edge, index: i }))
+    return map
+  }, [data.edges])
+  const initialNodePositions = useMemo(
+    () => new Map(data.nodes.map((n) => [n.id, { x: n.layout_x, y: n.layout_y }])),
+    [data.nodes]
+  )
+  const initialEdgeRatios = useMemo(
+    () =>
+      new Map(
+        data.edges.map((e, i) => [
+          edgeId(e, i),
+          clampRatio(e.layout_label_ratio ?? DEFAULT_LABEL_RATIO),
+        ])
+      ),
+    [data.edges]
+  )
+
   const nodeGraphRef = useCallback(
     (node: MapNode) => node.graph_ref ?? `node:${node.id}`,
     []
@@ -123,8 +173,52 @@ function ArchitectureMapInner({
 
   const effectiveStatus = useCallback(
     (node: MapNode): NodeStatus =>
-      (statesByRef.get(nodeGraphRef(node))?.status ?? node.status ?? "not_started"),
+      statesByRef.get(nodeGraphRef(node))?.status ?? node.status ?? "not_started",
     [nodeGraphRef, statesByRef]
+  )
+
+  const refreshLayoutDirty = useCallback(() => {
+    setLayoutDirty(dirtyNodeIdsRef.current.size > 0 || dirtyEdgeLabelIdsRef.current.size > 0)
+    setSaveStatus("idle")
+    setSaveError("")
+  }, [])
+
+  const markNodePositionDirty = useCallback(
+    (nodeId: string, position: XY) => {
+      const initial = initialNodePositions.get(nodeId)
+      if (initial && samePosition(initial, position)) {
+        dirtyNodeIdsRef.current.delete(nodeId)
+      } else {
+        dirtyNodeIdsRef.current.add(nodeId)
+      }
+      refreshLayoutDirty()
+    },
+    [initialNodePositions, refreshLayoutDirty]
+  )
+
+  const markEdgeLabelDirty = useCallback(
+    (edgeIdValue: string, ratio: number) => {
+      const initial = initialEdgeRatios.get(edgeIdValue) ?? DEFAULT_LABEL_RATIO
+      if (almostEqual(initial, ratio)) {
+        dirtyEdgeLabelIdsRef.current.delete(edgeIdValue)
+      } else {
+        dirtyEdgeLabelIdsRef.current.add(edgeIdValue)
+      }
+      refreshLayoutDirty()
+    },
+    [initialEdgeRatios, refreshLayoutDirty]
+  )
+
+  const moveEdgeLabel = useCallback(
+    (edgeIdValue: string, ratio: number) => {
+      const next = clampRatio(ratio)
+      setEdgeLabelRatios((current) => {
+        if (almostEqual(current[edgeIdValue] ?? DEFAULT_LABEL_RATIO, next)) return current
+        markEdgeLabelDirty(edgeIdValue, next)
+        return { ...current, [edgeIdValue]: next }
+      })
+    },
+    [markEdgeLabelDirty]
   )
 
   // Status filter also keeps the endpoints of status-matching edges visible,
@@ -186,13 +280,14 @@ function ArchitectureMapInner({
         const color: ColorToken =
           view === "target" ? kindColor(node.kind) : progressStatusColor(status)
         const ref = nodeGraphRef(node)
+        const position = nodePositions[node.id] ?? { x: node.layout_x, y: node.layout_y }
         return {
           id: node.id,
           type: "mapNode",
-          position: { x: node.layout_x, y: node.layout_y },
+          position,
           selected: selectedNodeId === node.id,
           selectable: true,
-          draggable: false,
+          draggable: editMode,
           style: { width: NODE_WIDTH },
           data: {
             id: node.id,
@@ -218,9 +313,11 @@ function ArchitectureMapInner({
     activeRefs,
     data.nodes,
     edgeCounts,
+    editMode,
     effectiveStatus,
     issuesByRef,
     nodeGraphRef,
+    nodePositions,
     selected,
     view,
     visibleNodeIds,
@@ -259,7 +356,11 @@ function ArchitectureMapInner({
             isDimmed,
             isSelected,
             isConnected,
-            labelRatio: clampRatio(edge.layout_label_ratio ?? DEFAULT_LABEL_RATIO),
+            labelRatio: clampRatio(
+              edgeLabelRatios[id] ?? edge.layout_label_ratio ?? DEFAULT_LABEL_RATIO
+            ),
+            editable: editMode,
+            onMoveEdgeLabel: moveEdgeLabel,
           },
           style: {
             stroke: isSelected
@@ -279,6 +380,9 @@ function ArchitectureMapInner({
   }, [
     activeRefs,
     data.edges,
+    edgeLabelRatios,
+    editMode,
+    moveEdgeLabel,
     selected,
     statesByRef,
     statusFilter,
@@ -287,8 +391,140 @@ function ArchitectureMapInner({
     visibleNodeIds,
   ])
 
-  // The data prop is immutable for a given render, and our nodes/edges are fully
-  // derived, so we feed them to ReactFlow directly (read-only, non-draggable).
+  // Mutable node/edge state so React Flow can move nodes during a drag and the
+  // cluster handle can shift members; the derived flowNodes/flowEdges are synced
+  // in, preserving any in-flight drag position. (Read-only behavior is identical:
+  // with editMode off nothing is draggable, so the state simply mirrors flowNodes.)
+  const [nodes, setNodes, onNodesChange] = useNodesState<Node<MapNodeData>>(flowNodes)
+  const [edges, setEdges, onEdgesChange] = useEdgesState<Edge<EdgeData>>(flowEdges)
+
+  useEffect(() => {
+    setNodes((current) => {
+      const byId = new Map(current.map((n) => [n.id, n]))
+      return flowNodes.map((node) => {
+        const existing = byId.get(node.id)
+        return existing?.dragging ? { ...node, position: existing.position, dragging: true } : node
+      })
+    })
+  }, [flowNodes, setNodes])
+
+  useEffect(() => {
+    setEdges(flowEdges)
+  }, [flowEdges, setEdges])
+
+  const commitNodePosition = useCallback(
+    (_event: React.MouseEvent | MouseEvent | TouchEvent, node: Node<MapNodeData>) => {
+      const snapped = snapXY(node.position)
+      setNodes((current) =>
+        current.map((n) => (n.id === node.id ? { ...n, position: snapped, dragging: false } : n))
+      )
+      const current = nodePositions[node.id]
+      if (current && samePosition(current, snapped)) return
+      setNodePositions((positions) => ({ ...positions, [node.id]: snapped }))
+      markNodePositionDirty(node.id, snapped)
+    },
+    [markNodePositionDirty, nodePositions, setNodes]
+  )
+
+  const moveCluster = useCallback(
+    (clusterId: string, delta: XY, commit: boolean) => {
+      const memberIds = data.nodes
+        .filter((n) => visibleNodeIds.has(n.id) && (n.layout_cluster ?? "ungrouped") === clusterId)
+        .map((n) => n.id)
+      if (memberIds.length === 0) return
+
+      if (!clusterDragStartPositionsRef.current) {
+        clusterDragStartPositionsRef.current = new Map(
+          nodes.map((n) => [n.id, { ...n.position }])
+        )
+      }
+      const moved = clusterMovedPositions(
+        clusterDragStartPositionsRef.current,
+        memberIds,
+        delta
+      )
+
+      setNodes((current) =>
+        current.map((n) => {
+          const next = moved.get(n.id)
+          return next ? { ...n, position: next } : n
+        })
+      )
+
+      if (!commit) return
+      clusterDragStartPositionsRef.current = null
+
+      const changed = [...moved.entries()].some(([id, pos]) => {
+        const current = nodePositions[id]
+        return !current || !samePosition(current, pos)
+      })
+      if (!changed) return
+
+      for (const [id, pos] of moved) markNodePositionDirty(id, pos)
+      setNodePositions((positions) => {
+        const next = { ...positions }
+        for (const [id, pos] of moved) next[id] = pos
+        return next
+      })
+    },
+    [data.nodes, markNodePositionDirty, nodePositions, nodes, setNodes, visibleNodeIds]
+  )
+
+  const saveLayout = useCallback(async () => {
+    setSaveStatus("saving")
+    setSaveError("")
+    const nodeIds = [...dirtyNodeIdsRef.current]
+    const labelIds = [...dirtyEdgeLabelIdsRef.current]
+    if (nodeIds.length === 0 && labelIds.length === 0) {
+      setLayoutDirty(false)
+      setSaveStatus("saved")
+      return
+    }
+    try {
+      const payload = {
+        nodes: nodeIds.map((id) => {
+          const node = nodesById.get(id)
+          if (!node) throw new Error(`Cannot save layout for unknown node ${id}`)
+          const pos = nodePositions[id] ?? { x: node.layout_x, y: node.layout_y }
+          return { id, layout_x: round2(pos.x), layout_y: round2(pos.y) }
+        }),
+        edgeLabels: labelIds.map((id) => {
+          const entry = edgesById.get(id)
+          if (!entry) throw new Error(`Cannot save label layout for unknown edge ${id}`)
+          const { edge, index } = entry
+          return {
+            index,
+            from: edge.from,
+            to: edge.to,
+            relation: edge.relation ?? "",
+            protocol: edge.protocol ?? "",
+            layout_label_ratio: round4(
+              clampRatio(edgeLabelRatios[id] ?? edge.layout_label_ratio ?? DEFAULT_LABEL_RATIO)
+            ),
+          }
+        }),
+      }
+      const response = await fetch("/api/architecture-map/layout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      })
+      if (!response.ok) {
+        throw new Error(await readErrorMessage(response))
+      }
+      dirtyNodeIdsRef.current.clear()
+      dirtyEdgeLabelIdsRef.current.clear()
+      setLayoutDirty(false)
+      setSaveStatus("saved")
+    } catch (error) {
+      setLayoutDirty(true)
+      setSaveStatus("error")
+      setSaveError(error instanceof Error ? error.message : "Layout save failed.")
+    }
+  }, [edgeLabelRatios, edgesById, nodePositions, nodesById])
+
+  // The data prop is immutable for a given render; selection is driven entirely
+  // from it so it survives background refreshes.
   const selectNode = useCallback(
     (event: React.MouseEvent, node: Node<MapNodeData>) => {
       event.stopPropagation()
@@ -317,15 +553,20 @@ function ArchitectureMapInner({
     [onSelect]
   )
 
+  const showSave = editMode && (layoutDirty || saveStatus === "saving" || saveStatus === "error")
+
   return (
     <div className="architecture-map-root">
       <ReactFlow
         colorMode="light"
-        nodes={flowNodes}
-        edges={flowEdges}
+        nodes={nodes}
+        edges={edges}
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}
+        onNodesChange={onNodesChange}
+        onEdgesChange={onEdgesChange}
         onNodeClick={selectNode}
+        onNodeDragStop={commitNodePosition}
         onEdgeClick={selectEdgeFromFlow}
         onPaneClick={clearSelection}
         proOptions={{ hideAttribution: true }}
@@ -333,11 +574,13 @@ function ArchitectureMapInner({
         fitViewOptions={{ padding: 0.24 }}
         minZoom={0.08}
         maxZoom={1.8}
-        nodesDraggable={false}
+        nodesDraggable={editMode}
         nodesConnectable={false}
+        snapToGrid={editMode}
+        snapGrid={SNAP_GRID}
       >
         <Background variant={BackgroundVariant.Dots} gap={20} size={1} color="#cbd5e1" />
-        <ClusterBackdrops nodes={flowNodes} />
+        <ClusterBackdrops nodes={nodes} editMode={editMode} onClusterMove={moveCluster} />
         <MiniMap
           position="bottom-right"
           pannable
@@ -351,6 +594,48 @@ function ArchitectureMapInner({
         />
         <Controls position="bottom-left" showInteractive={false} />
       </ReactFlow>
+
+      {/* Edit-layout control: read-only by default; toggle ON to drag nodes,
+          drag clusters by their title handle, drag edge labels, and Save. Sits
+          below the floating setup bar (top-left) so it never overlaps it. */}
+      <div className="absolute top-14 left-2 z-10">
+        <div className="map-edit-toolbar">
+          <button
+            type="button"
+            className={`map-edit-toggle${editMode ? " active" : ""}`}
+            aria-pressed={editMode}
+            onClick={() => setEditMode((on) => !on)}
+            title={
+              editMode
+                ? "Exit layout editing (read-only)"
+                : "Edit layout: drag nodes, cluster titles, and edge labels"
+            }
+          >
+            {editMode ? "Editing layout" : "Edit layout"}
+          </button>
+          {showSave ? (
+            <button
+              type="button"
+              className="map-save-button"
+              onClick={saveLayout}
+              disabled={saveStatus === "saving" || !layoutDirty}
+            >
+              {saveStatus === "saving"
+                ? "Saving…"
+                : saveStatus === "error"
+                  ? "Save failed — retry"
+                  : "Save layout"}
+            </button>
+          ) : null}
+          {editMode && saveStatus === "saved" ? (
+            <span className="map-save-status">Saved</span>
+          ) : null}
+          {saveStatus === "error" && saveError ? (
+            <p className="map-save-error">{saveError}</p>
+          ) : null}
+        </div>
+      </div>
+
       <div className="absolute top-3 right-3 z-10">
         <Legend view={view} nodes={data.nodes} statusLegend={data.statusLegend} />
       </div>
@@ -369,6 +654,7 @@ function ArchitectureEdge({
   style,
   data,
 }: EdgeProps) {
+  const { screenToFlowPosition } = useReactFlow()
   const edgeData = data as EdgeData | undefined
   const protocol = edgeData?.protocol ?? ""
   const progressStatus = edgeData?.progressStatus ?? "not_started"
@@ -377,6 +663,7 @@ function ArchitectureEdge({
   const isSelected = edgeData?.isSelected ?? false
   const isConnected = edgeData?.isConnected ?? false
   const isActive = edgeData?.isActive ?? false
+  const editable = edgeData?.editable ?? false
   const renderFloating = isSelected || isConnected
   const labelRatio = clampRatio(edgeData?.labelRatio ?? DEFAULT_LABEL_RATIO)
 
@@ -394,6 +681,57 @@ function ArchitectureEdge({
   const floatingClass = `${
     isSelected ? " selected" : isConnected ? " connected" : ""
   }${progressClass}`
+
+  // Drag the label along the edge (edit mode only). A small movement threshold
+  // distinguishes a drag from a click; double-click resets to the midpoint.
+  const startLabelDrag = (event: React.PointerEvent<HTMLButtonElement>) => {
+    if (!editable || !edgeData) return
+    event.preventDefault()
+    event.stopPropagation()
+    try {
+      event.currentTarget.setPointerCapture(event.pointerId)
+    } catch {
+      // Synthetic pointer events (tests) may not own an active pointer.
+    }
+    const startX = event.clientX
+    const startY = event.clientY
+    let didDrag = false
+
+    const moveTo = (clientX: number, clientY: number) => {
+      const point = screenToFlowPosition({ x: clientX, y: clientY })
+      edgeData.onMoveEdgeLabel(
+        id,
+        projectedEdgeRatio(point, { x: sourceX, y: sourceY }, { x: targetX, y: targetY })
+      )
+    }
+    const onMove = (moveEvent: PointerEvent) => {
+      moveEvent.preventDefault()
+      if (!didDrag) {
+        didDrag =
+          Math.hypot(moveEvent.clientX - startX, moveEvent.clientY - startY) >=
+          EDGE_LABEL_DRAG_THRESHOLD_PX
+      }
+      if (didDrag) moveTo(moveEvent.clientX, moveEvent.clientY)
+    }
+    const onUp = () => {
+      window.removeEventListener("pointermove", onMove)
+      window.removeEventListener("pointerup", onUp)
+      window.removeEventListener("pointercancel", onUp)
+    }
+    window.addEventListener("pointermove", onMove)
+    window.addEventListener("pointerup", onUp)
+    window.addEventListener("pointercancel", onUp)
+  }
+
+  const resetLabel = (event: React.MouseEvent<HTMLButtonElement>) => {
+    if (!editable || !edgeData) return
+    event.preventDefault()
+    event.stopPropagation()
+    edgeData.onMoveEdgeLabel(id, DEFAULT_LABEL_RATIO)
+  }
+
+  const labelClassSuffix = editable ? " editable nodrag nopan" : " nodrag nopan"
+  const labelTitle = editable ? "Drag to move label · double-click to reset" : "Select edge"
 
   return (
     <>
@@ -424,12 +762,14 @@ function ArchitectureEdge({
           ) : null}
           <button
             type="button"
-            className={`map-edge-label map-edge-label-overlay nodrag nopan${floatingClass}`}
+            className={`map-edge-label map-edge-label-overlay${labelClassSuffix}${floatingClass}`}
             style={{
               transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`,
               zIndex: isSelected ? 1002 : 1001,
             }}
-            title="Select edge"
+            onPointerDown={editable ? startLabelDrag : undefined}
+            onDoubleClick={editable ? resetLabel : undefined}
+            title={labelTitle}
           >
             {protocol}
           </button>
@@ -443,7 +783,13 @@ function ArchitectureEdge({
           height={labelHeight}
         >
           <div className="map-edge-label-host">
-            <button type="button" className={`map-edge-label nodrag nopan${foreignClass}`} title="Select edge">
+            <button
+              type="button"
+              className={`map-edge-label${labelClassSuffix}${foreignClass}`}
+              onPointerDown={startLabelDrag}
+              onDoubleClick={resetLabel}
+              title={labelTitle}
+            >
               {protocol}
             </button>
           </div>
@@ -453,7 +799,18 @@ function ArchitectureEdge({
   )
 }
 
-function ClusterBackdrops({ nodes }: { nodes: Node<MapNodeData>[] }) {
+function ClusterBackdrops({
+  nodes,
+  editMode,
+  onClusterMove,
+}: {
+  nodes: Node<MapNodeData>[]
+  editMode: boolean
+  onClusterMove: (clusterId: string, delta: XY, commit: boolean) => void
+}) {
+  const { zoom } = useViewport()
+  const [draggingClusterId, setDraggingClusterId] = useState<string | null>(null)
+
   const groups = useMemo(() => {
     const bounds = new Map<
       string,
@@ -488,6 +845,46 @@ function ClusterBackdrops({ nodes }: { nodes: Node<MapNodeData>[] }) {
       .sort((a, b) => b.width * b.height - a.width * a.height)
   }, [nodes])
 
+  // The cluster title is the drag handle (faithful to the original viewer): a
+  // pointer-drag on it shifts every member node of the cluster by the same delta.
+  const startClusterDrag = (
+    event: React.PointerEvent<HTMLButtonElement>,
+    clusterId: string
+  ) => {
+    event.preventDefault()
+    event.stopPropagation()
+    try {
+      event.currentTarget.setPointerCapture(event.pointerId)
+    } catch {
+      // Synthetic pointer events (tests) may not own an active pointer.
+    }
+    setDraggingClusterId(clusterId)
+
+    const dragZoom = zoom || 1
+    const startX = event.clientX
+    const startY = event.clientY
+    let lastDelta: XY = { x: 0, y: 0 }
+
+    const onMove = (moveEvent: PointerEvent) => {
+      moveEvent.preventDefault()
+      lastDelta = {
+        x: (moveEvent.clientX - startX) / dragZoom,
+        y: (moveEvent.clientY - startY) / dragZoom,
+      }
+      onClusterMove(clusterId, lastDelta, false)
+    }
+    const onUp = () => {
+      onClusterMove(clusterId, lastDelta, true)
+      setDraggingClusterId(null)
+      window.removeEventListener("pointermove", onMove)
+      window.removeEventListener("pointerup", onUp)
+      window.removeEventListener("pointercancel", onUp)
+    }
+    window.addEventListener("pointermove", onMove)
+    window.addEventListener("pointerup", onUp)
+    window.addEventListener("pointercancel", onUp)
+  }
+
   return (
     <ViewportPortal>
       {groups.map((group) => {
@@ -504,7 +901,20 @@ function ClusterBackdrops({ nodes }: { nodes: Node<MapNodeData>[] }) {
               borderColor: tone.border,
             }}
           >
-            <span className="map-cluster-label">{group.label}</span>
+            {editMode ? (
+              <button
+                type="button"
+                className={`map-cluster-handle nodrag nopan${
+                  draggingClusterId === group.id ? " dragging" : ""
+                }`}
+                onPointerDown={(event) => startClusterDrag(event, group.id)}
+                title={`Move ${group.label}`}
+              >
+                {group.label}
+              </button>
+            ) : (
+              <span className="map-cluster-label">{group.label}</span>
+            )}
           </div>
         )
       })}
@@ -568,5 +978,43 @@ function edgeIndexFromId(id: string): number {
 
 function clampRatio(ratio: number): number {
   if (!Number.isFinite(ratio)) return DEFAULT_LABEL_RATIO
-  return Math.min(0.92, Math.max(0.08, ratio))
+  return Math.min(MAX_LABEL_RATIO, Math.max(MIN_LABEL_RATIO, ratio))
+}
+
+/** Scalar projection of a pointer onto the edge, clamped to the label travel. */
+function projectedEdgeRatio(point: XY, source: XY, target: XY): number {
+  const edgeX = target.x - source.x
+  const edgeY = target.y - source.y
+  const lengthSquared = edgeX * edgeX + edgeY * edgeY
+  if (lengthSquared === 0) return DEFAULT_LABEL_RATIO
+  const pointX = point.x - source.x
+  const pointY = point.y - source.y
+  return clampRatio((pointX * edgeX + pointY * edgeY) / lengthSquared)
+}
+
+function almostEqual(a: number, b: number): boolean {
+  return Math.abs(a - b) < 0.001
+}
+
+function samePosition(a: XY, b: XY): boolean {
+  return almostEqual(a.x, b.x) && almostEqual(a.y, b.y)
+}
+
+function round2(value: number): number {
+  return Number(value.toFixed(2))
+}
+
+function round4(value: number): number {
+  return Number(clampRatio(value).toFixed(4))
+}
+
+async function readErrorMessage(response: Response): Promise<string> {
+  const text = await response.text()
+  try {
+    const parsed = JSON.parse(text) as { error?: string }
+    if (parsed && typeof parsed.error === "string") return parsed.error
+  } catch {
+    // Not JSON — fall through to the raw text.
+  }
+  return text || `Save failed with HTTP ${response.status}`
 }

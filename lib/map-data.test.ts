@@ -7,16 +7,21 @@ import {
   buildGraphStatesByRef,
   buildIssuesByGraphRef,
   buildStatusOverlay,
+  clusterMovedPositions,
   computeVisibleCounts,
   edgeGraphRef,
   formatLineCoverage,
   issueDisplayStatus,
   issueTranscriptRefs,
+  LAYOUT_SNAP_GRID,
   nodeMatchesQuery,
   normalizeMapData,
   resolveNodeStatus,
   resolveNodes,
+  snapCoordinate,
+  snapXY,
   statusColor,
+  type XY,
 } from "@/lib/map-data"
 import type { DevelopmentBlock, MapEdge, MapNode } from "@/lib/types"
 
@@ -427,5 +432,55 @@ describe("computeVisibleCounts", () => {
       nodes: 1,
       edges: 0,
     })
+  })
+})
+
+describe("snap helpers", () => {
+  it("snaps a coordinate to the layout grid", () => {
+    expect(LAYOUT_SNAP_GRID).toBe(20)
+    expect(snapCoordinate(0)).toBe(0)
+    expect(snapCoordinate(9)).toBe(0)
+    expect(snapCoordinate(11)).toBe(20)
+    expect(snapCoordinate(-11)).toBe(-20)
+    expect(snapXY({ x: 23, y: -11 })).toEqual({ x: 20, y: -20 })
+  })
+})
+
+describe("clusterMovedPositions (cluster-drag math)", () => {
+  const start = new Map<string, XY>([
+    ["a", { x: 100, y: 200 }],
+    ["b", { x: 300, y: 200 }],
+    ["c", { x: 500, y: 0 }], // not a member of the dragged cluster
+  ])
+
+  it("applies the same snapped delta to every member, leaving non-members out", () => {
+    const moved = clusterMovedPositions(start, ["a", "b"], { x: 42, y: -38 })
+    // 42 -> 40, -38 -> -40 after snapping to the grid.
+    expect(moved.get("a")).toEqual({ x: 140, y: 160 })
+    expect(moved.get("b")).toEqual({ x: 340, y: 160 })
+    // Only the requested members are returned.
+    expect(moved.has("c")).toBe(false)
+    expect(moved.size).toBe(2)
+  })
+
+  it("preserves the relative offset between members (rigid translation)", () => {
+    const moved = clusterMovedPositions(start, ["a", "b"], { x: 100, y: 100 })
+    const a = moved.get("a")!
+    const b = moved.get("b")!
+    // a and b were 200 apart on x and 0 on y before; that must be unchanged.
+    expect(b.x - a.x).toBe(300 - 100)
+    expect(b.y - a.y).toBe(0)
+  })
+
+  it("ignores member ids with no recorded start position", () => {
+    const moved = clusterMovedPositions(start, ["a", "ghost"], { x: 20, y: 20 })
+    expect(moved.get("a")).toEqual({ x: 120, y: 220 })
+    expect(moved.has("ghost")).toBe(false)
+  })
+
+  it("is a no-op delta when the (snapped) drag is below one grid step", () => {
+    const moved = clusterMovedPositions(start, ["a", "b"], { x: 4, y: -3 })
+    expect(moved.get("a")).toEqual({ x: 100, y: 200 })
+    expect(moved.get("b")).toEqual({ x: 300, y: 200 })
   })
 })

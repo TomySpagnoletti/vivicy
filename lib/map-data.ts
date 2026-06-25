@@ -261,6 +261,48 @@ export function nodeMatchesQuery(node: MapNode, query: string): boolean {
     .includes(q)
 }
 
+/** A point in the map's flow coordinate space. */
+export interface XY {
+  x: number
+  y: number
+}
+
+/** The snap step used when committing edited node positions (matches the grid). */
+export const LAYOUT_SNAP_GRID = 20
+
+/** Snap a single coordinate to the layout grid. */
+export function snapCoordinate(value: number, grid = LAYOUT_SNAP_GRID): number {
+  return Math.round(value / grid) * grid
+}
+
+/** Snap a point to the layout grid. */
+export function snapXY(point: XY, grid = LAYOUT_SNAP_GRID): XY {
+  return { x: snapCoordinate(point.x, grid), y: snapCoordinate(point.y, grid) }
+}
+
+/**
+ * Cluster-drag math: apply a (snapped) drag delta to every member node's drag
+ * START position, returning the moved positions keyed by node id. Pure and
+ * snap-aware so it can be unit tested and reused by the map's cluster handle —
+ * a faithful port of the original viewer's `moveCluster`, which shifted every
+ * member of a cluster by the same snapped delta from where the drag began.
+ */
+export function clusterMovedPositions(
+  startPositions: Map<string, XY>,
+  memberIds: string[],
+  delta: XY,
+  grid = LAYOUT_SNAP_GRID
+): Map<string, XY> {
+  const snapped = snapXY(delta, grid)
+  const moved = new Map<string, XY>()
+  for (const id of memberIds) {
+    const start = startPositions.get(id)
+    if (!start) continue
+    moved.set(id, { x: start.x + snapped.x, y: start.y + snapped.y })
+  }
+  return moved
+}
+
 /** The active map filters that decide node/edge visibility. */
 export interface MapFilters {
   view: ViewMode

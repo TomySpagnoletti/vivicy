@@ -130,6 +130,43 @@
   white-space: nowrap;
 }
 
+/* Edit mode: the cluster title becomes a drag handle (faithful port of the
+   original viewer's .cluster-handle). Pointer-events are re-enabled here even
+   though the backdrop and viewport portal disable them. */
+.map-cluster-handle {
+  background: rgb(248 250 252 / 84%);
+  border: 1px solid rgb(203 213 225 / 78%);
+  border-radius: 999px;
+  color: #64748b;
+  cursor: grab;
+  display: inline-flex;
+  font-size: 11px;
+  font-weight: 850;
+  left: 18px;
+  line-height: 1;
+  max-width: calc(100% - 36px);
+  overflow: hidden;
+  padding: 7px 10px;
+  pointer-events: auto;
+  position: absolute;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  top: 14px;
+  touch-action: none;
+  white-space: nowrap;
+}
+
+.map-cluster-handle:hover,
+.map-cluster-handle.dragging {
+  background: #0f172a;
+  border-color: #0f172a;
+  color: #ffffff;
+}
+
+.map-cluster-handle.dragging {
+  cursor: grabbing;
+}
+
 /* Edge protocol labels. */
 .map-edge-label {
   background: #ffffff;
@@ -301,6 +338,88 @@
   display: inline-block;
   height: 13px;
   width: 13px;
+}
+
+/* In edit mode the protocol label is draggable along its edge. */
+.map-edge-label.editable {
+  cursor: grab;
+  touch-action: none;
+}
+
+.map-edge-label.editable:active {
+  cursor: grabbing;
+}
+
+/* Edit-layout toolbar: a sober overlay control. Read-only by default; toggling
+   it ON enables drag + reveals Save. Kept minimal so the default map is
+   unchanged apart from this single control. */
+.map-edit-toolbar {
+  align-items: flex-start;
+  background: rgb(255 255 255 / 92%);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgb(203 213 225 / 82%);
+  border-radius: 8px;
+  box-shadow: 0 10px 30px rgb(15 23 42 / 12%);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  max-width: 280px;
+  padding: 8px;
+}
+
+.map-edit-toggle {
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  border-radius: 7px;
+  color: #0f172a;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1;
+  padding: 7px 9px;
+}
+
+.map-edit-toggle:hover {
+  border-color: #0f172a;
+}
+
+.map-edit-toggle.active {
+  background: #0f172a;
+  border-color: #0f172a;
+  color: #ffffff;
+}
+
+.map-save-button {
+  background: #0f172a;
+  border: 1px solid #0f172a;
+  border-radius: 7px;
+  color: #ffffff;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 850;
+  line-height: 1;
+  padding: 7px 9px;
+}
+
+.map-save-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.map-save-status {
+  align-self: center;
+  color: #16a34a;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.map-save-error {
+  color: #b91c1c;
+  flex-basis: 100%;
+  font-size: 11px;
+  line-height: 1.25;
+  margin: 0;
+  overflow-wrap: anywhere;
 }
 
 @keyframes map-work-pulse {
