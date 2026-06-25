@@ -211,4 +211,69 @@ test.describe("Vivicy agent settings", () => {
     await expect(page.getByText(/Settings saved/i).first()).toBeVisible({ timeout: 15_000 })
     await expect(dialog2).not.toBeVisible()
   })
+
+  test("the concurrency stepper enforces the 1–12 range with up/down arrows", async ({ page }) => {
+    await page.goto("/")
+
+    await page.getByRole("button", { name: "Settings" }).click()
+    const dialog = page.getByRole("dialog")
+    await expect(dialog.getByText("Agent settings")).toBeVisible()
+
+    const maxParallel = dialog.getByLabel("Max parallel issues")
+    // The input advertises the 1–12 range.
+    await expect(maxParallel).toHaveAttribute("min", "1")
+    await expect(maxParallel).toHaveAttribute("max", "12")
+
+    // The up arrow steps the value by 1; clicking it past 12 never exceeds the cap.
+    const increase = dialog.getByRole("button", { name: "Increase" })
+    await maxParallel.fill("11")
+    await increase.click()
+    await expect(maxParallel).toHaveValue("12")
+    await expect(increase).toBeDisabled() // capped at 12
+
+    // The down arrow floors at 1 and then disables (never below the sequential 1).
+    const decrease = dialog.getByRole("button", { name: "Decrease" })
+    await maxParallel.fill("2")
+    await decrease.click()
+    await expect(maxParallel).toHaveValue("1")
+    await expect(decrease).toBeDisabled()
+
+    // Leave the store clean (1 = sequential default).
+    await dialog.getByRole("button", { name: "Save" }).click()
+    await expect(page.getByText(/Settings saved/i).first()).toBeVisible({ timeout: 15_000 })
+    await expect(dialog).not.toBeVisible()
+  })
+
+  // Capture the Concurrency section at 1320x820 with the 1–12 stepper mid-range so
+  // both arrows and the "spread across the map" note are visible. Serial, store-clean.
+  test("screenshot — concurrency 1–12 stepper (1320x820)", async ({ page }) => {
+    await page.setViewportSize({ width: 1320, height: 820 })
+    await page.goto("/")
+
+    await page.getByRole("button", { name: "Settings" }).click()
+    const dialog = page.getByRole("dialog")
+    await expect(dialog.getByText("Agent settings")).toBeVisible()
+
+    // Set a mid-range value so the stepper reads clearly (neither bound disabled).
+    const maxParallel = dialog.getByLabel("Max parallel issues")
+    await maxParallel.fill("6")
+    await expect(maxParallel).toHaveValue("6")
+    // Both arrows are active at a mid value.
+    await expect(dialog.getByRole("button", { name: "Increase" })).toBeEnabled()
+    await expect(dialog.getByRole("button", { name: "Decrease" })).toBeEnabled()
+
+    // Bring the Concurrency section (label + stepper + spread note) fully into the
+    // frame so the whole control reads in the shot, not just its top edge.
+    await dialog
+      .getByText(/spread across different parts of the map/i)
+      .scrollIntoViewIfNeeded()
+    await page.waitForTimeout(250)
+    await page.screenshot({ path: "/tmp/vivicy-concurrency.png" })
+
+    // Restore the default (1) so the store is clean for other runs.
+    await maxParallel.fill("1")
+    await dialog.getByRole("button", { name: "Save" }).click()
+    await expect(page.getByText(/Settings saved/i).first()).toBeVisible({ timeout: 15_000 })
+    await expect(dialog).not.toBeVisible()
+  })
 })

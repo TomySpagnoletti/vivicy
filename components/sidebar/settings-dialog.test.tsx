@@ -155,6 +155,58 @@ describe("thinking level filter", () => {
   })
 })
 
+describe("concurrency stepper (range 1–12)", () => {
+  test("renders the persisted value with stepper arrows and reaches 12", async () => {
+    stubSettings({ ...DEFAULT_SETTINGS, maxParallel: 8 })
+    const user = userEvent.setup()
+    render(<SettingsDialog />)
+    await openDialog(user)
+
+    const input = screen.getByLabelText("Max parallel issues") as HTMLInputElement
+    expect(input).toHaveValue(8)
+    // The input advertises the 1–12 range.
+    expect(input).toHaveAttribute("min", "1")
+    expect(input).toHaveAttribute("max", "12")
+
+    // The up arrow increments by 1 and is reachable as a button.
+    const increase = screen.getByRole("button", { name: "Increase" })
+    await user.click(increase)
+    await user.click(increase)
+    await user.click(increase)
+    await user.click(increase)
+    expect(input).toHaveValue(12)
+    // At the cap, the up arrow disables — the stepper can never exceed 12.
+    expect(increase).toBeDisabled()
+  })
+
+  test("down arrow floors at 1 and then disables (never below 1)", async () => {
+    stubSettings({ ...DEFAULT_SETTINGS, maxParallel: 2 })
+    const user = userEvent.setup()
+    render(<SettingsDialog />)
+    await openDialog(user)
+
+    const input = screen.getByLabelText("Max parallel issues") as HTMLInputElement
+    expect(input).toHaveValue(2)
+    const decrease = screen.getByRole("button", { name: "Decrease" })
+    await user.click(decrease)
+    expect(input).toHaveValue(1)
+    // Sequential floor: cannot go below 1, the down arrow disables.
+    expect(decrease).toBeDisabled()
+  })
+
+  test("a typed out-of-range value is clamped into [1, 12]", async () => {
+    const user = userEvent.setup()
+    render(<SettingsDialog />)
+    await openDialog(user)
+
+    const input = screen.getByLabelText("Max parallel issues") as HTMLInputElement
+    // Typing 99 clamps to the cap of 12 (clampMaxParallel runs on every change).
+    await user.clear(input)
+    await user.type(input, "99")
+    expect(input).toHaveValue(12)
+  })
+})
+
 describe("save guard", () => {
   test("Save is enabled for a valid default document", async () => {
     const user = userEvent.setup()

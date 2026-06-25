@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest"
 
 import {
   agentDefaultsFor,
+  clampMaxParallel,
   DEFAULT_SETTINGS,
   effortsForModel,
   EFFORT_LEVELS,
@@ -13,6 +14,8 @@ import {
   isDistinctAssignment,
   isSettingsValid,
   isValidEffort,
+  MAX_PARALLEL,
+  MIN_PARALLEL,
   modelCapability,
   modelSupportsFast,
   MODEL_IDS,
@@ -266,12 +269,25 @@ describe("role -> CLI assignment (R12)", () => {
     expect(isDistinctAssignment(collided)).toBe(true)
   })
 
-  it("normalizeSettings clamps maxParallel to a sane integer (default 1)", () => {
+  it("exposes the concurrency bounds as [1, 12] and clampMaxParallel honors them", () => {
+    expect(MIN_PARALLEL).toBe(1)
+    expect(MAX_PARALLEL).toBe(12)
+    expect(clampMaxParallel(1)).toBe(1)
+    expect(clampMaxParallel(12)).toBe(12)
+    expect(clampMaxParallel(13)).toBe(12)
+    expect(clampMaxParallel(0)).toBe(1)
+    expect(clampMaxParallel("9")).toBe(9)
+    expect(clampMaxParallel("nope")).toBe(1)
+  })
+
+  it("normalizeSettings clamps maxParallel to an integer in [1, 12]", () => {
     expect(normalizeSettings({}).maxParallel).toBe(1)
     expect(normalizeSettings({ maxParallel: 4 }).maxParallel).toBe(4)
+    expect(normalizeSettings({ maxParallel: 12 }).maxParallel).toBe(12)
     expect(normalizeSettings({ maxParallel: 0 }).maxParallel).toBe(1)
     expect(normalizeSettings({ maxParallel: -2 }).maxParallel).toBe(1)
-    expect(normalizeSettings({ maxParallel: 999 }).maxParallel).toBe(8)
+    // Above the cap is clamped to MAX_PARALLEL = 12 (not the old 8).
+    expect(normalizeSettings({ maxParallel: 999 }).maxParallel).toBe(12)
     expect(normalizeSettings({ maxParallel: 2.7 }).maxParallel).toBe(2)
   })
 
@@ -366,14 +382,15 @@ describe("settingsToEnv", () => {
     expect(env.VIVICY_CODEX_FAST).toBe("0")
   })
 
-  it("carries the concurrency knob, clamped to [1, 8]", () => {
+  it("carries the concurrency knob, clamped to [1, 12]", () => {
     const base = {
       implementer: { provider: "claude", model: "claude-opus-4-8", effort: "xhigh", fast: false },
       reviewer: { provider: "codex", model: "gpt-5.5", effort: "high", fast: false },
     } as const
     expect(settingsToEnv({ ...base, maxParallel: 3 }).VIVICY_MAX_PARALLEL).toBe("3")
+    expect(settingsToEnv({ ...base, maxParallel: 12 }).VIVICY_MAX_PARALLEL).toBe("12")
     expect(settingsToEnv({ ...base, maxParallel: 0 }).VIVICY_MAX_PARALLEL).toBe("1")
-    expect(settingsToEnv({ ...base, maxParallel: 99 }).VIVICY_MAX_PARALLEL).toBe("8")
+    expect(settingsToEnv({ ...base, maxParallel: 99 }).VIVICY_MAX_PARALLEL).toBe("12")
   })
 
   it("carries a swapped assignment: each CLI's model/level/fast follows the CLI", () => {

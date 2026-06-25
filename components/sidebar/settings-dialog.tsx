@@ -34,8 +34,8 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog"
-import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { NumberStepper } from "@/components/ui/number-stepper"
 import {
   Select,
   SelectContent,
@@ -223,20 +223,22 @@ export function SettingsDialog({
               <legend className="px-1 text-xs font-medium text-foreground">Concurrency</legend>
               <div className="flex flex-col gap-1.5">
                 <Label htmlFor="settings-max-parallel">Max parallel issues</Label>
-                <Input
+                <NumberStepper
                   id="settings-max-parallel"
-                  type="number"
-                  inputMode="numeric"
                   min={MIN_PARALLEL}
                   max={MAX_PARALLEL}
                   step={1}
                   value={draft.maxParallel}
-                  onChange={(event) => setMaxParallel(Number(event.target.value))}
+                  onValueChange={setMaxParallel}
                   aria-describedby="settings-max-parallel-help"
+                  aria-label="Max parallel issues"
+                  className="w-28"
                 />
                 <p id="settings-max-parallel-help" className="text-xs text-muted-foreground">
-                  Independent issues run at once, each in its own git worktree (1 =
-                  sequential). Dependent issues always wait their turn.
+                  Independent issues run at once (1–{MAX_PARALLEL}), each in its own
+                  git worktree (1 = sequential). The batch is spread across different
+                  parts of the map to minimize merge conflicts. Dependent issues
+                  always wait their turn.
                 </p>
               </div>
             </fieldset>

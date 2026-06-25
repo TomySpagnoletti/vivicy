@@ -129,12 +129,22 @@ function isKnownCli(value) {
   return value === "claude" || value === "codex";
 }
 
-// Coerce a concurrency setting (env string or number) into a sane integer >= 1.
-// Anything unparseable or below 1 falls back to 1 — the sequential default — so a
-// bad value never accidentally widens parallelism or stalls the loop at 0.
+// The concurrency knob's bounds. Mirrors lib/settings.ts (MIN_PARALLEL /
+// MAX_PARALLEL) so the loop clamps to the SAME [1, 12] range the settings dialog
+// offers — the env value is re-clamped here as defence in depth against a
+// hand-edited or out-of-band VIVICY_MAX_PARALLEL.
+export const MIN_CONCURRENCY = 1;
+export const MAX_CONCURRENCY = 12;
+
+// Coerce a concurrency setting (env string or number) into an integer in
+// [MIN_CONCURRENCY, MAX_CONCURRENCY] = [1, 12]. Anything unparseable or below 1
+// falls back to 1 — the sequential default — so a bad value never stalls the loop
+// at 0; anything above 12 is capped so a runaway value never spawns an unbounded
+// fleet of worktrees.
 export function clampConcurrency(value) {
   const n = Math.floor(Number(value));
-  return Number.isFinite(n) && n >= 1 ? n : 1;
+  if (!Number.isFinite(n) || n < MIN_CONCURRENCY) return MIN_CONCURRENCY;
+  return n > MAX_CONCURRENCY ? MAX_CONCURRENCY : n;
 }
 
 /**
@@ -218,6 +228,12 @@ export const DEFAULT_CONFIG = {
   // Gitignored root under the main repo where per-issue worktrees are created
   // (one subdir per concurrently-running issue). Only used when maxParallel > 1.
   worktreesDir: ".vivicy-worktrees",
+  // Generated viewer artifact for the TARGET project's architecture map. The
+  // parallel scheduler reads node clusters + edge adjacency from here to SPREAD the
+  // concurrent batch across the map (max-spread selection). Fixed repo-relative
+  // path the generator owns (generate-viewer-data.ts enforces the same path); when
+  // it is absent the scheduler degrades gracefully to a files-only spread.
+  architectureDataPath: "docs/architecture-map/viewer/src/architecture-data.json",
   // Per-role CLI assignment + per-CLI model + thinking-level (R12 + P4). Two knobs,
   // both driven from the Vivicy settings dialog via env:
   //   - which CLI fills each ROLE: VIVICY_IMPLEMENTER_CLI / VIVICY_REVIEWER_CLI
@@ -417,22 +433,227 @@ export function buildDepsClosure(issues) {
   return closure;
 }
 
-// Select up to `limit` issues to run CONCURRENTLY from `ready`, such that every
-// selected issue is pairwise-independent from every other AND from each
-// already-`running` issue. Greedy in index order (deterministic): take the first
-// ready issue compatible with the whole current batch, repeat until full or the
-// ready set is exhausted. With limit = 1 this returns exactly one issue (the
-// first ready), making the sequential path fall out unchanged.
-export function selectIndependentBatch(ready, runningIssues, limit, depsClosureById) {
+// --------------------------------------------------------------------------
+// Max-spread batch selection (farthest-point sampling on the architecture graph)
+//
+// Problem: picking the parallel batch in index order tends to grab CONSECUTIVE
+// issues (e.g. 13–20), which the extraction places in the SAME region of the
+// architecture map. Even with disjoint graph_refs those issues touch nearby /
+// shared code, so the worktrees merge with conflicts. We want the N concurrent
+// issues SPREAD across different subsystems so their file footprints stay apart.
+//
+// The HARD GATE is unchanged: a candidate joins the batch ONLY if it is
+// pairwise-independent (no transitive dependency path AND disjoint claims) from
+// every batch member and every already-running issue — issuesIndependent() is the
+// sole authority and is never weakened. Spread is a SECONDARY preference applied
+// strictly on top of that gate: among the independent candidates we pick the most
+// SEPARATED one, never a dependent or claim-overlapping one.
+//
+// FOOTPRINT(issue) — the slice of the system an issue is likely to touch, as a set
+// of opaque string tokens. The union of:
+//   - its claimed files: explicit `claims` / `claimed_files`, else its graph_refs
+//     (issueClaim, the same set the hard gate uses), tagged `file:`;
+//   - its source files: the file part of each `source_line_refs` entry
+//     ("docs/x.md:7-13" -> "docs/x.md"), tagged `src:`;
+//   - its clusters: the `layout_cluster` of each graph_ref node, tagged `cluster:`;
+//   - its graph neighborhood: each graph_ref node id plus the ids edge-adjacent to
+//     it (from the architecture edges), tagged `node:`.
+// Cluster + adjacency come from the architecture index (built from the target's
+// architecture-data.json). When that data is missing the footprint degrades to
+// files + source files only — and, if even those are absent, to the bare
+// graph_refs — so the selection always has SOMETHING to separate on.
+//
+// DISTANCE(A, B) — a small ORDERED risk score, larger = farther apart = safer to
+// run together. Concrete ladder (lower = closer = higher conflict risk):
+//   0  footprints share a claimed file        (worst: same file -> guaranteed clash)
+//   1  footprints share a source file
+//   2  footprints share a cluster             (same subsystem region)
+//   3  footprints are edge-adjacent           (touch across one graph edge)
+//   4  far                                    (no overlap on any axis)
+// Ties between candidates with equal min-distance break by issue index, so the
+// same inputs always yield the same batch (determinism).
+//
+// SELECTION — greedy farthest-point sampling:
+//   - seed the batch with the FIRST ready issue (lowest index) that is independent
+//     of everything already running (so N=1 and the running-aware paths are
+//     unchanged: seed == first compatible ready issue);
+//   - then repeatedly add the independent candidate whose MINIMUM distance to the
+//     current batch is the LARGEST (the most-separated issue), tie-broken by index;
+//   - stop when the batch fills the free slots or no independent candidate remains.
+// With limit = 1 the loop seeds and returns one issue == the old sequential pick.
+// With no architecture data every far pair scores 4, so the min-distance tie-break
+// collapses to index order — i.e. the old behavior — which is exactly why the
+// existing claims-only tests still hold.
+// --------------------------------------------------------------------------
+
+// Strip the ":<line>" / ":<a-b>" suffix from a source_line_ref, leaving the file.
+//   "docs/canonical/02.md:7-13" -> "docs/canonical/02.md"
+function sourceRefFile(ref) {
+  if (typeof ref !== "string") return null;
+  const colon = ref.lastIndexOf(":");
+  return colon > 0 ? ref.slice(0, colon) : ref;
+}
+
+// Is a graph_ref a node ref ("node:<id>") rather than an edge ref? We separate the
+// node id ("node:ledger" -> "ledger") to look it up in the architecture index.
+function nodeIdOfGraphRef(ref) {
+  if (typeof ref === "string" && ref.startsWith("node:")) return ref.slice("node:".length);
+  return null;
+}
+
+// Build a lightweight, read-only ARCHITECTURE INDEX from a parsed
+// architecture-data.json: node id -> its cluster, and node id -> the set of
+// edge-adjacent node ids. Pure and defensive — any missing/odd shape yields empty
+// maps so footprint() degrades gracefully instead of throwing.
+export function buildArchitectureIndex(architecture) {
+  const clusterByNode = new Map();
+  const adjacencyByNode = new Map();
+  if (!architecture || typeof architecture !== "object") {
+    return { clusterByNode, adjacencyByNode };
+  }
+  const nodes = Array.isArray(architecture.nodes) ? architecture.nodes : [];
+  for (const node of nodes) {
+    if (!node || typeof node.id !== "string") continue;
+    if (typeof node.layout_cluster === "string" && node.layout_cluster.length > 0) {
+      clusterByNode.set(node.id, node.layout_cluster);
+    }
+    if (!adjacencyByNode.has(node.id)) adjacencyByNode.set(node.id, new Set());
+  }
+  const edges = Array.isArray(architecture.edges) ? architecture.edges : [];
+  for (const edge of edges) {
+    if (!edge || typeof edge.from !== "string" || typeof edge.to !== "string") continue;
+    if (!adjacencyByNode.has(edge.from)) adjacencyByNode.set(edge.from, new Set());
+    if (!adjacencyByNode.has(edge.to)) adjacencyByNode.set(edge.to, new Set());
+    adjacencyByNode.get(edge.from).add(edge.to);
+    adjacencyByNode.get(edge.to).add(edge.from);
+  }
+  return { clusterByNode, adjacencyByNode };
+}
+
+// An empty index (no cluster / adjacency data) — the graceful-degradation default
+// when no architecture-data.json is available.
+const EMPTY_ARCHITECTURE_INDEX = { clusterByNode: new Map(), adjacencyByNode: new Map() };
+
+// The architecture footprint of an issue, as four disjoint token sets so the
+// distance ladder can tell WHICH axis two issues overlap on. See the block comment
+// for the definition. `archIndex` is the buildArchitectureIndex() result (or the
+// empty index for the no-data fallback).
+export function issueFootprint(issue, archIndex = EMPTY_ARCHITECTURE_INDEX) {
+  const { clusterByNode, adjacencyByNode } = archIndex ?? EMPTY_ARCHITECTURE_INDEX;
+  const files = new Set();
+  const sources = new Set();
+  const clusters = new Set();
+  const nodes = new Set();
+
+  // Claimed files: the SAME set the hard gate uses (explicit claims else graph_refs).
+  for (const claim of issueClaim(issue)) files.add(`file:${claim}`);
+
+  // Source files behind the issue (docs/code the slice derives from).
+  const sourceRefs = Array.isArray(issue.source_line_refs) ? issue.source_line_refs : [];
+  for (const ref of sourceRefs) {
+    const file = sourceRefFile(ref);
+    if (file) sources.add(`src:${file}`);
+  }
+
+  // Clusters + graph neighborhood, from the issue's graph_ref NODES.
+  const refs = Array.isArray(issue.graph_refs) ? issue.graph_refs : [];
+  for (const ref of refs) {
+    const id = nodeIdOfGraphRef(ref);
+    if (!id) continue;
+    nodes.add(`node:${id}`);
+    const cluster = clusterByNode.get(id);
+    if (cluster) clusters.add(`cluster:${cluster}`);
+    const neighbors = adjacencyByNode.get(id);
+    if (neighbors) for (const n of neighbors) nodes.add(`node:${n}`);
+  }
+
+  return { files, sources, clusters, nodes };
+}
+
+// Do two token sets share any member?
+function tokenSetsIntersect(a, b) {
+  const [small, large] = a.size <= b.size ? [a, b] : [b, a];
+  for (const item of small) if (large.has(item)) return true;
+  return false;
+}
+
+// The ordered conflict-risk distance between two footprints (see the ladder in the
+// block comment). Lower = closer = higher merge-conflict risk; CONFLICT_DISTANCE_FAR
+// = no overlap on any axis. Symmetric. The most specific (worst) overlap wins, so
+// two issues that share a file score 0 even if they also share a cluster.
+export const CONFLICT_DISTANCE_FAR = 4;
+export function footprintDistance(a, b) {
+  if (tokenSetsIntersect(a.files, b.files)) return 0; // same claimed file
+  if (tokenSetsIntersect(a.sources, b.sources)) return 1; // same source file
+  if (tokenSetsIntersect(a.clusters, b.clusters)) return 2; // same cluster/subsystem
+  if (tokenSetsIntersect(a.nodes, b.nodes)) return 3; // edge-adjacent in the graph
+  return CONFLICT_DISTANCE_FAR; // far apart
+}
+
+// Select up to `limit` issues to run CONCURRENTLY from `ready`, MAXIMALLY SPREAD on
+// the architecture graph, subject to the unchanged hard independence gate.
+//
+// `archIndex` (optional) supplies cluster + adjacency data; omit it (or pass the
+// empty index) for the graceful-degradation path where spread is computed from
+// files / source files / graph_refs only. The selection:
+//   1. Hard gate: a candidate is eligible ONLY if issuesIndependent() holds against
+//      every running issue AND every already-chosen batch member — never weakened.
+//   2. Seed with the first eligible ready issue (lowest index), so N=1 and the
+//      running-aware paths return exactly the old first-compatible pick.
+//   3. Greedily add the eligible candidate whose minimum footprint-distance to the
+//      current batch is largest (the most-separated issue), tie-broken by index.
+// Deterministic: same inputs -> same batch.
+export function selectIndependentBatch(
+  ready,
+  runningIssues,
+  limit,
+  depsClosureById,
+  archIndex = EMPTY_ARCHITECTURE_INDEX,
+) {
   const batch = [];
   const slots = Math.max(1, limit) - runningIssues.length;
   if (slots <= 0) return batch;
-  for (const candidate of ready) {
-    if (batch.length >= slots) break;
-    const compatible =
-      runningIssues.every((r) => issuesIndependent(candidate, r, depsClosureById)) &&
-      batch.every((b) => issuesIndependent(candidate, b, depsClosureById));
-    if (compatible) batch.push(candidate);
+
+  // Precompute each ready issue's footprint once (index-stable order preserved).
+  const footprintById = new Map();
+  for (const issue of ready) footprintById.set(issue.id, issueFootprint(issue, archIndex));
+
+  // A candidate is eligible iff it clears the hard gate against everything running
+  // and everything already chosen — this is the invariant the spread heuristic is
+  // NOT allowed to bend.
+  const eligible = (candidate) =>
+    runningIssues.every((r) => issuesIndependent(candidate, r, depsClosureById)) &&
+    batch.every((b) => issuesIndependent(candidate, b, depsClosureById));
+
+  // Seed: the first ready issue (lowest index) that clears the gate vs running.
+  // With limit = 1 this is the only pick, so the sequential behavior is unchanged.
+  const seed = ready.find((candidate) => eligible(candidate));
+  if (!seed) return batch;
+  batch.push(seed);
+
+  // Farthest-point sampling: each round, add the eligible candidate whose MINIMUM
+  // distance to the current batch is the largest (most separated). Index order is
+  // the deterministic tie-break — we only REPLACE the best on a strictly larger
+  // min-distance, so among equals the lowest-index candidate (encountered first)
+  // wins.
+  while (batch.length < slots) {
+    let best = null;
+    let bestMinDist = -1;
+    for (const candidate of ready) {
+      if (batch.includes(candidate) || !eligible(candidate)) continue;
+      const cf = footprintById.get(candidate.id);
+      let minDist = Infinity;
+      for (const chosen of batch) {
+        const d = footprintDistance(cf, footprintById.get(chosen.id));
+        if (d < minDist) minDist = d;
+      }
+      if (minDist > bestMinDist) {
+        bestMinDist = minDist;
+        best = candidate;
+      }
+    }
+    if (!best) break; // no eligible candidate left
+    batch.push(best);
   }
   return batch;
 }
@@ -983,6 +1204,22 @@ function readJson(relPath) {
 function readLedger(cfg) {
   if (!existsSync(abs(cfg.progressLedgerPath))) return { graph_item_states: [], active_items: [] };
   return readJson(cfg.progressLedgerPath);
+}
+
+// Load the TARGET project's architecture index (node clusters + edge adjacency)
+// for the max-spread scheduler. Resolved against the same MAIN root as every other
+// shared artifact. Best-effort: a missing or malformed architecture-data.json
+// yields the EMPTY index so selection degrades gracefully to a files-only spread —
+// the scheduler must never fail because the optional map is absent.
+function readArchitectureIndex(cfg) {
+  try {
+    if (!cfg.architectureDataPath || !existsSync(abs(cfg.architectureDataPath))) {
+      return EMPTY_ARCHITECTURE_INDEX;
+    }
+    return buildArchitectureIndex(readJson(cfg.architectureDataPath));
+  } catch {
+    return EMPTY_ARCHITECTURE_INDEX;
+  }
 }
 
 function listDoneFiles(cfg) {
@@ -2099,6 +2336,10 @@ export async function runLoopParallel(userConfig = {}, steps = {}) {
   const index = readJson(cfg.issueIndexPath);
   const issues = Array.isArray(index.issues) ? index.issues : [];
   const depsClosure = buildDepsClosure(issues);
+  // The architecture index drives max-spread batch selection (cluster + adjacency).
+  // Read once up front; it is static for the run and degrades to the empty index
+  // when the target has no generated architecture-data.json.
+  const archIndex = readArchitectureIndex(cfg);
 
   // Injectable worktree/integration steps (defaults invoke real git); parallel
   // legs default to the ASYNC runners so spawns don't block the event loop.
@@ -2199,7 +2440,13 @@ export async function runLoopParallel(userConfig = {}, steps = {}) {
     const doneIds = computeDoneIds(issues, readLedger(cfg), listDoneFiles(cfg));
     const excluded = new Set([...running.keys(), ...blocked]);
     const ready = computeReadySet(issues, doneIds, excluded);
-    const batch = selectIndependentBatch(ready, [...runningIssueById.values()], maxParallel, depsClosure);
+    const batch = selectIndependentBatch(
+      ready,
+      [...runningIssueById.values()],
+      maxParallel,
+      depsClosure,
+      archIndex,
+    );
     for (const issue of batch) {
       runningIssueById.set(issue.id, issue);
       const task = runOne(issue)

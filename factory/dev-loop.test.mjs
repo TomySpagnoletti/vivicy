@@ -9,20 +9,25 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, 
 import { relative, resolve } from "node:path";
 import {
   agentCliArgs,
+  buildArchitectureIndex,
   buildDepsClosure,
   clampConcurrency,
   composePrompt,
   computeDoneIds,
   computeReadySet,
   computeWaitMs,
+  CONFLICT_DISTANCE_FAR,
   DEFAULT_CONFIG,
   DEFAULT_QUOTA_PATTERNS,
   defaultRunImplementer,
   defaultRunReviewer,
   dependenciesSatisfied,
   detectRateLimit,
+  footprintDistance,
   issueClaim,
+  issueFootprint,
   issuesIndependent,
+  MAX_CONCURRENCY,
   parseClaudeQuotaWindows,
   parseClaudeStatusRateLimits,
   parseCodexQuotaWindows,
@@ -1230,6 +1235,206 @@ test("selectIndependentBatch respects already-running issues (no shared claim wi
   // One slot free (limit 2, one running). B collides with A; C is compatible.
   const batch = selectIndependentBatch(issues, running, 2, closure);
   assert.deepEqual(batch.map((i) => i.id), ["C"]);
+});
+
+// --------------------------------------------------------------------------
+// Concurrency bounds: range [1, 12]
+// --------------------------------------------------------------------------
+
+test("clampConcurrency caps at MAX_CONCURRENCY = 12 (range 1..12)", () => {
+  assert.equal(MAX_CONCURRENCY, 12);
+  // Below the floor and unparseable -> 1 (sequential).
+  assert.equal(clampConcurrency(0), 1);
+  assert.equal(clampConcurrency(-7), 1);
+  assert.equal(clampConcurrency("nope"), 1);
+  // Inside the range -> unchanged (floored).
+  assert.equal(clampConcurrency(1), 1);
+  assert.equal(clampConcurrency(8), 8);
+  assert.equal(clampConcurrency(12), 12);
+  assert.equal(clampConcurrency("12"), 12);
+  assert.equal(clampConcurrency(11.9), 11);
+  // Above the cap -> 12, never an unbounded fleet of worktrees.
+  assert.equal(clampConcurrency(13), 12);
+  assert.equal(clampConcurrency(100), 12);
+  assert.equal(clampConcurrency("999"), 12);
+});
+
+// --------------------------------------------------------------------------
+// Max-spread batch selection (farthest-point sampling)
+//
+// A synthetic architecture: three clusters (alpha / beta / gamma), each with two
+// sibling nodes, plus one cross-cluster edge. Issues are crafted so INDEX ORDER
+// would pick same-cluster siblings while MAX-SPREAD must reach across clusters.
+// --------------------------------------------------------------------------
+
+function spreadArchitecture() {
+  return {
+    nodes: [
+      { id: "a1", layout_cluster: "alpha" },
+      { id: "a2", layout_cluster: "alpha" },
+      { id: "b1", layout_cluster: "beta" },
+      { id: "b2", layout_cluster: "beta" },
+      { id: "g1", layout_cluster: "gamma" },
+      { id: "g2", layout_cluster: "gamma" },
+    ],
+    // a1 <-> b1 is a single cross-cluster edge (used by the adjacency test).
+    edges: [{ from: "a1", to: "b1", relation: "calls", protocol: "module" }],
+  };
+}
+
+// Six independent issues (disjoint graph_refs, no deps). Index order is the array
+// order: the two alpha siblings come first, then the two beta, then the two gamma.
+function spreadIssues() {
+  return [
+    { id: "I-a1", depends_on: [], graph_refs: ["node:a1"] },
+    { id: "I-a2", depends_on: [], graph_refs: ["node:a2"] },
+    { id: "I-b1", depends_on: [], graph_refs: ["node:b1"] },
+    { id: "I-b2", depends_on: [], graph_refs: ["node:b2"] },
+    { id: "I-g1", depends_on: [], graph_refs: ["node:g1"] },
+    { id: "I-g2", depends_on: [], graph_refs: ["node:g2"] },
+  ];
+}
+
+test("buildArchitectureIndex maps node clusters and symmetric edge adjacency", () => {
+  const idx = buildArchitectureIndex(spreadArchitecture());
+  assert.equal(idx.clusterByNode.get("a1"), "alpha");
+  assert.equal(idx.clusterByNode.get("g2"), "gamma");
+  // Adjacency is symmetric from the single a1<->b1 edge.
+  assert.ok(idx.adjacencyByNode.get("a1").has("b1"));
+  assert.ok(idx.adjacencyByNode.get("b1").has("a1"));
+  // A node with no edge has an (empty) adjacency entry, never undefined.
+  assert.equal(idx.adjacencyByNode.get("g1").size, 0);
+});
+
+test("buildArchitectureIndex tolerates missing / malformed input (graceful)", () => {
+  for (const bad of [null, undefined, {}, { nodes: "x" }, { nodes: [{ noId: 1 }], edges: [{}] }]) {
+    const idx = buildArchitectureIndex(bad);
+    assert.equal(idx.clusterByNode.size, 0);
+  }
+});
+
+test("issueFootprint unions claims, source files, clusters, and graph neighborhood", () => {
+  const idx = buildArchitectureIndex(spreadArchitecture());
+  const fp = issueFootprint(
+    { graph_refs: ["node:a1"], source_line_refs: ["docs/x.md:7-13", "docs/x.md:20"] },
+    idx,
+  );
+  // Claimed file derives from the graph_ref (no explicit claims).
+  assert.ok(fp.files.has("file:node:a1"));
+  // Source file = the file part of each source_line_ref, deduped.
+  assert.ok(fp.sources.has("src:docs/x.md"));
+  // Cluster from the node's layout_cluster.
+  assert.ok(fp.clusters.has("cluster:alpha"));
+  // Neighborhood = the node itself plus its edge-adjacent node (a1 <-> b1).
+  assert.ok(fp.nodes.has("node:a1"));
+  assert.ok(fp.nodes.has("node:b1"));
+});
+
+test("footprintDistance follows the ordered risk ladder (file<source<cluster<adjacent<far)", () => {
+  const idx = buildArchitectureIndex(spreadArchitecture());
+  const fpA1 = issueFootprint({ graph_refs: ["node:a1"], source_line_refs: ["docs/s.md:1"] }, idx);
+  const fpA2 = issueFootprint({ graph_refs: ["node:a2"] }, idx); // same cluster (alpha), not adjacent
+  const fpB1 = issueFootprint({ graph_refs: ["node:b1"] }, idx); // edge-adjacent to a1, different cluster
+  const fpG1 = issueFootprint({ graph_refs: ["node:g1"] }, idx); // far: no overlap on any axis
+  // Same claimed file -> 0 (worst).
+  const fpA1bis = issueFootprint({ graph_refs: ["node:a1"] }, idx);
+  assert.equal(footprintDistance(fpA1, fpA1bis), 0);
+  // Same source file (different node/cluster) -> 1.
+  const fpShareSrc = issueFootprint({ graph_refs: ["node:g2"], source_line_refs: ["docs/s.md:9"] }, idx);
+  assert.equal(footprintDistance(fpA1, fpShareSrc), 1);
+  // Same cluster -> 2.
+  assert.equal(footprintDistance(fpA1, fpA2), 2);
+  // Edge-adjacent (a1<->b1), different cluster, no shared file/source -> 3.
+  assert.equal(footprintDistance(fpA1, fpB1), 3);
+  // Far -> CONFLICT_DISTANCE_FAR (4).
+  assert.equal(footprintDistance(fpA1, fpG1), CONFLICT_DISTANCE_FAR);
+});
+
+test("max-spread selection spreads across DIFFERENT clusters (vs index-order siblings)", () => {
+  const issues = spreadIssues();
+  const idx = buildArchitectureIndex(spreadArchitecture());
+  const closure = buildDepsClosure(issues);
+  // Limit 3, six independent issues across 3 clusters.
+  const batch = selectIndependentBatch(issues, [], 3, closure, idx);
+  // Seed = first ready (I-a1, alpha). Farthest-point then reaches into the OTHER two
+  // clusters rather than grabbing the index-order neighbor I-a2 (same cluster,
+  // distance 2): round 2 takes the first FAR candidate (I-b2, beta), round 3 takes
+  // the remaining far candidate (I-g1, gamma). Deterministic, index-tie-broken.
+  assert.deepEqual(batch.map((i) => i.id), ["I-a1", "I-b2", "I-g1"]);
+  // Crucially the same-cluster sibling I-a2 is NOT picked — the whole point.
+  assert.ok(!batch.some((i) => i.id === "I-a2"));
+  // The chosen batch touches 3 DISTINCT clusters — the whole point.
+  const clusters = new Set(
+    batch.flatMap((i) => i.graph_refs.map((r) => idx.clusterByNode.get(r.slice("node:".length)))),
+  );
+  assert.equal(clusters.size, 3);
+
+  // Control: WITHOUT the architecture index, every far pair scores equal, so the
+  // tie-break collapses to index order -> the OLD same-cluster-sibling behavior.
+  const indexOrder = selectIndependentBatch(issues, [], 3, closure);
+  assert.deepEqual(indexOrder.map((i) => i.id), ["I-a1", "I-a2", "I-b1"]);
+  // The two strategies demonstrably differ on this crafted set.
+  assert.notDeepEqual(batch.map((i) => i.id), indexOrder.map((i) => i.id));
+});
+
+test("max-spread NEVER co-schedules dependent issues (hard gate intact, spread on top)", () => {
+  const issues = [
+    { id: "I-a1", depends_on: [], graph_refs: ["node:a1"] },
+    { id: "I-b1", depends_on: ["I-a1"], graph_refs: ["node:b1"] }, // depends on the seed
+    { id: "I-g1", depends_on: [], graph_refs: ["node:g1"] },
+  ];
+  const idx = buildArchitectureIndex(spreadArchitecture());
+  const closure = buildDepsClosure(issues);
+  const batch = selectIndependentBatch(issues, [], 3, closure, idx);
+  // I-b1 depends (transitively) on the seed I-a1, so it can NEVER join the batch —
+  // even though it is in a far cluster the spread heuristic would otherwise love.
+  assert.ok(!batch.some((i) => i.id === "I-b1"));
+  assert.deepEqual(batch.map((i) => i.id), ["I-a1", "I-g1"]);
+});
+
+test("max-spread NEVER co-schedules claim-overlapping issues (disjoint-claim gate intact)", () => {
+  const issues = [
+    { id: "I-a1", depends_on: [], graph_refs: ["node:a1"] },
+    { id: "I-a1dup", depends_on: [], graph_refs: ["node:a1"] }, // shares the claimed node with the seed
+    { id: "I-g1", depends_on: [], graph_refs: ["node:g1"] },
+  ];
+  const idx = buildArchitectureIndex(spreadArchitecture());
+  const closure = buildDepsClosure(issues);
+  const batch = selectIndependentBatch(issues, [], 3, closure, idx);
+  // The claim overlap (both claim node:a1) bars I-a1dup regardless of spread.
+  assert.ok(!batch.some((i) => i.id === "I-a1dup"));
+  assert.deepEqual(batch.map((i) => i.id), ["I-a1", "I-g1"]);
+});
+
+test("max-spread is deterministic (stable batch across repeated runs)", () => {
+  const idx = buildArchitectureIndex(spreadArchitecture());
+  const closure = buildDepsClosure(spreadIssues());
+  const first = selectIndependentBatch(spreadIssues(), [], 4, closure, idx).map((i) => i.id);
+  for (let i = 0; i < 5; i += 1) {
+    const again = selectIndependentBatch(spreadIssues(), [], 4, closure, idx).map((j) => j.id);
+    assert.deepEqual(again, first);
+  }
+});
+
+test("max-spread degrades gracefully with NO cluster/edge data (falls back to index order)", () => {
+  const issues = spreadIssues();
+  const closure = buildDepsClosure(issues);
+  // No archIndex argument at all -> empty index -> files-only spread. All claims are
+  // disjoint so every pair is 'far', the tie-break is index order: the first 3.
+  const batch = selectIndependentBatch(issues, [], 3, closure);
+  assert.deepEqual(batch.map((i) => i.id), ["I-a1", "I-a2", "I-b1"]);
+});
+
+test("max-spread with limit 1 returns exactly one issue == old sequential pick", () => {
+  const issues = spreadIssues();
+  const idx = buildArchitectureIndex(spreadArchitecture());
+  const closure = buildDepsClosure(issues);
+  const withIdx = selectIndependentBatch(issues, [], 1, closure, idx);
+  const withoutIdx = selectIndependentBatch(issues, [], 1, closure);
+  assert.deepEqual(withIdx.map((i) => i.id), ["I-a1"]);
+  // The architecture index changes the SPREAD of a multi-issue batch but never the
+  // single sequential pick (the first ready issue), with or without it.
+  assert.deepEqual(withIdx.map((i) => i.id), withoutIdx.map((i) => i.id));
 });
 
 // --------------------------------------------------------------------------

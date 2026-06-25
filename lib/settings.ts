@@ -170,15 +170,16 @@ export interface AgentsSettings {
   /**
    * Maximum number of INDEPENDENT issues the dev-loop runs concurrently, each in
    * its own git worktree. 1 = the sequential default (one issue at a time, today's
-   * exact behavior); >1 enables the parallel scheduler. Clamped to a sane integer
-   * >= 1; an out-of-range value falls back to 1.
+   * exact behavior); >1 enables the parallel scheduler. Clamped to an integer in
+   * [MIN_PARALLEL, MAX_PARALLEL] = [1, 12]; a value below 1 (or unparseable) falls
+   * back to 1 and a value above 12 is capped at 12.
    */
   maxParallel: number
 }
 
 /** Lower/upper bounds for the concurrency knob (UI + validation share these). */
 export const MIN_PARALLEL = 1
-export const MAX_PARALLEL = 8
+export const MAX_PARALLEL = 12
 
 /**
  * The default settings. Mirrors the dev-loop's DEFAULT_CONFIG (these two must
