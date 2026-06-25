@@ -13,15 +13,23 @@ import {
 
 let tmp: string
 const prevEnv = process.env.VIVICY_TARGET_ROOT
+const prevRuntime = process.env.VIVICY_RUNTIME_DIR
 
 beforeEach(() => {
   tmp = mkdtempSync(path.join(tmpdir(), "vivicy-target-"))
+  // Isolate from any persisted current-project selection on this machine:
+  // point the runtime dir at an empty location so readCurrentProjectRoot()
+  // returns null and target resolution is driven purely by
+  // VIVICY_TARGET_ROOT / cwd here, not the developer's real picked project.
+  process.env.VIVICY_RUNTIME_DIR = path.join(tmp, "runtime")
 })
 
 afterEach(() => {
   rmSync(tmp, { recursive: true, force: true })
   if (prevEnv === undefined) delete process.env.VIVICY_TARGET_ROOT
   else process.env.VIVICY_TARGET_ROOT = prevEnv
+  if (prevRuntime === undefined) delete process.env.VIVICY_RUNTIME_DIR
+  else process.env.VIVICY_RUNTIME_DIR = prevRuntime
 })
 
 describe("getTargetRoot", () => {
