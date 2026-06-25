@@ -4,7 +4,9 @@ import { useCallback, useEffect, useRef, useState } from "react"
 import {
   CheckCircle2,
   Copy,
+  CreditCard,
   Download,
+  Gauge,
   HelpCircle,
   Loader2,
   XCircle,
@@ -16,6 +18,7 @@ import {
   type AgentHealth,
   type AgentKey,
   type AgentsHealth,
+  type AuthMethod,
 } from "@/lib/agents-health-types"
 import { runAllowedCommandNative, useIsDesktop } from "@/lib/desktop"
 import { Badge } from "@/components/ui/badge"
@@ -171,6 +174,8 @@ function AgentCard({
   const guidance = AGENT_GUIDANCE[agentKey]
   const present = health?.present ?? false
   const auth = health?.authenticated ?? null
+  const authMethod = health?.authMethod ?? null
+  const plan = health?.plan ?? null
 
   return (
     <fieldset className="flex flex-col gap-2 border border-border p-3">
@@ -186,21 +191,29 @@ function AgentCard({
           <Loader2 className="size-4 animate-spin" /> Checking…
         </div>
       ) : (
-        <div className="flex flex-wrap items-center gap-1.5">
-          <StatusBadge
-            ok={present}
-            okLabel="Installed"
-            badLabel="Not found"
-            unknown={false}
-          />
-          <StatusBadge
-            ok={auth === true}
-            okLabel="Authenticated"
-            badLabel="Not signed in"
-            unknown={auth === null}
-            unknownLabel="Auth unknown"
-          />
-        </div>
+        <>
+          <div className="flex flex-wrap items-center gap-1.5">
+            <StatusBadge
+              ok={present}
+              okLabel="Installed"
+              badLabel="Not found"
+              unknown={false}
+            />
+            <StatusBadge
+              ok={auth === true}
+              okLabel="Authenticated"
+              badLabel="Not signed in"
+              unknown={auth === null}
+              unknownLabel="Auth unknown"
+            />
+            {auth === true && authMethod ? (
+              <MethodBadge authMethod={authMethod} plan={plan} />
+            ) : null}
+          </div>
+          {auth === true && authMethod ? (
+            <p className="px-0.5 text-xs text-muted-foreground">{costNote(authMethod)}</p>
+          ) : null}
+        </>
       )}
 
       {/* Guidance: install command when absent; auth command when present-not-authed.
@@ -262,6 +275,45 @@ function StatusBadge({
         <XCircle className="size-3 text-destructive" />
       )}
       {ok ? okLabel : badLabel}
+    </Badge>
+  )
+}
+
+/** Title-case a plan label for display (`"max"` → `"Max"`); leaves the rest intact. */
+function titleCase(value: string): string {
+  return value.charAt(0).toUpperCase() + value.slice(1)
+}
+
+/** Badge label for the billing method, with the plan when known. */
+function methodLabel(authMethod: AuthMethod, plan: string | null): string {
+  if (authMethod === "api_key") return "API key"
+  return plan ? `Subscription · ${titleCase(plan)}` : "Subscription"
+}
+
+/** Sober, one-line cost note that differentiates the two billing methods. */
+function costNote(authMethod: AuthMethod): string {
+  return authMethod === "api_key"
+    ? "Billed pay-per-token against your provider API account."
+    : "Usage counts against your plan quota — no per-token charge."
+}
+
+/**
+ * The billing-method indicator (subscription vs API key) — the cost-relevant
+ * distinction. Reflects only what detection actually established; it is rendered
+ * exclusively when `authenticated === true`, so it never fabricates a method.
+ */
+function MethodBadge({
+  authMethod,
+  plan,
+}: {
+  authMethod: AuthMethod
+  plan: string | null
+}) {
+  const Icon = authMethod === "api_key" ? CreditCard : Gauge
+  return (
+    <Badge variant="secondary" className="gap-1" data-auth-method={authMethod}>
+      <Icon className="size-3" />
+      {methodLabel(authMethod, plan)}
     </Badge>
   )
 }

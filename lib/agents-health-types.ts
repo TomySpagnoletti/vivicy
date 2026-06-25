@@ -5,6 +5,14 @@
  * detector is in {@link file://./agents-health}.
  */
 
+/**
+ * How an authenticated CLI bills its usage — the cost-relevant distinction:
+ *   - `"subscription"` — usage counts against a plan quota (Claude Pro/Max,
+ *     ChatGPT). No per-token charge.
+ *   - `"api_key"`      — billed pay-per-token against a provider API account.
+ */
+export type AuthMethod = "subscription" | "api_key"
+
 /** Detection result for one agent CLI. */
 export interface AgentHealth {
   /** Whether the CLI was found on PATH. */
@@ -16,10 +24,21 @@ export interface AgentHealth {
    *   - `true`  — a usable credential was detected.
    *   - `false` — present-but-not-authenticated (a clean signal said so).
    *   - `null`  — unknown: no clean, side-effect-free signal exists (reported
-   *     honestly rather than guessed). Notably Claude on macOS, where the OAuth
-   *     credentials live in the Keychain, not a flat file.
+   *     honestly rather than guessed), e.g. a macOS Keychain item whose secret is
+   *     locked AND whose existence could not be confirmed.
    */
   authenticated: boolean | null
+  /**
+   * Billing method when authenticated, or `null` when not authenticated / not
+   * determinable (e.g. a locked Keychain item we could only confirm exists).
+   * Drives the per-agent cost note in the UI. Never carries the token itself.
+   */
+  authMethod: AuthMethod | null
+  /**
+   * Human plan label when known (e.g. `"max"`, `"pro"`, `"ChatGPT"`), else null.
+   * Display-only; never a credential.
+   */
+  plan: string | null
 }
 
 /** Health snapshot for both agent CLIs Vivicy drives. */
