@@ -121,6 +121,11 @@ export interface AgentQuota {
    * "we have a reset but no percentage" signal, never a fabricated number.
    */
   windows?: QuotaWindows
+  /**
+   * ISO time the Claude status-line quota probe last ran (claude only). Used to
+   * throttle the probe to once per refresh window; durable across loop restarts.
+   */
+  last_probe_at?: string | null
   updated_at?: string | null
 }
 

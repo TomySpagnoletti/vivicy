@@ -62,9 +62,12 @@ function readCollapsed(): boolean {
  *
  * Driven by the live SSE status stream (the same `/api/status/stream` the
  * control bar uses), which carries the dev-loop's `quota` block — including the
- * REAL per-window usage extracted from each provider's transcript:
+ * REAL per-window usage extracted from each provider:
  *   - Codex  -> real % for the 5h AND weekly windows (rollout `rate_limits`)
- *   - Claude -> a real 5h reset, but NO percentage (stream-json exposes none)
+ *   - Claude -> real % for the 5h AND weekly windows, captured from the
+ *               documented status-line `rate_limits` surface
+ *               (https://code.claude.com/docs/en/statusline); falls back to a
+ *               real 5h reset with no percentage when the capture is unavailable
  *
  * Where a provider exposes no percentage we render "—", never a fabricated
  * number. Collapsed shows one compact line per agent; expanded shows a Progress

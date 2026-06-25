@@ -25,6 +25,7 @@ import {
   copyFileSync,
   existsSync,
   mkdirSync,
+  mkdtempSync,
   openSync,
   readdirSync,
   readFileSync,
@@ -35,7 +36,7 @@ import {
   writeFileSync,
   writeSync,
 } from "node:fs";
-import { homedir } from "node:os";
+import { homedir, platform, tmpdir } from "node:os";
 import { dirname, isAbsolute, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { atomicWriteJson } from "./atomic-write.mjs";
@@ -171,6 +172,17 @@ export const DEFAULT_CONFIG = {
   quotaBackoffStartMs: 5 * 60 * 1000, // 5 minutes
   quotaBackoffCapMs: 5 * 60 * 60 * 1000, // 5 hours (the rolling quota window)
   quotaMaxWaitMs: 8 * 60 * 60 * 1000, // 8 hours
+  // Claude exposes its REAL subscription percentages ONLY through the documented
+  // status-line stdin contract, which `claude -p` never fires. To surface the
+  // real 5h + weekly % in the footer the loop runs a tiny side probe
+  // (captureClaudeStatusLine) that drives one minimal interactive turn and reads
+  // the status-line `rate_limits` payload. It costs ~one trivial turn, so the
+  // loop runs it at most once per refresh window, never per leg. Disable by
+  // setting VIVICY_CLAUDE_QUOTA_PROBE=0 (tests inject claudeQuotaProbe directly).
+  claudeQuotaProbeEnabled: process.env.VIVICY_CLAUDE_QUOTA_PROBE !== "0",
+  // Minimum gap between status-line probes, so a busy loop never spends more than
+  // one trivial turn per window on quota telemetry.
+  claudeQuotaProbeMinIntervalMs: 30 * 60 * 1000, // 30 minutes
 };
 
 // Rate-limit / quota-exhaustion signals. Neither `claude` nor `codex` exposes a
@@ -538,10 +550,22 @@ export function computeWaitMs({ message, nowMs, attempt, cfg }) {
 //             (Not present on `codex exec` stdout — only in the rollout, which the
 //             dev loop already copies into its transcript store.) => real % both windows.
 //
-//   Claude  — emits a `rate_limit_event` in its stream-json transcript:
-//               { status, resetsAt (epoch s), rateLimitType: "five_hour", ... }
-//             which gives a real 5h RESET + status but NO percentage, and no weekly
-//             window. => 5h: used_pct null + reset; weekly: unknown.
+//   Claude  — exposes its REAL subscription percentages ONLY through the
+//             documented status-line stdin contract
+//             (https://code.claude.com/docs/en/statusline): a `rate_limits`
+//             object with
+//               rate_limits.five_hour = { used_percentage (0-100), resets_at (epoch s) } -> "5h"
+//               rate_limits.seven_day = { used_percentage (0-100), resets_at (epoch s) } -> "weekly"
+//             (present only for Pro/Max subscribers, after the first API
+//             response). The status line is interactive-only — `claude -p` never
+//             emits it — so the dev loop captures it with a tiny side probe
+//             (see captureClaudeStatusLine) and feeds the captured JSON here.
+//             `claude -p --output-format stream-json` instead emits a
+//             `rate_limit_event` { status, resetsAt (epoch s), rateLimitType:
+//             "five_hour" } that carries the 5h RESET but NO percentage and no
+//             weekly window; we use it as an honest fallback when no status-line
+//             capture is available. => with capture: real % for 5h + weekly;
+//             without: 5h reset only (null %), weekly unknown.
 //
 // Each window record is { used_pct: number|null, remaining: number|null,
 // reset_at: ISO|null } or the whole window is absent (=> unknown). A null
@@ -598,13 +622,76 @@ export function parseCodexQuotaWindows(rolloutText) {
   return windows;
 }
 
-// Parse Claude `rate_limit_event` (real reset + status, NO percentage) out of a
-// stream-json transcript. Maps the five_hour window to "5h" with a null
-// used_pct (honest: Claude does not expose a usage percentage here). The weekly
-// window is left unknown. Returns a partial windows map.
+// Build a window record from a status-line `rate_limits` window object
+// ({ used_percentage, resets_at }). Real percentage + real reset. Absent or
+// malformed input yields null (=> the caller skips the window).
+function claudeStatusWindow(win) {
+  if (!win || typeof win !== "object") return null;
+  return windowRecord({
+    usedPct: Number(win.used_percentage),
+    resetAtSec: Number(win.resets_at),
+  });
+}
+
+// Parse a Claude status-line `rate_limits` payload (the documented interactive
+// surface) into REAL 5h + weekly windows. Accepts either the full status-line
+// JSON object (with a top-level `rate_limits`) or a bare `rate_limits` object.
+// five_hour -> "5h", seven_day -> "weekly", each with a real used_percentage +
+// resets_at. Returns a partial windows map; a null/absent rate_limits => {}.
+export function parseClaudeStatusRateLimits(rateLimitsOrStatus) {
+  const root = rateLimitsOrStatus;
+  if (!root || typeof root !== "object") return {};
+  const rl = root.rate_limits && typeof root.rate_limits === "object" ? root.rate_limits : root;
+  if (!rl || typeof rl !== "object") return {};
+  const windows = {};
+  const fiveHour = claudeStatusWindow(rl.five_hour);
+  if (fiveHour) windows["5h"] = fiveHour;
+  const sevenDay = claudeStatusWindow(rl.seven_day);
+  if (sevenDay) windows.weekly = sevenDay;
+  return windows;
+}
+
+// Parse the REAL Claude quota windows out of a captured leg surface. Two honest
+// sources, tried in priority order:
+//
+//   1. The documented status-line `rate_limits` JSON (captured by the side probe
+//      in captureClaudeStatusLine) — REAL used_percentage + resets_at for the
+//      five_hour ("5h") AND seven_day ("weekly") windows. This is the only
+//      surface that carries Claude's subscription percentages.
+//      (https://code.claude.com/docs/en/statusline)
+//   2. The `rate_limit_event` line from `claude -p --output-format stream-json` —
+//      a REAL 5h reset + status but NO percentage and no weekly window. Used as a
+//      fallback when no status-line capture is present, so we still surface an
+//      honest 5h reset (used_pct null => the footer shows "—" for the number).
+//
+// Returns a partial windows map; absent windows are honestly unknown, never zero.
 export function parseClaudeQuotaWindows(transcriptText) {
   const text = String(transcriptText ?? "");
   if (!text) return {};
+
+  // 1. Prefer a captured status-line rate_limits payload (real percentages).
+  //    Scan every JSON line for the LAST one carrying a `rate_limits` object with
+  //    a `five_hour` or `seven_day` window (newest state wins), so a transcript
+  //    that interleaves status-line captures with other lines still resolves.
+  let statusRateLimits = null;
+  for (const line of text.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed || !trimmed.includes("rate_limits")) continue;
+    let obj;
+    try {
+      obj = JSON.parse(trimmed);
+    } catch {
+      continue;
+    }
+    const rl = obj?.rate_limits && typeof obj.rate_limits === "object" ? obj.rate_limits : null;
+    if (rl && (rl.five_hour || rl.seven_day)) statusRateLimits = rl; // last wins
+  }
+  if (statusRateLimits) {
+    const windows = parseClaudeStatusRateLimits(statusRateLimits);
+    if (Object.keys(windows).length > 0) return windows;
+  }
+
+  // 2. Fallback: the stream-json rate_limit_event (real 5h reset, NO percentage).
   let info = null;
   for (const line of text.split("\n")) {
     const trimmed = line.trim();
@@ -644,6 +731,150 @@ function readTranscriptText(relPath) {
   } catch {
     return "";
   }
+}
+
+// --------------------------------------------------------------------------
+// Claude real-percentage capture (status-line side probe)
+//
+// Claude's REAL subscription percentages live ONLY in the documented status-line
+// stdin contract (https://code.claude.com/docs/en/statusline): a `rate_limits`
+// object with `five_hour`/`seven_day` { used_percentage, resets_at }. The status
+// line fires only in the interactive TUI — `claude -p` (what the legs use) never
+// emits it, and the captured session transcript JSONL carries nothing — so we
+// run a tiny SIDE PROBE that drives one trivial interactive turn and reads the
+// status line's stdin.
+//
+// The probe is dependency-free: it allocates a pty via the system `script`
+// binary (present on macOS + Linux) rather than a native pty module. We point
+// Claude at an isolated `--settings` whose statusLine command dumps its stdin
+// JSON, send a one-word prompt, wait for the first API response (which is when
+// `rate_limits` is populated), then exit. Everything lands in a private temp dir
+// that we delete. Honest by construction: any failure (no pty, not a subscriber,
+// timeout) yields no windows, so the footer shows "—" rather than a fabricated
+// number.
+// --------------------------------------------------------------------------
+
+// Drive one minimal interactive Claude turn through a `script`-allocated pty and
+// return the captured status-line `rate_limits` object (or null). Pure IO at the
+// edges; the parsing lives in parseClaudeStatusRateLimits so it stays unit
+// tested. `cfg` supplies the model/effort (same as a real leg) and the run dir.
+function captureClaudeStatusLine(cfg, leg) {
+  // Only on platforms with a usable `script` pty. Windows has no `script`.
+  if (platform() === "win32") return null;
+  let dir;
+  try {
+    dir = mkdtempSync(resolve(tmpdir(), "vivicy-claude-quota-"));
+  } catch {
+    return null;
+  }
+  try {
+    const dumpPath = resolve(dir, "dump-statusline.sh");
+    const capturePath = resolve(dir, "statusline.json");
+    const settingsPath = resolve(dir, "settings.json");
+    // A status-line command that writes its full stdin JSON to capturePath. It
+    // overwrites each render; the last render (after the first API response) is
+    // the one carrying a populated rate_limits.
+    writeFileSync(
+      dumpPath,
+      `#!/bin/sh\ncat > ${JSON.stringify(capturePath)}\necho ""\n`,
+      { mode: 0o755 },
+    );
+    writeFileSync(
+      settingsPath,
+      JSON.stringify({ statusLine: { type: "command", command: dumpPath } }),
+    );
+    // Model + effort match a real Claude leg so the probe reflects the same plan.
+    const modelArgs = agentCliArgs("claude", leg);
+    const claudeArgs = ["--settings", settingsPath, ...modelArgs];
+    // Drive `script`'s stdin with timed input: wait for boot, send a one-word
+    // prompt, wait for the first API response + a status render, then exit. The
+    // brace group is fed as a single pipe so there is no subshell fd race.
+    const bootMs = cfg.claudeQuotaProbeBootMs ?? 8;
+    const replyMs = cfg.claudeQuotaProbeReplyMs ?? 38;
+    const driver =
+      `sleep ${bootMs}; printf 'say ok\\r'; ` +
+      `sleep ${replyMs}; printf '/exit\\r'; ` +
+      `sleep 3; printf '\\004'; sleep 2`;
+    // Quote the claude argv for the inner `script` command line.
+    const quoted = claudeArgs.map((a) => `'${String(a).replace(/'/g, `'\\''`)}'`).join(" ");
+    const scriptCmd = `claude ${quoted}`;
+    const result = spawnSync(
+      "sh",
+      ["-c", `{ ${driver}; } | script -q ${JSON.stringify(resolve(dir, "script.log"))} ${scriptCmd}`],
+      {
+        cwd: execRootOf(cfg),
+        env: { ...process.env },
+        encoding: "utf8",
+        timeout: cfg.claudeQuotaProbeTimeoutMs ?? 70_000,
+      },
+    );
+    void result;
+    let raw;
+    try {
+      raw = readFileSync(capturePath, "utf8");
+    } catch {
+      return null;
+    }
+    let obj;
+    try {
+      obj = JSON.parse(raw);
+    } catch {
+      return null;
+    }
+    const rl = obj?.rate_limits;
+    return rl && typeof rl === "object" ? rl : null;
+  } catch {
+    return null;
+  } finally {
+    try {
+      rmSync(dir, { recursive: true, force: true });
+    } catch {
+      // best-effort cleanup
+    }
+  }
+}
+
+// When did the status-line probe last run for `actor`? Read from the durable
+// quota-state file (`agents.<actor>.last_probe_at`, ISO) so the once-per-window
+// throttle survives across loop process restarts instead of resetting each run.
+// Returns epoch ms, or 0 when never probed / unreadable.
+function lastClaudeProbeMs(cfg) {
+  if (!cfg.quotaStatePath) return 0;
+  const ts = readQuotaState(cfg).agents?.claude?.last_probe_at;
+  const ms = ts ? new Date(ts).getTime() : 0;
+  return Number.isFinite(ms) ? ms : 0;
+}
+
+// Opportunistically refresh Claude's REAL percentages and merge them into the
+// quota-state windows. Returns the existing `windows` augmented with the
+// status-line 5h + weekly percentages when a probe succeeds, or unchanged when
+// the probe is disabled, rate-limited by the min-interval, or yields nothing.
+// Tests inject cfg.claudeQuotaProbe to avoid spawning a real CLI.
+function refreshClaudeQuotaWindows(cfg, leg, windows) {
+  if (!cfg.claudeQuotaProbeEnabled) return windows;
+  const now = nowMsOf(cfg);
+  const minInterval = cfg.claudeQuotaProbeMinIntervalMs ?? 0;
+  // A positive interval throttles the probe to once per window, using the durable
+  // last_probe_at marker in the quota-state file. minInterval <= 0 disables the
+  // throttle (always probe) — used by tests and operators who opt out.
+  if (minInterval > 0) {
+    const last = lastClaudeProbeMs(cfg);
+    if (last && now - last < minInterval) return windows;
+    // Record the attempt time up front so a slow/failed probe still counts toward
+    // the throttle (we never hammer the CLI if a probe errors repeatedly).
+    writeQuotaState(cfg, "claude", { last_probe_at: new Date(now).toISOString() });
+  }
+  const probe = cfg.claudeQuotaProbe ?? captureClaudeStatusLine;
+  let rateLimits;
+  try {
+    rateLimits = probe(cfg, leg);
+  } catch {
+    return windows;
+  }
+  const probed = parseClaudeStatusRateLimits(rateLimits);
+  if (Object.keys(probed).length === 0) return windows;
+  // Real probed percentages win over the reset-only fallback for the same window.
+  return { ...windows, ...probed };
 }
 
 // --------------------------------------------------------------------------
@@ -1423,7 +1654,12 @@ export function runLegWithQuota(runLeg, leg, issue, cfg) {
     const exitCode = legResult?.result?.status ?? null;
     const detection = detectRateLimit(output, patterns, exitCode);
     if (!detection.hit) {
-      markAgentAvailable(cfg, leg, windows);
+      // On a successful Claude leg, opportunistically refresh the REAL 5h + weekly
+      // percentages from the documented status-line surface (the leg's own `-p`
+      // output carries only a reset). Rate-limited internally so it costs at most
+      // one trivial turn per refresh window.
+      const finalWindows = leg.actor === "claude" ? refreshClaudeQuotaWindows(cfg, leg, windows) : windows;
+      markAgentAvailable(cfg, leg, finalWindows);
       return { ...legResult, quotaBlocked: false, totalWaitedMs };
     }
 
@@ -1468,7 +1704,8 @@ export async function runLegWithQuotaAsync(runLeg, leg, issue, cfg) {
     const exitCode = legResult?.result?.status ?? null;
     const detection = detectRateLimit(output, patterns, exitCode);
     if (!detection.hit) {
-      markAgentAvailable(cfg, leg, windows);
+      const finalWindows = leg.actor === "claude" ? refreshClaudeQuotaWindows(cfg, leg, windows) : windows;
+      markAgentAvailable(cfg, leg, finalWindows);
       return { ...legResult, quotaBlocked: false, totalWaitedMs };
     }
     const nowMs = nowMsOf(cfg);

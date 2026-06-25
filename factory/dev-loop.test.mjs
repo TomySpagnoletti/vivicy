@@ -24,6 +24,7 @@ import {
   issueClaim,
   issuesIndependent,
   parseClaudeQuotaWindows,
+  parseClaudeStatusRateLimits,
   parseCodexQuotaWindows,
   parseQuotaWindows,
   parseResetMs,
@@ -561,12 +562,16 @@ test("computeWaitMs backs off exponentially (capped) when no reset is parseable"
 });
 
 // Build a config with a FAKE clock + sleep so quota waits resolve instantly.
+// The real Claude status-line probe is DISABLED by default here so a unit test
+// never spawns a real `claude` CLI; probe-specific tests opt in by setting
+// claudeQuotaProbeEnabled:true and injecting a stub claudeQuotaProbe.
 function fakeClockCfg(overrides = {}) {
   const waits = [];
   let clock = 0;
   const cfg = {
     ...DEFAULT_CONFIG,
     quotaStatePath: null, // set per-test; default off
+    claudeQuotaProbeEnabled: false, // never spawn the real probe in unit tests
     now: () => clock,
     sleep: (ms) => {
       waits.push(ms);
@@ -725,17 +730,79 @@ test("parseCodexQuotaWindows clamps out-of-range and returns {} for no data", ()
   assert.equal(clamped["5h"].used_pct, 100, "percentages clamp to [0,100]");
 });
 
-test("parseClaudeQuotaWindows gives a REAL 5h reset but a null percentage (honest)", () => {
-  // Claude's stream-json rate_limit_event: status + resetsAt + window type, NO %.
+test("parseClaudeQuotaWindows falls back to a REAL 5h reset + null percentage from rate_limit_event", () => {
+  // With NO status-line capture, the stream-json rate_limit_event is the only
+  // surface: status + resetsAt + window type, NO % and no weekly window.
   const transcript = [
     `{"type":"assistant","message":{"content":[{"type":"text","text":"hi"}]}}`,
     `{"type":"rate_limit_event","rate_limit_info":{"status":"allowed","resetsAt":1782328800,"rateLimitType":"five_hour"}}`,
   ].join("\n");
   const w = parseClaudeQuotaWindows(transcript);
-  assert.equal(w["5h"].used_pct, null, "Claude exposes NO percentage — honest null, never fabricated");
+  assert.equal(w["5h"].used_pct, null, "no status-line capture => honest null, never fabricated");
   assert.equal(w["5h"].remaining, null);
   assert.equal(w["5h"].reset_at, new Date(1782328800 * 1000).toISOString(), "but the 5h reset IS real");
-  assert.equal(w.weekly, undefined, "Claude exposes no weekly window here");
+  assert.equal(w.weekly, undefined, "no weekly window from the rate_limit_event fallback");
+});
+
+// A REAL captured status-line payload (see https://code.claude.com/docs/en/statusline),
+// taken verbatim from a live `claude` interactive probe (v2.1.183, Max plan).
+const REAL_CLAUDE_STATUSLINE = {
+  session_id: "a5fba7fe-105c-4cc4-b345-b88adece075c",
+  model: { id: "claude-opus-4-8[1m]", display_name: "Opus 4.8 (1M context)" },
+  version: "2.1.183",
+  context_window: { used_percentage: 3, remaining_percentage: 97 },
+  rate_limits: {
+    five_hour: { used_percentage: 1, resets_at: 1782395400 },
+    seven_day: { used_percentage: 10, resets_at: 1782792000 },
+  },
+};
+
+test("parseClaudeStatusRateLimits extracts REAL 5h + weekly % from a captured status-line payload", () => {
+  // Accepts the full status-line object (with a top-level rate_limits).
+  const w = parseClaudeStatusRateLimits(REAL_CLAUDE_STATUSLINE);
+  assert.equal(w["5h"].used_pct, 1, "real 5h percentage (five_hour)");
+  assert.equal(w["5h"].remaining, 99);
+  assert.equal(w["5h"].reset_at, new Date(1782395400 * 1000).toISOString());
+  assert.equal(w.weekly.used_pct, 10, "real weekly percentage (seven_day)");
+  assert.equal(w.weekly.remaining, 90);
+  assert.equal(w.weekly.reset_at, new Date(1782792000 * 1000).toISOString());
+});
+
+test("parseClaudeStatusRateLimits also accepts a bare rate_limits object and tolerates absence", () => {
+  const w = parseClaudeStatusRateLimits(REAL_CLAUDE_STATUSLINE.rate_limits);
+  assert.equal(w["5h"].used_pct, 1);
+  assert.equal(w.weekly.used_pct, 10);
+  // A null/absent rate_limits (non-subscriber, or before first API response) => {}.
+  assert.deepEqual(parseClaudeStatusRateLimits(null), {});
+  assert.deepEqual(parseClaudeStatusRateLimits({}), {});
+  assert.deepEqual(parseClaudeStatusRateLimits({ rate_limits: null }), {});
+  // One window present, the other absent: surface only the real one.
+  const oneWin = parseClaudeStatusRateLimits({ five_hour: { used_percentage: 42, resets_at: 1782395400 } });
+  assert.equal(oneWin["5h"].used_pct, 42);
+  assert.equal(oneWin.weekly, undefined, "absent seven_day => no weekly window, never zero");
+});
+
+test("parseClaudeQuotaWindows PREFERS a captured status-line rate_limits line (real %) over the event", () => {
+  // A transcript that carries BOTH a status-line capture line AND a reset-only
+  // rate_limit_event must surface the REAL percentages, not the null fallback.
+  const transcript = [
+    `{"type":"rate_limit_event","rate_limit_info":{"resetsAt":1782328800,"rateLimitType":"five_hour"}}`,
+    JSON.stringify(REAL_CLAUDE_STATUSLINE),
+  ].join("\n");
+  const w = parseClaudeQuotaWindows(transcript);
+  assert.equal(w["5h"].used_pct, 1, "real 5h percentage from the status-line capture wins");
+  assert.equal(w["5h"].reset_at, new Date(1782395400 * 1000).toISOString());
+  assert.equal(w.weekly.used_pct, 10, "real weekly percentage surfaced");
+});
+
+test("parseClaudeQuotaWindows uses the LAST status-line capture when several are present", () => {
+  const transcript = [
+    JSON.stringify({ rate_limits: { five_hour: { used_percentage: 5, resets_at: 1782395400 } } }),
+    JSON.stringify({ rate_limits: { five_hour: { used_percentage: 7, resets_at: 1782399000 }, seven_day: { used_percentage: 11, resets_at: 1782792000 } } }),
+  ].join("\n");
+  const w = parseClaudeQuotaWindows(transcript);
+  assert.equal(w["5h"].used_pct, 7, "newest status-line state wins");
+  assert.equal(w.weekly.used_pct, 11);
 });
 
 test("parseClaudeQuotaWindows returns {} when no rate_limit_event is present", () => {
@@ -776,6 +843,155 @@ test("runLegWithQuota records REAL windows from a Codex rollout on an available 
     // The REAL percentages are persisted for the footer to render live.
     assert.equal(state.agents.codex.windows["5h"].used_pct, 38);
     assert.equal(state.agents.codex.windows.weekly.used_pct, 12);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("runLegWithQuota records REAL Claude 5h + weekly % from the status-line probe on an available leg", () => {
+  const dir = mkdtempSync(resolve(repoRoot, "_tmp-claude-quota-"));
+  const scratchRel = relative(repoRoot, dir);
+  const quotaRel = `${scratchRel}/quota-state.json`;
+  const transcriptRel = `${scratchRel}/claude-transcript.jsonl`;
+  try {
+    // The leg's own -p transcript carries ONLY a reset-only rate_limit_event.
+    writeFileSync(
+      resolve(repoRoot, transcriptRel),
+      `{"type":"rate_limit_event","rate_limit_info":{"resetsAt":1782395400,"rateLimitType":"five_hour"}}\n`,
+    );
+    // Inject a status-line probe returning the REAL captured rate_limits payload
+    // (no real CLI spawn). claudeQuotaProbeMinIntervalMs:0 lets it run immediately.
+    let probeCalls = 0;
+    const claudeQuotaProbe = () => {
+      probeCalls += 1;
+      return REAL_CLAUDE_STATUSLINE.rate_limits;
+    };
+    const { cfg } = fakeClockCfg({
+      quotaStatePath: quotaRel,
+      quotaMaxWaitMs: 8 * 3600_000,
+      claudeQuotaProbeEnabled: true,
+      claudeQuotaProbeMinIntervalMs: 0,
+      claudeQuotaProbe,
+    });
+    const runLeg = () => ({ output: "impl done", result: { status: 0 }, transcriptRel });
+    const leg = { actor: "claude", role: "implementer", model: "claude-opus-4-8" };
+    const out = runLegWithQuota(runLeg, leg, { id: "X" }, cfg);
+    assert.equal(out.quotaBlocked, false);
+    assert.equal(probeCalls, 1, "the status-line probe ran once for the available Claude leg");
+    const state = JSON.parse(readFileSync(resolve(repoRoot, quotaRel), "utf8"));
+    assert.equal(state.agents.claude.status, "available");
+    // The REAL percentages from the documented status-line surface are persisted.
+    assert.equal(state.agents.claude.windows["5h"].used_pct, 1, "real 5h % from the status-line capture");
+    assert.equal(state.agents.claude.windows.weekly.used_pct, 10, "real weekly % from the status-line capture");
+    assert.equal(state.agents.claude.windows["5h"].reset_at, new Date(1782395400 * 1000).toISOString());
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("runLegWithQuota keeps the honest reset-only 5h window when the Claude probe yields nothing", () => {
+  const dir = mkdtempSync(resolve(repoRoot, "_tmp-claude-quota-none-"));
+  const scratchRel = relative(repoRoot, dir);
+  const quotaRel = `${scratchRel}/quota-state.json`;
+  const transcriptRel = `${scratchRel}/claude-transcript.jsonl`;
+  try {
+    writeFileSync(
+      resolve(repoRoot, transcriptRel),
+      `{"type":"rate_limit_event","rate_limit_info":{"resetsAt":1782395400,"rateLimitType":"five_hour"}}\n`,
+    );
+    // A non-subscriber / failed probe returns null => no fabricated numbers.
+    const { cfg } = fakeClockCfg({
+      quotaStatePath: quotaRel,
+      quotaMaxWaitMs: 8 * 3600_000,
+      claudeQuotaProbeEnabled: true,
+      claudeQuotaProbeMinIntervalMs: 0,
+      claudeQuotaProbe: () => null,
+    });
+    const runLeg = () => ({ output: "impl done", result: { status: 0 }, transcriptRel });
+    const leg = { actor: "claude", role: "implementer", model: "claude-opus-4-8" };
+    runLegWithQuota(runLeg, leg, { id: "X" }, cfg);
+    const state = JSON.parse(readFileSync(resolve(repoRoot, quotaRel), "utf8"));
+    assert.equal(state.agents.claude.windows["5h"].used_pct, null, "honest null %, never fabricated");
+    assert.equal(state.agents.claude.windows["5h"].reset_at, new Date(1782395400 * 1000).toISOString(), "but the real 5h reset is kept");
+    assert.equal(state.agents.claude.windows.weekly, undefined, "no weekly window invented");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("runLegWithQuota does NOT run the status-line probe for a Codex leg or when disabled", () => {
+  const dir = mkdtempSync(resolve(repoRoot, "_tmp-claude-quota-skip-"));
+  const scratchRel = relative(repoRoot, dir);
+  const quotaRel = `${scratchRel}/quota-state.json`;
+  try {
+    let probeCalls = 0;
+    const probe = () => {
+      probeCalls += 1;
+      return REAL_CLAUDE_STATUSLINE.rate_limits;
+    };
+    // A Codex leg never triggers the Claude probe.
+    const { cfg: codexCfg } = fakeClockCfg({
+      quotaStatePath: quotaRel,
+      quotaMaxWaitMs: 8 * 3600_000,
+      claudeQuotaProbeMinIntervalMs: 0,
+      claudeQuotaProbe: probe,
+    });
+    runLegWithQuota(
+      () => ({ output: "ok", result: { status: 0 } }),
+      { actor: "codex", role: "reviewer", model: "gpt-5.5-codex" },
+      { id: "X" },
+      codexCfg,
+    );
+    assert.equal(probeCalls, 0, "Codex legs never invoke the Claude status-line probe");
+    // A Claude leg with the probe disabled also never calls it.
+    const { cfg: offCfg } = fakeClockCfg({
+      quotaStatePath: quotaRel,
+      quotaMaxWaitMs: 8 * 3600_000,
+      claudeQuotaProbeEnabled: false,
+      claudeQuotaProbe: probe,
+    });
+    runLegWithQuota(
+      () => ({ output: "ok", result: { status: 0 } }),
+      { actor: "claude", role: "implementer", model: "claude-opus-4-8" },
+      { id: "X" },
+      offCfg,
+    );
+    assert.equal(probeCalls, 0, "a disabled probe is never invoked");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("runLegWithQuota throttles the Claude status-line probe to once per window", () => {
+  const dir = mkdtempSync(resolve(repoRoot, "_tmp-claude-quota-throttle-"));
+  const scratchRel = relative(repoRoot, dir);
+  const quotaRel = `${scratchRel}/quota-state.json`;
+  try {
+    let probeCalls = 0;
+    const probe = () => {
+      probeCalls += 1;
+      return REAL_CLAUDE_STATUSLINE.rate_limits;
+    };
+    const window = 30 * 60 * 1000;
+    // The throttle marker is the durable last_probe_at in this test's own scratch
+    // quota-state file, so there is no cross-test contamination.
+    const { cfg, advance } = fakeClockCfg({
+      quotaStatePath: quotaRel,
+      quotaMaxWaitMs: 8 * 3600_000,
+      claudeQuotaProbeEnabled: true,
+      claudeQuotaProbeMinIntervalMs: window,
+      claudeQuotaProbe: probe,
+    });
+    advance(10 * 24 * 3600_000); // a non-zero clock so last_probe_at is well-formed
+    const leg = { actor: "claude", role: "implementer", model: "claude-opus-4-8" };
+    const runLeg = () => ({ output: "ok", result: { status: 0 } });
+    runLegWithQuota(runLeg, leg, { id: "X" }, cfg);
+    runLegWithQuota(runLeg, leg, { id: "Y" }, cfg);
+    assert.equal(probeCalls, 1, "second leg within the same window reuses the throttled probe");
+    // Advance past the window: the next leg probes again.
+    advance(window + 60_000);
+    runLegWithQuota(runLeg, leg, { id: "Z" }, cfg);
+    assert.equal(probeCalls, 2, "after the window elapses, the probe runs again");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
