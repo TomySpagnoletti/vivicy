@@ -1,20 +1,25 @@
 import { expect, test } from "@playwright/test"
 
+import { ensurePanelOpen, isMobileProject } from "./helpers"
+
 test.describe("Vivicy architecture map viewer", () => {
   test("renders the map and the interactive shadcn sidebar shell", async ({
     page,
-  }) => {
+  }, testInfo) => {
     await page.goto("/")
 
-    // The app loads and shows the Vivicy wordmark in the sidebar header.
-    const sidebar = page.getByRole("complementary", { name: "Vivicy panel" })
-    await expect(sidebar.getByText("Vivicy", { exact: true })).toBeVisible()
-    await expect(sidebar.getByText("visual vibe coding")).toBeVisible()
-
-    // The map renders at least one node.
+    // The map renders at least one node (the panel toggle only appears in the
+    // ready state, so wait for the map before opening the panel on mobile).
     const nodes = page.locator(".react-flow__node")
     await expect(nodes.first()).toBeVisible({ timeout: 30_000 })
     expect(await nodes.count()).toBeGreaterThanOrEqual(1)
+
+    // The app shows the Vivicy wordmark in the sidebar header. On mobile the panel
+    // is an off-canvas Sheet, so open it first; on desktop it's docked + open.
+    await ensurePanelOpen(page, testInfo)
+    const sidebar = page.getByRole("complementary", { name: "Vivicy panel" })
+    await expect(sidebar.getByText("Vivicy", { exact: true })).toBeVisible()
+    await expect(sidebar.getByText("visual vibe coding")).toBeVisible()
 
     // An accordion section expands: Information starts collapsed, then opens.
     const infoTrigger = page.getByRole("button", { name: "Information" })
@@ -33,10 +38,14 @@ test.describe("Vivicy architecture map viewer", () => {
     await expect(progressBtn).toHaveAttribute("aria-checked", "true")
     await expect(targetBtn).toHaveAttribute("aria-checked", "false")
 
-    // The right panel is a 3-state toggle on the sidebar's LEFT edge, cycling
-    // peek -> wide -> closed -> peek. The shadcn Sidebar container stays in the
-    // DOM, so assert its data-state; the toggle's accessible name reflects the
-    // NEXT state in the cycle.
+    // The 3-state width cycle (peek -> wide -> closed) is a DESKTOP affordance: it
+    // drives the docked sidebar's `--sidebar-width`. On mobile the panel is a
+    // single-width off-canvas Sheet, so that DOM (the right-docked sidebar
+    // container + its width var) does not exist — the panel reachability on mobile
+    // is proven above (the Sheet opened and its content is interactive). Scope the
+    // width-cycle assertions to desktop.
+    if (isMobileProject(testInfo)) return
+
     const container = page.locator('[data-slot="sidebar"][data-side="right"]')
     const toggle = page.locator("[data-panel-toggle]")
     const widthOf = () =>
@@ -72,8 +81,13 @@ test.describe("Vivicy architecture map viewer", () => {
 
   test("quota footer collapses and expands (honest, persisted)", async ({
     page,
-  }) => {
+  }, testInfo) => {
     await page.goto("/")
+    // Wait for the ready state, then open the panel (Sheet on mobile).
+    await expect(page.locator(".react-flow__node").first()).toBeVisible({
+      timeout: 30_000,
+    })
+    await ensurePanelOpen(page, testInfo)
     const sidebar = page.getByRole("complementary", { name: "Vivicy panel" })
     await expect(sidebar.getByText("Vivicy", { exact: true })).toBeVisible()
 

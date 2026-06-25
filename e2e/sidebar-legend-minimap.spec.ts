@@ -1,5 +1,7 @@
 import { expect, test, type ConsoleMessage } from "@playwright/test"
 
+import { ensurePanelOpen, isMobileProject } from "./helpers"
+
 /**
  * Covers the four owner-requested changes on the populated demo target:
  *   1. the sidebar toggle cycles through the grown 24rem and 36rem widths;
@@ -7,6 +9,11 @@ import { expect, test, type ConsoleMessage } from "@playwright/test"
  *      even when a non-default panel width is already persisted;
  *   3. the color legend lives IN the sidebar, collapsed by default, and expands;
  *   4. the minimap is present and non-empty (rendered node rects with real fill).
+ *
+ * (1) and the width side of (2) are DESKTOP affordances — they assert the docked
+ * sidebar's `--sidebar-width`, which only exists on desktop (on mobile the panel
+ * is a single-width off-canvas Sheet). Those width assertions are scoped to
+ * desktop; the legend, hydration-cleanliness, and minimap checks run everywhere.
  */
 
 const sidebarName = "Vivicy panel"
@@ -14,10 +21,20 @@ const sidebarName = "Vivicy panel"
 test.describe("sidebar widths (24rem / 36rem)", () => {
   test("the toggle cycles peek=24rem -> wide=36rem -> closed", async ({
     page,
-  }) => {
+  }, testInfo) => {
     await page.goto("/")
+    await expect(page.locator(".react-flow__node").first()).toBeVisible({
+      timeout: 30_000,
+    })
+    await ensurePanelOpen(page, testInfo)
     const sidebar = page.getByRole("complementary", { name: sidebarName })
     await expect(sidebar.getByText("Vivicy", { exact: true })).toBeVisible()
+
+    // The 24rem/36rem width cycle is a desktop-only affordance (see file header).
+    test.skip(
+      isMobileProject(testInfo),
+      "Mobile uses a single-width off-canvas Sheet; the width cycle is desktop-only."
+    )
 
     const container = page.locator('[data-slot="sidebar"][data-side="right"]')
     const toggle = page.locator("[data-panel-toggle]")
@@ -53,7 +70,7 @@ test.describe("sidebar widths (24rem / 36rem)", () => {
 test.describe("no hydration error (the reported bug)", () => {
   test("loads clean even with a non-default panel width persisted", async ({
     page,
-  }) => {
+  }, testInfo) => {
     // The reported bug: with a persisted "wide" state, the SSR --sidebar-width
     // (default) and the first client render (persisted) disagreed -> a hydration
     // mismatch error in the console. Pre-seed the persisted state BEFORE first
@@ -66,43 +83,63 @@ test.describe("no hydration error (the reported bug)", () => {
       }
     })
 
+    // Match only a genuine hydration MISMATCH error, not benign dev instrumentation
+    // that happens to contain the word "hydrate" — Firefox's Next dev build emits a
+    // `console.timeStamp("Hydrated")` performance marker (msg.type() === "timeStamp"),
+    // which is NOT an error. A real mismatch is logged by React at error/warning
+    // severity with explicit mismatch wording, so require both.
+    const isHydrationMismatch = (text: string) =>
+      /hydrat/i.test(text) &&
+      /(mismatch|did not match|didn't match|server rendered|server-rendered|while hydrating|text content)/i.test(
+        text
+      )
     const hydrationErrors: string[] = []
     const onConsole = (msg: ConsoleMessage) => {
-      if (/hydrat/i.test(msg.text())) hydrationErrors.push(msg.text())
+      const type = msg.type()
+      if ((type === "error" || type === "warning") && isHydrationMismatch(msg.text())) {
+        hydrationErrors.push(msg.text())
+      }
     }
     page.on("console", onConsole)
     page.on("pageerror", (err) => {
-      if (/hydrat/i.test(err.message)) hydrationErrors.push(err.message)
+      if (isHydrationMismatch(err.message)) hydrationErrors.push(err.message)
     })
 
     await page.goto("/")
-    const sidebar = page.getByRole("complementary", { name: sidebarName })
-    await expect(sidebar.getByText("Vivicy", { exact: true })).toBeVisible()
     await expect(page.locator(".react-flow__node").first()).toBeVisible({
       timeout: 30_000,
     })
     // Let React settle (hydration + the post-hydration snapshot swap).
     await page.waitForTimeout(1_000)
 
-    // The persisted state still takes effect (panel ends up at 36rem), proving
-    // the fix did not regress persistence — only moved it past hydration.
+    // The whole point: NO hydration error was logged — this must hold on every
+    // browser (the reported regression was browser-agnostic).
+    expect(hydrationErrors).toEqual([])
+
+    // On desktop the persisted "wide" state still takes effect (panel ends up at
+    // 36rem), proving the fix did not regress persistence — only moved it past
+    // hydration. The docked width var is desktop-only DOM.
+    if (isMobileProject(testInfo)) return
+    const sidebar = page.getByRole("complementary", { name: sidebarName })
+    await expect(sidebar.getByText("Vivicy", { exact: true })).toBeVisible()
     const width = await page.evaluate(() =>
       getComputedStyle(document.querySelector('[data-slot="sidebar-wrapper"]')!)
         .getPropertyValue("--sidebar-width")
         .trim()
     )
     expect(width).toBe("36rem")
-
-    // The whole point: NO hydration error was logged.
-    expect(hydrationErrors).toEqual([])
   })
 })
 
 test.describe("legend lives in the sidebar (collapsed by default)", () => {
   test("the legend section is present, collapsed, and expands", async ({
     page,
-  }) => {
+  }, testInfo) => {
     await page.goto("/")
+    await expect(page.locator(".react-flow__node").first()).toBeVisible({
+      timeout: 30_000,
+    })
+    await ensurePanelOpen(page, testInfo)
     const sidebar = page.getByRole("complementary", { name: sidebarName })
     await expect(sidebar.getByText("Vivicy", { exact: true })).toBeVisible()
 
@@ -128,8 +165,12 @@ test.describe("legend lives in the sidebar (collapsed by default)", () => {
 
   test("the legend lives in the fixed footer region, above the quota footer", async ({
     page,
-  }) => {
+  }, testInfo) => {
     await page.goto("/")
+    await expect(page.locator(".react-flow__node").first()).toBeVisible({
+      timeout: 30_000,
+    })
+    await ensurePanelOpen(page, testInfo)
     const sidebar = page.getByRole("complementary", { name: sidebarName })
     await expect(sidebar.getByText("Vivicy", { exact: true })).toBeVisible()
 

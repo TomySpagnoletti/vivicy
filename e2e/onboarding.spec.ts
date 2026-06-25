@@ -2,7 +2,7 @@ import path from "node:path"
 
 import { expect, test } from "@playwright/test"
 
-import { ONBOARD_SCAFFOLD_PARENT } from "../playwright.config"
+import { onboardScaffoldParent } from "../playwright.config"
 
 /**
  * R9 onboarding. The onboarding server points at a target with NO docs/, so the
@@ -18,11 +18,16 @@ import { ONBOARD_SCAFFOLD_PARENT } from "../playwright.config"
  */
 test.describe.configure({ mode: "serial" })
 
-// A fresh, new dir under the wiped scaffold parent (global-setup empties it).
-const SCAFFOLD_TARGET = path.join(ONBOARD_SCAFFOLD_PARENT, "e2e-scaffolded")
+// The browser key is the project-name suffix ("onboarding-<browserKey>"); each
+// browser scaffolds into its OWN parent dir (global-setup wipes each), so the
+// matrix's parallel onboarding projects never race the same scaffold target.
+function scaffoldTargetFor(projectName: string): string {
+  const browserKey = projectName.replace(/^onboarding-/, "")
+  return path.join(onboardScaffoldParent(browserKey), "e2e-scaffolded")
+}
 
 test.describe("Vivicy onboarding (two start modes)", () => {
-  test("shows both start modes", async ({ page }) => {
+  test("shows both start modes", async ({ page }, testInfo) => {
     await page.goto("/")
 
     // The chooser heading + both mode cards render.
@@ -35,11 +40,21 @@ test.describe("Vivicy onboarding (two start modes)", () => {
     await expect(
       page.getByRole("button", { name: /Scaffold a new project/i })
     ).toBeVisible()
+
+    // Cross-browser capture of the pristine `no_target` chooser. This is the FIRST
+    // test in the serial file, so it runs BEFORE the Mode-B scaffold below mutates
+    // the server's current-project — capturing here avoids any cross-spec ordering
+    // dependency on the shared onboarding runtime dir.
+    await page.waitForTimeout(300)
+    await page.screenshot({
+      path: `/tmp/vivicy-xbrowser/06-onboarding--${testInfo.project.name}.png`,
+    })
   })
 
   test("Mode B scaffolds a new project and lands on the no-map state", async ({
     page,
-  }) => {
+  }, testInfo) => {
+    const scaffoldTarget = scaffoldTargetFor(testInfo.project.name)
     const pageErrors: string[] = []
     page.on("pageerror", (err) => pageErrors.push(err.message))
 
@@ -56,7 +71,7 @@ test.describe("Vivicy onboarding (two start modes)", () => {
     // Name the project and give an absolute target (deterministic, avoids
     // browser-path canonicalization differences).
     await dialog.getByLabel("Project name").fill("E2E Scaffolded")
-    await dialog.getByLabel(/absolute target path/i).fill(SCAFFOLD_TARGET)
+    await dialog.getByLabel(/absolute target path/i).fill(scaffoldTarget)
 
     // Scaffold: POST /api/project/scaffold, success toast, dialog closes.
     await dialog.getByRole("button", { name: /Scaffold project/i }).click()

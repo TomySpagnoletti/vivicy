@@ -1,0 +1,189 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import { execFileSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+
+// doc-baseline.mjs is a CLI-only script (no exported helpers). Its hashing and
+// verification are deterministic and self-contained per target root, selected via
+// VIVICY_TARGET_ROOT — so we exercise the pure round-trip (generate -> verify) and
+// tamper detection against a tiny, throwaway doc tree. This never touches the real
+// frozen baseline: each test builds and tears down its own target root.
+//
+// Mirrors the CLI-subprocess convention already used in progress-ledger.test.mjs.
+
+const SCRIPT = resolve(dirname(fileURLToPath(import.meta.url)), "doc-baseline.mjs");
+
+function makeTargetRoot() {
+  const root = mkdtempSync(resolve(tmpdir(), "doc-baseline-test-"));
+  // The script's corpus is docs/canonical/**/*.md; baselines land in docs/baselines.
+  mkdirSync(resolve(root, "docs", "canonical"), { recursive: true });
+  mkdirSync(resolve(root, "docs", "baselines"), { recursive: true });
+  return root;
+}
+
+function writeDoc(root, rel, body) {
+  const abs = resolve(root, "docs", "canonical", rel);
+  writeFileSync(abs, body);
+}
+
+function runCli(root, args) {
+  // Returns { ok, stdout, stderr, status }. The script process.exit(1)s on failure,
+  // which execFileSync surfaces as a thrown error carrying status/stdout/stderr.
+  try {
+    const stdout = execFileSync(process.execPath, [SCRIPT, ...args], {
+      cwd: root,
+      encoding: "utf8",
+      env: { ...process.env, VIVICY_TARGET_ROOT: root },
+      stdio: "pipe",
+    });
+    return { ok: true, stdout, stderr: "", status: 0 };
+  } catch (error) {
+    return {
+      ok: false,
+      stdout: error.stdout?.toString() ?? "",
+      stderr: error.stderr?.toString() ?? "",
+      status: error.status ?? 1,
+    };
+  }
+}
+
+function readBaseline(root, baselineId) {
+  return JSON.parse(readFileSync(resolve(root, "docs", "baselines", `${baselineId}.json`), "utf8"));
+}
+
+const BASELINE_ID = "baseline-v1.0.0-draft";
+
+test("generate hashes the doc set and produces a self-consistent manifest", () => {
+  const root = makeTargetRoot();
+  try {
+    writeDoc(root, "01-a.md", "# Doc One\n\nbody alpha\n");
+    writeDoc(root, "02-b.md", "# Doc Two\n\nbody beta\n");
+
+    const gen = runCli(root, ["generate", "--version", "1.0.0", "--status", "draft"]);
+    assert.equal(gen.status, 0, gen.stderr);
+
+    const manifest = readBaseline(root, BASELINE_ID);
+    assert.equal(manifest.baseline_id, BASELINE_ID);
+    assert.equal(manifest.status, "draft");
+    assert.equal(manifest.files.length, 2, "both canonical docs were hashed into the manifest");
+    assert.match(manifest.document_set_hash, /^[0-9a-f]{64}$/, "document_set_hash is a sha256 hex digest");
+    assert.match(manifest.manifest_hash, /^[0-9a-f]{64}$/, "manifest_hash is a sha256 hex digest");
+    // Each file entry carries a real per-file sha256 + byte count.
+    for (const file of manifest.files) {
+      assert.match(file.sha256, /^[0-9a-f]{64}$/);
+      assert.equal(typeof file.bytes, "number");
+    }
+  } finally {
+    rmSync(root, { force: true, recursive: true });
+  }
+});
+
+test("the document set hash is reproducible for the same content and changes when content changes", () => {
+  const rootA = makeTargetRoot();
+  const rootB = makeTargetRoot();
+  const rootC = makeTargetRoot();
+  try {
+    // Two independent target roots with byte-identical doc sets...
+    for (const root of [rootA, rootB]) {
+      writeDoc(root, "01-a.md", "# Doc One\n\nbody alpha\n");
+      writeDoc(root, "02-b.md", "# Doc Two\n\nbody beta\n");
+    }
+    // ...and a third whose only difference is one doc's body.
+    writeDoc(rootC, "01-a.md", "# Doc One\n\nbody ALPHA-CHANGED\n");
+    writeDoc(rootC, "02-b.md", "# Doc Two\n\nbody beta\n");
+
+    for (const root of [rootA, rootB, rootC]) {
+      const gen = runCli(root, ["generate", "--version", "1.0.0", "--status", "draft"]);
+      assert.equal(gen.status, 0, gen.stderr);
+    }
+
+    const hashA = readBaseline(rootA, BASELINE_ID).document_set_hash;
+    const hashB = readBaseline(rootB, BASELINE_ID).document_set_hash;
+    const hashC = readBaseline(rootC, BASELINE_ID).document_set_hash;
+
+    assert.equal(hashA, hashB, "identical doc sets in different roots hash identically (deterministic)");
+    assert.notEqual(hashA, hashC, "a single changed byte changes the document_set_hash");
+  } finally {
+    rmSync(rootA, { force: true, recursive: true });
+    rmSync(rootB, { force: true, recursive: true });
+    rmSync(rootC, { force: true, recursive: true });
+  }
+});
+
+test("verify accepts a manifest that matches the doc tree it was generated from", () => {
+  const root = makeTargetRoot();
+  try {
+    writeDoc(root, "01-a.md", "# Doc One\n\nbody alpha\n");
+    writeDoc(root, "02-b.md", "# Doc Two\n\nbody beta\n");
+    assert.equal(runCli(root, ["generate", "--version", "1.0.0", "--status", "draft"]).status, 0);
+
+    const verify = runCli(root, ["verify", "--manifest", `docs/baselines/${BASELINE_ID}.json`]);
+    assert.equal(verify.status, 0, verify.stderr);
+    assert.match(verify.stdout, /Verified/);
+    assert.match(verify.stdout, new RegExp(`baseline_id=${BASELINE_ID}`));
+  } finally {
+    rmSync(root, { force: true, recursive: true });
+  }
+});
+
+test("verify fails when a tracked doc is tampered after the manifest was frozen", () => {
+  const root = makeTargetRoot();
+  try {
+    writeDoc(root, "01-a.md", "# Doc One\n\nbody alpha\n");
+    writeDoc(root, "02-b.md", "# Doc Two\n\nbody beta\n");
+    assert.equal(runCli(root, ["generate", "--version", "1.0.0", "--status", "draft"]).status, 0);
+
+    // Mutate a tracked doc's bytes; verification must detect both the per-file
+    // change and the document_set_hash mismatch.
+    writeDoc(root, "01-a.md", "# Doc One\n\nbody TAMPERED\n");
+
+    const verify = runCli(root, ["verify", "--manifest", `docs/baselines/${BASELINE_ID}.json`]);
+    assert.equal(verify.status, 1, "tampered tree must fail verification");
+    assert.match(verify.stderr, /Baseline verification failed/);
+    assert.match(verify.stderr, /changed: docs\/canonical\/01-a\.md/);
+    assert.match(verify.stderr, /document_set_hash mismatch/);
+  } finally {
+    rmSync(root, { force: true, recursive: true });
+  }
+});
+
+test("verify detects a newly added tracked doc that the manifest does not list", () => {
+  const root = makeTargetRoot();
+  try {
+    writeDoc(root, "01-a.md", "# Doc One\n\nbody alpha\n");
+    assert.equal(runCli(root, ["generate", "--version", "1.0.0", "--status", "draft"]).status, 0);
+
+    // Add a brand-new canonical doc after freezing; it must surface as "new included file".
+    writeDoc(root, "03-c.md", "# Doc Three\n\nbody gamma\n");
+
+    const verify = runCli(root, ["verify", "--manifest", `docs/baselines/${BASELINE_ID}.json`]);
+    assert.equal(verify.status, 1, "an unlisted new doc must fail verification");
+    assert.match(verify.stderr, /new included file: docs\/canonical\/03-c\.md/);
+  } finally {
+    rmSync(root, { force: true, recursive: true });
+  }
+});
+
+test("verify reports a manifest_hash mismatch when the manifest body is edited", () => {
+  const root = makeTargetRoot();
+  try {
+    writeDoc(root, "01-a.md", "# Doc One\n\nbody alpha\n");
+    assert.equal(runCli(root, ["generate", "--version", "1.0.0", "--status", "draft"]).status, 0);
+
+    // Hand-edit the manifest's version without recomputing manifest_hash: the
+    // recorded hash no longer matches the recomputed one over the manifest body.
+    const manifestPath = resolve(root, "docs", "baselines", `${BASELINE_ID}.json`);
+    const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+    manifest.product = "Tampered Product Name";
+    writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+
+    const verify = runCli(root, ["verify", "--manifest", `docs/baselines/${BASELINE_ID}.json`]);
+    assert.equal(verify.status, 1, "an edited manifest body must fail verification");
+    assert.match(verify.stderr, /Manifest hash mismatch/);
+  } finally {
+    rmSync(root, { force: true, recursive: true });
+  }
+});

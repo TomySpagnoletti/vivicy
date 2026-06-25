@@ -179,8 +179,14 @@ function Sidebar({
   }
 
   if (isMobile) {
+    // The panel's accessible identity (callers pass role="complementary" +
+    // aria-label) belongs on the rendered CONTENT, not on the Sheet Root (which
+    // renders nothing). Pull those off `props` and land them on the inner content
+    // wrapper so the mobile panel is the SAME `complementary` landmark as the
+    // docked desktop one — keeping every consumer/test locator browser-agnostic.
+    const { role, "aria-label": ariaLabel, ...restProps } = props
     return (
-      <Sheet open={openMobile} onOpenChange={setOpenMobile} {...props}>
+      <Sheet open={openMobile} onOpenChange={setOpenMobile} {...restProps}>
         <SheetContent
           dir={dir}
           data-sidebar="sidebar"
@@ -198,7 +204,9 @@ function Sidebar({
             <SheetTitle>Sidebar</SheetTitle>
             <SheetDescription>Displays the mobile sidebar.</SheetDescription>
           </SheetHeader>
-          <div className="flex h-full w-full flex-col">{children}</div>
+          <div role={role} aria-label={ariaLabel} className="flex h-full w-full flex-col">
+            {children}
+          </div>
         </SheetContent>
       </Sheet>
     )

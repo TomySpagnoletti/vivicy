@@ -1,5 +1,7 @@
 import { expect, test } from "@playwright/test"
 
+import { ensurePanelOpen } from "./helpers"
+
 /**
  * Drives the control plane end to end against the populated demo target
  * (VIVICY_TARGET_ROOT=/tmp/vivicy-demo) with the spawner stubbed
@@ -15,19 +17,22 @@ test.describe.configure({ mode: "serial" })
 test.describe("Vivicy control plane", () => {
   test("Run shows running, Stop returns idle, Extract is gated when issues exist", async ({
     page,
-  }) => {
+  }, testInfo) => {
     await page.goto("/")
 
+    // The map renders from the demo target.
+    const nodes = page.locator(".react-flow__node")
+    await expect(nodes.first()).toBeVisible({ timeout: 30_000 })
+
+    // The control plane (Run/Stop/Extract + status pill) lives in the panel; open
+    // it (off-canvas Sheet on mobile, docked on desktop) before driving it.
+    await ensurePanelOpen(page, testInfo)
     const sidebar = page.getByRole("complementary", { name: "Vivicy panel" })
     await expect(sidebar.getByText("Vivicy", { exact: true })).toBeVisible()
 
     // The status pill reflects the real demo ledger via SSE.
     const statusBadge = page.getByLabel(/^status:/)
     await expect(statusBadge).toBeVisible({ timeout: 15_000 })
-
-    // The map renders from the demo target.
-    const nodes = page.locator(".react-flow__node")
-    await expect(nodes.first()).toBeVisible({ timeout: 30_000 })
 
     // Make sure no prior run is active: if a Stop control is present, clear it.
     if (await page.getByRole("button", { name: "Stop" }).count()) {

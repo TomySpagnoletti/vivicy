@@ -11,7 +11,7 @@
 // command fails, but the command's non-zero exit code is preserved so CI/gates
 // still see the failure.
 import { spawnSync } from "node:child_process"
-import { rmSync } from "node:fs"
+import { readdirSync, rmSync } from "node:fs"
 import { dirname, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
@@ -21,17 +21,26 @@ const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..")
 // .gitignore; listed once here so the `clean` script and the auto-clean wrapper
 // agree. `.next` (the dev/build cache) is intentionally NOT included — it is a
 // reusable cache, not a per-run artifact.
-const ARTIFACTS = [
-  ".next-e2e-demo",
-  ".next-e2e-empty",
-  ".next-e2e-onboard",
-  "test-results",
-  "playwright-report",
-]
+const ARTIFACTS = ["test-results", "playwright-report"]
 
+// The e2e matrix spins up one Next dev server per (shape × browser), each writing
+// its own dist dir `.next-e2e-<shape>-<browser>` (set via VIVICY_DIST_DIR in
+// playwright.config). They're gitignored; remove every one so a run leaves the
+// tree clean regardless of how many matrix projects ran.
 function cleanArtifacts() {
   for (const rel of ARTIFACTS) {
     rmSync(resolve(REPO_ROOT, rel), { recursive: true, force: true })
+  }
+  let entries = []
+  try {
+    entries = readdirSync(REPO_ROOT)
+  } catch {
+    entries = []
+  }
+  for (const name of entries) {
+    if (name.startsWith(".next-e2e-")) {
+      rmSync(resolve(REPO_ROOT, name), { recursive: true, force: true })
+    }
   }
 }
 

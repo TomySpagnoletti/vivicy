@@ -64,18 +64,27 @@ test.describe("Architecture map layout editing", () => {
     await expect(page.getByRole("button", { name: "Editing layout" })).toBeVisible()
 
     // Drag the first node by a screen offset large enough to clear the snap grid.
-    const box = await firstNode.boundingBox()
-    if (!box) throw new Error("could not measure the node to drag")
-    const startX = box.x + box.width / 2
-    const startY = box.y + box.height / 2
-    await page.mouse.move(startX, startY)
-    await page.mouse.down()
-    await page.mouse.move(startX + 90, startY + 70, { steps: 12 })
-    await page.mouse.up()
-
-    // The move marks the layout dirty, revealing Save.
+    // React Flow's drag needs the pointer-down to register before the moves; under
+    // CI/matrix load that init can occasionally be dropped, leaving the node
+    // un-moved. Retry the whole drag until it marks the layout dirty (the Save
+    // button appears), so the test reliably proves a real move rather than flaking
+    // on a dropped pointer-down. The position is re-measured each attempt.
     const saveButton = page.getByRole("button", { name: "Save layout" })
-    await expect(saveButton).toBeVisible({ timeout: 10_000 })
+    await expect(async () => {
+      const box = await firstNode.boundingBox()
+      if (!box) throw new Error("could not measure the node to drag")
+      const startX = box.x + box.width / 2
+      const startY = box.y + box.height / 2
+      await page.mouse.move(startX, startY)
+      await page.mouse.down()
+      // A short settle so React Flow registers the drag start before the moves.
+      await page.waitForTimeout(50)
+      await page.mouse.move(startX + 90, startY + 70, { steps: 12 })
+      await page.mouse.up()
+      // The move must have marked the layout dirty, revealing Save.
+      await expect(saveButton).toBeVisible({ timeout: 3_000 })
+    }).toPass({ timeout: 30_000 })
+
     await saveButton.click()
 
     // The save succeeds: the status flips to "Saved" and no error is shown.

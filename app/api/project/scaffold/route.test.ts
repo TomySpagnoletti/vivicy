@@ -1,0 +1,114 @@
+import { beforeEach, describe, expect, it, vi } from "vitest"
+
+import type { ScaffoldResult } from "@/lib/scaffold"
+
+// Mock the server-only scaffolder so the route never writes a real template tree
+// or sets the current project. `scaffoldProject` is the single collaborator;
+// `ScaffoldError` stays real so the route's `instanceof` check holds and we can
+// drive the typed-error (400) branch with each code.
+const { scaffoldProject } = vi.hoisted(() => ({
+  scaffoldProject: vi.fn(),
+}))
+
+vi.mock("@/lib/scaffold", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/scaffold")>("@/lib/scaffold")
+  return { ...actual, scaffoldProject }
+})
+
+import { ScaffoldError } from "@/lib/scaffold"
+
+import { POST } from "./route"
+
+const RESULT: ScaffoldResult = {
+  project: { root: "/abs/new", name: "My App", hasDocs: true },
+  written: ["/abs/new/AGENTS.md", "/abs/new/README.md", "/abs/new/package.json"],
+}
+
+function postJson(body: unknown): Request {
+  return new Request("http://localhost/api/project/scaffold", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  })
+}
+
+beforeEach(() => {
+  vi.clearAllMocks()
+})
+
+describe("POST /api/project/scaffold", () => {
+  it("returns the described project + written files on the happy path (200)", async () => {
+    scaffoldProject.mockReturnValue(RESULT)
+
+    const res = await POST(postJson({ targetDir: "/abs/new", projectName: "My App" }))
+    expect(res.status).toBe(200)
+    const body = await res.json()
+
+    expect(scaffoldProject).toHaveBeenCalledWith({
+      targetDir: "/abs/new",
+      projectName: "My App",
+    })
+    expect(body).toEqual({
+      ok: true,
+      project: RESULT.project,
+      written: RESULT.written,
+    })
+  })
+
+  it("forwards undefined fields verbatim (the lib validates, not the route)", async () => {
+    scaffoldProject.mockImplementation(() => {
+      throw new ScaffoldError("project name must be 1–64 chars", "invalid_name")
+    })
+
+    const res = await POST(postJson({ targetDir: "/abs/new" }))
+    expect(res.status).toBe(400)
+    const body = await res.json()
+
+    // The route does NOT pre-validate; it hands both fields (name undefined) to
+    // the scaffolder, whose typed rejection becomes a 400.
+    expect(scaffoldProject).toHaveBeenCalledWith({
+      targetDir: "/abs/new",
+      projectName: undefined,
+    })
+    expect(body.ok).toBe(false)
+    expect(body.code).toBe("invalid_name")
+  })
+
+  const codes = [
+    "not_absolute",
+    "not_a_directory",
+    "not_empty",
+    "invalid_name",
+    "templates_missing",
+  ] as const
+
+  for (const code of codes) {
+    it(`maps a ScaffoldError code "${code}" to 400 with its code`, async () => {
+      scaffoldProject.mockImplementation(() => {
+        throw new ScaffoldError(`rejected: ${code}`, code)
+      })
+
+      const res = await POST(postJson({ targetDir: "/abs/x", projectName: "x" }))
+      expect(res.status).toBe(400)
+      const body = await res.json()
+
+      expect(body.ok).toBe(false)
+      expect(body.code).toBe(code)
+      expect(body.error).toBe(`rejected: ${code}`)
+    })
+  }
+
+  it("maps an unexpected (non-ScaffoldError) error to 500 (no code)", async () => {
+    scaffoldProject.mockImplementation(() => {
+      throw new Error("ENOSPC: no space left")
+    })
+
+    const res = await POST(postJson({ targetDir: "/abs/new", projectName: "ok" }))
+    expect(res.status).toBe(500)
+    const body = await res.json()
+
+    expect(body.ok).toBe(false)
+    expect(body.error).toBe("ENOSPC: no space left")
+    expect(body.code).toBeUndefined()
+  })
+})

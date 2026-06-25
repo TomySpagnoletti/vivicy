@@ -5,6 +5,7 @@ import { ChevronsLeft, PanelRightClose, PanelRightOpen } from "lucide-react"
 import type { PanelState } from "@/hooks/use-panel-state"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
+import { useSidebar } from "@/components/ui/sidebar"
 import {
   Tooltip,
   TooltipContent,
@@ -25,9 +26,19 @@ const NEXT: Record<PanelState, { Icon: typeof PanelRightOpen; label: string }> =
 }
 
 /**
- * Discreet 3-state toggle pinned to the sidebar's LEFT edge (the boundary with
- * the map). Each click cycles peek -> wide -> closed -> peek. Pure shadcn
- * `Button`; the icon reflects the NEXT state in the cycle.
+ * Discreet panel toggle pinned to the sidebar's LEFT edge (the boundary with the
+ * map). Pure shadcn `Button`; the icon reflects the NEXT state.
+ *
+ * DESKTOP: a 3-state cycle peek -> wide -> closed -> peek (the width-aware panel
+ * the page owns via `usePanelState`). The icon reflects the NEXT state in the
+ * cycle.
+ *
+ * MOBILE (< md): the shadcn Sidebar renders as an off-canvas Sheet driven by its
+ * OWN `openMobile` state — the desktop width cycle has no DOM to act on (the
+ * desktop panel is `hidden` below `md`). So below the breakpoint this toggle
+ * drives `toggleSidebar()` (the Sheet open/close) instead, keeping the panel —
+ * and everything in it (filters, tasks, settings, legend, quota) — reachable on
+ * a phone. A plain open/close, since the Sheet has a single open width.
  *
  * Rendered by the page so it stays put while the panel itself is offcanvas — it
  * is absolutely positioned relative to the inset, hugging the right edge of the
@@ -45,7 +56,18 @@ export function PanelToggle({
   onCycle: () => void
   className?: string
 }) {
-  const { Icon, label } = NEXT[next]
+  const { isMobile, openMobile, toggleSidebar } = useSidebar()
+
+  // On mobile the desktop width cycle is inert (the panel is a Sheet). Drive the
+  // Sheet directly: open when closed, close when open. Labels/icons follow the
+  // Sheet's open state rather than the desktop cycle.
+  const mobileLabel = openMobile ? "Close panel" : "Open panel"
+  const MobileIcon = openMobile ? PanelRightClose : PanelRightOpen
+
+  const { Icon, label } = isMobile
+    ? { Icon: MobileIcon, label: mobileLabel }
+    : NEXT[next]
+
   return (
     <Tooltip>
       <TooltipTrigger asChild>
@@ -54,9 +76,9 @@ export function PanelToggle({
           variant="outline"
           size="icon-sm"
           data-panel-toggle=""
-          data-open={open}
+          data-open={isMobile ? openMobile : open}
           aria-label={label}
-          onClick={onCycle}
+          onClick={isMobile ? toggleSidebar : onCycle}
           className={cn(
             "absolute top-3 right-3 z-30 bg-background shadow-sm",
             className

@@ -25,9 +25,8 @@
 
 # next.js
 /.next/
-/.next-e2e-demo/
-/.next-e2e-empty/
-/.next-e2e-onboard/
+# Per-(shape × browser) e2e dev-server dist dirs (.next-e2e-<shape>-<browser>).
+/.next-e2e-*/
 /out/
 
 # production

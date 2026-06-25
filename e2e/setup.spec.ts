@@ -30,7 +30,10 @@ test.describe("Vivicy setup surface (project picker + agent health)", () => {
     await page.getByRole("button", { name: "Change project" }).click()
     const dialog = page.getByRole("dialog")
     await expect(dialog.getByText("Open project")).toBeVisible()
-    await expect(dialog.getByLabel("Current path")).toBeVisible()
+    // The breadcrumb populates only once the first `/api/fs/list` resolves (the
+    // user's home dir can be large, so it's not instant); wait the same 15s the
+    // folder-row navigation below uses rather than the 5s default.
+    await expect(dialog.getByLabel("Current path")).toBeVisible({ timeout: 15_000 })
 
     // Jump to the filesystem root via the breadcrumb, then walk DOWN into the
     // demo target by clicking each folder row — exercising the server-side

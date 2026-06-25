@@ -1,5 +1,7 @@
 import { expect, test } from "@playwright/test"
 
+import { openSettingsDialog } from "./helpers"
+
 /**
  * Drives the per-agent settings dialog end to end: open it from the sidebar gear,
  * change the implementer's thinking level, save (PUT /api/settings + toast), then
@@ -11,15 +13,12 @@ import { expect, test } from "@playwright/test"
 test.describe.configure({ mode: "serial" })
 
 test.describe("Vivicy agent settings", () => {
-  test("open the dialog, change an effort, save, and re-read it", async ({ page }) => {
+  test("open the dialog, change an effort, save, and re-read it", async ({ page }, testInfo) => {
     await page.goto("/")
 
-    const sidebar = page.getByRole("complementary", { name: "Vivicy panel" })
-    await expect(sidebar.getByText("Vivicy", { exact: true })).toBeVisible()
-
-    // Open the settings dialog from the header gear.
-    await page.getByRole("button", { name: "Settings" }).click()
-    const dialog = page.getByRole("dialog")
+    // Open the settings dialog from the header gear (opens the panel on mobile).
+    await openSettingsDialog(page, testInfo)
+    const dialog = page.getByRole("dialog", { name: "Agent settings" })
     await expect(dialog).toBeVisible()
     await expect(dialog.getByText("Agent settings")).toBeVisible()
 
@@ -43,7 +42,7 @@ test.describe("Vivicy agent settings", () => {
 
     // Re-open: the saved thinking level was read back from the store.
     await page.getByRole("button", { name: "Settings" }).click()
-    const dialog2 = page.getByRole("dialog")
+    const dialog2 = page.getByRole("dialog", { name: "Agent settings" })
     await expect(dialog2).toBeVisible()
     await expect(
       dialog2.getByRole("combobox", { name: "Implementer thinking level" })
@@ -58,11 +57,11 @@ test.describe("Vivicy agent settings", () => {
     await expect(dialog2).not.toBeVisible()
   })
 
-  test("swap the role -> CLI assignment, save, and re-read it (R12)", async ({ page }) => {
+  test("swap the role -> CLI assignment, save, and re-read it (R12)", async ({ page }, testInfo) => {
     await page.goto("/")
 
-    await page.getByRole("button", { name: "Settings" }).click()
-    const dialog = page.getByRole("dialog")
+    await openSettingsDialog(page, testInfo)
+    const dialog = page.getByRole("dialog", { name: "Agent settings" })
     await expect(dialog.getByText("Agent settings")).toBeVisible()
 
     // Default assignment: implementer = Claude Code, reviewer = Codex.
@@ -85,7 +84,7 @@ test.describe("Vivicy agent settings", () => {
 
     // Re-open: the swapped assignment was read back from the store.
     await page.getByRole("button", { name: "Settings" }).click()
-    const dialog2 = page.getByRole("dialog")
+    const dialog2 = page.getByRole("dialog", { name: "Agent settings" })
     await expect(dialog2.getByText("Agent settings")).toBeVisible()
     await expect(
       dialog2.getByRole("combobox", { name: "Implementer agent" })
@@ -105,11 +104,11 @@ test.describe("Vivicy agent settings", () => {
     await expect(dialog2).not.toBeVisible()
   })
 
-  test("pick a model + fast mode, with strict per-model compatibility (P5)", async ({ page }) => {
+  test("pick a model + fast mode, with strict per-model compatibility (P5)", async ({ page }, testInfo) => {
     await page.goto("/")
 
-    await page.getByRole("button", { name: "Settings" }).click()
-    const dialog = page.getByRole("dialog")
+    await openSettingsDialog(page, testInfo)
+    const dialog = page.getByRole("dialog", { name: "Agent settings" })
     await expect(dialog.getByText("Agent settings")).toBeVisible()
 
     // The implementer model is a Select listing the curated Claude models.
@@ -143,12 +142,19 @@ test.describe("Vivicy agent settings", () => {
   // implementer = Opus 4.8 with Fast ON (enabled), reviewer = Spark with no thinking
   // level and Fast DISABLED + its honest tooltip. Lives in the serial settings
   // describe so it never races the shared on-disk store with the other mutators.
-  test("screenshot — model picker, fast toggle, disabled-fast case (1320x820)", async ({ page }) => {
+  test("screenshot — model picker, fast toggle, disabled-fast case (1320x820)", async ({ page }, testInfo) => {
+    // A fixed 1320x820 documentation frame: a desktop capture by definition, so it
+    // runs on the desktop projects only (the mobile project would fight its own
+    // device viewport).
+    test.skip(
+      testInfo.project.name.includes("-mobile"),
+      "Fixed-frame desktop documentation screenshot."
+    )
     await page.setViewportSize({ width: 1320, height: 820 })
     await page.goto("/")
 
     await page.getByRole("button", { name: "Settings" }).click()
-    const dialog = page.getByRole("dialog")
+    const dialog = page.getByRole("dialog", { name: "Agent settings" })
     await expect(dialog.getByText("Agent settings")).toBeVisible()
 
     // Implementer = Claude Opus 4.8 (fast-capable). Turn fast ON so the enabled
@@ -182,11 +188,11 @@ test.describe("Vivicy agent settings", () => {
     await expect(dialog).not.toBeVisible()
   })
 
-  test("set max parallel issues, save, and re-read it (concurrency knob)", async ({ page }) => {
+  test("set max parallel issues, save, and re-read it (concurrency knob)", async ({ page }, testInfo) => {
     await page.goto("/")
 
-    await page.getByRole("button", { name: "Settings" }).click()
-    const dialog = page.getByRole("dialog")
+    await openSettingsDialog(page, testInfo)
+    const dialog = page.getByRole("dialog", { name: "Agent settings" })
     await expect(dialog.getByText("Agent settings")).toBeVisible()
 
     // Defaults to 1 (the sequential loop).
@@ -201,7 +207,7 @@ test.describe("Vivicy agent settings", () => {
 
     // Re-open: the value persisted through the JSON store.
     await page.getByRole("button", { name: "Settings" }).click()
-    const dialog2 = page.getByRole("dialog")
+    const dialog2 = page.getByRole("dialog", { name: "Agent settings" })
     await expect(dialog2.getByText("Agent settings")).toBeVisible()
     await expect(dialog2.getByLabel("Max parallel issues")).toHaveValue("3")
 
@@ -212,11 +218,11 @@ test.describe("Vivicy agent settings", () => {
     await expect(dialog2).not.toBeVisible()
   })
 
-  test("the concurrency stepper enforces the 1–12 range with up/down arrows", async ({ page }) => {
+  test("the concurrency stepper enforces the 1–12 range with up/down arrows", async ({ page }, testInfo) => {
     await page.goto("/")
 
-    await page.getByRole("button", { name: "Settings" }).click()
-    const dialog = page.getByRole("dialog")
+    await openSettingsDialog(page, testInfo)
+    const dialog = page.getByRole("dialog", { name: "Agent settings" })
     await expect(dialog.getByText("Agent settings")).toBeVisible()
 
     const maxParallel = dialog.getByLabel("Max parallel issues")
@@ -246,12 +252,17 @@ test.describe("Vivicy agent settings", () => {
 
   // Capture the Concurrency section at 1320x820 with the 1–12 stepper mid-range so
   // both arrows and the "spread across the map" note are visible. Serial, store-clean.
-  test("screenshot — concurrency 1–12 stepper (1320x820)", async ({ page }) => {
+  test("screenshot — concurrency 1–12 stepper (1320x820)", async ({ page }, testInfo) => {
+    // Fixed 1320x820 documentation frame: desktop-only (see the model-picker shot).
+    test.skip(
+      testInfo.project.name.includes("-mobile"),
+      "Fixed-frame desktop documentation screenshot."
+    )
     await page.setViewportSize({ width: 1320, height: 820 })
     await page.goto("/")
 
     await page.getByRole("button", { name: "Settings" }).click()
-    const dialog = page.getByRole("dialog")
+    const dialog = page.getByRole("dialog", { name: "Agent settings" })
     await expect(dialog.getByText("Agent settings")).toBeVisible()
 
     // Set a mid-range value so the stepper reads clearly (neither bound disabled).

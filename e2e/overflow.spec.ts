@@ -159,9 +159,19 @@ test.describe("No horizontal overflow anywhere", () => {
     // The demo issues carry transcript refs; open the first transcript button.
     const transcriptButton = sidebar.locator('button[title*="/transcripts/"]').first()
     if (await transcriptButton.count()) {
-      await transcriptButton.click()
+      // The panel runs background map refreshes (loadMap on status/SSE), which
+      // re-render the Tasks list and can DETACH the row mid-click. Retry the open,
+      // re-resolving the (possibly re-rendered) button each attempt and FORCE-
+      // clicking so the constant re-render doesn't fail Playwright's stability gate
+      // — robust to the re-render race without weakening the assertion. (No
+      // networkidle wait: the page holds a persistent /api/status/stream SSE
+      // connection, so the network never goes idle.)
       const transcript = page.getByRole("dialog")
-      await expect(transcript).toBeVisible({ timeout: 15_000 })
+      await expect(async () => {
+        await transcriptButton.scrollIntoViewIfNeeded()
+        await transcriptButton.click({ force: true, noWaitAfter: true, timeout: 3_000 })
+        await expect(transcript).toBeVisible({ timeout: 3_000 })
+      }).toPass({ timeout: 30_000 })
       await expectNoPageOverflow(page, "long target: transcript modal")
       // The transcript dialog box fits the viewport width.
       const tBox = await transcript.boundingBox()
