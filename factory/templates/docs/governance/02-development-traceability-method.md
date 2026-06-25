@@ -842,6 +842,16 @@ Each issue chooses the highest currently available verification level allowed by
 
 The Traceability Matrix must show when a requirement is only covered by a lower-level gate and still needs a higher-level E2E gate.
 
+### Verification Level Promotion
+
+The phrase "highest currently available verification level" is not permission to stay at low-fidelity gates indefinitely. Promotion is mandatory: as soon as the higher-fidelity runtime, environment, or dependency needed to exercise a requirement's real behavior becomes available, the issue covering that requirement must be promoted to the gate that uses it.
+
+- The lowest levels (contract and pure-logic gates) may prove only contracts and pure logic.
+- Behavior that depends on a real integrated runtime, persistent state, authorization, or an external dependency must be promoted to the level that exercises that real component before it can be marked locally integrated. A fake or simulation is a temporary stand-in, never the terminal proof.
+- Release readiness for any requirement whose area touches deployable runtime behavior, infrastructure, provider integrations, isolation boundaries, secrets, persistent state, or external surfaces requires its highest pre-production gate.
+
+A lower-level gate used as a placeholder must name, in the issue, the missing runtime, the fake or simulation in use, and the exact later gate that must replace it; the Traceability Matrix must keep that promotion obligation visible until it is satisfied.
+
 ### Pre-Production Rule
 
 Local gates are necessary but not sufficient for release-quality proof.
