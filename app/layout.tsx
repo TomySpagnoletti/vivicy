@@ -39,8 +39,13 @@ export default function RootLayout({
     <html
       lang="en"
       className={cn("antialiased", fontMono.variable, "font-sans", geist.variable)}
+      // Browser extensions (LanguageTool's data-lt-installed, Grammarly, etc.)
+      // mutate <html>/<body> before React hydrates. suppressHydrationWarning
+      // silences only these two elements' own attribute mismatch — the app
+      // tree below is still fully hydration-checked.
+      suppressHydrationWarning
     >
-      <body>
+      <body suppressHydrationWarning>
         <TooltipProvider>{children}</TooltipProvider>
         <Toaster />
       </body>
