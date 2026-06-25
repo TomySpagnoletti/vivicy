@@ -98,5 +98,20 @@ test.describe("Vivicy setup surface (project picker + agent health)", () => {
     await expect(
       dialog.getByText(/Installed|Not found/).first()
     ).toBeVisible({ timeout: 15_000 })
+
+    // The version line is NORMALIZED: the redundant product name is stripped, so
+    // neither "(Claude Code)" nor the "codex-cli " prefix appears anywhere.
+    await expect(dialog.getByText(/\(Claude Code\)/)).toHaveCount(0)
+    await expect(dialog.getByText(/codex-cli/)).toHaveCount(0)
+
+    // Each installed CLI offers a per-agent Update action (the dev machine has
+    // both installed). Skip the assertion gracefully if a CLI is genuinely absent.
+    for (const label of ["Claude Code", "Codex CLI"]) {
+      const card = dialog.locator("fieldset", { hasText: label })
+      const installed = await card.getByText("Installed").count()
+      if (installed > 0) {
+        await expect(card.getByRole("button", { name: `Update ${label}` })).toBeVisible()
+      }
+    }
   })
 })

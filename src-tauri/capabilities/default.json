@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Vivicy desktop capabilities: window control, the native folder dialog, and a NARROWLY scoped shell allow-list that can run ONLY the two documented agent-CLI install commands plus the Next sidecar. No general shell access — every entry fixes the command and its arguments, so an arbitrary shell can never be opened.",
+  "description": "Vivicy desktop capabilities: window control, the native folder dialog, and a NARROWLY scoped shell allow-list that can run ONLY the documented agent-CLI install and self-update commands plus the Next sidecar. No general shell access — every entry fixes the command and its arguments, so an arbitrary shell can never be opened.",
   "windows": ["main"],
   "permissions": [
     "core:default",
@@ -22,6 +22,16 @@
           "args": ["install", "-g", "@openai/codex"]
         },
         {
+          "name": "update-claude",
+          "cmd": "claude",
+          "args": ["update"]
+        },
+        {
+          "name": "update-codex",
+          "cmd": "codex",
+          "args": ["update"]
+        },
+        {
           "name": "node",
           "sidecar": true,
           "args": true
@@ -40,6 +50,16 @@
           "name": "install-codex",
           "cmd": "npm",
           "args": ["install", "-g", "@openai/codex"]
+        },
+        {
+          "name": "update-claude",
+          "cmd": "claude",
+          "args": ["update"]
+        },
+        {
+          "name": "update-codex",
+          "cmd": "codex",
+          "args": ["update"]
         },
         {
           "name": "node",

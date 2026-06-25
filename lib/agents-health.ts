@@ -98,6 +98,29 @@ export interface HealthProbe {
   keychain(service: string): KeychainResult | null
 }
 
+/**
+ * Strip the redundant product-name decoration the agent CLIs add to their raw
+ * `--version` output, leaving JUST the version number:
+ *   - Claude prints `2.1.191 (Claude Code)` → drop the trailing
+ *     ` (Claude Code)` / ` (claude-code)` parenthetical.
+ *   - Codex prints `codex-cli 0.141.0` → drop the leading `codex-cli ` /
+ *     `claude-code ` product prefix.
+ * A plain version string (`0.141.0`) passes through untouched. The UI already
+ * labels which agent a row is, so repeating the product name in the version is
+ * pure noise. Returns null when the input is null (CLI absent/unreadable).
+ */
+export function normalizeVersion(raw: string | null): string | null {
+  if (raw == null) return null
+  let v = raw.trim()
+  // Drop a trailing product-name parenthetical, e.g. " (Claude Code)". The
+  // closing paren is optional so a truncated/malformed `--version` line
+  // ("2.1.191 (Claude Code") is still cleaned rather than passed through.
+  v = v.replace(/\s*\((?:claude code|claude-code)\)?\s*$/i, "")
+  // Drop a leading product-name prefix, e.g. "codex-cli " or "claude-code ".
+  v = v.replace(/^(?:codex-cli|claude-code)\s+/i, "")
+  return v.trim()
+}
+
 /** Run a command and capture stdout, returning null on any non-zero/throw. */
 function safeExec(bin: string, args: string[]): string | null {
   try {
@@ -331,7 +354,7 @@ export function detectClaudeAuth(probe: HealthProbe): AuthSignal {
 /** Detect Codex: presence, version, and a definite auth + method signal. */
 function detectCodex(probe: HealthProbe): AgentHealth {
   const present = probe.which("codex") !== null
-  const version = present ? probe.version("codex") : null
+  const version = present ? normalizeVersion(probe.version("codex")) : null
   const authFile = path.join(probe.home(), ".codex", "auth.json")
   const auth = parseCodexAuth(probe.readFile(authFile))
   return { present, version, ...auth }
@@ -340,7 +363,7 @@ function detectCodex(probe: HealthProbe): AgentHealth {
 /** Detect Claude Code: presence, version, and a layered auth + method signal. */
 function detectClaude(probe: HealthProbe): AgentHealth {
   const present = probe.which("claude") !== null
-  const version = present ? probe.version("claude") : null
+  const version = present ? normalizeVersion(probe.version("claude")) : null
   const auth = detectClaudeAuth(probe)
   return { present, version, ...auth }
 }

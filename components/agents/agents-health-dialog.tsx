@@ -9,6 +9,7 @@ import {
   Gauge,
   HelpCircle,
   Loader2,
+  RefreshCw,
   XCircle,
 } from "lucide-react"
 import { toast } from "sonner"
@@ -147,6 +148,7 @@ export function AgentsHealthDialog({
               loading={loading && !health}
               desktop={desktop}
               onInstalled={load}
+              onHealth={setHealth}
             />
           ))}
         </div>
@@ -162,14 +164,17 @@ function AgentCard({
   loading,
   desktop,
   onInstalled,
+  onHealth,
 }: {
   agentKey: AgentKey
   health: AgentHealth | null
   loading: boolean
-  /** True in the Tauri desktop shell → enable native one-click install. */
+  /** True in the Tauri desktop shell → enable native one-click install/update. */
   desktop: boolean
   /** Re-run health detection after a native install completes. */
   onInstalled: () => void | Promise<void>
+  /** Apply a fresh health snapshot (e.g. the one the update route re-detects). */
+  onHealth: (health: AgentsHealth) => void
 }) {
   const guidance = AGENT_GUIDANCE[agentKey]
   const present = health?.present ?? false
@@ -182,7 +187,7 @@ function AgentCard({
       <legend className="flex items-center gap-2 px-1 text-xs font-medium text-foreground">
         {guidance.label}
         {health?.version ? (
-          <span className="font-normal text-muted-foreground">{health.version}</span>
+          <span className="font-normal text-muted-foreground">· {health.version}</span>
         ) : null}
       </legend>
 
@@ -212,6 +217,15 @@ function AgentCard({
           </div>
           {auth === true && authMethod ? (
             <p className="px-0.5 text-xs text-muted-foreground">{costNote(authMethod)}</p>
+          ) : null}
+          {/* Self-update: only meaningful once the CLI is installed. */}
+          {present ? (
+            <UpdateAction
+              agentKey={agentKey}
+              desktop={desktop}
+              onHealth={onHealth}
+              onInstalled={onInstalled}
+            />
           ) : null}
         </>
       )}
@@ -433,6 +447,133 @@ function Guidance({
             </pre>
           ) : null}
         </>
+      ) : null}
+    </div>
+  )
+}
+
+/** The streamed/captured response shape from `POST /api/agents/update`. */
+interface UpdateResponse {
+  ok?: boolean
+  code?: number | null
+  stdout?: string
+  stderr?: string
+  error?: string
+  agents?: AgentsHealth
+}
+
+/**
+ * Per-agent "Update" action: runs the CLI's OWN built-in self-update so the user
+ * never leaves Vivicy. In the WEB build it POSTs to the allow-listed
+ * `/api/agents/update` route (the server execs only the fixed `claude update` /
+ * `codex update` command); in the DESKTOP build it runs the allow-listed shell
+ * entry natively. Either way it shows honest running/done/error state, captures
+ * (capped) output, disables the button while running, and re-detects health on
+ * success so the version line refreshes.
+ */
+function UpdateAction({
+  agentKey,
+  desktop,
+  onHealth,
+  onInstalled,
+}: {
+  agentKey: AgentKey
+  desktop: boolean
+  onHealth: (health: AgentsHealth) => void
+  onInstalled: () => void | Promise<void>
+}) {
+  const guidance = AGENT_GUIDANCE[agentKey]
+  const [running, setRunning] = useState(false)
+  const [output, setOutput] = useState<string[]>([])
+  const [result, setResult] = useState<"ok" | "fail" | null>(null)
+  const logRef = useRef<HTMLPreElement>(null)
+  useEffect(() => {
+    if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight
+  }, [output])
+
+  const appendLine = useCallback((line: string) => {
+    setOutput((prev) => {
+      const next = [...prev, line]
+      return next.length > MAX_LOG_LINES ? next.slice(-MAX_LOG_LINES) : next
+    })
+  }, [])
+
+  const run = useCallback(async () => {
+    setRunning(true)
+    setResult(null)
+    setOutput([`$ ${guidance.updateCommand}`])
+    try {
+      if (desktop) {
+        // Desktop: run the allow-listed shell entry natively, then re-detect.
+        const res = await runAllowedCommandNative(guidance.updateCommandName, (l) =>
+          appendLine(l.line)
+        )
+        setResult(res.ok ? "ok" : "fail")
+        if (res.ok) {
+          toast.success("Update complete", { description: guidance.updateCommand })
+          await onInstalled()
+        } else {
+          toast.error("Update failed", { description: `Exited with code ${res.code ?? "?"}` })
+        }
+        return
+      }
+      // Web: the server execs ONLY the fixed allow-listed command for this agent.
+      const res = await fetch("/api/agents/update", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ agent: agentKey }),
+      })
+      const body = (await res.json().catch(() => ({}))) as UpdateResponse
+      const stdout = body.stdout?.trimEnd()
+      const stderr = body.stderr?.trimEnd()
+      if (stdout) for (const line of stdout.split("\n")) appendLine(line)
+      if (stderr) for (const line of stderr.split("\n")) appendLine(line)
+      if (body.error) appendLine(body.error)
+      const ok = res.ok && body.ok === true
+      setResult(ok ? "ok" : "fail")
+      // Re-detection ran server-side after the update; apply the fresh snapshot
+      // so the version line refreshes without a second round-trip.
+      if (body.agents) onHealth(body.agents)
+      if (ok) {
+        toast.success("Update complete", { description: guidance.updateCommand })
+      } else {
+        toast.error("Update failed", {
+          description: body.error ?? `Exited with code ${body.code ?? "?"}`,
+        })
+      }
+    } catch (error) {
+      setResult("fail")
+      appendLine(error instanceof Error ? error.message : "unknown error")
+      toast.error("Update failed", {
+        description: error instanceof Error ? error.message : "unknown error",
+      })
+    } finally {
+      setRunning(false)
+    }
+  }, [agentKey, appendLine, desktop, guidance, onHealth, onInstalled])
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      <Button
+        variant="outline"
+        size="sm"
+        disabled={running}
+        aria-label={`Update ${guidance.label}`}
+        onClick={() => void run()}
+        className="justify-start"
+      >
+        {running ? <Loader2 className="animate-spin" /> : <RefreshCw />}
+        {running ? "Updating…" : "Update"}
+      </Button>
+      {output.length > 0 ? (
+        <pre
+          ref={logRef}
+          data-update-state={result ?? (running ? "running" : "idle")}
+          className="max-h-40 overflow-auto border border-border bg-muted px-2 py-1.5 font-mono text-xs whitespace-pre-wrap text-muted-foreground"
+        >
+          {output.join("\n")}
+          {result === "ok" ? "\n✓ done" : result === "fail" ? "\n✗ failed" : ""}
+        </pre>
       ) : null}
     </div>
   )

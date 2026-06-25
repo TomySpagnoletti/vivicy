@@ -7,6 +7,7 @@ import {
   getAgentsHealth,
   type HealthProbe,
   type KeychainResult,
+  normalizeVersion,
   parseClaudeCredentials,
   parseCodexAuth,
 } from "@/lib/agents-health"
@@ -53,6 +54,42 @@ const KEYCHAIN_MAX_JSON = JSON.stringify({
     subscriptionType: "max",
     rateLimitTier: "default_claude_max_20x",
   },
+})
+
+describe("normalizeVersion", () => {
+  it("strips Claude's trailing product-name parenthetical (real raw string)", () => {
+    // `claude --version` prints e.g. "2.1.191 (Claude Code)".
+    expect(normalizeVersion("2.1.191 (Claude Code)")).toBe("2.1.191")
+  })
+
+  it("strips Codex's leading product-name prefix (real raw string)", () => {
+    // `codex --version` prints e.g. "codex-cli 0.141.0".
+    expect(normalizeVersion("codex-cli 0.141.0")).toBe("0.141.0")
+  })
+
+  it("leaves a plain version untouched", () => {
+    expect(normalizeVersion("0.141.0")).toBe("0.141.0")
+    expect(normalizeVersion("2.1.191")).toBe("2.1.191")
+  })
+
+  it("is case- and spacing-tolerant for the product decoration", () => {
+    expect(normalizeVersion("2.1.191  (claude code)")).toBe("2.1.191")
+    expect(normalizeVersion("claude-code 2.1.191")).toBe("2.1.191")
+  })
+
+  it("cleans a truncated/malformed product parenthetical (no closing paren)", () => {
+    // A garbled `--version` line must not leak the dangling product name.
+    expect(normalizeVersion("2.1.191 (Claude Code")).toBe("2.1.191")
+  })
+
+  it("passes through null (CLI absent / version unreadable)", () => {
+    expect(normalizeVersion(null)).toBe(null)
+  })
+
+  it("never doubles up — only the redundant product name is removed", () => {
+    // A version that merely contains digits and dots must survive verbatim.
+    expect(normalizeVersion("v1.2.3-beta.4")).toBe("v1.2.3-beta.4")
+  })
 })
 
 describe("parseCodexAuth", () => {
@@ -231,16 +268,18 @@ describe("getAgentsHealth", () => {
       },
     })
     const health = getAgentsHealth(probe)
+    // The raw probe strings ("2.1.0 (Claude Code)", "codex-cli 0.141.0") are
+    // normalized to just the version number before reaching the UI.
     expect(health.claude).toEqual({
       present: true,
-      version: "2.1.0 (Claude Code)",
+      version: "2.1.0",
       authenticated: true,
       authMethod: "subscription",
       plan: "max",
     })
     expect(health.codex).toEqual({
       present: true,
-      version: "codex-cli 0.141.0",
+      version: "0.141.0",
       authenticated: true,
       authMethod: "subscription",
       plan: "ChatGPT",

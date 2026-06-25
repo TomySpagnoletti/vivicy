@@ -71,6 +71,21 @@ export interface AgentGuidance {
   authCommand: string
   /** A short one-line auth hint. */
   authHint: string
+  /**
+   * The CLI's OWN built-in self-update command (e.g. `claude update`), shown as
+   * copyable text and run by the per-agent "Update" action. The web build execs
+   * it through `POST /api/agents/update` (allow-listed, fixed command); the
+   * desktop build routes it through the shell allow-list under
+   * {@link updateCommandName}.
+   */
+  updateCommand: string
+  /**
+   * The Tauri shell allow-list KEY for running {@link updateCommand} natively in
+   * the desktop build (e.g. `"update-claude"`). Like {@link installCommandName},
+   * it names a fixed, argument-locked entry in the shell plugin's capability
+   * allow-list — never a raw shell string.
+   */
+  updateCommandName: string
 }
 
 /**
@@ -87,6 +102,8 @@ export const AGENT_GUIDANCE: Record<AgentKey, AgentGuidance> = {
     installHint: "Install the Claude Code CLI globally, then restart your shell.",
     authCommand: "claude",
     authHint: "Run `claude` once and complete the in-terminal sign-in.",
+    updateCommand: "claude update",
+    updateCommandName: "update-claude",
   },
   codex: {
     label: "Codex CLI",
@@ -95,5 +112,7 @@ export const AGENT_GUIDANCE: Record<AgentKey, AgentGuidance> = {
     installHint: "Install the Codex CLI globally (or `brew install codex`).",
     authCommand: "codex login",
     authHint: "Run `codex login` to authenticate with your ChatGPT account.",
+    updateCommand: "codex update",
+    updateCommandName: "update-codex",
   },
 }
