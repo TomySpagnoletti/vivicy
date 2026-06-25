@@ -70,7 +70,7 @@ function requireRepoRoot() {
 // is the user-tunable knob, the model defaults to always-latest.
 export const CLI_DEFAULTS = {
   claude: { model: "claude-opus-4-8", effort: "xhigh" },
-  codex: { model: "gpt-5.5-codex", effort: "high" },
+  codex: { model: "gpt-5.5", effort: "high" },
 };
 
 /** The set of CLIs the loop knows how to spawn. */

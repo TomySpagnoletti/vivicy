@@ -102,9 +102,9 @@ test("agentCliArgs builds claude --model/--effort and codex -m/-c flags", () => 
     "xhigh",
   ]);
   // Codex (reviewer): `-m <id> -c model_reasoning_effort="<level>"`.
-  assert.deepEqual(agentCliArgs("codex", { model: "gpt-5.5-codex", effort: "high" }), [
+  assert.deepEqual(agentCliArgs("codex", { model: "gpt-5.5", effort: "high" }), [
     "-m",
-    "gpt-5.5-codex",
+    "gpt-5.5",
     "-c",
     'model_reasoning_effort="high"',
   ]);
@@ -115,7 +115,7 @@ test("agentCliArgs omits only the missing flag pair, never a bare flag", () => {
   assert.deepEqual(agentCliArgs("claude", { effort: "max" }), ["--effort", "max"]);
   assert.deepEqual(agentCliArgs("claude", { model: "claude-opus-4-8" }), ["--model", "claude-opus-4-8"]);
   assert.deepEqual(agentCliArgs("codex", { effort: "minimal" }), ["-c", 'model_reasoning_effort="minimal"']);
-  assert.deepEqual(agentCliArgs("codex", { model: "gpt-5.5-codex" }), ["-m", "gpt-5.5-codex"]);
+  assert.deepEqual(agentCliArgs("codex", { model: "gpt-5.5" }), ["-m", "gpt-5.5"]);
   // Empty config (or unknown provider) yields no args, never a dangling flag.
   assert.deepEqual(agentCliArgs("claude", {}), []);
   assert.deepEqual(agentCliArgs("codex", {}), []);
@@ -128,7 +128,7 @@ test("DEFAULT_CONFIG pins the latest models with the documented default thinking
   assert.equal(DEFAULT_CONFIG.implementer.model, "claude-opus-4-8");
   assert.equal(DEFAULT_CONFIG.implementer.effort, "xhigh");
   assert.equal(DEFAULT_CONFIG.reviewer.provider, "codex");
-  assert.equal(DEFAULT_CONFIG.reviewer.model, "gpt-5.5-codex");
+  assert.equal(DEFAULT_CONFIG.reviewer.model, "gpt-5.5");
   assert.equal(DEFAULT_CONFIG.reviewer.effort, "high");
 });
 
@@ -160,7 +160,7 @@ test("defaultRunImplementer / defaultRunReviewer spawn with the model + effort f
       // Keep transcript writes inside the scratch dir, never the real repo store.
       transcriptsDir: `${shimRel}/transcripts`,
       implementer: { ...DEFAULT_CONFIG.implementer, model: "claude-opus-4-8", effort: "max" },
-      reviewer: { ...DEFAULT_CONFIG.reviewer, model: "gpt-5.5-codex", effort: "minimal" },
+      reviewer: { ...DEFAULT_CONFIG.reviewer, model: "gpt-5.5", effort: "minimal" },
     };
     defaultRunImplementer(issue, cfg);
     defaultRunReviewer(issue, cfg);
@@ -180,9 +180,9 @@ test("defaultRunImplementer / defaultRunReviewer spawn with the model + effort f
     const ce = claude.argv.indexOf("--effort");
     assert.ok(ce !== -1 && claude.argv[ce + 1] === "max");
 
-    // Codex argv carries `-m gpt-5.5-codex -c model_reasoning_effort="minimal"`.
+    // Codex argv carries `-m gpt-5.5 -c model_reasoning_effort="minimal"`.
     const xm = codex.argv.indexOf("-m");
-    assert.ok(xm !== -1 && codex.argv[xm + 1] === "gpt-5.5-codex");
+    assert.ok(xm !== -1 && codex.argv[xm + 1] === "gpt-5.5");
     const xc = codex.argv.indexOf("-c");
     assert.ok(xc !== -1 && codex.argv[xc + 1] === 'model_reasoning_effort="minimal"');
   } finally {
@@ -323,7 +323,7 @@ test("env vars flow into DEFAULT_CONFIG -> argv when the module loads in a fresh
     ...process.env,
     VIVICY_CLAUDE_MODEL: "claude-opus-4-8",
     VIVICY_CLAUDE_EFFORT: "max",
-    VIVICY_CODEX_MODEL: "gpt-5.5-codex",
+    VIVICY_CODEX_MODEL: "gpt-5.5",
     VIVICY_CODEX_EFFORT: "minimal",
   };
   const result = spawnSync(process.execPath, ["--input-type=module", "-e", probe], {
@@ -335,7 +335,7 @@ test("env vars flow into DEFAULT_CONFIG -> argv when the module loads in a fresh
   const out = JSON.parse(result.stdout);
   // The custom-effort env vars made it all the way to the spawned argv.
   assert.deepEqual(out.claude, ["--model", "claude-opus-4-8", "--effort", "max"]);
-  assert.deepEqual(out.codex, ["-m", "gpt-5.5-codex", "-c", 'model_reasoning_effort="minimal"']);
+  assert.deepEqual(out.codex, ["-m", "gpt-5.5", "-c", 'model_reasoning_effort="minimal"']);
 });
 
 // --- stub end-to-end: real gate runner + ledger, stubbed agent legs ---
@@ -835,7 +835,7 @@ test("runLegWithQuota records REAL windows from a Codex rollout on an available 
     );
     const { cfg } = fakeClockCfg({ quotaStatePath: quotaRel, quotaMaxWaitMs: 8 * 3600_000 });
     const runLeg = () => ({ output: "review done", result: { status: 0 }, transcriptRel: rolloutRel });
-    const leg = { actor: "codex", role: "reviewer", model: "gpt-5.5-codex" };
+    const leg = { actor: "codex", role: "reviewer", model: "gpt-5.5" };
     const out = runLegWithQuota(runLeg, leg, { id: "X" }, cfg);
     assert.equal(out.quotaBlocked, false);
     const state = JSON.parse(readFileSync(resolve(repoRoot, quotaRel), "utf8"));
@@ -938,7 +938,7 @@ test("runLegWithQuota does NOT run the status-line probe for a Codex leg or when
     });
     runLegWithQuota(
       () => ({ output: "ok", result: { status: 0 } }),
-      { actor: "codex", role: "reviewer", model: "gpt-5.5-codex" },
+      { actor: "codex", role: "reviewer", model: "gpt-5.5" },
       { id: "X" },
       codexCfg,
     );

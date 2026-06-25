@@ -40,7 +40,7 @@ describe("defaults", () => {
     })
     expect(DEFAULT_SETTINGS.reviewer).toEqual({
       provider: "codex",
-      model: "gpt-5.5-codex",
+      model: "gpt-5.5",
       effort: "high",
     })
   })
@@ -89,7 +89,7 @@ describe("effort validation", () => {
     })
     // The implementer now runs codex; an empty model falls back to codex's default.
     expect(normalized.implementer.provider).toBe("codex")
-    expect(normalized.implementer.model).toBe("gpt-5.5-codex")
+    expect(normalized.implementer.model).toBe("gpt-5.5")
     // "high" is valid for codex, so it is kept.
     expect(normalized.implementer.effort).toBe("high")
     // The reviewer was omitted but defaults to codex, which now collides with the
@@ -139,7 +139,7 @@ describe("role -> CLI assignment (R12)", () => {
 
   it("normalizeSettings never lets one CLI hold both roles", () => {
     const swapped = normalizeSettings({
-      implementer: { provider: "codex", model: "gpt-5.5-codex", effort: "minimal" },
+      implementer: { provider: "codex", model: "gpt-5.5", effort: "minimal" },
       reviewer: { provider: "claude", model: "claude-opus-4-8", effort: "max" },
     })
     expect(swapped.implementer.provider).toBe("codex")
@@ -170,7 +170,7 @@ describe("role -> CLI assignment (R12)", () => {
     })
     expect(agentDefaultsFor("codex")).toEqual({
       provider: "codex",
-      model: "gpt-5.5-codex",
+      model: "gpt-5.5",
       effort: "high",
     })
   })
@@ -180,7 +180,7 @@ describe("persistence round-trip", () => {
   it("writeSettings normalizes, persists, and readSettings reads it back", () => {
     const written = writeSettings({
       implementer: { provider: "claude", model: "claude-opus-4-8", effort: "max" },
-      reviewer: { provider: "codex", model: "gpt-5.5-codex", effort: "low" },
+      reviewer: { provider: "codex", model: "gpt-5.5", effort: "low" },
     })
     expect(written.implementer.effort).toBe("max")
     expect(written.reviewer.effort).toBe("low")
@@ -208,7 +208,7 @@ describe("settingsToEnv", () => {
   it("maps the default assignment to the dev-loop env vars", () => {
     const env = settingsToEnv({
       implementer: { provider: "claude", model: "claude-opus-4-8", effort: "xhigh" },
-      reviewer: { provider: "codex", model: "gpt-5.5-codex", effort: "high" },
+      reviewer: { provider: "codex", model: "gpt-5.5", effort: "high" },
       maxParallel: 1,
     })
     expect(env).toEqual({
@@ -216,7 +216,7 @@ describe("settingsToEnv", () => {
       VIVICY_REVIEWER_CLI: "codex",
       VIVICY_CLAUDE_MODEL: "claude-opus-4-8",
       VIVICY_CLAUDE_EFFORT: "xhigh",
-      VIVICY_CODEX_MODEL: "gpt-5.5-codex",
+      VIVICY_CODEX_MODEL: "gpt-5.5",
       VIVICY_CODEX_EFFORT: "high",
       VIVICY_MAX_PARALLEL: "1",
     })
@@ -225,7 +225,7 @@ describe("settingsToEnv", () => {
   it("carries the concurrency knob, clamped to [1, 8]", () => {
     const base = {
       implementer: { provider: "claude", model: "claude-opus-4-8", effort: "xhigh" },
-      reviewer: { provider: "codex", model: "gpt-5.5-codex", effort: "high" },
+      reviewer: { provider: "codex", model: "gpt-5.5", effort: "high" },
     } as const
     expect(settingsToEnv({ ...base, maxParallel: 3 }).VIVICY_MAX_PARALLEL).toBe("3")
     expect(settingsToEnv({ ...base, maxParallel: 0 }).VIVICY_MAX_PARALLEL).toBe("1")
@@ -236,7 +236,7 @@ describe("settingsToEnv", () => {
     // implementer=codex, reviewer=claude. The CLI-keyed env vars must hold each
     // CLI's own model/level regardless of which role it fills.
     const env = settingsToEnv({
-      implementer: { provider: "codex", model: "gpt-5.5-codex", effort: "minimal" },
+      implementer: { provider: "codex", model: "gpt-5.5", effort: "minimal" },
       reviewer: { provider: "claude", model: "claude-opus-4-8", effort: "max" },
       maxParallel: 2,
     })

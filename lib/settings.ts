@@ -15,7 +15,7 @@
  *
  * Defaults:
  *   implementer = Claude  · model claude-opus-4-8 · effort xhigh
- *   reviewer    = Codex   · model gpt-5.5-codex   · effort high
+ *   reviewer    = Codex   · model gpt-5.5         · effort high
  *
  * This module is the single source of truth for the settings schema, the allowed
  * thinking levels per provider, and the defaults; the dev-loop mirrors the same
@@ -53,7 +53,7 @@ export const EFFORT_LEVELS: Record<Provider, readonly string[]> = {
 /** The latest known model id per CLI (a default; the model stays editable). */
 export const DEFAULT_MODEL: Record<Provider, string> = {
   claude: "claude-opus-4-8",
-  codex: "gpt-5.5-codex",
+  codex: "gpt-5.5",
 } as const
 
 /** The default thinking level per CLI. */
@@ -95,7 +95,7 @@ export const MAX_PARALLEL = 8
  */
 export const DEFAULT_SETTINGS: AgentsSettings = {
   implementer: { provider: "claude", model: "claude-opus-4-8", effort: "xhigh" },
-  reviewer: { provider: "codex", model: "gpt-5.5-codex", effort: "high" },
+  reviewer: { provider: "codex", model: "gpt-5.5", effort: "high" },
   maxParallel: 1,
 } as const
 

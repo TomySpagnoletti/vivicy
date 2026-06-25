@@ -56,7 +56,7 @@ describe("QuotaFooter — real % where available, honest — where not", () => {
           agents: {
             // Codex exposes real % for BOTH windows (its rollout rate_limits).
             codex: {
-              model: "gpt-5.5-codex",
+              model: "gpt-5.5",
               status: "available",
               reset_at: null,
               last_message: null,
@@ -97,7 +97,7 @@ describe("QuotaFooter — real % where available, honest — where not", () => {
         quota: {
           agents: {
             codex: {
-              model: "gpt-5.5-codex",
+              model: "gpt-5.5",
               status: "available",
               reset_at: null,
               last_message: null,
@@ -170,7 +170,7 @@ describe("QuotaFooter — real % where available, honest — where not", () => {
         quota: {
           agents: {
             codex: {
-              model: "gpt-5.5-codex",
+              model: "gpt-5.5",
               status: "throttled",
               reset_at: future(2, 14),
               last_message: "usage limit reached; resets at 14:14",

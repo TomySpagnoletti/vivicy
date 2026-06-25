@@ -36,7 +36,7 @@ const WINDOWS: Array<{ key: "5h" | "weekly"; short: string; long: string }> = [
 export function friendlyModel(model: string): string {
   const map: Record<string, string> = {
     "claude-opus-4-8": "Opus 4.8",
-    "gpt-5.5-codex": "GPT 5.5",
+    "gpt-5.5": "GPT 5.5",
   }
   return map[model] ?? model
 }
