@@ -72,6 +72,22 @@ export function progressStatusColor(status: string): ColorToken {
   return STATUS_COLORS[status] ?? STATUS_COLORS.not_started
 }
 
+/**
+ * The color token a node contributes to the MiniMap: the same token the node
+ * card uses (kind colors in the target view, status colors in the progress
+ * view). The minimap fills with `bg` and strokes with the saturated `border` —
+ * the `border` is what keeps near-white fills (e.g. `not_started` -> `#f8fafc`)
+ * visible on the minimap's white backdrop, which is why the minimap previously
+ * looked EMPTY. A real, non-empty token is always returned.
+ */
+export function minimapNodeToken(
+  view: "target" | "progress",
+  kind: string,
+  status: string
+): ColorToken {
+  return view === "target" ? kindColor(kind) : progressStatusColor(status)
+}
+
 /** Cluster-backdrop tones (6 variants), keyed by index. Map-only literals. */
 export const CLUSTER_TONES: { fill: string; border: string }[] = [
   { fill: "rgb(239 246 255 / 42%)", border: "rgb(96 165 250 / 32%)" },

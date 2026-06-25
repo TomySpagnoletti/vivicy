@@ -297,49 +297,6 @@
   z-index: 20;
 }
 
-/* Legend rendered as a floating overlay on the map. */
-.map-legend {
-  background: rgb(255 255 255 / 92%);
-  backdrop-filter: blur(8px);
-  border: 1px solid rgb(203 213 225 / 82%);
-  border-radius: 8px;
-  box-shadow: 0 10px 30px rgb(15 23 42 / 12%);
-  display: grid;
-  gap: 8px;
-  max-width: 260px;
-  padding: 10px 12px;
-}
-
-.map-legend-title {
-  color: #334155;
-  font-size: 10px;
-  font-weight: 800;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-}
-
-.map-legend-items {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.map-legend-item {
-  align-items: center;
-  color: #475569;
-  display: inline-flex;
-  font-size: 11px;
-  gap: 5px;
-}
-
-.map-legend-swatch {
-  border: 1px solid;
-  border-radius: 4px;
-  display: inline-block;
-  height: 13px;
-  width: 13px;
-}
-
 /* In edit mode the protocol label is draggable along its edge. */
 .map-edge-label.editable {
   cursor: grab;

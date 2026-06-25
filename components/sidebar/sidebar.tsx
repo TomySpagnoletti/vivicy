@@ -24,6 +24,7 @@ import { QuotaFooter } from "@/components/sidebar/quota-footer"
 import { SectionDetails } from "@/components/sidebar/section-details"
 import { SectionFilters } from "@/components/sidebar/section-filters"
 import { SectionInformation } from "@/components/sidebar/section-information"
+import { SectionLegend } from "@/components/sidebar/section-legend"
 import { SectionTasks } from "@/components/sidebar/section-tasks"
 import { SettingsDialog } from "@/components/sidebar/settings-dialog"
 
@@ -151,6 +152,14 @@ export function VivicySidebar({
       </SidebarContent>
 
       <SidebarFooter className="p-0">
+        {/* Color legend, relocated out of the floating map overlay into the
+            fixed bottom region just ABOVE the quota footer. Collapsed by
+            default; tracks the current view (kind vs progress colors). */}
+        <SectionLegend
+          view={view}
+          nodes={data.nodes}
+          statusLegend={data.statusLegend}
+        />
         <QuotaFooter settings={settings} />
       </SidebarFooter>
     </Sidebar>

@@ -41,7 +41,7 @@ import {
   CLUSTER_TONES,
   kindColor,
   progressStatusColor,
-  STATUS_COLORS,
+  UNKNOWN_KIND_COLOR,
   type ColorToken,
 } from "@/lib/map-palette"
 import type {
@@ -583,14 +583,20 @@ function ArchitectureMapInner({
         <ClusterBackdrops nodes={nodes} editMode={editMode} onClusterMove={moveCluster} />
         <MiniMap
           position="bottom-right"
+          // Smaller footprint: the default ~200x150 took too much of the map.
+          style={{ width: 140, height: 100 }}
           pannable
           zoomable
           nodeBorderRadius={8}
           nodeStrokeWidth={3}
-          nodeColor={(n) => {
-            const d = n.data as MapNodeData | undefined
-            return d?.color.bg ?? "#e2e8f0"
-          }}
+          // Fill with the node's map color (kind in target, status in progress)
+          // so the minimap matches the map. The bg tone for some statuses (e.g.
+          // not_started -> #f8fafc) is nearly white and would vanish on the
+          // minimap's white backdrop, which is why it looked EMPTY — so we also
+          // paint the saturated BORDER as the node stroke, keeping every node
+          // visible regardless of how pale its fill is.
+          nodeColor={(n) => nodeMinimapColor(n).bg}
+          nodeStrokeColor={(n) => nodeMinimapColor(n).border}
         />
         <Controls position="bottom-left" showInteractive={false} />
       </ReactFlow>
@@ -636,11 +642,19 @@ function ArchitectureMapInner({
         </div>
       </div>
 
-      <div className="absolute top-3 right-3 z-10">
-        <Legend view={view} nodes={data.nodes} statusLegend={data.statusLegend} />
-      </div>
     </div>
   )
+}
+
+/**
+ * The fill + stroke a node contributes to the MiniMap. Returns the same
+ * map-palette tones the node card uses (`bg` fill + saturated `border` stroke),
+ * with a safe slate fallback when the node data is missing — never an empty
+ * minimap rect. A real color is always returned for both fields.
+ */
+function nodeMinimapColor(node: { data?: unknown }): ColorToken {
+  const data = node.data as MapNodeData | undefined
+  return data?.color ?? UNKNOWN_KIND_COLOR
 }
 
 /** Render edge label + the selected-edge overlay path. */
@@ -919,44 +933,6 @@ function ClusterBackdrops({
         )
       })}
     </ViewportPortal>
-  )
-}
-
-function Legend({
-  view,
-  nodes,
-  statusLegend,
-}: {
-  view: ViewMode
-  nodes: MapNode[]
-  statusLegend: Record<string, string> | undefined
-}) {
-  const entries =
-    view === "target"
-      ? [...new Set(nodes.map((n) => n.kind))]
-          .sort()
-          .map((kind) => ({ label: kind, color: kindColor(kind) }))
-      : Object.keys(statusLegend ?? STATUS_COLORS).map((status) => ({
-          label: status,
-          color: progressStatusColor(status),
-        }))
-  return (
-    <div className="map-legend">
-      <span className="map-legend-title">
-        {view === "target" ? "Kind colors" : "Progress colors"}
-      </span>
-      <div className="map-legend-items">
-        {entries.map((entry) => (
-          <span key={entry.label} className="map-legend-item">
-            <span
-              className="map-legend-swatch"
-              style={{ background: entry.color.bg, borderColor: entry.color.border }}
-            />
-            {entry.label}
-          </span>
-        ))}
-      </div>
-    </div>
   )
 }
 
