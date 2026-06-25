@@ -25,7 +25,8 @@
     "factory:rehearsal": "node factory/dev-rehearsal.mjs",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
-    "tauri:build": "tauri build"
+    "tauri:build": "tauri build",
+    "tauri:build:windows": "VIVICY_TARGET_TRIPLE=x86_64-pc-windows-msvc tauri build --runner cargo-xwin --target x86_64-pc-windows-msvc"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.29.0",

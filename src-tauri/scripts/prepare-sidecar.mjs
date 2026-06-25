@@ -165,19 +165,20 @@ function stageNode(triple) {
     run("curl", ["-fSL", "--retry", "3", "-o", archivePath, url], { cwd: cacheDir })
   }
 
-  // Extract just the binary. Tar can target a single member; for the Windows zip
-  // we extract the whole thing (small) and pick node.exe out.
-  const extractDir = path.join(cacheDir, stem)
-  rmSync(extractDir, { recursive: true, force: true })
-  mkdirSync(extractDir, { recursive: true })
+  // Extract just the one binary member (`<stem>/<inner>`) out of the archive.
+  // Both `unzip` and `tar` can target a single path, so we never unpack the whole
+  // ~30-80MB tree. The Windows distribution carries node.exe at the archive root
+  // (`<stem>/node.exe`); the *nix tarballs carry it at `<stem>/bin/node`.
+  const member = `${stem}/${dist.inner}`
+  rmSync(path.join(cacheDir, stem), { recursive: true, force: true })
   if (dist.kind === "zip") {
-    run("unzip", ["-q", "-o", archivePath, "-d", cacheDir])
-    cpSync(path.join(cacheDir, stem, dist.inner), dest)
+    run("unzip", ["-q", "-o", archivePath, member, "-d", cacheDir])
   } else {
-    // tar auto-detects gz/xz; extract into cacheDir, then copy the binary out.
-    run("tar", ["-xf", archivePath, "-C", cacheDir])
-    cpSync(path.join(cacheDir, stem, dist.inner), dest)
+    // tar auto-detects gz/xz and extracts the single member into cacheDir.
+    run("tar", ["-xf", archivePath, "-C", cacheDir, member])
   }
+  cpSync(path.join(cacheDir, member), dest)
+  // Make the *nix sidecar executable; on Windows the .exe needs no exec bit.
   if (!triple.includes("windows")) chmodSync(dest, 0o755)
 }
 

@@ -10,7 +10,7 @@ The factory operates on a **target project**. The app resolves it in order: the 
 
 Gates: `npm run typecheck`, `npm run lint`, `npm run test`, `npm run build`, `npm run e2e` for the app; `npm run factory:typecheck` and `npm run factory:test` for the factory; `node factory/dev-rehearsal.mjs --dry` for the end-to-end method rehearsal.
 
-Desktop (Tauri): `npm run tauri:dev` / `npm run tauri:build`. Needs the Rust toolchain + Tauri system prerequisites; the build stages the Next standalone server and an official Node sidecar via `src-tauri/scripts/prepare-sidecar.mjs`. Cross-OS bundles build in CI (`.github/workflows/desktop.yml`). See the README's Desktop section.
+Desktop (Tauri): `npm run tauri:dev` / `npm run tauri:build` (host OS), and `npm run tauri:build:windows` to cross-compile the Windows installer from macOS via `cargo-xwin`. Needs the Rust toolchain (rustup — Homebrew `rust` cannot add cross targets) + Tauri system prerequisites; the build stages the Next standalone server and an official Node sidecar via `src-tauri/scripts/prepare-sidecar.mjs`, which selects the sidecar Node for the **target** triple (`VIVICY_TARGET_TRIPLE`), so a Windows build ships `node.exe`. Cross-OS bundles also build natively in CI (`.github/workflows/desktop.yml`), which is the reliable release path. See the README's Run / Build section.
 
 This repo pins Next.js 16, which has breaking changes from older releases — confirm App Router APIs and conventions against the bundled docs in `node_modules/next/dist/docs/` rather than from memory.
 
