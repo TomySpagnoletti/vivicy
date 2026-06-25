@@ -238,7 +238,7 @@ function AgentCard({
         <p className="text-xs text-muted-foreground">
           No clean signal to confirm sign-in (e.g. credentials stored in the macOS
           Keychain). If the dev-loop reports auth errors, run{" "}
-          <code className="text-foreground">{guidance.authCommand}</code>.
+          <code className="break-all text-foreground">{guidance.authCommand}</code>.
         </p>
       ) : null}
     </fieldset>

@@ -94,7 +94,7 @@ export function VivicySidebar({
       </SidebarHeader>
 
       <Separator />
-      <ProcessControlBar onMapRefresh={onMapRefresh} />
+      <ProcessControlBar development={data.development} onMapRefresh={onMapRefresh} />
       <Separator />
 
       <SidebarContent>

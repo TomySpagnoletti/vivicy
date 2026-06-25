@@ -72,8 +72,15 @@ export function SetupBar({
             <ChevronsUpDown className="text-muted-foreground" />
           </Button>
         </TooltipTrigger>
-        <TooltipContent>
-          {project ? project.root : "Choose the project to develop"}
+        <TooltipContent className="max-w-xs">
+          {project ? (
+            // The full target path: break anywhere so a long absolute path wraps
+            // cleanly inside the capped width instead of running off-screen, while
+            // staying fully readable (never clipped).
+            <span className="block break-all">{project.root}</span>
+          ) : (
+            "Choose the project to develop"
+          )}
         </TooltipContent>
       </Tooltip>
 

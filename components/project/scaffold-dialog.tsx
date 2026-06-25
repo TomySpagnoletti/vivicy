@@ -250,7 +250,7 @@ export function ScaffoldDialog({
           </div>
 
           {targetDir.length > 0 ? (
-            <p className="text-xs text-muted-foreground">
+            <p className="text-xs break-all text-muted-foreground">
               Scaffolds into <span className="text-foreground">{targetDir}</span>
             </p>
           ) : null}

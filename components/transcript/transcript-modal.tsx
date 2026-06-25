@@ -145,8 +145,8 @@ function TranscriptBody({ target }: { target: TranscriptTarget }) {
         <DialogTitle className="font-mono break-all">{target.title}</DialogTitle>
         <DialogDescription>{meta}</DialogDescription>
       </DialogHeader>
-      <ScrollArea className="min-h-0 flex-1 bg-muted/40">
-        <div className="flex flex-col gap-2.5 px-5 py-4">
+      <ScrollArea className="min-h-0 min-w-0 flex-1 bg-muted/40">
+        <div className="flex min-w-0 flex-col gap-2.5 px-5 py-4">
           {state.status === "error" ? (
             <p className="text-xs text-destructive">
               Could not load transcript: {state.error}
@@ -216,7 +216,7 @@ function RichText({ text }: { text: string }) {
 function EntryView({ entry }: { entry: TranscriptEntry }) {
   if (entry.kind === "thinking") {
     return (
-      <details className="rounded-md border border-border bg-card">
+      <details className="min-w-0 rounded-md border border-border bg-card">
         <summary className="flex cursor-pointer items-center gap-2.5 px-3 py-2.5 select-none">
           <Badge variant="secondary" className="uppercase">
             Thinking
@@ -233,14 +233,14 @@ function EntryView({ entry }: { entry: TranscriptEntry }) {
   }
   if (entry.kind === "tool") {
     return (
-      <details className="rounded-md border border-border bg-card">
+      <details className="min-w-0 rounded-md border border-border bg-card">
         <summary className="flex cursor-pointer items-center gap-2.5 px-3 py-2.5 select-none">
           <Badge variant="secondary" className="uppercase">
             Tool
           </Badge>
-          <span className="font-mono text-xs text-foreground">{entry.name}</span>
+          <span className="font-mono text-xs break-all text-foreground">{entry.name}</span>
         </summary>
-        <div className="px-3 pb-3">
+        <div className="min-w-0 px-3 pb-3">
           <p className="mt-2 mb-1 text-xs font-medium tracking-wide text-muted-foreground uppercase">
             Input
           </p>
@@ -264,7 +264,7 @@ function EntryView({ entry }: { entry: TranscriptEntry }) {
   }
   if (entry.kind === "user") {
     return (
-      <div className="rounded-md border-l-2 border-muted-foreground bg-muted px-3.5 py-3">
+      <div className="min-w-0 rounded-md border-l-2 border-muted-foreground bg-muted px-3.5 py-3">
         <p className="mb-1.5 text-xs font-semibold tracking-wide text-muted-foreground uppercase">
           User
         </p>
@@ -276,8 +276,8 @@ function EntryView({ entry }: { entry: TranscriptEntry }) {
     <div
       className={
         entry.final
-          ? "rounded-md border border-primary bg-primary/5 px-3.5 py-3"
-          : "rounded-md border border-border bg-card px-3.5 py-3"
+          ? "min-w-0 rounded-md border border-primary bg-primary/5 px-3.5 py-3"
+          : "min-w-0 rounded-md border border-border bg-card px-3.5 py-3"
       }
     >
       <p

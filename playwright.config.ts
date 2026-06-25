@@ -33,6 +33,15 @@ export const ONBOARD_TARGET_ROOT = "/tmp/vivicy-onboard-target"
 // each run so the scaffolded child dir is always new/empty).
 export const ONBOARD_SCAFFOLD_PARENT = "/tmp/vivicy-onboard-scaffold"
 
+// A deeply-nested, very-long absolute path used by the overflow spec to drive
+// long-content cases: a copy of the demo target placed under a long directory
+// chain so the header project tooltip, the picker breadcrumb, the "Select this
+// folder" row, and the Details panel all carry long strings. Materialized (as a
+// copy of the demo target) in global-setup.
+export const LONG_PATH_SEGMENT =
+  "a-very-long-directory-name-used-to-exercise-horizontal-overflow-handling-in-the-vivicy-ui"
+export const LONG_TARGET_ROOT = `/tmp/vivicy-long/${LONG_PATH_SEGMENT}/${LONG_PATH_SEGMENT}/${LONG_PATH_SEGMENT}`
+
 // Each dev server gets its OWN runtime dir so a persisted current-project (R10)
 // from the picker spec on the demo server never bleeds into the onboarding server
 // (they otherwise share the repo's .vivicy-runtime via cwd). Cleared in

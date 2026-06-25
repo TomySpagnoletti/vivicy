@@ -58,7 +58,13 @@ function DialogContent({
       <DialogPrimitive.Content
         data-slot="dialog-content"
         className={cn(
-          "fixed top-1/2 left-1/2 z-50 grid w-full max-w-sm -translate-x-1/2 -translate-y-1/2 gap-4 rounded-none bg-popover p-4 text-popover-foreground ring-1 ring-foreground/10 duration-100 outline-none data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
+          // Always fit the viewport: the box never exceeds the screen width
+          // (`w-full` inside the `max-w-*` cap) and its height is capped to the
+          // small-viewport height with the content scrolling internally rather
+          // than overflowing the page. `max-w-sm` is the default size; callers
+          // widen via `sm:max-w-*`, and tailwind-merge lets a later overflow/max-h
+          // class (e.g. the transcript modal's) win.
+          "fixed top-1/2 left-1/2 z-50 grid max-h-svh w-full max-w-sm -translate-x-1/2 -translate-y-1/2 gap-4 overflow-y-auto rounded-none bg-popover p-4 text-popover-foreground ring-1 ring-foreground/10 duration-100 outline-none data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
           className
         )}
         {...props}

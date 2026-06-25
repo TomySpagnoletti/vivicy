@@ -13,7 +13,7 @@ import { expect, test } from "@playwright/test"
 test.describe.configure({ mode: "serial" })
 
 test.describe("Vivicy control plane", () => {
-  test("Run shows running, Stop returns idle, Extract reports + keeps the map", async ({
+  test("Run shows running, Stop returns idle, Extract is gated when issues exist", async ({
     page,
   }) => {
     await page.goto("/")
@@ -52,10 +52,17 @@ test.describe("Vivicy control plane", () => {
     await expect(statusBadge).not.toHaveText(/running/i, { timeout: 15_000 })
     await expect(page.getByRole("button", { name: /^(Run|Resume)$/ })).toBeVisible()
 
-    // Extract: the three deterministic steps run (faked) and toast success; the
-    // map + Tasks section remain present.
-    await page.getByRole("button", { name: "Extract" }).click()
-    await expect(page.getByText(/Extraction complete/i)).toBeVisible({ timeout: 15_000 })
+    // Extract: the demo target has already been extracted (its development block
+    // carries 8 issues), so the control-bar Extract is greyed (aria-disabled) and
+    // its tooltip explains why. Re-extraction isn't available yet.
+    const extract = page.getByRole("button", { name: "Extract" })
+    await expect(extract).toBeVisible()
+    await expect(extract).toHaveAttribute("aria-disabled", "true")
+    // Hover the greyed trigger so the shadcn tooltip surfaces the honest reason.
+    await extract.hover()
+    await expect(
+      page.getByText(/Already extracted — \d+ issues?\. Re-extraction isn't available yet\./)
+    ).toBeVisible({ timeout: 10_000 })
 
     // The Tasks accordion section is present and lists the demo issues. The
     // rich issue card shows the issue id and its file path, so match the id

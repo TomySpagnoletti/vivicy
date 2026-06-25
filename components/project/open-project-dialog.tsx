@@ -6,8 +6,10 @@ import {
   CornerLeftUp,
   Folder,
   FolderOpen,
+  FolderPlus,
   HardDrive,
   Loader2,
+  X,
 } from "lucide-react"
 import { toast } from "sonner"
 
@@ -54,6 +56,11 @@ export function OpenProjectDialog({
   const [loading, setLoading] = useState(false)
   const [selecting, setSelecting] = useState(false)
   const [manualPath, setManualPath] = useState("")
+  // The inline "New folder" affordance: hidden until opened, then an input +
+  // confirm that creates a folder inside the current directory and navigates in.
+  const [newFolderOpen, setNewFolderOpen] = useState(false)
+  const [newFolderName, setNewFolderName] = useState("")
+  const [creatingFolder, setCreatingFolder] = useState(false)
   // True only in the Tauri desktop shell (hydration-safe: false on SSR + first
   // client render). False in the browser build → the web server-side folder
   // browser below is the (unchanged) fallback.
@@ -93,9 +100,47 @@ export function OpenProjectDialog({
     if (!open) return
     void (async () => {
       setManualPath("")
+      setNewFolderOpen(false)
+      setNewFolderName("")
       await browse(null)
     })()
   }, [open, browse])
+
+  // Create a new folder inside the currently-browsed directory, then navigate
+  // into it so the user can immediately select it. Errors (already-exists,
+  // invalid name) are surfaced honestly via a toast; the dialog stays put.
+  const createFolder = useCallback(async () => {
+    const name = newFolderName.trim()
+    if (!listing || name.length === 0) return
+    setCreatingFolder(true)
+    try {
+      const res = await fetch("/api/fs/mkdir", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ parent: listing.path, name }),
+      })
+      const body = (await res.json().catch(() => ({}))) as {
+        ok?: boolean
+        error?: string
+        path?: string
+      }
+      if (!res.ok || body.ok === false || !body.path) {
+        toast.error("Cannot create folder", { description: body.error ?? `HTTP ${res.status}` })
+        return
+      }
+      toast.success("Folder created", { description: body.path })
+      setNewFolderName("")
+      setNewFolderOpen(false)
+      // Navigate into the freshly-created folder so it is the open directory.
+      await browse(body.path)
+    } catch (error) {
+      toast.error("Cannot create folder", {
+        description: error instanceof Error ? error.message : "network error",
+      })
+    } finally {
+      setCreatingFolder(false)
+    }
+  }, [browse, listing, newFolderName])
 
   // Persist a chosen folder, then hand the described project back to the parent.
   const select = useCallback(
@@ -151,7 +196,7 @@ export function OpenProjectDialog({
     }
   }, [select])
 
-  const busy = loading || selecting || pickingNative
+  const busy = loading || selecting || pickingNative || creatingFolder
   const crumbs = listing ? toCrumbs(listing.path) : []
 
   return (
@@ -180,25 +225,97 @@ export function OpenProjectDialog({
           </Button>
         ) : null}
 
-        {/* Breadcrumb of the current directory; each segment navigates to it. */}
-        <nav aria-label="Current path" className="min-w-0">
-          <ol className="flex flex-wrap items-center gap-0.5 text-xs text-muted-foreground">
-            {crumbs.map((crumb, i) => (
-              <li key={crumb.path} className="flex items-center gap-0.5">
-                {i > 0 ? <ChevronRight aria-hidden className="size-3" /> : null}
-                <Button
-                  variant="ghost"
-                  size="xs"
-                  disabled={busy}
-                  onClick={() => void browse(crumb.path)}
-                  className="font-normal text-muted-foreground hover:text-foreground"
-                >
-                  {crumb.label}
-                </Button>
-              </li>
-            ))}
-          </ol>
-        </nav>
+        {/* Breadcrumb of the current directory + the New-folder affordance. The
+            breadcrumb wraps within its min-w-0 column so a deep path never pushes
+            the New-folder button off the right edge. */}
+        <div className="flex items-start justify-between gap-2">
+          <nav aria-label="Current path" className="min-w-0 flex-1">
+            <ol className="flex flex-wrap items-center gap-0.5 text-xs text-muted-foreground">
+              {crumbs.map((crumb, i) => (
+                <li key={crumb.path} className="flex items-center gap-0.5">
+                  {i > 0 ? <ChevronRight aria-hidden className="size-3" /> : null}
+                  <Button
+                    variant="ghost"
+                    size="xs"
+                    disabled={busy}
+                    onClick={() => void browse(crumb.path)}
+                    className="font-normal text-muted-foreground hover:text-foreground"
+                  >
+                    {crumb.label}
+                  </Button>
+                </li>
+              ))}
+            </ol>
+          </nav>
+          {!newFolderOpen ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="xs"
+              disabled={busy || !listing}
+              onClick={() => setNewFolderOpen(true)}
+              className="shrink-0"
+            >
+              <FolderPlus />
+              New folder
+            </Button>
+          ) : null}
+        </div>
+
+        {/* Inline create-folder form: a name input + confirm, shown in place so
+            the user names the folder inside the current directory. */}
+        {newFolderOpen ? (
+          <form
+            className="flex items-center gap-2"
+            onSubmit={(event) => {
+              event.preventDefault()
+              void createFolder()
+            }}
+          >
+            <Label htmlFor="new-folder-name" className="sr-only">
+              New folder name
+            </Label>
+            <Input
+              id="new-folder-name"
+              value={newFolderName}
+              spellCheck={false}
+              autoComplete="off"
+              autoFocus
+              placeholder="new-folder-name"
+              disabled={creatingFolder}
+              onChange={(event) => setNewFolderName(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Escape") {
+                  setNewFolderOpen(false)
+                  setNewFolderName("")
+                }
+              }}
+            />
+            <Button
+              type="submit"
+              variant="secondary"
+              size="sm"
+              disabled={creatingFolder || newFolderName.trim().length === 0}
+              className="shrink-0"
+            >
+              {creatingFolder ? "Creating…" : "Create"}
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              aria-label="Cancel new folder"
+              disabled={creatingFolder}
+              onClick={() => {
+                setNewFolderOpen(false)
+                setNewFolderName("")
+              }}
+              className="shrink-0"
+            >
+              <X />
+            </Button>
+          </form>
+        ) : null}
 
         {/* The folder list: parent-up entry, then immediate subdirectories. */}
         <ScrollArea className="h-64 border border-border">
@@ -241,18 +358,26 @@ export function OpenProjectDialog({
           </div>
         </ScrollArea>
 
-        {/* Select the folder currently open in the browser. */}
+        {/* Select the folder currently open in the browser. Full-width with a
+            truncating path so a long absolute path never pushes the button (or
+            its siblings) past the dialog edge — the icon + action label stay
+            fixed and only the path clips, with the full value in the title. */}
         <Button
           variant="outline"
           size="sm"
           disabled={busy || !listing}
           onClick={() => listing && void select(listing.path)}
-          className="justify-start"
+          title={listing ? listing.path : undefined}
+          className="w-full min-w-0 justify-start"
         >
           <FolderOpen />
-          {selecting ? "Selecting…" : "Select this folder"}
+          <span className="shrink-0">
+            {selecting ? "Selecting…" : "Select this folder"}
+          </span>
           {listing ? (
-            <span className="truncate text-muted-foreground">· {listing.path}</span>
+            <span className="min-w-0 flex-1 truncate text-left text-muted-foreground">
+              · {listing.path}
+            </span>
           ) : null}
         </Button>
 

@@ -5,7 +5,15 @@ import path from "node:path"
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 
-import { FsBrowseError, listDirectories, resolveBrowsePath } from "@/lib/fs-browser"
+import { existsSync, statSync } from "node:fs"
+
+import {
+  createDirectory,
+  FsBrowseError,
+  listDirectories,
+  resolveBrowsePath,
+  validateFolderName,
+} from "@/lib/fs-browser"
 
 let root: string
 
@@ -102,5 +110,98 @@ describe("listDirectories", () => {
     const listing = listDirectories("/")
     expect(listing.parent).toBe(null)
     expect(listing.path).toBe("/")
+  })
+})
+
+describe("validateFolderName (name-safety)", () => {
+  it("accepts a clean single-segment name", () => {
+    expect(validateFolderName("my-project_1.0 v2")).toBe("my-project_1.0 v2")
+  })
+
+  it("trims surrounding whitespace", () => {
+    expect(validateFolderName("  spaced  ")).toBe("spaced")
+  })
+
+  it.each([
+    ["", "empty"],
+    ["   ", "whitespace-only"],
+    [".", "bare dot"],
+    ["..", "traversal"],
+    ["../escape", "traversal segment"],
+    ["a/b", "path separator"],
+    ["/abs", "absolute"],
+    [".hidden", "leading dot"],
+    ["bad*name", "shell glob"],
+    ["semi;colon", "shell metachar"],
+    ["new\nline", "newline"],
+  ])("rejects %s (%s) with invalid_name", (input) => {
+    try {
+      validateFolderName(input)
+      expect.unreachable("should have thrown")
+    } catch (error) {
+      expect(error).toBeInstanceOf(FsBrowseError)
+      expect((error as FsBrowseError).code).toBe("invalid_name")
+    }
+  })
+})
+
+describe("createDirectory (POST /api/fs/mkdir logic)", () => {
+  it("creates a direct child of the validated parent and returns its path", () => {
+    const created = createDirectory(root, "gamma")
+    expect(created).toBe(path.join(root, "gamma"))
+    expect(existsSync(created)).toBe(true)
+    expect(statSync(created).isDirectory()).toBe(true)
+    // It shows up in the very next listing.
+    expect(listDirectories(root).entries.map((e) => e.name)).toContain("gamma")
+  })
+
+  it("rejects a name that already exists with the exists code", () => {
+    try {
+      // `alpha` was created in beforeEach.
+      createDirectory(root, "alpha")
+      expect.unreachable("should have thrown")
+    } catch (error) {
+      expect((error as FsBrowseError).code).toBe("exists")
+    }
+  })
+
+  it("rejects an invalid name with invalid_name (never touches disk)", () => {
+    try {
+      createDirectory(root, "../escape")
+      expect.unreachable("should have thrown")
+    } catch (error) {
+      expect((error as FsBrowseError).code).toBe("invalid_name")
+    }
+    // No escape directory was created next to the parent.
+    expect(existsSync(path.join(path.dirname(root), "escape"))).toBe(false)
+  })
+
+  it("rejects a non-existent parent with not_found (parent path-safety)", () => {
+    try {
+      createDirectory(path.join(root, "nope"), "child")
+      expect.unreachable("should have thrown")
+    } catch (error) {
+      expect((error as FsBrowseError).code).toBe("not_found")
+    }
+  })
+
+  it("rejects a relative parent with not_absolute", () => {
+    try {
+      createDirectory("relative/parent", "child")
+      expect.unreachable("should have thrown")
+    } catch (error) {
+      expect((error as FsBrowseError).code).toBe("not_absolute")
+    }
+  })
+
+  it("canonicalizes a symlinked parent before creating (writes to the real dir)", () => {
+    // A symlink pointing at a real directory must resolve to its canonical target
+    // before the mkdir, so the new folder lands in the REAL directory — a symlink
+    // can never smuggle the write somewhere the canonical path wouldn't reach.
+    const link = path.join(root, "link-to-alpha")
+    symlinkSync(path.join(root, "alpha"), link)
+    const created = createDirectory(link, "via-symlink")
+    expect(created).toBe(path.join(root, "alpha", "via-symlink"))
+    expect(existsSync(path.join(root, "alpha", "via-symlink"))).toBe(true)
   })
 })

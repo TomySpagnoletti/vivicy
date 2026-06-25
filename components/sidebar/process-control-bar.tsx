@@ -11,6 +11,7 @@ import {
   type RunPhase,
   type StatusResponse,
 } from "@/lib/run-status"
+import type { DevelopmentBlock } from "@/lib/types"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -33,6 +34,17 @@ import {
 
 type Action = "start" | "stop" | "resume" | "extract"
 
+/**
+ * The honest reason Extract is greyed out once extraction has produced issues
+ * for the current target. Pure + exported so the tooltip copy is asserted in a
+ * unit test without depending on portal rendering, and so the count's
+ * singular/plural wording stays in one place.
+ */
+export function extractedGateMessage(issueCount: number): string {
+  const noun = issueCount === 1 ? "issue" : "issues"
+  return `Already extracted — ${issueCount} ${noun}. Re-extraction isn't available yet.`
+}
+
 /** Phase -> badge dot color token. All from theme tokens; no inline color. */
 const PHASE_DOT: Record<RunPhase, string> = {
   idle: "bg-muted-foreground",
@@ -49,8 +61,16 @@ const PHASE_DOT: Record<RunPhase, string> = {
  * gate failures moving) re-fetch the map via `onMapRefresh`.
  */
 export function ProcessControlBar({
+  development,
   onMapRefresh,
 }: {
+  /**
+   * The current map's development block. Extraction is gated on its issue set:
+   * once extraction has produced issues for this target, Extract is disabled
+   * (re-extraction isn't supported yet). Derived from the existing `/api/map`
+   * payload — not a parallel data source.
+   */
+  development?: DevelopmentBlock
   onMapRefresh?: () => void
 }) {
   const [status, setStatus] = useState<StatusResponse | null>(null)
@@ -98,6 +118,13 @@ export function ProcessControlBar({
   const total = status?.issues_total ?? 0
   const done = status?.issues_done ?? 0
   const percent = total > 0 ? Math.round((done / total) * 100) : 0
+
+  // Extraction is one-shot for now: once it has produced issues for this target,
+  // re-extraction isn't available, so Extract is greyed out and explains why. The
+  // signal is the map's own development.issues (the same payload the Tasks panel
+  // renders) — no parallel data source.
+  const issueCount = development?.issues?.length ?? 0
+  const alreadyExtracted = issueCount > 0
 
   const act = useCallback(
     async (action: Action, endpoint: string, label: string) => {
@@ -172,16 +199,39 @@ export function ProcessControlBar({
             />
           )}
 
-          <Button
-            variant="ghost"
-            size="sm"
-            disabled={pending !== null}
-            aria-label="Extract"
-            onClick={() => act("extract", "/api/control/extract", "Extract")}
-          >
-            <Download />
-            Extract
-          </Button>
+          {alreadyExtracted ? (
+            // Already extracted: keep the button focusable (so it's still a real
+            // tooltip trigger on hover AND keyboard focus and never a focus hole),
+            // but mark it aria-disabled and greyed, and make its click a guarded
+            // no-op. Enter/Space/click all do nothing — no re-extraction POST.
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  aria-label="Extract"
+                  aria-disabled
+                  className="opacity-50"
+                  onClick={(event) => event.preventDefault()}
+                >
+                  <Download />
+                  Extract
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>{extractedGateMessage(issueCount)}</TooltipContent>
+            </Tooltip>
+          ) : (
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled={pending !== null}
+              aria-label="Extract"
+              onClick={() => act("extract", "/api/control/extract", "Extract")}
+            >
+              <Download />
+              Extract
+            </Button>
+          )}
         </div>
       </div>
 

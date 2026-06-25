@@ -1,10 +1,12 @@
-import { mkdirSync, rmSync } from "node:fs"
+import { cpSync, existsSync, mkdirSync, rmSync } from "node:fs"
 import path from "node:path"
 
 import {
   DEMO_RUNTIME_DIR,
+  DEMO_TARGET_ROOT,
   EMPTY_RUNTIME_DIR,
   EMPTY_TARGET_ROOT,
+  LONG_TARGET_ROOT,
   ONBOARD_RUNTIME_DIR,
   ONBOARD_SCAFFOLD_PARENT,
   ONBOARD_TARGET_ROOT,
@@ -43,6 +45,23 @@ export default function globalSetup() {
   // always new and empty (the scaffolder refuses a non-empty target).
   rmSync(ONBOARD_SCAFFOLD_PARENT, { recursive: true, force: true })
   mkdirSync(ONBOARD_SCAFFOLD_PARENT, { recursive: true })
+
+  // --- Very-long-path target (overflow spec) ---
+  // A deep, long-named copy of the demo target so the overflow spec can select it
+  // and exercise long content across the header tooltip, picker, and Details
+  // panel. Rebuilt each run so it tracks the demo fixture. Only built when the
+  // demo target actually exists on disk (it ships as a committed fixture).
+  const longRoot = "/tmp/vivicy-long"
+  rmSync(longRoot, { recursive: true, force: true })
+  if (existsSync(DEMO_TARGET_ROOT)) {
+    mkdirSync(path.dirname(LONG_TARGET_ROOT), { recursive: true })
+    // Copy the demo target's docs/ tree (the architecture map source) into the
+    // long path; skip the demo's .git so the copy is a clean target.
+    cpSync(DEMO_TARGET_ROOT, LONG_TARGET_ROOT, {
+      recursive: true,
+      filter: (src) => !src.includes(`${path.sep}.git`),
+    })
+  }
 
   // Start each server with a clean runtime dir (no stale persisted project,
   // settings, or run-state lock from a prior run).

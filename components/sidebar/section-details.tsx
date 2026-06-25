@@ -62,8 +62,10 @@ function NodeDetails({
   return (
     <div className="flex flex-col gap-3 text-xs">
       <div className="flex items-start gap-2">
-        <StatusDot status={asNodeStatus(status)} className="mt-1" />
-        <p className="text-sm font-semibold text-foreground">{node.label}</p>
+        <StatusDot status={asNodeStatus(status)} className="mt-1 shrink-0" />
+        <p className="min-w-0 text-sm font-semibold break-words text-foreground">
+          {node.label}
+        </p>
       </div>
 
       <dl className="flex flex-col gap-1.5">
