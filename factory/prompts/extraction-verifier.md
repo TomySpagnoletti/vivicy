@@ -26,6 +26,8 @@ This is the second, independent gate. The deterministic checks (semantic-extract
 3. **Identifier agreement.** `requirement_ids` on each issue resolve in the catalog and genuinely correspond to that issue's work; `graph_refs` (`node:<id>`) exist in the architecture map and name the right component.
 4. **Architecture-map ⇔ spec.** The nodes/edges/lanes in `architecture-map.yml` reflect the system the canonical spec describes — no fabricated components, no spec-described component missing that an issue references.
 
+5. **Cross-document consistency (the spec must not contradict itself).** When two or more canonical docs describe the **same** data shape, type, boundary, contract, or behavior, they must agree. Read ACROSS docs, not just within the one an issue cites: if one doc says a value is a 1D list and another assumes a 2D range, if two docs give a public function incompatible input/output shapes, or if a data/error/permission boundary is stated two different ways, that is a **fidelity problem you must flag here** — so it is reconciled in the spec (via change control) and carried into the corpus BEFORE implementation, not papered over by the implementer with a side-channel hack at build time. Cite both conflicting `file:line` ranges and state the exact contradiction. A latent cross-doc contradiction that the corpus silently picked one side of (or left ambiguous) is itself a fidelity break, even if every single-doc ref is faithful.
+
 When in doubt, open the cited lines and compare. Cite the file:line and the exact discrepancy in your problem detail. Be strict but fair: flag genuine fidelity breaks, not stylistic paraphrase that preserves meaning.
 
 ## Output — the structured verdict (the ONLY thing you write)
@@ -52,7 +54,7 @@ or, when you find fidelity breaks:
 ```
 
 - `faithful` is `true` ONLY when every issue and requirement passes every check above. If ANY fidelity break exists, `faithful` is `false`.
-- `problems[]` (when not faithful) lists each break: `issue` (the issue id, or a requirement id, or `"*"` for a corpus-wide problem), `kind` (a short slug, e.g. `invented_requirement`, `dropped_obligation`, `scope_drift`, `bad_source_ref`, `requirement_id_mismatch`, `graph_ref_mismatch`, `map_mismatch`), and `detail` (one precise sentence naming the file:line and the discrepancy, specific enough for the Extractor to fix without guessing).
+- `problems[]` (when not faithful) lists each break: `issue` (the issue id, or a requirement id, or `"*"` for a corpus-wide problem), `kind` (a short slug, e.g. `invented_requirement`, `dropped_obligation`, `scope_drift`, `bad_source_ref`, `requirement_id_mismatch`, `graph_ref_mismatch`, `map_mismatch`, `cross_document_contradiction`), and `detail` (one precise sentence naming the file:line and the discrepancy, specific enough for the Extractor to fix without guessing). For a `cross_document_contradiction`, cite BOTH conflicting `file:line` ranges in `detail` and use `"*"` for `issue` when the contradiction is corpus-wide.
 - Emit valid JSON. Do not wrap it in prose. Do not edit catalog/matrix/issues/index/map — the Extractor owns the fix.
 
 ## Discipline

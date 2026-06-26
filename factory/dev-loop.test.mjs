@@ -1946,6 +1946,46 @@ test("the implementer and reviewer prompts pin the frozen-corpus read-only scope
   }
 });
 
+test("the implementer and reviewer prompts carry the public-API quality bar (the two audit-defect levers)", () => {
+  const read = (name) => readFileSync(fileURLToPath(new URL(`./prompts/${name}`, import.meta.url)), "utf8");
+  // Both prompts must, in their own voice, demand the four levers that would have
+  // caught the two real audit defects: (1) end-to-end public-path testing,
+  // (2) type-fuzzing the public boundary to its typed degradation,
+  // (3) no side-channel/hidden-coupling reconciliation of a contract conflict,
+  // (4) no dead/unreferenced exports. Lock them so a careless edit can't drop them.
+  for (const name of ["implementer.md", "reviewer.md"]) {
+    const text = read(name);
+    // (1) end-to-end through the public entry point, not just internal helpers.
+    assert.match(text, /end-to-end/i, `${name} requires end-to-end public-path testing`);
+    assert.match(text, /public entry point/i, `${name} names the public entry point`);
+    assert.match(text, /helper/i, `${name} distinguishes the public path from internal helpers`);
+    // (2) type-fuzz / negative-test the public boundary (defect #2: raw throw on garbage).
+    assert.match(text, /(type-fuzz|garbage|wrong-type)/i, `${name} requires type-fuzzing public input`);
+    assert.match(text, /null/, `${name} names null as a fuzz case`);
+    assert.match(text, /undefined/, `${name} names undefined as a fuzz case`);
+    assert.match(text, /typed error/i, `${name} requires the documented typed error / safe degradation`);
+    assert.match(text, /(raw|uncaught).{0,40}throw|throw.{0,40}(raw|garbage)/i, `${name} forbids a raw throw on garbage input`);
+    // (3) no side-channel hack to reconcile a contract conflict (defect #1: Symbol back-door).
+    assert.match(text, /side-channel/i, `${name} forbids side-channel reconciliation`);
+    assert.match(text, /change control/i, `${name} routes a contract conflict to change control instead of hacking it`);
+    // (4) no dead / unreferenced exported symbol (defect #1: dead exported registrar).
+    assert.match(text, /(dead|unreferenced|orphan)/i, `${name} forbids dead/unreferenced exports`);
+    assert.match(text, /production path/i, `${name} requires exports be reachable from the production path`);
+  }
+});
+
+test("the extraction-fidelity verifier prompt enforces cross-document consistency (defect #1's root cause)", () => {
+  const text = readFileSync(fileURLToPath(new URL(`./prompts/extraction-verifier.md`, import.meta.url)), "utf8");
+  // The root cause of audit defect #1 was two canonical docs describing the same
+  // data shape differently, reconciled by the implementer instead of in the spec.
+  // The verifier must flag such cross-doc contradictions BEFORE implementation.
+  assert.match(text, /cross-document consistency/i, "verifier prompt has a cross-document consistency check");
+  assert.match(text, /contradict/i, "verifier prompt flags self-contradiction across docs");
+  assert.match(text, /cross_document_contradiction/, "verifier prompt defines the cross_document_contradiction verdict kind");
+  // It must say to read ACROSS docs, not just the one an issue cites.
+  assert.match(text, /across/i, "verifier prompt requires reading across docs");
+});
+
 test("runLoop(maxParallel=1) is the sequential path: returns an array, identical behavior", () => {
   // The dispatch boundary: at N=1, runLoop stays synchronous and sequential.
   const issues = [
