@@ -54,17 +54,8 @@ export type AgentKey = "claude" | "codex"
 export interface AgentGuidance {
   /** Human label for the CLI. */
   label: string
-  /** The shell command to install it (shown copyable; never auto-run in web). */
+  /** The shell command to install it (shown copyable; never auto-run). */
   installCommand: string
-  /**
-   * The Tauri shell allow-list KEY for running {@link installCommand} natively in
-   * the desktop build. NOT a raw shell string: it names a fixed, argument-locked
-   * entry in the shell plugin's capability allow-list (see
-   * `src-tauri/capabilities/default.json`), so the desktop "Install" button can
-   * only run that one install command — never an arbitrary shell. Unused in the
-   * web build, where install stays copy-only.
-   */
-  installCommandName: string
   /** A short one-line install hint. */
   installHint: string
   /** The command to authenticate it. */
@@ -73,46 +64,33 @@ export interface AgentGuidance {
   authHint: string
   /**
    * The CLI's OWN built-in self-update command (e.g. `claude update`), shown as
-   * copyable text and run by the per-agent "Update" action. The web build execs
-   * it through `POST /api/agents/update` (allow-listed, fixed command); the
-   * desktop build routes it through the shell allow-list under
-   * {@link updateCommandName}.
+   * copyable text and run by the per-agent "Update" action. The server execs it
+   * through `POST /api/agents/update` (allow-listed, fixed command).
    */
   updateCommand: string
-  /**
-   * The Tauri shell allow-list KEY for running {@link updateCommand} natively in
-   * the desktop build (e.g. `"update-claude"`). Like {@link installCommandName},
-   * it names a fixed, argument-locked entry in the shell plugin's capability
-   * allow-list — never a raw shell string.
-   */
-  updateCommandName: string
 }
 
 /**
  * Install + auth guidance per agent. Static reference strings (not runtime
  * state): the official install commands for Claude Code and the Codex CLI, and
- * the login commands. Shown copyable in the setup panel; the web build never
- * auto-runs an install (native auto-install can come with Tauri later).
+ * the login commands. Shown copyable in the setup panel; the install command is
+ * never auto-run.
  */
 export const AGENT_GUIDANCE: Record<AgentKey, AgentGuidance> = {
   claude: {
     label: "Claude Code",
     installCommand: "npm install -g @anthropic-ai/claude-code",
-    installCommandName: "install-claude",
     installHint: "Install the Claude Code CLI globally, then restart your shell.",
     authCommand: "claude",
     authHint: "Run `claude` once and complete the in-terminal sign-in.",
     updateCommand: "claude update",
-    updateCommandName: "update-claude",
   },
   codex: {
     label: "Codex CLI",
     installCommand: "npm install -g @openai/codex",
-    installCommandName: "install-codex",
     installHint: "Install the Codex CLI globally (or `brew install codex`).",
     authCommand: "codex login",
     authHint: "Run `codex login` to authenticate with your ChatGPT account.",
     updateCommand: "codex update",
-    updateCommandName: "update-codex",
   },
 }

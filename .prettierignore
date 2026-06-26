@@ -5,9 +5,3 @@ node_modules/
 coverage/
 pnpm-lock.yaml
 .pnpm-store/
-# Tauri desktop shell: Rust target + staged sidecar payload (build output).
-src-tauri/target/
-src-tauri/server/
-src-tauri/binaries/
-src-tauri/placeholder/
-src-tauri/gen/

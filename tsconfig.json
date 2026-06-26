@@ -73,7 +73,6 @@
   ],
   "exclude": [
     "node_modules",
-    "factory",
-    "src-tauri"
+    "factory"
   ]
 }

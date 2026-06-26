@@ -5,7 +5,6 @@ import {
   CheckCircle2,
   Copy,
   CreditCard,
-  Download,
   Gauge,
   HelpCircle,
   Loader2,
@@ -21,7 +20,6 @@ import {
   type AgentsHealth,
   type AuthMethod,
 } from "@/lib/agents-health-types"
-import { runAllowedCommandNative, useIsDesktop } from "@/lib/desktop"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -65,10 +63,6 @@ export function AgentsHealthDialog({
   const [open, setOpen] = useState(false)
   const [health, setHealth] = useState<AgentsHealth | null>(null)
   const [loading, setLoading] = useState(false)
-  // Desktop (Tauri) shell? Hydration-safe (false on SSR + first client render),
-  // so the native "Install" button only appears in the desktop build; the web
-  // build stays copy-only.
-  const desktop = useIsDesktop()
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -146,8 +140,6 @@ export function AgentsHealthDialog({
               agentKey={key}
               health={health?.[key] ?? null}
               loading={loading && !health}
-              desktop={desktop}
-              onInstalled={load}
               onHealth={setHealth}
             />
           ))}
@@ -162,17 +154,11 @@ function AgentCard({
   agentKey,
   health,
   loading,
-  desktop,
-  onInstalled,
   onHealth,
 }: {
   agentKey: AgentKey
   health: AgentHealth | null
   loading: boolean
-  /** True in the Tauri desktop shell → enable native one-click install/update. */
-  desktop: boolean
-  /** Re-run health detection after a native install completes. */
-  onInstalled: () => void | Promise<void>
   /** Apply a fresh health snapshot (e.g. the one the update route re-detects). */
   onHealth: (health: AgentsHealth) => void
 }) {
@@ -219,30 +205,18 @@ function AgentCard({
             <p className="px-0.5 text-xs text-muted-foreground">{costNote(authMethod)}</p>
           ) : null}
           {/* Self-update: only meaningful once the CLI is installed. */}
-          {present ? (
-            <UpdateAction
-              agentKey={agentKey}
-              desktop={desktop}
-              onHealth={onHealth}
-              onInstalled={onInstalled}
-            />
-          ) : null}
+          {present ? <UpdateAction agentKey={agentKey} onHealth={onHealth} /> : null}
         </>
       )}
 
       {/* Guidance: install command when absent; auth command when present-not-authed.
-          Install upgrades to a native one-click run in the desktop shell; auth
-          stays copy-only (it is interactive and must run in the user's terminal). */}
+          Both stay copy-only — install and auth are interactive and run in the
+          user's terminal. */}
       {!loading && !present ? (
         <Guidance
           hint={guidance.installHint}
           command={guidance.installCommand}
           label={`Install ${guidance.label}`}
-          nativeInstall={
-            desktop
-              ? { commandName: guidance.installCommandName, onDone: onInstalled }
-              : undefined
-          }
         />
       ) : null}
       {!loading && present && auth === false ? (
@@ -333,33 +307,18 @@ function MethodBadge({
 }
 
 /**
- * A copyable command block with a one-line hint. In the WEB build it is copy-only
- * and never runs anything. In the DESKTOP build, when `nativeInstall` is given,
- * it adds a "Run install" button that executes the allow-listed install command
- * natively via the Tauri shell plugin, streams its output inline, and re-checks
- * health on success. The shell allow-list (see `src-tauri/capabilities`) fixes the
- * exact command + args, so this can never run an arbitrary shell.
+ * A copyable command block with a one-line hint. Copy-only: it never runs
+ * anything — install and auth are interactive and run in the user's terminal.
  */
 function Guidance({
   hint,
   command,
   label,
-  nativeInstall,
 }: {
   hint: string
   command: string
   label: string
-  nativeInstall?: { commandName: string; onDone: () => void | Promise<void> }
 }) {
-  const [running, setRunning] = useState(false)
-  const [output, setOutput] = useState<string[]>([])
-  const [result, setResult] = useState<"ok" | "fail" | null>(null)
-  // Auto-scroll the streamed log to the latest line.
-  const logRef = useRef<HTMLPreElement>(null)
-  useEffect(() => {
-    if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight
-  }, [output])
-
   const copy = useCallback(async () => {
     try {
       await navigator.clipboard.writeText(command)
@@ -368,41 +327,6 @@ function Guidance({
       toast.error("Copy failed", { description: "Select and copy the command manually." })
     }
   }, [command])
-
-  const runNative = useCallback(async () => {
-    if (!nativeInstall) return
-    setRunning(true)
-    setResult(null)
-    setOutput([`$ ${command}`])
-    try {
-      const res = await runAllowedCommandNative(nativeInstall.commandName, (l) =>
-        // Keep only the last MAX_LOG_LINES so a chatty/slow install never grows
-        // the buffer unbounded.
-        setOutput((prev) => {
-          const next = [...prev, l.line]
-          return next.length > MAX_LOG_LINES ? next.slice(-MAX_LOG_LINES) : next
-        })
-      )
-      setResult(res.ok ? "ok" : "fail")
-      if (res.ok) {
-        toast.success("Install complete", { description: command })
-        await nativeInstall.onDone()
-      } else {
-        toast.error("Install failed", { description: `Exited with code ${res.code ?? "?"}` })
-      }
-    } catch (error) {
-      setResult("fail")
-      setOutput((prev) => [
-        ...prev,
-        error instanceof Error ? error.message : "unknown error",
-      ])
-      toast.error("Install failed", {
-        description: error instanceof Error ? error.message : "unknown error",
-      })
-    } finally {
-      setRunning(false)
-    }
-  }, [command, nativeInstall])
 
   return (
     <div className="flex flex-col gap-1.5">
@@ -421,33 +345,6 @@ function Guidance({
           <Copy />
         </Button>
       </div>
-
-      {/* Desktop only: run the install natively (allow-listed command). */}
-      {nativeInstall ? (
-        <>
-          <Button
-            variant="default"
-            size="sm"
-            disabled={running}
-            aria-label={`Run install: ${label}`}
-            onClick={() => void runNative()}
-            className="justify-start"
-          >
-            {running ? <Loader2 className="animate-spin" /> : <Download />}
-            {running ? "Installing…" : "Run install"}
-          </Button>
-          {output.length > 0 ? (
-            <pre
-              ref={logRef}
-              data-install-state={result ?? (running ? "running" : "idle")}
-              className="max-h-40 overflow-auto border border-border bg-muted px-2 py-1.5 font-mono text-xs whitespace-pre-wrap text-muted-foreground"
-            >
-              {output.join("\n")}
-              {result === "ok" ? "\n✓ done" : result === "fail" ? "\n✗ failed" : ""}
-            </pre>
-          ) : null}
-        </>
-      ) : null}
     </div>
   )
 }
@@ -464,23 +361,18 @@ interface UpdateResponse {
 
 /**
  * Per-agent "Update" action: runs the CLI's OWN built-in self-update so the user
- * never leaves Vivicy. In the WEB build it POSTs to the allow-listed
- * `/api/agents/update` route (the server execs only the fixed `claude update` /
- * `codex update` command); in the DESKTOP build it runs the allow-listed shell
- * entry natively. Either way it shows honest running/done/error state, captures
- * (capped) output, disables the button while running, and re-detects health on
- * success so the version line refreshes.
+ * never leaves Vivicy. It POSTs to the allow-listed `/api/agents/update` route
+ * (the server execs only the fixed `claude update` / `codex update` command),
+ * shows honest running/done/error state, captures (capped) output, disables the
+ * button while running, and re-detects health on success so the version line
+ * refreshes.
  */
 function UpdateAction({
   agentKey,
-  desktop,
   onHealth,
-  onInstalled,
 }: {
   agentKey: AgentKey
-  desktop: boolean
   onHealth: (health: AgentsHealth) => void
-  onInstalled: () => void | Promise<void>
 }) {
   const guidance = AGENT_GUIDANCE[agentKey]
   const [running, setRunning] = useState(false)
@@ -503,21 +395,7 @@ function UpdateAction({
     setResult(null)
     setOutput([`$ ${guidance.updateCommand}`])
     try {
-      if (desktop) {
-        // Desktop: run the allow-listed shell entry natively, then re-detect.
-        const res = await runAllowedCommandNative(guidance.updateCommandName, (l) =>
-          appendLine(l.line)
-        )
-        setResult(res.ok ? "ok" : "fail")
-        if (res.ok) {
-          toast.success("Update complete", { description: guidance.updateCommand })
-          await onInstalled()
-        } else {
-          toast.error("Update failed", { description: `Exited with code ${res.code ?? "?"}` })
-        }
-        return
-      }
-      // Web: the server execs ONLY the fixed allow-listed command for this agent.
+      // The server execs ONLY the fixed allow-listed command for this agent.
       const res = await fetch("/api/agents/update", {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -550,7 +428,7 @@ function UpdateAction({
     } finally {
       setRunning(false)
     }
-  }, [agentKey, appendLine, desktop, guidance, onHealth, onInstalled])
+  }, [agentKey, appendLine, guidance, onHealth])
 
   return (
     <div className="flex flex-col gap-1.5">

@@ -5,13 +5,6 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest"
 import { AgentsHealthDialog } from "@/components/agents/agents-health-dialog"
 import type { AgentHealth, AgentsHealth } from "@/lib/agents-health-types"
 
-// The component reads the desktop runtime via this hook; force the WEB path so
-// the Update button POSTs to the route (not the native shell plugin).
-vi.mock("@/lib/desktop", async () => {
-  const actual = await vi.importActual<typeof import("@/lib/desktop")>("@/lib/desktop")
-  return { ...actual, useIsDesktop: () => false }
-})
-
 /** Build a health snapshot, defaulting both agents to authed subscriptions. */
 function health(overrides?: {
   claude?: Partial<AgentHealth>

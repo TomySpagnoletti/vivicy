@@ -7,14 +7,12 @@ import {
   Folder,
   FolderOpen,
   FolderPlus,
-  HardDrive,
   Loader2,
   X,
 } from "lucide-react"
 import { toast } from "sonner"
 
 import type { CurrentProject, DirEntry, DirListing } from "@/lib/project-types"
-import { pickDirectoryNative, useIsDesktop } from "@/lib/desktop"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -32,8 +30,7 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 /**
  * Web project picker (R10): a shadcn Dialog that browses the LOCAL filesystem via
  * the Next server (`GET /api/fs/list`) and persists the chosen folder via
- * `POST /api/project`. Until the Tauri native dialog lands, this is the way to
- * choose the project Vivicy develops.
+ * `POST /api/project`. This is the way to choose the project Vivicy develops.
  *
  * Layout: a breadcrumb of the current path, a parent-up row, a scrollable list of
  * subdirectories to navigate, a "Select this folder" action for the directory
@@ -61,11 +58,6 @@ export function OpenProjectDialog({
   const [newFolderOpen, setNewFolderOpen] = useState(false)
   const [newFolderName, setNewFolderName] = useState("")
   const [creatingFolder, setCreatingFolder] = useState(false)
-  // True only in the Tauri desktop shell (hydration-safe: false on SSR + first
-  // client render). False in the browser build → the web server-side folder
-  // browser below is the (unchanged) fallback.
-  const desktop = useIsDesktop()
-  const [pickingNative, setPickingNative] = useState(false)
 
   // Browse a path (null => the server's default root, the user's home dir). On
   // failure, keep the previous listing and toast — never strand the dialog empty.
@@ -179,24 +171,7 @@ export function OpenProjectDialog({
     [onChanged, onOpenChange]
   )
 
-  // Desktop-only: open the OS-native directory chooser, then persist the chosen
-  // folder through the SAME `/api/project` path the web flow uses. On cancel we do
-  // nothing; on error we toast and the web browser below remains available.
-  const pickNative = useCallback(async () => {
-    setPickingNative(true)
-    try {
-      const chosen = await pickDirectoryNative()
-      if (chosen) await select(chosen)
-    } catch (error) {
-      toast.error("Native folder picker failed", {
-        description: error instanceof Error ? error.message : "unknown error",
-      })
-    } finally {
-      setPickingNative(false)
-    }
-  }, [select])
-
-  const busy = loading || selecting || pickingNative || creatingFolder
+  const busy = loading || selecting || creatingFolder
   const crumbs = listing ? toCrumbs(listing.path) : []
 
   return (
@@ -209,21 +184,6 @@ export function OpenProjectDialog({
             and select it, or paste an absolute path.
           </DialogDescription>
         </DialogHeader>
-
-        {/* Desktop only: the OS-native folder chooser. The in-app browser below
-            stays as the web fallback (and a desktop user can still use it). */}
-        {desktop ? (
-          <Button
-            type="button"
-            size="sm"
-            disabled={busy}
-            onClick={() => void pickNative()}
-            className="justify-start"
-          >
-            <HardDrive />
-            {pickingNative ? "Choosing…" : "Choose folder (native)"}
-          </Button>
-        ) : null}
 
         {/* Breadcrumb of the current directory + the New-folder affordance. The
             breadcrumb wraps within its min-w-0 column so a deep path never pushes

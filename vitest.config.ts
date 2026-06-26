@@ -17,8 +17,6 @@ export default defineConfig({
     // default opaque origin); the panel-state hook and quota footer persist there.
     setupFiles: ["./vitest.setup.ts"],
     include: ["**/*.test.ts", "**/*.test.tsx"],
-    // src-tauri/server is a staged COPY of the whole project (the Tauri sidecar
-    // payload); its duplicated test files must not be collected.
-    exclude: ["node_modules", ".next", "e2e", "src-tauri"],
+    exclude: ["node_modules", ".next", "e2e"],
   },
 })
