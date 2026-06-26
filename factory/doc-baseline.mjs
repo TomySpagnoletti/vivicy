@@ -27,7 +27,10 @@ const repoRoot =
 // script's filesystem location — moving the script must not change it.
 const generatedBy = "docs/baselines/doc-baseline.mjs";
 const schemaVersion = 1;
-const defaultProduct = "Naight OS";
+// Neutral fallback when the target project does not name itself in package.json.
+// Vivicy is project-agnostic, so the product name is DERIVED from the target
+// (see resolveProductName), never hardcoded to any one product.
+const neutralProductFallback = "Project";
 const baselineDir = "docs/baselines";
 const validStatuses = ["draft", "frozen", "superseded"];
 const defaultInclude = [
@@ -81,6 +84,8 @@ function generate(args) {
     );
   }
 
+  const product = resolveProductName(args.product);
+
   const files = collectIncludedFiles(defaultInclude, defaultExclude);
   const git = readGitEvidence();
 
@@ -116,7 +121,7 @@ function generate(args) {
     baseline_id: baselineId,
     version,
     status,
-    product: defaultProduct,
+    product,
     generated_at: new Date().toISOString(),
     generated_by: generatedBy,
     git,
@@ -371,6 +376,45 @@ function computeManifestHash(manifestWithoutHash) {
   delete hashableManifest.approval;
   delete hashableManifest.superseded;
   return sha256(stableJson(hashableManifest));
+}
+
+// Resolve the manifest's `product` field. Vivicy is project-agnostic, so the
+// product name is DERIVED from the target, in order:
+//   1. an explicit --product <name> override (any project, any name)
+//   2. the target package.json "name", title-cased (e.g. "formula" -> "Formula")
+//   3. a neutral fallback ("Project") — NEVER a hardcoded product brand.
+function resolveProductName(override) {
+  if (isNonEmptyString(override)) return override.trim();
+
+  const fromPackage = readPackageName();
+  if (fromPackage) return titleCase(fromPackage);
+
+  return neutralProductFallback;
+}
+
+function readPackageName() {
+  const pkgPath = join(repoRoot, "package.json");
+  if (!existsSync(pkgPath)) return null;
+  try {
+    const pkg = JSON.parse(readFileSync(pkgPath, "utf8"));
+    const name = pkg && typeof pkg === "object" ? pkg.name : null;
+    return isNonEmptyString(name) ? name.trim() : null;
+  } catch {
+    return null;
+  }
+}
+
+// Turn a package name ("my-cool-lib", "@scope/formula", "formula_engine") into a
+// human title ("My Cool Lib", "Formula", "Formula Engine"). Strips an npm scope,
+// splits on separators, and title-cases each word.
+function titleCase(name) {
+  const unscoped = name.includes("/") ? name.slice(name.lastIndexOf("/") + 1) : name;
+  const words = unscoped
+    .split(/[\s._-]+/)
+    .map((word) => word.trim())
+    .filter((word) => word.length > 0);
+  if (words.length === 0) return neutralProductFallback;
+  return words.map((word) => word.charAt(0).toUpperCase() + word.slice(1)).join(" ");
 }
 
 function readGitEvidence() {

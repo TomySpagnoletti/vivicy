@@ -5,7 +5,7 @@ import { z } from "zod";
 import { progressEventTypes, recordProgressEvent } from "./progress-ledger.mjs";
 
 const server = new McpServer({
-  name: "naight-os-local-development-progress",
+  name: "vivicy-local-development-progress",
   version: "0.1.0",
 });
 

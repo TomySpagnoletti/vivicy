@@ -40,7 +40,7 @@ import {
   runLoopParallel,
   selectIndependentBatch,
 } from "./dev-loop.mjs";
-import { REQUIRED_SKILLS, checkSkills, missingSkills } from "./dev-preflight.mjs";
+import { checkSkills, missingSkills, readDeclaredSkills } from "./dev-preflight.mjs";
 import { nextSupervisorAction } from "./dev-loop-supervised.mjs";
 
 // Vivicy is a STANDALONE factory: dev-loop.mjs binds its target root from
@@ -580,26 +580,62 @@ test("supervisor relaunches while progressing and stops on done/block/stall/cap"
   assert.equal(nextSupervisorAction({ done: 3, total: 8, blocked: 0, attempt: 2, stall: 1 }, limits).action, "relaunch");
 });
 
-test("missingSkills detects absent required skills (substring-robust)", () => {
-  assert.deepEqual(missingSkills(REQUIRED_SKILLS.join(" ")), []);
-  assert.deepEqual(missingSkills("only react-best-practices installed"), [
-    "taste-skill",
-    "nestjs-best-practices",
-    "supabase",
-    "supabase-postgres-best-practices",
-  ]);
+test("missingSkills detects absent skills against a project-defined list (substring-robust)", () => {
+  const declared = ["alpha-skill", "beta-skill", "gamma-skill"];
+  assert.deepEqual(missingSkills(declared.join(" "), declared), []);
+  assert.deepEqual(missingSkills("only alpha-skill installed", declared), ["beta-skill", "gamma-skill"]);
+  // No declared skills => nothing can be missing.
+  assert.deepEqual(missingSkills("anything"), []);
 });
 
-test("checkSkills reports not-ok when the skills CLI is unavailable", () => {
-  const result = checkSkills(() => ({ ok: false }));
-  assert.equal(result.ok, false);
-  assert.deepEqual(result.missing, REQUIRED_SKILLS);
-});
-
-test("checkSkills is ok when all required skills are present", () => {
-  const result = checkSkills(() => ({ ok: true, output: REQUIRED_SKILLS.join("\n") }));
+test("checkSkills is ok with no declared skills and never runs the CLI (generic project)", () => {
+  let ran = false;
+  const result = checkSkills(
+    () => {
+      ran = true;
+      return { ok: true, output: "" };
+    },
+    { required: [], recommended: [] },
+  );
   assert.equal(result.ok, true);
-  assert.deepEqual(result.missing, []);
+  assert.deepEqual(result.missingRequired, []);
+  assert.deepEqual(result.notes, []);
+  assert.equal(ran, false, "no declared skills => the skills CLI is never invoked");
+});
+
+test("checkSkills only NOTES absent recommended skills, never fails", () => {
+  const result = checkSkills(() => ({ ok: true, output: "" }), { required: [], recommended: ["nice-to-have"] });
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.missingRecommended, ["nice-to-have"]);
+  assert.equal(result.notes.length, 1);
+  assert.match(result.notes[0], /informational only/);
+});
+
+test("checkSkills fails only when a declared REQUIRED skill is missing", () => {
+  const present = checkSkills(() => ({ ok: true, output: "must-have other" }), { required: ["must-have"], recommended: [] });
+  assert.equal(present.ok, true);
+  assert.deepEqual(present.missingRequired, []);
+
+  const absent = checkSkills(() => ({ ok: true, output: "other" }), { required: ["must-have"], recommended: [] });
+  assert.equal(absent.ok, false);
+  assert.deepEqual(absent.missingRequired, ["must-have"]);
+});
+
+test("checkSkills blocks on an unavailable CLI only when required skills are declared", () => {
+  // CLI down + required declared => blocks.
+  const blocked = checkSkills(() => ({ ok: false }), { required: ["must-have"], recommended: [] });
+  assert.equal(blocked.ok, false);
+  assert.deepEqual(blocked.missingRequired, ["must-have"]);
+
+  // CLI down + only recommended declared => informational note, still ok.
+  const noted = checkSkills(() => ({ ok: false }), { required: [], recommended: ["nice-to-have"] });
+  assert.equal(noted.ok, true);
+  assert.equal(noted.notes.length, 1);
+});
+
+test("readDeclaredSkills returns no skills when the target declares none", () => {
+  // No target root configured => empty (the standalone default).
+  assert.deepEqual(readDeclaredSkills(null), { required: [], recommended: [] });
 });
 
 test("runLoop blocks an issue whose gate stays red after maxRetries and stops", () => {
@@ -635,11 +671,12 @@ test("detectRateLimit fires on quota signals and ignores plain test failures", (
 });
 
 test("detectRateLimit never throttles a SUCCESSFUL leg, even one about quotas", () => {
-  // Naight OS is a product *about* quotas / rate limits / 429s: a green leg that
-  // summarizes its work routinely prints that vocabulary. Exit 0 => never a hit,
-  // so a verified slice is never falsely blocked.
+  // The target project's output may legitimately mention quotas / rate limits /
+  // 429s (e.g. it implements rate-limiting), so a green leg that summarizes its
+  // work can print that vocabulary. Exit 0 => never a hit, so a verified slice is
+  // never falsely blocked.
   const greenSummaries = [
-    "implemented per-tenant quota enforcement; all tests pass",
+    "implemented per-account quota enforcement; all tests pass",
     "added rate-limit middleware and a 429 Too Many Requests handler",
     "usage limit policy wired; resets at midnight covered by a test",
   ];

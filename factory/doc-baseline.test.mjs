@@ -29,6 +29,10 @@ function writeDoc(root, rel, body) {
   writeFileSync(abs, body);
 }
 
+function writePackage(root, name) {
+  writeFileSync(resolve(root, "package.json"), `${JSON.stringify({ name, version: "0.0.0" }, null, 2)}\n`);
+}
+
 function runCli(root, args) {
   // Returns { ok, stdout, stderr, status }. The script process.exit(1)s on failure,
   // which execFileSync surfaces as a thrown error carrying status/stdout/stderr.
@@ -183,6 +187,82 @@ test("verify reports a manifest_hash mismatch when the manifest body is edited",
     const verify = runCli(root, ["verify", "--manifest", `docs/baselines/${BASELINE_ID}.json`]);
     assert.equal(verify.status, 1, "an edited manifest body must fail verification");
     assert.match(verify.stderr, /Manifest hash mismatch/);
+  } finally {
+    rmSync(root, { force: true, recursive: true });
+  }
+});
+
+test("product is derived from the target package.json name, title-cased (never a hardcoded brand)", () => {
+  const root = makeTargetRoot();
+  try {
+    writeDoc(root, "01-a.md", "# Doc One\n\nbody alpha\n");
+    writePackage(root, "formula");
+    assert.equal(runCli(root, ["generate", "--version", "1.0.0", "--status", "draft"]).status, 0);
+
+    const manifest = readBaseline(root, BASELINE_ID);
+    assert.equal(manifest.product, "Formula", "package name 'formula' title-cases to 'Formula'");
+    assert.notEqual(manifest.product, "Naight OS", "the product is never the legacy hardcoded brand");
+  } finally {
+    rmSync(root, { force: true, recursive: true });
+  }
+});
+
+test("product title-cases multi-word and scoped package names", () => {
+  const cases = [
+    ["my-cool-lib", "My Cool Lib"],
+    ["@acme/formula-engine", "Formula Engine"],
+    ["pocket_ledger", "Pocket Ledger"],
+  ];
+  for (const [name, expected] of cases) {
+    const root = makeTargetRoot();
+    try {
+      writeDoc(root, "01-a.md", "# Doc One\n\nbody alpha\n");
+      writePackage(root, name);
+      assert.equal(runCli(root, ["generate", "--version", "1.0.0", "--status", "draft"]).status, 0);
+      assert.equal(readBaseline(root, BASELINE_ID).product, expected, `${name} => ${expected}`);
+    } finally {
+      rmSync(root, { force: true, recursive: true });
+    }
+  }
+});
+
+test("product falls back to a neutral name when the target has no package.json (never 'Naight OS')", () => {
+  const root = makeTargetRoot();
+  try {
+    writeDoc(root, "01-a.md", "# Doc One\n\nbody alpha\n");
+    // No package.json written.
+    assert.equal(runCli(root, ["generate", "--version", "1.0.0", "--status", "draft"]).status, 0);
+
+    const manifest = readBaseline(root, BASELINE_ID);
+    assert.equal(manifest.product, "Project", "neutral fallback when the project does not name itself");
+    assert.notEqual(manifest.product, "Naight OS");
+  } finally {
+    rmSync(root, { force: true, recursive: true });
+  }
+});
+
+test("product falls back to neutral when package.json has no usable name", () => {
+  const root = makeTargetRoot();
+  try {
+    writeDoc(root, "01-a.md", "# Doc One\n\nbody alpha\n");
+    writeFileSync(resolve(root, "package.json"), `${JSON.stringify({ version: "0.0.0" }, null, 2)}\n`);
+    assert.equal(runCli(root, ["generate", "--version", "1.0.0", "--status", "draft"]).status, 0);
+    assert.equal(readBaseline(root, BASELINE_ID).product, "Project");
+  } finally {
+    rmSync(root, { force: true, recursive: true });
+  }
+});
+
+test("--product overrides the derived name", () => {
+  const root = makeTargetRoot();
+  try {
+    writeDoc(root, "01-a.md", "# Doc One\n\nbody alpha\n");
+    writePackage(root, "formula");
+    assert.equal(
+      runCli(root, ["generate", "--version", "1.0.0", "--status", "draft", "--product", "Custom Brand"]).status,
+      0,
+    );
+    assert.equal(readBaseline(root, BASELINE_ID).product, "Custom Brand", "explicit --product wins over package name");
   } finally {
     rmSync(root, { force: true, recursive: true });
   }

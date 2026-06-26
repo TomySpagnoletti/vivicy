@@ -271,10 +271,11 @@ export const DEFAULT_CONFIG = {
 // non-interactive usage API, so the only robust signal is the failure itself:
 // we scan a FAILED leg's combined stdout+stderr (case-insensitive) for these.
 //
-// IMPORTANT: Naight OS is a product *about* quotas / rate limits / HTTP 429, so
-// a SUCCESSFUL agent leg routinely prints that vocabulary in its summary ("added
-// rate-limit middleware", "implemented per-tenant quota"). To avoid falsely
-// throttling a green leg, detection requires BOTH a non-zero exit AND a match,
+// IMPORTANT: the target project's output may legitimately mention quotas / rate
+// limits / HTTP 429 (e.g. it implements rate-limiting), so a SUCCESSFUL agent leg
+// can print that vocabulary in its summary ("added rate-limit middleware",
+// "implemented per-account quota"). To avoid falsely throttling a green leg
+// merely for describing such work, detection requires BOTH a non-zero exit AND a match,
 // and the patterns target provider *error* shapes — `rate_limit_error`, an HTTP
 // `429 Too Many Requests`, "usage limit reached", "resets at <time>" — not the
 // bare nouns. Adding a provider phrase later is a one-line config change
@@ -711,7 +712,7 @@ export function agentCliArgs(provider, { model, effort, fast } = {}) {
 //   - exitCode: a rate-limit ALWAYS coincides with a failed leg (the CLI exits
 //     non-zero when quota-exhausted). A leg that exited 0 is never a quota hit,
 //     so a SUCCESSFUL leg that merely *mentions* quota/429/rate-limit in its
-//     summary (Naight OS is a product about exactly that) is left alone. Pass a
+//     summary (e.g. a project that implements rate-limiting) is left alone. Pass a
 //     null/undefined exitCode to scan unconditionally (used in pure pattern
 //     tests); production always passes the real code.
 //   - patterns target provider ERROR shapes, not the bare nouns — so a normal
@@ -2511,8 +2512,13 @@ function writeIntegrationBlock(issue, cfg, reason) {
 if (import.meta.url === `file://${process.argv[1]}`) {
   assertCleanTree();
   const skills = checkSkills();
+  for (const note of skills.notes ?? []) {
+    process.stderr.write(`dev-loop preflight: note: ${note}\n`);
+  }
   if (!skills.ok) {
-    process.stderr.write(`dev-loop preflight: ${skills.reason}\n  missing skills: ${skills.missing.join(", ")}\n  see AGENTS.md > Development Skills\n`);
+    process.stderr.write(
+      `dev-loop preflight: ${skills.reason}\n  missing required skills: ${(skills.missingRequired ?? []).join(", ")}\n  declare or remove them in the target project's package.json "vivicy.requiredSkills"\n`,
+    );
     process.exit(1);
   }
   // runLoop returns a Promise on the parallel path (maxParallel > 1) and an array
