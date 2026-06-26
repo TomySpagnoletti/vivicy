@@ -547,6 +547,35 @@ describe("extractIssues — bounded retries / blocked (deterministic)", () => {
     assert.equal(verifyCalls.length, 0, "a placeholder never reaches the fidelity verifier");
     assert.equal(seams._calls.mapCalls.length, 0);
   });
+
+  it("a TIMED-OUT extractor leg is retried, then extraction_blocked with the timeout reason (never hangs)", async () => {
+    seedInputs(temp);
+    // The fake extractor mimics a leg that leg-timeout.mjs KILLED: it authors
+    // nothing usable and carries a structured timeout result. A timed-out leg
+    // therefore fails the (real) deterministic checks every time, so the loop
+    // retries and finally blocks — it must NOT hang, and the block must name the
+    // timeout. result.timedOut/timeoutReason are exactly what spawnLegSync returns.
+    const calls = [];
+    const spawnExtractor = async (ctx) => {
+      calls.push(ctx);
+      return {
+        result: { status: 124, timedOut: true, timeoutReason: "leg timed out after 45 min (hard cap)" },
+        output: "",
+        transcriptRel: `spec/development/transcripts/EXTRACTION/extract-${ctx.attempt}.jsonl`,
+      };
+    };
+    const { spawnVerifier, calls: verifyCalls } = alwaysFaithfulVerifier();
+    const seams = stubSeams();
+
+    const result = await extractIssues({ repoRoot: temp, spawnExtractor, spawnVerifier, maxRetries: 2, ...seams });
+
+    assert.equal(result.status, "extraction_blocked");
+    assert.equal(result.attempts, 3, "initial author + 2 fix retries, then blocked");
+    assert.equal(calls.length, 3, "the timed-out leg was retried, not awaited forever");
+    assert.equal(verifyCalls.length, 0, "a timed-out extractor never reaches the fidelity verifier");
+    assert.equal(result.timeoutReason, "leg timed out after 45 min (hard cap)");
+    assert.match(result.summary, /A leg was killed: leg timed out after 45 min/);
+  });
 });
 
 describe("findFrozenManifest", () => {

@@ -165,6 +165,13 @@ export async function extractIssues(options = {}) {
   let lastChecks = null;
   let lastMap = null;
   let lastVerdict = null;
+  // The most recent per-leg TIMEOUT reason (set by leg-timeout.mjs when the
+  // extractor or verifier CLI was killed for overrunning the cap / going idle).
+  // A timed-out leg authors nothing usable, so the deterministic gate fails and
+  // the loop simply retries — it never hangs. We carry the reason so an eventual
+  // extraction_blocked names the stall explicitly instead of looking like a
+  // mysterious empty corpus.
+  let lastTimeoutReason = null;
   const maxAttempts = maxRetries + 1; // the initial author + up to maxRetries fixes
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     const isFix = attempt > 1;
@@ -175,6 +182,7 @@ export async function extractIssues(options = {}) {
     const fixContext = isFix ? formatFixContext(lastChecks, lastVerdict, lastMap) : null;
     const leg = await spawnExtractor({ repoRoot, manifestPath, baselineId, cfg, attempt, checkOutput: fixContext, isFix });
     if (leg?.transcriptRel) transcripts.push(leg.transcriptRel);
+    lastTimeoutReason = legTimeoutReason(leg) ?? lastTimeoutReason;
 
     // --- Mechanical gate: deterministic checks AND map generation -------------
     // The first verdict is fully mechanical: coverage / pins / DAG / schema (the
@@ -214,6 +222,7 @@ export async function extractIssues(options = {}) {
     record({ phase: "verifying", attempt });
     const verifierLeg = await spawnVerifier({ repoRoot, manifestPath, baselineId, cfg, attempt });
     if (verifierLeg?.transcriptRel) transcripts.push(verifierLeg.transcriptRel);
+    lastTimeoutReason = legTimeoutReason(verifierLeg) ?? lastTimeoutReason;
     const verdict = readVerdict({ repoRoot });
     lastVerdict = verdict;
     // A missing/unparseable verdict is NOT faithful — never declare green without a
@@ -252,12 +261,20 @@ export async function extractIssues(options = {}) {
     map: lastMap,
     verdict: lastVerdict,
     transcripts,
+    ...(lastTimeoutReason ? { timeoutReason: lastTimeoutReason } : {}),
     summary:
       `extraction_blocked: the extraction was still not green after ${maxAttempts} attempt(s). ` +
+      (lastTimeoutReason ? `A leg was killed: ${lastTimeoutReason}. ` : "") +
       formatFixContext(lastChecks, lastVerdict, lastMap),
   };
   record({ phase: "extraction_blocked", attempt: maxAttempts, summary: status.summary });
   return status;
+}
+
+// The timeout reason a leg result carries when leg-timeout.mjs killed it for
+// overrunning the per-leg cap or going idle. Null for a normally-finished leg.
+function legTimeoutReason(leg) {
+  return leg?.result?.timedOut ? leg.result.timeoutReason || "leg timed out" : null;
 }
 
 // ---------------------------------------------------------------------------

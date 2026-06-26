@@ -18,7 +18,7 @@
 //
 // Agent/gate/commit steps are injectable (opts) so the flow is unit-tested with
 // fast deterministic stubs; the defaults invoke the real claude / codex CLIs.
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import {
   closeSync,
   existsSync,
@@ -46,7 +46,6 @@ import { resolveTargetRoot, FACTORY_PROMPTS_DIR } from "./target-root.mjs";
 // resolution via the `deps` it passes to the shared leg runners.
 import {
   combinedOutput,
-  spawnTeeAsync,
   runClaudeLeg as sharedRunClaudeLeg,
   runClaudeLegAsync as sharedRunClaudeLegAsync,
   runCodexLeg as sharedRunCodexLeg,
@@ -1379,14 +1378,47 @@ export function defaultRunGate(issue, cfg) {
 // NON-BLOCKING (spawn, not spawnSync) so a slow gate never freezes the event loop
 // and stalls the other parallel issues (or ages out the integration lock while a
 // sibling holds it). Identical evidence record; only the spawn primitive differs.
+//
+// The gate is a SHELL command (`npm test`), not an agent CLI, so it spawns
+// directly with shell:true — it does NOT go through the agent-leg timeout
+// supervisor (which exists to kill a wedged `codex`/`claude`, and does not run a
+// shell). A pathological gate is still bounded by the surrounding loop's retries.
 export async function defaultRunGateAsync(issue, cfg) {
   const gateCommand = issue.gate_command ?? cfg.defaultGateCommand;
-  const result = await spawnTeeAsync(gateCommand, [], {
-    cwd: execRootOf(cfg),
-    encoding: "utf8",
-    shell: true,
-  });
+  const result = await spawnShellAsync(gateCommand, { cwd: execRootOf(cfg) });
   return writeGateEvidence(issue, cfg, gateCommand, result.status ?? 1);
+}
+
+// Run a shell command NON-BLOCKING, teeing its output, resolving to a
+// spawnSync-shaped result. Used for the parallel gate (a shell string), kept
+// separate from the agent-leg spawn so the gate keeps shell:true and is never
+// subject to the agent-leg timeout policy.
+function spawnShellAsync(command, options = {}) {
+  return new Promise((resolveGate) => {
+    let child;
+    try {
+      child = spawn(command, [], { ...options, shell: true, stdio: ["inherit", "pipe", "pipe"] });
+    } catch (error) {
+      resolveGate({ status: null, stdout: "", stderr: String(error?.message ?? error), error });
+      return;
+    }
+    let stdout = "";
+    let stderr = "";
+    child.stdout?.on("data", (chunk) => {
+      stdout += chunk;
+      process.stdout.write(chunk);
+    });
+    child.stderr?.on("data", (chunk) => {
+      stderr += chunk;
+      process.stderr.write(chunk);
+    });
+    child.on("error", (error) => {
+      resolveGate({ status: null, stdout, stderr: `${stderr}${error?.message ?? error}`, error });
+    });
+    child.on("close", (code) => {
+      resolveGate({ status: code, stdout, stderr });
+    });
+  });
 }
 
 // Write the gate-run evidence record to the MAIN root and return the verdict. One
@@ -1931,6 +1963,7 @@ export async function runLegWithQuotaAsync(runLeg, leg, issue, cfg) {
 export function runIssueCycle(issue, cfg, steps) {
   const { runImplementer, runReviewer, runGate } = steps;
   const allTranscripts = [];
+  let lastTimeoutReason = null;
   for (let attempt = 1; attempt <= cfg.maxRetries; attempt += 1) {
     emit(cfg, {
       event_type: "issue_started",
@@ -1944,6 +1977,7 @@ export function runIssueCycle(issue, cfg, steps) {
     // and never throws. A leg only gives up (quotaBlocked) past the hard cap.
     const implResult = runLegWithQuota(runImplementer, cfg.implementer, issue, cfg);
     if (implResult.quotaBlocked) return quotaBlock(issue, cfg, cfg.implementer, allTranscripts);
+    lastTimeoutReason = legTimeoutReason(implResult) ?? lastTimeoutReason;
 
     emit(cfg, {
       event_type: "review_started",
@@ -1954,6 +1988,7 @@ export function runIssueCycle(issue, cfg, steps) {
     });
     const reviewResult = runLegWithQuota(runReviewer, cfg.reviewer, issue, cfg);
     if (reviewResult.quotaBlocked) return quotaBlock(issue, cfg, cfg.reviewer, allTranscripts);
+    lastTimeoutReason = legTimeoutReason(reviewResult) ?? lastTimeoutReason;
 
     // Only reference transcripts that landed as a non-empty file, so the ledger
     // never points the viewer at a missing or partial transcript (capture can
@@ -2010,7 +2045,7 @@ export function runIssueCycle(issue, cfg, steps) {
     graph_refs: issue.graph_refs,
     actor: cfg.implementer.actor,
     role: cfg.implementer.role,
-    evidence_refs: [writeBlockedEvidence(issue, cfg)],
+    evidence_refs: [writeBlockedEvidence(issue, cfg, lastTimeoutReason)],
     transcript_refs: allTranscripts,
   });
   return { status: "blocked", attempts: cfg.maxRetries, transcripts: allTranscripts };
@@ -2025,6 +2060,7 @@ export function runIssueCycle(issue, cfg, steps) {
 export async function runIssueCycleAsync(issue, cfg, steps) {
   const { runImplementer, runReviewer, runGate } = steps;
   const allTranscripts = [];
+  let lastTimeoutReason = null;
   for (let attempt = 1; attempt <= cfg.maxRetries; attempt += 1) {
     emit(cfg, {
       event_type: "issue_started",
@@ -2035,6 +2071,7 @@ export async function runIssueCycleAsync(issue, cfg, steps) {
     });
     const implResult = await runLegWithQuotaAsync(runImplementer, cfg.implementer, issue, cfg);
     if (implResult.quotaBlocked) return quotaBlock(issue, cfg, cfg.implementer, allTranscripts);
+    lastTimeoutReason = legTimeoutReason(implResult) ?? lastTimeoutReason;
 
     emit(cfg, {
       event_type: "review_started",
@@ -2045,6 +2082,7 @@ export async function runIssueCycleAsync(issue, cfg, steps) {
     });
     const reviewResult = await runLegWithQuotaAsync(runReviewer, cfg.reviewer, issue, cfg);
     if (reviewResult.quotaBlocked) return quotaBlock(issue, cfg, cfg.reviewer, allTranscripts);
+    lastTimeoutReason = legTimeoutReason(reviewResult) ?? lastTimeoutReason;
 
     const transcripts = [implResult?.transcriptRel, reviewResult?.transcriptRel]
       .filter(Boolean)
@@ -2093,18 +2131,31 @@ export async function runIssueCycleAsync(issue, cfg, steps) {
     graph_refs: issue.graph_refs,
     actor: cfg.implementer.actor,
     role: cfg.implementer.role,
-    evidence_refs: [writeBlockedEvidence(issue, cfg)],
+    evidence_refs: [writeBlockedEvidence(issue, cfg, lastTimeoutReason)],
     transcript_refs: allTranscripts,
   });
   return { status: "blocked", attempts: cfg.maxRetries, transcripts: allTranscripts };
 }
 
-function writeBlockedEvidence(issue, cfg) {
+// The timeout reason a leg result carries, if it tripped the per-leg cap/idle
+// watchdog (set by leg-timeout.mjs). Used so a block caused by a wedged CLI says
+// WHY in its evidence, distinct from an ordinary red gate.
+function legTimeoutReason(legResult) {
+  return legResult?.result?.timedOut ? legResult.result.timeoutReason || "leg timed out" : null;
+}
+
+// Record the blocked evidence. When the attempts were exhausted because a leg
+// kept TIMING OUT (a wedged CLI), the reason names the timeout explicitly so a
+// human sees it was a stall, not a genuine failing gate.
+function writeBlockedEvidence(issue, cfg, timeoutReason = null) {
   mkdirSync(abs(cfg.reportsDir), { recursive: true });
   const rel = `${cfg.reportsDir}/${issue.id}-blocked.json`;
+  const reason = timeoutReason
+    ? `${timeoutReason}; still red after ${cfg.maxRetries} attempts`
+    : `gate red after ${cfg.maxRetries} attempts`;
   writeFileSync(
     abs(rel),
-    `${JSON.stringify({ issue_id: issue.id, reason: `gate red after ${cfg.maxRetries} attempts`, at: cfg.now ?? new Date().toISOString() }, null, 2)}\n`,
+    `${JSON.stringify({ issue_id: issue.id, reason, ...(timeoutReason ? { kind: "timeout" } : {}), at: cfg.now ?? new Date().toISOString() }, null, 2)}\n`,
   );
   return rel;
 }

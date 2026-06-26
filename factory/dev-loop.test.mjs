@@ -656,6 +656,33 @@ test("runLoop blocks an issue whose gate stays red after maxRetries and stops", 
   }
 });
 
+test("runLoop: a leg that keeps TIMING OUT is retried, then issue_blocked with the timeout reason (never hangs)", () => {
+  // Reproduces the live 5-hour hang in a hermetic test: the implementer leg comes
+  // back as a leg-timeout.mjs KILL (status 124, timedOut:true) every attempt, and
+  // the gate is red. The loop MUST treat each timeout as a failed attempt, retry
+  // up to maxRetries, then block — naming the timeout — without ever hanging.
+  const { dir, cfg } = buildScratch("false");
+  const timedOutLeg = () => ({
+    result: { status: 124, timedOut: true, timeoutReason: "leg timed out after 45 min (hard cap)" },
+    output: "",
+  });
+  const steps = { runImplementer: timedOutLeg, runReviewer: timedOutLeg, commit: () => {} };
+  try {
+    const processed = runLoop(
+      // Disable the real claude quota probe so no live CLI is spawned in this unit.
+      { ...cfg, maxRetries: 2, claudeQuotaProbeEnabled: false },
+      steps,
+    );
+    assert.deepEqual(processed, [{ id: "ISS-A", status: "blocked" }], "the timed-out issue blocked, the loop did not hang");
+    const blocked = JSON.parse(readFileSync(resolve(repoRoot, `${cfg.reportsDir}/ISS-A-blocked.json`), "utf8"));
+    assert.equal(blocked.kind, "timeout", "the block is attributed to a timeout, not a plain red gate");
+    assert.match(blocked.reason, /leg timed out after 45 min/);
+    assert.match(blocked.reason, /still red after 2 attempts/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 // --- quota / rate-limit handling ---
 
 test("detectRateLimit fires on quota signals and ignores plain test failures", () => {

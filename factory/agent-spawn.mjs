@@ -10,57 +10,36 @@
 //
 // Pure helpers (composePrompt, agentCliArgs) live in dev-loop.mjs and are
 // imported here, so this module owns only the impure spawn + capture surface.
-import { spawn, spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
+import { spawnLegAsync, spawnLegSync } from "./leg-timeout.mjs";
 
 // Spawn an agent leg capturing stdout+stderr while still TEEing them to the
 // console (so the live view is never lost) — we need the text to scan for a
 // rate-limit signal. Returns the spawnSync-style result with `.stdout`/`.stderr`
 // populated (combined text available via `combinedOutput(result)`).
-export function spawnTee(command, args, options) {
-  // pipe (capture) + an `on("data")`-style tee is not available from spawnSync;
-  // we capture via spawnSync's default pipe and re-emit to the parent streams.
-  const result = spawnSync(command, args, { ...options, stdio: ["inherit", "pipe", "pipe"] });
-  if (result.stdout) process.stdout.write(result.stdout);
-  if (result.stderr) process.stderr.write(result.stderr);
-  return result;
+//
+// Every leg runs under leg-timeout.mjs: a hard wall-clock cap AND a stall/idle
+// timeout (whichever trips first), each enforced by killing the leg's WHOLE
+// process group (the CLI spawns children) so a wedged `codex exec`/`claude` can
+// never block the orchestrator forever. A trip returns a structured timeout
+// failure (`timedOut:true`, `timeoutReason`, non-zero status) so the loop treats
+// it as a failed attempt within its existing bounded-retry logic. Pass
+// `options.timeout` ({ capMs, idleMs, graceMs }) to override the env/defaults
+// (tests use tiny values; production uses VIVICY_LEG_TIMEOUT_MS / _IDLE_MS).
+export function spawnTee(command, args, options = {}) {
+  return spawnLegSync(command, args, { cwd: options.cwd, env: options.env, timeout: options.timeout });
 }
 
 // Async sibling of spawnTee: spawn the leg WITHOUT blocking the event loop, so N
 // parallel issues can each have a CLI child running at once (the whole point of
-// the parallel loop — spawnSync would serialize them). Captures stdout+stderr
-// (teeing live to the console) and resolves to the same spawnSync-shaped result
-// ({ status, stdout, stderr }) the rest of the pipeline already understands.
-export function spawnTeeAsync(command, args, options) {
-  return new Promise((resolveLeg) => {
-    let child;
-    try {
-      child = spawn(command, args, { ...options, stdio: ["inherit", "pipe", "pipe"] });
-    } catch (error) {
-      // Mirror spawnSync's error shape so detectRateLimit/quota handling still run.
-      resolveLeg({ status: null, stdout: "", stderr: String(error?.message ?? error), error });
-      return;
-    }
-    let stdout = "";
-    let stderr = "";
-    child.stdout?.on("data", (chunk) => {
-      stdout += chunk;
-      process.stdout.write(chunk);
-    });
-    child.stderr?.on("data", (chunk) => {
-      stderr += chunk;
-      process.stderr.write(chunk);
-    });
-    child.on("error", (error) => {
-      resolveLeg({ status: null, stdout, stderr: `${stderr}${error?.message ?? error}`, error });
-    });
-    child.on("close", (code) => {
-      resolveLeg({ status: code, stdout, stderr });
-    });
-  });
+// the parallel loop — a sync spawn would serialize them). Same timeout +
+// process-group-kill guarantees as spawnTee; resolves to the same leg-result
+// shape ({ status, stdout, stderr, timedOut?, timeoutReason? }).
+export function spawnTeeAsync(command, args, options = {}) {
+  return spawnLegAsync(command, args, { cwd: options.cwd, env: options.env, timeout: options.timeout });
 }
 
 // Combined stdout+stderr text of a leg result (for rate-limit scanning).
