@@ -30,7 +30,117 @@ Author every file below into the **target repo**, all pinned to the frozen basel
    - `status: "issues_generated"` once issues exist (never leave the `pending_llm_semantic_issue_generation` placeholder when issues are present).
    - `issues[]`: each entry has `id`, `title`, `summary` (map-visible — write it for a reader who has not opened the canonical docs), `issue_path`, `requirement_ids` (≥1, all resolving in the catalog), `source_line_refs` (≥1), `depends_on` (must be **acyclic**, every id resolving to another issue), `spike_gates`, `graph_refs` (≥1, each a `node:<id>` that exists in the architecture map), and `verification_gate_ids` (≥1).
 
-6. **Architecture map** — `docs/architecture-map/architecture-map.yml`: the machine-readable nodes/edges/lanes/clusters of the system, derived from the spec. Pin its `source_baseline` to the same frozen manifest. Every `node:<id>` referenced by an issue's `graph_refs` MUST exist here. Match the existing schema in the file if one is present; otherwise follow the method's architecture-map conventions.
+6. **Architecture map** — `docs/architecture-map/architecture-map.yml`: the machine-readable nodes/edges/lanes of the system, derived from the spec. Pin its `source_baseline` to the same frozen manifest. Every `node:<id>` referenced by an issue's `graph_refs` MUST exist here. **This file is parsed by a strict, minimal YAML reader (`generate-viewer-data.ts`'s `parseArchitectureMap`), NOT a general YAML library — author EXACTLY the supported shape below or map generation fails with `Unsupported architecture-map.yml line: …` and the whole extraction is rejected.** The exact supported schema:
+
+   **Top-level keys (indent 0).** Scalars: `version`, `updated`, `name`, `purpose`, `generated_artifact_path`, `evidence_ref_grammar`, `verification_gate_ref_grammar`. List-of-strings sections (each item is `  - "value"` at indent 2): `kind_taxonomy`, `kind_definitions`, `flow_classes`, `high_risk_kinds`, `rules`. Mapping sections: `source_baseline`, `status_legend`, `views`. Record-list sections: `lanes`, `nodes`, `edges`. **No other top-level section is supported.** In particular there is **NO top-level `clusters:` section** — authoring `clusters:` with `- id: …` items is the exact failure that breaks generation. Clusters are expressed PER NODE via the `layout_cluster` field, never as a standalone top-level list.
+
+   - **`source_baseline`** (mapping, indent-2 keys): `id`, `baseline_id`, `baseline_version`, `manifest_path`, `manifest_hash`, `document_set_hash`, `captured_at`, `repo_root`, `source_ref_grammar` (scalars copied from the manifest), plus `included_docs` and `excluded_globs` (each a list of `    - "glob"` at indent 4). These two are the ONLY array fields allowed under `source_baseline`.
+   - **`status_legend`** (mapping): indent-2 `key: "description"` pairs.
+   - **`views`** (mapping): indent-2 view names (e.g. `target:`, `progress:`), each with indent-4 `title:` and `subtitle:`.
+   - **`lanes`** (record list): each `  - id: <lane-id>` then indent-4 fields, e.g. `label`.
+   - **`nodes`** (record list): each `  - id: <node-id>` then indent-4 fields. The `node:<id>` an issue cites in `graph_refs` resolves to a node's `id` here. Node fields: `label`, `kind` (one of `kind_taxonomy`), `lane` (a lane `id`), `order`, `layout_x`, `layout_y`, **`layout_cluster`** (the cluster grouping — a free string id like `"core"`, this is HOW clusters are expressed), `layout_role`, `scope`, `status`, `tech`, `owns_data` (a `["…","…"]` inline array), `source_refs` (a `["path:line"]` inline array; required, must cite pinned-corpus lines).
+   - **`edges`** (record list): each `  - from: <node-id>` then indent-4 fields: `to`, `relation`, `protocol`, `data` (inline array), `source_refs` (inline array).
+
+   **Formatting rules the parser enforces:** two-space indentation only; a list item starts with `  - ` at indent 2 and its remaining fields are plain `    key: value` at indent 4; inline arrays use JSON form `["a", "b"]`; quote string values that contain a colon. Every non-blank, non-comment line must fall into one of the shapes above or generation throws.
+
+   **Minimal correct example** (note: clusters live on each node as `layout_cluster`, never a top-level `clusters:` list):
+
+   ```yaml
+   version: 1
+   updated: "2026-06-22"
+   name: "Example Architecture Map"
+   purpose: "Machine-readable index of the system graph."
+   generated_artifact_path: "docs/architecture-map/viewer/src/architecture-data.json"
+   evidence_ref_grammar: "path[:line][#anchor]"
+   verification_gate_ref_grammar: "^spec/development/(gates|reports)/.+"
+
+   source_baseline:
+     id: "baseline-2026-06-example"
+     baseline_id: "baseline-v1.0.0"
+     baseline_version: "1.0.0"
+     manifest_path: "docs/baselines/baseline-v1.0.0.json"
+     manifest_hash: "<copied-verbatim-from-manifest>"
+     document_set_hash: "<copied-verbatim-from-manifest>"
+     captured_at: "2026-06-22"
+     repo_root: "."
+     included_docs:
+       - "docs/canonical/**/*.md"
+     excluded_globs:
+       - "docs/governance/**"
+     source_ref_grammar: "path[:line][#anchor]"
+
+   kind_taxonomy:
+     - actor
+     - service
+
+   kind_definitions:
+     - "actor: external human that originates intent"
+     - "service: module that owns behavior"
+
+   flow_classes:
+     - "user request to stored record"
+
+   high_risk_kinds:
+
+   rules:
+     - "Edit architecture-map.yml only. Generated viewer data is a build artifact."
+
+   status_legend:
+     not_started: "Documented target, implementation not started."
+     verified: "Implemented and passed required verification gates."
+
+   views:
+     target:
+       title: "Target Architecture"
+       subtitle: "Complete planned system graph."
+     progress:
+       title: "Development Progress"
+       subtitle: "Same graph, colored by progress overlay."
+
+   lanes:
+     - id: entry
+       label: "User Entry"
+     - id: core
+       label: "Core Library"
+
+   nodes:
+     - id: user
+       label: "User"
+       kind: "actor"
+       lane: entry
+       order: 10
+       layout_x: -160
+       layout_y: 0
+       layout_cluster: "entry"
+       layout_role: primary_flow
+       scope: mvp
+       status: not_started
+       tech: "Human user"
+       owns_data: ["request intents"]
+       source_refs: ["docs/canonical/01-architecture.md:21"]
+     - id: service
+       label: "Service"
+       kind: "service"
+       lane: core
+       order: 20
+       layout_x: 200
+       layout_y: 0
+       layout_cluster: "core"
+       layout_role: shared_state
+       scope: mvp
+       status: not_started
+       tech: "Core module"
+       owns_data: ["records"]
+       source_refs: ["docs/canonical/02-model.md:11"]
+
+   edges:
+     - from: user
+       to: service
+       relation: "issues requests"
+       protocol: "Module call"
+       data: ["request record"]
+       source_refs: ["docs/canonical/02-model.md:11"]
+   ```
 
 ## Discipline
 
@@ -41,7 +151,7 @@ Author every file below into the **target repo**, all pinned to the frozen basel
 
 ## When this is a FIX pass
 
-The orchestrator will hand you the **exact deterministic-check output** (from `semantic-extraction-check.mjs` and/or `traceability-check.mjs`) plus the current corpus. Read every error line, locate the precise file and field it names, and correct it — pin mismatches, ref-grammar violations, out-of-range line refs, dependency cycles, uncovered lines, missing catalog requirements, unresolved `requirement_ids`. Do not regress passing parts of the corpus. Re-read the cited canonical lines whenever a fix touches what an issue or exclusion claims about them. Your goal is a corpus where **both gates exit 0**.
+The orchestrator will hand you the **exact mechanical-gate output** — from `semantic-extraction-check.mjs`, `traceability-check.mjs`, and/or the architecture-map generator (`generate-viewer-data.ts`) — plus the current corpus. Read every error line, locate the precise file and field it names, and correct it — pin mismatches, ref-grammar violations, out-of-range line refs, dependency cycles, uncovered lines, missing catalog requirements, unresolved `requirement_ids`. If the feedback contains `architecture-map generation … FAILED` or `Unsupported architecture-map.yml line: …`, your `architecture-map.yml` does not match the strict supported schema in step 6 above — most often you authored a top-level `clusters:` section (use `layout_cluster` per node instead) or an unsupported top-level key / field. Re-author the map to EXACTLY the supported shape so the generator exits 0. Do not regress passing parts of the corpus. Re-read the cited canonical lines whenever a fix touches what an issue or exclusion claims about them. Your goal is a corpus where **the deterministic gates exit 0 AND the architecture map generates cleanly**.
 
 ## Do not
 

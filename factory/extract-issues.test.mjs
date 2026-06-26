@@ -16,7 +16,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, it } from "node:test";
 
-import { extractIssues, findFrozenManifest, formatCheckOutput, formatFixContext } from "./extract-issues.mjs";
+import { extractIssues, findFrozenManifest, formatCheckOutput, formatFixContext, formatMapError } from "./extract-issues.mjs";
 
 const FACTORY_DIR = dirname(fileURLToPath(import.meta.url));
 const FIXTURE = resolve(FACTORY_DIR, "rehearsal/pocket-ledger");
@@ -330,10 +330,13 @@ describe("extractIssues — fidelity fix loop (the independent verifier)", () =>
     assert.match(calls[1].checkOutput, /invented_requirement/);
     assert.match(calls[1].checkOutput, /ISS-0003/);
     assert.equal(result.verdict.faithful, true);
-    assert.equal(seams._calls.mapCalls.length, 1, "map runs once, only on the faithful-green attempt");
+    // Map generation is now a GATE that runs on every deterministic-green attempt
+    // (before fidelity is judged), so it ran on both attempts — once as the gate
+    // for attempt 1 (which then failed fidelity) and once for the faithful attempt 2.
+    assert.equal(seams._calls.mapCalls.length, 2, "the map gate runs on each deterministic-green attempt, before fidelity");
   });
 
-  it("blocks when fidelity STAYS false through the bounded retries, and never maps", async () => {
+  it("blocks when fidelity STAYS false through the bounded retries", async () => {
     seedInputs(temp);
     // Deterministically valid every time, but the verifier never accepts fidelity.
     const { spawnExtractor, calls } = fakeAgent([(ctx) => writeValidCorpus(ctx.repoRoot)]);
@@ -348,7 +351,9 @@ describe("extractIssues — fidelity fix loop (the independent verifier)", () =>
     assert.equal(result.attempts, 3, "initial author + 2 fix retries");
     assert.equal(calls.length, 3, "the extractor was re-prompted up to the bound");
     assert.equal(verifyCalls.length, 3, "the verifier judged every deterministic-green attempt");
-    assert.equal(seams._calls.mapCalls.length, 0, "map never runs when fidelity stays false");
+    // The map gate (which the stub passes) runs on each deterministic-green attempt
+    // before the verifier; fidelity then keeps it from ever reaching green.
+    assert.equal(seams._calls.mapCalls.length, 3, "the map gate runs on each deterministic-green attempt");
     // The blocked report carries the verifier's verdict so a human sees WHY.
     assert.match(result.summary, /extraction_blocked/);
     assert.match(result.summary, /faithful:false/);
@@ -366,9 +371,126 @@ describe("extractIssues — fidelity fix loop (the independent verifier)", () =>
     const result = await extractIssues({ repoRoot: temp, spawnExtractor, spawnVerifier, maxRetries: 1, ...seams });
 
     assert.equal(result.status, "extraction_blocked", "no structured verdict is never a green");
-    assert.equal(seams._calls.mapCalls.length, 0);
+    // The map gate passed on each deterministic-green attempt (maxRetries:1 -> 2
+    // attempts), but the missing verdict keeps it from ever reaching green.
+    assert.equal(seams._calls.mapCalls.length, 2);
     assert.equal(result.verdict.faithful, false);
     assert.match(result.summary, /no_verdict|faithful:false/);
+  });
+});
+
+describe("extractIssues — map-generation GATE (the live-run fragility this fix closes)", () => {
+  // A scripted runGenerateMap seam: perCall[i] is the {code, output} returned on
+  // the i-th map-gen call (the last entry repeats). This lets us simulate the
+  // EXACT live-run failure: the extractor authors a corpus that passes the
+  // deterministic checks AND would pass fidelity, but whose architecture-map.yml
+  // the generator REJECTS (exit 1) — so the attempt must NOT be green.
+  function scriptedMap(perCall) {
+    const calls = [];
+    const runGenerateMap = ({ repoRoot }) => {
+      const result = perCall[Math.min(calls.length, perCall.length - 1)];
+      calls.push({ repoRoot, result });
+      return result;
+    };
+    return { runGenerateMap, calls };
+  }
+
+  const MAP_FAIL = {
+    code: 1,
+    output: "Error: Unsupported architecture-map.yml line:   - id: pipeline",
+  };
+  const MAP_OK = { code: 0, output: "generated" };
+
+  it("map-gen failure is NOT green: extractor is re-prompted with the map error, next attempt's map parses -> green", async () => {
+    seedInputs(temp);
+    // BOTH attempts author a deterministically-VALID corpus AND the verifier always
+    // says faithful:true — so the ONLY thing gating attempt 1 is the map generation.
+    const { spawnExtractor, calls } = fakeAgent([
+      (ctx) => writeValidCorpus(ctx.repoRoot),
+      (ctx) => writeValidCorpus(ctx.repoRoot),
+    ]);
+    const { spawnVerifier, calls: verifyCalls } = alwaysFaithfulVerifier();
+    const { runGenerateMap, calls: mapCalls } = scriptedMap([MAP_FAIL, MAP_OK]);
+    const seams = stubSeams({ runGenerateMap });
+
+    const result = await extractIssues({ repoRoot: temp, spawnExtractor, spawnVerifier, maxRetries: 3, ...seams });
+
+    assert.equal(result.status, "green");
+    assert.equal(result.attempts, 2, "attempt 1 (map fail) is not green; attempt 2 (map ok) is");
+    assert.equal(calls.length, 2, "the EXTRACTOR (not the verifier) was re-prompted to fix the map");
+    // The map gate ran on BOTH attempts (deterministic checks passed each time).
+    assert.equal(mapCalls.length, 2, "map generation ran as a gate on each deterministic-green attempt");
+    // The fix pass received the EXACT generator error verbatim.
+    assert.equal(calls[1].isFix, true);
+    assert.ok(calls[1].checkOutput, "fix pass got feedback");
+    assert.match(calls[1].checkOutput, /architecture-map generation/);
+    assert.match(calls[1].checkOutput, /Unsupported architecture-map\.yml line:\s+- id: pipeline/);
+    // The map failure short-circuits the verifier on attempt 1 (no point judging
+    // fidelity of a corpus whose map cannot even be generated); it runs only on the
+    // attempt whose map parses.
+    assert.equal(verifyCalls.length, 1, "verifier runs only on the map-clean attempt");
+    assert.equal(verifyCalls[0].attempt, 2);
+    // The green result reflects the clean map and the new, non-contradictory summary.
+    assert.equal(result.map.code, 0);
+    assert.match(result.summary, /map regenerated/);
+    assert.match(result.summary, /faithful:true/);
+    // The contradictory "green with map FAILED" outcome no longer exists.
+    assert.doesNotMatch(result.summary, /map FAILED/i);
+  });
+
+  it("GREEN requires deterministic + map + fidelity all clean (proven by withholding each one)", async () => {
+    // Single source of the happy corpus; we flip exactly one gate per sub-case.
+    async function run({ corpus, verdict, map }) {
+      const root = mkdtempSync(join(tmpdir(), "vivicy-extract-gate-"));
+      try {
+        seedInputs(root);
+        const { spawnExtractor } = fakeAgent([(ctx) => corpus(ctx.repoRoot)]);
+        const { spawnVerifier } = fakeVerifier([verdict]);
+        const { runGenerateMap } = scriptedMap([map]);
+        const seams = stubSeams({ runGenerateMap });
+        return await extractIssues({ repoRoot: root, spawnExtractor, spawnVerifier, maxRetries: 0, ...seams });
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+      }
+    }
+
+    // All three clean -> green.
+    const allGreen = await run({ corpus: writeValidCorpus, verdict: { faithful: true, problems: [] }, map: MAP_OK });
+    assert.equal(allGreen.status, "green", "all three gates clean is green");
+
+    // Deterministic red (pin mismatch) -> blocked, even with map ok + faithful.
+    const detRed = await run({ corpus: writeInvalidCorpus, verdict: { faithful: true, problems: [] }, map: MAP_OK });
+    assert.equal(detRed.status, "extraction_blocked", "a deterministic failure is never green");
+
+    // Map red -> blocked, even with deterministic green + faithful.
+    const mapRed = await run({ corpus: writeValidCorpus, verdict: { faithful: true, problems: [] }, map: MAP_FAIL });
+    assert.equal(mapRed.status, "extraction_blocked", "a map-gen failure is never green");
+    assert.match(mapRed.summary, /Unsupported architecture-map\.yml line/);
+
+    // Fidelity red -> blocked, even with deterministic green + map ok.
+    const fidRed = await run({ corpus: writeValidCorpus, verdict: { faithful: false, problems: [{ issue: "ISS-0001", kind: "scope_drift", detail: "broadens scope" }] }, map: MAP_OK });
+    assert.equal(fidRed.status, "extraction_blocked", "a fidelity failure is never green");
+  });
+
+  it("blocks when the map STAYS unparseable through the bounded retries, and never reaches the verifier", async () => {
+    seedInputs(temp);
+    const { spawnExtractor, calls } = fakeAgent([(ctx) => writeValidCorpus(ctx.repoRoot)]);
+    const { spawnVerifier, calls: verifyCalls } = alwaysFaithfulVerifier();
+    const { runGenerateMap, calls: mapCalls } = scriptedMap([MAP_FAIL]); // never recovers
+    const seams = stubSeams({ runGenerateMap });
+
+    const result = await extractIssues({ repoRoot: temp, spawnExtractor, spawnVerifier, maxRetries: 2, ...seams });
+
+    assert.equal(result.status, "extraction_blocked");
+    assert.equal(result.attempts, 3, "initial author + 2 fix retries");
+    assert.equal(calls.length, 3, "the extractor was re-prompted on every map-fail attempt");
+    assert.equal(mapCalls.length, 3, "the map gate ran on every deterministic-green attempt");
+    assert.equal(verifyCalls.length, 0, "a failing map short-circuits the fidelity verifier every time");
+    // The blocked report carries the EXACT map error so a human sees WHY.
+    assert.match(result.summary, /extraction_blocked/);
+    assert.match(result.summary, /architecture-map generation/);
+    assert.match(result.summary, /Unsupported architecture-map\.yml line/);
+    assert.equal(result.map.code, 1);
   });
 });
 
@@ -490,10 +612,39 @@ describe("formatFixContext (combined deterministic + fidelity feedback)", () => 
     assert.doesNotMatch(text, /semantic-extraction-check: ok/);
   });
 
-  it("is honest when there is neither check nor verdict output", () => {
-    assert.equal(formatFixContext(null, null), "(no check or verdict output)");
+  it("is honest when there is neither check, map, nor verdict output", () => {
+    assert.equal(formatFixContext(null, null), "(no check, map, or verdict output)");
     // A faithful:true verdict is not a problem to feed back.
-    assert.equal(formatFixContext(null, { faithful: true, problems: [] }), "(no check or verdict output)");
+    assert.equal(formatFixContext(null, { faithful: true, problems: [] }), "(no check, map, or verdict output)");
+    // A code-0 map is not a problem to feed back.
+    assert.equal(formatFixContext(null, null, { code: 0, output: "generated" }), "(no check, map, or verdict output)");
+  });
+
+  it("includes the map-generation error (and not a passing deterministic block) on a map-only failure", () => {
+    const text = formatFixContext(
+      // deterministic GREEN
+      { semantic: { exitCode: 0, placeholder: false, summary: "ok" }, traceability: { exitCode: 0, summary: "ok" } },
+      null,
+      { code: 1, output: "Error: Unsupported architecture-map.yml line:   - id: pipeline" },
+    );
+    assert.match(text, /architecture-map generation/);
+    assert.match(text, /FAILED \(exit 1\)/);
+    assert.match(text, /Unsupported architecture-map\.yml line:\s+- id: pipeline/);
+    // The passing deterministic checks are NOT re-fed as if they were the problem.
+    assert.doesNotMatch(text, /semantic-extraction-check: ok/);
+  });
+});
+
+describe("formatMapError", () => {
+  it("returns null for a clean (code 0) map generation", () => {
+    assert.equal(formatMapError({ code: 0, output: "generated" }), null);
+    assert.equal(formatMapError(null), null);
+  });
+
+  it("flattens a failed map generation with its exact generator output", () => {
+    const text = formatMapError({ code: 1, output: "Error: Unsupported architecture-map.yml line:   - id: pipeline" });
+    assert.match(text, /generate-viewer-data\.ts.*FAILED \(exit 1\)/);
+    assert.match(text, /Unsupported architecture-map\.yml line:\s+- id: pipeline/);
   });
 });
 

@@ -23,24 +23,37 @@
 //                           the full corpus (Requirement Catalog, Traceability
 //                           Matrix, line exclusions, vertical issues, issue index,
 //                           arch map).
-//   3. VALIDATE (det.)     — run the two deterministic checks. They own the FIRST
-//                           verdict (line coverage, pin integrity, DAG, schema).
-//   4. VERIFY (verifier)   — on a deterministic GREEN, spawn the INDEPENDENT
-//                           verifier leg (the reviewer CLI, e.g. Codex). It judges
-//                           FIDELITY: do each issue's source_line_refs really cite
-//                           the canonical lines? Is every issue a faithful, ISO
-//                           restatement of exactly that content (nothing invented,
-//                           nothing silently dropped, no scope drift)? Do the
-//                           requirement_ids / graph_refs match, and does the arch
-//                           map reflect the spec? It writes a STRUCTURED verdict
-//                           JSON. The extraction is GREEN only when the
-//                           deterministic checks pass AND the verdict is
-//                           faithful:true.
-//   5. FIX LOOP            — on a red check OR an unfaithful verdict, re-spawn the
-//                           EXTRACTOR with the EXACT check output / verdict
-//                           problems + the current corpus to FIX, bounded retries;
-//                           stop with extraction_blocked if still red/unfaithful.
-//   6. MAP                 — on green, regenerate architecture-data.json.
+//   3. VALIDATE (mechanical) — run the two deterministic checks AND regenerate the
+//                           architecture map (generate-viewer-data.ts). Together
+//                           they own the FIRST verdict: line coverage, pin
+//                           integrity, DAG, schema, AND that the authored
+//                           architecture-map.yml actually PARSES into viewer data
+//                           (exit 0). A map that fails to generate (e.g. an
+//                           unsupported architecture-map.yml line) is a RED
+//                           mechanical gate — its exact error is fed back to the
+//                           EXTRACTOR like any other check failure. This closes a
+//                           live-run fragility: the extractor once authored a
+//                           top-level `clusters:` section the parser rejects, the
+//                           deterministic checks + fidelity verifier both passed,
+//                           and the run was reported "green with map FAILED" — map
+//                           generation ran only AFTER green, never as a gate, so the
+//                           malformed map never triggered a fix. It is now a gate.
+//   4. VERIFY (verifier)   — on a mechanical GREEN (checks pass AND map generates),
+//                           spawn the INDEPENDENT verifier leg (the reviewer CLI,
+//                           e.g. Codex). It judges FIDELITY: do each issue's
+//                           source_line_refs really cite the canonical lines? Is
+//                           every issue a faithful, ISO restatement of exactly that
+//                           content (nothing invented, nothing silently dropped, no
+//                           scope drift)? Do the requirement_ids / graph_refs match,
+//                           and does the arch map reflect the spec? It writes a
+//                           STRUCTURED verdict JSON. The extraction is GREEN only
+//                           when the deterministic checks pass AND the map generates
+//                           cleanly AND the verdict is faithful:true.
+//   5. FIX LOOP            — on a red check, a map-gen failure, OR an unfaithful
+//                           verdict, re-spawn the EXTRACTOR with the EXACT check
+//                           output / map error / verdict problems + the current
+//                           corpus to FIX, bounded retries; stop with
+//                           extraction_blocked if still red/unfaithful.
 //
 // The verifier reuses the SAME shared reviewer-leg infra the dev-loop uses
 // (runCodexLeg via agent-spawn.mjs) and honors the configurable role -> CLI
@@ -80,9 +93,11 @@ const DEFAULT_MAX_RETRIES = 3;
 const EXTRACTOR_ISSUE_ID = "EXTRACTION";
 
 /**
- * Drive freeze -> author -> validate -> verify-fidelity -> fix -> map for the
- * target project, as a two-agent loop (extractor authors, independent verifier
- * judges fidelity).
+ * Drive freeze -> author -> validate (checks + map gen) -> verify-fidelity -> fix
+ * for the target project, as a two-agent loop (extractor authors, independent
+ * verifier judges fidelity). The extraction is GREEN only when the deterministic
+ * checks pass AND the architecture map generates cleanly (exit 0) AND the verdict
+ * is faithful:true.
  *
  * Injectable seams (all default to the real tooling):
  *   spawnExtractor({ repoRoot, manifestPath, cfg, attempt, checkOutput, isFix })
@@ -93,7 +108,7 @@ const EXTRACTOR_ISSUE_ID = "EXTRACTION";
  *   runSemanticCheck({ repoRoot })                 -> { exitCode, errors, warnings, summary }
  *   runTraceability({ repoRoot })                  -> { exitCode, errors, summary }
  *   readVerdict({ repoRoot })                      -> { faithful, problems } | null
- *   runGenerateMap({ repoRoot })                   -> { code, output }
+ *   runGenerateMap({ repoRoot })                   -> { code, output }   (mechanical GATE: code 0 required for green)
  *   emitStatus(status, repoRoot)                   -> persists extraction status
  *
  * `options.spawnAgent` is still accepted as a back-compat alias for
@@ -101,7 +116,7 @@ const EXTRACTOR_ISSUE_ID = "EXTRACTION";
  * working.
  *
  * @returns {{ status: "green"|"extraction_blocked", attempts, manifestPath,
- *             baselineId, checks, verdict, transcripts, summary }}
+ *             baselineId, checks, map, verdict, transcripts, summary }}
  */
 export async function extractIssues(options = {}) {
   const repoRoot = options.repoRoot;
@@ -148,6 +163,7 @@ export async function extractIssues(options = {}) {
 
   // --- 2/3/4/5. Author -> validate -> verify fidelity -> fix loop -----------
   let lastChecks = null;
+  let lastMap = null;
   let lastVerdict = null;
   const maxAttempts = maxRetries + 1; // the initial author + up to maxRetries fixes
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
@@ -155,12 +171,16 @@ export async function extractIssues(options = {}) {
     record({ phase: isFix ? "fixing" : "authoring", attempt });
 
     // On a fix pass, feed BACK whatever made the previous attempt non-green: the
-    // deterministic check output and/or the fidelity verdict problems.
-    const fixContext = isFix ? formatFixContext(lastChecks, lastVerdict) : null;
+    // deterministic check output, the map-gen error, and/or the fidelity verdict.
+    const fixContext = isFix ? formatFixContext(lastChecks, lastVerdict, lastMap) : null;
     const leg = await spawnExtractor({ repoRoot, manifestPath, baselineId, cfg, attempt, checkOutput: fixContext, isFix });
     if (leg?.transcriptRel) transcripts.push(leg.transcriptRel);
 
-    // --- Deterministic checks (first verdict: coverage / pins / DAG / schema) ---
+    // --- Mechanical gate: deterministic checks AND map generation -------------
+    // The first verdict is fully mechanical: coverage / pins / DAG / schema (the
+    // two checks) AND that the authored architecture-map.yml actually generates
+    // into viewer data (exit 0). Run the checks first, then map generation; both
+    // must pass before the fidelity verifier is worth spawning.
     record({ phase: "validating", attempt });
     const semantic = runSemanticCheck({ repoRoot });
     const traceability = runTraceability({ repoRoot });
@@ -169,9 +189,23 @@ export async function extractIssues(options = {}) {
     // The semantic checker treats an unchanged placeholder index as exit 0 +
     // placeholder:true — the agent authored nothing usable. Treat it as a failed
     // attempt so the fix loop re-prompts rather than declaring success. A red
-    // deterministic check short-circuits the verifier (no point judging fidelity
-    // of a corpus that fails coverage/pins) and re-prompts the extractor.
+    // deterministic check short-circuits map-gen and the verifier (no point
+    // generating a map or judging fidelity of a corpus that fails coverage/pins)
+    // and re-prompts the extractor.
     if (!deterministicGreen) {
+      lastMap = null;
+      lastVerdict = null;
+      continue;
+    }
+
+    // Map generation is a GATE, not a post-green afterthought: a corpus whose
+    // architecture-map.yml the parser rejects (e.g. an unsupported top-level
+    // `clusters:` section) is NOT green. Feed the exact generator error back to the
+    // EXTRACTOR like any other mechanical failure.
+    record({ phase: "mapping", attempt });
+    const map = runGenerateMap({ repoRoot });
+    lastMap = map;
+    if (map.code !== 0) {
       lastVerdict = null;
       continue;
     }
@@ -190,9 +224,7 @@ export async function extractIssues(options = {}) {
       continue;
     }
 
-    // --- 6. Map (only on deterministic-green AND faithful:true) --------------
-    record({ phase: "mapping", attempt });
-    const map = runGenerateMap({ repoRoot });
+    // --- Green: deterministic checks PASS, map generates, fidelity faithful ----
     const status = {
       status: "green",
       attempts: attempt,
@@ -203,7 +235,7 @@ export async function extractIssues(options = {}) {
       verdict,
       map,
       transcripts,
-      summary: `extraction green after ${attempt} attempt(s): ${countIssues(repoRoot)} issue(s); verifier faithful:true; map ${map.code === 0 ? "regenerated" : `FAILED (code ${map.code})`}`,
+      summary: `extraction green after ${attempt} attempt(s): ${countIssues(repoRoot)} issue(s); deterministic checks pass; map regenerated; verifier faithful:true`,
     };
     record({ phase: "green", attempt, summary: status.summary });
     return status;
@@ -217,11 +249,12 @@ export async function extractIssues(options = {}) {
     baselineId,
     froze,
     checks: lastChecks ? { semantic: lastChecks.semantic, traceability: lastChecks.traceability } : null,
+    map: lastMap,
     verdict: lastVerdict,
     transcripts,
     summary:
       `extraction_blocked: the extraction was still not green after ${maxAttempts} attempt(s). ` +
-      formatFixContext(lastChecks, lastVerdict),
+      formatFixContext(lastChecks, lastVerdict, lastMap),
   };
   record({ phase: "extraction_blocked", attempt: maxAttempts, summary: status.summary });
   return status;
@@ -499,11 +532,27 @@ export function formatVerdict(verdict) {
   return parts.join("\n");
 }
 
+// Flatten a FAILED architecture-map generation into a readable block the fix
+// prompt hands to the extractor. The generator's output carries the exact reason
+// (e.g. "Unsupported architecture-map.yml line:   - id: pipeline"), which the
+// extractor needs verbatim to author a parseable map.
+export function formatMapError(map) {
+  if (!map || map.code === 0) return null;
+  const detail = (map.output ?? "").trim();
+  return (
+    `architecture-map generation (generate-viewer-data.ts): FAILED (exit ${map.code})\n` +
+    `  The authored docs/architecture-map/architecture-map.yml did NOT parse into viewer data. ` +
+    `Fix the map so generate-viewer-data.ts exits 0. Exact generator output:\n` +
+    (detail ? `${detail.split("\n").map((l) => `  ${l}`).join("\n")}` : "  (no generator output captured)")
+  );
+}
+
 // Build the combined feedback block for a FIX pass / the blocked report: the
-// deterministic check output AND/OR the fidelity verdict problems, whichever made
-// the previous attempt non-green. Either part may be absent (a red deterministic
-// check short-circuits the verifier, so there is no verdict that round).
-export function formatFixContext(checks, verdict) {
+// deterministic check output, the map-generation error, AND/OR the fidelity
+// verdict problems, whichever made the previous attempt non-green. Any part may be
+// absent (a red deterministic check short-circuits map-gen and the verifier; a
+// map-gen failure short-circuits the verifier).
+export function formatFixContext(checks, verdict, map) {
   const blocks = [];
   // Only include the deterministic block when it actually failed (a green
   // deterministic check that was then rejected on fidelity should not re-feed
@@ -513,9 +562,11 @@ export function formatFixContext(checks, verdict) {
     const traceGreen = checks.traceability?.exitCode === 0;
     if (!(semGreen && traceGreen)) blocks.push(formatCheckOutput(checks));
   }
+  const mapBlock = formatMapError(map);
+  if (mapBlock) blocks.push(mapBlock);
   const verdictBlock = formatVerdict(verdict);
   if (verdictBlock && verdict?.faithful !== true) blocks.push(verdictBlock);
-  if (blocks.length === 0) return "(no check or verdict output)";
+  if (blocks.length === 0) return "(no check, map, or verdict output)";
   return blocks.join("\n\n");
 }
 
