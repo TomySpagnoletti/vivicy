@@ -6,7 +6,8 @@ import assert from "node:assert/strict";
 import test, { after } from "node:test";
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { relative, resolve } from "node:path";
+import { dirname, relative, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   agentCliArgs,
   buildArchitectureIndex,
@@ -19,9 +20,13 @@ import {
   CONFLICT_DISTANCE_FAR,
   DEFAULT_CONFIG,
   DEFAULT_QUOTA_PATTERNS,
+  defaultCreateWorktree,
+  defaultRemoveWorktree,
+  defaultResetWorktreeFrozenArtifacts,
   defaultRunImplementer,
   defaultRunReviewer,
   dependenciesSatisfied,
+  frozenIntegrationPaths,
   detectRateLimit,
   footprintDistance,
   issueClaim,
@@ -1734,6 +1739,183 @@ test("runLoopParallel keeps the ledger consistent under many concurrent completi
     assert.equal((ledger.active_items ?? []).length, 0, "no dangling active items");
   } finally {
     rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// --------------------------------------------------------------------------
+// Integration guard: frozen-artifact edits in a worktree are neutralized at merge
+// --------------------------------------------------------------------------
+
+// Seed + commit a FROZEN extraction artifact at the MAIN repo root so worktrees
+// branch from a HEAD that already contains it (the real layout: the frozen corpus
+// is committed before development starts). Returns the repo-relative path and a
+// cleanup that restores the corpus to its baseline after the test. The path is one
+// of the literal frozen prefixes the guard protects (spec/requirements/), so the
+// real git-backed reset exercises the production path set, not a test-only stub.
+function seedFrozenArtifact(relPath, baseline) {
+  ensureRepoRootGit();
+  const git = (a) => spawnSync("git", a, { cwd: repoRoot, encoding: "utf8" });
+  const abs = resolve(repoRoot, relPath);
+  mkdirSync(dirname(abs), { recursive: true });
+  writeFileSync(abs, baseline);
+  git(["add", "--", relPath]);
+  git(["commit", "-qm", `seed frozen ${relPath}`]);
+  return {
+    relPath,
+    baseline,
+    headContent: () => readFileSync(abs, "utf8"),
+    cleanup: () => {
+      // Remove the frozen file from the tree + index and commit so later tests start
+      // clean. Best-effort; the per-test scratch teardown handles the rest.
+      spawnSync("git", ["rm", "-q", "-f", "--", relPath], { cwd: repoRoot, encoding: "utf8" });
+      spawnSync("git", ["commit", "-qm", `unseed frozen ${relPath}`], { cwd: repoRoot, encoding: "utf8" });
+    },
+  };
+}
+
+test("frozenIntegrationPaths covers the locked extraction corpus, not loop lifecycle files", () => {
+  const paths = frozenIntegrationPaths({ issueIndexPath: "spec/development/issue-index.json" });
+  // The locked extraction corpus is protected.
+  for (const p of [
+    "docs/canonical/",
+    "docs/baselines/",
+    "spec/requirements/",
+    "docs/architecture-map/architecture-map.yml",
+    "spec/development/issue-index.json",
+  ]) {
+    assert.ok(paths.includes(p), `frozen set includes ${p}`);
+  }
+  // The loop's OWN lifecycle dirs + package.json are deliberately NOT frozen here.
+  for (const notFrozen of [
+    "spec/development/issues",
+    "spec/development/issues/done",
+    "spec/development/progress-ledger.json",
+    "spec/development/gates",
+    "package.json",
+  ]) {
+    assert.ok(!paths.includes(notFrozen), `${notFrozen} is loop-managed / dependency-bearing, never auto-discarded`);
+  }
+});
+
+test("defaultResetWorktreeFrozenArtifacts drops a worktree's frozen-artifact edit while keeping legit src changes", () => {
+  const frozenRel = "spec/requirements/catalog.json";
+  const frozen = seedFrozenArtifact(frozenRel, `${JSON.stringify({ requirements: ["R1"] }, null, 2)}\n`);
+  const issues = [{ id: "ISS-FZ", depends_on: [], graph_refs: ["node:fz"] }];
+  const { dir, scratchRel, cfg } = buildParallelScratch({ issues });
+  try {
+    // Make a real worktree branched from the integration head (which now has the
+    // baseline frozen file), then have the "agent" edit BOTH the frozen artifact
+    // (out of scope) AND a legitimate src file (in scope).
+    const created = defaultCreateWorktree(issues[0], cfg);
+    const wtFrozen = resolve(created.worktreeRoot, frozenRel);
+    writeFileSync(wtFrozen, `${JSON.stringify({ requirements: ["R1", "INJECTED-DRIFT"] }, null, 2)}\n`);
+    const legitRel = `${scratchRel}/gen/impl.txt`;
+    mkdirSync(resolve(created.worktreeRoot, scratchRel, "gen"), { recursive: true });
+    writeFileSync(resolve(created.worktreeRoot, legitRel), "legit implementation\n");
+    // Commit the worktree work exactly as the loop does before integration.
+    spawnSync("git", ["add", "-A"], { cwd: created.worktreeRoot, encoding: "utf8" });
+    spawnSync("git", ["commit", "-qm", "ISS-FZ: work + drift"], { cwd: created.worktreeRoot, encoding: "utf8" });
+
+    // The guard: it must report it reset something, restore the frozen file to the
+    // integration-head version IN THE WORKTREE, and leave the legit change intact.
+    const didReset = defaultResetWorktreeFrozenArtifacts(issues[0], cfg, created.worktreeRoot);
+    assert.equal(didReset, true, "guard reported it neutralized a frozen-artifact edit");
+    assert.equal(readFileSync(wtFrozen, "utf8"), frozen.baseline, "frozen file reset to integration head in the worktree");
+    assert.equal(
+      readFileSync(resolve(created.worktreeRoot, legitRel), "utf8"),
+      "legit implementation\n",
+      "legitimate src change is preserved (not discarded by the guard)",
+    );
+    // The reset is committed on the worktree branch, so the tree is clean (the merge
+    // will carry the legit change and see the frozen path identical to the head).
+    const status = spawnSync("git", ["status", "--porcelain"], { cwd: created.worktreeRoot, encoding: "utf8" });
+    assert.equal((status.stdout ?? "").trim(), "", "guard committed the reset; worktree tree is clean");
+
+    // A SECOND call is a clean no-op: nothing left to reset, no empty commit.
+    const again = defaultResetWorktreeFrozenArtifacts(issues[0], cfg, created.worktreeRoot);
+    assert.equal(again, false, "no frozen edit remaining -> guard is a no-op");
+
+    defaultRemoveWorktree(issues[0], cfg, created.worktreeRoot, created.branch);
+  } finally {
+    frozen.cleanup();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("runLoopParallel: two parallel branches both editing a frozen artifact integrate WITHOUT a conflict (edits dropped, legit work kept)", async () => {
+  const frozenRel = "spec/requirements/traceability-matrix.json";
+  const frozen = seedFrozenArtifact(frozenRel, `${JSON.stringify({ matrix: "BASELINE" }, null, 2)}\n`);
+  // Two fully-independent issues. Both fake agents gratuitously rewrite the SAME
+  // frozen file (different content) AND write their own disjoint legit file. Before
+  // the guard, the second branch to merge would collide on the frozen file; with the
+  // guard, each frozen edit is dropped at integration, so both merge cleanly.
+  const issues = [
+    { id: "ISS-P", depends_on: [], graph_refs: ["node:p"] },
+    { id: "ISS-Q", depends_on: [], graph_refs: ["node:q"] },
+  ];
+  const { dir, scratchRel, cfg } = buildParallelScratch({ issues });
+  const driftingLegs = () => {
+    const leg = (who) => async (issue, c) => {
+      await new Promise((r) => setTimeout(r, 10));
+      if (c?.execRoot) {
+        // Out-of-scope: clobber the shared frozen artifact (the real fragility).
+        writeFileSync(
+          resolve(c.execRoot, frozenRel),
+          `${JSON.stringify({ matrix: `DRIFT-${issue.id}-${who}` }, null, 2)}\n`,
+        );
+        // In-scope: a disjoint legit file the merge SHOULD carry.
+        const genDir = resolve(c.execRoot, scratchRel, "gen");
+        mkdirSync(genDir, { recursive: true });
+        writeFileSync(resolve(genDir, `${issue.id}.txt`), `${who} ${issue.id}\n`);
+      }
+      return { output: `${who} ${issue.id}`, result: { status: 0 } };
+    };
+    return { runImplementer: leg("impl"), runReviewer: leg("rev") };
+  };
+  try {
+    const processed = await runLoopParallel(
+      { ...cfg, maxParallel: 2, defaultGateCommand: "true" },
+      { ...driftingLegs(), skipWorktreeIgnore: true },
+    );
+    const byId = Object.fromEntries(processed.map((p) => [p.id, p.status]));
+    // Both verified — NO integration conflict from the shared frozen-file edits.
+    assert.equal(byId["ISS-P"], "verified", "ISS-P integrated despite editing the frozen file");
+    assert.equal(byId["ISS-Q"], "verified", "ISS-Q integrated despite editing the frozen file");
+    assert.ok(
+      !existsSync(resolve(repoRoot, `${cfg.reportsDir}/ISS-P-blocked.json`)) &&
+        !existsSync(resolve(repoRoot, `${cfg.reportsDir}/ISS-Q-blocked.json`)),
+      "no integration-conflict block was written for either branch",
+    );
+    // The frozen artifact at the integration head is UNCHANGED (spec drift prevented).
+    assert.equal(frozen.headContent(), frozen.baseline, "frozen artifact at HEAD is byte-identical to its baseline");
+    // The legitimate disjoint work from BOTH branches landed on main.
+    for (const id of ["ISS-P", "ISS-Q"]) {
+      assert.ok(
+        existsSync(resolve(repoRoot, scratchRel, "gen", `${id}.txt`)),
+        `${id}'s legit file was integrated onto main`,
+      );
+    }
+  } finally {
+    frozen.cleanup();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("the implementer and reviewer prompts pin the frozen-corpus read-only scope", () => {
+  const read = (name) => readFileSync(fileURLToPath(new URL(`./prompts/${name}`, import.meta.url)), "utf8");
+  for (const name of ["implementer.md", "reviewer.md"]) {
+    const text = read(name);
+    assert.match(text, /FROZEN/, `${name} declares the corpus FROZEN`);
+    assert.match(text, /READ-ONLY/, `${name} declares the corpus READ-ONLY`);
+    // The protected path set is named explicitly so the agent cannot misread it —
+    // every frozen prefix frozenIntegrationPaths() guards must be spelled out.
+    assert.match(text, /spec\/requirements/, `${name} names spec/requirements as frozen`);
+    assert.match(text, /docs\/canonical/, `${name} names docs/canonical as frozen`);
+    assert.match(text, /docs\/baselines/, `${name} names docs/baselines as frozen`);
+    assert.match(text, /issue-index\.json/, `${name} names the issue index as frozen`);
+    assert.match(text, /architecture-map\.yml/, `${name} names the architecture map as frozen`);
+    // package.json: only a real new runtime dependency justifies touching it.
+    assert.match(text, /package\.json/, `${name} addresses package.json scope`);
   }
 });
 

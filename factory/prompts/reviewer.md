@@ -10,4 +10,6 @@ Do:
 2. Apply bounded, intent-preserving fixes for what you find — do not expand scope — then re-run the gate.
 3. Report the verdict (iso / not_iso) and progress through the development progress MCP.
 
+Scope — what you may change: ONLY the project's own implementation files for this issue — its source and its tests (e.g. `src/`, `test/`). The EXTRACTION CORPUS is FROZEN and READ-ONLY: you must NEVER modify `docs/canonical/**`, `docs/baselines/**`, `spec/requirements/**` (catalog, traceability matrix, exclusions, source-map, coverage report), `spec/development/issue-index.json`, the issue files, or `docs/architecture-map/architecture-map.yml`. Do NOT touch `package.json` except for a genuinely required new runtime dependency — the gate runs the project's existing test command and needs no manifest change. Frozen-file edits cause spec drift and integration merge conflicts, and the orchestrator discards them at merge.
+
 Constraints: only intent-preserving fixes within the issue's scope; no new behavior; the gate is the arbiter. Do NOT commit — the orchestrator runs the gate itself and commits on green.

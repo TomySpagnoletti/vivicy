@@ -276,6 +276,34 @@ export const DEFAULT_CONFIG = {
   claudeQuotaProbeMinIntervalMs: 30 * 60 * 1000, // 30 minutes
 };
 
+// The FROZEN EXTRACTION CORPUS: the spec artifacts that are locked at freeze and
+// MUST stay byte-identical across every parallel worktree during implementation —
+// the canonical docs, the doc baselines, the requirement extraction outputs
+// (catalog, traceability matrix, exclusions, source-map, coverage report), the
+// issue index, and the architecture map. The implementer/reviewer prompts forbid
+// editing them, but a misbehaving agent in an isolated worktree could still touch
+// one; if two worktrees each edit such a shared+frozen file, their branches
+// collide at integration (the real failure that motivated this guard). The loop
+// therefore treats any worktree edit to these paths as out-of-scope and NEUTRALIZES
+// it before merge (resetWorktreeFrozenArtifacts), so a frozen-file edit is a no-op
+// at integration and can never cause spec drift OR a frozen-file merge conflict.
+//
+// These are repo-root-relative path PREFIXES (a trailing "/" means "the whole
+// subtree"; a bare path means that exact file). They are derived from cfg so a
+// project that relocates an artifact stays covered. NOT frozen here: the loop's OWN
+// lifecycle files (issues/, done/, ledger, gates, reports, transcripts) — the loop
+// manages those — and package.json, which a legitimate new runtime dependency may
+// need (the prompt scope handles the gratuitous case; we never auto-discard it).
+export function frozenIntegrationPaths(cfg) {
+  return [
+    "docs/canonical/",
+    "docs/baselines/",
+    "spec/requirements/",
+    "docs/architecture-map/architecture-map.yml",
+    cfg.issueIndexPath ?? DEFAULT_CONFIG.issueIndexPath,
+  ];
+}
+
 // Rate-limit / quota-exhaustion signals. Neither `claude` nor `codex` exposes a
 // non-interactive usage API, so the only robust signal is the failure itself:
 // we scan a FAILED leg's combined stdout+stderr (case-insensitive) for these.
@@ -1447,6 +1475,64 @@ export function defaultCreateWorktree(issue, cfg) {
   return { worktreeRoot, branch };
 }
 
+// Integration guard (defense-in-depth): before merging a green worktree branch,
+// DISCARD any edits it made to the FROZEN extraction corpus so a misbehaving agent
+// can never cause spec drift OR a frozen-file merge conflict. We restore each
+// frozen path to its version at the integration head (the merge target = the main
+// repo's current HEAD, which the worktree branched from) inside the WORKTREE, then
+// commit that restore on the worktree branch. After this, the worktree branch and
+// the integration head agree byte-for-byte on every frozen path, so the subsequent
+// merge has nothing to conflict on there — the agent's frozen edit is a clean no-op
+// — while its legitimate src/test changes still merge normally. `--` is a no-op for
+// paths the branch never touched. Run with the main root's HEAD as the base ref;
+// callers hold the integration lock so the base does not move underneath us.
+// Returns true if any frozen path was reset (a commit was made), false otherwise.
+// Exported for direct unit testing of the neutralization in isolation.
+export function defaultResetWorktreeFrozenArtifacts(issue, cfg, worktreeRoot) {
+  const root = requireRepoRoot();
+  // The merge target: the integration branch the loop commits onto, by name when
+  // available (still mergeable as a detached sha otherwise). Its tree is the
+  // authoritative version of every frozen path.
+  const base = currentBranch(root);
+  // Restore each frozen path from the integration head into the worktree's working
+  // tree + index. We MUST checkout per-path, not as one batch: `git checkout <base>
+  // -- <a> <b>` ABORTS the WHOLE command (restoring nothing) if ANY pathspec is
+  // absent in <base>, and the frozen set is deliberately broad (a given project may
+  // not have every artifact, e.g. no docs/baselines/). Per-path, a path missing
+  // from <base> is an isolated, benign no-op and never blocks neutralizing a path
+  // that IS present. `git checkout <base> -- <path>` only reads that path, so it
+  // never switches the worktree branch and is safe under the integration lock.
+  const paths = frozenIntegrationPaths(cfg);
+  for (const path of paths) {
+    spawnSync("git", ["checkout", base, "--", path], { cwd: worktreeRoot, encoding: "utf8" });
+  }
+  // Whatever the per-path checkouts staged is the set of frozen edits we neutralized
+  // (a path the branch never diverged on stages nothing).
+  const staged = spawnSync("git", ["diff", "--cached", "--name-only"], {
+    cwd: worktreeRoot,
+    encoding: "utf8",
+  });
+  const changed = (staged.stdout ?? "").trim();
+  if (changed.length === 0) {
+    // The branch left every frozen path untouched (the common, well-behaved case):
+    // nothing to neutralize, nothing to commit. The empty staged diff is the source
+    // of truth; a per-path checkout's nonzero status for an absent path is benign.
+    return false;
+  }
+  // Commit the reset on the worktree branch so the merge sees frozen paths as
+  // identical to the integration head. Scope the commit to the frozen paths only
+  // (already staged by the checkout) so unrelated legitimate work is never folded in.
+  spawnSync(
+    "git",
+    ["commit", "-m", `${issue.id}: drop out-of-scope frozen-artifact edits before integration`],
+    { cwd: worktreeRoot, encoding: "utf8" },
+  );
+  process.stderr.write(
+    `[parallel] ${issue.id}: discarded out-of-scope frozen-artifact edits before integration:\n  ${changed.split("\n").join("\n  ")}\n`,
+  );
+  return true;
+}
+
 // Integrate a green worktree branch onto the integration branch on the MAIN root.
 // Returns { ok, conflict, message }. A non-clean merge is ABORTED (leaving main
 // untouched) and reported as a conflict so the caller blocks only this issue and
@@ -2145,6 +2231,12 @@ export async function runLoopParallel(userConfig = {}, steps = {}) {
     integrateWorktree: steps.integrateWorktree ?? ((issue, branch) => defaultIntegrateWorktree(issue, cfg, branch)),
     removeWorktree:
       steps.removeWorktree ?? ((issue, worktreeRoot, branch) => defaultRemoveWorktree(issue, cfg, worktreeRoot, branch)),
+    // Integration guard: neutralize out-of-scope frozen-artifact edits in the
+    // worktree before merge (see defaultResetWorktreeFrozenArtifacts). Injectable
+    // so tests can observe/skip it; defaults to the real git-backed reset.
+    resetFrozenArtifacts:
+      steps.resetFrozenArtifacts ??
+      ((issue, worktreeRoot) => defaultResetWorktreeFrozenArtifacts(issue, cfg, worktreeRoot)),
   };
 
   // Keep parallel worktrees out of the main tree's status/`git add -A`.
@@ -2191,6 +2283,12 @@ export async function runLoopParallel(userConfig = {}, steps = {}) {
       const commit = steps.commit ?? ((iss, c) => defaultCommit(iss, c ?? issueCfg));
       commit(issue, issueCfg);
       return await withIntegrationLock(cfg, () => {
+        // Defense-in-depth: under the lock (so the merge target is stable), discard
+        // any out-of-scope edits this worktree made to the FROZEN extraction corpus,
+        // resetting them to the integration head. This makes a frozen-artifact edit a
+        // clean no-op at merge — it can never cause spec drift or a frozen-file
+        // conflict — while the worktree's legitimate src/test changes still merge.
+        wt.resetFrozenArtifacts(issue, created.worktreeRoot);
         const merge = wt.integrateWorktree(issue, created.branch);
         if (!merge.ok) {
           writeIntegrationBlock(issue, cfg, `integration conflict: ${merge.message}`);

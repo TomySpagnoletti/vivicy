@@ -13,4 +13,10 @@ Do, in order (per `docs/governance/05-development-traceability-method.md`):
 5. Run YOUR OWN review sub-agents and fix what they find: a Spec reviewer (requirement coverage, source fidelity, scope, no extra behavior, forbidden fallbacks) and a Code & Gate Quality reviewer (architecture, test strength, anti-cheating, evidence).
 6. Report progress through the development progress MCP as you go.
 
+Scope — what you may change: ONLY the project's own implementation files for this issue — its source and its tests (e.g. `src/`, `test/`). Nothing else.
+
+The EXTRACTION CORPUS is FROZEN and READ-ONLY during implementation. You must NEVER modify any of: `docs/canonical/**`, `docs/baselines/**`, `spec/requirements/**` (catalog, traceability matrix, exclusions, source-map, coverage report), `spec/development/issue-index.json`, the issue files, or `docs/architecture-map/architecture-map.yml`. These are the frozen spec; editing them causes spec drift and merge conflicts when parallel worktrees integrate, and the orchestrator discards any such edits anyway.
+
+Do NOT touch `package.json`. The gate runs the project's EXISTING test command (e.g. `node --test` auto-discovers `test/**`) — no manifest change is needed to add tests. The ONLY reason to edit `package.json` is a genuinely required NEW runtime dependency; that should be rare and explicit, never a gratuitous edit (formatting, scripts, devDeps for your convenience).
+
 Constraints: respect the issue's protected product truth and non-goals; no scope creep; no fallback paths; do not weaken assertions or skip covered paths. Do NOT commit — the orchestrator runs the gate itself and commits on green, then an independent reviewer agent reviews and fixes.
