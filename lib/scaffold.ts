@@ -209,6 +209,13 @@ docs/architecture-map/viewer/src/architecture-data.json
 spec/requirements/source-map.json
 spec/requirements/coverage-report.json
 spec/requirements/coverage-report.md
+
+# Transient extraction-orchestrator status. Written live during freeze -> author
+# -> verify; never committed as corpus (and committing it would dirty the tree the
+# freeze step requires clean). Only this one status file is ignored — the rest of
+# spec/development/reports/ (gate-run evidence, quota state, verdicts) is real
+# evidence that IS tracked.
+spec/development/reports/extraction-status.json
 `
 }
 

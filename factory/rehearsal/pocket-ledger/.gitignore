@@ -6,3 +6,9 @@ docs/architecture-map/viewer/src/architecture-data.json
 spec/requirements/source-map.json
 spec/requirements/coverage-report.json
 spec/requirements/coverage-report.md
+
+# Transient extraction-orchestrator status (freeze -> author -> verify). Never
+# committed; committing it would also dirty the tree the freeze step requires
+# clean. Only this one status file is ignored — gate-run evidence and fidelity
+# verdicts elsewhere under reports/ stay tracked.
+spec/development/reports/extraction-status.json
