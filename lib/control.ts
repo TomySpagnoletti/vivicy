@@ -151,10 +151,20 @@ export interface DevStatus {
   [key: string]: unknown
 }
 
-/** One step of the extraction sequence. */
-export interface ExtractStep {
-  name: string
-  code: number | null
+/**
+ * Outcome of a full extraction run (freeze -> author -> verify -> map). `ok` is
+ * true only when the orchestrator reached green; `blocked` is true when the
+ * deterministic checks stayed red after the bounded retries (a human must look) —
+ * surfaced honestly to the caller rather than hidden behind a generic failure.
+ */
+export interface ExtractResult {
+  ok: boolean
+  blocked: boolean
+  /** Terminal phase the orchestrator reported: "green" | "extraction_blocked". */
+  status: string
+  /** One-line human summary (issue count on green, the failing checks on block). */
+  summary: string
+  /** The orchestrator's raw last stdout line (provenance for the UI). */
   lastLine: string
 }
 
@@ -178,9 +188,10 @@ const LOG_FILE = "supervisor.log"
 
 const SUPERVISOR_SCRIPT = "dev-loop-supervised.mjs"
 const STATUS_SCRIPT = "dev-status.mjs"
-const SEMANTIC_SCRIPT = "semantic-extraction-check.mjs"
-const TRACEABILITY_SCRIPT = "traceability-check.mjs"
-const GENERATE_MAP_SCRIPT = "generate-viewer-data.ts"
+// The single orchestrator that AUTHORS the issues from the frozen spec, then
+// validates and regenerates the map (freeze -> author -> verify -> map). The
+// agent leg lives inside this script; the control plane only launches it.
+const EXTRACT_SCRIPT = "extract-issues.mjs"
 
 /** Resolve the in-package factory root (vivicy/factory by default). */
 export function getFactoryRoot(): string {
@@ -422,40 +433,69 @@ export async function readDevStatus(
   return { ...parsed, run_active: isRunActive(spawner) }
 }
 
+/** Repo-relative status the extraction orchestrator writes as it runs. */
+const EXTRACTION_STATUS_FILE = "spec/development/reports/extraction-status.json"
+
 /**
- * Run the deterministic extraction VERIFICATION + map regeneration in order:
- *   1. semantic-extraction-check.mjs
- *   2. traceability-check.mjs
- *   3. generate-viewer-data.ts
- * Each step runs regardless of the previous one's exit code so the caller sees
- * every result; the response carries each step's code + last line.
+ * AUTHOR the issues from the frozen canonical spec, then validate and regenerate
+ * the map. This drives the single `extract-issues.mjs` orchestrator, which:
+ *   1. freezes docs/canonical/** if no frozen baseline exists (else reuses it),
+ *   2. spawns a real agent to author the full corpus (catalog, matrix, exclusions,
+ *      vertical issues, issue index, architecture map),
+ *   3. runs the deterministic checks (semantic-extraction + traceability),
+ *   4. re-prompts the agent to FIX on a red check (bounded retries), and
+ *   5. regenerates architecture-data.json on green.
+ *
+ * The agent leg lives INSIDE the orchestrator; this control plane only launches
+ * the script through the injected {@link Spawner} (so tests never spawn an agent).
+ * The blocked case — checks still red after the retries — is surfaced honestly via
+ * {@link ExtractResult.blocked}, read back from the status file the orchestrator
+ * writes, never hidden behind a generic failure.
  */
-export async function runExtract(spawner: Spawner): Promise<ExtractStep[]> {
+export async function runExtract(spawner: Spawner): Promise<ExtractResult> {
   const { factoryRoot, targetRoot } = resolveContext()
   if (!existsSync(targetRoot)) {
     throw new ControlError(`target root does not exist: ${targetRoot}`, "missing_target")
   }
+  const command = resolveScript(factoryRoot, EXTRACT_SCRIPT)
 
-  const steps: Array<{ name: string; script: string }> = [
-    { name: "semantic-extraction-check", script: SEMANTIC_SCRIPT },
-    { name: "traceability-check", script: TRACEABILITY_SCRIPT },
-    { name: "generate-viewer-data", script: GENERATE_MAP_SCRIPT },
-  ]
+  const result = await spawner.run({
+    command: process.execPath,
+    args: [command],
+    cwd: factoryRoot,
+    env: devEnv(targetRoot),
+  })
 
-  const out: ExtractStep[] = []
-  for (const step of steps) {
-    const command = resolveScript(factoryRoot, step.script)
-    const result = await spawner.run({
-      command: process.execPath,
-      args: [command],
-      cwd: factoryRoot,
-      env: devEnv(targetRoot),
-    })
-    out.push({
-      name: step.name,
-      code: result.code,
-      lastLine: result.lastLine || result.stderr.trim().split("\n").filter(Boolean).at(-1) || "",
-    })
+  const lastLine =
+    result.lastLine || result.stderr.trim().split("\n").filter(Boolean).at(-1) || ""
+
+  // The orchestrator exits 0 on green and non-zero when blocked or erroring; the
+  // status file it writes is the source of truth for WHICH terminal state. Read it
+  // back so the UI can tell "blocked for a human" from a transient script error.
+  const status = readExtractionStatus(targetRoot)
+  const blocked = status?.phase === "extraction_blocked"
+  const ok = result.code === 0 && status?.phase === "green"
+
+  return {
+    ok,
+    blocked,
+    // Never claim "green" without a green status file backing it: a 0 exit with no
+    // (or unparseable) status is an honest "error", not a silent success.
+    status: status?.phase ?? "error",
+    summary: status?.summary ?? lastLine,
+    lastLine,
   }
-  return out
+}
+
+/** Read the orchestrator's terminal status file (best-effort). */
+function readExtractionStatus(
+  targetRoot: string
+): { phase?: string; summary?: string } | null {
+  const file = path.join(targetRoot, EXTRACTION_STATUS_FILE)
+  if (!existsSync(file)) return null
+  try {
+    return JSON.parse(readFileSync(file, "utf8")) as { phase?: string; summary?: string }
+  } catch {
+    return null
+  }
 }

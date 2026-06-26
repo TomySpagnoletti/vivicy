@@ -61,9 +61,7 @@ function scaffoldFactory(root: string) {
   for (const rel of [
     "dev-loop-supervised.mjs",
     "dev-status.mjs",
-    "semantic-extraction-check.mjs",
-    "traceability-check.mjs",
-    "generate-viewer-data.ts",
+    "extract-issues.mjs",
   ]) {
     writeFileSync(path.join(root, rel), "// stub\n")
   }
@@ -293,52 +291,65 @@ describe("readDevStatus", () => {
   })
 })
 
+/** Write the status file the extraction orchestrator emits, so runExtract reads
+ *  the terminal state back exactly as it would in production. */
+function writeExtractionStatus(phase: string, summary: string) {
+  const file = path.join(targetRoot, "spec/development/reports/extraction-status.json")
+  mkdirSync(path.dirname(file), { recursive: true })
+  writeFileSync(file, JSON.stringify({ phase, summary }, null, 2))
+}
+
 describe("runExtract", () => {
-  it("sequences the three steps in order with VIVICY_TARGET_ROOT=target", async () => {
-    const seen: string[] = []
+  it("drives the single extract-issues orchestrator with VIVICY_TARGET_ROOT=target and reports green", async () => {
+    let seenScript = ""
     const { spawner } = makeFakeSpawner({
       run: async ({ args, env }) => {
-        const script = args.find((a) => a.endsWith(".mjs") || a.endsWith(".ts")) ?? ""
-        seen.push(path.basename(script))
+        seenScript = path.basename(args.find((a) => a.endsWith(".mjs")) ?? "")
         expect(env.VIVICY_TARGET_ROOT).toBe(targetRoot)
-        return { code: 0, lastLine: `${path.basename(script)} OK`, stdout: "OK\n", stderr: "" }
+        // The orchestrator writes its terminal status, then exits 0 on green.
+        writeExtractionStatus("green", "extraction green after 1 attempt(s): 8 issue(s)")
+        return { code: 0, lastLine: "extraction green", stdout: "extraction green\n", stderr: "" }
       },
     })
 
-    const steps = await runExtract(spawner)
+    const result = await runExtract(spawner)
 
-    expect(seen).toEqual([
-      "semantic-extraction-check.mjs",
-      "traceability-check.mjs",
-      "generate-viewer-data.ts",
-    ])
-    expect(steps.map((s) => s.name)).toEqual([
-      "semantic-extraction-check",
-      "traceability-check",
-      "generate-viewer-data",
-    ])
-    expect(steps.every((s) => s.code === 0)).toBe(true)
+    expect(seenScript).toBe("extract-issues.mjs")
+    expect(result.ok).toBe(true)
+    expect(result.blocked).toBe(false)
+    expect(result.status).toBe("green")
+    expect(result.summary).toMatch(/8 issue/)
   })
 
-  it("runs every step even when an earlier one fails, surfacing each code", async () => {
-    let n = 0
+  it("surfaces the blocked case honestly when the orchestrator stays red", async () => {
     const { spawner } = makeFakeSpawner({
-      run: async ({ args }) => {
-        const script = path.basename(args.find((a) => a.endsWith(".mjs") || a.endsWith(".ts")) ?? "")
-        const code = n++ === 0 ? 1 : 0 // first step fails
-        return { code, lastLine: `${script}: ${code === 0 ? "OK" : "FAIL"}`, stdout: "", stderr: code ? "fail" : "" }
+      run: async () => {
+        writeExtractionStatus("extraction_blocked", "extraction_blocked: checks still red after 4 attempt(s)")
+        return { code: 1, lastLine: "extraction_blocked", stdout: "", stderr: "blocked\n" }
       },
     })
 
-    const steps = await runExtract(spawner)
-    expect(steps).toHaveLength(3)
-    expect(steps[0].code).toBe(1)
-    expect(steps[1].code).toBe(0)
-    expect(steps[2].code).toBe(0)
+    const result = await runExtract(spawner)
+
+    expect(result.ok).toBe(false)
+    expect(result.blocked).toBe(true)
+    expect(result.status).toBe("extraction_blocked")
+    expect(result.summary).toMatch(/extraction_blocked/)
   })
 
-  it("fails clearly when a script is missing", async () => {
-    rmSync(path.join(factoryRoot, "traceability-check.mjs"))
+  it("reports a non-blocked failure when the orchestrator errors without a status file", async () => {
+    const { spawner } = makeFakeSpawner({
+      run: async () => ({ code: 1, lastLine: "boom", stdout: "", stderr: "boom\n" }),
+    })
+
+    const result = await runExtract(spawner)
+    expect(result.ok).toBe(false)
+    expect(result.blocked).toBe(false)
+    expect(result.status).toBe("error")
+  })
+
+  it("fails clearly when the orchestrator script is missing", async () => {
+    rmSync(path.join(factoryRoot, "extract-issues.mjs"))
     const { spawner } = makeFakeSpawner()
     await expect(runExtract(spawner)).rejects.toThrow(ControlError)
   })

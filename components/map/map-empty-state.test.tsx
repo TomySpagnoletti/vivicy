@@ -17,8 +17,8 @@ describe("MapEmptyState — guidance per empty reason", () => {
 
   test("no_map shows the run-Extract guidance and an enabled Extract button", () => {
     render(<MapEmptyState reason="no_map" onExtract={vi.fn()} />)
-    expect(screen.getByText("No architecture map yet")).toBeInTheDocument()
-    expect(screen.getByText(/Run Extract to generate it from docs\//)).toBeInTheDocument()
+    expect(screen.getByText("No issues extracted yet")).toBeInTheDocument()
+    expect(screen.getByText(/authors the full plan/)).toBeInTheDocument()
     const extract = screen.getByRole("button", { name: "Extract from docs" })
     expect(extract).toBeEnabled()
   })
@@ -54,7 +54,7 @@ describe("MapEmptyState — guidance per empty reason", () => {
 
   test("no Extract button when onExtract is omitted, even for an extractable reason", () => {
     render(<MapEmptyState reason="no_map" />)
-    expect(screen.getByText("No architecture map yet")).toBeInTheDocument()
+    expect(screen.getByText("No issues extracted yet")).toBeInTheDocument()
     expect(screen.queryByRole("button")).toBeNull()
   })
 })

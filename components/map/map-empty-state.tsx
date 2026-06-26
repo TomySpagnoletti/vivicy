@@ -79,8 +79,8 @@ const COPY: Record<
   },
   no_map: {
     icon: Workflow,
-    title: "No architecture map yet",
-    body: "The map is produced from the canonical docs in this project. Run Extract to generate it from docs/, then the architecture graph appears here.",
+    title: "No issues extracted yet",
+    body: "Extract reads the frozen canonical spec in docs/ and authors the full plan — requirements, vertical issues, and the architecture map. Run it to generate the graph, then it appears here.",
   },
   empty_map: {
     icon: MapPin,

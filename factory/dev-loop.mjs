@@ -18,11 +18,9 @@
 //
 // Agent/gate/commit steps are injectable (opts) so the flow is unit-tested with
 // fast deterministic stubs; the defaults invoke the real claude / codex CLIs.
-import { spawn, spawnSync } from "node:child_process";
-import { randomUUID } from "node:crypto";
+import { spawnSync } from "node:child_process";
 import {
   closeSync,
-  copyFileSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -36,13 +34,24 @@ import {
   writeFileSync,
   writeSync,
 } from "node:fs";
-import { homedir, platform, tmpdir } from "node:os";
+import { platform, tmpdir } from "node:os";
 import { dirname, isAbsolute, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { atomicWriteJson } from "./atomic-write.mjs";
 import { recordProgressEvent } from "./progress-ledger.mjs";
 import { checkSkills } from "./dev-preflight.mjs";
 import { resolveTargetRoot, FACTORY_PROMPTS_DIR } from "./target-root.mjs";
+// Shared agent-leg spawn + transcript-capture primitives (one owner, reused by
+// the extractor in extract-issues.mjs). dev-loop binds them to its own root
+// resolution via the `deps` it passes to the shared leg runners.
+import {
+  combinedOutput,
+  spawnTeeAsync,
+  runClaudeLeg as sharedRunClaudeLeg,
+  runClaudeLegAsync as sharedRunClaudeLegAsync,
+  runCodexLeg as sharedRunCodexLeg,
+  runCodexLegAsync as sharedRunCodexLegAsync,
+} from "./agent-spawn.mjs";
 
 // The target project the loop drives (agents cwd, gate, paths all resolve there).
 // VIVICY_TARGET_ROOT selects it (NAIGHT_DEV_ROOT is the legacy alias); unset =>
@@ -1229,127 +1238,23 @@ function listDoneFiles(cfg) {
   return new Set(readdirSync(doneAbs).filter((name) => name.endsWith(".md")));
 }
 
-function readPrompt(cfg, name) {
-  // Role prompts are bundled with the factory (cfg.promptsDir is an absolute
-  // factory path), independent of which target project the loop is building.
-  return readFileSync(resolve(cfg.promptsDir, `${name}.md`), "utf8");
-}
 
 // --------------------------------------------------------------------------
 // Real steps (default implementations; overridable for tests)
 // --------------------------------------------------------------------------
 
-// Spawn an agent leg capturing stdout+stderr while still TEEing them to the
-// console (so the live view is never lost) — we need the text to scan for a
-// rate-limit signal. Returns the spawnSync-style result with `.stdout`/`.stderr`
-// populated (combined text available via `combinedOutput(result)`).
-function spawnTee(command, args, options) {
-  // pipe (capture) + an `on("data")`-style tee is not available from spawnSync;
-  // we capture via spawnSync's default pipe and re-emit to the parent streams.
-  const result = spawnSync(command, args, { ...options, stdio: ["inherit", "pipe", "pipe"] });
-  if (result.stdout) process.stdout.write(result.stdout);
-  if (result.stderr) process.stderr.write(result.stderr);
-  return result;
-}
-
-// Async sibling of spawnTee: spawn the leg WITHOUT blocking the event loop, so N
-// parallel issues can each have a CLI child running at once (the whole point of
-// the parallel loop — spawnSync would serialize them). Captures stdout+stderr
-// (teeing live to the console) and resolves to the same spawnSync-shaped result
-// ({ status, stdout, stderr }) the rest of the pipeline already understands.
-function spawnTeeAsync(command, args, options) {
-  return new Promise((resolveLeg) => {
-    let child;
-    try {
-      child = spawn(command, args, { ...options, stdio: ["inherit", "pipe", "pipe"] });
-    } catch (error) {
-      // Mirror spawnSync's error shape so detectRateLimit/quota handling still run.
-      resolveLeg({ status: null, stdout: "", stderr: String(error?.message ?? error), error });
-      return;
-    }
-    let stdout = "";
-    let stderr = "";
-    child.stdout?.on("data", (chunk) => {
-      stdout += chunk;
-      process.stdout.write(chunk);
-    });
-    child.stderr?.on("data", (chunk) => {
-      stderr += chunk;
-      process.stderr.write(chunk);
-    });
-    child.on("error", (error) => {
-      resolveLeg({ status: null, stdout, stderr: `${stderr}${error?.message ?? error}`, error });
-    });
-    child.on("close", (code) => {
-      resolveLeg({ status: code, stdout, stderr });
-    });
-  });
-}
-
-// Combined stdout+stderr text of a leg result (for rate-limit scanning).
-function combinedOutput(result) {
-  return `${result?.stdout ?? ""}\n${result?.stderr ?? ""}`;
-}
-
-// Env injected into each agent leg so its lifecycle hooks know the issue, actor,
-// role, session, and ledger paths to report against — identity is config-driven,
-// not chosen by the agent.
-function agentEnv(issue, cfg, leg) {
-  return {
-    ...process.env,
-    PROGRESS_ISSUE_ID: issue.id,
-    PROGRESS_GRAPH_REFS: (issue.graph_refs ?? []).join(","),
-    PROGRESS_ACTOR: leg.actor,
-    PROGRESS_ROLE: leg.role,
-    PROGRESS_SESSION_REF: `${leg.actor}:${issue.id}`,
-    PROGRESS_ISSUE_INDEX_PATH: cfg.issueIndexPath,
-    PROGRESS_PROGRESS_LEDGER_PATH: cfg.progressLedgerPath,
-  };
-}
-
-function ensureTranscriptDir(issue, cfg) {
-  mkdirSync(abs(`${cfg.transcriptsDir}/${issue.id}`), { recursive: true });
-}
-
-// Locate the Claude session transcript JSONL by its session id across the CLI's
-// project dirs (the dir-name encoding varies), and copy it into our store.
-function captureClaudeTranscript(uuid, destAbs) {
-  const projectsDir = resolve(homedir(), ".claude", "projects");
-  if (!existsSync(projectsDir)) return false;
-  for (const sub of readdirSync(projectsDir)) {
-    const candidate = resolve(projectsDir, sub, `${uuid}.jsonl`);
-    if (existsSync(candidate)) {
-      copyFileSync(candidate, destAbs);
-      // Treat a 0-byte copy (session file not yet flushed) as not captured.
-      try {
-        return statSync(destAbs).size > 0;
-      } catch {
-        return false;
-      }
-    }
-  }
-  return false;
-}
+// The agent-leg spawn + transcript-capture primitives are shared with the
+// extractor (extract-issues.mjs) so the model/effort flags, max-permission flags,
+// MCP wiring, actor/role env, and transcript capture are defined ONCE in
+// agent-spawn.mjs and never diverge between the two drivers. dev-loop.mjs binds
+// them to its own root resolution (abs/execRootOf) via the `deps` it passes.
 
 // Spawn ONE leg with the Claude Code CLI, for whichever role it was assigned
 // (R12). Claude headless writes the full native session transcript keyed by
 // --session-id; we copy it into our gitignored store. The transcript is named
 // `claude-<role>-…` so the file reflects the actual CLI + role pairing.
 function runClaudeLeg(leg, issue, cfg) {
-  const prompt = composePrompt(readPrompt(cfg, leg.role), issue);
-  const uuid = randomUUID();
-  const transcriptRel = `${cfg.transcriptsDir}/${issue.id}/claude-${leg.role}-${uuid}.jsonl`;
-  const args = ["-p", prompt, "--dangerously-skip-permissions", "--session-id", uuid];
-  if (cfg.mcpConfigPath) args.push("--mcp-config", cfg.mcpConfigPath);
-  // Latest model + user-chosen thinking level: `--model <id> --effort <level>`.
-  args.push(...agentCliArgs("claude", leg));
-  // Run in the issue's EXECUTION root: the worktree for a parallel issue, the main
-  // root in the sequential path. The transcript is captured by --session-id (a
-  // per-leg UUID), so concurrent claude legs never cross-capture.
-  const result = spawnTee("claude", args, { cwd: execRootOf(cfg), env: agentEnv(issue, cfg, leg), encoding: "utf8" });
-  ensureTranscriptDir(issue, cfg);
-  const captured = captureClaudeTranscript(uuid, abs(transcriptRel));
-  return { result, output: combinedOutput(result), transcriptRel: captured ? transcriptRel : undefined };
+  return sharedRunClaudeLeg(leg, issue, cfg, legDeps(cfg, issue));
 }
 
 // Spawn ONE leg with the Codex CLI, for whichever role it was assigned (R12).
@@ -1358,29 +1263,23 @@ function runClaudeLeg(leg, issue, cfg) {
 // `codex exec --json` (which can hang) and lands the transcript at the path/format
 // we want instead of the date-partitioned default.
 function runCodexLeg(leg, issue, cfg) {
-  const prompt = composePrompt(readPrompt(cfg, leg.role), issue);
-  const transcriptRel = `${cfg.transcriptsDir}/${issue.id}/codex-${leg.role}-${randomUUID()}.jsonl`;
-  // Run codex in the issue's EXECUTION root (worktree for a parallel issue, main
-  // root sequentially); -C pins the same dir so the rollout records that cwd.
+  return sharedRunCodexLeg(leg, issue, cfg, legDeps(cfg, issue));
+}
+
+// Bind the shared spawn helpers to dev-loop's own root resolution: `abs` and the
+// execution root (the issue's worktree for a parallel issue, the main root in the
+// sequential path), the transcript dir under that issue, and — for codex under
+// concurrency — the cwd filter so a sibling leg's rollout is never mis-captured.
+function legDeps(cfg, issue) {
   const root = execRootOf(cfg);
-  const args = ["exec", prompt, "--dangerously-bypass-approvals-and-sandbox", "-C", root, "--skip-git-repo-check"];
-  // Latest model + user-chosen thinking level: `-m <id> -c model_reasoning_effort="<level>"`.
-  args.push(...agentCliArgs("codex", leg));
-  const startMs = Date.now();
-  const result = spawnTee("codex", args, { cwd: root, env: agentEnv(issue, cfg, leg), encoding: "utf8" });
-  ensureTranscriptDir(issue, cfg);
-  const output = combinedOutput(result);
-  // Codex has no per-run rollout id flag, so we locate this leg's rollout by mtime
-  // since the spawn AND (under concurrency) by the worktree cwd it recorded, so a
-  // sibling codex leg's rollout in another worktree is never mis-captured. The cwd
-  // filter is only applied when parallel (cfg.execRoot set); sequentially the
-  // original newest-since-start heuristic is unchanged.
-  const rollout = findNewestCodexRollout(startMs, cfg.execRoot ? root : null);
-  if (rollout) {
-    copyFileSync(rollout, abs(transcriptRel));
-    return { result, output, transcriptRel };
-  }
-  return { result, output, transcriptRel: undefined };
+  return {
+    composePrompt,
+    agentCliArgs,
+    abs,
+    execRoot: root,
+    transcriptDirAbs: issue ? abs(`${cfg.transcriptsDir}/${issue.id}`) : undefined,
+    cwdFilter: cfg.execRoot ? root : null,
+  };
 }
 
 // Dispatch a leg to the CLI assigned to its role (R12). The CLI is `leg.provider`
@@ -1414,43 +1313,12 @@ export function defaultRunReviewer(issue, cfg) {
 // one in every respect but blocking.
 // --------------------------------------------------------------------------
 
-async function runClaudeLegAsync(leg, issue, cfg) {
-  const prompt = composePrompt(readPrompt(cfg, leg.role), issue);
-  const uuid = randomUUID();
-  const transcriptRel = `${cfg.transcriptsDir}/${issue.id}/claude-${leg.role}-${uuid}.jsonl`;
-  const args = ["-p", prompt, "--dangerously-skip-permissions", "--session-id", uuid];
-  if (cfg.mcpConfigPath) args.push("--mcp-config", cfg.mcpConfigPath);
-  args.push(...agentCliArgs("claude", leg));
-  const result = await spawnTeeAsync("claude", args, {
-    cwd: execRootOf(cfg),
-    env: agentEnv(issue, cfg, leg),
-    encoding: "utf8",
-  });
-  ensureTranscriptDir(issue, cfg);
-  const captured = captureClaudeTranscript(uuid, abs(transcriptRel));
-  return { result, output: combinedOutput(result), transcriptRel: captured ? transcriptRel : undefined };
+function runClaudeLegAsync(leg, issue, cfg) {
+  return sharedRunClaudeLegAsync(leg, issue, cfg, legDeps(cfg, issue));
 }
 
-async function runCodexLegAsync(leg, issue, cfg) {
-  const prompt = composePrompt(readPrompt(cfg, leg.role), issue);
-  const transcriptRel = `${cfg.transcriptsDir}/${issue.id}/codex-${leg.role}-${randomUUID()}.jsonl`;
-  const root = execRootOf(cfg);
-  const args = ["exec", prompt, "--dangerously-bypass-approvals-and-sandbox", "-C", root, "--skip-git-repo-check"];
-  args.push(...agentCliArgs("codex", leg));
-  const startMs = Date.now();
-  const result = await spawnTeeAsync("codex", args, {
-    cwd: root,
-    env: agentEnv(issue, cfg, leg),
-    encoding: "utf8",
-  });
-  ensureTranscriptDir(issue, cfg);
-  const output = combinedOutput(result);
-  const rollout = findNewestCodexRollout(startMs, cfg.execRoot ? root : null);
-  if (rollout) {
-    copyFileSync(rollout, abs(transcriptRel));
-    return { result, output, transcriptRel };
-  }
-  return { result, output, transcriptRel: undefined };
+function runCodexLegAsync(leg, issue, cfg) {
+  return sharedRunCodexLegAsync(leg, issue, cfg, legDeps(cfg, issue));
 }
 
 function runAssignedLegAsync(leg, issue, cfg) {
@@ -1465,78 +1333,6 @@ export function defaultRunImplementerAsync(issue, cfg) {
 
 export function defaultRunReviewerAsync(issue, cfg) {
   return runAssignedLegAsync(cfg.reviewer, issue, cfg);
-}
-
-// The rollout created during this leg = newest .jsonl under ~/.codex/sessions with
-// mtime at or after the run start. Sequentially (one codex at a time) the newest
-// since start is unambiguous. Under concurrency, pass `cwdFilter` (the leg's
-// worktree root): we then only accept a rollout whose recorded session cwd matches
-// that worktree, so a SIBLING codex leg running in another worktree is never
-// mis-captured. A rollout that records no cwd still matches (best-effort) so the
-// filter never drops a legitimately-empty capture.
-function findNewestCodexRollout(sinceMs, cwdFilter = null) {
-  const base = resolve(homedir(), ".codex", "sessions");
-  if (!existsSync(base)) return null;
-  let best = null;
-  let bestMtime = sinceMs - 1;
-  const walk = (dir) => {
-    let entries;
-    try {
-      entries = readdirSync(dir, { withFileTypes: true });
-    } catch {
-      return; // dir vanished or unreadable mid-walk
-    }
-    for (const entry of entries) {
-      const full = resolve(dir, entry.name);
-      if (entry.isDirectory()) {
-        walk(full);
-      } else if (entry.name.endsWith(".jsonl")) {
-        let mtime;
-        try {
-          mtime = statSync(full).mtimeMs;
-        } catch {
-          continue; // file removed between readdir and stat
-        }
-        if (mtime >= sinceMs && mtime > bestMtime && rolloutMatchesCwd(full, cwdFilter)) {
-          best = full;
-          bestMtime = mtime;
-        }
-      }
-    }
-  };
-  walk(base);
-  return best;
-}
-
-// Does a codex rollout file belong to a session launched in `cwdFilter`? Codex
-// records the session cwd in its first `session_meta` line. With no filter (the
-// sequential path) every rollout matches. A rollout that records no parseable cwd
-// matches too, so the filter only EXCLUDES a rollout we can positively attribute
-// to a DIFFERENT worktree — never a false negative that loses a real transcript.
-function rolloutMatchesCwd(rolloutPath, cwdFilter) {
-  if (!cwdFilter) return true;
-  let recorded = null;
-  try {
-    const text = readFileSync(rolloutPath, "utf8");
-    for (const line of text.split("\n")) {
-      if (!line.includes('"cwd"')) continue;
-      let obj;
-      try {
-        obj = JSON.parse(line.trim());
-      } catch {
-        continue;
-      }
-      const cwd = obj?.cwd ?? obj?.payload?.cwd ?? obj?.session_meta?.cwd ?? obj?.payload?.session_meta?.cwd;
-      if (typeof cwd === "string" && cwd) {
-        recorded = cwd;
-        break;
-      }
-    }
-  } catch {
-    return true; // unreadable => do not exclude (best-effort capture)
-  }
-  if (recorded === null) return true; // no cwd recorded => cannot exclude
-  return resolve(recorded) === resolve(cwdFilter);
 }
 
 // The orchestrator runs the gate ITSELF — the authoritative verdict — and writes

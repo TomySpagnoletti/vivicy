@@ -98,13 +98,27 @@ export default function Page() {
       const res = await fetch("/api/control/extract", { method: "POST" })
       const body = (await res.json().catch(() => ({}))) as {
         ok?: boolean
+        blocked?: boolean
+        summary?: string
         error?: string
       }
       if (!res.ok || body.ok === false) {
-        toast.error("Extract failed", { description: body.error ?? `HTTP ${res.status}` })
+        // Distinguish "blocked for a human" (the deterministic checks stayed red
+        // after the bounded retries) from a transient failure, so the operator
+        // knows whether to look at the corpus or just retry.
+        if (body.blocked) {
+          toast.error("Extraction blocked", {
+            description:
+              body.summary ?? "The deterministic checks stayed red after the retries. A human needs to look.",
+          })
+        } else {
+          toast.error("Extract failed", {
+            description: body.summary ?? body.error ?? `HTTP ${res.status}`,
+          })
+        }
         return
       }
-      toast.success("Extraction complete")
+      toast.success("Extraction complete", { description: body.summary })
       await loadMap(true)
     } catch (err) {
       toast.error("Extract failed", {

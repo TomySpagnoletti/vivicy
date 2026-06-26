@@ -10,6 +10,9 @@
  * ledger without spawning agents.
  */
 
+import { mkdirSync, writeFileSync } from "node:fs"
+import path from "node:path"
+
 import { readDevStatusFromDisk } from "@/lib/dev-status-fs"
 import type { DetachedHandle, RunOptions, RunResult, Spawner } from "@/lib/control"
 import { getControlTargetRoot } from "@/lib/control"
@@ -23,6 +26,21 @@ let fakeAlive = false
 function scriptName(args: string[]): string {
   const scriptArg = args.find((a) => a.endsWith(".mjs") || a.endsWith(".ts")) ?? ""
   return scriptArg.split("/").pop() ?? scriptArg
+}
+
+/** Mirror the green terminal status the extraction orchestrator writes, so the
+ *  dry/E2E `runExtract` reads back success without spawning a real agent. */
+function writeFakeExtractionStatus(targetRoot: string): void {
+  try {
+    const file = path.join(targetRoot, "spec/development/reports/extraction-status.json")
+    mkdirSync(path.dirname(file), { recursive: true })
+    writeFileSync(
+      file,
+      `${JSON.stringify({ phase: "green", summary: "extraction green (fake spawn)" }, null, 2)}\n`
+    )
+  } catch {
+    // Best-effort: the fake path must never throw and break the demo flow.
+  }
 }
 
 export const fakeSpawner: Spawner = {
@@ -40,7 +58,14 @@ export const fakeSpawner: Spawner = {
       const json = JSON.stringify(withLive, null, 2)
       return { code: 0, lastLine: json.split("\n").at(-1) ?? "", stdout: json, stderr: "" }
     }
-    // Extraction / generation steps: report a benign success line.
+    if (name === "extract-issues.mjs") {
+      // Never launch a real agent in the dry/E2E path: write the green terminal
+      // status the orchestrator would emit so runExtract reports success without
+      // authoring anything (the demo target is already extracted).
+      writeFakeExtractionStatus(getControlTargetRoot())
+      return { code: 0, lastLine: "extraction green (fake spawn)", stdout: "extraction green (fake spawn)\n", stderr: "" }
+    }
+    // Other generation steps: report a benign success line.
     return {
       code: 0,
       lastLine: `${name}: OK (fake spawn)`,
