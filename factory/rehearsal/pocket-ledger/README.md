@@ -30,14 +30,14 @@ pocket-ledger/
     development/
       issue-index.json                       extracted index: 8 issues, topologically ordered
       issues/ISS-0001.md … ISS-0008.md       8 vertical issues (the extraction write step)
-      progress-ledger.json                   empty MCP-owned progress ledger
+      progress-ledger.json                   progress ledger (orchestrator-written)
     requirements/
-      catalog.json / catalog.md              Requirement Catalog (21 requirements)
-      traceability-matrix.json / .md         Traceability Matrix (21 rows)
+      catalog.json                           Requirement Catalog (21 requirements)
+      traceability-matrix.json               Traceability Matrix (21 rows)
       exclusions.json                        governed line-exclusion records (36)
 ```
 
-Regenerated at run time and git-ignored (deterministic tool outputs, never committed):
+Regenerated at run time by the deterministic tooling, and COMMITTED by the orchestrator (these are real evidence the user gets in git; only transcripts are never committed):
 
 ```
   docs/architecture-map/viewer/src/architecture-data.json   generate-viewer-data.ts output

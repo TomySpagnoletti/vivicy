@@ -168,6 +168,37 @@ async function main() {
   const preData = generatedData(temp);
   record("generate-viewer-data (pre-loop)", r.status === 0 && (preData?.development?.issues?.length ?? 0) > 0, `${preData?.development?.issues?.length ?? 0} issue(s)`);
 
+  // 4b. Commit the authored corpus (mirrors extract-issues' MECHANICAL commit on a
+  //     green extraction): the frozen baseline + issues + catalog/matrix/index + the
+  //     regenerated map land in git, leaving a CLEAN tree for the dev-loop to start
+  //     from. With the new .gitignore policy this is a safe `git add -A` (only
+  //     transcripts/runtime/worktrees/node_modules are ignored). This is exactly the
+  //     lifecycle closure a real run gives: a committed corpus, no human commit.
+  git(["add", "-A"], temp);
+  git(["-c", "user.email=rehearsal@local", "-c", "user.name=rehearsal", "commit", "-qm", "extraction: author corpus + map"], temp);
+  const corpusClean = (git(["status", "--porcelain"], temp).stdout || "").trim() === "";
+  const mapCommittedPreLoop =
+    git(["ls-files", "docs/architecture-map/viewer/src/architecture-data.json"], temp).stdout.trim().length > 0;
+  record("extraction corpus committed (map tracked, clean tree)", corpusClean && mapCommittedPreLoop, mapCommittedPreLoop ? "map tracked" : "map NOT tracked");
+
+  // Capture the STATIC map bytes generated once at extraction. The dev-loop must
+  // NOT regenerate this file during the run — live progress lives in the ledger and
+  // the app projects it at read time — so this exact byte content must survive the
+  // whole loop unchanged. The post-loop assertion compares against this snapshot.
+  const mapPathRel = "docs/architecture-map/viewer/src/architecture-data.json";
+  const staticMapBytesPreLoop = readFileSync(join(temp, mapPathRel));
+  // The static map must carry every node as not_started (no baked progress): live
+  // progress is the ledger's job, derived at read time.
+  const staticMapPreLoop = JSON.parse(staticMapBytesPreLoop.toString("utf8"));
+  const staticBakedVerified = (staticMapPreLoop.development?.graph_item_states ?? []).filter(
+    (s) => s.status === "verified",
+  ).length;
+  record(
+    "static map is generated once with NO baked live progress (zero verified pre-loop)",
+    staticBakedVerified === 0,
+    `${staticBakedVerified} verified graph item(s) baked (must be 0)`,
+  );
+
   // 5. The two-agent dev loop (Claude implementer + Codex reviewer). Dynamic
   //    import AFTER setting the env so dev-loop binds repoRoot to the temp repo.
   process.env.VIVICY_TARGET_ROOT = temp;
@@ -241,11 +272,63 @@ async function main() {
   const passingGates = gateRecords.filter((f) => readJson(join(gatesDir, f)).status === "pass").length;
   record("gate-run evidence records (pass)", passingGates === totalIssues, `${passingGates}/${totalIssues} passing`);
 
-  // 7. Viewer data generation (post-loop): issues show verified + transcripts.
-  r = sh([factoryScript("generate-viewer-data.ts")], env);
-  const postData = generatedData(temp);
-  const postVerified = (postData?.development?.graph_item_states ?? []).filter((s) => s.status === "verified").length;
-  record("generate-viewer-data (post-loop, verified overlay)", r.status === 0 && postVerified > 0, `${postVerified} verified graph item(s)`);
+  // 7. READ-TIME PROJECTION (no regeneration): the static map file is BYTE-UNCHANGED
+  //    after the whole loop, and projecting the LIVE ledger onto that static graph —
+  //    via the ONE shared derivation the /api/map route uses — yields the verified
+  //    per-issue progress. This is the senior model: the ledger is the single source
+  //    of truth, the map is a pure read-time projection, nothing is regenerated.
+  const staticMapBytesPostLoop = readFileSync(join(temp, mapPathRel));
+  const mapByteUnchanged = staticMapBytesPreLoop.equals(staticMapBytesPostLoop);
+  record(
+    "map file is BYTE-UNCHANGED across the dev-loop (no per-issue regeneration)",
+    mapByteUnchanged,
+    mapByteUnchanged ? "identical bytes pre/post loop" : "map bytes CHANGED during the loop (regen leaked)",
+  );
+  const projected = await projectLedgerOntoMap(temp);
+  const projectedVerified = (projected?.development?.graph_item_states ?? []).filter((s) => s.status === "verified").length;
+  record(
+    "read-time overlay projects the live ledger -> verified progress (no regen)",
+    projectedVerified > 0,
+    `${projectedVerified} verified graph item(s) projected from the live ledger`,
+  );
+
+  // 7b. LIFECYCLE CLOSURE: prove the orchestrator left a clean, committed tree with a
+  //     committed static map + a committed LIVE ledger and full evidence — and that NO
+  //     governance/progress/map/git step was required from a human or an agent. The
+  //     dev-loop did all of it mechanically.
+  const tracked = new Set(
+    (git(["ls-files"], temp).stdout || "").split("\n").map((s) => s.trim()).filter(Boolean),
+  );
+  // (a) The static map is COMMITTED, and projecting the COMMITTED ledger onto it (the
+  //     read-time overlay) shows LIVE per-issue progress (issues verified). The map
+  //     itself stays static; progress is derived, never baked in or regenerated.
+  const mapTracked = tracked.has(mapPathRel);
+  const ledgerFromHead = readJsonFromHead(temp, "spec/development/progress-ledger.json");
+  const committedVerified = mapTracked
+    ? (await projectLedgerOntoMap(temp, readMapFromHead(temp), ledgerFromHead))?.development?.graph_item_states?.filter(
+        (s) => s.status === "verified",
+      ).length ?? 0
+    : 0;
+  record(
+    "closure: static map committed AND committed ledger projects to issues done (live overlay)",
+    mapTracked && committedVerified > 0,
+    `committed ledger projects ${committedVerified} verified graph item(s) onto the static map`,
+  );
+  // (b) Evidence — ledger, gate records, reports — is COMMITTED (real user gets it in git).
+  const ledgerTracked = tracked.has("spec/development/progress-ledger.json");
+  const gatesTracked = [...tracked].some((p) => p.startsWith("spec/development/gates/") && p.endsWith(".json"));
+  record("closure: ledger + gate evidence committed", ledgerTracked && gatesTracked, `ledger ${ledgerTracked}, gates ${gatesTracked}`);
+  // (c) TRANSCRIPTS ARE NEVER COMMITTED.
+  const transcriptsCommitted = [...tracked].filter((p) => p.startsWith("spec/development/transcripts/"));
+  const transcriptsOnDisk = existsSync(join(temp, "spec/development/transcripts"));
+  record(
+    "closure: transcripts produced but NEVER committed (gitignored)",
+    transcriptsOnDisk && transcriptsCommitted.length === 0,
+    `${transcriptsCommitted.length} transcript(s) committed (must be 0); on disk: ${transcriptsOnDisk}`,
+  );
+  // (d) CLEAN TREE: only gitignored files may be untracked; nothing tracked is dirty.
+  const porcelain = (git(["status", "--porcelain"], temp).stdout || "").trim();
+  record("closure: clean tree (only gitignored untracked)", porcelain === "", porcelain ? `dirty:\n${porcelain}` : "clean");
 
   // 8. Write the rehearsal report (the deliverable evidence) to the real repo.
   writeReport({ dry, temp, processed, verified, blocked, totalIssues, doneCount, verifiedStates: verifiedStates.length, passingGates });
@@ -265,6 +348,68 @@ async function main() {
 function generatedData(temp) {
   const path = join(temp, "docs/architecture-map/viewer/src/architecture-data.json");
   return existsSync(path) ? readJson(path) : null;
+}
+
+// Read the architecture-data.json as COMMITTED in git HEAD (not the working tree),
+// so the closure assertion proves the orchestrator committed a LIVE map — the file
+// in history actually reflects per-issue progress, not just an uncommitted artifact.
+function readMapFromHead(temp) {
+  const r = spawnSync("git", ["show", "HEAD:docs/architecture-map/viewer/src/architecture-data.json"], {
+    cwd: temp,
+    encoding: "utf8",
+  });
+  if (r.status !== 0) return null;
+  try {
+    return JSON.parse(r.stdout);
+  } catch {
+    return null;
+  }
+}
+
+// Read an arbitrary tracked file as COMMITTED in git HEAD (not the working tree).
+function readJsonFromHead(temp, relPath) {
+  const r = spawnSync("git", ["show", `HEAD:${relPath}`], { cwd: temp, encoding: "utf8" });
+  if (r.status !== 0) return null;
+  try {
+    return JSON.parse(r.stdout);
+  } catch {
+    return null;
+  }
+}
+
+// Project the LIVE ledger onto the STATIC map exactly as the /api/map read path
+// does — via the ONE shared derivation (lib/development-overlay.ts) — WITHOUT
+// regenerating any file. Proves the read-time overlay is the single mechanism that
+// surfaces live progress. Defaults to the working-tree static map + working-tree
+// ledger; the closure assertion passes the COMMITTED map/ledger to prove history.
+async function projectLedgerOntoMap(temp, staticMap, ledger) {
+  const map = staticMap ?? (existsSync(join(temp, "docs/architecture-map/viewer/src/architecture-data.json"))
+    ? readJson(join(temp, "docs/architecture-map/viewer/src/architecture-data.json"))
+    : null);
+  if (!map) return null;
+  const ledgerData =
+    ledger !== undefined
+      ? ledger
+      : existsSync(join(temp, "spec/development/progress-ledger.json"))
+        ? readJson(join(temp, "spec/development/progress-ledger.json"))
+        : undefined;
+  const { deriveDevelopmentOverlay, nodeGraphRef, edgeGraphRef } = await import(
+    pathToFileURL(join(factoryDir, "../lib/development-overlay.ts")).href
+  );
+  const graphRefs = new Set();
+  for (const node of map.nodes ?? []) graphRefs.add(nodeGraphRef(node.id));
+  for (const edge of map.edges ?? []) graphRefs.add(edge.graph_ref || edgeGraphRef(edge));
+  const issues = (map.development?.issues ?? []).map((issue) => ({
+    id: issue.id,
+    graph_refs: issue.graph_refs ?? [],
+  }));
+  const overlay = deriveDevelopmentOverlay({
+    graphRefs,
+    issues,
+    ledger: ledgerData,
+    verificationGateMatcher: /.*/,
+  });
+  return { ...map, development: { ...(map.development ?? {}), ...overlay } };
 }
 
 // Read the integration branch's commit subjects (newest first) so we can assert

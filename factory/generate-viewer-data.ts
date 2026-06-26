@@ -2,6 +2,8 @@ import { existsSync, globSync, mkdirSync, readFileSync, statSync, writeFileSync 
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
+import { deriveDevelopmentOverlay } from "../lib/development-overlay.ts";
+
 export type ViewName = "target" | "progress";
 
 export type ArchitectureMap = {
@@ -136,7 +138,6 @@ const mapPath = join(repoRoot, "docs/architecture-map/architecture-map.yml");
 const issueIndexPath = join(repoRoot, "spec/development/issue-index.json");
 const progressLedgerPath = join(repoRoot, "spec/development/progress-ledger.json");
 const allowedStatuses = ["not_started", "in_progress", "reviewing", "implemented", "verified", "blocked"] as const;
-const allowedActiveItemStates = ["working", "reviewing", "verifying", "blocked"] as const;
 
 export function main(): void {
   const previousSource = readFileSync(mapPath, "utf8");
@@ -613,15 +614,25 @@ function loadDevelopmentOverlay(map: ArchitectureMap): DevelopmentOverlay {
   const issueIndex = readOptionalJson(issueIndexPath, "issue index");
   const progressLedger = readOptionalJson(progressLedgerPath, "progress ledger");
   const issues = readIssues(issueIndex, graphRefs, map.verification_gate_ref_grammar);
-  const issuesById = new Map(issues.map((issue) => [issue.id, issue]));
-  const activeItems = readActiveItems(progressLedger, graphRefs, issuesById);
-  const graphItemStates = readGraphItemStates(progressLedger, graphRefs, issuesById, verificationGateMatcher, activeItems);
+  // ONE shared derivation maps the live ledger -> { graph_item_states,
+  // active_items }. The extraction-time generator runs it STRICTLY: it injects an
+  // evidence checker that verifies every evidence_ref points at a real file/line
+  // on disk, so the authored corpus is provably honest. The /api/map read path
+  // calls the same function WITHOUT the checker (a stale on-disk evidence file
+  // never 500s a request). No divergent ledger->overlay logic exists.
+  const { graph_item_states, active_items } = deriveDevelopmentOverlay({
+    graphRefs,
+    issues,
+    ledger: progressLedger,
+    verificationGateMatcher,
+    evidenceRefChecker: (evidenceRef, owner) => validateProgressEvidenceRefs([evidenceRef], owner),
+  });
   return {
     issue_index_path: "spec/development/issue-index.json",
     progress_ledger_path: "spec/development/progress-ledger.json",
     issues,
-    graph_item_states: graphItemStates,
-    active_items: activeItems,
+    graph_item_states,
+    active_items,
     coverage_summary: readCoverageSummary(issueIndex),
   };
 }
@@ -739,73 +750,6 @@ function validateDevelopmentIssue(input: unknown, index: number, graphRefs: Set<
   };
 }
 
-function readGraphItemStates(
-  input: unknown,
-  graphRefs: Set<string>,
-  issuesById: Map<string, DevelopmentIssue>,
-  verificationGateMatcher: RegExp,
-  activeItems: DevelopmentActiveItem[],
-): DevelopmentGraphItemState[] {
-  if (input === undefined) return [];
-  if (!isRecord(input) || !Array.isArray(input.graph_item_states)) {
-    throw new Error("Development progress ledger must define a graph_item_states array");
-  }
-  const states = input.graph_item_states.map((entry, index) =>
-    validateGraphItemState(entry, index, graphRefs, issuesById, verificationGateMatcher, activeItems),
-  );
-  const seenGraphRefs = new Set<string>();
-  for (const state of states) {
-    if (seenGraphRefs.has(state.graph_ref)) {
-      throw new Error(`Development progress ledger has duplicate graph_item_state for ${state.graph_ref}`);
-    }
-    seenGraphRefs.add(state.graph_ref);
-  }
-  return states;
-}
-
-function validateGraphItemState(
-  input: unknown,
-  index: number,
-  graphRefs: Set<string>,
-  issuesById: Map<string, DevelopmentIssue>,
-  verificationGateMatcher: RegExp,
-  activeItems: DevelopmentActiveItem[],
-): DevelopmentGraphItemState {
-  if (!isRecord(input)) {
-    throw new Error(`Progress graph_item_states entry ${index} must be an object`);
-  }
-  const graph_ref = requiredString(input.graph_ref, `Progress graph item state ${index}.graph_ref`);
-  validateGraphRefs([graph_ref], graphRefs, `Progress graph item state ${graph_ref}`);
-  const issueIds = requiredStringArray(input.issue_ids, `Progress graph item state ${graph_ref}.issue_ids`);
-  if (issueIds.length === 0) {
-    throw new Error(`Progress graph item state ${graph_ref}.issue_ids must reference at least one issue`);
-  }
-  validateIssueRefsForGraphRef(issueIds, graph_ref, issuesById, `Progress graph item state ${graph_ref}`);
-  const evidenceRefs = requiredStringArray(input.evidence_refs, `Progress graph item state ${graph_ref}.evidence_refs`);
-  validateProgressEvidenceRefs(evidenceRefs, `Progress graph item state ${graph_ref}`);
-  if ((statusNeedsEvidence(input.status) || input.status === "verified") && evidenceRefs.length === 0) {
-    throw new Error(`Progress graph item state ${graph_ref} status ${String(input.status)} requires evidence_refs`);
-  }
-  if (input.status === "verified" && !evidenceRefs.some((sourceRef) => verificationGateMatcher.test(sourceRef))) {
-    throw new Error(`Progress graph item state ${graph_ref} verified status requires a verification gate evidence_ref`);
-  }
-  if (
-    input.status === "in_progress" &&
-    !activeItems.some((item) => issueIds.includes(item.issue_id) && item.graph_refs.includes(graph_ref) && item.heartbeat_at)
-  ) {
-    throw new Error(`Progress graph item state ${graph_ref} in_progress requires a matching active item heartbeat`);
-  }
-  return {
-    graph_ref,
-    status: requiredEnum(input.status, allowedStatuses, `Progress graph item state ${graph_ref}.status`),
-    issue_ids: issueIds,
-    evidence_refs: evidenceRefs,
-    ...(Array.isArray(input.transcript_refs)
-      ? { transcript_refs: input.transcript_refs.map((ref, i) => requiredString(ref, `Progress graph item state ${graph_ref}.transcript_refs[${i}]`)) }
-      : {}),
-  };
-}
-
 function validateProgressEvidenceRefs(evidenceRefs: string[], owner: string): void {
   for (const evidenceRef of evidenceRefs) {
     const { filePath, line } = parseSourceRef(evidenceRef);
@@ -817,72 +761,6 @@ function validateProgressEvidenceRefs(evidenceRefs: string[], owner: string): vo
       const lineCount = readFileSync(absolutePath, "utf8").split(/\r?\n/).length;
       if (line < 1 || line > lineCount) {
         throw new Error(`${owner} references missing evidence line: ${evidenceRef}`);
-      }
-    }
-  }
-}
-
-function statusNeedsEvidence(status: unknown): boolean {
-  return status === "implemented" || status === "blocked";
-}
-
-function readActiveItems(input: unknown, graphRefs: Set<string>, issuesById: Map<string, DevelopmentIssue>): DevelopmentActiveItem[] {
-  if (input === undefined) return [];
-  if (!isRecord(input) || !Array.isArray(input.active_items)) {
-    throw new Error("Development progress ledger must define an active_items array");
-  }
-  return input.active_items.map((entry, index) => validateActiveItem(entry, index, graphRefs, issuesById));
-}
-
-function validateActiveItem(
-  input: unknown,
-  index: number,
-  graphRefs: Set<string>,
-  issuesById: Map<string, DevelopmentIssue>,
-): DevelopmentActiveItem {
-  if (!isRecord(input)) {
-    throw new Error(`Progress active_items entry ${index} must be an object`);
-  }
-  const id = requiredString(input.id, `Progress active item ${index}.id`);
-  const issue_id = requiredString(input.issue_id, `Progress active item ${id}.issue_id`);
-  if (!issuesById.has(issue_id)) {
-    throw new Error(`Progress active item ${id} references unknown issue: ${issue_id}`);
-  }
-  const graph_refs = requiredStringArray(input.graph_refs, `Progress active item ${id}.graph_refs`);
-  validateGraphRefs(graph_refs, graphRefs, `Progress active item ${id}`);
-  validateIssueRefsForGraphRef([issue_id], graph_refs, issuesById, `Progress active item ${id}`);
-  return {
-    id,
-    actor: requiredString(input.actor, `Progress active item ${id}.actor`),
-    issue_id,
-    graph_refs,
-    state: requiredEnum(input.state, allowedActiveItemStates, `Progress active item ${id}.state`),
-    ...(input.role === "implementer" || input.role === "reviewer" ? { role: input.role } : {}),
-    ...(Array.isArray(input.transcript_refs)
-      ? { transcript_refs: input.transcript_refs.map((ref, i) => requiredString(ref, `Progress active item ${id}.transcript_refs[${i}]`)) }
-      : {}),
-    ...(typeof input.worktree === "string" ? { worktree: input.worktree } : {}),
-    ...(typeof input.session_ref === "string" ? { session_ref: input.session_ref } : {}),
-    ...(typeof input.started_at === "string" ? { started_at: input.started_at } : {}),
-    heartbeat_at: requiredIsoTimestamp(input.heartbeat_at, `Progress active item ${id}.heartbeat_at`),
-  };
-}
-
-function validateIssueRefsForGraphRef(
-  issueIds: string[],
-  graphRefs: string | string[],
-  issuesById: Map<string, DevelopmentIssue>,
-  owner: string,
-): void {
-  const expectedGraphRefs = Array.isArray(graphRefs) ? graphRefs : [graphRefs];
-  for (const issueId of issueIds) {
-    const issue = issuesById.get(issueId);
-    if (!issue) {
-      throw new Error(`${owner} references unknown issue: ${issueId}`);
-    }
-    for (const graphRef of expectedGraphRefs) {
-      if (!issue.graph_refs.includes(graphRef)) {
-        throw new Error(`${owner} references ${graphRef}, but issue ${issueId} does not include that graph_ref`);
       }
     }
   }
@@ -922,18 +800,6 @@ function requiredString(value: unknown, label: string): string {
   return value;
 }
 
-const ISO_8601_TIMESTAMP =
-  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/;
-
-function requiredIsoTimestamp(value: unknown, label: string): string {
-  const stringValue = requiredString(value, label);
-  // Liveness/expiry is deliberately not checked here (see method.md).
-  if (!ISO_8601_TIMESTAMP.test(stringValue) || Number.isNaN(Date.parse(stringValue))) {
-    throw new Error(`${label} must be an ISO-8601 timestamp`);
-  }
-  return stringValue;
-}
-
 function requiredStringArray(value: unknown, label: string): string[] {
   if (!Array.isArray(value) || !value.every((entry) => typeof entry === "string")) {
     throw new Error(`${label} must be a string array`);
@@ -946,13 +812,6 @@ function requiredNumber(value: unknown, label: string): number {
     throw new Error(`${label} must be a finite number`);
   }
   return value;
-}
-
-function requiredEnum<T extends readonly string[]>(value: unknown, allowedValues: T, label: string): T[number] {
-  if (typeof value !== "string" || !allowedValues.includes(value)) {
-    throw new Error(`${label} must be one of: ${allowedValues.join(", ")}`);
-  }
-  return value as T[number];
 }
 
 function validateNodeShape(node: NodeSpec): void {

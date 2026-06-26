@@ -86,7 +86,7 @@ test.describe("Vivicy onboarding (two start modes)", () => {
     const card = page.locator('[data-empty-reason="no_map"]')
     await expect(card).toBeVisible({ timeout: 30_000 })
     await expect(
-      page.getByText("No architecture map yet", { exact: true })
+      page.getByText("No issues extracted yet", { exact: true })
     ).toBeVisible()
 
     // The current-project affordance reflects the scaffolded project's basename.

@@ -192,30 +192,56 @@ test(${JSON.stringify(`${projectName} scaffold gate is green`)}, () => {
 `
 }
 
-/** The scaffold .gitignore: node noise + the deterministic, regenerable tool outputs. */
+/**
+ * The scaffold .gitignore: the COMPLETE never-commit set, and ONLY that set, so
+ * the orchestrator can safely `git add -A` after every checkpoint without a single
+ * human edit. The rule is deliberate: everything Vivicy PRODUCES is committed
+ * (the progress ledger — the single source of truth for live progress — plus gate
+ * evidence, reports, the static architecture-map data, source-map, coverage
+ * report, catalog/traceability JSON) so a real user gets a clean tree with full
+ * evidence and a live Progress map straight from git — the ONLY exclusions are the
+ * things that must NEVER land in history:
+ *   - node_modules/ + build output + *.log + .DS_Store — machine/OS noise.
+ *   - .vivicy-runtime/ — the factory's own lock/logs/settings/current-project.
+ *   - .vivicy-worktrees/ — per-issue parallel worktrees live here (never the main
+ *     tree's content; the dev-loop also self-heals this entry, but the scaffold
+ *     ships it so the FIRST `git add -A` is already safe).
+ *   - spec/development/transcripts/ — TRANSCRIPTS ARE NEVER COMMITTED (full agent
+ *     session JSONL; the ledger links to them, they do not enter history).
+ *   - spec/development/gates/.integration.lock — the parallel loop's transient
+ *     integration mutex; it is created/removed during a merge and must never be
+ *     committed (its churn would otherwise dirty the tree).
+ *
+ * Note what is NOT here: architecture-data.json, source-map.json, and the
+ * coverage-report.* — those are Vivicy outputs the owner wants committed. The
+ * architecture map is a STATIC graph: it is generated ONCE at extraction and
+ * committed there, never regenerated during the dev-loop. Live per-issue progress
+ * lives in the progress ledger and is projected onto the static graph at read time
+ * by the viewer (lib/map-data.ts applyLiveOverlay), so the tracked map file stays
+ * unchanged across the whole loop.
+ */
 function gitignore(): string {
-  return `# Dependencies / build output
+  return `# Dependencies / build output / OS noise
 node_modules/
 dist/
 *.log
 .DS_Store
 
-# Vivicy factory runtime (lock, logs, settings, current-project selection)
+# Vivicy factory runtime (lock, logs, settings, current-project selection).
 .vivicy-runtime/
 
-# Deterministic factory outputs — regenerated from the frozen baseline, never
-# committed (they would otherwise go stale).
-docs/architecture-map/viewer/src/architecture-data.json
-spec/requirements/source-map.json
-spec/requirements/coverage-report.json
-spec/requirements/coverage-report.md
+# Per-issue parallel worktrees (the dev-loop branches each concurrent issue here);
+# their content integrates onto the main branch, the worktree dir itself is never
+# committed.
+.vivicy-worktrees/
 
-# Transient extraction-orchestrator status. Written live during freeze -> author
-# -> verify; never committed as corpus (and committing it would dirty the tree the
-# freeze step requires clean). Only this one status file is ignored — the rest of
-# spec/development/reports/ (gate-run evidence, quota state, verdicts) is real
-# evidence that IS tracked.
-spec/development/reports/extraction-status.json
+# The parallel loop's transient integration mutex — created/removed during a merge,
+# never part of history (committing its churn would dirty the tree).
+spec/development/gates/.integration.lock
+
+# TRANSCRIPTS ARE NEVER COMMITTED. The full agent session JSONL for every leg; the
+# progress ledger links to them, but they never enter git history.
+spec/development/transcripts/
 `
 }
 

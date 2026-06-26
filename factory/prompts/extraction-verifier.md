@@ -10,8 +10,8 @@ This is the second, independent gate. The deterministic checks (semantic-extract
 2. The frozen baseline manifest under `docs/baselines/<baseline-id>.json` — the authoritative corpus files + line numbers. Treat its `files[]` as the only source of product truth.
 3. Every canonical document under `docs/canonical/**/*.md` the manifest lists — read them **with line numbers**.
 4. The authored corpus:
-   - `spec/requirements/catalog.json` (+ `.md`) — the Requirement Catalog.
-   - `spec/requirements/traceability-matrix.json` (+ `.md`) — the Traceability Matrix.
+   - `spec/requirements/catalog.json` — the Requirement Catalog.
+   - `spec/requirements/traceability-matrix.json` — the Traceability Matrix.
    - `spec/development/issue-index.json` — the issue index.
    - `spec/development/issues/ISS-*.md` — the vertical issues.
    - `docs/architecture-map/architecture-map.yml` — the architecture map.

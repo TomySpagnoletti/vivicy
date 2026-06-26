@@ -40,7 +40,8 @@ import { fileURLToPath } from "node:url";
 import { atomicWriteJson } from "./atomic-write.mjs";
 import { recordProgressEvent } from "./progress-ledger.mjs";
 import { checkSkills } from "./dev-preflight.mjs";
-import { resolveTargetRoot, FACTORY_PROMPTS_DIR } from "./target-root.mjs";
+import { runTraceabilityCheck } from "./traceability-check.mjs";
+import { resolveTargetRoot, FACTORY_DIR, FACTORY_PROMPTS_DIR } from "./target-root.mjs";
 // Shared agent-leg spawn + transcript-capture primitives (one owner, reused by
 // the extractor in extract-issues.mjs). dev-loop binds them to its own root
 // resolution via the `deps` it passes to the shared leg runners.
@@ -1453,10 +1454,106 @@ function defaultCommit(issue, cfg) {
   // parallel issue, the main root sequentially. A parallel issue's commit is then
   // integrated onto the main branch by the integration step; sequentially this IS
   // the checkpoint on the main branch, exactly as before.
+  //
+  // `git add -A` is SAFE because the scaffold/dev-loop .gitignore covers the
+  // complete never-commit set (transcripts, runtime, worktrees, node_modules). So
+  // the checkpoint mechanically lands EVERY Vivicy-produced file that is not
+  // gitignored — the ledger, gate evidence, reports, and the regenerated
+  // architecture-map data — while transcripts stay out of history (gitignored).
+  // No Vivicy output is ever left untracked-and-unignored.
   const root = execRootOf(cfg);
   spawnSync("git", ["add", "-A"], { cwd: root, encoding: "utf8" });
   const message = `${issue.id}: ${issue.title ?? "implement vertical slice"}\n\nGate green; reviewed by ${cfg.reviewer.actor}.`;
   return spawnSync("git", ["commit", "-m", message], { cwd: root, encoding: "utf8" });
+}
+
+// The architecture-map viewer data (architecture-data.json) is a STATIC graph,
+// generated ONCE at extraction (extract-issues.mjs) and committed there. The
+// dev-loop NEVER regenerates it: the only part that changes during development is
+// per-issue/per-graph-item progress, which lives in the progress ledger
+// (spec/development/progress-ledger.json) — the single source of truth for live
+// progress. The /api/map read path overlays the live ledger onto the static graph
+// at request time (lib/map-data.ts applyLiveOverlay), so loading the target always
+// shows current progress with zero regeneration and zero file churn. The loop
+// writes ONLY the ledger (mechanically, via the progress emitters) and commits it
+// per green checkpoint; no agent ever touches the map.
+
+// --------------------------------------------------------------------------
+// Pre-development integrity gates (Item 6: enforced, never decorative)
+//
+// Before the loop develops a single issue it MECHANICALLY verifies the frozen
+// extraction corpus is intact — extraction validated these at author time, but the
+// loop must re-prove them so it NEVER develops against a tampered baseline or a
+// failing traceability matrix. Each guard runs at run start in BOTH the sequential
+// and parallel paths and THROWS on failure, so the loop refuses to proceed (the
+// per-issue gate stays the authoritative completion verdict on top of these).
+// --------------------------------------------------------------------------
+
+// The active frozen baseline manifest under docs/baselines/, or null. A manifest is
+// frozen-and-active when status === "frozen" and it carries no `superseded` marker.
+// Inlined here (not imported from extract-issues.mjs) to avoid an import cycle.
+export function findFrozenManifestRel(cfg) {
+  const dirRel = "docs/baselines";
+  const dirAbs = abs(dirRel);
+  if (!existsSync(dirAbs)) return null;
+  for (const entry of readdirSync(dirAbs)) {
+    if (!entry.endsWith(".json")) continue;
+    let manifest;
+    try {
+      manifest = JSON.parse(readFileSync(resolve(dirAbs, entry), "utf8"));
+    } catch {
+      continue;
+    }
+    if (
+      manifest &&
+      manifest.status === "frozen" &&
+      !manifest.superseded &&
+      typeof manifest.baseline_id === "string" &&
+      manifest.baseline_id.length > 0
+    ) {
+      return { manifestRel: `${dirRel}/${entry}`, baselineId: manifest.baseline_id };
+    }
+  }
+  return null;
+}
+
+// Verify the frozen baseline is INTACT (hashes match the on-disk corpus) by
+// shelling out to the doc-baseline verifier — the one owner of that check — exactly
+// as it runs in production. Throws when no frozen baseline exists or it fails
+// verification (a tampered corpus). Returns the verified baseline id.
+export function defaultVerifyBaseline(cfg) {
+  const found = findFrozenManifestRel(cfg);
+  if (!found) {
+    throw new Error(
+      "dev-loop refuses to develop: no frozen baseline manifest found under docs/baselines/. Run extraction to freeze the canonical spec first.",
+    );
+  }
+  const tool = resolve(FACTORY_DIR, "doc-baseline.mjs");
+  const root = requireRepoRoot();
+  const result = spawnSync(
+    "node",
+    [tool, "verify", "--manifest", found.manifestRel, "--require-status", "frozen", "--require-baseline-id", found.baselineId],
+    { cwd: root, env: { ...process.env, VIVICY_TARGET_ROOT: root }, encoding: "utf8" },
+  );
+  if ((result.status ?? 1) !== 0) {
+    throw new Error(
+      `dev-loop refuses to develop on a tampered/invalid frozen baseline (${found.baselineId}):\n${`${result.stdout ?? ""}\n${result.stderr ?? ""}`.trim()}`,
+    );
+  }
+  return found.baselineId;
+}
+
+// Verify the traceability matrix passes (every MVP must_implement requirement is
+// covered, refs resolve, the DAG is acyclic). Throws on failure so the loop never
+// develops against a broken traceability corpus.
+export function defaultVerifyTraceability(cfg) {
+  const root = requireRepoRoot();
+  const result = runTraceabilityCheck({ repoRoot: root });
+  if ((result.exitCode ?? 1) !== 0) {
+    const detail = (result.errors ?? []).join("\n") || result.summary || `exit ${result.exitCode}`;
+    throw new Error(`dev-loop refuses to develop on a failing traceability check:\n${detail}`);
+  }
+  return true;
 }
 
 // --------------------------------------------------------------------------
@@ -1595,13 +1692,27 @@ export function defaultRemoveWorktree(issue, cfg, worktreeRoot, branch) {
 }
 
 // Commit the done/-move (and index update) on the MAIN integration branch after a
-// parallel issue's worktree has been merged. Staged narrowly to the orchestration
-// paths (issues/, done/, issue-index) so unrelated tracked files are never folded
-// into the bookkeeping commit. A no-op `git commit` (nothing staged) is tolerated.
+// parallel issue's worktree has been merged. Staged to the orchestration paths
+// (issues/, done/, issue-index) and the shared evidence the orchestrator owns
+// (the live ledger — the single source of truth for progress — plus gates and
+// reports), which live on the main root and are not carried by the worktree merge.
+// The architecture map is NOT staged here: it is a static graph committed once at
+// extraction and never regenerated during development; the app overlays the live
+// ledger at read time, so the just-recorded ledger update is all the live progress
+// the viewer needs. Other unrelated tracked files are never folded in. A no-op
+// `git commit` (nothing staged) is tolerated.
 function commitDoneMove(issue, cfg) {
   const root = requireRepoRoot();
-  spawnSync("git", ["add", "--", cfg.issuesDir, cfg.doneDir, cfg.issueIndexPath], { cwd: root, encoding: "utf8" });
-  return spawnSync("git", ["commit", "-m", `${issue.id}: move to done/ (integrated)`], { cwd: root, encoding: "utf8" });
+  const paths = [
+    cfg.issuesDir,
+    cfg.doneDir,
+    cfg.issueIndexPath,
+    cfg.progressLedgerPath,
+    cfg.gatesDir,
+    cfg.reportsDir,
+  ].filter(Boolean);
+  spawnSync("git", ["add", "--", ...paths], { cwd: root, encoding: "utf8" });
+  return spawnSync("git", ["commit", "-m", `${issue.id}: move to done/ (integrated; live progress in ledger)`], { cwd: root, encoding: "utf8" });
 }
 
 function moveIssueToDone(issue, cfg) {
@@ -2218,11 +2329,22 @@ export function runLoop(userConfig = {}, steps = {}) {
     runReviewer: steps.runReviewer ?? ((issue) => defaultRunReviewer(issue, cfg)),
     runGate: steps.runGate ?? ((issue) => defaultRunGate(issue, cfg)),
     commit: steps.commit ?? ((issue) => defaultCommit(issue, cfg)),
+    // Enforced pre-development integrity gates (Item 6). Injectable so tests can
+    // observe/skip; default to the real frozen-baseline + traceability verifiers.
+    verifyBaseline: steps.verifyBaseline ?? (() => defaultVerifyBaseline(cfg)),
+    verifyTraceability: steps.verifyTraceability ?? (() => defaultVerifyTraceability(cfg)),
   };
+  // Refuse to develop against a tampered baseline or a failing traceability matrix
+  // BEFORE touching a single issue (these THROW on failure).
+  resolvedSteps.verifyBaseline(cfg);
+  resolvedSteps.verifyTraceability(cfg);
   const index = readJson(cfg.issueIndexPath);
   const issues = Array.isArray(index.issues) ? index.issues : [];
   const processed = [];
 
+  // The architecture-map data is a STATIC graph generated once at extraction; the
+  // app overlays the live ledger at read time, so there is nothing to regenerate
+  // here — the loop writes only the ledger and commits it per checkpoint.
   for (;;) {
     const doneIds = computeDoneIds(issues, readLedger(cfg), listDoneFiles(cfg));
     const issue = pickNextIssue(issues, doneIds);
@@ -2234,6 +2356,9 @@ export function runLoop(userConfig = {}, steps = {}) {
       // (and the index path update) atomically; a kill between the two then never
       // leaves an issue verified-in-ledger but missing from done/.
       moveIssueToDone(issue, cfg);
+      // Commit the green checkpoint (code + ledger + evidence + done/-move) via
+      // `git add -A`. The static map is unchanged — live progress is the ledger,
+      // which the app overlays at read time, so no map regeneration is needed.
       resolvedSteps.commit(issue, cfg);
       processed.push({ id: issue.id, status: "verified" });
       continue;
@@ -2290,9 +2415,20 @@ export async function runLoopParallel(userConfig = {}, steps = {}) {
       ((issue, worktreeRoot) => defaultResetWorktreeFrozenArtifacts(issue, cfg, worktreeRoot)),
   };
 
+  // Refuse to develop against a tampered baseline or a failing traceability matrix
+  // BEFORE scheduling any issue (these THROW on failure). Injectable for tests.
+  const verifyBaseline = steps.verifyBaseline ?? (() => defaultVerifyBaseline(cfg));
+  const verifyTraceability = steps.verifyTraceability ?? (() => defaultVerifyTraceability(cfg));
+  verifyBaseline(cfg);
+  verifyTraceability(cfg);
+
   // Keep parallel worktrees out of the main tree's status/`git add -A`.
   if (!steps.skipWorktreeIgnore) ensureWorktreesIgnored(cfg);
 
+  // The architecture-map data is a STATIC graph generated once at extraction; the
+  // app overlays the live ledger (shared state on main) at read time, so the
+  // parallel loop never regenerates the map either — it commits only the ledger,
+  // evidence, and done/-moves per integrated checkpoint.
   const processed = [];
   const running = new Map(); // issue.id -> Promise of its settled result
   const runningIssueById = new Map(); // issue.id -> issue (for independence checks)
@@ -2345,14 +2481,16 @@ export async function runLoopParallel(userConfig = {}, steps = {}) {
           writeIntegrationBlock(issue, cfg, `integration conflict: ${merge.message}`);
           return { id: issue.id, status: "blocked" };
         }
-        // Move to done/ BEFORE the orchestration commit + verified emit so a kill
-        // between them never leaves an issue verified-in-ledger but missing from
-        // done/ (the same move-before-commit invariant the sequential path keeps).
+        // Move to done/ BEFORE the orchestration commit so a kill between them never
+        // leaves an issue committed but missing from done/ (the same
+        // move-before-commit invariant the sequential path keeps).
         moveIssueToDone(issue, cfg);
-        // Commit the done/-move on the integration branch so the next worktree
-        // branches from a clean HEAD that already reflects this issue's completion
-        // (the merge commit carried the code; this records the bookkeeping move).
-        if (steps.commitDoneMove !== false) commitDoneMove(issue, cfg);
+        // Emit verified into the ledger (the single source of truth for live
+        // progress), THEN commit the done/-move + ledger on the integration branch.
+        // Done under the integration lock so the next worktree branches from a clean
+        // HEAD that already reflects this issue's completion. No map regeneration:
+        // the static map is unchanged and the app overlays the live ledger at read
+        // time, so the next worktree (and the viewer) already see this issue done.
         emit(cfg, {
           event_type: "gate_passed",
           issue_id: issue.id,
@@ -2362,6 +2500,7 @@ export async function runLoopParallel(userConfig = {}, steps = {}) {
           evidence_refs: [result.evidenceRel],
           transcript_refs: result.gateTranscripts ?? [],
         });
+        if (steps.commitDoneMove !== false) commitDoneMove(issue, cfg);
         return { id: issue.id, status: "verified" };
       });
     } finally {

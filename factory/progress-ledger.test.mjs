@@ -16,11 +16,8 @@ import {
   writeFileSync,
   writeSync,
 } from "node:fs";
-import { execFileSync } from "node:child_process";
 import { dirname, relative, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
 import { applyProgressEvent, createEmptyProgressLedger, recordProgressEvent } from "./progress-ledger.mjs";
-import { needsFallbackReport } from "./progress-ensure-report.mjs";
 
 // Self-contained artifact identity, faithful to the real frozen-baseline shape.
 // The manifest is the pinned source of truth; the issue-index and progress-ledger
@@ -255,15 +252,6 @@ test("rejects an unknown actor role", () => {
   );
 });
 
-test("needsFallbackReport is true when no active item carries the session ref", () => {
-  assert.equal(needsFallbackReport({ active_items: [{ session_ref: "other" }] }, "mine"), true);
-  assert.equal(needsFallbackReport({}, "mine"), true);
-});
-
-test("needsFallbackReport is false once the session has reported", () => {
-  assert.equal(needsFallbackReport({ active_items: [{ session_ref: "mine" }] }, "mine"), false);
-});
-
 test("accumulates transcript_refs on the graph item state and active item", () => {
   const ref = "spec/development/transcripts/ISS-MANAGER-0001/claude-implementer-x.jsonl";
   const ledger = applyProgressEvent({
@@ -285,29 +273,28 @@ test("accumulates transcript_refs on the graph item state and active item", () =
   assert.deepEqual(ledger.active_items[0].transcript_refs, [ref]);
 });
 
-test("progress-emit CLI records an event through the shared path with role", () => {
-  const scratchDir = mkdtempSync(resolve(repoRoot, "_tmp-progress-emit-test-"));
+// Progress is 100% MECHANICAL: the orchestrator (dev-loop's emit()) is the sole
+// writer, through recordProgressEvent — there is no agent self-report seam (no MCP
+// tool, no progress-emit CLI, no Stop-hook backfill). This proves the orchestrator
+// path records a reviewer-leg event with the right role + reviewing state, exactly
+// as dev-loop emits when it sequences the review leg.
+test("the orchestrator write path records a review event with role + reviewing state", () => {
+  const scratchDir = mkdtempSync(resolve(repoRoot, "_tmp-progress-orchestrator-test-"));
   try {
     const issueIndexRel = relative(repoRoot, resolve(scratchDir, "issue-index.json"));
     const ledgerRel = relative(repoRoot, resolve(scratchDir, "progress-ledger.json"));
     writeFileSync(resolve(repoRoot, issueIndexRel), `${JSON.stringify(issueIndex, null, 2)}\n`);
 
-    execFileSync(
-      process.execPath,
-      [
-        resolve(dirname(fileURLToPath(import.meta.url)), "progress-emit.mjs"),
-        "--event_type", "review_started",
-        "--issue_id", "ISS-MANAGER-0001",
-        "--graph_refs", "node:manager_service",
-        "--actor", "codex",
-        "--role", "reviewer",
-        "--session_ref", "thread-cli",
-        "--issue_index_path", issueIndexRel,
-        "--progress_ledger_path", ledgerRel,
-      ],
-      // The CLI imports recordProgressEvent, which binds its target root from
-      // VIVICY_TARGET_ROOT at module load — point the child at the temp root.
-      { cwd: repoRoot, stdio: "pipe", env: { ...process.env, VIVICY_TARGET_ROOT: repoRoot } },
+    recordProgressEvent(
+      {
+        event_type: "review_started",
+        issue_id: "ISS-MANAGER-0001",
+        graph_refs: ["node:manager_service"],
+        actor: "codex",
+        role: "reviewer",
+        session_ref: "dev-loop:ISS-MANAGER-0001",
+      },
+      { issueIndexPath: issueIndexRel, progressLedgerPath: ledgerRel },
     );
 
     const ledger = JSON.parse(readFileSync(resolve(repoRoot, ledgerRel), "utf8"));

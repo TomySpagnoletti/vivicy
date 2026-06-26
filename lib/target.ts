@@ -44,6 +44,27 @@ export function getArchitectureDataPath(): string {
 }
 
 /**
+ * Path, relative to the target root, of the live progress ledger — the SINGLE
+ * source of truth for per-issue/per-graph-item progress during development.
+ */
+export const PROGRESS_LEDGER_RELATIVE_PATH = path.join(
+  "spec",
+  "development",
+  "progress-ledger.json"
+)
+
+/**
+ * Absolute path to the live progress ledger for the resolved target root.
+ *
+ * The architecture-map JSON is a STATIC graph generated once at extraction; the
+ * live overlay (`graph_item_states`, `active_items`) is derived from THIS file at
+ * request time, so the map always reflects current progress with no regeneration.
+ */
+export function getProgressLedgerPath(): string {
+  return path.join(getTargetRoot(), PROGRESS_LEDGER_RELATIVE_PATH)
+}
+
+/**
  * Whether the resolved target is a usable project: the root exists and holds a
  * `docs/` directory (where the canonical spec lives). The folder-picker and
  * start modes arrive in a later phase; until then "no usable target" is the

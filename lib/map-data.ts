@@ -7,6 +7,12 @@
  * `lib/types.ts`.
  */
 
+import {
+  deriveDevelopmentOverlay,
+  edgeGraphRef as canonicalEdgeGraphRef,
+  nodeGraphRef as canonicalNodeGraphRef,
+  type OverlayIssue,
+} from "@/lib/development-overlay"
 import type {
   ActiveItem,
   ArchitectureMapData,
@@ -224,6 +230,63 @@ export function normalizeMapData(raw: unknown): ArchitectureMapData | null {
   }
 }
 
+/**
+ * Overlay the LIVE progress ledger onto the STATIC architecture-map data at read
+ * time.
+ *
+ * The architecture-map JSON is a static graph generated once at extraction; the
+ * progress ledger is the single source of truth for live progress. This DERIVES
+ * `graph_item_states` and `active_items` from the ledger (using the ONE shared
+ * `deriveDevelopmentOverlay`, the same function the extraction generator runs)
+ * and returns a copy of `data` with those two fields replaced — so the map always
+ * reflects current progress with zero regeneration of the data file.
+ *
+ * Tolerant by design: a missing/`null`/`undefined` ledger yields an empty overlay
+ * (the static graph renders as `not_started`), and the verification-gate check is
+ * permissive on read (a verified item was already gate-validated when the dev-loop
+ * committed the ledger), so a stale on-disk evidence file never 500s the viewer.
+ * The static `issues`, `coverage_summary`, and path pointers are preserved as-is.
+ *
+ * `applyLiveOverlay` never mutates its input.
+ */
+export function applyLiveOverlay(
+  data: ArchitectureMapData,
+  ledger: unknown
+): ArchitectureMapData {
+  const graphRefs = new Set<string>()
+  for (const node of data.nodes) graphRefs.add(canonicalNodeGraphRef(node.id))
+  for (const edge of data.edges) {
+    graphRefs.add(edge.graph_ref || canonicalEdgeGraphRef(edge))
+  }
+
+  // The static issue list scopes which issues a ledger entry may reference. It is
+  // authored at extraction and travels in the static data; the live overlay only
+  // changes the per-graph-item state, never the issue set.
+  const issues: OverlayIssue[] = (data.development?.issues ?? []).map((issue) => ({
+    id: issue.id,
+    graph_refs: issue.graph_refs ?? [],
+  }))
+
+  const { graph_item_states, active_items } = deriveDevelopmentOverlay({
+    graphRefs,
+    issues,
+    ledger,
+    // Read path is tolerant: a verified item was gate-validated at write time, so
+    // accept any evidence_ref here rather than re-enforcing the grammar on read.
+    verificationGateMatcher: /.*/,
+    // No on-disk evidence check on read — a stale evidence file must not 500.
+  })
+
+  return {
+    ...data,
+    development: {
+      ...(data.development ?? {}),
+      graph_item_states,
+      active_items,
+    },
+  }
+}
+
 /** Resolve all nodes for a view in one pass, attaching `effectiveStatus`. */
 export function resolveNodes(
   data: ArchitectureMapData,
@@ -365,18 +428,14 @@ export function computeVisibleCounts(
   return { nodes: visible.size, edges: edgeCount }
 }
 
-/** Derive a stable graph_ref for an edge, mirroring the source-map convention. */
+/**
+ * Stable graph_ref for an edge. Prefers the ref baked into the static graph at
+ * extraction; otherwise derives it from the ONE canonical formula shared with the
+ * generator and the overlay derivation (`@/lib/development-overlay`). There is no
+ * second copy of the edge-ref formula that could drift from the generator's keys.
+ */
 export function edgeGraphRef(edge: MapEdge): string {
-  if (edge.graph_ref) return edge.graph_ref
-  const slug = (value: string) =>
-    value
-      .trim()
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "_")
-      .replace(/^_+|_+$/g, "")
-  return `edge:${edge.from}->${edge.to}:${slug(edge.relation ?? "")}:${slug(
-    edge.protocol ?? ""
-  )}`
+  return edge.graph_ref || canonicalEdgeGraphRef(edge)
 }
 
 /** Count the edges incident to each node id (both directions). */

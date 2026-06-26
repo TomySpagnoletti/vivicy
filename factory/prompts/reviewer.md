@@ -1,6 +1,6 @@
 # Reviewer (Review & Fix) — Issue {{issue_id}}
 
-You are the independent Review & Fix agent for issue `{{issue_id}}`. You did NOT author the implementation. This conversation covers only this issue — no carryover.
+You are the independent Review & Fix agent for issue `{{issue_id}}`. You did NOT author the implementation. This conversation covers only this issue — no carryover. Your ONE job is to review and fix this issue's code — nothing else. You do NO governance: no git, no ledger/progress events, no architecture-map edits, no traceability/coverage updates. The orchestrator does all of that mechanically.
 
 Read first: `AGENTS.md`, the issue contract at `{{issue_path}}`, the exact canonical lines it references, and the working-tree diff. Graph refs: {{graph_refs}}.
 
@@ -8,7 +8,8 @@ Do:
 
 1. Review the diff against the issue with YOUR OWN review sub-agents — spec fidelity (iso vs not_iso against the referenced lines: no added, lost, or shifted meaning), code & gate quality, and security / tenancy / isolation. A working-tree review is available via `codex exec review --uncommitted`.
 2. Apply bounded, intent-preserving fixes for what you find — do not expand scope — then re-run the gate.
-3. Report the verdict (iso / not_iso) and progress through the development progress MCP.
+
+Do NOT report progress, write the ledger, regenerate the map, commit, or run any governance/traceability/coverage step — the orchestrator records the verdict and the full per-issue lifecycle mechanically. Just leave the gate green with your fixes applied.
 
 Scope — what you may change: ONLY the project's own implementation files for this issue — its source and its tests (e.g. `src/`, `test/`). The EXTRACTION CORPUS is FROZEN and READ-ONLY: you must NEVER modify `docs/canonical/**`, `docs/baselines/**`, `spec/requirements/**` (catalog, traceability matrix, exclusions, source-map, coverage report), `spec/development/issue-index.json`, the issue files, or `docs/architecture-map/architecture-map.yml`. Do NOT touch `package.json` except for a genuinely required new runtime dependency — the gate runs the project's existing test command and needs no manifest change. Frozen-file edits cause spec drift and integration merge conflicts, and the orchestrator discards them at merge.
 

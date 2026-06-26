@@ -1,8 +1,9 @@
 import { readFile } from "node:fs/promises"
 
-import { normalizeMapData } from "@/lib/map-data"
+import { applyLiveOverlay, normalizeMapData } from "@/lib/map-data"
 import {
   getArchitectureDataPath,
+  getProgressLedgerPath,
   getTargetRoot,
   isTargetResolved,
 } from "@/lib/target"
@@ -67,5 +68,25 @@ export async function GET() {
     return emptyState("empty_map")
   }
 
-  return Response.json(data)
+  // Overlay the LIVE progress ledger onto the STATIC graph at read time. The
+  // architecture-map JSON is generated once at extraction and never regenerated
+  // during development; the ledger is the single source of truth for live
+  // progress. Deriving the overlay here means loading the target always shows
+  // current progress with zero regeneration of the data file. Tolerant: a missing
+  // or unreadable ledger leaves the static graph as-is (everything not_started).
+  const ledger = await readLedger()
+  return Response.json(applyLiveOverlay(data, ledger))
+}
+
+/**
+ * Read and parse the live progress ledger, or `undefined` when it is absent or
+ * unparseable. The overlay derivation treats `undefined` as "no live progress",
+ * so a target mid-extraction (no ledger yet) renders the static graph cleanly.
+ */
+async function readLedger(): Promise<unknown> {
+  try {
+    return JSON.parse(await readFile(getProgressLedgerPath(), "utf8")) as unknown
+  } catch {
+    return undefined
+  }
 }

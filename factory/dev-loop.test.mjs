@@ -521,7 +521,17 @@ function buildScratch(gateCommand) {
   return { dir, cfg: { issueIndexPath: indexRel, progressLedgerPath: ledgerRel, issuesDir, doneDir, gatesDir, reportsDir, quotaStatePath, baselineId: "baseline-test" } };
 }
 
-const stubSteps = { runImplementer: () => {}, runReviewer: () => {}, commit: () => {} };
+// The integrity verifiers are stubbed: the orchestrator runs the frozen-baseline /
+// traceability gates, but unit tests must not spawn the real verifier subprocesses
+// against a scratch repo that has no frozen baseline. The loop never regenerates
+// the architecture map (it is a static graph; the app overlays the live ledger at
+// read time), so there is no map step to stub. The rehearsal exercises the real
+// verifiers and the static-map-once-at-extraction lifecycle end-to-end.
+const stubLifecycle = {
+  verifyBaseline: () => "baseline-test",
+  verifyTraceability: () => true,
+};
+const stubSteps = { runImplementer: () => {}, runReviewer: () => {}, commit: () => {}, ...stubLifecycle };
 
 test("runLoop drives two issues to verified, moved to done, in dependency order", () => {
   const { dir, cfg } = buildScratch("true");
@@ -538,6 +548,54 @@ test("runLoop drives two issues to verified, moved to done, in dependency order"
     // moveIssueToDone keeps the index path truthful for external readers.
     const indexAfter = JSON.parse(readFileSync(resolve(repoRoot, cfg.issueIndexPath), "utf8"));
     assert.equal(indexAfter.issues[0].path, `${cfg.doneDir}/ISS-A.md`);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("runLoop REFUSES to develop on a tampered frozen baseline (integrity gate blocks)", () => {
+  const { dir, cfg } = buildScratch("true");
+  try {
+    let developed = false;
+    assert.throws(
+      () =>
+        runLoop(cfg, {
+          ...stubSteps,
+          // A real verifyBaseline throws on a tampered/missing frozen baseline; the
+          // loop must propagate that and never run an issue.
+          verifyBaseline: () => {
+            throw new Error("dev-loop refuses to develop on a tampered/invalid frozen baseline");
+          },
+          runImplementer: () => {
+            developed = true;
+          },
+        }),
+      /tampered\/invalid frozen baseline/,
+    );
+    assert.equal(developed, false, "no issue ran after the baseline gate blocked");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("runLoop REFUSES to develop on a failing traceability check (integrity gate blocks)", () => {
+  const { dir, cfg } = buildScratch("true");
+  try {
+    let developed = false;
+    assert.throws(
+      () =>
+        runLoop(cfg, {
+          ...stubSteps,
+          verifyTraceability: () => {
+            throw new Error("dev-loop refuses to develop on a failing traceability check");
+          },
+          runImplementer: () => {
+            developed = true;
+          },
+        }),
+      /failing traceability check/,
+    );
+    assert.equal(developed, false, "no issue ran after the traceability gate blocked");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -565,6 +623,7 @@ test("runLoop records transcript_refs from agent legs onto graph item states", (
       runImplementer: () => writeLeg("claude"),
       runReviewer: () => writeLeg("codex"),
       commit: () => {},
+      ...stubLifecycle,
     };
     runLoop(cfg, steps);
     const ledger = JSON.parse(readFileSync(resolve(repoRoot, cfg.progressLedgerPath), "utf8"));
@@ -666,7 +725,7 @@ test("runLoop: a leg that keeps TIMING OUT is retried, then issue_blocked with t
     result: { status: 124, timedOut: true, timeoutReason: "leg timed out after 45 min (hard cap)" },
     output: "",
   });
-  const steps = { runImplementer: timedOutLeg, runReviewer: timedOutLeg, commit: () => {} };
+  const steps = { runImplementer: timedOutLeg, runReviewer: timedOutLeg, commit: () => {}, ...stubLifecycle };
   try {
     const processed = runLoop(
       // Disable the real claude quota probe so no live CLI is spawned in this unit.
@@ -1595,7 +1654,17 @@ function parallelFakeSteps(timeline, scratchRel) {
     timeline.push({ id: issue.id, who, phase: "end", t: Date.now() });
     return { output: `${who} ${issue.id}`, result: { status: 0 } };
   };
-  return { runImplementer: leg("impl"), runReviewer: leg("rev") };
+  // Stub the orchestrator-owned integrity verifiers: a unit test must not spawn the
+  // real doc-baseline verifier subprocess against a scratch repo with no frozen
+  // baseline. The lifecycle (commit, integrate, ledger) is what these tests assert;
+  // the real verifiers + the static-map-once-at-extraction model are exercised by
+  // the rehearsal. The loop never regenerates the map, so there is no map step.
+  return {
+    runImplementer: leg("impl"),
+    runReviewer: leg("rev"),
+    verifyBaseline: () => "baseline-test",
+    verifyTraceability: () => true,
+  };
 }
 
 test("runLoopParallel runs independent issues concurrently in distinct worktrees and integrates them", async () => {
@@ -1897,7 +1966,12 @@ test("runLoopParallel: two parallel branches both editing a frozen artifact inte
       }
       return { output: `${who} ${issue.id}`, result: { status: 0 } };
     };
-    return { runImplementer: leg("impl"), runReviewer: leg("rev") };
+    return {
+      runImplementer: leg("impl"),
+      runReviewer: leg("rev"),
+      verifyBaseline: () => "baseline-test",
+      verifyTraceability: () => true,
+    };
   };
   try {
     const processed = await runLoopParallel(
@@ -1996,7 +2070,7 @@ test("runLoop(maxParallel=1) is the sequential path: returns an array, identical
   try {
     const processed = runLoop(
       { ...cfg, maxParallel: 1, defaultGateCommand: "true" },
-      { runImplementer: () => {}, runReviewer: () => {}, commit: () => {} },
+      { runImplementer: () => {}, runReviewer: () => {}, commit: () => {}, ...stubLifecycle },
     );
     // Synchronous array return (NOT a promise) — the sequential contract is intact.
     assert.ok(Array.isArray(processed), "N=1 returns an array synchronously");

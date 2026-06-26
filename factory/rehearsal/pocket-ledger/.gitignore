@@ -1,14 +1,23 @@
-# Deterministic tool outputs regenerated on every rehearsal run. Only the fixture
-# inputs/artifacts are committed; these are produced by the method tools (into the
-# throwaway run dir, or here when validating with VIVICY_TARGET_ROOT pointed at the
-# fixture) and would otherwise go stale.
-docs/architecture-map/viewer/src/architecture-data.json
-spec/requirements/source-map.json
-spec/requirements/coverage-report.json
-spec/requirements/coverage-report.md
+# The COMPLETE never-commit set, and ONLY that set, so the orchestrator can
+# `git add -A` safely every checkpoint and end with a clean tree. Everything else
+# the factory produces (the progress ledger, gate evidence, reports, the static
+# architecture-map data, source-map, coverage report, catalog/traceability JSON)
+# IS committed. The architecture map is a STATIC graph generated once at
+# extraction; live per-issue progress lives in the ledger and is projected onto the
+# static graph at read time, so the map file stays unchanged across the dev-loop.
+node_modules/
+dist/
+*.log
+.DS_Store
 
-# Transient extraction-orchestrator status (freeze -> author -> verify). Never
-# committed; committing it would also dirty the tree the freeze step requires
-# clean. Only this one status file is ignored — gate-run evidence and fidelity
-# verdicts elsewhere under reports/ stay tracked.
-spec/development/reports/extraction-status.json
+# Vivicy factory runtime + per-issue parallel worktrees.
+.vivicy-runtime/
+.vivicy-worktrees/
+
+# The parallel loop's transient integration mutex — created/removed during a merge,
+# never part of history (committing its churn would dirty the tree).
+spec/development/gates/.integration.lock
+
+# TRANSCRIPTS ARE NEVER COMMITTED (full agent session JSONL; the ledger links to
+# them, they never enter git history).
+spec/development/transcripts/

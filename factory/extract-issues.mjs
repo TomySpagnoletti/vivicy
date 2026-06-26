@@ -141,6 +141,11 @@ export async function extractIssues(options = {}) {
   const readVerdict = options.readVerdict ?? defaultReadVerdict;
   const runGenerateMap = options.runGenerateMap ?? defaultRunGenerateMap;
   const emitStatus = options.emitStatus ?? defaultEmitStatus;
+  // Mechanical corpus commit (Item 2): on a green extraction the orchestrator —
+  // never a human — commits the whole authored corpus (frozen baseline + issues +
+  // catalog/matrix/exclusions/index + regenerated map) so the user gets a clean,
+  // committed tree with the live map straight from git. Injectable for tests.
+  const commitCorpus = options.commitCorpus ?? defaultCommitCorpus;
 
   const transcripts = [];
   const record = (status) => emitStatus(status, repoRoot);
@@ -244,9 +249,17 @@ export async function extractIssues(options = {}) {
       verdict,
       map,
       transcripts,
-      summary: `extraction green after ${attempt} attempt(s): ${countIssues(repoRoot)} issue(s); deterministic checks pass; map regenerated; verifier faithful:true`,
+      summary: `extraction green after ${attempt} attempt(s): ${countIssues(repoRoot)} issue(s); deterministic checks pass; map regenerated; verifier faithful:true; corpus committed`,
     };
+    // Emit the final green status FIRST, then commit MECHANICALLY — so the single
+    // commit captures the whole corpus (frozen baseline + authored issues +
+    // catalog/matrix/exclusions/index + regenerated map + the live extraction
+    // status) and leaves a CLEAN tree (only gitignored files untracked). No human
+    // commit step. `git add -A` is safe: the scaffold/fixture .gitignore covers the
+    // complete never-commit set (transcripts/runtime/worktrees/node_modules).
     record({ phase: "green", attempt, summary: status.summary });
+    const commit = commitCorpus({ repoRoot, baselineId });
+    status.committed = commit?.committed ?? false;
     return status;
   }
 
@@ -480,6 +493,33 @@ function defaultEmitStatus(status, repoRoot) {
   mkdirSync(dirname(abs), { recursive: true });
   const payload = { ...status, updated_at: new Date().toISOString() };
   writeFileSync(abs, `${JSON.stringify(payload, null, 2)}\n`);
+}
+
+// Commit the whole authored corpus MECHANICALLY on a green extraction (Item 2): the
+// frozen baseline, the authored issues, the catalog/matrix/exclusions/index, and
+// the regenerated architecture-map data — everything Vivicy produced — in one
+// commit, so the run ends with a committed corpus and a clean tree. Today a human
+// had to commit this; now the orchestrator does. `git add -A` is safe because the
+// .gitignore covers the complete never-commit set (transcripts/runtime/worktrees/
+// node_modules). A no-op commit (nothing staged, e.g. re-running a green extraction
+// whose corpus is already committed) is tolerated. Returns { committed } so the
+// caller/tests can assert the commit happened.
+function defaultCommitCorpus({ repoRoot, baselineId }) {
+  const add = spawnSync("git", ["add", "-A"], { cwd: repoRoot, encoding: "utf8" });
+  if ((add.status ?? 1) !== 0) {
+    process.stderr.write(`extract-issues: git add -A failed: ${add.stderr || add.stdout}\n`);
+    return { committed: false };
+  }
+  const message = `extraction: author corpus from frozen baseline ${baselineId}\n\nFrozen baseline + issues + catalog/matrix/index + architecture map; deterministic checks pass, fidelity verified.`;
+  const commit = spawnSync("git", ["commit", "-m", message], { cwd: repoRoot, encoding: "utf8" });
+  // A no-op commit (nothing to commit) exits non-zero; treat "nothing to commit" as
+  // already-committed (still a clean tree), not a failure.
+  const out = `${commit.stdout ?? ""}\n${commit.stderr ?? ""}`;
+  if ((commit.status ?? 1) !== 0 && !/nothing to commit/i.test(out)) {
+    process.stderr.write(`extract-issues: corpus commit failed: ${out.trim()}\n`);
+    return { committed: false };
+  }
+  return { committed: true };
 }
 
 // ---------------------------------------------------------------------------

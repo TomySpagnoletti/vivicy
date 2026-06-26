@@ -5,8 +5,9 @@
 // return the leg-result shape the rest of the pipeline understands". Both the
 // two-agent dev loop (dev-loop.mjs) and the semantic issue extractor
 // (extract-issues.mjs) drive agents through these helpers, so the model/effort
-// flags, the max-permission flags, the MCP wiring, the actor/role env, and the
-// transcript capture are defined ONCE and never diverge between the two drivers.
+// flags, the max-permission flags, and the transcript capture are defined ONCE and
+// never diverge between the two drivers. Agents do NO governance — no progress MCP,
+// no self-reporting — so there is no MCP wiring or progress env to inject here.
 //
 // Pure helpers (composePrompt, agentCliArgs) live in dev-loop.mjs and are
 // imported here, so this module owns only the impure spawn + capture surface.
@@ -47,20 +48,13 @@ export function combinedOutput(result) {
   return `${result?.stdout ?? ""}\n${result?.stderr ?? ""}`;
 }
 
-// Env injected into each agent leg so its lifecycle hooks know the issue, actor,
-// role, session, and ledger paths to report against — identity is config-driven,
-// not chosen by the agent.
-export function agentEnv(issue, cfg, leg) {
-  return {
-    ...process.env,
-    PROGRESS_ISSUE_ID: issue.id,
-    PROGRESS_GRAPH_REFS: (issue.graph_refs ?? []).join(","),
-    PROGRESS_ACTOR: leg.actor,
-    PROGRESS_ROLE: leg.role,
-    PROGRESS_SESSION_REF: `${leg.actor}:${issue.id}`,
-    PROGRESS_ISSUE_INDEX_PATH: cfg.issueIndexPath,
-    PROGRESS_PROGRESS_LEDGER_PATH: cfg.progressLedgerPath,
-  };
+// The environment a leg inherits. Agents do NO governance — progress is written
+// MECHANICALLY by the orchestrator (dev-loop's own emit()), never self-reported by
+// the agent — so no PROGRESS_* identity/ledger env is injected here. The leg runs
+// with the operator's environment only; its identity (actor/role) drives the
+// transcript name and the orchestrator's ledger events, not any agent-side hook.
+export function agentEnv() {
+  return { ...process.env };
 }
 
 // Role prompts are bundled with the factory (cfg.promptsDir is an absolute
@@ -166,14 +160,13 @@ export function ensureTranscriptDir(absTranscriptDir) {
 }
 
 // Build the Claude CLI argv for a leg: the composed prompt, max-permission +
-// session-id flags, optional MCP config, then the model/effort/fast flags. The
-// caller supplies `agentCliArgs` (pure, lives in dev-loop.mjs) so this module
-// stays free of the flag-policy details while still owning the spawn shape.
-export function buildClaudeArgs({ prompt, uuid, mcpConfigPath, modelArgs }) {
-  const args = ["-p", prompt, "--dangerously-skip-permissions", "--session-id", uuid];
-  if (mcpConfigPath) args.push("--mcp-config", mcpConfigPath);
-  args.push(...modelArgs);
-  return args;
+// session-id flags, then the model/effort/fast flags. No MCP config is wired —
+// agents do exactly one of the four allowed actions and NO governance, so there is
+// no progress MCP for them to reach. The caller supplies `agentCliArgs` (pure,
+// lives in dev-loop.mjs) so this module stays free of the flag-policy details
+// while still owning the spawn shape.
+export function buildClaudeArgs({ prompt, uuid, modelArgs }) {
+  return ["-p", prompt, "--dangerously-skip-permissions", "--session-id", uuid, ...modelArgs];
 }
 
 // Build the Codex CLI argv for a leg.
@@ -200,8 +193,8 @@ function runClaudeLegWith(leg, issue, cfg, deps, spawnFn, captureFn, isAsync = f
   const prompt = composePrompt(readPrompt(cfg, leg.role), issue);
   const uuid = randomUUID();
   const transcriptRel = `${cfg.transcriptsDir}/${issue.id}/claude-${leg.role}-${uuid}.jsonl`;
-  const args = buildClaudeArgs({ prompt, uuid, mcpConfigPath: cfg.mcpConfigPath, modelArgs: agentCliArgs("claude", leg) });
-  const options = { cwd: execRoot, env: agentEnv(issue, cfg, leg), encoding: "utf8" };
+  const args = buildClaudeArgs({ prompt, uuid, modelArgs: agentCliArgs("claude", leg) });
+  const options = { cwd: execRoot, env: agentEnv(), encoding: "utf8" };
   const finish = (result) => {
     ensureTranscriptDir(transcriptDirAbs);
     const captured = captureFn(uuid, abs(transcriptRel));
@@ -225,7 +218,7 @@ function runCodexLegWith(leg, issue, cfg, deps, spawnFn, isAsync) {
   const prompt = composePrompt(readPrompt(cfg, leg.role), issue);
   const transcriptRel = `${cfg.transcriptsDir}/${issue.id}/codex-${leg.role}-${randomUUID()}.jsonl`;
   const args = buildCodexArgs({ prompt, root: execRoot, modelArgs: agentCliArgs("codex", leg) });
-  const options = { cwd: execRoot, env: agentEnv(issue, cfg, leg), encoding: "utf8" };
+  const options = { cwd: execRoot, env: agentEnv(), encoding: "utf8" };
   const startMs = Date.now();
   const finish = (result) => {
     ensureTranscriptDir(transcriptDirAbs);

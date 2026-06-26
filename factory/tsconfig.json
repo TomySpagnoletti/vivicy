@@ -4,10 +4,11 @@
     "lib": ["ES2022"],
     "module": "ESNext",
     "moduleResolution": "Bundler",
+    "allowImportingTsExtensions": true,
     "strict": true,
     "types": ["node"],
     "skipLibCheck": true,
     "noEmit": true
   },
-  "include": ["generate-viewer-data.ts"]
+  "include": ["generate-viewer-data.ts", "../lib/development-overlay.ts"]
 }

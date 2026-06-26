@@ -155,6 +155,31 @@ describe("scaffoldProject", () => {
     expect(pkg.name).toBe("acme-app")
     expect(pkg.scripts.test).toBe("node --test")
 
+    // The .gitignore is the COMPLETE never-commit set, and ONLY that set, so the
+    // orchestrator's `git add -A` is safe with zero human edits. Transcripts,
+    // runtime, worktrees, and node_modules are ignored; the now-committed Vivicy
+    // outputs (architecture map data, source-map, coverage report) are NOT.
+    const gitignore = readFileSync(path.join(target, ".gitignore"), "utf8")
+    for (const ignored of [
+      "node_modules/",
+      ".DS_Store",
+      ".vivicy-runtime/",
+      ".vivicy-worktrees/",
+      "spec/development/transcripts/",
+      // The parallel loop's transient integration mutex must never be committed
+      // (its create/remove churn would otherwise dirty the tree).
+      "spec/development/gates/.integration.lock",
+    ]) {
+      expect(gitignore, `expected .gitignore to ignore ${ignored}`).toContain(ignored)
+    }
+    for (const committed of [
+      "architecture-data.json",
+      "source-map.json",
+      "coverage-report",
+    ]) {
+      expect(gitignore, `expected .gitignore NOT to ignore ${committed}`).not.toContain(committed)
+    }
+
     // The result describes the project and it is now the current target.
     expect(result.project.root).toBe(target)
     expect(result.project.name).toBe("acme-app")

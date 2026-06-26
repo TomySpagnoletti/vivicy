@@ -54,7 +54,7 @@ The rehearsal exercises the **whole** chain against an isolated throwaway fixtur
 
 ```sh
 node factory/cli.mjs rehearsal --dry
-# -> REHEARSAL PASSED (11/11 stages), 0 UNCOVERED
+# -> REHEARSAL PASSED (16/16 stages), 0 UNCOVERED
 ```
 
 ## The two agents
@@ -64,7 +64,7 @@ The MVP loop runs two **distinct** agents so the reviewer never authored the cod
 - **Implementer** — Claude Code (gate-first implementer).
 - **Reviewer & fix** — Codex (independent review, runs its own review sub-agents).
 
-The orchestrator (`factory/dev-loop.mjs`) invokes each agent CLI per issue as a **fresh conversation** (one issue = no carryover), re-runs the gate itself, commits green checkpoints, and moves done issues aside; on a gate still red after bounded retries it records a block and stops for a human. Lifecycle hooks (`factory/progress-emit.mjs`, `factory/progress-ensure-report.mjs`) emit mechanical progress events and inject each agent's actor/role; the agents emit semantic events through the progress MCP (`factory/progress-mcp.mjs`); a Stop hook backfills if an agent forgot to report.
+The orchestrator (`factory/dev-loop.mjs`) invokes each agent CLI per issue as a **fresh conversation** (one issue = no carryover), re-runs the gate itself, regenerates the architecture-map data, commits green checkpoints, and moves done issues aside; on a gate still red after bounded retries it records a block and stops for a human. Each agent does EXACTLY one of four actions — extract issues, verify issue fidelity, implement an issue's code, review/fix that code — and NOTHING else: no git, no ledger, no map, no traceability or progress action. The orchestrator writes the full per-issue progress ledger itself, deterministically, as it sequences and gates each issue — there is no agent self-report seam (no progress MCP, no lifecycle hooks). An issue is "done" mechanically when its authoritative gate passes.
 
 ## Models, quota, and settings
 
@@ -72,7 +72,7 @@ Policy: always run the latest model; the **thinking/effort level** is the tunabl
 
 When an agent hits a provider rate limit, the loop detects it from the failure itself (no usage API exists), waits out the quota window with bounded backoff, and surfaces per-agent quota state in the control plane's footer — never fabricated numbers.
 
-Both agent CLIs run with isolated config (project config plus the progress MCP only, never the operator's personal global plugins).
+Both agent CLIs run with isolated config (project config only, never the operator's personal global plugins) — and no progress MCP, because agents never report progress; the orchestrator owns the ledger.
 
 ## Language-agnostic
 

@@ -4,7 +4,7 @@ import { expect, test } from "@playwright/test"
  * Points the app at a target that has docs/ but no architecture-data.json (the
  * `empty` project + no-map server, wired in playwright.config). Asserts the
  * onboarding state renders cleanly: no crash, no raw 404 / error text, and the
- * "No architecture map yet" guidance + Extract affordance are present.
+ * "No issues extracted yet" guidance + Extract affordance are present.
  */
 test.describe("Vivicy onboarding (no architecture map)", () => {
   test("renders the no-map onboarding state without a raw error", async ({
@@ -19,10 +19,10 @@ test.describe("Vivicy onboarding (no architecture map)", () => {
     const card = page.locator('[data-empty-reason="no_map"]')
     await expect(card).toBeVisible({ timeout: 30_000 })
     await expect(
-      page.getByText("No architecture map yet", { exact: true })
+      page.getByText("No issues extracted yet", { exact: true })
     ).toBeVisible()
     await expect(
-      page.getByText(/produced from the canonical docs/i)
+      page.getByText(/authors the full plan/i)
     ).toBeVisible()
 
     // The Extract affordance is offered from the onboarding card.

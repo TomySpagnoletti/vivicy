@@ -10,6 +10,7 @@
 // check OR an unfaithful verdict. The golden corpus is the bundled Pocket Ledger
 // rehearsal fixture (which is known to pass both deterministic gates).
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -23,12 +24,12 @@ const FIXTURE = resolve(FACTORY_DIR, "rehearsal/pocket-ledger");
 const VERDICT_REL = "spec/development/reports/extraction-fidelity-verdict.json";
 
 // The corpus files the extractor authors (everything UNDER spec/ + the arch map),
-// as opposed to the inputs it reads (docs/canonical/**, the frozen baseline).
+// as opposed to the inputs it reads (docs/canonical/**, the frozen baseline). Only
+// load-bearing .json — the human-readable catalog.md / traceability-matrix.md
+// mirrors are decoration nothing reads and are no longer authored.
 const CORPUS_FILES = [
   "spec/requirements/catalog.json",
-  "spec/requirements/catalog.md",
   "spec/requirements/traceability-matrix.json",
-  "spec/requirements/traceability-matrix.md",
   "spec/requirements/exclusions.json",
   "spec/development/issue-index.json",
 ];
@@ -118,11 +119,12 @@ function alwaysFaithfulVerifier() {
   return fakeVerifier([{ faithful: true, problems: [] }]);
 }
 
-/** Stub seams so no real freeze/map subprocess runs; the CHECKS stay real. */
+/** Stub seams so no real freeze/map/commit subprocess runs; the CHECKS stay real. */
 function stubSeams(extra = {}) {
   const mapCalls = [];
   const freezeCalls = [];
   const statusEvents = [];
+  const commitCalls = [];
   return {
     runFreeze: async ({ repoRoot, version }) => {
       freezeCalls.push({ repoRoot, version });
@@ -139,7 +141,13 @@ function stubSeams(extra = {}) {
       return { code: 0, output: "generated" };
     },
     emitStatus: (status) => statusEvents.push(status),
-    _calls: { mapCalls, freezeCalls, statusEvents },
+    // Stub the mechanical corpus commit: the temp dirs are not git repos, and the
+    // real git-backed commit is proven by a dedicated test below.
+    commitCorpus: (ctx) => {
+      commitCalls.push(ctx);
+      return { committed: true };
+    },
+    _calls: { mapCalls, freezeCalls, statusEvents, commitCalls },
     ...extra,
   };
 }
@@ -174,6 +182,11 @@ describe("extractIssues — two-agent happy path", () => {
     ]);
     assert.match(result.summary, /8 issue\(s\)/);
     assert.match(result.summary, /faithful:true/);
+    // The corpus was committed MECHANICALLY on green (Item 2) — the orchestrator,
+    // not a human, ends the run with a committed corpus.
+    assert.equal(seams._calls.commitCalls.length, 1, "corpus committed exactly once on green");
+    assert.equal(result.committed, true);
+    assert.match(result.summary, /corpus committed/);
   });
 
   it("does NOT freeze when a frozen baseline already exists (reuses it)", async () => {
@@ -200,6 +213,66 @@ describe("extractIssues — two-agent happy path", () => {
 
     assert.equal(result.status, "green");
     assert.equal(calls.length, 1, "the spawnAgent alias drove the extractor leg");
+  });
+});
+
+describe("extractIssues — mechanical corpus commit on green (Item 2, real git)", () => {
+  it("commits the whole corpus on green and leaves a clean tree (only gitignored untracked)", async () => {
+    seedInputs(temp);
+    // Make the temp repo a REAL git repo so the default commitCorpus seam runs for
+    // real (the freeze/map seams are still stubbed; the checks are real).
+    const git = (args) => spawnSync("git", args, { cwd: temp, encoding: "utf8" });
+    git(["init", "-q"]);
+    git(["config", "user.email", "t@local"]);
+    git(["config", "user.name", "t"]);
+    git(["config", "commit.gpgsign", "false"]);
+    // Ship the scaffold-policy .gitignore so transcripts/runtime/worktrees are the
+    // ONLY never-commit set; everything else the run produces is committed.
+    writeFileSync(
+      resolve(temp, ".gitignore"),
+      "node_modules/\n.DS_Store\n.vivicy-runtime/\n.vivicy-worktrees/\nspec/development/transcripts/\n",
+    );
+    git(["add", "-A"]);
+    git(["commit", "-qm", "inputs"]);
+
+    const { spawnExtractor } = fakeAgent([(ctx) => writeValidCorpus(ctx.repoRoot)]);
+    const { spawnVerifier } = alwaysFaithfulVerifier();
+    // Use the REAL commitCorpus (omit the stub) but keep freeze/map stubbed.
+    const { commitCorpus, ...seams } = stubSeams();
+    void commitCorpus;
+    // A fake transcript proves transcripts are NOT committed (gitignored).
+    const txAbs = resolve(temp, "spec/development/transcripts/EXTRACTION/extract-1.jsonl");
+    mkdirSync(dirname(txAbs), { recursive: true });
+    writeFileSync(txAbs, "{}\n");
+
+    const result = await extractIssues({ repoRoot: temp, spawnExtractor, spawnVerifier, ...seams });
+    assert.equal(result.status, "green");
+    assert.equal(result.committed, true, "the orchestrator committed the corpus mechanically");
+
+    // The authored corpus + regenerated map are COMMITTED (tracked in HEAD).
+    const tracked = new Set(
+      git(["ls-files"]).stdout.split("\n").map((s) => s.trim()).filter(Boolean),
+    );
+    for (const rel of [
+      "spec/requirements/catalog.json",
+      "spec/requirements/traceability-matrix.json",
+      "spec/development/issue-index.json",
+      "docs/architecture-map/viewer/src/architecture-data.json",
+    ]) {
+      assert.ok(tracked.has(rel), `expected ${rel} to be committed`);
+    }
+    // The decorative .md mirrors are NOT produced (nothing reads them).
+    assert.ok(!tracked.has("spec/requirements/catalog.md"), "catalog.md must not exist");
+    assert.ok(!tracked.has("spec/requirements/traceability-matrix.md"), "traceability-matrix.md must not exist");
+    // Transcripts are NEVER committed.
+    for (const rel of tracked) {
+      assert.ok(!rel.startsWith("spec/development/transcripts/"), `transcript must not be committed: ${rel}`);
+    }
+
+    // Clean tree: `git status --porcelain` shows nothing tracked-and-dirty; only the
+    // gitignored transcript remains untracked-but-ignored (not reported).
+    const porcelain = git(["status", "--porcelain"]).stdout.trim();
+    assert.equal(porcelain, "", `tree must be clean after the mechanical commit, got:\n${porcelain}`);
   });
 });
 
@@ -677,22 +750,37 @@ describe("formatMapError", () => {
   });
 });
 
-describe("scaffold + fixture gitignore the transient extraction-status file", () => {
-  const STATUS_LINE = "spec/development/reports/extraction-status.json";
+describe("scaffold + fixture gitignore the COMPLETE never-commit set, and ONLY that", () => {
+  // Everything Vivicy produces is committed (ledger, gates, reports, the
+  // regenerated map data, source-map, coverage, catalog/matrix/index) — the ONLY
+  // exclusions are transcripts, runtime, worktrees, and machine/OS noise. So
+  // `git add -A` after every checkpoint is safe with zero human edits.
+  const NEVER_COMMIT = ["node_modules/", ".DS_Store", ".vivicy-runtime/", ".vivicy-worktrees/", "spec/development/transcripts/"];
+  // These are Vivicy outputs the owner wants COMMITTED — they must NOT be ignored.
+  const NOW_COMMITTED = [
+    "architecture-data.json",
+    "source-map.json",
+    "coverage-report",
+    "spec/development/reports/extraction-status.json",
+  ];
 
-  it("the fixture .gitignore ignores ONLY the transient status file (not all of reports/)", () => {
+  it("the fixture .gitignore lists the complete never-commit set and none of the now-committed outputs", () => {
     const gi = readFileSync(resolve(FIXTURE, ".gitignore"), "utf8");
-    assert.ok(gi.split("\n").includes(STATUS_LINE), "fixture .gitignore lists the transient status file");
-    // Gate evidence lives under reports/ too — never ignore the whole directory.
+    for (const line of NEVER_COMMIT) assert.ok(gi.includes(line), `fixture .gitignore must ignore ${line}`);
+    for (const out of NOW_COMMITTED) assert.ok(!gi.includes(out), `fixture .gitignore must NOT ignore ${out}`);
+    // Gate evidence lives under reports/ — never ignore the whole directory.
     assert.doesNotMatch(gi, /^spec\/development\/reports\/?\s*$/m, "must not ignore the whole reports/ dir");
   });
 
-  it("the scaffold gitignore() template emits the transient status line", () => {
+  it("the scaffold gitignore() template emits the complete never-commit set and none of the now-committed outputs", () => {
     // Read the template source directly (no TS runtime needed): the gitignore()
-    // string literal must carry the exact ignore line so freshly-scaffolded
-    // projects never commit (or dirty the freeze with) the status file.
+    // string literal must carry exactly the never-commit set so freshly-scaffolded
+    // projects can `git add -A` safely and commit every other Vivicy output.
     const scaffoldSrc = readFileSync(resolve(FACTORY_DIR, "../lib/scaffold.ts"), "utf8");
-    assert.ok(scaffoldSrc.includes(STATUS_LINE), "scaffold gitignore() template includes the status line");
+    for (const line of NEVER_COMMIT) assert.ok(scaffoldSrc.includes(line), `scaffold gitignore() must include ${line}`);
+    for (const out of NOW_COMMITTED) {
+      assert.ok(!scaffoldSrc.includes(`\n${out}`) && !scaffoldSrc.includes(`${out}\n`), `scaffold gitignore() must NOT ignore ${out}`);
+    }
     assert.doesNotMatch(scaffoldSrc, /\n\s*spec\/development\/reports\/\s*\n/, "scaffold must not ignore the whole reports/ dir");
   });
 });

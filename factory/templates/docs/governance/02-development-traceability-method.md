@@ -111,14 +111,13 @@ If the owner changes the docs after extraction, the change must go through [Prod
 
 The Requirement Catalog is the canonical bridge between prose docs and implementation.
 
-It must be authored and maintained as machine-readable and human-readable files at these canonical paths:
+It must be authored and maintained as a machine-readable file at this canonical path:
 
 ```text
 spec/requirements/catalog.json
-spec/requirements/catalog.md
 ```
 
-The JSON file is the machine-readable source. The Markdown file is a human-readable report.
+The JSON file is the single source of truth. Do not also author a human-readable `catalog.md` mirror: no deterministic check and no agent reads it, so it is decoration that drifts from the JSON — the JSON is the only catalog the tooling consumes.
 
 ### Requirement Definition
 
@@ -325,8 +324,9 @@ Target file:
 
 ```text
 spec/requirements/traceability-matrix.json
-spec/requirements/traceability-matrix.md
 ```
+
+The JSON is the single source of truth. Do not also author a human-readable `traceability-matrix.md` mirror: nothing reads it, so it is decoration that drifts from the JSON.
 
 Minimum columns:
 
@@ -517,17 +517,13 @@ blocked graph item -> blocker evidence_refs required
 
 The viewer may show generated issues through a Tasks panel, but it must not control the development agent. It is a read-only observation surface for owner understanding and agent coordination.
 
-## Local Development Progress MCP
+## Local Development Progress Ledger (orchestrator-owned)
 
-Local development-agent progress uses one reporting protocol:
+Local development progress is recorded MECHANICALLY by the orchestrator — never by an agent. The development agents do exactly one of four actions (extract issues, verify issue fidelity, implement an issue's code, review/fix that code) and NO governance: they do not report progress, do not write the ledger, and have no progress MCP. There is one writer.
 
-```text
-local development progress MCP
-```
+The graph viewer does not talk to the development agent directly and does not issue work commands. The orchestrator (`factory/dev-loop.mjs`) records the full per-issue lifecycle itself, deterministically, as it sequences and gates each issue: it emits an event when it starts the implementer leg, when it starts the reviewer leg, when it runs the gate (pass/fail), and when the issue is blocked. An issue is "done" mechanically when its authoritative gate passes.
 
-The graph viewer does not talk to the development agent directly and does not issue work commands. The development agent, or the master/spec-steward session coordinating its work, reports progress events through the local development progress MCP (`factory/progress-mcp.mjs`).
-
-The MCP exposes one canonical write tool: `development_progress.record_event`. The event types below are values of that tool's `event_type` field, not separate tools. The documented taxonomy and the implemented tool surface must not diverge silently: changing either requires updating the other.
+These events are recorded through the orchestrator's single validated write path (`recordProgressEvent` in `factory/progress-ledger.mjs`), which owns `spec/development/progress-ledger.json`. The event types below are the values of an event's `event_type` field. The documented taxonomy and the implemented surface must not diverge silently: changing either requires updating the other.
 
 Minimum event types:
 
@@ -560,11 +556,9 @@ timestamp (server-assigned by the MCP at record time when omitted)
 evidence_refs, when applicable
 ```
 
-`state` is not a caller-supplied event field: the ledger derives it deterministically from `event_type`, so the wire contract cannot claim a state its event type does not produce. The MCP input schema must reject events missing `issue_id`, non-empty `graph_refs`, `actor`, or `session_ref`; an empty `graph_refs` fallback to "all of the issue's graph refs" is not allowed.
+`state` is not a caller-supplied event field: the ledger derives it deterministically from `event_type`, so the recorded contract cannot claim a state its event type does not produce. The write path rejects events missing `issue_id`, non-empty `graph_refs`, `actor`, or `session_ref`; an empty `graph_refs` fallback to "all of the issue's graph refs" is not allowed.
 
-The MCP server initializes and owns writes to `spec/development/progress-ledger.json`. The development agent emits progress events through the MCP; it must not edit the ledger directly. Other scripts may read it. The architecture map generator validates and embeds it into viewer data. Do not add a second live progress protocol, ad hoc HTTP writer, or manual status file.
-
-When a development agent CLI exposes a read-only session-context surface, it can be used as a read-only source of local session context when available, but it is not the progress write protocol. Any useful observation must be normalized into the same progress ledger.
+The orchestrator's write path initializes and owns writes to `spec/development/progress-ledger.json`. Agents never touch it. Other scripts may read it. The architecture map generator validates and embeds it into viewer data, and the orchestrator commits it (it is tracked, not gitignored), so a resume preserves all prior progress. Do not add a second live progress protocol, an agent self-report seam, an ad hoc HTTP writer, or a manual status file.
 
 ## Implementation Issue Prompt Shape
 
@@ -1033,22 +1027,20 @@ The implementation agent must not relax a budget, replace a real measurement wit
 
 An issue may be claimed only when every issue in its `depends_on` list is verified and all of its declared evidence spike gates are green. The topological order recorded in the issue index is the default execution order.
 
-For each issue:
+For each issue, the orchestrator does the governance MECHANICALLY and the agents do only their one allowed action. The orchestrator: sequences the issue (claim), records `issue_started`/`review_started`/gate events into the ledger itself, runs the gate as the authoritative verdict, regenerates the architecture-map data, commits the green checkpoint, and pushes when the remote and credentials are available. The implementer agent and the independent reviewer agent do ONLY their code work.
 
-1. Emit an `issue_claimed` event through the local development progress MCP so the MCP records the claim in `progress-ledger.json`.
-2. Read the linked requirements.
-3. Read referenced source doc sections.
-4. Confirm the public behavior and verification gate.
-5. Emit active graph refs through the local development progress MCP.
-6. Write the failing test or executable check first when practical.
-7. Implement the smallest vertical slice that can pass.
-8. Run the gate.
-9. Fix until green.
-10. Refactor only while green.
-11. Update the Requirement Catalog and Traceability Matrix as required; regenerate the issue index through the semantic issue extraction pipeline; emit progress events so the MCP updates the progress ledger.
-12. Commit the coherent green checkpoint.
-13. Push when the remote and credentials are available.
-14. Move to the next issue only after the current gate is green and the traceability update is recorded.
+The agent leg, for each issue:
+
+1. Read the linked requirements.
+2. Read referenced source doc sections.
+3. Confirm the public behavior and verification gate.
+4. Write the failing test or executable check first when practical.
+5. Implement the smallest vertical slice that can pass.
+6. Run the gate.
+7. Fix until green.
+8. Refactor only while green.
+
+The orchestrator, mechanically, around each leg: records the lifecycle events (claim, leg start, gate result, done) into `progress-ledger.json` through its single write path; re-runs the gate itself as the authoritative verdict; regenerates the architecture-map data; commits the coherent green checkpoint (which lands the code, ledger, evidence, and regenerated map together); pushes when possible; and moves to the next issue only after the gate is green. The agents never emit a progress event, never commit, and never touch the map or traceability artifacts. An issue is "done" when its authoritative gate passes.
 
 This follows a red-green-refactor loop, but at the issue level:
 
@@ -1136,7 +1128,7 @@ One issue is one conversation: each agent leg is a fresh CLI invocation with no 
 
 The loop runs a bounded number of cycles (implement → review & fix → gate) per issue; on a gate still red after the bound it records `issue_blocked` with evidence and stops for a human. It is sequential by default and resumes from the ledger and the `done/` folder.
 
-Progress reporting is hook-driven for determinism rather than trusting an agent to remember. Lifecycle hooks emit the mechanical events (`issue_started`, `review_started`, `heartbeat`, gate results) and inject each agent's `actor` and `role`; the agent emits only the semantic events a hook cannot judge (`review_completed` with an iso/not_iso verdict, `issue_blocked` reason, `graph_item_focus`); a Stop hook emits a fallback when an agent finished a leg without reporting. Hooks and the agent both emit through the same validated path (the progress MCP tool, or `factory/progress-emit.mjs` for hooks), never hand-editing the ledger. Events carry `role` so the architecture map shows which agent is implementing versus reviewing, with review as a distinct `reviewing` state.
+Progress reporting is 100% orchestrator-driven for determinism: it never trusts or asks an agent to report. The orchestrator emits every event itself — `issue_started` and `review_started` as it launches each leg, the gate result (`gate_passed`/`gate_failed`) as it runs the gate, and `issue_blocked` when bounded retries are exhausted — injecting each leg's `actor` and `role`. There is no agent self-report seam: no progress MCP, no lifecycle hooks, no Stop-hook backfill. Every event goes through the orchestrator's single validated write path, never a hand-edit. Events carry `role` so the architecture map shows which agent is implementing versus reviewing, with review as a distinct `reviewing` state.
 
 ## Implementation Workflow
 
@@ -1349,4 +1341,4 @@ spec/development/reports/method-rehearsal-report.md
 - Drive each issue to a real green gate with bound gate-run evidence before claiming done.
 - Promote lower-level proofs to the required pre-production gate before release readiness.
 - Route every post-freeze change through Product Change Control and a new frozen baseline.
-- Report progress only through the local development progress MCP; never hand-edit the ledger.
+- Progress is recorded only by the orchestrator's single write path; agents never report progress and the ledger is never hand-edited.

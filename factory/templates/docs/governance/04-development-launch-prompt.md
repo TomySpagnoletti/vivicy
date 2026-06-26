@@ -45,7 +45,7 @@ Non-negotiable development method:
 5. Do not silently ignore any doc line.
 6. Convert current-scope and evidence-spike requirements into vertical implementation issues authored from the repository issue template, each with explicit verification gates, a plain-language summary, requirement line references, `depends_on` issue IDs, and evidence spike gates.
 7. Generate `spec/development/issue-index.json` linking those implementation issues to architecture graph refs.
-8. Use the local development progress MCP as the only writer of `spec/development/progress-ledger.json`.
+8. The orchestrator is the only writer of `spec/development/progress-ledger.json`, recording the per-issue lifecycle mechanically; agents never report progress.
 9. Each implementation issue must include Context, Primary Objective, Why This Change Exists, Protected Product Truth, Non-Negotiable Constraints, Protected Product And UI/UX Constraints, Spec Target, Required Implementation Outcomes, Anti-Cheating Rules, Definition Of Done, Validation To Run, Final Response Format, Stop Conditions, and Traceability Update.
 10. Use gate-first TDD: define or update the executable gate before claiming implementation completion.
 11. Add or update required tests as part of the issue, before relying on root gates.
@@ -93,9 +93,9 @@ Autonomous execution loop:
 - One issue is one fresh agent conversation with no carryover. Progress is hook-driven (mechanical events plus injected actor/role) with a Stop-hook fallback; agents emit only semantic events. See the Autonomous Two-Agent Loop in docs/governance/02-development-traceability-method.md.
 
 Local progress:
-- Report local development progress through the local development progress MCP only.
-- Do not mutate `docs/architecture-map/architecture-map.yml` to record live status after freeze.
-- Emit issue claims, active graph refs, heartbeats, gates, blockers, worktrees, and session refs through the local development progress MCP; the MCP writes `spec/development/progress-ledger.json`. Every event carries a non-empty explicit `graph_refs` focus and a `session_ref`.
+- Local development progress is recorded mechanically by the orchestrator only. Agents never report progress, never write the ledger, and never touch the map.
+- Do not mutate `docs/architecture-map/architecture-map.yml` to record live status after freeze; the orchestrator regenerates `docs/architecture-map/viewer/src/architecture-data.json` from the frozen map + the ledger and commits it.
+- The orchestrator records issue claims, leg starts, gate results, blockers, worktrees, and session refs into `spec/development/progress-ledger.json` through its single validated write path. Every event carries a non-empty explicit `graph_refs` focus and a `session_ref`.
 - Record every verification gate run as a machine-readable gate-run record under `spec/development/gates/` (gate_id, issue_id, command, exit_code, status, finished_at, baseline_id). `gate_passed` and `issue_completed` events must cite a green gate-run record of a gate declared in the issue's `verification_gate_ids`; a conveniently named path is not gate evidence.
 - The architecture map viewer is read-only for progress. It must not be used to pilot the development agent.
 - Use graph refs from `spec/development/issue-index.json`: `node:<node_id>` and `edge:<from_node_id>-><to_node_id>:<relation_slug>:<protocol_slug>`.
@@ -112,7 +112,7 @@ First work sequence:
 3. Generate and verify the frozen Doc Baseline Lock manifest, then report its baseline ID and manifest hash.
 4. Implement or scaffold the semantic issue extraction pipeline process if it does not exist.
 5. Generate the first Requirement Catalog, Source Map, Traceability Matrix, and initial traceability coverage report from the verified frozen baseline.
-6. Create the first vertical issue batch, then generate `spec/development/issue-index.json` from those issues and initialize the local development progress MCP ledger.
+6. Create the first vertical issue batch, then generate `spec/development/issue-index.json` from those issues and initialize `spec/development/progress-ledger.json` (the orchestrator owns and writes the ledger thereafter).
 7. Regenerate the traceability coverage report and confirm it includes real documentation line metrics, including lines linked to generated issues and percentage of total doc lines.
 8. Report any hard blockers: uncovered and unexcluded doc lines, contradictory source-of-truth documents, unknown owner decisions, missing mandatory credentials, unavailable mandatory infrastructure, impossible verification gates, current-scope requirements with `unknown` disposition, missing source hashes, missing maturity, missing non-goal classification, missing graph refs for generated issues, or unresolved blocking ambiguity.
 9. Run the method rehearsal on the throwaway example project required by [Development Traceability Method](02-development-traceability-method.md) before starting product implementation, and commit the rehearsal pass artifact at spec/development/reports/method-rehearsal-report.md.

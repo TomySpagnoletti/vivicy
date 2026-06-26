@@ -1,0 +1,71 @@
+{
+  "baseline_id": "baseline-v1.0.0",
+  "baseline_version": "1.0.0",
+  "files": [
+    {
+      "auto_lines": 13,
+      "covered_lines": 3,
+      "excluded_lines": 13,
+      "path": "docs/canonical/01-architecture.md",
+      "total_lines": 29,
+      "uncovered_lines": 0,
+      "uncovered_ranges": []
+    },
+    {
+      "auto_lines": 10,
+      "covered_lines": 12,
+      "excluded_lines": 5,
+      "path": "docs/canonical/02-ledger-model.md",
+      "total_lines": 27,
+      "uncovered_lines": 0,
+      "uncovered_ranges": []
+    },
+    {
+      "auto_lines": 12,
+      "covered_lines": 5,
+      "excluded_lines": 6,
+      "path": "docs/canonical/03-category-rules.md",
+      "total_lines": 23,
+      "uncovered_lines": 0,
+      "uncovered_ranges": []
+    },
+    {
+      "auto_lines": 11,
+      "covered_lines": 7,
+      "excluded_lines": 5,
+      "path": "docs/canonical/04-reporting.md",
+      "total_lines": 23,
+      "uncovered_lines": 0,
+      "uncovered_ranges": []
+    },
+    {
+      "auto_lines": 12,
+      "covered_lines": 5,
+      "excluded_lines": 6,
+      "path": "docs/canonical/05-csv-export.md",
+      "total_lines": 23,
+      "uncovered_lines": 0,
+      "uncovered_ranges": []
+    },
+    {
+      "auto_lines": 11,
+      "covered_lines": 8,
+      "excluded_lines": 5,
+      "path": "docs/canonical/06-cli.md",
+      "total_lines": 24,
+      "uncovered_lines": 0,
+      "uncovered_ranges": []
+    }
+  ],
+  "schema_version": 1,
+  "strict": false,
+  "totals": {
+    "auto_lines": 69,
+    "covered_lines": 40,
+    "doc_files": 6,
+    "excluded_lines": 40,
+    "total_lines": 149,
+    "uncovered_lines": 0
+  },
+  "warnings": []
+}

@@ -25,7 +25,6 @@
     "factory:rehearsal": "node factory/dev-rehearsal.mjs"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "1.29.0",
     "@xyflow/react": "^12.11.1",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
