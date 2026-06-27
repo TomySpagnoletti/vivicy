@@ -1482,9 +1482,10 @@ function defaultCommit(issue, cfg) {
   // `git add -A` is SAFE because the scaffold/dev-loop .gitignore covers the
   // complete never-commit set (transcripts, runtime, worktrees, node_modules). So
   // the checkpoint mechanically lands EVERY Vivicy-produced file that is not
-  // gitignored — the ledger, gate evidence, reports, and the regenerated
-  // architecture-map data — while transcripts stay out of history (gitignored).
-  // No Vivicy output is ever left untracked-and-unignored.
+  // gitignored — the ledger, gate evidence, reports, and the static
+  // architecture-map data (generated once at extraction, never per-issue) — while
+  // transcripts stay out of history (gitignored). No Vivicy output is ever left
+  // untracked-and-unignored.
   const root = execRootOf(cfg);
   spawnSync("git", ["add", "-A"], { cwd: root, encoding: "utf8" });
   const message = `${issue.id}: ${issue.title ?? "implement vertical slice"}\n\nGate green; reviewed by ${cfg.reviewer.actor}.`;

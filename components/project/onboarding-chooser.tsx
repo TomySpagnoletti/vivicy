@@ -21,12 +21,14 @@ import { ScaffoldDialog } from "@/components/project/scaffold-dialog"
  *
  *   Mode A — "Start with an existing folder": pick a repo that ALREADY holds its
  *     canonical spec under docs/. Reuses the R10 project picker; Vivicy then drives
- *     the existing method against it (baseline -> extraction -> issues -> dev-loop)
- *     and adds only dev OUTPUT to the target.
+ *     the method against it (baseline -> extraction -> issues -> dev-loop) and adds
+ *     only the missing files + dev OUTPUT to the target, never clobbering anything.
  *
  *   Mode B — "Start from scratch": give a new (empty) folder + a project name;
- *     Vivicy scaffolds the directory architecture and the full governance/method
- *     skeleton (but not the canonical product docs — the user writes those).
+ *     Vivicy scaffolds a LEAN skeleton (lean AGENTS.md/CLAUDE.md, the canonical
+ *     placeholder, the skeleton dirs, .gitignore, README, vivicy.json) — NOT the
+ *     governance/method docs (those stay in the Vivicy repo) and NOT the canonical
+ *     product docs (the user writes those).
  *
  * On success either mode sets the chosen project as current and calls
  * `onProjectChanged`, so the app re-fetches the map and lands on the project (the
@@ -93,9 +95,8 @@ export function OnboardingChooser({
               </span>
               <CardTitle>Start from scratch</CardTitle>
               <CardDescription className="text-balance">
-                Give a new empty folder and a name. Vivicy scaffolds the directory
-                architecture and the full method — you write the canonical spec
-                afterwards.
+                Give a new empty folder and a name. Vivicy scaffolds a lean
+                skeleton — you write the canonical spec afterwards.
               </CardDescription>
             </CardHeader>
             <CardFooter className="mt-auto">
