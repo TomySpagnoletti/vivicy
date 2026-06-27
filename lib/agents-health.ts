@@ -5,24 +5,52 @@
  * vs API key) determines the user's cost, so the UI surfaces both.
  *
  * Detection is deliberately SIDE-EFFECT-FREE and honest:
- *   - presence: `which <bin>` on PATH (no execution of the agent itself).
+ *   - presence: PATH lookup with NO execution of the agent itself —
+ *     `where <bin>` on Windows, `command -v <bin>` on Unix (`process.platform`
+ *     decides; Windows has no `/bin/sh`, so the Unix probe would throw there).
  *   - version: `<bin> --version` (a cheap, non-interactive, read-only probe).
  *   - auth + method:
- *       · Codex — read `~/.codex/auth.json`: `OPENAI_API_KEY` / `auth_mode`
- *         (`"apikey"` = API key) or a `tokens.access_token` (ChatGPT sign-in =
- *         subscription). A clean file signal → a definite verdict.
- *       · Claude — layered, first-match wins:
+ *       · Codex — read `<CODEX_HOME>/auth.json` (`CODEX_HOME` defaults to
+ *         `~/.codex` on every OS, so `%USERPROFILE%\.codex\auth.json` on
+ *         Windows): `OPENAI_API_KEY` / `auth_mode` (`"apikey"` = API key) or a
+ *         `tokens.access_token` (ChatGPT sign-in = subscription). A clean file
+ *         signal → a definite verdict.
+ *       · Claude — layered, first-match wins (per the official credential-store
+ *         doc — see the doc URL below):
  *           a) `ANTHROPIC_API_KEY` env or `settings.json` `apiKeyHelper` → API key.
- *           b) on macOS, the login Keychain item `Claude Code-credentials`
+ *           b) on macOS ONLY, the login Keychain item `Claude Code-credentials`
  *              (`security find-generic-password`) — the real store on darwin. The
  *              secret's `accessToken` prefix tells method (`sk-ant-api03-` = API
  *              key, else OAuth = subscription) and carries `subscriptionType` as
  *              the plan. If the secret is locked but the item is confirmed to
  *              EXIST, we still report authenticated (subscription, plan unknown).
- *           c) `~/.claude/.credentials.json` (flat or under `claudeAiOauth`) —
- *              the Linux/SSH store.
+ *           c) `<config-dir>/.credentials.json` (flat or under `claudeAiOauth`) —
+ *              the credential FILE on BOTH Linux AND Windows. Per the official
+ *              doc, Windows stores creds at `%USERPROFILE%\.claude\.credentials.json`
+ *              (a file inheriting the profile-directory ACL), NOT the Windows
+ *              Credential Manager — so the SAME file probe serves both, and no
+ *              Credential-Manager / `cmdkey` call is needed or possible to read it
+ *              non-interactively. The config dir honours `CLAUDE_CONFIG_DIR`
+ *              (Linux/Windows) and otherwise falls back to `<home>/.claude`.
  *           d) otherwise unauthenticated, or `null` ("unknown") only when the
- *              store could not be probed at all.
+ *              store could not be probed at all (darwin Keychain unprobeable, no
+ *              file).
+ *
+ * Researched credential stores (sources read June 2026):
+ *   - Claude Code — https://code.claude.com/docs/en/authentication
+ *     ("Credential management"): macOS Keychain; Linux `~/.claude/.credentials.json`
+ *     (mode 0600); Windows `%USERPROFILE%\.claude\.credentials.json`;
+ *     `CLAUDE_CONFIG_DIR` relocates the dir; API-key precedence via
+ *     `ANTHROPIC_API_KEY` / `apiKeyHelper`.
+ *   - Codex CLI — https://developers.openai.com/codex/auth: `auth.json` under
+ *     `$CODEX_HOME` (defaults to `~/.codex` on macOS, Linux AND Windows). Fields
+ *     confirmed against openai/codex `codex-rs/login/src/auth/storage.rs`
+ *     (`auth_mode`, `#[serde(rename = "OPENAI_API_KEY")]`, `tokens`) and
+ *     `codex-rs/protocol/src/auth.rs` (`AuthMode` is `rename_all = "lowercase"`,
+ *     so `ApiKey` → `"apikey"`, `ChatGPT` → `"chatgpt"`). A `keyring`/`auto`
+ *     credential-store mode can keep creds OUT of `auth.json`; we cannot read the
+ *     OS keyring non-interactively, so that degrades to the honest no-file verdict
+ *     rather than a fabricated "authenticated".
  *
  * The token value is NEVER returned, logged, or surfaced — only the booleans, the
  * method, and the plan label. Keychain probes carry SHORT timeouts and degrade
@@ -136,6 +164,42 @@ function safeExec(bin: string, args: string[]): string | null {
   }
 }
 
+/**
+ * The first-line stdout of a child process, or null on any failure. Matches
+ * {@link safeExec}'s signature; injected in tests so the platform-branching of
+ * {@link resolveOnPath} is exercised WITHOUT spawning a real `where`/`/bin/sh`.
+ */
+export type ExecFirstLine = (bin: string, args: string[]) => string | null
+
+/**
+ * Resolve a CLI's absolute path on PATH WITHOUT executing the agent. The command
+ * is platform-specific because Windows has no POSIX shell:
+ *   - Windows (`win32`): `cmd.exe /c where <bin>` — the built-in PATH/PATHEXT
+ *     resolver. It prints every match (one per line); we keep the FIRST, which is
+ *     the one the shell would run. Spawned via `cmd.exe` so `where` resolves
+ *     regardless of how Node was launched. A success is an absolute,
+ *     drive-qualified path (often `...\\<bin>.cmd` for an npm shim).
+ *   - Unix (everything else): `command -v <bin>` under `/bin/sh`, resolving PATH
+ *     entries, builtins, and aliases portably. `/bin/sh` exists on macOS/Linux
+ *     and is NEVER invoked on Windows (where it would throw).
+ * Only an absolute path (OS-correct: `win32`/`posix`) is accepted, so a stray
+ * message can't masquerade as a hit. Any non-zero exit / missing tool / throw
+ * yields null. `bin` is a fixed internal literal (`"claude"` / `"codex"`), never
+ * user input. `exec` is injected so tests can drive both branches deterministically.
+ */
+export function resolveOnPath(
+  bin: string,
+  platform: NodeJS.Platform,
+  exec: ExecFirstLine = safeExec
+): string | null {
+  if (platform === "win32") {
+    const resolved = exec("cmd.exe", ["/c", "where", bin])
+    return resolved && path.win32.isAbsolute(resolved) ? resolved : null
+  }
+  const resolved = exec("/bin/sh", ["-c", `command -v ${bin}`])
+  return resolved && path.posix.isAbsolute(resolved) ? resolved : null
+}
+
 /** Outcome of one `security` invocation: exit code, stdout, and whether it timed out. */
 interface SecurityRun {
   code: number | null
@@ -199,9 +263,8 @@ function nodeKeychain(service: string): KeychainResult | null {
 /** The real probe: PATH lookup + cheap version + plain reads + env/Keychain. */
 export const nodeHealthProbe: HealthProbe = {
   which(bin: string): string | null {
-    // `command -v` resolves PATH (and builtins/aliases) portably across shells.
-    const resolved = safeExec("/bin/sh", ["-c", `command -v ${bin}`])
-    return resolved && path.isAbsolute(resolved) ? resolved : null
+    // Cross-platform PATH lookup: `where` on Windows, `command -v` on Unix.
+    return resolveOnPath(bin, process.platform)
   },
   version(bin: string): string | null {
     return safeExec(bin, ["--version"])
@@ -303,22 +366,38 @@ function settingsHasApiKeyHelper(text: string | null): boolean {
 }
 
 /**
+ * Resolve Claude's config directory, honouring `CLAUDE_CONFIG_DIR` (the official
+ * override on Linux/Windows) and otherwise `<home>/.claude`. The OS-correct
+ * `path` join is used so a Windows home yields a back-slashed path. Both the
+ * `.credentials.json` FILE and `settings.json` live here.
+ */
+function claudeConfigDir(probe: HealthProbe): string {
+  const override = probe.env("CLAUDE_CONFIG_DIR")
+  return override ?? path.join(probe.home(), ".claude")
+}
+
+/**
  * Layered Claude auth detection (first match wins). See the module header for the
  * a→d order. Returns a token-free {@link AuthSignal}; `authenticated` is `null`
  * only when the store could not be probed at all (genuinely undetectable).
  */
 export function detectClaudeAuth(probe: HealthProbe): AuthSignal {
+  const configDir = claudeConfigDir(probe)
+
   // a. Explicit API-key signals — env key or an apiKeyHelper. These mean
   //    pay-per-token billing and win over any subscription credential present.
+  //    Cross-platform: env vars and `settings.json` are read the same on every OS.
   if (probe.env("ANTHROPIC_API_KEY")) {
     return { authenticated: true, authMethod: "api_key", plan: null }
   }
-  const settingsPath = path.join(probe.home(), ".claude", "settings.json")
+  const settingsPath = path.join(configDir, "settings.json")
   if (settingsHasApiKeyHelper(probe.readFile(settingsPath))) {
     return { authenticated: true, authMethod: "api_key", plan: null }
   }
 
-  // b. macOS Keychain — the real store on darwin.
+  // b. macOS Keychain — the real store on darwin ONLY. Windows does NOT use the
+  //    Credential Manager for Claude creds (per the official doc, Windows uses the
+  //    file in step c), so there is deliberately no Windows credential-store branch.
   let keychainSaidAbsent = false
   if (probe.platform() === "darwin") {
     const kc = probe.keychain(CLAUDE_KEYCHAIN_SERVICE)
@@ -336,8 +415,10 @@ export function detectClaudeAuth(probe: HealthProbe): AuthSignal {
     // kc === null → Keychain unprobeable; fall through and resolve below.
   }
 
-  // c. File credentials (Linux / SSH; also a macOS user with a flat creds file).
-  const credPath = path.join(probe.home(), ".claude", ".credentials.json")
+  // c. File credentials — the real store on BOTH Linux AND Windows (and a macOS
+  //    user with a flat creds file). On Windows this is
+  //    `%USERPROFILE%\.claude\.credentials.json`; the same JSON shape as Linux.
+  const credPath = path.join(configDir, ".credentials.json")
   const fileSignal = parseClaudeCredentials(probe.readFile(credPath))
   if (fileSignal) return fileSignal
 
@@ -351,11 +432,21 @@ export function detectClaudeAuth(probe: HealthProbe): AuthSignal {
   return UNKNOWN
 }
 
+/**
+ * Resolve Codex's home directory: `CODEX_HOME` when set, else `<home>/.codex`
+ * (the default on macOS, Linux AND Windows). Cross-platform via the injected
+ * `home()` + the OS-correct `path.join`.
+ */
+function codexHome(probe: HealthProbe): string {
+  return probe.env("CODEX_HOME") ?? path.join(probe.home(), ".codex")
+}
+
 /** Detect Codex: presence, version, and a definite auth + method signal. */
 function detectCodex(probe: HealthProbe): AgentHealth {
   const present = probe.which("codex") !== null
   const version = present ? normalizeVersion(probe.version("codex")) : null
-  const authFile = path.join(probe.home(), ".codex", "auth.json")
+  // `<CODEX_HOME>/auth.json` — on Windows `%USERPROFILE%\.codex\auth.json`.
+  const authFile = path.join(codexHome(probe), "auth.json")
   const auth = parseCodexAuth(probe.readFile(authFile))
   return { present, version, ...auth }
 }
