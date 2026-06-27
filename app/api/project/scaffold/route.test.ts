@@ -23,6 +23,7 @@ const RESULT: ScaffoldResult = {
   project: { root: "/abs/new", name: "My App", hasDocs: true },
   mode: "from_scratch",
   written: ["/abs/new/AGENTS.md", "/abs/new/README.md", "/abs/new/vivicy.json"],
+  git: { initialized: true, committed: true },
 }
 
 function postJson(body: unknown): Request {
@@ -54,6 +55,7 @@ describe("POST /api/project/scaffold", () => {
       project: RESULT.project,
       mode: RESULT.mode,
       written: RESULT.written,
+      git: RESULT.git,
     })
   })
 

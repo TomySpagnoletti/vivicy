@@ -27,6 +27,7 @@ export async function POST(request: Request) {
       project: result.project,
       mode: result.mode,
       written: result.written,
+      git: result.git,
     })
   } catch (error) {
     if (error instanceof ScaffoldError) {

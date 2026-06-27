@@ -146,6 +146,14 @@ export async function extractIssues(options = {}) {
   // catalog/matrix/exclusions/index + regenerated map) so the user gets a clean,
   // committed tree with the live map straight from git. Injectable for tests.
   const commitCorpus = options.commitCorpus ?? defaultCommitCorpus;
+  // Mechanical SPEC-SNAPSHOT commit (Item 2, before the freeze): the owner wrote the
+  // canonical spec into docs/canonical/** and clicked Extract — leaving a dirty (or
+  // not-even-a-repo) tree. The freeze (doc-baseline --status frozen) demands a git
+  // repo with a CLEAN committed tree, so BEFORE freezing the orchestrator ensures the
+  // target is a repo (defensive `git init` if somehow not — the scaffold normally did
+  // it) and commits any pending changes (the spec + any skeleton additions) as a clear
+  // "spec snapshot". No human ever runs git. Injectable for tests.
+  const commitSpecSnapshot = options.commitSpecSnapshot ?? defaultCommitSpecSnapshot;
 
   const transcripts = [];
   const record = (status) => emitStatus(status, repoRoot);
@@ -161,6 +169,15 @@ export async function extractIssues(options = {}) {
   let frozen = findFrozenManifest(repoRoot);
   let froze = false;
   if (!frozen) {
+    // Snapshot the owner's just-written spec BEFORE freezing: ensure the target is a
+    // git repo (defensive `git init` — the scaffold normally already did it) and
+    // commit any pending changes, so the freeze sees a CLEAN committed tree. The owner
+    // writes the spec and clicks Extract; Vivicy commits it. No human git step. Only
+    // needed on the freeze path — if a frozen baseline already exists we never touch
+    // git here. Safe: `git add -A` respects the scaffold .gitignore (transcripts /
+    // runtime / worktrees / node_modules are never committed); nothing-to-commit is a
+    // no-op, never an error; no remote is touched.
+    commitSpecSnapshot({ repoRoot });
     frozen = await runFreeze({ repoRoot, version });
     froze = true;
   }
@@ -505,6 +522,8 @@ function defaultEmitStatus(status, repoRoot) {
 // whose corpus is already committed) is tolerated. Returns { committed } so the
 // caller/tests can assert the commit happened.
 function defaultCommitCorpus({ repoRoot, baselineId }) {
+  ensureGitRepo(repoRoot);
+  ensureLocalGitIdentity(repoRoot);
   const add = spawnSync("git", ["add", "-A"], { cwd: repoRoot, encoding: "utf8" });
   if ((add.status ?? 1) !== 0) {
     process.stderr.write(`extract-issues: git add -A failed: ${add.stderr || add.stdout}\n`);
@@ -517,6 +536,78 @@ function defaultCommitCorpus({ repoRoot, baselineId }) {
   const out = `${commit.stdout ?? ""}\n${commit.stderr ?? ""}`;
   if ((commit.status ?? 1) !== 0 && !/nothing to commit/i.test(out)) {
     process.stderr.write(`extract-issues: corpus commit failed: ${out.trim()}\n`);
+    return { committed: false };
+  }
+  return { committed: true };
+}
+
+// Run `git <args>` in repoRoot and report status + combined output.
+function runGit(repoRoot, args) {
+  const r = spawnSync("git", args, { cwd: repoRoot, encoding: "utf8" });
+  return { status: r.status ?? 1, stdout: r.stdout ?? "", stderr: r.stderr ?? "" };
+}
+
+// Defensive: make sure repoRoot is a git repo before we try to commit. The scaffold
+// normally `git init`-s a from-scratch target already, so this is belt-and-braces for
+// the edge case where the owner pointed extraction at a never-initialized dir. We
+// never touch an existing repo's history — `git init` on an already-initialized repo
+// is a harmless no-op. Returns true when repoRoot is (now) a repo.
+function ensureGitRepo(repoRoot) {
+  if (runGit(repoRoot, ["rev-parse", "--is-inside-work-tree"]).status === 0) return true;
+  return runGit(repoRoot, ["init"]).status === 0;
+}
+
+// Set a LOCAL (repo-scoped) git identity only when none is configured, so the
+// mechanical commit succeeds on a fresh machine with no global git identity. We never
+// clobber an existing global/local identity — we only fill the gap. `git commit` fails
+// hard without an identity; this closes that failure mode without any human config.
+function ensureLocalGitIdentity(repoRoot) {
+  if (runGit(repoRoot, ["config", "user.email"]).stdout.trim() === "") {
+    runGit(repoRoot, ["config", "user.email", "vivicy@local"]);
+  }
+  if (runGit(repoRoot, ["config", "user.name"]).stdout.trim() === "") {
+    runGit(repoRoot, ["config", "user.name", "Vivicy"]);
+  }
+}
+
+// Mechanical SPEC-SNAPSHOT commit, run BEFORE the freeze. The owner writes the
+// canonical spec into docs/canonical/** and clicks Extract — leaving a dirty (or
+// not-even-a-repo) tree. The freeze (doc-baseline --status frozen) requires a git repo
+// with a CLEAN committed tree, so here the orchestrator — never a human — ensures the
+// target is a repo (defensive `git init`), configures a local identity if the machine
+// has none, and commits any pending changes as a clear "spec snapshot". Safety:
+//   - `git add -A` respects the scaffold/fixture .gitignore (transcripts / runtime /
+//     worktrees / node_modules are never committed).
+//   - "nothing to commit" (an already-clean repo, e.g. the scaffold already committed
+//     the skeleton and the owner edited nothing yet, or a re-run) is a no-op, NOT an
+//     error — no redundant empty commit is created.
+//   - No remote is ever contacted; nothing is force-pushed.
+// Returns { committed: boolean } — true when a snapshot commit was made, false when
+// the tree was already clean (nothing to snapshot) or git was unavailable.
+function defaultCommitSpecSnapshot({ repoRoot }) {
+  if (!ensureGitRepo(repoRoot)) {
+    process.stderr.write("extract-issues: could not initialize a git repo for the spec snapshot\n");
+    return { committed: false };
+  }
+  ensureLocalGitIdentity(repoRoot);
+  const add = runGit(repoRoot, ["add", "-A"]);
+  if (add.status !== 0) {
+    process.stderr.write(`extract-issues: spec-snapshot git add -A failed: ${add.stderr || add.stdout}\n`);
+    return { committed: false };
+  }
+  // Nothing staged => the tree is already clean (respecting .gitignore). The freeze
+  // will see a clean committed tree; do NOT create an empty commit.
+  if (runGit(repoRoot, ["diff", "--cached", "--quiet"]).status === 0) {
+    return { committed: false };
+  }
+  const message =
+    "spec snapshot: commit canonical spec before freeze\n\n" +
+    "Owner-authored docs/canonical/** (+ any skeleton additions) committed mechanically " +
+    "so the doc-baseline freeze sees a clean, committed tree. No human git step.";
+  const commit = runGit(repoRoot, ["commit", "-m", message]);
+  const out = `${commit.stdout}\n${commit.stderr}`;
+  if (commit.status !== 0 && !/nothing to commit/i.test(out)) {
+    process.stderr.write(`extract-issues: spec-snapshot commit failed: ${out.trim()}\n`);
     return { committed: false };
   }
   return { committed: true };

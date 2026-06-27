@@ -276,6 +276,237 @@ describe("extractIssues — mechanical corpus commit on green (Item 2, real git)
   });
 });
 
+// Real-git helpers for the spec-snapshot lifecycle tests below. No fakes — the
+// point is to prove the mechanical git lifecycle (init, spec snapshot, freeze) needs
+// zero human git step.
+function git(root, args) {
+  const r = spawnSync("git", args, { cwd: root, encoding: "utf8" });
+  return { status: r.status ?? 1, stdout: r.stdout ?? "", stderr: r.stderr ?? "" };
+}
+function isClean(root) {
+  return git(root, ["status", "--porcelain"]).stdout.trim() === "";
+}
+/** Make `root` a git repo with a local identity and an initial commit of its contents. */
+function initRepoWithCommit(root) {
+  git(root, ["init", "-q"]);
+  git(root, ["config", "user.email", "t@local"]);
+  git(root, ["config", "user.name", "t"]);
+  git(root, ["config", "commit.gpgsign", "false"]);
+  git(root, ["add", "-A"]);
+  git(root, ["commit", "-qm", "initial"]);
+}
+/** Ship the scaffold-policy .gitignore so `git add -A` is safe in the lifecycle tests. */
+function writeScaffoldGitignore(root) {
+  writeFileSync(
+    resolve(root, ".gitignore"),
+    "node_modules/\n.DS_Store\n.vivicy-runtime/\n.vivicy-worktrees/\nspec/development/transcripts/\n",
+  );
+}
+
+describe("extractIssues — mechanical SPEC-SNAPSHOT commit before the freeze (no human git)", () => {
+  it("commits the owner's uncommitted spec so the freeze sees a CLEAN committed tree", async () => {
+    // The owner wrote canonical docs into a repo and left them UNCOMMITTED (dirty
+    // tree) — exactly the state after scaffolding + writing the spec, before extract.
+    cpSync(resolve(FIXTURE, "docs/canonical"), resolve(temp, "docs/canonical"), { recursive: true });
+    cpSync(resolve(FIXTURE, "README.md"), resolve(temp, "README.md"));
+    writeScaffoldGitignore(temp);
+    git(temp, ["init", "-q"]);
+    git(temp, ["config", "user.email", "t@local"]);
+    git(temp, ["config", "user.name", "t"]);
+    git(temp, ["config", "commit.gpgsign", "false"]);
+    assert.equal(isClean(temp), false, "precondition: the spec is uncommitted (dirty tree)");
+
+    // Spy the freeze seam to assert the tree is CLEAN at the moment the freeze runs —
+    // i.e. the spec snapshot committed everything first.
+    let cleanAtFreeze = null;
+    const base = stubSeams();
+    const { spawnExtractor } = fakeAgent([(ctx) => writeValidCorpus(ctx.repoRoot)]);
+    const { spawnVerifier } = alwaysFaithfulVerifier();
+    const result = await extractIssues({
+      repoRoot: temp,
+      spawnExtractor,
+      spawnVerifier,
+      ...base,
+      // REAL spec-snapshot (omit the stub) by simply not passing commitSpecSnapshot.
+      runFreeze: async (args) => {
+        cleanAtFreeze = isClean(temp);
+        return base.runFreeze(args);
+      },
+    });
+
+    assert.equal(result.status, "green");
+    assert.equal(cleanAtFreeze, true, "the spec snapshot left a CLEAN committed tree before the freeze");
+    // The spec is now committed in HEAD (the owner ran no git).
+    const tracked = new Set(git(temp, ["ls-files"]).stdout.split("\n").map((s) => s.trim()).filter(Boolean));
+    assert.ok(tracked.has("docs/canonical/01-architecture.md"), "the owner's spec is committed");
+    // A spec-snapshot commit exists with the expected subject.
+    const log = git(temp, ["log", "--format=%s"]).stdout;
+    assert.match(log, /spec snapshot: commit canonical spec before freeze/);
+  });
+
+  it("makes NO redundant empty commit when the repo is already clean", async () => {
+    // The spec is already committed (clean tree) — re-running extract must NOT add an
+    // empty 'spec snapshot' commit, and must NOT error.
+    cpSync(resolve(FIXTURE, "docs/canonical"), resolve(temp, "docs/canonical"), { recursive: true });
+    cpSync(resolve(FIXTURE, "README.md"), resolve(temp, "README.md"));
+    writeScaffoldGitignore(temp);
+    initRepoWithCommit(temp);
+    assert.equal(isClean(temp), true, "precondition: already-clean committed tree");
+    const commitsBefore = git(temp, ["rev-list", "--count", "HEAD"]).stdout.trim();
+
+    const base = stubSeams();
+    const { spawnExtractor } = fakeAgent([(ctx) => writeValidCorpus(ctx.repoRoot)]);
+    const { spawnVerifier } = alwaysFaithfulVerifier();
+    const result = await extractIssues({ repoRoot: temp, spawnExtractor, spawnVerifier, ...base });
+
+    assert.equal(result.status, "green");
+    // No 'spec snapshot' commit was created (the tree was already clean) — the only
+    // new commits would come from later steps, never from an empty snapshot.
+    const log = git(temp, ["log", "--format=%s"]).stdout;
+    assert.ok(!/spec snapshot/.test(log), "no redundant empty spec-snapshot commit");
+    const commitsAfter = git(temp, ["rev-list", "--count", "HEAD"]).stdout.trim();
+    assert.equal(commitsAfter, commitsBefore, "commit count unchanged by the (no-op) snapshot");
+  });
+
+  it("inits a repo when the target is NOT a git repo, then commits the spec and freezes", async () => {
+    // A from-scratch target that somehow is NOT a repo (defensive path). The snapshot
+    // must `git init` it, commit the spec, and the freeze must then succeed.
+    cpSync(resolve(FIXTURE, "docs/canonical"), resolve(temp, "docs/canonical"), { recursive: true });
+    cpSync(resolve(FIXTURE, "README.md"), resolve(temp, "README.md"));
+    writeScaffoldGitignore(temp);
+    assert.notEqual(git(temp, ["rev-parse", "--is-inside-work-tree"]).status, 0, "precondition: not a repo");
+
+    let cleanAtFreeze = null;
+    const base = stubSeams();
+    const { spawnExtractor } = fakeAgent([(ctx) => writeValidCorpus(ctx.repoRoot)]);
+    const { spawnVerifier } = alwaysFaithfulVerifier();
+    const result = await extractIssues({
+      repoRoot: temp,
+      spawnExtractor,
+      spawnVerifier,
+      ...base,
+      runFreeze: async (args) => {
+        cleanAtFreeze = isClean(temp);
+        return base.runFreeze(args);
+      },
+    });
+
+    assert.equal(result.status, "green");
+    // It became a repo with a committed spec and a CLEAN tree at freeze time.
+    assert.equal(git(temp, ["rev-parse", "--is-inside-work-tree"]).status, 0, "target is now a git repo");
+    assert.equal(git(temp, ["rev-parse", "HEAD"]).status, 0, "an initial commit exists (HEAD resolves)");
+    assert.equal(cleanAtFreeze, true, "clean committed tree before the freeze");
+  });
+
+  it("auto-commits even when the fresh repo has NO git identity configured (sets a local one)", async () => {
+    // A fresh repo with NO usable global/system identity. The snapshot must set a
+    // LOCAL identity so `git commit` does not fail — no human `git config` step.
+    cpSync(resolve(FIXTURE, "docs/canonical"), resolve(temp, "docs/canonical"), { recursive: true });
+    cpSync(resolve(FIXTURE, "README.md"), resolve(temp, "README.md"));
+    writeScaffoldGitignore(temp);
+    git(temp, ["init", "-q"]);
+    // Deliberately set NO user.name/user.email locally; isolate global/system config
+    // so only a repo-local identity (which the snapshot must add) can satisfy commit.
+    // Point global/system at /dev/null (empty, readable) and use GIT_CONFIG_NOSYSTEM
+    // so no ambient identity leaks in — a faithful "fresh machine" with no git identity.
+    const emptyHome = mkdtempSync(join(tmpdir(), "vivicy-empty-home-"));
+    const prevHome = process.env.HOME;
+    const prevG = process.env.GIT_CONFIG_GLOBAL;
+    const prevS = process.env.GIT_CONFIG_SYSTEM;
+    const prevNoSystem = process.env.GIT_CONFIG_NOSYSTEM;
+    const prevAuthorEmail = process.env.GIT_AUTHOR_EMAIL;
+    const prevAuthorName = process.env.GIT_AUTHOR_NAME;
+    const prevCommitterEmail = process.env.GIT_COMMITTER_EMAIL;
+    const prevCommitterName = process.env.GIT_COMMITTER_NAME;
+    process.env.HOME = emptyHome;
+    process.env.GIT_CONFIG_GLOBAL = "/dev/null";
+    process.env.GIT_CONFIG_SYSTEM = "/dev/null";
+    process.env.GIT_CONFIG_NOSYSTEM = "1";
+    delete process.env.GIT_AUTHOR_EMAIL;
+    delete process.env.GIT_AUTHOR_NAME;
+    delete process.env.GIT_COMMITTER_EMAIL;
+    delete process.env.GIT_COMMITTER_NAME;
+    try {
+      // Precondition: with global/system isolated and no local identity, git reports
+      // NO usable identity — so only the LOCAL one the snapshot sets can satisfy commit.
+      assert.equal(git(temp, ["config", "user.email"]).stdout.trim(), "", "precondition: no identity configured");
+
+      const base = stubSeams();
+      const { spawnExtractor } = fakeAgent([(ctx) => writeValidCorpus(ctx.repoRoot)]);
+      const { spawnVerifier } = alwaysFaithfulVerifier();
+      const result = await extractIssues({ repoRoot: temp, spawnExtractor, spawnVerifier, ...base });
+
+      assert.equal(result.status, "green");
+      // The snapshot succeeded: HEAD resolves and the local identity is the one we set.
+      assert.equal(git(temp, ["rev-parse", "HEAD"]).status, 0, "a commit exists despite no global identity");
+      assert.equal(git(temp, ["config", "user.email"]).stdout.trim(), "vivicy@local");
+    } finally {
+      const restore = (key, prev) => {
+        if (prev === undefined) delete process.env[key];
+        else process.env[key] = prev;
+      };
+      restore("HOME", prevHome);
+      restore("GIT_CONFIG_GLOBAL", prevG);
+      restore("GIT_CONFIG_SYSTEM", prevS);
+      restore("GIT_CONFIG_NOSYSTEM", prevNoSystem);
+      restore("GIT_AUTHOR_EMAIL", prevAuthorEmail);
+      restore("GIT_AUTHOR_NAME", prevAuthorName);
+      restore("GIT_COMMITTER_EMAIL", prevCommitterEmail);
+      restore("GIT_COMMITTER_NAME", prevCommitterName);
+      rmSync(emptyHome, { recursive: true, force: true });
+    }
+  });
+
+  it("end-to-end: real spec snapshot + REAL doc-baseline freeze succeed on a from-scratch repo", async () => {
+    // The strongest proof: REAL snapshot AND the REAL doc-baseline freeze (no freeze
+    // stub). The owner's uncommitted spec is snapshotted, then doc-baseline cuts a
+    // frozen baseline from the clean committed tree — exactly the gap this closes.
+    cpSync(resolve(FIXTURE, "docs/canonical"), resolve(temp, "docs/canonical"), { recursive: true });
+    cpSync(resolve(FIXTURE, "README.md"), resolve(temp, "README.md"));
+    cpSync(resolve(FIXTURE, "package.json"), resolve(temp, "package.json"));
+    writeScaffoldGitignore(temp);
+    git(temp, ["init", "-q"]);
+    git(temp, ["config", "user.email", "t@local"]);
+    git(temp, ["config", "user.name", "t"]);
+    git(temp, ["config", "commit.gpgsign", "false"]);
+    assert.equal(isClean(temp), false, "precondition: spec uncommitted");
+    assert.equal(findFrozenManifest(temp), null, "precondition: no frozen baseline yet");
+
+    // Only stub the agent legs + map + corpus commit; the snapshot AND the freeze are
+    // REAL (no runFreeze stub). The fake extractor writes the golden corpus but RE-PINS
+    // it to the FRESHLY frozen manifest's hashes — because a real re-freeze produces a
+    // new manifest_hash (it includes generated_at/approval), so the fixture's golden
+    // pin would otherwise mismatch. That repin is exactly what a real extractor does
+    // after reading the just-frozen manifest; here it lets us prove the snapshot→freeze
+    // lifecycle end-to-end against the REAL doc-baseline tool.
+    const spawnExtractor = async (ctx) => {
+      writeValidCorpus(ctx.repoRoot);
+      const manifest = JSON.parse(readFileSync(resolve(ctx.repoRoot, ctx.manifestPath), "utf8"));
+      const idxPath = resolve(ctx.repoRoot, "spec/development/issue-index.json");
+      const idx = JSON.parse(readFileSync(idxPath, "utf8"));
+      idx.manifest_hash = manifest.manifest_hash;
+      idx.document_set_hash = manifest.document_set_hash;
+      idx.manifest_path = ctx.manifestPath;
+      idx.baseline_id = ctx.baselineId;
+      writeFileSync(idxPath, `${JSON.stringify(idx, null, 2)}\n`);
+      return { transcriptRel: `spec/development/transcripts/EXTRACTION/extract-${ctx.attempt}.jsonl` };
+    };
+    const { spawnVerifier } = alwaysFaithfulVerifier();
+    const { runFreeze, ...rest } = stubSeams();
+    void runFreeze;
+    const result = await extractIssues({ repoRoot: temp, spawnExtractor, spawnVerifier, ...rest });
+
+    assert.equal(result.status, "green", `expected green, got: ${result.summary}`);
+    assert.equal(result.froze, true, "the REAL freeze ran (no pre-existing baseline)");
+    // A real frozen manifest exists and is recognized.
+    const frozen = findFrozenManifest(temp);
+    assert.ok(frozen, "a frozen baseline manifest exists after the real freeze");
+    // The spec is committed in HEAD — the owner ran zero git commands.
+    const tracked = new Set(git(temp, ["ls-files"]).stdout.split("\n").map((s) => s.trim()).filter(Boolean));
+    assert.ok(tracked.has("docs/canonical/01-architecture.md"), "the owner's spec is committed");
+  });
+});
+
 describe("extractIssues — freeze-if-needed branch", () => {
   it("freezes via the injected freeze seam when no frozen baseline exists", async () => {
     // Seed canonical docs ONLY — no docs/baselines yet.

@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process"
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import path from "node:path"
@@ -265,5 +266,134 @@ describe("scaffoldProject — existing project (add Vivicy, never clobber)", () 
     // The gate command is DETECTED from the existing repo's own test wiring.
     const vivicy = JSON.parse(readFileSync(path.join(target, "vivicy.json"), "utf8"))
     expect(vivicy.gateCommand).toBe("npm test")
+  })
+})
+
+// Run git in `cwd` and return { status, stdout, stderr }. Real git, no fakes — the
+// whole point of these tests is to prove the mechanical git lifecycle works.
+function git(cwd: string, args: string[]) {
+  const r = spawnSync("git", args, { cwd, encoding: "utf8" })
+  return { status: r.status ?? 1, stdout: r.stdout ?? "", stderr: r.stderr ?? "" }
+}
+
+/** A clean working tree (nothing reported by porcelain status). */
+function isCleanTree(cwd: string): boolean {
+  return git(cwd, ["status", "--porcelain"]).stdout.trim() === ""
+}
+
+describe("scaffoldProject — from-scratch git lifecycle (mechanical, no human git)", () => {
+  it("git init + commits the skeleton so the target is a clean, committed repo", () => {
+    const target = path.join(workDir, "fresh-repo")
+    const result = scaffoldProject({ targetDir: target, projectName: "Fresh Repo" })
+
+    expect(result.mode).toBe("from_scratch")
+    // The orchestrator reports the git lifecycle outcome as evidence.
+    expect(result.git).toEqual({ initialized: true, committed: true })
+
+    // It is a real git repo with at least one commit (HEAD resolves) — exactly what
+    // the doc-baseline freeze requires.
+    expect(git(target, ["rev-parse", "--is-inside-work-tree"]).status).toBe(0)
+    expect(git(target, ["rev-parse", "HEAD"]).status).toBe(0)
+
+    // The tree is CLEAN: the skeleton was committed, nothing left dirty/uncommitted.
+    expect(isCleanTree(target), git(target, ["status", "--porcelain"]).stdout).toBe(true)
+
+    // The committed snapshot actually contains the skeleton (the spec placeholder +
+    // gate config), and respects .gitignore (no .vivicy-runtime committed).
+    const tracked = new Set(
+      git(target, ["ls-files"]).stdout.split("\n").map((s) => s.trim()).filter(Boolean)
+    )
+    expect(tracked.has("vivicy.json")).toBe(true)
+    expect(tracked.has("docs/canonical/README.md")).toBe(true)
+    expect(tracked.has(".gitignore")).toBe(true)
+    for (const t of tracked) {
+      expect(t.startsWith(".vivicy-runtime/"), `runtime must not be committed: ${t}`).toBe(false)
+    }
+  })
+
+  it("commits with a LOCAL identity even on a repo whose only identity would be absent", () => {
+    // Simulate a fresh machine with no usable global identity by pointing HOME/git
+    // config env at an empty dir, so only a repo-local identity can satisfy commit.
+    const target = path.join(workDir, "no-identity-repo")
+    const emptyHome = path.join(workDir, "empty-home")
+    mkdirSync(emptyHome, { recursive: true })
+    const prevHome = process.env.HOME
+    const prevGitConfigGlobal = process.env.GIT_CONFIG_GLOBAL
+    const prevGitConfigSystem = process.env.GIT_CONFIG_SYSTEM
+    process.env.HOME = emptyHome
+    process.env.GIT_CONFIG_GLOBAL = path.join(emptyHome, ".gitconfig-absent")
+    process.env.GIT_CONFIG_SYSTEM = path.join(emptyHome, ".gitconfig-system-absent")
+    try {
+      const result = scaffoldProject({ targetDir: target, projectName: "No Identity" })
+      expect(result.git).toEqual({ initialized: true, committed: true })
+      // A commit exists despite NO global/system identity — the local one carried it.
+      expect(git(target, ["rev-parse", "HEAD"]).status).toBe(0)
+      expect(isCleanTree(target)).toBe(true)
+      // The identity used is the repo-LOCAL one we set (we never touched global).
+      expect(git(target, ["config", "user.email"]).stdout.trim()).toBe("vivicy@local")
+    } finally {
+      if (prevHome === undefined) delete process.env.HOME
+      else process.env.HOME = prevHome
+      if (prevGitConfigGlobal === undefined) delete process.env.GIT_CONFIG_GLOBAL
+      else process.env.GIT_CONFIG_GLOBAL = prevGitConfigGlobal
+      if (prevGitConfigSystem === undefined) delete process.env.GIT_CONFIG_SYSTEM
+      else process.env.GIT_CONFIG_SYSTEM = prevGitConfigSystem
+    }
+  })
+
+  it("does NOT re-init or add a second root commit when the from-scratch target is already a repo", () => {
+    // The owner ran `git init` first on an otherwise-empty dir (still from_scratch).
+    const target = path.join(workDir, "preinit")
+    mkdirSync(target, { recursive: true })
+    git(target, ["init"])
+    git(target, ["config", "user.email", "owner@example.com"])
+    git(target, ["config", "user.name", "Owner"])
+
+    const result = scaffoldProject({ targetDir: target, projectName: "Preinit" })
+    expect(result.mode).toBe("from_scratch")
+    // We detected the existing repo and did NOT init/commit — the owner's repo is left
+    // for the extraction spec-snapshot (or the owner) to commit; we never clobber it.
+    expect(result.git).toEqual({ initialized: false, committed: false })
+    // The owner's identity is untouched (we never overwrote it).
+    expect(git(target, ["config", "user.email"]).stdout.trim()).toBe("owner@example.com")
+  })
+})
+
+describe("scaffoldProject — existing-project mode never touches the owner's git", () => {
+  it("does not init a repo and does not commit when adding Vivicy to a populated dir", () => {
+    const target = path.join(workDir, "existing-no-git")
+    mkdirSync(target, { recursive: true })
+    writeFileSync(path.join(target, "existing.txt"), "hi")
+
+    const result = scaffoldProject({ targetDir: target, projectName: "Existing" })
+    expect(result.mode).toBe("existing_project")
+    // No git was created — Vivicy adds files but leaves the owner's VCS decision alone.
+    expect(result.git).toEqual({ initialized: false, committed: false })
+    expect(git(target, ["rev-parse", "--is-inside-work-tree"]).status).not.toBe(0)
+  })
+
+  it("leaves an EXISTING repo's history and HEAD completely untouched (no new root commit)", () => {
+    const target = path.join(workDir, "existing-with-git")
+    mkdirSync(target, { recursive: true })
+    git(target, ["init"])
+    git(target, ["config", "user.email", "owner@example.com"])
+    git(target, ["config", "user.name", "Owner"])
+    writeFileSync(path.join(target, "src.txt"), "original\n")
+    git(target, ["add", "-A"])
+    git(target, ["commit", "-m", "owner's original commit"])
+    const headBefore = git(target, ["rev-parse", "HEAD"]).stdout.trim()
+    const countBefore = git(target, ["rev-list", "--count", "HEAD"]).stdout.trim()
+
+    const result = scaffoldProject({ targetDir: target, projectName: "Existing With Git" })
+    expect(result.mode).toBe("existing_project")
+    expect(result.git).toEqual({ initialized: false, committed: false })
+
+    // The owner's HEAD and commit count are UNCHANGED — Vivicy committed nothing.
+    expect(git(target, ["rev-parse", "HEAD"]).stdout.trim()).toBe(headBefore)
+    expect(git(target, ["rev-list", "--count", "HEAD"]).stdout.trim()).toBe(countBefore)
+    // The newly-written Vivicy files are present on disk but UNCOMMITTED (the owner
+    // decides when to commit them) — proving we left history alone.
+    expect(existsSync(path.join(target, "vivicy.json"))).toBe(true)
+    expect(isCleanTree(target)).toBe(false)
   })
 })

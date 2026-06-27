@@ -30,6 +30,7 @@
  * {@link file://./project-types}.
  */
 
+import { spawnSync } from "node:child_process"
 import {
   existsSync,
   mkdirSync,
@@ -265,6 +266,64 @@ export function slugify(projectName: string): string {
   return slug.length > 0 ? slug : "project"
 }
 
+/**
+ * Run `git <args>` in `cwd`. Returns the exit status, stdout, and stderr. `node:fs`
+ * already keeps this module server-only, and `git` is invoked exactly like the rest
+ * of the factory does it (no shell), so there is no injection surface.
+ */
+function git(cwd: string, args: string[]): { status: number; stdout: string; stderr: string } {
+  const r = spawnSync("git", args, { cwd, encoding: "utf8" })
+  return { status: r.status ?? 1, stdout: r.stdout ?? "", stderr: r.stderr ?? "" }
+}
+
+/** True when `cwd` is inside a git work tree (a real repo, not just any folder). */
+function isGitRepo(cwd: string): boolean {
+  return git(cwd, ["rev-parse", "--is-inside-work-tree"]).status === 0
+}
+
+/**
+ * Ensure a commit can be authored in `cwd` even on a machine with NO global git
+ * identity. We only set a LOCAL `user.name`/`user.email` (repo-scoped) when the
+ * effective identity is absent, so we never clobber an existing global/local config.
+ * `git commit` fails hard without an identity; this makes the mechanical commit
+ * succeed on a fresh machine without any human `git config` step.
+ */
+function ensureLocalGitIdentity(cwd: string): void {
+  if (git(cwd, ["config", "user.email"]).stdout.trim() === "") {
+    git(cwd, ["config", "user.email", "vivicy@local"])
+  }
+  if (git(cwd, ["config", "user.name"]).stdout.trim() === "") {
+    git(cwd, ["config", "user.name", "Vivicy"])
+  }
+}
+
+/**
+ * Make the FROM-SCRATCH skeleton a clean, committed git repo — so the owner never
+ * runs git by hand. Mechanically: `git init`, ensure a local identity exists (fresh
+ * machines have none), `git add -A` (the lean `.gitignore` makes this safe — only
+ * runtime/transcripts/worktrees/node_modules are ever excluded), and commit the
+ * skeleton. `git add -A` honours `.gitignore`, which the skeleton just wrote.
+ *
+ * EXISTING-PROJECT mode never calls this: we leave the owner's repo and history
+ * completely untouched — no init, no commit. We also never touch a remote and never
+ * force anything.
+ *
+ * Best-effort and non-fatal: if `git` is unavailable, the scaffold still succeeds
+ * (the files are written); `initialized` simply reports false so callers/tests can
+ * see whether a repo was created. The extraction step has its own defensive
+ * `git init` for exactly this reason.
+ */
+function initFromScratchRepo(target: string): { initialized: boolean; committed: boolean } {
+  // Defensive: if the target is ALREADY a repo (e.g. the owner ran `git init`
+  // first), do not re-init or add a second root commit — just leave it.
+  if (isGitRepo(target)) return { initialized: false, committed: false }
+  if (git(target, ["init"]).status !== 0) return { initialized: false, committed: false }
+  ensureLocalGitIdentity(target)
+  if (git(target, ["add", "-A"]).status !== 0) return { initialized: true, committed: false }
+  const commit = git(target, ["commit", "-m", "Vivicy: scaffold skeleton"])
+  return { initialized: true, committed: commit.status === 0 }
+}
+
 /** The describing record a successful scaffold returns. */
 export interface ScaffoldResult {
   /** The chosen project root (absolute). */
@@ -273,6 +332,12 @@ export interface ScaffoldResult {
   mode: ScaffoldMode
   /** Absolute paths of every file written, for evidence/tests. */
   written: string[]
+  /**
+   * From-scratch git lifecycle outcome: whether a fresh repo was `git init`-ed and
+   * whether the skeleton was committed. Existing-project mode reports `{ initialized:
+   * false, committed: false }` because Vivicy never touches an existing repo's git.
+   */
+  git: { initialized: boolean; committed: boolean }
 }
 
 /** Read a lean template file, substituting `{{PROJECT_NAME}}`. */
@@ -355,8 +420,15 @@ export function scaffoldProject(input: { targetDir: unknown; projectName: unknow
     if (w) written.push(w)
   }
 
-  // 4. Set the scaffolded project as the current target.
+  // 4. FROM-SCRATCH only: make the skeleton a clean, committed git repo so the owner
+  //    never runs git by hand. EXISTING-PROJECT mode leaves the owner's repo/history
+  //    completely alone (no init, no commit). The `.gitignore` we just wrote makes the
+  //    `git add -A` safe (only runtime/transcripts/worktrees/node_modules are excluded).
+  const gitResult =
+    mode === "from_scratch" ? initFromScratchRepo(target) : { initialized: false, committed: false }
+
+  // 5. Set the scaffolded project as the current target.
   const project = setCurrentProject(target)
 
-  return { project, mode, written: written.sort() }
+  return { project, mode, written: written.sort(), git: gitResult }
 }
