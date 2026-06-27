@@ -214,7 +214,10 @@ async function main() {
   try {
     // runLoop returns a Promise on the parallel path (maxParallel > 1), an array
     // sequentially; await handles both. maxParallel = the --concurrency knob.
-    processed = await devloop.runLoop({ defaultGateCommand: "npm test", maxParallel: concurrency }, steps);
+    // NOTE: no defaultGateCommand is passed — the loop resolves the POLYGLOT gate
+    // from the fixture's own `vivicy.json` ("npm test"), exercising the real
+    // project-config path end-to-end (the Node fixture stays green).
+    processed = await devloop.runLoop({ maxParallel: concurrency }, steps);
   } catch (error) {
     record("dev-loop two-agent run", false, String(error?.message ?? error));
   }

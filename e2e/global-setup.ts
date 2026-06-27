@@ -77,8 +77,8 @@ export default function globalSetup() {
 
   // Start each per-browser server with a clean runtime dir (no stale persisted
   // project, settings, or run-state lock from a prior run), and wipe each
-  // onboarding scaffold parent so the scaffolded child dir is always new/empty
-  // (the scaffolder refuses a non-empty target).
+  // onboarding scaffold parent so the scaffolded child dir is always new/empty —
+  // the e2e onboarding exercises the FROM-SCRATCH lean scaffold path.
   for (const shape of SHAPES) {
     for (const browserKey of BROWSER_KEYS) {
       rmSync(RUNTIME_DIR(shape, browserKey), { recursive: true, force: true })

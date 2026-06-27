@@ -9,8 +9,9 @@ This is the heart of Vivicy's promise — *the owner writes the canonical spec, 
 1. `AGENTS.md` (or `README.md`) at the target root — the project's own operating context.
 2. The frozen baseline manifest under `docs/baselines/<baseline-id>.json` — it pins the exact files + hashes you must extract from. **Treat its `files[]` as the authoritative corpus and use its `baseline_id`, `version`, `manifest_hash`, `document_set_hash` verbatim** in every artifact's pin fields. Do not invent or recompute these values.
 3. Every canonical document under `docs/canonical/**/*.md` that the manifest lists — these are the ONLY source of product truth. Read them completely, with line numbers.
-4. The development method under `docs/governance/**` (the Development Traceability Method) — it owns the artifact schemas, the requirement/issue discipline, the coverage policy, and the Task Type rules.
-5. `spec/development/ISSUE-TEMPLATE.md` — the exact issue shape you must follow.
+4. `spec/development/ISSUE-TEMPLATE.md` — the exact issue shape you must follow.
+
+This prompt is SELF-CONTAINED: it carries every artifact schema, the requirement/issue discipline, the coverage policy, and the Task Type rules you need. The target repo is intentionally LEAN — it does NOT contain the development-method docs. Do not look for or depend on any method document inside the target; follow this prompt and the deterministic checks the orchestrator re-runs.
 
 ## What you author (the corpus)
 
@@ -66,7 +67,7 @@ Author every file below into the **target repo**, all pinned to the frozen basel
      included_docs:
        - "docs/canonical/**/*.md"
      excluded_globs:
-       - "docs/governance/**"
+       - "spec/**"
      source_ref_grammar: "path[:line][#anchor]"
 
    kind_taxonomy:
@@ -156,6 +157,6 @@ The orchestrator will hand you the **exact mechanical-gate output** — from `se
 ## Do not
 
 - Do not run the deterministic checks yourself as the source of truth — the orchestrator re-runs them and owns the verdict. (You may read them to self-check.)
-- Do not edit `docs/canonical/**`, the frozen baseline manifest, or anything under `docs/governance/**` — those are read-only inputs.
+- Do not edit `docs/canonical/**` or the frozen baseline manifest — those are read-only inputs.
 - Do not commit. The orchestrator validates and the parent process commits green checkpoints.
 - Do not fabricate hashes, fake coverage by mass-excluding real obligations, or weaken an issue's verification bar to make a gate pass.

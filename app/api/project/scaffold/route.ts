@@ -5,11 +5,12 @@ export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 
 /**
- * Scaffold a brand-new project (R9, Mode B). The body is `{ targetDir, projectName }`:
- * `targetDir` must be an absolute path that is absent or an empty directory, and
- * `projectName` a 1–64 char name. On success the generic governance/method
- * skeleton is written (with the name substituted) and the project is set as the
- * current target; the response echoes the described project and the files written.
+ * Scaffold Vivicy into a project (R9). The body is `{ targetDir, projectName }`:
+ * `targetDir` must be an absolute path (absent/empty => a fresh lean skeleton;
+ * populated => add Vivicy to the existing repo, creating only the MISSING files),
+ * and `projectName` a 1–64 char name. On success the lean skeleton is written
+ * (never clobbering an existing file) and the project is set as the current target;
+ * the response echoes the described project, the scaffold mode, and the files written.
  */
 export async function POST(request: Request) {
   try {
@@ -21,7 +22,12 @@ export async function POST(request: Request) {
       targetDir: body?.targetDir,
       projectName: body?.projectName,
     })
-    return Response.json({ ok: true, project: result.project, written: result.written })
+    return Response.json({
+      ok: true,
+      project: result.project,
+      mode: result.mode,
+      written: result.written,
+    })
   } catch (error) {
     if (error instanceof ScaffoldError) {
       return Response.json({ ok: false, error: error.message, code: error.code }, { status: 400 })

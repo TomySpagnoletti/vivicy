@@ -479,7 +479,7 @@ test("env vars flow into DEFAULT_CONFIG -> argv when the module loads in a fresh
 
 // --- stub end-to-end: real gate runner + ledger, stubbed agent legs ---
 
-function buildScratch(gateCommand) {
+function buildScratch(gateCommand, { perIssueGate = true } = {}) {
   const dir = mkdtempSync(resolve(repoRoot, "_tmp-dev-loop-"));
   const scratchRel = relative(repoRoot, dir);
   const issuesDir = `${scratchRel}/issues`;
@@ -491,6 +491,10 @@ function buildScratch(gateCommand) {
   writeFileSync(resolve(repoRoot, `${issuesDir}/ISS-B.md`), "# B\n");
   const indexRel = `${scratchRel}/issue-index.json`;
   const ledgerRel = `${scratchRel}/progress-ledger.json`;
+  // When perIssueGate is false the issues carry NO gate_command, so the loop must
+  // resolve the POLYGLOT gate from the project's vivicy.json (or the explicit
+  // cfg.defaultGateCommand) — used by the polyglot test below.
+  const gateField = perIssueGate ? { gate_command: gateCommand } : {};
   const index = {
     baseline_id: "baseline-test",
     verification_evidence_ref_grammar: `^${scratchRel}/(gates|reports)/.+`,
@@ -501,7 +505,7 @@ function buildScratch(gateCommand) {
         graph_refs: ["node:x"],
         depends_on: [],
         verification_gate_ids: ["gate:test:a"],
-        gate_command: gateCommand,
+        ...gateField,
         path: `${issuesDir}/ISS-A.md`,
       },
       {
@@ -510,7 +514,7 @@ function buildScratch(gateCommand) {
         graph_refs: ["node:y"],
         depends_on: ["ISS-A"],
         verification_gate_ids: ["gate:test:b"],
-        gate_command: gateCommand,
+        ...gateField,
         path: `${issuesDir}/ISS-B.md`,
       },
     ],
@@ -548,6 +552,45 @@ test("runLoop drives two issues to verified, moved to done, in dependency order"
     // moveIssueToDone keeps the index path truthful for external readers.
     const indexAfter = JSON.parse(readFileSync(resolve(repoRoot, cfg.issueIndexPath), "utf8"));
     assert.equal(indexAfter.issues[0].path, `${cfg.doneDir}/ISS-A.md`);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("POLYGLOT: runLoop resolves a NON-NODE gate from the project's vivicy.json (no npm/node assumption)", () => {
+  // A Go-style gate command lives in the project-level vivicy.json at the target
+  // root; the issues carry NO per-issue gate_command and the loop is given NO
+  // explicit defaultGateCommand. The loop must read vivicy.json and run THAT.
+  // Use a real, exit-0 shell command that is not npm/node, so the gate path runs
+  // end-to-end with zero Node assumption.
+  const configPath = resolve(repoRoot, "vivicy.json");
+  writeFileSync(configPath, JSON.stringify({ gateCommand: "echo go-test-ran" }));
+  const { dir, cfg } = buildScratch(undefined, { perIssueGate: false });
+  try {
+    const processed = runLoop(cfg, stubSteps);
+    assert.deepEqual(processed, [
+      { id: "ISS-A", status: "verified" },
+      { id: "ISS-B", status: "verified" },
+    ]);
+    // The recorded gate evidence proves the NON-NODE command was the one run.
+    const evidence = JSON.parse(
+      readFileSync(resolve(repoRoot, `${cfg.gatesDir}/ISS-A-gate.json`), "utf8"),
+    );
+    assert.equal(evidence.command, "echo go-test-ran");
+    assert.equal(evidence.status, "pass");
+    assert.ok(!/npm|node --test/.test(evidence.command), "gate command must carry no Node assumption");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+    rmSync(configPath, { force: true });
+  }
+});
+
+test("POLYGLOT: runLoop fails loudly when NO gate is configured (no silent npm fallback)", () => {
+  // No vivicy.json, no per-issue gate_command, no explicit default => the loop
+  // must surface a clear error instead of assuming `npm test`.
+  const { dir, cfg } = buildScratch(undefined, { perIssueGate: false });
+  try {
+    assert.throws(() => runLoop(cfg, stubSteps), /gate command/i);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -2041,7 +2084,14 @@ test("the implementer and reviewer prompts carry the public-API quality bar (the
     assert.match(text, /(raw|uncaught).{0,40}throw|throw.{0,40}(raw|garbage)/i, `${name} forbids a raw throw on garbage input`);
     // (3) no side-channel hack to reconcile a contract conflict (defect #1: Symbol back-door).
     assert.match(text, /side-channel/i, `${name} forbids side-channel reconciliation`);
-    assert.match(text, /change control/i, `${name} routes a contract conflict to change control instead of hacking it`);
+    // The self-contained prompts surface a contract conflict as a BLOCKER to be
+    // fixed at the spec's source, rather than hacking it (no dependency on a target
+    // change-control doc, which the lean target no longer ships).
+    assert.match(
+      text,
+      /surface (?:the contradiction|it)[^.]*\bblocker\b|\bblocker\b[^.]*\bspec\b/i,
+      `${name} surfaces a contract conflict as a blocker instead of hacking it`,
+    );
     // (4) no dead / unreferenced exported symbol (defect #1: dead exported registrar).
     assert.match(text, /(dead|unreferenced|orphan)/i, `${name} forbids dead/unreferenced exports`);
     assert.match(text, /production path/i, `${name} requires exports be reachable from the production path`);

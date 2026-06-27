@@ -21,7 +21,8 @@ import { POST } from "./route"
 
 const RESULT: ScaffoldResult = {
   project: { root: "/abs/new", name: "My App", hasDocs: true },
-  written: ["/abs/new/AGENTS.md", "/abs/new/README.md", "/abs/new/package.json"],
+  mode: "from_scratch",
+  written: ["/abs/new/AGENTS.md", "/abs/new/README.md", "/abs/new/vivicy.json"],
 }
 
 function postJson(body: unknown): Request {
@@ -51,6 +52,7 @@ describe("POST /api/project/scaffold", () => {
     expect(body).toEqual({
       ok: true,
       project: RESULT.project,
+      mode: RESULT.mode,
       written: RESULT.written,
     })
   })
@@ -77,7 +79,6 @@ describe("POST /api/project/scaffold", () => {
   const codes = [
     "not_absolute",
     "not_a_directory",
-    "not_empty",
     "invalid_name",
     "templates_missing",
   ] as const

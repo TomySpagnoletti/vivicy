@@ -26,12 +26,13 @@ import { Label } from "@/components/ui/label"
 import { ScrollArea } from "@/components/ui/scroll-area"
 
 /**
- * Mode B — "Start from scratch" (R9). A shadcn Dialog that scaffolds a brand-new
- * project: the user gives a NEW (empty or non-existent) folder plus a project
- * name, and Vivicy writes the generic governance/method skeleton into it (via
- * `POST /api/project/scaffold`), then sets it as the current target so the app
- * lands on the freshly-scaffolded project (which shows the "no architecture map
- * yet" empty state until docs are written + extracted).
+ * "Start from scratch / add Vivicy" (R9). A shadcn Dialog that scaffolds Vivicy
+ * into a project: the user gives a folder plus a project name, and Vivicy writes
+ * the LEAN method skeleton into it (via `POST /api/project/scaffold`), then sets it
+ * as the current target so the app lands on the project (which shows the "no
+ * architecture map yet" empty state until docs are written + extracted). An empty
+ * or non-existent folder gets the full lean skeleton; a populated folder gets only
+ * the MISSING Vivicy files, never clobbering existing ones (add-to-existing-repo).
  *
  * The folder is chosen by browsing a PARENT directory (reusing the same
  * `GET /api/fs/list` browser as the picker) and typing the new folder's name; the

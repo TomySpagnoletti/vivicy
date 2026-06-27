@@ -42,6 +42,7 @@ import { recordProgressEvent } from "./progress-ledger.mjs";
 import { checkSkills } from "./dev-preflight.mjs";
 import { runTraceabilityCheck } from "./traceability-check.mjs";
 import { resolveTargetRoot, FACTORY_DIR, FACTORY_PROMPTS_DIR } from "./target-root.mjs";
+import { resolveGateCommand } from "./project-config.mjs";
 // Shared agent-leg spawn + transcript-capture primitives (one owner, reused by
 // the extractor in extract-issues.mjs). dev-loop binds them to its own root
 // resolution via the `deps` it passes to the shared leg runners.
@@ -226,7 +227,16 @@ export const DEFAULT_CONFIG = {
   // the ledger so the map links node/edge -> issue -> complete transcript.
   transcriptsDir: "spec/development/transcripts",
   maxRetries: 2,
-  defaultGateCommand: "npm test",
+  // The verification gate command is POLYGLOT and comes from the TARGET PROJECT,
+  // not from a hardcoded Node default. Resolution (most specific first):
+  //   issue.gate_command  ->  vivicy.json "gateCommand" at the target root  ->
+  //   this explicit defaultGateCommand (only when a caller deliberately sets it,
+  //   e.g. the Node rehearsal fixture or a unit test). It is `undefined` by
+  //   default so a real project MUST declare its own gate in vivicy.json and the
+  //   loop never silently assumes `npm test` on a Go/Rust/Python/PHP/Swift repo.
+  //   See factory/project-config.mjs (resolveGateCommand) — the single owner of
+  //   this resolution, used by both the sync and async gate runners.
+  defaultGateCommand: undefined,
   // Maximum number of INDEPENDENT issues the loop runs concurrently. Default 1 =
   // today's exact sequential behavior (one worktree-free issue at a time against
   // the main root). >1 enables parallel execution: each concurrent issue runs in
@@ -1366,12 +1376,20 @@ export function defaultRunReviewerAsync(issue, cfg) {
 // The orchestrator runs the gate ITSELF — the authoritative verdict — and writes
 // a gate-run record evidence file the ledger requires for gate_passed.
 export function defaultRunGate(issue, cfg) {
-  const gateCommand = issue.gate_command ?? cfg.defaultGateCommand;
+  const execRoot = execRootOf(cfg);
+  // POLYGLOT gate: the authoritative command is resolved per issue from
+  // issue.gate_command -> the target's vivicy.json -> cfg.defaultGateCommand,
+  // with NO hidden Node assumption (project-config.mjs owns the resolution).
+  const gateCommand = resolveGateCommand({
+    issue,
+    targetRoot: execRoot,
+    explicitDefault: cfg.defaultGateCommand,
+  });
   // The gate runs against the issue's CODE — its execution root (the worktree for
   // a parallel issue). The evidence RECORD is shared orchestration state and is
   // written to the MAIN root (abs()), where the ledger's gate_passed validation
   // reads it back; the two roots are deliberately split here.
-  const result = spawnSync(gateCommand, { cwd: execRootOf(cfg), encoding: "utf8", shell: true });
+  const result = spawnSync(gateCommand, { cwd: execRoot, encoding: "utf8", shell: true });
   return writeGateEvidence(issue, cfg, gateCommand, result.status ?? 1);
 }
 
@@ -1385,8 +1403,14 @@ export function defaultRunGate(issue, cfg) {
 // supervisor (which exists to kill a wedged `codex`/`claude`, and does not run a
 // shell). A pathological gate is still bounded by the surrounding loop's retries.
 export async function defaultRunGateAsync(issue, cfg) {
-  const gateCommand = issue.gate_command ?? cfg.defaultGateCommand;
-  const result = await spawnShellAsync(gateCommand, { cwd: execRootOf(cfg) });
+  const execRoot = execRootOf(cfg);
+  // Same polyglot resolution as the sync gate (project-config.mjs is the one owner).
+  const gateCommand = resolveGateCommand({
+    issue,
+    targetRoot: execRoot,
+    explicitDefault: cfg.defaultGateCommand,
+  });
+  const result = await spawnShellAsync(gateCommand, { cwd: execRoot });
   return writeGateEvidence(issue, cfg, gateCommand, result.status ?? 1);
 }
 
