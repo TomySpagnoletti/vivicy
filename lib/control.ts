@@ -1,5 +1,5 @@
 /**
- * Vivicy control plane: drive the Naight dev-factory scripts from the app.
+ * Vivicy control plane: drive the Vivicy dev-factory scripts from the app.
  *
  * Server-only. This module owns the policy (single-run lock, path safety, how
  * each factory script is invoked) and stays independent of `child_process` via
@@ -200,19 +200,6 @@ export function getFactoryRoot(): string {
   return path.resolve(process.cwd(), "factory")
 }
 
-/**
- * Resolve the target project the scripts operate on. One source of truth with the
- * viewer: the UI-chosen project (persisted) wins, then `VIVICY_TARGET_ROOT`, then
- * the parent of the app. The control plane therefore always operates on exactly
- * the project the picker selected (R10).
- */
-export function getControlTargetRoot(): string {
-  return getTargetRoot()
-}
-
-/** Re-exported runtime dir (logs + lock); one source of truth in runtime-dir.ts. */
-export { getRuntimeDir }
-
 function getRunStatePath(): string {
   return path.join(getRuntimeDir(), RUN_STATE_FILE)
 }
@@ -320,7 +307,7 @@ export interface ControlContext {
 }
 
 function resolveContext(): ControlContext {
-  return { factoryRoot: getFactoryRoot(), targetRoot: getControlTargetRoot() }
+  return { factoryRoot: getFactoryRoot(), targetRoot: getTargetRoot() }
 }
 
 /**
@@ -434,12 +421,12 @@ export async function readDevStatus(
 }
 
 /** Repo-relative status the extraction orchestrator writes as it runs. */
-const EXTRACTION_STATUS_FILE = "spec/development/reports/extraction-status.json"
+const EXTRACTION_STATUS_FILE = ".vivicy/development/reports/extraction-status.json"
 
 /**
  * AUTHOR the issues from the frozen canonical spec, then validate and regenerate
  * the map. This drives the single `extract-issues.mjs` orchestrator, which:
- *   1. freezes docs/canonical/** if no frozen baseline exists (else reuses it),
+ *   1. freezes .vivicy/canonical/** if no frozen baseline exists (else reuses it),
  *   2. spawns a real agent to author the full corpus (catalog, matrix, exclusions,
  *      vertical issues, issue index, architecture map),
  *   3. runs the deterministic checks (semantic-extraction + traceability),

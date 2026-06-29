@@ -3,8 +3,8 @@
 // (Pocket Ledger). It exercises the WHOLE chain with the REAL tooling: freeze ->
 // baseline verify -> semantic-extraction check -> viewer-data generation -> the
 // two-agent dev loop (Claude implementer + Codex reviewer) -> gate -> done/ ->
-// progress ledger -> regenerated viewer data showing each issue verified and
-// linked to its transcript.
+// progress ledger -> read-time viewer-data projection showing each issue verified
+// and linked to its transcript.
 //
 // Self-contained: this is Vivicy's OWN self-test. The fixture and role prompts are
 // bundled in factory/ (factory/rehearsal/pocket-ledger, factory/prompts); the
@@ -39,7 +39,7 @@ const factoryDir = dirname(fileURLToPath(import.meta.url));
 const fixtureDir = join(FACTORY_REHEARSAL_DIR, "pocket-ledger");
 const reportPath = join(FACTORY_REHEARSAL_DIR, "reports/method-rehearsal-report.md");
 const BASELINE_ID = "baseline-v1.0.0";
-const MANIFEST_REL = `docs/baselines/${BASELINE_ID}.json`;
+const MANIFEST_REL = `.vivicy/baselines/${BASELINE_ID}.json`;
 // Absolute path to a sibling factory script (the rehearsal runs them as children).
 const factoryScript = (name) => join(factoryDir, name);
 
@@ -99,7 +99,7 @@ function writeWorktreeMarker(execRoot, issue, who) {
   writeFileSync(join(dir, `${issue.id}.js`), `// ${who} produced ${issue.id}\nexport const ${issue.id.replace(/[^a-zA-Z0-9]/g, "_")} = true;\n`);
 }
 function writeFakeTranscript(temp, issue, who) {
-  const rel = `spec/development/transcripts/${issue.id}/${who}-dry.jsonl`;
+  const rel = `.vivicy/development/transcripts/${issue.id}/${who}-dry.jsonl`;
   const abs = join(temp, rel);
   mkdirSync(dirname(abs), { recursive: true });
   writeFileSync(abs, `${JSON.stringify({ type: "assistant", message: { content: `dry ${who} for ${issue.id}` } })}\n`);
@@ -134,8 +134,8 @@ async function main() {
   let temp;
   if (fixedDir && existsSync(join(fixedDir, ".git"))) {
     temp = fixedDir;
-    const done = existsSync(join(temp, "spec/development/issues/done"))
-      ? readdirSync(join(temp, "spec/development/issues/done")).filter((f) => f.endsWith(".md")).length
+    const done = existsSync(join(temp, ".vivicy/development/issues/done"))
+      ? readdirSync(join(temp, ".vivicy/development/issues/done")).filter((f) => f.endsWith(".md")).length
       : 0;
     record("resume isolated temp repo", true, `${temp} (${done} issue(s) already done)`);
   } else {
@@ -178,14 +178,14 @@ async function main() {
   git(["-c", "user.email=rehearsal@local", "-c", "user.name=rehearsal", "commit", "-qm", "extraction: author corpus + map"], temp);
   const corpusClean = (git(["status", "--porcelain"], temp).stdout || "").trim() === "";
   const mapCommittedPreLoop =
-    git(["ls-files", "docs/architecture-map/viewer/src/architecture-data.json"], temp).stdout.trim().length > 0;
+    git(["ls-files", ".vivicy/architecture-map/architecture-data.json"], temp).stdout.trim().length > 0;
   record("extraction corpus committed (map tracked, clean tree)", corpusClean && mapCommittedPreLoop, mapCommittedPreLoop ? "map tracked" : "map NOT tracked");
 
   // Capture the STATIC map bytes generated once at extraction. The dev-loop must
   // NOT regenerate this file during the run — live progress lives in the ledger and
   // the app projects it at read time — so this exact byte content must survive the
   // whole loop unchanged. The post-loop assertion compares against this snapshot.
-  const mapPathRel = "docs/architecture-map/viewer/src/architecture-data.json";
+  const mapPathRel = ".vivicy/architecture-map/architecture-data.json";
   const staticMapBytesPreLoop = readFileSync(join(temp, mapPathRel));
   // The static map must carry every node as not_started (no baked progress): live
   // progress is the ledger's job, derived at read time.
@@ -243,7 +243,7 @@ async function main() {
   const totalIssues = preData?.development?.issues?.length ?? 0;
   // Cumulative completion (resume-safe): count issues in done/, not just this
   // run's processed set — a resumed run only processes the unfinished issues.
-  const doneDir = join(temp, "spec/development/issues/done");
+  const doneDir = join(temp, ".vivicy/development/issues/done");
   const doneCount = existsSync(doneDir) ? readdirSync(doneDir).filter((f) => f.endsWith(".md")).length : 0;
   record(
     `dev-loop ${dry ? "(dry agents)" : "two-agent"} run`,
@@ -255,7 +255,7 @@ async function main() {
   // an external process cleaning the OS temp dir), fail clearly instead of a raw
   // ENOENT stack trace, and never run the rehearsal with another process touching
   // the OS temp directory.
-  if (!existsSync(join(temp, "spec/development/progress-ledger.json"))) {
+  if (!existsSync(join(temp, ".vivicy/development/progress-ledger.json"))) {
     record("temp workspace survived the run", false, "workspace vanished mid-run — re-run with no concurrent process touching the OS temp dir");
     writeReport({ dry, temp, processed, verified, blocked, totalIssues, doneCount: 0, verifiedStates: 0, passingGates: 0 });
     process.stdout.write("\nREHEARSAL FAILED (workspace vanished)\n");
@@ -265,12 +265,12 @@ async function main() {
   // 6. Ledger verification + gate evidence assertions (done/ counted above).
   record("issues moved to done/", doneCount === totalIssues, `${doneCount}/${totalIssues} in done/`);
 
-  const ledger = readJson(join(temp, "spec/development/progress-ledger.json"));
+  const ledger = readJson(join(temp, ".vivicy/development/progress-ledger.json"));
   const verifiedStates = (ledger.graph_item_states ?? []).filter((s) => s.status === "verified");
   const withTranscripts = verifiedStates.filter((s) => Array.isArray(s.transcript_refs) && s.transcript_refs.length > 0);
   record("ledger: graph items verified with transcript refs", verifiedStates.length > 0 && withTranscripts.length === verifiedStates.length, `${verifiedStates.length} verified, ${withTranscripts.length} with transcripts`);
 
-  const gatesDir = join(temp, "spec/development/gates");
+  const gatesDir = join(temp, ".vivicy/development/gates");
   const gateRecords = existsSync(gatesDir) ? readdirSync(gatesDir).filter((f) => f.endsWith(".json")) : [];
   const passingGates = gateRecords.filter((f) => readJson(join(gatesDir, f)).status === "pass").length;
   record("gate-run evidence records (pass)", passingGates === totalIssues, `${passingGates}/${totalIssues} passing`);
@@ -306,7 +306,7 @@ async function main() {
   //     read-time overlay) shows LIVE per-issue progress (issues verified). The map
   //     itself stays static; progress is derived, never baked in or regenerated.
   const mapTracked = tracked.has(mapPathRel);
-  const ledgerFromHead = readJsonFromHead(temp, "spec/development/progress-ledger.json");
+  const ledgerFromHead = readJsonFromHead(temp, ".vivicy/development/progress-ledger.json");
   const committedVerified = mapTracked
     ? (await projectLedgerOntoMap(temp, readMapFromHead(temp), ledgerFromHead))?.development?.graph_item_states?.filter(
         (s) => s.status === "verified",
@@ -318,12 +318,12 @@ async function main() {
     `committed ledger projects ${committedVerified} verified graph item(s) onto the static map`,
   );
   // (b) Evidence — ledger, gate records, reports — is COMMITTED (real user gets it in git).
-  const ledgerTracked = tracked.has("spec/development/progress-ledger.json");
-  const gatesTracked = [...tracked].some((p) => p.startsWith("spec/development/gates/") && p.endsWith(".json"));
+  const ledgerTracked = tracked.has(".vivicy/development/progress-ledger.json");
+  const gatesTracked = [...tracked].some((p) => p.startsWith(".vivicy/development/gates/") && p.endsWith(".json"));
   record("closure: ledger + gate evidence committed", ledgerTracked && gatesTracked, `ledger ${ledgerTracked}, gates ${gatesTracked}`);
   // (c) TRANSCRIPTS ARE NEVER COMMITTED.
-  const transcriptsCommitted = [...tracked].filter((p) => p.startsWith("spec/development/transcripts/"));
-  const transcriptsOnDisk = existsSync(join(temp, "spec/development/transcripts"));
+  const transcriptsCommitted = [...tracked].filter((p) => p.startsWith(".vivicy/development/transcripts/"));
+  const transcriptsOnDisk = existsSync(join(temp, ".vivicy/development/transcripts"));
   record(
     "closure: transcripts produced but NEVER committed (gitignored)",
     transcriptsOnDisk && transcriptsCommitted.length === 0,
@@ -349,7 +349,7 @@ async function main() {
 }
 
 function generatedData(temp) {
-  const path = join(temp, "docs/architecture-map/viewer/src/architecture-data.json");
+  const path = join(temp, ".vivicy/architecture-map/architecture-data.json");
   return existsSync(path) ? readJson(path) : null;
 }
 
@@ -357,7 +357,7 @@ function generatedData(temp) {
 // so the closure assertion proves the orchestrator committed a LIVE map — the file
 // in history actually reflects per-issue progress, not just an uncommitted artifact.
 function readMapFromHead(temp) {
-  const r = spawnSync("git", ["show", "HEAD:docs/architecture-map/viewer/src/architecture-data.json"], {
+  const r = spawnSync("git", ["show", "HEAD:.vivicy/architecture-map/architecture-data.json"], {
     cwd: temp,
     encoding: "utf8",
   });
@@ -386,15 +386,15 @@ function readJsonFromHead(temp, relPath) {
 // surfaces live progress. Defaults to the working-tree static map + working-tree
 // ledger; the closure assertion passes the COMMITTED map/ledger to prove history.
 async function projectLedgerOntoMap(temp, staticMap, ledger) {
-  const map = staticMap ?? (existsSync(join(temp, "docs/architecture-map/viewer/src/architecture-data.json"))
-    ? readJson(join(temp, "docs/architecture-map/viewer/src/architecture-data.json"))
+  const map = staticMap ?? (existsSync(join(temp, ".vivicy/architecture-map/architecture-data.json"))
+    ? readJson(join(temp, ".vivicy/architecture-map/architecture-data.json"))
     : null);
   if (!map) return null;
   const ledgerData =
     ledger !== undefined
       ? ledger
-      : existsSync(join(temp, "spec/development/progress-ledger.json"))
-        ? readJson(join(temp, "spec/development/progress-ledger.json"))
+      : existsSync(join(temp, ".vivicy/development/progress-ledger.json"))
+        ? readJson(join(temp, ".vivicy/development/progress-ledger.json"))
         : undefined;
   const { deriveDevelopmentOverlay, nodeGraphRef, edgeGraphRef } = await import(
     pathToFileURL(join(factoryDir, "../lib/development-overlay.ts")).href
@@ -431,7 +431,7 @@ function gitLogOrderDetail(temp) {
 // LATER index = appear later in the list than the issue that depends on it... i.e.
 // the dependency commit is OLDER). We check using the issue-index depends_on.
 function dependencyOrderRespected(temp) {
-  const index = readJson(join(temp, "spec/development/issue-index.json"));
+  const index = readJson(join(temp, ".vivicy/development/issue-index.json"));
   const issues = Array.isArray(index.issues) ? index.issues : [];
   const subjects = integrationCommitOrder(temp); // newest-first
   // Position of each issue's checkpoint commit (newest-first index). A done/ move

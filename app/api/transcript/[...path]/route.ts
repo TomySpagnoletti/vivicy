@@ -12,10 +12,10 @@ export const dynamic = "force-dynamic"
 /**
  * Serve a captured agent transcript from the target project's gitignored
  * transcript store. Faithful port of the original viewer's Vite middleware:
- * read-only, restricted to `spec/development/transcripts/**`, and only `.jsonl`
+ * read-only, restricted to `.vivicy/development/transcripts/**`, and only `.jsonl`
  * files. Path traversal is rejected.
  *
- * The client requests `/api/transcript/spec/development/transcripts/<id>/<file>.jsonl`
+ * The client requests `/api/transcript/.vivicy/development/transcripts/<id>/<file>.jsonl`
  * (the `transcript_refs` value, verbatim). We rebuild that relative path, verify
  * it is inside the allowed directory, and stream the file as NDJSON.
  */
@@ -29,7 +29,7 @@ export async function GET(
   // Allow only the transcript store, only .jsonl, and no traversal.
   if (
     rel.includes("..") ||
-    !rel.startsWith("spec/development/transcripts/") ||
+    !rel.startsWith(".vivicy/development/transcripts/") ||
     !rel.endsWith(".jsonl")
   ) {
     return new Response("bad transcript path", { status: 400 })
@@ -41,7 +41,7 @@ export async function GET(
   // transcript directory after normalization.
   const transcriptsDir = path.resolve(
     targetRoot,
-    "spec",
+    ".vivicy",
     "development",
     "transcripts"
   )

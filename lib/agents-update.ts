@@ -1,28 +1,8 @@
 /**
- * Server-only self-update for the two agent CLIs Vivicy drives (Claude Code and
- * the Codex CLI). Vivicy is a LOCAL, single-user tool, so the Next server is
- * allowed to exec — but ONLY a fixed, allow-listed update command per agent.
- *
- * Safety by construction:
- *   - The agent name selects an entry from {@link AGENT_UPDATE_COMMANDS}; an
- *     unknown name is rejected before anything runs.
- *   - Each entry hard-codes the command and its argv. NO user input is ever
- *     interpolated into a shell — there is no shell at all (`execFile`-style argv
- *     spawn), so command injection is structurally impossible.
- *   - The chosen update command is the CLI's OWN built-in self-updater, verified
- *     to exist on this machine:
- *       · `claude update` — Claude Code's built-in `update|upgrade` command.
- *       · `codex update`  — Codex CLI's built-in `update` subcommand.
- *     (The global-`npm install` form is the documented manual fallback the UI
- *     surfaces as copyable text; it is intentionally NOT run by this route to
- *     keep the allow-list to a single command per agent.)
- *
- * Output is captured (stdout + stderr) and capped so a chatty updater can never
- * grow the buffer unbounded; the exit code is reported honestly. After a
- * successful update the caller re-runs health detection so the modal shows the
- * fresh version.
- *
- * `node:child_process` lives here so it never reaches the client bundle.
+ * Server-only self-update for the agent CLIs: runs ONLY a fixed, allow-listed
+ * argv per agent via `execFile` (no shell, no request input interpolated), so
+ * command injection is structurally impossible. `node:child_process` lives here
+ * so it never reaches the client bundle.
  */
 
 import { execFile } from "node:child_process"

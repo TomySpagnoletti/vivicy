@@ -3,7 +3,6 @@ import { describe, expect, test } from "vitest"
 import {
   kindColor,
   KIND_COLORS,
-  minimapNodeToken,
   progressStatusColor,
   STATUS_COLORS,
   UNKNOWN_KIND_COLOR,
@@ -45,28 +44,12 @@ describe("map palette — minimap node colors (the empty-minimap fix)", () => {
     }
   })
 
-  test("minimapNodeToken returns the KIND token in target view", () => {
-    for (const kind of Object.keys(KIND_COLORS)) {
-      expect(minimapNodeToken("target", kind, "not_started")).toEqual(
-        kindColor(kind)
-      )
-    }
-  })
-
-  test("minimapNodeToken returns the STATUS token in progress view", () => {
-    for (const status of Object.keys(STATUS_COLORS)) {
-      expect(minimapNodeToken("progress", "actor", status)).toEqual(
-        progressStatusColor(status)
-      )
-    }
-  })
-
   test("unknown kind/status still yield a paintable token (never empty)", () => {
-    const k = minimapNodeToken("target", "does-not-exist", "not_started")
+    const k = kindColor("does-not-exist")
     expect(k).toEqual(UNKNOWN_KIND_COLOR)
     expect(k.bg).toMatch(/^#[0-9a-f]{6}$/i)
 
-    const s = minimapNodeToken("progress", "actor", "does-not-exist")
+    const s = progressStatusColor("does-not-exist")
     // Unknown status falls back to not_started — still a real token.
     expect(s).toEqual(STATUS_COLORS.not_started)
   })

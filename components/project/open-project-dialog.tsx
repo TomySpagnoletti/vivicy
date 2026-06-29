@@ -154,7 +154,7 @@ export function OpenProjectDialog({
           return
         }
         toast.success("Project selected", {
-          description: body.project.hasDocs
+          description: body.project.hasCanonicalSpec
             ? body.project.root
             : `${body.project.root} (no docs/ — extract has no spec to read yet)`,
         })

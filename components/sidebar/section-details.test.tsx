@@ -14,7 +14,7 @@ const NODE: MapNode = {
   scope: "mvp",
   tech: "Telegram Bot API",
   owns_data: ["chat_id", "claim_token"],
-  source_refs: ["docs/canonical/09-telegram-channel-interface.md:12"],
+  source_refs: [".vivicy/canonical/09-telegram-channel-interface.md:12"],
   evidence_refs: ["spikes/telegram.md:3"],
   layout_x: 0,
   layout_y: 0,
@@ -27,7 +27,7 @@ const EDGE: MapEdge = {
   relation: "invokes",
   protocol: "Worker Platform MCP",
   data: ["message", "claim_token"],
-  source_refs: ["docs/canonical/22-worker-platform-mcp.md:8"],
+  source_refs: [".vivicy/canonical/22-worker-platform-mcp.md:8"],
   graph_ref: "edge:telegram->mcp",
 }
 
@@ -89,7 +89,7 @@ describe("SectionDetails — a selected node", () => {
     const sourceLabel = screen.getByText("Source refs")
     const sourceGroup = sourceLabel.parentElement as HTMLElement
     expect(
-      within(sourceGroup).getByText("docs/canonical/09-telegram-channel-interface.md:12")
+      within(sourceGroup).getByText(".vivicy/canonical/09-telegram-channel-interface.md:12")
     ).toBeInTheDocument()
     expect(screen.getByText("Evidence refs")).toBeInTheDocument()
     expect(screen.getByText("spikes/telegram.md:3")).toBeInTheDocument()

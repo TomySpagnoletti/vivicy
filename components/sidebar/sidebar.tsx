@@ -57,9 +57,8 @@ export function VivicySidebar({
   selected: SelectedItem
   onMapRefresh?: () => void
 }) {
-  // The agent settings drive both the Settings dialog and the quota footer
-  // labels, so they live here and are shared by both. Loaded once on mount and
-  // updated in place when the dialog saves.
+  // Shared by the Settings dialog and the quota footer, so settings are owned
+  // here: loaded once on mount and updated in place when the dialog saves.
   const [settings, setSettings] = useState<AgentsSettings>(DEFAULT_SETTINGS)
   useEffect(() => {
     let cancelled = false
@@ -152,9 +151,6 @@ export function VivicySidebar({
       </SidebarContent>
 
       <SidebarFooter className="p-0">
-        {/* Color legend, relocated out of the floating map overlay into the
-            fixed bottom region just ABOVE the quota footer. Collapsed by
-            default; tracks the current view (kind vs progress colors). */}
         <SectionLegend
           view={view}
           nodes={data.nodes}

@@ -38,6 +38,7 @@ import { platform, tmpdir } from "node:os";
 import { dirname, isAbsolute, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { atomicWriteJson } from "./atomic-write.mjs";
+import { sleepSync } from "./sleep-sync.mjs";
 import { recordProgressEvent } from "./progress-ledger.mjs";
 import { checkSkills } from "./dev-preflight.mjs";
 import { runTraceabilityCheck } from "./traceability-check.mjs";
@@ -55,8 +56,8 @@ import {
 } from "./agent-spawn.mjs";
 
 // The target project the loop drives (agents cwd, gate, paths all resolve there).
-// VIVICY_TARGET_ROOT selects it (NAIGHT_DEV_ROOT is the legacy alias); unset =>
-// no target. The loop only resolves the target when it actually runs against one
+// VIVICY_TARGET_ROOT selects it; unset => no target. The loop only resolves the
+// target when it actually runs against one
 // (see assertTargetRoot); pure helpers (composePrompt, gate parsing, …) and the
 // unit tests stay usable with no target configured.
 const repoRootOrNull = resolveTargetRoot();
@@ -86,26 +87,11 @@ export const CLI_DEFAULTS = {
 /** The set of CLIs the loop knows how to spawn. */
 export const KNOWN_CLIS = ["claude", "codex"];
 
-// The models whose FAST mode genuinely functions on the HEADLESS run each CLI does
-// here. Mirrors lib/settings.ts MODELS[*].capability.fast (the two must agree) — the
-// loop is the authoritative gate: even if the env asks for fast on a model not in
-// this set, agentCliArgs omits the fast flag, so a non-functional fast run is never
-// requested. Provenance (verified 2026-06 against official docs + local CLIs):
-//   - Claude fast mode = `"fastMode": true` in the settings JSON, handed to the
-//     headless `claude -p` via `--settings` (which accepts a JSON string). The
-//     `fastMode` settings key and `--settings <file-or-json>` are both documented;
-//     the headless run reads the settings it is given. Supported ONLY on Opus
-//     4.6/4.7/4.8 (not Sonnet/Haiku/older). Requires a Claude subscription/Console
-//     auth with usage credits; on an API-key-only box it is a no-op, never an error.
-//     (https://code.claude.com/docs/en/fast-mode)
-//   - Codex fast mode = `-c fast_mode=true`, a STABLE feature flag (`codex features
-//     list` shows fast_mode stable) honored by `codex exec`. It prioritises serving
-//     (~1.5x faster inference; 2.5x credit rate on gpt-5.5, 2x on gpt-5.4) and works
-//     ONLY when authenticated via ChatGPT — with an API key it is a no-op. Supported
-//     on gpt-5.5 + gpt-5.4 only; gpt-5.4-mini has no documented fast support and
-//     gpt-5.3-codex-spark is already a separate low-latency model, so neither is a
-//     fast target. (https://developers.openai.com/codex/models,
-//     https://developers.openai.com/codex/speed)
+// The models whose FAST mode genuinely functions on the headless run, gated here
+// so the loop never requests a fast run a CLI cannot perform (agentCliArgs omits
+// the flag for anything not in this set). Mirrors lib/settings.ts. Verified 2026-06
+// against https://code.claude.com/docs/en/fast-mode and
+// https://developers.openai.com/codex/speed.
 export const FAST_CAPABLE_MODELS = {
   claude: new Set(["claude-opus-4-8", "claude-opus-4-7", "claude-opus-4-6"]),
   codex: new Set(["gpt-5.5", "gpt-5.4"]),
@@ -116,13 +102,9 @@ function modelSupportsFast(provider, model) {
   return FAST_CAPABLE_MODELS[provider]?.has(model) ?? false;
 }
 
-// The reasoning/effort levels each CLI accepts, as a defensive gate on env-supplied
-// values. Mirrors lib/settings.ts EFFORT_LEVELS (the two must agree). The settings →
-// env pipeline already normalizes effort, but a hand-edited settings file or a
-// directly-set VIVICY_<CLI>_EFFORT could carry a bad value; gating it here keeps the
-// loop from ever spawning a CLI with an effort flag it would reject. An empty/unset
-// effort is allowed (a model with no reasoning control, e.g. gpt-5.3-codex-spark,
-// runs with no effort flag).
+// Defensive gate on env-supplied effort so the loop never spawns a CLI with a flag
+// it would reject (a hand-edited settings file could carry a bad value). Mirrors
+// lib/settings.ts. Empty/unset effort is allowed (models with no reasoning control).
 const VALID_EFFORTS = {
   claude: new Set(["low", "medium", "high", "xhigh", "max"]),
   codex: new Set(["minimal", "low", "medium", "high", "xhigh"]),
@@ -139,46 +121,25 @@ function isKnownCli(value) {
   return value === "claude" || value === "codex";
 }
 
-// The concurrency knob's bounds. Mirrors lib/settings.ts (MIN_PARALLEL /
-// MAX_PARALLEL) so the loop clamps to the SAME [1, 12] range the settings dialog
-// offers — the env value is re-clamped here as defence in depth against a
-// hand-edited or out-of-band VIVICY_MAX_PARALLEL.
+// Mirrors lib/settings.ts MIN_PARALLEL / MAX_PARALLEL; re-clamped here as defence
+// in depth against a hand-edited or out-of-band VIVICY_MAX_PARALLEL.
 export const MIN_CONCURRENCY = 1;
 export const MAX_CONCURRENCY = 12;
 
-// Coerce a concurrency setting (env string or number) into an integer in
-// [MIN_CONCURRENCY, MAX_CONCURRENCY] = [1, 12]. Anything unparseable or below 1
-// falls back to 1 — the sequential default — so a bad value never stalls the loop
-// at 0; anything above 12 is capped so a runaway value never spawns an unbounded
-// fleet of worktrees.
+// Unparseable or < 1 falls back to 1 (sequential default) so a bad value never
+// stalls the loop at 0; > 12 is capped so a runaway value never spawns an
+// unbounded fleet of worktrees.
 export function clampConcurrency(value) {
   const n = Math.floor(Number(value));
   if (!Number.isFinite(n) || n < MIN_CONCURRENCY) return MIN_CONCURRENCY;
   return n > MAX_CONCURRENCY ? MAX_CONCURRENCY : n;
 }
 
-/**
- * Build the two agent legs (implementer + reviewer) from the environment.
- *
- * R12 — role -> CLI assignment is configurable:
- *   - VIVICY_IMPLEMENTER_CLI / VIVICY_REVIEWER_CLI pick which CLI fills each role
- *     (defaults implementer=claude, reviewer=codex).
- *   - The two MUST be distinct (a CLI can never review its own implementation); if
- *     the env assigns the same CLI to both, the reviewer is repaired to the other
- *     CLI so the loop never runs a single agent against itself.
- *   - Each CLI's model + thinking level come from VIVICY_<CLI>_* (claude/codex),
- *     keyed by the CLI itself, so the values follow the CLI regardless of role.
- *
- * A leg carries: role (implementer|reviewer), the assigned CLI as both `provider`
- * (drives the spawn + flag dialect) and `actor` (drives hook identity, quota
- * keying, transcript naming), plus the resolved model + effort + fast flag.
- *
- * FAST MODE (P5): VIVICY_<CLI>_FAST ("1"/"0") carries the per-role fast toggle from
- * the settings dialog. The leg's `fast` is true ONLY when the env asks for it AND
- * the resolved model genuinely supports fast on the headless run — a request to run
- * fast on an incapable model is dropped here, so the loop never asks a CLI for a
- * fast run it cannot perform.
- */
+// Build the two agent legs (implementer + reviewer) from the environment.
+// INVARIANT (R12): the implementer and reviewer CLIs MUST be distinct — a CLI can
+// never review its own implementation — so if the env assigns the same CLI to both,
+// the reviewer is repaired to the other CLI. A leg's `fast` is true only when the
+// env asks for it AND the resolved model supports fast on the headless run.
 export function resolveAgentLegs(env = {}) {
   const implementerCli = isKnownCli(env.VIVICY_IMPLEMENTER_CLI)
     ? env.VIVICY_IMPLEMENTER_CLI
@@ -213,19 +174,19 @@ export function resolveAgentLegs(env = {}) {
 }
 
 export const DEFAULT_CONFIG = {
-  issueIndexPath: "spec/development/issue-index.json",
-  progressLedgerPath: "spec/development/progress-ledger.json",
-  issuesDir: "spec/development/issues",
-  doneDir: "spec/development/issues/done",
-  gatesDir: "spec/development/gates",
-  reportsDir: "spec/development/reports",
+  issueIndexPath: ".vivicy/development/issue-index.json",
+  progressLedgerPath: ".vivicy/development/progress-ledger.json",
+  issuesDir: ".vivicy/development/issues",
+  doneDir: ".vivicy/development/issues/done",
+  gatesDir: ".vivicy/development/gates",
+  reportsDir: ".vivicy/development/reports",
   // Role prompts are Vivicy's OWN assets, bundled in factory/prompts/ — they are
   // NOT read from the target project (which only receives the dev OUTPUT: issues,
   // ledger, gates, done). Resolved factory-relative; see readPrompt.
   promptsDir: FACTORY_PROMPTS_DIR,
   // Gitignored full-transcript store (one JSONL per agent leg). Referenced from
   // the ledger so the map links node/edge -> issue -> complete transcript.
-  transcriptsDir: "spec/development/transcripts",
+  transcriptsDir: ".vivicy/development/transcripts",
   maxRetries: 2,
   // The verification gate command is POLYGLOT and comes from the TARGET PROJECT,
   // not from a hardcoded Node default. Resolution (most specific first):
@@ -252,7 +213,7 @@ export const DEFAULT_CONFIG = {
   // concurrent batch across the map (max-spread selection). Fixed repo-relative
   // path the generator owns (generate-viewer-data.ts enforces the same path); when
   // it is absent the scheduler degrades gracefully to a files-only spread.
-  architectureDataPath: "docs/architecture-map/viewer/src/architecture-data.json",
+  architectureDataPath: ".vivicy/architecture-map/architecture-data.json",
   // Per-role CLI assignment + per-CLI model + thinking-level (R12 + P4). Two knobs,
   // both driven from the Vivicy settings dialog via env:
   //   - which CLI fills each ROLE: VIVICY_IMPLEMENTER_CLI / VIVICY_REVIEWER_CLI
@@ -265,7 +226,7 @@ export const DEFAULT_CONFIG = {
   ...resolveAgentLegs(process.env),
   // Per-agent live quota state, written by the quota handler and read by the
   // status probe / the Vivicy footer.
-  quotaStatePath: "spec/development/reports/quota-state.json",
+  quotaStatePath: ".vivicy/development/reports/quota-state.json",
   // Quota-aware retry tuning (all config seams so tests run on a fake clock):
   //   quotaBackoffStartMs — first wait when no reset time is parseable.
   //   quotaBackoffCapMs   — per-wait ceiling (the product's 5h window).
@@ -306,10 +267,10 @@ export const DEFAULT_CONFIG = {
 // need (the prompt scope handles the gratuitous case; we never auto-discard it).
 export function frozenIntegrationPaths(cfg) {
   return [
-    "docs/canonical/",
-    "docs/baselines/",
-    "spec/requirements/",
-    "docs/architecture-map/architecture-map.yml",
+    ".vivicy/canonical/",
+    ".vivicy/baselines/",
+    ".vivicy/requirements/",
+    ".vivicy/architecture-map/architecture-map.yml",
     cfg.issueIndexPath ?? DEFAULT_CONFIG.issueIndexPath,
   ];
 }
@@ -344,14 +305,6 @@ export const DEFAULT_QUOTA_PATTERNS = [
 // spawn loop without delaying a genuine short reset noticeably.
 const QUOTA_MIN_WAIT_MS = 30 * 1000;
 
-// The two rolling quota windows the footer surfaces. Keys are the canonical
-// labels used in the quota-state file and the Vivicy footer.
-//   "5h"     — the short rolling window (Codex `primary`, window_minutes 300;
-//              Claude `rate_limit_event.rateLimitType === "five_hour"`).
-//   "weekly" — the long rolling window (Codex `secondary`, window_minutes 10080).
-// A null per-window record means "unknown" — we never fabricate a percentage.
-export const QUOTA_WINDOW_KEYS = ["5h", "weekly"];
-
 // --------------------------------------------------------------------------
 // Pure core (unit-tested)
 // --------------------------------------------------------------------------
@@ -364,8 +317,8 @@ export function dependenciesSatisfied(issue, doneIds) {
 // An issue is done if its file already lives in done/, or the ledger records
 // THIS issue verified on every one of its graph refs. (Resume falls out of this
 // for free.) The check is per-issue, not per-node: a shared node verified by a
-// different issue must never mark this one done (doc 05: one issue going green
-// never overstates a shared node or edge).
+// different issue must never mark this one done (the Development Traceability
+// Method: one issue going green never overstates a shared node or edge).
 export function computeDoneIds(issues, ledger, doneFileNames) {
   const done = new Set();
   const verifiedIssuesByRef = new Map();
@@ -402,7 +355,7 @@ export function pickNextIssue(issues, doneIds) {
 // The ready set + independence rule that decide which issues may run at once.
 // Parallel work is allowed ONLY for issues that are mutually independent — no
 // dependency path between them AND a disjoint claim (graph_refs / claimed files)
-// — exactly the governance method's parallel rule (doc 05): a distinct claim,
+// — exactly the Development Traceability Method's parallel rule: a distinct claim,
 // explicit graph_refs, and a dedicated worktree per concurrent issue. The same
 // rule, run with maxParallel = 1, degrades to picking exactly one ready issue at
 // a time (today's sequential behavior).
@@ -484,58 +437,31 @@ export function buildDepsClosure(issues) {
 // --------------------------------------------------------------------------
 // Max-spread batch selection (farthest-point sampling on the architecture graph)
 //
-// Problem: picking the parallel batch in index order tends to grab CONSECUTIVE
-// issues (e.g. 13–20), which the extraction places in the SAME region of the
-// architecture map. Even with disjoint graph_refs those issues touch nearby /
-// shared code, so the worktrees merge with conflicts. We want the N concurrent
-// issues SPREAD across different subsystems so their file footprints stay apart.
+// Index-order batching tends to grab CONSECUTIVE issues, which the extraction
+// places in the SAME map region — so even with disjoint graph_refs their worktrees
+// merge with conflicts. We instead spread the N concurrent issues across subsystems.
 //
-// The HARD GATE is unchanged: a candidate joins the batch ONLY if it is
+// HARD GATE (unchanged, never weakened): a candidate joins the batch ONLY if it is
 // pairwise-independent (no transitive dependency path AND disjoint claims) from
-// every batch member and every already-running issue — issuesIndependent() is the
-// sole authority and is never weakened. Spread is a SECONDARY preference applied
-// strictly on top of that gate: among the independent candidates we pick the most
-// SEPARATED one, never a dependent or claim-overlapping one.
+// every batch member and every running issue — issuesIndependent() is the sole
+// authority. Spread is a SECONDARY preference applied strictly on top of that gate.
 //
-// FOOTPRINT(issue) — the slice of the system an issue is likely to touch, as a set
-// of opaque string tokens. The union of:
-//   - its claimed files: explicit `claims` / `claimed_files`, else its graph_refs
-//     (issueClaim, the same set the hard gate uses), tagged `file:`;
-//   - its source files: the file part of each `source_line_refs` entry
-//     ("docs/x.md:7-13" -> "docs/x.md"), tagged `src:`;
-//   - its clusters: the `layout_cluster` of each graph_ref node, tagged `cluster:`;
-//   - its graph neighborhood: each graph_ref node id plus the ids edge-adjacent to
-//     it (from the architecture edges), tagged `node:`.
-// Cluster + adjacency come from the architecture index (built from the target's
-// architecture-data.json). When that data is missing the footprint degrades to
-// files + source files only — and, if even those are absent, to the bare
-// graph_refs — so the selection always has SOMETHING to separate on.
-//
-// DISTANCE(A, B) — a small ORDERED risk score, larger = farther apart = safer to
-// run together. Concrete ladder (lower = closer = higher conflict risk):
-//   0  footprints share a claimed file        (worst: same file -> guaranteed clash)
-//   1  footprints share a source file
-//   2  footprints share a cluster             (same subsystem region)
-//   3  footprints are edge-adjacent           (touch across one graph edge)
-//   4  far                                    (no overlap on any axis)
-// Ties between candidates with equal min-distance break by issue index, so the
-// same inputs always yield the same batch (determinism).
-//
-// SELECTION — greedy farthest-point sampling:
-//   - seed the batch with the FIRST ready issue (lowest index) that is independent
-//     of everything already running (so N=1 and the running-aware paths are
-//     unchanged: seed == first compatible ready issue);
-//   - then repeatedly add the independent candidate whose MINIMUM distance to the
-//     current batch is the LARGEST (the most-separated issue), tie-broken by index;
-//   - stop when the batch fills the free slots or no independent candidate remains.
-// With limit = 1 the loop seeds and returns one issue == the old sequential pick.
-// With no architecture data every far pair scores 4, so the min-distance tie-break
-// collapses to index order — i.e. the old behavior — which is exactly why the
-// existing claims-only tests still hold.
+// FOOTPRINT(issue) is four token sets (claimed files, source files, clusters, graph
+// neighborhood) built from the architecture index; it degrades to files/source/
+// graph_refs when architecture-data.json is missing, so there is always something
+// to separate on. DISTANCE is an ordered risk score, larger = safer to run together:
+//   0  share a claimed file   (worst: same file -> guaranteed clash)
+//   1  share a source file
+//   2  share a cluster        (same subsystem region)
+//   3  edge-adjacent          (touch across one graph edge)
+//   4  far                    (no overlap on any axis)
+// Greedy farthest-point sampling, ties broken by issue index (determinism). With no
+// architecture data every pair scores 4 and the tie-break collapses to index order
+// — the old sequential behavior, which is why the claims-only tests still hold.
 // --------------------------------------------------------------------------
 
 // Strip the ":<line>" / ":<a-b>" suffix from a source_line_ref, leaving the file.
-//   "docs/canonical/02.md:7-13" -> "docs/canonical/02.md"
+//   ".vivicy/canonical/02.md:7-13" -> ".vivicy/canonical/02.md"
 function sourceRefFile(ref) {
   if (typeof ref !== "string") return null;
   const colon = ref.lastIndexOf(":");
@@ -638,19 +564,9 @@ export function footprintDistance(a, b) {
   return CONFLICT_DISTANCE_FAR; // far apart
 }
 
-// Select up to `limit` issues to run CONCURRENTLY from `ready`, MAXIMALLY SPREAD on
-// the architecture graph, subject to the unchanged hard independence gate.
-//
-// `archIndex` (optional) supplies cluster + adjacency data; omit it (or pass the
-// empty index) for the graceful-degradation path where spread is computed from
-// files / source files / graph_refs only. The selection:
-//   1. Hard gate: a candidate is eligible ONLY if issuesIndependent() holds against
-//      every running issue AND every already-chosen batch member — never weakened.
-//   2. Seed with the first eligible ready issue (lowest index), so N=1 and the
-//      running-aware paths return exactly the old first-compatible pick.
-//   3. Greedily add the eligible candidate whose minimum footprint-distance to the
-//      current batch is largest (the most-separated issue), tie-broken by index.
-// Deterministic: same inputs -> same batch.
+// Select up to `limit` issues to run CONCURRENTLY from `ready`, maximally spread on
+// the architecture graph (see the block comment above). `archIndex` is optional —
+// omit it for the graceful-degradation path. Deterministic: same inputs -> same batch.
 export function selectIndependentBatch(
   ready,
   runningIssues,
@@ -886,39 +802,19 @@ export function computeWaitMs({ message, nowMs, attempt, cfg }) {
 }
 
 // --------------------------------------------------------------------------
-// Real quota-window extraction (pure, unit-tested)
+// Real quota-window extraction (pure, unit-tested). The two providers expose
+// different verified surfaces, extracted honestly — a null used_pct is the honest
+// "no real number" signal (footer shows "—"); we never fabricate a percentage.
 //
-// PROVEN by probing each CLI (see the R8 probe): the two providers expose very
-// different surfaces, so we extract from each honestly and never fabricate.
-//
-//   Codex   — emits a `token_count` event in its session ROLLOUT JSONL whose
-//             payload carries real `rate_limits` percentages:
-//               rate_limits.primary   = { used_percent, window_minutes: 300,   resets_at }  -> "5h"
-//               rate_limits.secondary = { used_percent, window_minutes: 10080, resets_at }  -> "weekly"
-//             (Not present on `codex exec` stdout — only in the rollout, which the
-//             dev loop already copies into its transcript store.) => real % both windows.
-//
-//   Claude  — exposes its REAL subscription percentages ONLY through the
-//             documented status-line stdin contract
-//             (https://code.claude.com/docs/en/statusline): a `rate_limits`
-//             object with
-//               rate_limits.five_hour = { used_percentage (0-100), resets_at (epoch s) } -> "5h"
-//               rate_limits.seven_day = { used_percentage (0-100), resets_at (epoch s) } -> "weekly"
-//             (present only for Pro/Max subscribers, after the first API
-//             response). The status line is interactive-only — `claude -p` never
-//             emits it — so the dev loop captures it with a tiny side probe
-//             (see captureClaudeStatusLine) and feeds the captured JSON here.
-//             `claude -p --output-format stream-json` instead emits a
-//             `rate_limit_event` { status, resetsAt (epoch s), rateLimitType:
-//             "five_hour" } that carries the 5h RESET but NO percentage and no
-//             weekly window; we use it as an honest fallback when no status-line
-//             capture is available. => with capture: real % for 5h + weekly;
-//             without: 5h reset only (null %), weekly unknown.
-//
-// Each window record is { used_pct: number|null, remaining: number|null,
-// reset_at: ISO|null } or the whole window is absent (=> unknown). A null
-// used_pct is the honest "we don't have a real number" signal the footer shows
-// as "—".
+//   Codex  — `token_count` event in the session ROLLOUT JSONL carries real
+//            rate_limits.primary (window_minutes 300 -> "5h") / .secondary
+//            (10080 -> "weekly"). Not on `codex exec` stdout, only the rollout.
+//   Claude — REAL percentages only via the status-line stdin contract
+//            (https://code.claude.com/docs/en/statusline): rate_limits.five_hour /
+//            .seven_day with used_percentage + resets_at. Interactive-only, so the
+//            loop captures it with a side probe (captureClaudeStatusLine). The
+//            `rate_limit_event` on `claude -p` stream-json gives the 5h RESET but
+//            no percentage — an honest fallback when no status-line capture exists.
 // --------------------------------------------------------------------------
 
 // Build a single window record from a real used_percent + epoch-seconds reset.
@@ -1283,7 +1179,7 @@ function listDoneFiles(cfg) {
 
 // The agent-leg spawn + transcript-capture primitives are shared with the
 // extractor (extract-issues.mjs) so the model/effort flags, max-permission flags,
-// MCP wiring, actor/role env, and transcript capture are defined ONCE in
+// actor/role env, and transcript capture are defined ONCE in
 // agent-spawn.mjs and never diverge between the two drivers. dev-loop.mjs binds
 // them to its own root resolution (abs/execRootOf) via the `deps` it passes.
 
@@ -1331,8 +1227,8 @@ function runAssignedLeg(leg, issue, cfg) {
 }
 
 // The implementer/reviewer entry points dispatch by the ASSIGNED CLI, so the role
-// stays fixed (it picks the prompt + hook identity) while which CLI runs it is
-// the configurable knob.
+// stays fixed (it picks the prompt + actor/role identity) while which CLI runs it
+// is the configurable knob.
 export function defaultRunImplementer(issue, cfg) {
   return runAssignedLeg(cfg.implementer, issue, cfg);
 }
@@ -1398,10 +1294,11 @@ export function defaultRunGate(issue, cfg) {
 // and stalls the other parallel issues (or ages out the integration lock while a
 // sibling holds it). Identical evidence record; only the spawn primitive differs.
 //
-// The gate is a SHELL command (`npm test`), not an agent CLI, so it spawns
-// directly with shell:true — it does NOT go through the agent-leg timeout
-// supervisor (which exists to kill a wedged `codex`/`claude`, and does not run a
-// shell). A pathological gate is still bounded by the surrounding loop's retries.
+// The gate is a SHELL command (the project's resolved gate command), not an agent
+// CLI, so it spawns directly with shell:true — it does NOT go through the
+// agent-leg timeout supervisor (which exists to kill a wedged `codex`/`claude`,
+// and does not run a shell). A pathological gate is still bounded by the
+// surrounding loop's retries.
 export async function defaultRunGateAsync(issue, cfg) {
   const execRoot = execRootOf(cfg);
   // Same polyglot resolution as the sync gate (project-config.mjs is the one owner).
@@ -1458,7 +1355,7 @@ function writeGateEvidence(issue, cfg, gateCommand, exitCode) {
     command: gateCommand,
     exit_code: exitCode,
     status: exitCode === 0 ? "pass" : "fail",
-    finished_at: cfg.now ?? new Date().toISOString(),
+    finished_at: nowIso(cfg),
     baseline_id: cfg.baselineId ?? readIndexBaselineId(cfg),
   };
   writeFileSync(abs(evidenceRel), `${JSON.stringify(record, null, 2)}\n`);
@@ -1496,7 +1393,7 @@ function defaultCommit(issue, cfg) {
 // generated ONCE at extraction (extract-issues.mjs) and committed there. The
 // dev-loop NEVER regenerates it: the only part that changes during development is
 // per-issue/per-graph-item progress, which lives in the progress ledger
-// (spec/development/progress-ledger.json) — the single source of truth for live
+// (.vivicy/development/progress-ledger.json) — the single source of truth for live
 // progress. The /api/map read path overlays the live ledger onto the static graph
 // at request time (lib/map-data.ts applyLiveOverlay), so loading the target always
 // shows current progress with zero regeneration and zero file churn. The loop
@@ -1514,11 +1411,11 @@ function defaultCommit(issue, cfg) {
 // per-issue gate stays the authoritative completion verdict on top of these).
 // --------------------------------------------------------------------------
 
-// The active frozen baseline manifest under docs/baselines/, or null. A manifest is
+// The active frozen baseline manifest under .vivicy/baselines/, or null. A manifest is
 // frozen-and-active when status === "frozen" and it carries no `superseded` marker.
 // Inlined here (not imported from extract-issues.mjs) to avoid an import cycle.
 export function findFrozenManifestRel(cfg) {
-  const dirRel = "docs/baselines";
+  const dirRel = ".vivicy/baselines";
   const dirAbs = abs(dirRel);
   if (!existsSync(dirAbs)) return null;
   for (const entry of readdirSync(dirAbs)) {
@@ -1550,7 +1447,7 @@ export function defaultVerifyBaseline(cfg) {
   const found = findFrozenManifestRel(cfg);
   if (!found) {
     throw new Error(
-      "dev-loop refuses to develop: no frozen baseline manifest found under docs/baselines/. Run extraction to freeze the canonical spec first.",
+      "dev-loop refuses to develop: no frozen baseline manifest found under .vivicy/baselines/. Run extraction to freeze the canonical spec first.",
     );
   }
   const tool = resolve(FACTORY_DIR, "doc-baseline.mjs");
@@ -1652,7 +1549,7 @@ export function defaultResetWorktreeFrozenArtifacts(issue, cfg, worktreeRoot) {
   // tree + index. We MUST checkout per-path, not as one batch: `git checkout <base>
   // -- <a> <b>` ABORTS the WHOLE command (restoring nothing) if ANY pathspec is
   // absent in <base>, and the frozen set is deliberately broad (a given project may
-  // not have every artifact, e.g. no docs/baselines/). Per-path, a path missing
+  // not have every artifact, e.g. no .vivicy/baselines/). Per-path, a path missing
   // from <base> is an isolated, benign no-op and never blocks neutralizing a path
   // that IS present. `git checkout <base> -- <path>` only reads that path, so it
   // never switches the worktree branch and is safe under the integration lock.
@@ -1782,24 +1679,12 @@ function assertCleanTree() {
 // --------------------------------------------------------------------------
 // Shared-state serialization (supervisor-owned integration lock)
 //
-// The progress ledger has its own cross-process lock + revision CAS, so ledger
-// writes from N worktree workers are already safe. But the COMPLETION sequence —
-// merge the worktree onto the integration branch on the MAIN root, then move the
-// issue to done/ and commit that move on main — touches the SAME git index and
-// the SAME done/ + issue-index files, and must run as one critical section so two
-// concurrent completions never interleave a `git merge`/`git commit` on main. A
-// O_EXCL lockfile (the same hand-rolled pattern the ledger uses) serializes all
-// integration-side writes; only one issue integrates onto main at a time.
-//
-// Two layers, by design:
-//   - An IN-PROCESS async mutex (a promise chain) serializes the critical section
-//     within THIS process. The parallel loop runs all issues in one Node process,
-//     so this is the authoritative serializer and — unlike a wall-clock lock — it
-//     can never falsely reclaim from a live holder whose work simply ran long.
-//   - The O_EXCL FILE lock guards against a *separate* process touching the same
-//     repo (e.g. a stray manual run). It is acquired + released entirely INSIDE
-//     the in-process mutex's hold, so within one process it is uncontended and is
-//     never aged out by a sibling (the sibling waits on the mutex, not the file).
+// The completion sequence (merge worktree -> main, move issue to done/, commit)
+// touches the same git index + done/ + issue-index, so only one issue may integrate
+// at a time. Two layers: an IN-PROCESS async mutex is the authoritative serializer
+// (the parallel loop is one Node process; unlike a wall-clock lock it never falsely
+// reclaims from a live holder), and an O_EXCL FILE lock — held entirely inside the
+// mutex — guards against a separate process touching the same repo.
 // --------------------------------------------------------------------------
 
 const INTEGRATION_LOCK_STALE_MS = 120_000;
@@ -1932,14 +1817,7 @@ const sleepOf = (cfg) => cfg.sleep ?? defaultSleep;
 // Default blocking wait. The dev-loop is a deterministic sequential orchestrator
 // (one agent at a time), so a real synchronous wait is correct and simple here;
 // tests inject a fake `sleep` so they never actually wait.
-function defaultSleep(ms) {
-  const end = Date.now() + ms;
-  // Coarse busy-wait via Atomics so the wait is honored without async plumbing.
-  const sab = new Int32Array(new SharedArrayBuffer(4));
-  while (Date.now() < end) {
-    Atomics.wait(sab, 0, 0, Math.min(1000, end - Date.now()));
-  }
-}
+const defaultSleep = sleepSync;
 
 // Read the current quota-state file (or a fresh skeleton). Tolerant of a missing
 // or corrupt file — quota state is advisory, never load-bearing for correctness.
@@ -2291,7 +2169,7 @@ function writeBlockedEvidence(issue, cfg, timeoutReason = null) {
     : `gate red after ${cfg.maxRetries} attempts`;
   writeFileSync(
     abs(rel),
-    `${JSON.stringify({ issue_id: issue.id, reason, ...(timeoutReason ? { kind: "timeout" } : {}), at: cfg.now ?? new Date().toISOString() }, null, 2)}\n`,
+    `${JSON.stringify({ issue_id: issue.id, reason, ...(timeoutReason ? { kind: "timeout" } : {}), at: nowIso(cfg) }, null, 2)}\n`,
   );
   return rel;
 }
@@ -2310,7 +2188,7 @@ function quotaBlock(issue, cfg, leg, allTranscripts) {
         reason: `${leg.actor} quota exhausted: waited past the ${Math.round(cfg.quotaMaxWaitMs / 3600000)}h cap without the quota reopening`,
         actor: leg.actor,
         kind: "quota",
-        at: typeof cfg.now === "string" ? cfg.now : nowIso(cfg),
+        at: nowIso(cfg),
       },
       null,
       2,
@@ -2595,7 +2473,7 @@ function writeIntegrationBlock(issue, cfg, reason) {
   writeFileSync(
     abs(rel),
     `${JSON.stringify(
-      { issue_id: issue.id, reason, kind: "integration", at: typeof cfg.now === "string" ? cfg.now : nowIso(cfg) },
+      { issue_id: issue.id, reason, kind: "integration", at: nowIso(cfg) },
       null,
       2,
     )}\n`,

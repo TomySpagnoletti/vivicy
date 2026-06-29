@@ -1889,7 +1889,7 @@ test("runLoopParallel keeps the ledger consistent under many concurrent completi
 // branch from a HEAD that already contains it (the real layout: the frozen corpus
 // is committed before development starts). Returns the repo-relative path and a
 // cleanup that restores the corpus to its baseline after the test. The path is one
-// of the literal frozen prefixes the guard protects (spec/requirements/), so the
+// of the literal frozen prefixes the guard protects (.vivicy/requirements/), so the
 // real git-backed reset exercises the production path set, not a test-only stub.
 function seedFrozenArtifact(relPath, baseline) {
   ensureRepoRootGit();
@@ -1913,23 +1913,23 @@ function seedFrozenArtifact(relPath, baseline) {
 }
 
 test("frozenIntegrationPaths covers the locked extraction corpus, not loop lifecycle files", () => {
-  const paths = frozenIntegrationPaths({ issueIndexPath: "spec/development/issue-index.json" });
+  const paths = frozenIntegrationPaths({ issueIndexPath: ".vivicy/development/issue-index.json" });
   // The locked extraction corpus is protected.
   for (const p of [
-    "docs/canonical/",
-    "docs/baselines/",
-    "spec/requirements/",
-    "docs/architecture-map/architecture-map.yml",
-    "spec/development/issue-index.json",
+    ".vivicy/canonical/",
+    ".vivicy/baselines/",
+    ".vivicy/requirements/",
+    ".vivicy/architecture-map/architecture-map.yml",
+    ".vivicy/development/issue-index.json",
   ]) {
     assert.ok(paths.includes(p), `frozen set includes ${p}`);
   }
   // The loop's OWN lifecycle dirs + package.json are deliberately NOT frozen here.
   for (const notFrozen of [
-    "spec/development/issues",
-    "spec/development/issues/done",
-    "spec/development/progress-ledger.json",
-    "spec/development/gates",
+    ".vivicy/development/issues",
+    ".vivicy/development/issues/done",
+    ".vivicy/development/progress-ledger.json",
+    ".vivicy/development/gates",
     "package.json",
   ]) {
     assert.ok(!paths.includes(notFrozen), `${notFrozen} is loop-managed / dependency-bearing, never auto-discarded`);
@@ -1937,7 +1937,7 @@ test("frozenIntegrationPaths covers the locked extraction corpus, not loop lifec
 });
 
 test("defaultResetWorktreeFrozenArtifacts drops a worktree's frozen-artifact edit while keeping legit src changes", () => {
-  const frozenRel = "spec/requirements/catalog.json";
+  const frozenRel = ".vivicy/requirements/catalog.json";
   const frozen = seedFrozenArtifact(frozenRel, `${JSON.stringify({ requirements: ["R1"] }, null, 2)}\n`);
   const issues = [{ id: "ISS-FZ", depends_on: [], graph_refs: ["node:fz"] }];
   const { dir, scratchRel, cfg } = buildParallelScratch({ issues });
@@ -1982,7 +1982,7 @@ test("defaultResetWorktreeFrozenArtifacts drops a worktree's frozen-artifact edi
 });
 
 test("runLoopParallel: two parallel branches both editing a frozen artifact integrate WITHOUT a conflict (edits dropped, legit work kept)", async () => {
-  const frozenRel = "spec/requirements/traceability-matrix.json";
+  const frozenRel = ".vivicy/requirements/traceability-matrix.json";
   const frozen = seedFrozenArtifact(frozenRel, `${JSON.stringify({ matrix: "BASELINE" }, null, 2)}\n`);
   // Two fully-independent issues. Both fake agents gratuitously rewrite the SAME
   // frozen file (different content) AND write their own disjoint legit file. Before
@@ -2053,9 +2053,9 @@ test("the implementer and reviewer prompts pin the frozen-corpus read-only scope
     assert.match(text, /READ-ONLY/, `${name} declares the corpus READ-ONLY`);
     // The protected path set is named explicitly so the agent cannot misread it —
     // every frozen prefix frozenIntegrationPaths() guards must be spelled out.
-    assert.match(text, /spec\/requirements/, `${name} names spec/requirements as frozen`);
-    assert.match(text, /docs\/canonical/, `${name} names docs/canonical as frozen`);
-    assert.match(text, /docs\/baselines/, `${name} names docs/baselines as frozen`);
+    assert.match(text, /\.vivicy\/requirements/, `${name} names .vivicy/requirements as frozen`);
+    assert.match(text, /\.vivicy\/canonical/, `${name} names .vivicy/canonical as frozen`);
+    assert.match(text, /\.vivicy\/baselines/, `${name} names .vivicy/baselines as frozen`);
     assert.match(text, /issue-index\.json/, `${name} names the issue index as frozen`);
     assert.match(text, /architecture-map\.yml/, `${name} names the architecture map as frozen`);
     // package.json: only a real new runtime dependency justifies touching it.

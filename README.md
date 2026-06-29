@@ -30,7 +30,7 @@ It needs nothing but `npm ci`.
 
 ## Quickstart
 
-Point Vivicy at any project via `VIVICY_TARGET_ROOT` (absolute path). The target must hold the spec/data layout the factory reads: `docs/canonical/**`, `docs/architecture-map/architecture-map.yml`, `docs/baselines/*.json`, and `spec/development/` (issue index, progress ledger).
+Point Vivicy at any project via `VIVICY_TARGET_ROOT` (absolute path). Everything the factory reads and writes lives under a single `.vivicy/` folder at the target root — like `.git`, it holds all the autonomous dev factory needs and nothing cosmetic: `.vivicy/canonical/**` (the spec you write), `.vivicy/architecture-map/architecture-map.yml`, `.vivicy/baselines/*.json`, `.vivicy/requirements/`, and `.vivicy/development/` (issue index, progress ledger, reports, transcripts). Only `AGENTS.md`, `CLAUDE.md`, and `README.md` sit at the root.
 
 ```sh
 cd vivicy
@@ -46,13 +46,13 @@ node factory/cli.mjs loop   --target /abs/path/to/your/project   # one loop pass
 node factory/cli.mjs status --target /abs/path/to/your/project --json
 ```
 
-If `--target` / `VIVICY_TARGET_ROOT` is omitted, the app resolves the target in order: the project you picked in the UI (persisted in the runtime dir), then `VIVICY_TARGET_ROOT`, then the parent of the process working directory. The factory CLI accepts the legacy `NAIGHT_DEV_ROOT` alias for the env override.
+If `--target` / `VIVICY_TARGET_ROOT` is omitted, the app resolves the target in order: the project you picked in the UI (persisted in the runtime dir), then `VIVICY_TARGET_ROOT`, then the parent of the process working directory.
 
 ### Two ways to start a project
 
 The app's onboarding offers two modes:
 
-- **Start from scratch** — give an empty folder and a name. Vivicy scaffolds a **lean** skeleton: a lean `AGENTS.md`/`CLAUDE.md`, a `docs/canonical/` placeholder (you write the real spec), the skeleton dirs the factory reads/writes, a complete `.gitignore`, a `README.md`, and `vivicy.json` (the gate config). It does NOT bake in a language: no `package.json`, no test placeholder — the agents create the real project files per your spec.
+- **Start from scratch** — give an empty folder and a name. Vivicy scaffolds a **lean** skeleton: a lean `AGENTS.md`/`CLAUDE.md`/`README.md` at the root, a `.vivicy/` folder holding a `.vivicy/canonical/` placeholder (you write the real spec) and the skeleton dirs the factory reads/writes, a complete `.gitignore`, and `vivicy.json` (the gate config). It does NOT bake in a language: no `package.json`, no test placeholder — the agents create the real project files per your spec.
 - **Add Vivicy to an existing repo** — point at a populated folder. Vivicy writes ONLY the files that are missing and **never clobbers** an existing one; it prefills `gateCommand` from the repo's own test wiring when it can detect it.
 
 Either way the target stays **lean by design**: Vivicy does NOT copy its governance/method docs into the target. The agents' full discipline travels in the Vivicy-bundled prompts (`factory/prompts/*.md`), and the rest is enforced by the deterministic checks — so the method machinery lives in the Vivicy repo, not duplicated into every project it builds.

@@ -2,9 +2,8 @@
 // Read-only health probe for a dev-loop / rehearsal run. Any agent can ask
 // "is the run going well?" instead of waiting blind for a success/fail.
 //
-//   node vivicy/factory/dev-status.mjs                # the vendored project
-//   node vivicy/factory/dev-status.mjs --dir <root>   # a specific root (e.g. a rehearsal temp)
-//   VIVICY_TARGET_ROOT=<root> node vivicy/factory/dev-status.mjs
+//   VIVICY_TARGET_ROOT=<root> node vivicy/factory/dev-status.mjs   # the target project
+//   node vivicy/factory/dev-status.mjs --dir <root>                # a specific root (e.g. a rehearsal temp)
 //   node vivicy/factory/dev-status.mjs --json          # machine-readable
 //
 // It never writes anything. It reads the issue index, the progress ledger, the
@@ -81,20 +80,20 @@ function newestMtimeMs(path) {
   }
 }
 
-const index = readJson(join(root, "spec/development/issue-index.json"), { issues: [] });
+const index = readJson(join(root, ".vivicy/development/issue-index.json"), { issues: [] });
 const issues = Array.isArray(index.issues) ? index.issues : [];
 
 // Per-agent quota/rate-limit state written by the dev-loop quota handler.
 // Absent or unreadable => unknown (we report nothing rather than fabricating a
 // number). The handler keeps this honest: only real status + a parsed reset.
-const quota = readJson(join(root, "spec/development/reports/quota-state.json"), {
+const quota = readJson(join(root, ".vivicy/development/reports/quota-state.json"), {
   updated_at: null,
   agents: {},
 });
-const ledger = readJson(join(root, "spec/development/progress-ledger.json"), { graph_item_states: [], active_items: [] });
-const doneDir = join(root, "spec/development/issues/done");
+const ledger = readJson(join(root, ".vivicy/development/progress-ledger.json"), { graph_item_states: [], active_items: [] });
+const doneDir = join(root, ".vivicy/development/issues/done");
 const doneFiles = existsSync(doneDir) ? readdirSync(doneDir).filter((f) => f.endsWith(".md")) : [];
-const gatesDir = join(root, "spec/development/gates");
+const gatesDir = join(root, ".vivicy/development/gates");
 const gateRecords = existsSync(gatesDir)
   ? readdirSync(gatesDir)
       .filter((f) => f.endsWith(".json"))
@@ -123,7 +122,6 @@ const activeItems = (ledger.active_items ?? []).map((a) => ({
   heartbeat_age_s: ageSeconds(a.heartbeat_at ?? a.started_at),
 }));
 
-// Live process + file-activity signals.
 let psOut = "";
 try {
   psOut = execFileSync("ps", ["-Ao", "pid,etime,command"], { encoding: "utf8" });
@@ -133,9 +131,9 @@ try {
 const loopLine = psOut.split("\n").find((l) => /dev-(loop|rehearsal)\.mjs/.test(l) && !/dev-status\.mjs/.test(l));
 const codexLegs = psOut.split("\n").filter((l) => /codex exec/.test(l) && l.includes(root)).length;
 const idleMs = Date.now() - Math.max(
-  newestMtimeMs(join(root, "spec/development/transcripts")),
-  newestMtimeMs(join(root, "spec/development/gates")),
-  newestMtimeMs(join(root, "spec/development/progress-ledger.json")),
+  newestMtimeMs(join(root, ".vivicy/development/transcripts")),
+  newestMtimeMs(join(root, ".vivicy/development/gates")),
+  newestMtimeMs(join(root, ".vivicy/development/progress-ledger.json")),
   newestMtimeMs(join(root, "src")),
   newestMtimeMs(join(root, "test")),
 );

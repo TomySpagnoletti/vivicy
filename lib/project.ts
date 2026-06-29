@@ -1,17 +1,9 @@
 /**
- * Server-only store for Vivicy's "current target project" — the absolute path of
- * the repository the user chose to develop from the UI (R10).
- *
- * Vivicy is a LOCAL single-user tool: the Next server has filesystem access, so
- * the chosen project is persisted as JSON in the gitignored runtime dir
- * (`.vivicy-runtime/current-project.json`), the same dir the control plane and
- * settings store use. The resolution this enables lives in {@link file://./target}
- * and {@link file://./control}: a persisted current-project takes precedence over
- * the `VIVICY_TARGET_ROOT` env var, which stays the fallback (and the override the
- * E2E servers use).
- *
- * `node:fs` lives here so it never reaches the client bundle; the client-safe
- * types are in {@link file://./project-types}.
+ * Server-only store for Vivicy's "current target project" (R10), persisted as
+ * JSON in the gitignored runtime dir. Resolution (a persisted project wins over
+ * `VIVICY_TARGET_ROOT`) lives in {@link file://./target}. `node:fs` lives here so
+ * it never reaches the client bundle; client-safe types are in
+ * {@link file://./project-types}.
  */
 
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs"
@@ -74,16 +66,16 @@ export function describeProject(candidate: string): CurrentProject {
   if (!stat.isDirectory()) {
     throw new ProjectError(`path is not a directory: ${root}`, "not_a_directory")
   }
-  // A `docs/` directory is where the canonical spec lives, so flag it: the map
-  // route surfaces a different onboarding state for a project that has no spec.
-  const docs = path.join(root, "docs")
-  let hasDocs = false
+  // A `.vivicy/canonical/` directory is where the canonical spec lives, so flag it:
+  // the map route surfaces a different onboarding state for a project with no spec.
+  const canonicalDir = path.join(root, ".vivicy", "canonical")
+  let hasCanonicalSpec = false
   try {
-    hasDocs = statSync(docs).isDirectory()
+    hasCanonicalSpec = statSync(canonicalDir).isDirectory()
   } catch {
-    hasDocs = false
+    hasCanonicalSpec = false
   }
-  return { root, name: path.basename(root), hasDocs }
+  return { root, name: path.basename(root), hasCanonicalSpec }
 }
 
 /**

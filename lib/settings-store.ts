@@ -19,9 +19,6 @@ import { DEFAULT_SETTINGS, normalizeSettings, type AgentsSettings } from "@/lib/
 
 const SETTINGS_FILE = "settings.json"
 
-/** Re-exported so existing importers keep working. */
-export { getRuntimeDir }
-
 /** Absolute path to the settings JSON store. */
 export function getSettingsPath(): string {
   return path.join(getRuntimeDir(), SETTINGS_FILE)

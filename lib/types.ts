@@ -2,19 +2,18 @@
  * Typed contract for the architecture-map data consumed by the Vivicy viewer.
  *
  * The shape mirrors the committed
- * `<target>/docs/architecture-map/viewer/src/architecture-data.json` produced by
- * the Naight architecture-map tooling. This file is the single source of truth
+ * `<target>/.vivicy/architecture-map/architecture-data.json` produced by
+ * the Vivicy architecture-map tooling. This file is the single source of truth
  * for the data types used across the app; do not redeclare these shapes inline.
  */
 
-/** Development progress statuses, ordered from untouched to verified. */
-export type NodeStatus =
-  | "not_started"
-  | "in_progress"
-  | "reviewing"
-  | "implemented"
-  | "verified"
-  | "blocked"
+import type { OverlayStatus } from "@/lib/development-overlay"
+
+/**
+ * Development progress statuses, ordered from untouched to verified. Aliased to
+ * `OverlayStatus` so the ordered six-status list has one source (the overlay).
+ */
+export type NodeStatus = OverlayStatus
 
 /** Which projection of the graph is currently shown. */
 export type ViewMode = "target" | "progress"
@@ -130,7 +129,7 @@ export interface ArchitectureMapData {
  * onboarding guidance. A discriminated value so the client never has to parse
  * prose or HTTP status codes to decide what to show:
  *
- * - `no_target`  — no usable project resolved (root missing, or no `docs/`).
+ * - `no_target`  — no usable project resolved (root missing, or no `.vivicy/canonical/`).
  * - `no_map`     — the project exists but no architecture map was generated yet.
  * - `empty_map`  — a map is present on disk but contains zero nodes.
  */

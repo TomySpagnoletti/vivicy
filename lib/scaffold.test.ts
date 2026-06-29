@@ -11,7 +11,6 @@ import {
   resolveTargetDir,
   ScaffoldError,
   scaffoldProject,
-  slugify,
   validateProjectName,
 } from "@/lib/scaffold"
 
@@ -114,14 +113,6 @@ describe("detectGateCommand", () => {
   })
 })
 
-describe("slugify", () => {
-  it("produces a filesystem-safe slug", () => {
-    expect(slugify("My Cool Project")).toBe("my-cool-project")
-    expect(slugify("  A..B__C  ")).toBe("a-b-c")
-    expect(slugify("***")).toBe("project")
-  })
-})
-
 describe("scaffoldProject — from scratch (lean, language-agnostic)", () => {
   it("writes the LEAN skeleton with the name substituted and sets the current project", () => {
     const target = path.join(workDir, "acme-app")
@@ -136,8 +127,8 @@ describe("scaffoldProject — from scratch (lean, language-agnostic)", () => {
       "README.md",
       "vivicy.json",
       ".gitignore",
-      "docs/canonical/README.md",
-      "spec/development/ISSUE-TEMPLATE.md",
+      ".vivicy/canonical/README.md",
+      ".vivicy/development/ISSUE-TEMPLATE.md",
     ]
     for (const rel of expectedFiles) {
       expect(existsSync(path.join(target, rel)), `missing ${rel}`).toBe(true)
@@ -156,12 +147,11 @@ describe("scaffoldProject — from scratch (lean, language-agnostic)", () => {
 
     // Empty skeleton dirs are kept alive with .gitkeep.
     for (const dir of [
-      "docs/baselines",
-      "docs/architecture-map",
-      "spec/development/issues",
-      "spec/development/prompts",
-      "spec/development/reports",
-      "spec/requirements",
+      ".vivicy/baselines",
+      ".vivicy/architecture-map",
+      ".vivicy/development/issues",
+      ".vivicy/development/reports",
+      ".vivicy/requirements",
     ]) {
       expect(existsSync(path.join(target, dir, ".gitkeep")), `missing ${dir}/.gitkeep`).toBe(true)
     }
@@ -185,8 +175,8 @@ describe("scaffoldProject — from scratch (lean, language-agnostic)", () => {
       ".DS_Store",
       ".vivicy-runtime/",
       ".vivicy-worktrees/",
-      "spec/development/transcripts/",
-      "spec/development/gates/.integration.lock",
+      ".vivicy/development/transcripts/",
+      ".vivicy/development/gates/.integration.lock",
     ]) {
       expect(gitignore, `expected .gitignore to ignore ${ignored}`).toContain(ignored)
     }
@@ -197,7 +187,7 @@ describe("scaffoldProject — from scratch (lean, language-agnostic)", () => {
     // The result describes the project and it is now the current target.
     expect(result.project.root).toBe(target)
     expect(result.project.name).toBe("acme-app")
-    expect(result.project.hasDocs).toBe(true)
+    expect(result.project.hasCanonicalSpec).toBe(true)
     expect(getCurrentProject()?.root).toBe(target)
 
     // The reported written list is non-trivial and absolute.
@@ -245,10 +235,10 @@ describe("scaffoldProject — existing project (add Vivicy, never clobber)", () 
     for (const rel of [
       "CLAUDE.md",
       "vivicy.json",
-      "docs/canonical/README.md",
-      "spec/development/ISSUE-TEMPLATE.md",
-      "docs/baselines/.gitkeep",
-      "spec/development/issues/.gitkeep",
+      ".vivicy/canonical/README.md",
+      ".vivicy/development/ISSUE-TEMPLATE.md",
+      ".vivicy/baselines/.gitkeep",
+      ".vivicy/development/issues/.gitkeep",
     ]) {
       expect(existsSync(path.join(target, rel)), `missing ${rel}`).toBe(true)
     }
@@ -304,7 +294,7 @@ describe("scaffoldProject — from-scratch git lifecycle (mechanical, no human g
       git(target, ["ls-files"]).stdout.split("\n").map((s) => s.trim()).filter(Boolean)
     )
     expect(tracked.has("vivicy.json")).toBe(true)
-    expect(tracked.has("docs/canonical/README.md")).toBe(true)
+    expect(tracked.has(".vivicy/canonical/README.md")).toBe(true)
     expect(tracked.has(".gitignore")).toBe(true)
     for (const t of tracked) {
       expect(t.startsWith(".vivicy-runtime/"), `runtime must not be committed: ${t}`).toBe(false)

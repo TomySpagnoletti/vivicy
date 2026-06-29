@@ -8,8 +8,7 @@
 //
 // The target project is chosen, in order:
 //   1. VIVICY_TARGET_ROOT  — the explicit target override (any project, any language).
-//   2. NAIGHT_DEV_ROOT     — legacy alias kept so existing wiring keeps working.
-//   3. (none)              — standalone default: there is NO implicit target.
+//   2. (none)              — standalone default: there is NO implicit target.
 //
 // In the standalone default the factory must not guess a target by walking up the
 // filesystem (`../..`): that only makes sense when Vivicy is vendored inside a
@@ -33,11 +32,11 @@ export const FACTORY_REHEARSAL_DIR = resolve(FACTORY_DIR, "rehearsal");
 
 /**
  * Resolve the target project root the factory operates on, or `null` when none is
- * configured. VIVICY_TARGET_ROOT wins; NAIGHT_DEV_ROOT is the legacy fallback;
- * otherwise there is no implicit target (standalone default).
+ * configured. VIVICY_TARGET_ROOT selects it; otherwise there is no implicit
+ * target (standalone default).
  */
 export function resolveTargetRoot(env = process.env) {
-  const override = env.VIVICY_TARGET_ROOT ?? env.NAIGHT_DEV_ROOT;
+  const override = env.VIVICY_TARGET_ROOT;
   if (override && override.trim().length > 0) return resolve(override);
   return null;
 }

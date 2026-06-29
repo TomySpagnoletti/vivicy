@@ -6,13 +6,13 @@
 //   - a hard block (an *-blocked.json report), for a human,
 //   - a no-progress stall (no new done/ across N consecutive relaunches),
 //   - a relaunch cap.
-// It writes a heartbeat run-state file so `npm run dev:status` and any agent can
+// It writes a heartbeat run-state file so `vivicy status` and any agent can
 // see liveness across relaunches.
 //
 // Launch it DETACHED so it outlives the launching shell/task (this is what kept
 // killing single-process runs — the parent task was killed, taking the loop):
 //   nohup node vivicy/factory/dev-loop-supervised.mjs > /tmp/vivicy-dev-loop.log 2>&1 &
-//   npm run dev:status            # progress anytime
+//   vivicy status                 # progress anytime
 // Stop it via the pid recorded in the run-state file.
 //
 // Modes: default supervises the real dev-loop.mjs against the target project.
@@ -41,6 +41,12 @@ export function nextSupervisorAction({ done, total, blocked, attempt, stall }, l
 function main() {
   const scriptDir = dirname(fileURLToPath(import.meta.url));
   const repoRoot = resolveTargetRoot();
+  if (!repoRoot) {
+    console.error(
+      "error: no target project configured. Set VIVICY_TARGET_ROOT to the absolute path of the project Vivicy should build.",
+    );
+    process.exit(2);
+  }
   const rehearsal = process.argv.includes("--rehearsal");
   // The supervised child is a sibling factory script; resolve it by absolute
   // path so the supervisor works regardless of cwd or where the target lives.
@@ -48,7 +54,7 @@ function main() {
   // Where progress lives: the rehearsal writes into REHEARSAL_DIR; the real loop
   // into the target project (VIVICY_TARGET_ROOT).
   const progressRoot = rehearsal && process.env.REHEARSAL_DIR ? resolve(process.env.REHEARSAL_DIR) : repoRoot;
-  const statePath = join(repoRoot, "spec/development/reports/dev-loop-supervisor.json");
+  const statePath = join(repoRoot, ".vivicy/development/reports/dev-loop-supervisor.json");
 
   const readJson = (p, fb) => {
     try {
@@ -61,10 +67,10 @@ function main() {
     const dir = join(progressRoot, rel);
     return existsSync(dir) ? readdirSync(dir).filter((f) => f.endsWith(suffix)).length : 0;
   };
-  const doneCount = () => count("spec/development/issues/done", ".md");
-  const blockedCount = () => count("spec/development/reports", "-blocked.json");
+  const doneCount = () => count(".vivicy/development/issues/done", ".md");
+  const blockedCount = () => count(".vivicy/development/reports", "-blocked.json");
   const totalIssues = () => {
-    const index = readJson(join(progressRoot, "spec/development/issue-index.json"), { issues: [] });
+    const index = readJson(join(progressRoot, ".vivicy/development/issue-index.json"), { issues: [] });
     return Array.isArray(index.issues) ? index.issues.length : 0;
   };
   const writeState = (extra) => {

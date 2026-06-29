@@ -82,6 +82,16 @@ describe("PUT /api/settings", () => {
     expect(body).toEqual({ ok: true, settings: NORMALIZED })
   })
 
+  it("rejects a non-object body (array or primitive) as 400 without writing", async () => {
+    for (const invalid of [[], 5, "settings", true]) {
+      const res = await PUT(putJson(invalid))
+      expect(res.status).toBe(400)
+      const body = await res.json()
+      expect(body.ok).toBe(false)
+    }
+    expect(writeSettings).not.toHaveBeenCalled()
+  })
+
   it("maps a store failure to 500", async () => {
     writeSettings.mockImplementation(() => {
       throw new Error("disk full")

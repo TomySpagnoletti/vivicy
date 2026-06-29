@@ -19,7 +19,7 @@ import { ProjectError } from "@/lib/project"
 
 import { GET, POST } from "./route"
 
-const PROJECT: CurrentProject = { root: "/abs/proj", name: "proj", hasDocs: true }
+const PROJECT: CurrentProject = { root: "/abs/proj", name: "proj", hasCanonicalSpec: true }
 
 function postJson(body: unknown): Request {
   return new Request("http://localhost/api/project", {

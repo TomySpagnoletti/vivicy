@@ -13,11 +13,11 @@ import { fileURLToPath } from "node:url";
 
 const scriptPath = fileURLToPath(import.meta.url);
 const scriptDir = dirname(scriptPath);
-// The target project this tool freezes/verifies. VIVICY_TARGET_ROOT selects it
-// (NAIGHT_DEV_ROOT is the legacy alias); a target must share the same layout
-// (docs/canonical/, docs/baselines/). Unset => the project the factory is
-// vendored into, so production behavior is unchanged.
-const targetOverride = process.env.VIVICY_TARGET_ROOT ?? process.env.NAIGHT_DEV_ROOT;
+// The target project this tool freezes/verifies. VIVICY_TARGET_ROOT selects it;
+// a target must share the same layout (.vivicy/canonical/, .vivicy/baselines/).
+// Unset => the project the factory is vendored into, so production behavior is
+// unchanged.
+const targetOverride = process.env.VIVICY_TARGET_ROOT;
 const repoRoot =
   targetOverride && targetOverride.trim().length > 0
     ? resolve(targetOverride)
@@ -25,26 +25,26 @@ const repoRoot =
 // Manifest provenance string. This is recorded inside (and verified against)
 // frozen manifests, so it is stable manifest DATA and intentionally NOT the
 // script's filesystem location — moving the script must not change it.
-const generatedBy = "docs/baselines/doc-baseline.mjs";
+const generatedBy = ".vivicy/baselines/doc-baseline.mjs";
 const schemaVersion = 1;
 // Neutral fallback when the target project does not name itself in package.json.
 // Vivicy is project-agnostic, so the product name is DERIVED from the target
 // (see resolveProductName), never hardcoded to any one product.
 const neutralProductFallback = "Project";
-const baselineDir = "docs/baselines";
+const baselineDir = ".vivicy/baselines";
 const validStatuses = ["draft", "frozen", "superseded"];
 const defaultInclude = [
-  "docs/canonical/**/*.md"
+  ".vivicy/canonical/**/*.md"
 ];
 const defaultExclude = [
   "_tmp/**",
   "node_modules/**",
   "dist/**",
   "**/.DS_Store",
-  "docs/baselines/*.json",
-  "docs/baselines/doc-baseline.mjs",
+  ".vivicy/baselines/*.json",
+  ".vivicy/baselines/doc-baseline.mjs",
   "docs/change-requests/CR-[0-9][0-9][0-9][0-9]-*.md",
-  "docs/architecture-map/viewer/**",
+  ".vivicy/architecture-map/viewer/**",
   "docs/governance/**",
   "docs/reviews/**",
   "docs/spikes/**"
@@ -80,7 +80,7 @@ function generate(args) {
   if (!isUnderBaselineDir(absoluteOutPath) && !truthyFlag(args["allow-out-of-baseline-dir"])) {
     fail(
       `Refusing to write manifest outside ${baselineDir}/: ${toRepoPath(absoluteOutPath)}. ` +
-        "Generated baselines must live under docs/baselines/. Pass --allow-out-of-baseline-dir to override."
+        "Generated baselines must live under .vivicy/baselines/. Pass --allow-out-of-baseline-dir to override."
     );
   }
 
@@ -274,7 +274,7 @@ function collectIncludedFiles(includePatterns, excludePatterns) {
       addIfIncluded(paths, pattern, includePatterns, excludePatterns);
     }
   }
-  walk(join(repoRoot, "docs"), paths, includePatterns, excludePatterns);
+  walk(join(repoRoot, ".vivicy"), paths, includePatterns, excludePatterns);
 
   return [...paths].sort().map((path) => {
     const absolutePath = join(repoRoot, path);
@@ -334,9 +334,6 @@ function matchesPattern(path, pattern) {
   if (pattern === path) {
     return true;
   }
-  if (pattern === "docs/**/*.md") {
-    return path.startsWith("docs/") && path.endsWith(".md");
-  }
   if (pattern.endsWith("/**/*.md")) {
     const prefix = pattern.slice(0, -"/**/*.md".length);
     return path.startsWith(`${prefix}/`) && path.endsWith(".md");
@@ -344,8 +341,8 @@ function matchesPattern(path, pattern) {
   if (pattern === "**/.DS_Store") {
     return path === ".DS_Store" || path.endsWith("/.DS_Store");
   }
-  if (pattern === "docs/baselines/*.json") {
-    return /^docs\/baselines\/[^/]+\.json$/.test(path);
+  if (pattern === ".vivicy/baselines/*.json") {
+    return /^\.vivicy\/baselines\/[^/]+\.json$/.test(path);
   }
   if (pattern === "docs/change-requests/CR-[0-9][0-9][0-9][0-9]-*.md") {
     return /^docs\/change-requests\/CR-\d{4}-[^/]+\.md$/.test(path);

@@ -25,6 +25,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { ScrollArea } from "@/components/ui/scroll-area"
+import { cn } from "@/lib/utils"
 
 interface TranscriptTarget {
   ref: string
@@ -274,18 +275,16 @@ function EntryView({ entry }: { entry: TranscriptEntry }) {
   }
   return (
     <div
-      className={
-        entry.final
-          ? "min-w-0 rounded-md border border-primary bg-primary/5 px-3.5 py-3"
-          : "min-w-0 rounded-md border border-border bg-card px-3.5 py-3"
-      }
+      className={cn(
+        "min-w-0 rounded-md border px-3.5 py-3",
+        entry.final ? "border-primary bg-primary/5" : "border-border bg-card"
+      )}
     >
       <p
-        className={
-          entry.final
-            ? "mb-1.5 text-xs font-semibold tracking-wide text-primary uppercase"
-            : "mb-1.5 text-xs font-semibold tracking-wide text-muted-foreground uppercase"
-        }
+        className={cn(
+          "mb-1.5 text-xs font-semibold tracking-wide uppercase",
+          entry.final ? "text-primary" : "text-muted-foreground"
+        )}
       >
         {entry.final ? "Final response" : "Assistant"}
       </p>

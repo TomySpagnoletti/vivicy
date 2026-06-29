@@ -21,20 +21,20 @@ import { extractIssues, findFrozenManifest, formatCheckOutput, formatFixContext,
 
 const FACTORY_DIR = dirname(fileURLToPath(import.meta.url));
 const FIXTURE = resolve(FACTORY_DIR, "rehearsal/pocket-ledger");
-const VERDICT_REL = "spec/development/reports/extraction-fidelity-verdict.json";
+const VERDICT_REL = ".vivicy/development/reports/extraction-fidelity-verdict.json";
 
-// The corpus files the extractor authors (everything UNDER spec/ + the arch map),
-// as opposed to the inputs it reads (docs/canonical/**, the frozen baseline). Only
+// The corpus files the extractor authors (under .vivicy/requirements + .vivicy/development),
+// as opposed to the inputs it reads (.vivicy/canonical/**, the frozen baseline). Only
 // load-bearing .json — the human-readable catalog.md / traceability-matrix.md
 // mirrors are decoration nothing reads and are no longer authored.
 const CORPUS_FILES = [
-  "spec/requirements/catalog.json",
-  "spec/requirements/traceability-matrix.json",
-  "spec/requirements/exclusions.json",
-  "spec/development/issue-index.json",
+  ".vivicy/requirements/catalog.json",
+  ".vivicy/requirements/traceability-matrix.json",
+  ".vivicy/requirements/exclusions.json",
+  ".vivicy/development/issue-index.json",
 ];
-const CORPUS_DIRS = ["spec/development/issues"];
-const INPUT_PATHS = ["docs/canonical", "docs/baselines", "README.md", "package.json"];
+const CORPUS_DIRS = [".vivicy/development/issues"];
+const INPUT_PATHS = [".vivicy/canonical", ".vivicy/baselines", "README.md", "package.json"];
 
 let temp;
 
@@ -71,7 +71,7 @@ function writeValidCorpus(root) {
  *  semantic check fails fatally (proves the fix loop re-prompts). */
 function writeInvalidCorpus(root) {
   writeValidCorpus(root);
-  const indexPath = resolve(root, "spec/development/issue-index.json");
+  const indexPath = resolve(root, ".vivicy/development/issue-index.json");
   const index = JSON.parse(readFileSync(indexPath, "utf8"));
   index.manifest_hash = "deadbeef".repeat(8); // pin mismatch vs the frozen manifest
   writeFileSync(indexPath, `${JSON.stringify(index, null, 2)}\n`);
@@ -84,7 +84,7 @@ function fakeAgent(perAttempt) {
     calls.push(ctx);
     const action = perAttempt[Math.min(ctx.attempt - 1, perAttempt.length - 1)];
     action(ctx);
-    return { transcriptRel: `spec/development/transcripts/EXTRACTION/extract-${ctx.attempt}.jsonl` };
+    return { transcriptRel: `.vivicy/development/transcripts/EXTRACTION/extract-${ctx.attempt}.jsonl` };
   };
   return { spawnExtractor, calls };
 }
@@ -109,7 +109,7 @@ function fakeVerifier(perAttempt) {
     calls.push(ctx);
     const verdict = perAttempt[Math.min(ctx.attempt - 1, perAttempt.length - 1)];
     writeVerdict(ctx.repoRoot, verdict);
-    return { transcriptRel: `spec/development/transcripts/EXTRACTION/verify-${ctx.attempt}.jsonl` };
+    return { transcriptRel: `.vivicy/development/transcripts/EXTRACTION/verify-${ctx.attempt}.jsonl` };
   };
   return { spawnVerifier, calls };
 }
@@ -129,13 +129,13 @@ function stubSeams(extra = {}) {
     runFreeze: async ({ repoRoot, version }) => {
       freezeCalls.push({ repoRoot, version });
       // A test "freeze": copy the fixture's frozen manifest in.
-      copyCorpusPath(repoRoot, "docs/baselines");
-      return { manifestPath: "docs/baselines/baseline-v1.0.0.json", baselineId: "baseline-v1.0.0" };
+      copyCorpusPath(repoRoot, ".vivicy/baselines");
+      return { manifestPath: ".vivicy/baselines/baseline-v1.0.0.json", baselineId: "baseline-v1.0.0" };
     },
     runGenerateMap: ({ repoRoot }) => {
       mapCalls.push(repoRoot);
       // Simulate the generator writing architecture-data.json.
-      const out = resolve(repoRoot, "docs/architecture-map/viewer/src/architecture-data.json");
+      const out = resolve(repoRoot, ".vivicy/architecture-map/architecture-data.json");
       mkdirSync(dirname(out), { recursive: true });
       writeFileSync(out, JSON.stringify({ development: { issues: [] } }, null, 2));
       return { code: 0, output: "generated" };
@@ -177,8 +177,8 @@ describe("extractIssues — two-agent happy path", () => {
     // The map was regenerated and BOTH legs' transcripts captured (extract + verify).
     assert.equal(seams._calls.mapCalls.length, 1);
     assert.deepEqual(result.transcripts, [
-      "spec/development/transcripts/EXTRACTION/extract-1.jsonl",
-      "spec/development/transcripts/EXTRACTION/verify-1.jsonl",
+      ".vivicy/development/transcripts/EXTRACTION/extract-1.jsonl",
+      ".vivicy/development/transcripts/EXTRACTION/verify-1.jsonl",
     ]);
     assert.match(result.summary, /8 issue\(s\)/);
     assert.match(result.summary, /faithful:true/);
@@ -190,7 +190,7 @@ describe("extractIssues — two-agent happy path", () => {
   });
 
   it("does NOT freeze when a frozen baseline already exists (reuses it)", async () => {
-    seedInputs(temp); // includes docs/baselines/baseline-v1.0.0.json (frozen)
+    seedInputs(temp); // includes .vivicy/baselines/baseline-v1.0.0.json (frozen)
     const { spawnExtractor } = fakeAgent([(ctx) => writeValidCorpus(ctx.repoRoot)]);
     const { spawnVerifier } = alwaysFaithfulVerifier();
     const seams = stubSeams();
@@ -201,6 +201,21 @@ describe("extractIssues — two-agent happy path", () => {
     assert.equal(result.froze, false);
     assert.equal(seams._calls.freezeCalls.length, 0, "freeze seam never invoked");
     assert.equal(result.baselineId, "baseline-v1.0.0");
+  });
+
+  it("re-freezes a STALE frozen baseline that no longer matches the spec", async () => {
+    seedInputs(temp); // a frozen manifest exists, but the spec has since changed
+    const { spawnExtractor } = fakeAgent([(ctx) => writeValidCorpus(ctx.repoRoot)]);
+    const { spawnVerifier } = alwaysFaithfulVerifier();
+    // verifyFrozenManifest:false models the owner editing .vivicy/canonical/** after the
+    // freeze (document_set_hash no longer verifies) — the stale baseline is discarded.
+    const seams = stubSeams({ verifyFrozenManifest: () => false });
+
+    const result = await extractIssues({ repoRoot: temp, spawnExtractor, spawnVerifier, ...seams });
+
+    assert.equal(result.status, "green");
+    assert.equal(result.froze, true, "a stale baseline is re-frozen, not reused");
+    assert.equal(seams._calls.freezeCalls.length, 1, "freeze seam invoked once to re-establish the baseline");
   });
 
   it("accepts the legacy spawnAgent alias for the extractor leg (back-compat)", async () => {
@@ -230,7 +245,7 @@ describe("extractIssues — mechanical corpus commit on green (Item 2, real git)
     // ONLY never-commit set; everything else the run produces is committed.
     writeFileSync(
       resolve(temp, ".gitignore"),
-      "node_modules/\n.DS_Store\n.vivicy-runtime/\n.vivicy-worktrees/\nspec/development/transcripts/\n",
+      "node_modules/\n.DS_Store\n.vivicy-runtime/\n.vivicy-worktrees/\n.vivicy/development/transcripts/\n",
     );
     git(["add", "-A"]);
     git(["commit", "-qm", "inputs"]);
@@ -241,7 +256,7 @@ describe("extractIssues — mechanical corpus commit on green (Item 2, real git)
     const { commitCorpus, ...seams } = stubSeams();
     void commitCorpus;
     // A fake transcript proves transcripts are NOT committed (gitignored).
-    const txAbs = resolve(temp, "spec/development/transcripts/EXTRACTION/extract-1.jsonl");
+    const txAbs = resolve(temp, ".vivicy/development/transcripts/EXTRACTION/extract-1.jsonl");
     mkdirSync(dirname(txAbs), { recursive: true });
     writeFileSync(txAbs, "{}\n");
 
@@ -254,19 +269,19 @@ describe("extractIssues — mechanical corpus commit on green (Item 2, real git)
       git(["ls-files"]).stdout.split("\n").map((s) => s.trim()).filter(Boolean),
     );
     for (const rel of [
-      "spec/requirements/catalog.json",
-      "spec/requirements/traceability-matrix.json",
-      "spec/development/issue-index.json",
-      "docs/architecture-map/viewer/src/architecture-data.json",
+      ".vivicy/requirements/catalog.json",
+      ".vivicy/requirements/traceability-matrix.json",
+      ".vivicy/development/issue-index.json",
+      ".vivicy/architecture-map/architecture-data.json",
     ]) {
       assert.ok(tracked.has(rel), `expected ${rel} to be committed`);
     }
     // The decorative .md mirrors are NOT produced (nothing reads them).
-    assert.ok(!tracked.has("spec/requirements/catalog.md"), "catalog.md must not exist");
-    assert.ok(!tracked.has("spec/requirements/traceability-matrix.md"), "traceability-matrix.md must not exist");
+    assert.ok(!tracked.has(".vivicy/requirements/catalog.md"), "catalog.md must not exist");
+    assert.ok(!tracked.has(".vivicy/requirements/traceability-matrix.md"), "traceability-matrix.md must not exist");
     // Transcripts are NEVER committed.
     for (const rel of tracked) {
-      assert.ok(!rel.startsWith("spec/development/transcripts/"), `transcript must not be committed: ${rel}`);
+      assert.ok(!rel.startsWith(".vivicy/development/transcripts/"), `transcript must not be committed: ${rel}`);
     }
 
     // Clean tree: `git status --porcelain` shows nothing tracked-and-dirty; only the
@@ -299,7 +314,7 @@ function initRepoWithCommit(root) {
 function writeScaffoldGitignore(root) {
   writeFileSync(
     resolve(root, ".gitignore"),
-    "node_modules/\n.DS_Store\n.vivicy-runtime/\n.vivicy-worktrees/\nspec/development/transcripts/\n",
+    "node_modules/\n.DS_Store\n.vivicy-runtime/\n.vivicy-worktrees/\n.vivicy/development/transcripts/\n",
   );
 }
 
@@ -307,7 +322,7 @@ describe("extractIssues — mechanical SPEC-SNAPSHOT commit before the freeze (n
   it("commits the owner's uncommitted spec so the freeze sees a CLEAN committed tree", async () => {
     // The owner wrote canonical docs into a repo and left them UNCOMMITTED (dirty
     // tree) — exactly the state after scaffolding + writing the spec, before extract.
-    cpSync(resolve(FIXTURE, "docs/canonical"), resolve(temp, "docs/canonical"), { recursive: true });
+    cpSync(resolve(FIXTURE, ".vivicy/canonical"), resolve(temp, ".vivicy/canonical"), { recursive: true });
     cpSync(resolve(FIXTURE, "README.md"), resolve(temp, "README.md"));
     writeScaffoldGitignore(temp);
     git(temp, ["init", "-q"]);
@@ -338,7 +353,7 @@ describe("extractIssues — mechanical SPEC-SNAPSHOT commit before the freeze (n
     assert.equal(cleanAtFreeze, true, "the spec snapshot left a CLEAN committed tree before the freeze");
     // The spec is now committed in HEAD (the owner ran no git).
     const tracked = new Set(git(temp, ["ls-files"]).stdout.split("\n").map((s) => s.trim()).filter(Boolean));
-    assert.ok(tracked.has("docs/canonical/01-architecture.md"), "the owner's spec is committed");
+    assert.ok(tracked.has(".vivicy/canonical/01-architecture.md"), "the owner's spec is committed");
     // A spec-snapshot commit exists with the expected subject.
     const log = git(temp, ["log", "--format=%s"]).stdout;
     assert.match(log, /spec snapshot: commit canonical spec before freeze/);
@@ -347,7 +362,7 @@ describe("extractIssues — mechanical SPEC-SNAPSHOT commit before the freeze (n
   it("makes NO redundant empty commit when the repo is already clean", async () => {
     // The spec is already committed (clean tree) — re-running extract must NOT add an
     // empty 'spec snapshot' commit, and must NOT error.
-    cpSync(resolve(FIXTURE, "docs/canonical"), resolve(temp, "docs/canonical"), { recursive: true });
+    cpSync(resolve(FIXTURE, ".vivicy/canonical"), resolve(temp, ".vivicy/canonical"), { recursive: true });
     cpSync(resolve(FIXTURE, "README.md"), resolve(temp, "README.md"));
     writeScaffoldGitignore(temp);
     initRepoWithCommit(temp);
@@ -371,7 +386,7 @@ describe("extractIssues — mechanical SPEC-SNAPSHOT commit before the freeze (n
   it("inits a repo when the target is NOT a git repo, then commits the spec and freezes", async () => {
     // A from-scratch target that somehow is NOT a repo (defensive path). The snapshot
     // must `git init` it, commit the spec, and the freeze must then succeed.
-    cpSync(resolve(FIXTURE, "docs/canonical"), resolve(temp, "docs/canonical"), { recursive: true });
+    cpSync(resolve(FIXTURE, ".vivicy/canonical"), resolve(temp, ".vivicy/canonical"), { recursive: true });
     cpSync(resolve(FIXTURE, "README.md"), resolve(temp, "README.md"));
     writeScaffoldGitignore(temp);
     assert.notEqual(git(temp, ["rev-parse", "--is-inside-work-tree"]).status, 0, "precondition: not a repo");
@@ -401,7 +416,7 @@ describe("extractIssues — mechanical SPEC-SNAPSHOT commit before the freeze (n
   it("auto-commits even when the fresh repo has NO git identity configured (sets a local one)", async () => {
     // A fresh repo with NO usable global/system identity. The snapshot must set a
     // LOCAL identity so `git commit` does not fail — no human `git config` step.
-    cpSync(resolve(FIXTURE, "docs/canonical"), resolve(temp, "docs/canonical"), { recursive: true });
+    cpSync(resolve(FIXTURE, ".vivicy/canonical"), resolve(temp, ".vivicy/canonical"), { recursive: true });
     cpSync(resolve(FIXTURE, "README.md"), resolve(temp, "README.md"));
     writeScaffoldGitignore(temp);
     git(temp, ["init", "-q"]);
@@ -461,7 +476,7 @@ describe("extractIssues — mechanical SPEC-SNAPSHOT commit before the freeze (n
     // The strongest proof: REAL snapshot AND the REAL doc-baseline freeze (no freeze
     // stub). The owner's uncommitted spec is snapshotted, then doc-baseline cuts a
     // frozen baseline from the clean committed tree — exactly the gap this closes.
-    cpSync(resolve(FIXTURE, "docs/canonical"), resolve(temp, "docs/canonical"), { recursive: true });
+    cpSync(resolve(FIXTURE, ".vivicy/canonical"), resolve(temp, ".vivicy/canonical"), { recursive: true });
     cpSync(resolve(FIXTURE, "README.md"), resolve(temp, "README.md"));
     cpSync(resolve(FIXTURE, "package.json"), resolve(temp, "package.json"));
     writeScaffoldGitignore(temp);
@@ -482,14 +497,14 @@ describe("extractIssues — mechanical SPEC-SNAPSHOT commit before the freeze (n
     const spawnExtractor = async (ctx) => {
       writeValidCorpus(ctx.repoRoot);
       const manifest = JSON.parse(readFileSync(resolve(ctx.repoRoot, ctx.manifestPath), "utf8"));
-      const idxPath = resolve(ctx.repoRoot, "spec/development/issue-index.json");
+      const idxPath = resolve(ctx.repoRoot, ".vivicy/development/issue-index.json");
       const idx = JSON.parse(readFileSync(idxPath, "utf8"));
       idx.manifest_hash = manifest.manifest_hash;
       idx.document_set_hash = manifest.document_set_hash;
       idx.manifest_path = ctx.manifestPath;
       idx.baseline_id = ctx.baselineId;
       writeFileSync(idxPath, `${JSON.stringify(idx, null, 2)}\n`);
-      return { transcriptRel: `spec/development/transcripts/EXTRACTION/extract-${ctx.attempt}.jsonl` };
+      return { transcriptRel: `.vivicy/development/transcripts/EXTRACTION/extract-${ctx.attempt}.jsonl` };
     };
     const { spawnVerifier } = alwaysFaithfulVerifier();
     const { runFreeze, ...rest } = stubSeams();
@@ -503,14 +518,14 @@ describe("extractIssues — mechanical SPEC-SNAPSHOT commit before the freeze (n
     assert.ok(frozen, "a frozen baseline manifest exists after the real freeze");
     // The spec is committed in HEAD — the owner ran zero git commands.
     const tracked = new Set(git(temp, ["ls-files"]).stdout.split("\n").map((s) => s.trim()).filter(Boolean));
-    assert.ok(tracked.has("docs/canonical/01-architecture.md"), "the owner's spec is committed");
+    assert.ok(tracked.has(".vivicy/canonical/01-architecture.md"), "the owner's spec is committed");
   });
 });
 
 describe("extractIssues — freeze-if-needed branch", () => {
   it("freezes via the injected freeze seam when no frozen baseline exists", async () => {
-    // Seed canonical docs ONLY — no docs/baselines yet.
-    cpSync(resolve(FIXTURE, "docs/canonical"), resolve(temp, "docs/canonical"), { recursive: true });
+    // Seed canonical docs ONLY — no .vivicy/baselines yet.
+    cpSync(resolve(FIXTURE, ".vivicy/canonical"), resolve(temp, ".vivicy/canonical"), { recursive: true });
     cpSync(resolve(FIXTURE, "README.md"), resolve(temp, "README.md"));
 
     assert.equal(findFrozenManifest(temp), null, "precondition: no frozen baseline");
@@ -536,7 +551,7 @@ describe("extractIssues — freeze runs before ANY status emission (live-proof r
     // extraction-status.json into a tracked path and tripping doc-baseline's
     // working-tree-clean guard. Assert the freeze is the FIRST observable side
     // effect — nothing tracked is written before it.
-    cpSync(resolve(FIXTURE, "docs/canonical"), resolve(temp, "docs/canonical"), { recursive: true });
+    cpSync(resolve(FIXTURE, ".vivicy/canonical"), resolve(temp, ".vivicy/canonical"), { recursive: true });
     cpSync(resolve(FIXTURE, "README.md"), resolve(temp, "README.md"));
 
     const order = [];
@@ -669,7 +684,7 @@ describe("extractIssues — fidelity fix loop (the independent verifier)", () =>
     seedInputs(temp);
     const { spawnExtractor } = fakeAgent([(ctx) => writeValidCorpus(ctx.repoRoot)]);
     // A verifier that runs but writes NO verdict file.
-    const spawnVerifier = async () => ({ transcriptRel: "spec/development/transcripts/EXTRACTION/verify.jsonl" });
+    const spawnVerifier = async () => ({ transcriptRel: ".vivicy/development/transcripts/EXTRACTION/verify.jsonl" });
     const seams = stubSeams();
 
     const result = await extractIssues({ repoRoot: temp, spawnExtractor, spawnVerifier, maxRetries: 1, ...seams });
@@ -826,18 +841,18 @@ describe("extractIssues — bounded retries / blocked (deterministic)", () => {
       status: "pending_llm_semantic_issue_generation",
       baseline_id: "baseline-v1.0.0",
       baseline_version: "1.0.0",
-      manifest_path: "docs/baselines/baseline-v1.0.0.json",
+      manifest_path: ".vivicy/baselines/baseline-v1.0.0.json",
       manifest_hash: "x",
       document_set_hash: "y",
-      source_corpus: ["docs/canonical/**/*.md"],
+      source_corpus: [".vivicy/canonical/**/*.md"],
       verification_evidence_ref_grammar: "path",
       issues: [],
     };
     const writePlaceholder = (root) => {
-      const p = resolve(root, "spec/development/issue-index.json");
+      const p = resolve(root, ".vivicy/development/issue-index.json");
       mkdirSync(dirname(p), { recursive: true });
       writeFileSync(p, `${JSON.stringify(placeholder, null, 2)}\n`);
-      const ex = resolve(root, "spec/requirements/exclusions.json");
+      const ex = resolve(root, ".vivicy/requirements/exclusions.json");
       mkdirSync(dirname(ex), { recursive: true });
       writeFileSync(ex, `${JSON.stringify({ schema_version: 1, exclusions: [] }, null, 2)}\n`);
     };
@@ -865,7 +880,7 @@ describe("extractIssues — bounded retries / blocked (deterministic)", () => {
       return {
         result: { status: 124, timedOut: true, timeoutReason: "leg timed out after 45 min (hard cap)" },
         output: "",
-        transcriptRel: `spec/development/transcripts/EXTRACTION/extract-${ctx.attempt}.jsonl`,
+        transcriptRel: `.vivicy/development/transcripts/EXTRACTION/extract-${ctx.attempt}.jsonl`,
       };
     };
     const { spawnVerifier, calls: verifyCalls } = alwaysFaithfulVerifier();
@@ -884,13 +899,13 @@ describe("extractIssues — bounded retries / blocked (deterministic)", () => {
 
 describe("findFrozenManifest", () => {
   it("returns the active frozen manifest and ignores a superseded one", () => {
-    mkdirSync(resolve(temp, "docs/baselines"), { recursive: true });
+    mkdirSync(resolve(temp, ".vivicy/baselines"), { recursive: true });
     writeFileSync(
-      resolve(temp, "docs/baselines/baseline-v0.9.0.json"),
+      resolve(temp, ".vivicy/baselines/baseline-v0.9.0.json"),
       JSON.stringify({ baseline_id: "baseline-v0.9.0", status: "frozen", superseded: { by_baseline_id: "baseline-v1.0.0" } }),
     );
     writeFileSync(
-      resolve(temp, "docs/baselines/baseline-v1.0.0.json"),
+      resolve(temp, ".vivicy/baselines/baseline-v1.0.0.json"),
       JSON.stringify({ baseline_id: "baseline-v1.0.0", status: "frozen" }),
     );
     const found = findFrozenManifest(temp);
@@ -898,9 +913,9 @@ describe("findFrozenManifest", () => {
   });
 
   it("returns null when only a draft baseline exists", () => {
-    mkdirSync(resolve(temp, "docs/baselines"), { recursive: true });
+    mkdirSync(resolve(temp, ".vivicy/baselines"), { recursive: true });
     writeFileSync(
-      resolve(temp, "docs/baselines/baseline-v1.0.0-draft.json"),
+      resolve(temp, ".vivicy/baselines/baseline-v1.0.0-draft.json"),
       JSON.stringify({ baseline_id: "baseline-v1.0.0-draft", status: "draft" }),
     );
     assert.equal(findFrozenManifest(temp), null);
@@ -986,13 +1001,13 @@ describe("scaffold + fixture gitignore the COMPLETE never-commit set, and ONLY t
   // regenerated map data, source-map, coverage, catalog/matrix/index) — the ONLY
   // exclusions are transcripts, runtime, worktrees, and machine/OS noise. So
   // `git add -A` after every checkpoint is safe with zero human edits.
-  const NEVER_COMMIT = ["node_modules/", ".DS_Store", ".vivicy-runtime/", ".vivicy-worktrees/", "spec/development/transcripts/"];
+  const NEVER_COMMIT = ["node_modules/", ".DS_Store", ".vivicy-runtime/", ".vivicy-worktrees/", ".vivicy/development/transcripts/"];
   // These are Vivicy outputs the owner wants COMMITTED — they must NOT be ignored.
   const NOW_COMMITTED = [
     "architecture-data.json",
     "source-map.json",
     "coverage-report",
-    "spec/development/reports/extraction-status.json",
+    ".vivicy/development/reports/extraction-status.json",
   ];
 
   it("the fixture .gitignore lists the complete never-commit set and none of the now-committed outputs", () => {
@@ -1000,7 +1015,7 @@ describe("scaffold + fixture gitignore the COMPLETE never-commit set, and ONLY t
     for (const line of NEVER_COMMIT) assert.ok(gi.includes(line), `fixture .gitignore must ignore ${line}`);
     for (const out of NOW_COMMITTED) assert.ok(!gi.includes(out), `fixture .gitignore must NOT ignore ${out}`);
     // Gate evidence lives under reports/ — never ignore the whole directory.
-    assert.doesNotMatch(gi, /^spec\/development\/reports\/?\s*$/m, "must not ignore the whole reports/ dir");
+    assert.doesNotMatch(gi, /^\.vivicy\/development\/reports\/?\s*$/m, "must not ignore the whole reports/ dir");
   });
 
   it("the scaffold gitignore() template emits the complete never-commit set and none of the now-committed outputs", () => {
@@ -1012,6 +1027,6 @@ describe("scaffold + fixture gitignore the COMPLETE never-commit set, and ONLY t
     for (const out of NOW_COMMITTED) {
       assert.ok(!scaffoldSrc.includes(`\n${out}`) && !scaffoldSrc.includes(`${out}\n`), `scaffold gitignore() must NOT ignore ${out}`);
     }
-    assert.doesNotMatch(scaffoldSrc, /\n\s*spec\/development\/reports\/\s*\n/, "scaffold must not ignore the whole reports/ dir");
+    assert.doesNotMatch(scaffoldSrc, /\n\s*\.vivicy\/development\/reports\/\s*\n/, "scaffold must not ignore the whole reports/ dir");
   });
 });

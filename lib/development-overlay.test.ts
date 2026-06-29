@@ -58,8 +58,8 @@ describe("deriveDevelopmentOverlay", () => {
           graph_ref: "node:ledger",
           status: "verified",
           issue_ids: ["ISS-A"],
-          evidence_refs: ["spec/development/gates/ISS-A.json:1"],
-          transcript_refs: ["spec/development/transcripts/ISS-A/impl.jsonl"],
+          evidence_refs: [".vivicy/development/gates/ISS-A.json:1"],
+          transcript_refs: [".vivicy/development/transcripts/ISS-A/impl.jsonl"],
         },
       ],
       active_items: [],
@@ -107,7 +107,7 @@ describe("deriveDevelopmentOverlay", () => {
           status: "verified",
           issue_ids: ["ISS-A"],
           // No evidence ref matches /gate/i.
-          evidence_refs: ["spec/development/notes.md:1"],
+          evidence_refs: [".vivicy/development/notes.md:1"],
         },
       ],
       active_items: [],
@@ -175,14 +175,14 @@ describe("deriveDevelopmentOverlay", () => {
           graph_ref: "node:ledger",
           status: "verified",
           issue_ids: ["ISS-A"],
-          evidence_refs: ["spec/development/gates/ISS-A.json:1"],
+          evidence_refs: [".vivicy/development/gates/ISS-A.json:1"],
         },
       ],
       active_items: [],
     }
     deriveDevelopmentOverlay(options(ledger, { evidenceRefChecker: checker }))
     expect(checker).toHaveBeenCalledWith(
-      "spec/development/gates/ISS-A.json:1",
+      ".vivicy/development/gates/ISS-A.json:1",
       "Progress graph item state node:ledger"
     )
   })

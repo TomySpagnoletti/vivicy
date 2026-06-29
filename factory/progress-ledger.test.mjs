@@ -22,7 +22,7 @@ import { applyProgressEvent, createEmptyProgressLedger, recordProgressEvent } fr
 // Self-contained artifact identity, faithful to the real frozen-baseline shape.
 // The manifest is the pinned source of truth; the issue-index and progress-ledger
 // placeholders pin to it, exactly like the committed artifacts do.
-const MANIFEST_REL = "docs/baselines/test-baseline.json";
+const MANIFEST_REL = ".vivicy/baselines/test-baseline.json";
 const MANIFEST = {
   schema_version: 1,
   status: "frozen",
@@ -35,8 +35,8 @@ const MANIFEST = {
 
 // The verification grammar matches the committed artifacts (see the bundled
 // rehearsal fixture's issue-index.json). The gate-evidence refs the tests write
-// under spec/development/gates/ satisfy it, so there is no hand-copied second regex.
-const VERIFICATION_EVIDENCE_REF_GRAMMAR = "^spec/development/(gates|reports)/.+";
+// under .vivicy/development/gates/ satisfy it, so there is no hand-copied second regex.
+const VERIFICATION_EVIDENCE_REF_GRAMMAR = "^.vivicy/development/(gates|reports)/.+";
 
 // A minimal placeholder issue-index (no issues yet), pinned to the manifest and
 // carrying the grammar — the shape recordProgressEvent and the artifact-readiness
@@ -49,7 +49,7 @@ const placeholderIssueIndex = {
   manifest_path: MANIFEST_REL,
   manifest_hash: MANIFEST.manifest_hash,
   document_set_hash: MANIFEST.document_set_hash,
-  source_corpus: ["docs/canonical/**/*.md"],
+  source_corpus: [".vivicy/canonical/**/*.md"],
   issues: [],
   coverage_summary: {
     total_doc_lines: 0,
@@ -87,9 +87,9 @@ function writeJson(rel, value) {
 // now self-contained under the temp target root.
 function writeRealArtifacts() {
   writeJson(MANIFEST_REL, MANIFEST);
-  writeJson("spec/development/issue-index.json", placeholderIssueIndex);
-  writeJson("spec/development/progress-ledger.json", placeholderProgressLedger);
-  const mapAbs = resolve(repoRoot, "docs/architecture-map/architecture-map.yml");
+  writeJson(".vivicy/development/issue-index.json", placeholderIssueIndex);
+  writeJson(".vivicy/development/progress-ledger.json", placeholderProgressLedger);
+  const mapAbs = resolve(repoRoot, ".vivicy/architecture-map/architecture-map.yml");
   mkdirSync(dirname(mapAbs), { recursive: true });
   writeFileSync(mapAbs, ARCHITECTURE_MAP);
   // A short README so a "missing line" evidence ref (README.md:999999) reaches the
@@ -114,13 +114,13 @@ const issueIndex = {
 
 // Evidence refs must be repo-relative and point to an existing file, so the
 // fixture gate-evidence files live inside the repo and are removed in after().
-const gateEvidenceRel = "spec/development/gates/_test-iss-manager-0001-gate.json";
+const gateEvidenceRel = ".vivicy/development/gates/_test-iss-manager-0001-gate.json";
 const gateEvidenceAbs = resolve(repoRoot, gateEvidenceRel);
 const gateEvidenceDir = dirname(gateEvidenceAbs);
 
-const wrongGateEvidenceRel = "spec/development/gates/_test-other-issue-gate.json";
+const wrongGateEvidenceRel = ".vivicy/development/gates/_test-other-issue-gate.json";
 const wrongGateEvidenceAbs = resolve(repoRoot, wrongGateEvidenceRel);
-const failedGateEvidenceRel = "spec/development/gates/_test-iss-manager-0001-gate-failed.json";
+const failedGateEvidenceRel = ".vivicy/development/gates/_test-iss-manager-0001-gate-failed.json";
 const failedGateEvidenceAbs = resolve(repoRoot, failedGateEvidenceRel);
 
 function gateRunRecord(overrides = {}) {
@@ -253,7 +253,7 @@ test("rejects an unknown actor role", () => {
 });
 
 test("accumulates transcript_refs on the graph item state and active item", () => {
-  const ref = "spec/development/transcripts/ISS-MANAGER-0001/claude-implementer-x.jsonl";
+  const ref = ".vivicy/development/transcripts/ISS-MANAGER-0001/claude-implementer-x.jsonl";
   const ledger = applyProgressEvent({
     event: {
       actor: "claude",
@@ -339,8 +339,8 @@ test("records verified state and clears active item on completion (tool-owned ga
 });
 
 test("#31: rejects completion evidence that is a docs/ prose doc (not under the gate dir)", () => {
-  // Uses a real existing doc so the failure is the grammar rejection, not a
-  // missing-file error.
+  // The evidence ref is a prose doc outside the gate dir: the failure is the
+  // grammar rejection, independent of whether the file exists on disk.
   assert.throws(
     () =>
       applyProgressEvent({
@@ -833,7 +833,7 @@ test("real issue-index artifact carries schema, frozen-baseline identity, and gr
   assert.equal(realIssueIndex.manifest_hash, manifest.manifest_hash);
   assert.equal(realIssueIndex.document_set_hash, manifest.document_set_hash);
 
-  const mapText = readFileSync(resolve(repoRoot, "docs/architecture-map/architecture-map.yml"), "utf8");
+  const mapText = readFileSync(resolve(repoRoot, ".vivicy/architecture-map/architecture-map.yml"), "utf8");
   const mapGrammar = mapText.match(/^verification_gate_ref_grammar:\s*"([^"]+)"/m);
   assert.ok(mapGrammar, "architecture map declares verification_gate_ref_grammar");
   assert.equal(realIssueIndex.verification_evidence_ref_grammar, mapGrammar[1]);
@@ -856,7 +856,7 @@ test("real issue-index coverage_summary follows the computed total_doc_lines rul
 });
 
 test("real progress-ledger placeholder is bound to the same frozen baseline", () => {
-  const realLedger = JSON.parse(readFileSync(resolve(repoRoot, "spec/development/progress-ledger.json"), "utf8"));
+  const realLedger = JSON.parse(readFileSync(resolve(repoRoot, ".vivicy/development/progress-ledger.json"), "utf8"));
   assert.equal(realLedger.schema_version, 1);
   assert.ok(Array.isArray(realLedger.graph_item_states));
   assert.ok(Array.isArray(realLedger.active_items));
@@ -883,7 +883,7 @@ test("progress recording is inert against the real empty issue index (Unknown is
           {
             // The real placeholder index (no issues) with a scratch ledger path,
             // so nothing real is written.
-            issueIndexPath: "spec/development/issue-index.json",
+            issueIndexPath: ".vivicy/development/issue-index.json",
             progressLedgerPath: scratch.ledgerRel,
           },
         ),

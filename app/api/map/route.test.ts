@@ -40,8 +40,8 @@ vi.mock("@/lib/map-data", () => ({ normalizeMapData, applyLiveOverlay }))
 import { GET } from "./route"
 
 const TARGET_ROOT = "/abs/target"
-const MAP_PATH = "/abs/target/docs/architecture-map/viewer/src/architecture-data.json"
-const LEDGER_PATH = "/abs/target/spec/development/progress-ledger.json"
+const MAP_PATH = "/abs/target/.vivicy/architecture-map/architecture-data.json"
+const LEDGER_PATH = "/abs/target/.vivicy/development/progress-ledger.json"
 
 /** A minimal, already-normalized map the route should return verbatim. */
 const NORMALIZED: ArchitectureMapData = {

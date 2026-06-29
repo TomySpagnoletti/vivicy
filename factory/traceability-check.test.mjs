@@ -12,10 +12,10 @@ function fixture({ issues, requirements }) {
     mkdirSync(dirname(abs), { recursive: true });
     writeFileSync(abs, `${JSON.stringify(obj, null, 2)}\n`);
   };
-  write("spec/development/issue-index.json", { schema_version: 1, issues });
+  write(".vivicy/development/issue-index.json", { schema_version: 1, issues });
   if (requirements) {
-    write("spec/requirements/catalog.json", { requirements });
-    write("spec/requirements/traceability-matrix.json", { rows: [] });
+    write(".vivicy/requirements/catalog.json", { requirements });
+    write(".vivicy/requirements/traceability-matrix.json", { rows: [] });
   }
   return {
     run: () => runTraceabilityCheck({ repoRoot: root }),

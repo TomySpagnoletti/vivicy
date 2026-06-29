@@ -1,60 +1,18 @@
 /**
  * Server-only detection of the two agent CLIs Vivicy drives — Claude Code and the
- * Codex CLI — plus their auth state AND billing method (R11). The dev-loop cannot
- * run without both present and authenticated, and the auth *method* (subscription
- * vs API key) determines the user's cost, so the UI surfaces both.
+ * Codex CLI — plus their auth state and billing method (R11). Side-effect-free:
+ * presence is a PATH lookup with no execution of the agent itself; auth is read
+ * from each CLI's credential store.
  *
- * Detection is deliberately SIDE-EFFECT-FREE and honest:
- *   - presence: PATH lookup with NO execution of the agent itself —
- *     `where <bin>` on Windows, `command -v <bin>` on Unix (`process.platform`
- *     decides; Windows has no `/bin/sh`, so the Unix probe would throw there).
- *   - version: `<bin> --version` (a cheap, non-interactive, read-only probe).
- *   - auth + method:
- *       · Codex — read `<CODEX_HOME>/auth.json` (`CODEX_HOME` defaults to
- *         `~/.codex` on every OS, so `%USERPROFILE%\.codex\auth.json` on
- *         Windows): `OPENAI_API_KEY` / `auth_mode` (`"apikey"` = API key) or a
- *         `tokens.access_token` (ChatGPT sign-in = subscription). A clean file
- *         signal → a definite verdict.
- *       · Claude — layered, first-match wins (per the official credential-store
- *         doc — see the doc URL below):
- *           a) `ANTHROPIC_API_KEY` env or `settings.json` `apiKeyHelper` → API key.
- *           b) on macOS ONLY, the login Keychain item `Claude Code-credentials`
- *              (`security find-generic-password`) — the real store on darwin. The
- *              secret's `accessToken` prefix tells method (`sk-ant-api03-` = API
- *              key, else OAuth = subscription) and carries `subscriptionType` as
- *              the plan. If the secret is locked but the item is confirmed to
- *              EXIST, we still report authenticated (subscription, plan unknown).
- *           c) `<config-dir>/.credentials.json` (flat or under `claudeAiOauth`) —
- *              the credential FILE on BOTH Linux AND Windows. Per the official
- *              doc, Windows stores creds at `%USERPROFILE%\.claude\.credentials.json`
- *              (a file inheriting the profile-directory ACL), NOT the Windows
- *              Credential Manager — so the SAME file probe serves both, and no
- *              Credential-Manager / `cmdkey` call is needed or possible to read it
- *              non-interactively. The config dir honours `CLAUDE_CONFIG_DIR`
- *              (Linux/Windows) and otherwise falls back to `<home>/.claude`.
- *           d) otherwise unauthenticated, or `null` ("unknown") only when the
- *              store could not be probed at all (darwin Keychain unprobeable, no
- *              file).
+ * macOS-vs-Windows credential-store gotcha: on darwin, Claude credentials live in
+ * the login Keychain (`security find-generic-password`); on Linux AND Windows they
+ * live in a FILE (`<config-dir>/.credentials.json`), NOT the Windows Credential
+ * Manager — so one file probe serves both. The token value is NEVER returned,
+ * logged, or surfaced — only the booleans, the method, and the plan label.
  *
- * Researched credential stores (sources read June 2026):
+ * Credential-store references (read June 2026):
  *   - Claude Code — https://code.claude.com/docs/en/authentication
- *     ("Credential management"): macOS Keychain; Linux `~/.claude/.credentials.json`
- *     (mode 0600); Windows `%USERPROFILE%\.claude\.credentials.json`;
- *     `CLAUDE_CONFIG_DIR` relocates the dir; API-key precedence via
- *     `ANTHROPIC_API_KEY` / `apiKeyHelper`.
- *   - Codex CLI — https://developers.openai.com/codex/auth: `auth.json` under
- *     `$CODEX_HOME` (defaults to `~/.codex` on macOS, Linux AND Windows). Fields
- *     confirmed against openai/codex `codex-rs/login/src/auth/storage.rs`
- *     (`auth_mode`, `#[serde(rename = "OPENAI_API_KEY")]`, `tokens`) and
- *     `codex-rs/protocol/src/auth.rs` (`AuthMode` is `rename_all = "lowercase"`,
- *     so `ApiKey` → `"apikey"`, `ChatGPT` → `"chatgpt"`). A `keyring`/`auto`
- *     credential-store mode can keep creds OUT of `auth.json`; we cannot read the
- *     OS keyring non-interactively, so that degrades to the honest no-file verdict
- *     rather than a fabricated "authenticated".
- *
- * The token value is NEVER returned, logged, or surfaced — only the booleans, the
- * method, and the plan label. Keychain probes carry SHORT timeouts and degrade
- * gracefully (never hang, never throw to the route).
+ *   - Codex CLI — https://developers.openai.com/codex/auth
  *
  * `node:fs`/`node:child_process` live here so they never reach the client bundle;
  * the client-safe types are in {@link file://./agents-health-types}.
@@ -445,7 +403,10 @@ function codexHome(probe: HealthProbe): string {
 function detectCodex(probe: HealthProbe): AgentHealth {
   const present = probe.which("codex") !== null
   const version = present ? normalizeVersion(probe.version("codex")) : null
-  // `<CODEX_HOME>/auth.json` — on Windows `%USERPROFILE%\.codex\auth.json`.
+  // `<CODEX_HOME>/auth.json` — on Windows `%USERPROFILE%\.codex\auth.json`. Codex's
+  // `keyring`/`auto` credential modes store creds in the OS keyring instead; we read
+  // only auth.json, so a keyring-only user reads as unauthenticated — an honest
+  // false-negative (we never fabricate a positive), not an error.
   const authFile = path.join(codexHome(probe), "auth.json")
   const auth = parseCodexAuth(probe.readFile(authFile))
   return { present, version, ...auth }

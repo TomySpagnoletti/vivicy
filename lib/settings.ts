@@ -5,47 +5,14 @@
  * lists, and the compatibility map. The filesystem store lives in
  * {@link file://./settings-store} (server-only).
  *
- * Three user-tunable knobs:
- *   - ROLE ASSIGNMENT (R12): which CLI fills each role. The implementer and the
- *     reviewer must be DISTINCT CLIs — the whole point of the two-agent loop is
- *     that the reviewer never authored the code, so the same CLI can never hold
- *     both roles. Defaults: implementer = Claude, reviewer = Codex.
- *   - MODEL + THINKING LEVEL (P4): the model is picked from a curated list (the
- *     last ~4 versions each CLI accepts), and the reasoning/effort level is
- *     user-choosable — but ONLY the levels the chosen model actually supports.
- *   - FAST MODE: a per-role "faster inference" toggle, offered ONLY for a model
- *     that genuinely supports it on the HEADLESS run the dev-loop drives.
+ * Three user-tunable knobs: role assignment (R12), model + thinking level (P4),
+ * and a per-role fast-mode toggle. The implementer and reviewer must be DISTINCT
+ * CLIs — the two-agent loop only works if the reviewer never authored the code,
+ * so one CLI can never hold both roles.
  *
- * Per-model compatibility is the heart of this module: every model declares the
- * exact effort levels it accepts and whether fast mode functions for it. An
- * invalid combination (a level the model rejects, or fast on a model/CLI without
- * a headless fast mechanism) can never be saved — {@link normalizeSettings}
- * repairs it.
- *
- * Defaults:
- *   implementer = Claude  · model claude-opus-4-8 · effort xhigh · fast off
- *   reviewer    = Codex   · model gpt-5.5         · effort high  · fast off
- *
- * Research provenance (verified against official docs + local `--help`, 2026-06):
- *   - Claude `--effort` ∈ {low, medium, high, xhigh, max}; `--model` accepts an
- *     alias or full id. Fast mode = `"fastMode": true` in the settings JSON, which
- *     the dev-loop hands to the headless `claude -p` via `--settings` (a documented
- *     `<file-or-json>` flag). Supported ONLY on Opus 4.6 / 4.7 / 4.8 (not
- *     Sonnet/Haiku/older) and requires a Claude subscription/Console auth with usage
- *     credits — on an API-key-only box it is a no-op, not an error. Fast mode
- *     combines with any effort level. (The docs document the interactive `/fast`
- *     toggle and the `fastMode` settings key; the headless run reads the settings it
- *     is given. https://code.claude.com/docs/en/fast-mode,
- *      https://platform.claude.com/docs/en/build-with-claude/fast-mode)
- *   - Codex `model_reasoning_effort` ∈ {minimal, low, medium, high, xhigh};
- *     xhigh is model-dependent (Responses-API frontier models). Fast mode =
- *     `-c fast_mode=true` (a STABLE Codex feature flag, settable on `codex exec`),
- *     ~1.5x faster inference (2.5x credit rate on gpt-5.5, 2x on gpt-5.4); ChatGPT
- *     auth only (a no-op under an API key). gpt-5.3-codex-spark is ALREADY a separate
- *     low-latency speed-first model: not a fast-mode target, no separate reasoning
- *     levels. (https://developers.openai.com/codex/models,
- *      https://developers.openai.com/codex/speed,
- *      https://developers.openai.com/codex/config-reference)
+ * Reference docs (verified 2026-06):
+ *   - Claude — https://code.claude.com/docs/en/fast-mode
+ *   - Codex — https://developers.openai.com/codex/config-reference
  *
  * This module is the single source of truth for the settings schema, the model
  * lists, the per-model compatibility map, and the defaults; the dev-loop mirrors
@@ -83,11 +50,8 @@ export interface ModelCapability {
 
 /**
  * Does the CLI have a fast mechanism that affects the HEADLESS run the dev-loop
- * uses? Both do (Claude via the `fastMode` settings key passed with `--settings`
- * to `claude -p`; Codex via the `-c fast_mode=true` feature flag on `codex exec`),
- * so a per-model `fast: true` is honored. If a CLI had no headless fast path this
- * would be false and the toggle would be disabled for every one of its models with
- * an honest note — we never offer a non-functional toggle.
+ * uses? When false, the fast toggle is disabled for every one of that CLI's models
+ * — we never offer a non-functional toggle.
  */
 export const CLI_HEADLESS_FAST: Record<Provider, boolean> = {
   claude: true,
@@ -100,15 +64,10 @@ const CLAUDE_EFFORTS = ["low", "medium", "high", "xhigh", "max"] as const
 const CODEX_EFFORTS = ["minimal", "low", "medium", "high", "xhigh"] as const
 
 /**
- * The curated model list per CLI: the last ~4 versions the CLI accepts, newest
- * first. The first entry is each CLI's default. Each model carries its own
- * compatibility (allowed efforts + fast support).
- *
- * Claude: the Opus line. Fast mode functions on 4.6/4.7/4.8 only; all carry the
- * full effort range.
- * Codex: gpt-5.5 (default) and gpt-5.4 support fast; gpt-5.4-mini does not (no
- * documented fast support — kept off honestly); gpt-5.3-codex-spark is the
- * speed-first model with no separate reasoning levels and no fast toggle.
+ * The curated model list per CLI, newest first; the first entry is each CLI's
+ * default. Each model carries its own compatibility (allowed efforts + fast
+ * support). gpt-5.3-codex-spark is the speed-first model: no reasoning levels and
+ * no fast toggle.
  */
 export const MODELS: Record<Provider, readonly { id: string; capability: ModelCapability }[]> = {
   claude: [
@@ -183,9 +142,8 @@ export const MAX_PARALLEL = 12
 
 /**
  * The default settings. Mirrors the dev-loop's DEFAULT_CONFIG (these two must
- * agree). Default assignment: implementer = Claude, reviewer = Codex. Latest
- * model pinned; thinking level is the user knob; fast off by default (it consumes
- * the quota much faster). maxParallel defaults to 1 — the sequential loop.
+ * agree). Fast is off by default because it consumes the quota much faster, and
+ * maxParallel defaults to 1 (the sequential loop).
  */
 export const DEFAULT_SETTINGS: AgentsSettings = {
   implementer: { provider: "claude", model: "claude-opus-4-8", effort: "xhigh", fast: false },

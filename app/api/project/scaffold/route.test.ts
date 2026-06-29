@@ -20,7 +20,7 @@ import { ScaffoldError } from "@/lib/scaffold"
 import { POST } from "./route"
 
 const RESULT: ScaffoldResult = {
-  project: { root: "/abs/new", name: "My App", hasDocs: true },
+  project: { root: "/abs/new", name: "My App", hasCanonicalSpec: true },
   mode: "from_scratch",
   written: ["/abs/new/AGENTS.md", "/abs/new/README.md", "/abs/new/vivicy.json"],
   git: { initialized: true, committed: true },

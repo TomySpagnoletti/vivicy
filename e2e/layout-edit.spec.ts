@@ -19,11 +19,11 @@ test.describe.configure({ mode: "serial" })
 
 const MAP_YML = path.join(
   DEMO_TARGET_ROOT,
-  "docs/architecture-map/architecture-map.yml"
+  ".vivicy/architecture-map/architecture-map.yml"
 )
 const VIEWER_JSON = path.join(
   DEMO_TARGET_ROOT,
-  "docs/architecture-map/viewer/src/architecture-data.json"
+  ".vivicy/architecture-map/architecture-data.json"
 )
 
 test.describe("Architecture map layout editing", () => {

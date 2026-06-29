@@ -29,21 +29,21 @@ const SUPPORTED_MAP = `version: 1
 updated: "2026-06-22"
 name: "Parser Test Map"
 purpose: "Lock the supported architecture-map.yml shape."
-generated_artifact_path: "docs/architecture-map/viewer/src/architecture-data.json"
+generated_artifact_path: ".vivicy/architecture-map/architecture-data.json"
 evidence_ref_grammar: "path[:line][#anchor]"
-verification_gate_ref_grammar: "^spec/development/(gates|reports)/.+"
+verification_gate_ref_grammar: "^.vivicy/development/(gates|reports)/.+"
 
 source_baseline:
   id: "baseline-2026-06-test"
   baseline_id: "baseline-v1.0.0"
   baseline_version: "1.0.0"
-  manifest_path: "docs/baselines/baseline-v1.0.0.json"
+  manifest_path: ".vivicy/baselines/baseline-v1.0.0.json"
   manifest_hash: "abc"
   document_set_hash: "def"
   captured_at: "2026-06-22"
   repo_root: "."
   included_docs:
-    - "docs/canonical/**/*.md"
+    - ".vivicy/canonical/**/*.md"
   excluded_globs:
     - "docs/governance/**"
   source_ref_grammar: "path[:line][#anchor]"
@@ -96,7 +96,7 @@ nodes:
     status: not_started
     tech: "Human user"
     owns_data: ["request intents"]
-    source_refs: ["docs/canonical/01-architecture.md:21"]
+    source_refs: [".vivicy/canonical/01-architecture.md:21"]
   - id: service
     label: "Service"
     kind: "service"
@@ -110,7 +110,7 @@ nodes:
     status: not_started
     tech: "Core module"
     owns_data: ["records"]
-    source_refs: ["docs/canonical/02-model.md:11"]
+    source_refs: [".vivicy/canonical/02-model.md:11"]
 
 edges:
   - from: user
@@ -118,7 +118,7 @@ edges:
     relation: "issues requests"
     protocol: "Module call"
     data: ["request record"]
-    source_refs: ["docs/canonical/02-model.md:11"]
+    source_refs: [".vivicy/canonical/02-model.md:11"]
 `
 
 describe("parseArchitectureMap — supported shape", () => {

@@ -21,8 +21,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 // No module mocks: this exercises the real route + real lib code.
 import { GET } from "./route"
 
-const ARCH_REL = "docs/architecture-map/viewer/src/architecture-data.json"
-const LEDGER_REL = "spec/development/progress-ledger.json"
+const ARCH_REL = ".vivicy/architecture-map/architecture-data.json"
+const LEDGER_REL = ".vivicy/development/progress-ledger.json"
 
 /**
  * A minimal STATIC architecture-data.json in the shape the generator emits:
@@ -49,7 +49,7 @@ const STATIC_MAP = {
       status: "not_started",
       tech: "ts",
       owns_data: ["entries"],
-      source_refs: ["docs/spec.md:1"],
+      source_refs: [".vivicy/canonical/spec.md:1"],
       graph_ref: "node:ledger",
     },
     {
@@ -66,14 +66,14 @@ const STATIC_MAP = {
       status: "not_started",
       tech: "ts",
       owns_data: ["categories"],
-      source_refs: ["docs/spec.md:2"],
+      source_refs: [".vivicy/canonical/spec.md:2"],
       graph_ref: "node:cat",
     },
   ],
   edges: [],
   development: {
-    issue_index_path: "spec/development/issue-index.json",
-    progress_ledger_path: "spec/development/progress-ledger.json",
+    issue_index_path: ".vivicy/development/issue-index.json",
+    progress_ledger_path: ".vivicy/development/progress-ledger.json",
     issues: [
       { id: "ISS-A", title: "Ledger", graph_refs: ["node:ledger"] },
       { id: "ISS-B", title: "Categories", graph_refs: ["node:cat"] },
@@ -86,6 +86,7 @@ const STATIC_MAP = {
 
 let root: string
 let originalEnv: string | undefined
+let originalRuntimeDir: string | undefined
 
 function writeJson(rel: string, value: unknown): void {
   const abs = join(root, rel)
@@ -107,19 +108,25 @@ async function getMapBody(): Promise<{
 
 beforeEach(() => {
   root = mkdtempSync(join(tmpdir(), "vivicy-overlay-"))
-  // A usable target needs a docs/ dir (isTargetResolved) and the static map.
-  mkdirSync(join(root, "docs"), { recursive: true })
+  // A usable target needs a .vivicy/canonical/ dir (isTargetResolved) and the static map.
+  mkdirSync(join(root, ".vivicy", "canonical"), { recursive: true })
   writeJson(ARCH_REL, STATIC_MAP)
   originalEnv = process.env.VIVICY_TARGET_ROOT
   process.env.VIVICY_TARGET_ROOT = root
-  // No persisted project — env-driven target resolution.
-  delete process.env.NAIGHT_DEV_ROOT
+  // Isolate the runtime dir into the temp root so a persisted current-project on
+  // the dev machine never wins over VIVICY_TARGET_ROOT (getTargetRoot prefers a
+  // persisted project). The temp root holds no current-project.json, so target
+  // resolution falls through to the env above — hermetic regardless of host state.
+  originalRuntimeDir = process.env.VIVICY_RUNTIME_DIR
+  process.env.VIVICY_RUNTIME_DIR = root
   vi.resetModules()
 })
 
 afterEach(() => {
   if (originalEnv === undefined) delete process.env.VIVICY_TARGET_ROOT
   else process.env.VIVICY_TARGET_ROOT = originalEnv
+  if (originalRuntimeDir === undefined) delete process.env.VIVICY_RUNTIME_DIR
+  else process.env.VIVICY_RUNTIME_DIR = originalRuntimeDir
   rmSync(root, { recursive: true, force: true })
 })
 
@@ -134,8 +141,8 @@ describe("/api/map live overlay (real stack, no regeneration)", () => {
           graph_ref: "node:ledger",
           status: "verified",
           issue_ids: ["ISS-A"],
-          evidence_refs: ["spec/development/gates/ISS-A.json:1"],
-          transcript_refs: ["spec/development/transcripts/ISS-A/impl.jsonl"],
+          evidence_refs: [".vivicy/development/gates/ISS-A.json:1"],
+          transcript_refs: [".vivicy/development/transcripts/ISS-A/impl.jsonl"],
         },
       ],
       active_items: [],
@@ -164,13 +171,13 @@ describe("/api/map live overlay (real stack, no regeneration)", () => {
           graph_ref: "node:ledger",
           status: "verified",
           issue_ids: ["ISS-A"],
-          evidence_refs: ["spec/development/gates/ISS-A.json:1"],
+          evidence_refs: [".vivicy/development/gates/ISS-A.json:1"],
         },
         {
           graph_ref: "node:cat",
           status: "verified",
           issue_ids: ["ISS-B"],
-          evidence_refs: ["spec/development/gates/ISS-B.json:1"],
+          evidence_refs: [".vivicy/development/gates/ISS-B.json:1"],
         },
       ],
       active_items: [],

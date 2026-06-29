@@ -3,16 +3,17 @@
  *
  * Everything here is deterministic and side-effect free so it can be unit
  * tested directly and reused by both the API normalization step and the React
- * rendering layer. No source-of-truth duplication: the data types live in
- * `lib/types.ts`.
+ * rendering layer. The data types live in `lib/types.ts`.
  */
 
 import {
   deriveDevelopmentOverlay,
   edgeGraphRef as canonicalEdgeGraphRef,
   nodeGraphRef as canonicalNodeGraphRef,
+  OVERLAY_STATUSES,
   type OverlayIssue,
 } from "@/lib/development-overlay"
+import { isRecord } from "@/lib/type-guards"
 import type {
   ActiveItem,
   ArchitectureMapData,
@@ -23,19 +24,14 @@ import type {
   MapEdge,
   MapNode,
   NodeStatus,
-  ResolvedNode,
   ViewMode,
 } from "@/lib/types"
 
-/** The development statuses the viewer understands, in display order. */
-export const NODE_STATUSES: NodeStatus[] = [
-  "not_started",
-  "in_progress",
-  "reviewing",
-  "implemented",
-  "verified",
-  "blocked",
-]
+/**
+ * The development statuses the viewer understands, in display order. Derived
+ * from `OVERLAY_STATUSES` so the ordered six-status list has one source.
+ */
+const NODE_STATUSES: NodeStatus[] = [...OVERLAY_STATUSES]
 
 const NODE_STATUS_SET = new Set<string>(NODE_STATUSES)
 
@@ -46,37 +42,8 @@ export function asNodeStatus(value: unknown): NodeStatus | null {
     : null
 }
 
-/**
- * Per-status accent color, expressed as a reference to the corresponding
- * `--status-*` design token defined in `app/globals.css`. There are no raw
- * color literals here: the single source of truth for each status hue is the
- * token. `not_started` resolves (through its token) to the neutral `--border`
- * so untouched nodes recede.
- *
- * Returning a `var(...)` keeps React Flow's canvas-rendered surfaces (edges,
- * minimap) and the inline node accent on the same token palette as the
- * Tailwind `*-status-*` utilities used elsewhere.
- */
-export function statusColor(status: NodeStatus | null | undefined): string {
-  switch (status) {
-    case "in_progress":
-      return "var(--status-in-progress)"
-    case "reviewing":
-      return "var(--status-reviewing)"
-    case "implemented":
-      return "var(--status-implemented)"
-    case "verified":
-      return "var(--status-verified)"
-    case "blocked":
-      return "var(--status-blocked)"
-    case "not_started":
-    default:
-      return "var(--border)" // neutral
-  }
-}
-
 /** Build a `graph_ref -> status` overlay from the development block. */
-export function buildStatusOverlay(
+function buildStatusOverlay(
   graphItemStates: GraphItemState[] | undefined
 ): Map<string, NodeStatus> {
   const overlay = new Map<string, NodeStatus>()
@@ -205,7 +172,7 @@ export function normalizeMapData(raw: unknown): ArchitectureMapData | null {
       data.views && typeof data.views === "object" && !Array.isArray(data.views)
         ? (data.views as ArchitectureMapData["views"])
         : undefined,
-    statusLegend: isStringRecord(data.statusLegend)
+    statusLegend: isRecord(data.statusLegend)
       ? (data.statusLegend as Record<string, string>)
       : undefined,
     lanes: Array.isArray(data.lanes)
@@ -287,18 +254,6 @@ export function applyLiveOverlay(
   }
 }
 
-/** Resolve all nodes for a view in one pass, attaching `effectiveStatus`. */
-export function resolveNodes(
-  data: ArchitectureMapData,
-  view: ViewMode
-): ResolvedNode[] {
-  const overlay = buildStatusOverlay(data.development?.graph_item_states)
-  return data.nodes.map((node) => ({
-    ...node,
-    effectiveStatus: resolveNodeStatus(node, view, overlay),
-  }))
-}
-
 /**
  * Case-insensitive match of a node against a search query. Empty query matches
  * everything. Matches the same broad field set as the original viewer: id,
@@ -334,7 +289,7 @@ export interface XY {
 export const LAYOUT_SNAP_GRID = 20
 
 /** Snap a single coordinate to the layout grid. */
-export function snapCoordinate(value: number, grid = LAYOUT_SNAP_GRID): number {
+function snapCoordinate(value: number, grid = LAYOUT_SNAP_GRID): number {
   return Math.round(value / grid) * grid
 }
 
@@ -436,6 +391,12 @@ export function computeVisibleCounts(
  */
 export function edgeGraphRef(edge: MapEdge): string {
   return edge.graph_ref || canonicalEdgeGraphRef(edge)
+}
+
+/** Parse the trailing `-<i>` index from a React Flow edge id (`${from}->${to}-${i}`); -1 when absent. */
+export function edgeIndexFromId(id: string): number {
+  const match = id.match(/-(\d+)$/)
+  return match ? Number(match[1]) : -1
 }
 
 /** Count the edges incident to each node id (both directions). */
@@ -547,8 +508,4 @@ function toNumber(value: unknown): number {
 
 function toStringArray(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((v): v is string => typeof v === "string") : []
-}
-
-function isStringRecord(value: unknown): boolean {
-  return !!value && typeof value === "object" && !Array.isArray(value)
 }

@@ -1,16 +1,8 @@
 /**
- * Resolve the target project root whose architecture map this viewer renders.
- *
- * Server-only. Resolution order:
- *   1. The project the user chose from the UI, persisted in the runtime dir
- *      (R10). A persisted project takes precedence so the picker drives the app.
- *   2. `VIVICY_TARGET_ROOT` env var (absolute or relative to cwd), when set.
- *      This stays the override the E2E servers and a headless launch use.
- *   3. The Vivicy parent repository — `..` from the process cwd. In dev this is
- *      the Naight repo that holds the committed architecture map.
- *
- * No machine-specific paths are hardcoded; everything derives from the persisted
- * choice, the environment, or the process working directory.
+ * Resolve the target project root whose architecture map this viewer renders
+ * (server-only). The UI-chosen persisted project (R10) wins so the picker drives
+ * the app, then `VIVICY_TARGET_ROOT` (the E2E/headless override), then `..` from
+ * cwd.
  */
 
 import { existsSync, statSync } from "node:fs"
@@ -31,10 +23,8 @@ export function getTargetRoot(): string {
 
 /** Path, relative to the target root, of the committed architecture-map JSON. */
 export const ARCHITECTURE_DATA_RELATIVE_PATH = path.join(
-  "docs",
+  ".vivicy",
   "architecture-map",
-  "viewer",
-  "src",
   "architecture-data.json"
 )
 
@@ -48,7 +38,7 @@ export function getArchitectureDataPath(): string {
  * source of truth for per-issue/per-graph-item progress during development.
  */
 export const PROGRESS_LEDGER_RELATIVE_PATH = path.join(
-  "spec",
+  ".vivicy",
   "development",
   "progress-ledger.json"
 )
@@ -66,16 +56,16 @@ export function getProgressLedgerPath(): string {
 
 /**
  * Whether the resolved target is a usable project: the root exists and holds a
- * `docs/` directory (where the canonical spec lives). The folder-picker and
- * start modes arrive in a later phase; until then "no usable target" is the
- * onboarding signal the viewer surfaces. A target with `docs/` but no generated
- * map is a *different* onboarding case (see {@link getArchitectureDataPath}).
+ * `.vivicy/canonical/` directory (where the canonical spec lives). The folder-picker
+ * and start modes arrive in a later phase; until then "no usable target" is the
+ * onboarding signal the viewer surfaces. A target with `.vivicy/canonical/` but no
+ * generated map is a *different* onboarding case (see {@link getArchitectureDataPath}).
  */
 export function isTargetResolved(): boolean {
   const root = getTargetRoot()
-  const docs = path.join(root, "docs")
+  const canonicalDir = path.join(root, ".vivicy", "canonical")
   try {
-    return existsSync(root) && statSync(docs).isDirectory()
+    return existsSync(root) && statSync(canonicalDir).isDirectory()
   } catch {
     return false
   }

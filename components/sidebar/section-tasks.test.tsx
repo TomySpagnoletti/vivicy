@@ -35,7 +35,7 @@ describe("SectionTasks — issue cards", () => {
         {
           id: "ISS-0001",
           title: "Bootstrap the workspace",
-          issue_path: "spec/development/issues/ISS-0001.md",
+          issue_path: ".vivicy/development/issues/ISS-0001.md",
           graph_refs: ["node:app"],
           requirement_ids: ["REQ-1", "REQ-2"],
         },
@@ -49,7 +49,7 @@ describe("SectionTasks — issue cards", () => {
     expect(card).toBeTruthy()
     expect(within(card).getByText("Bootstrap the workspace")).toBeInTheDocument()
     expect(
-      within(card).getByText("spec/development/issues/ISS-0001.md")
+      within(card).getByText(".vivicy/development/issues/ISS-0001.md")
     ).toBeInTheDocument()
     // The status is humanized (underscores -> spaces) into a badge.
     expect(within(card).getByText("in progress")).toBeInTheDocument()

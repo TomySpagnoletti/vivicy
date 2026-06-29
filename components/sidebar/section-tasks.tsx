@@ -11,6 +11,7 @@ import {
   issueTranscriptRefs,
 } from "@/lib/map-data"
 import type { DevelopmentBlock, DevelopmentIssue } from "@/lib/types"
+import { cn } from "@/lib/utils"
 
 /**
  * Tasks section: the development issue list with full info (id, title, status,
@@ -94,11 +95,10 @@ function IssueCard({
 
   return (
     <li
-      className={
-        active
-          ? "flex flex-col gap-2 rounded-md border border-status-verified bg-card p-2.5"
-          : "flex flex-col gap-2 rounded-md border border-border bg-card p-2.5"
-      }
+      className={cn(
+        "flex flex-col gap-2 rounded-md border bg-card p-2.5",
+        active ? "border-status-verified" : "border-border"
+      )}
     >
       <div className="flex items-center gap-2">
         <StatusDot status={asNodeStatus(status)} />

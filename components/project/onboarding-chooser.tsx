@@ -15,26 +15,10 @@ import {
 import { OpenProjectDialog } from "@/components/project/open-project-dialog"
 import { ScaffoldDialog } from "@/components/project/scaffold-dialog"
 
-/**
- * The onboarding two-mode chooser (R9), shown in the map area when no project is
- * selected yet. Two ways to begin, each a sober shadcn Card:
- *
- *   Mode A — "Start with an existing folder": pick a repo that ALREADY holds its
- *     canonical spec under docs/. Reuses the R10 project picker; Vivicy then drives
- *     the method against it (baseline -> extraction -> issues -> dev-loop) and adds
- *     only the missing files + dev OUTPUT to the target, never clobbering anything.
- *
- *   Mode B — "Start from scratch": give a new (empty) folder + a project name;
- *     Vivicy scaffolds a LEAN skeleton (lean AGENTS.md/CLAUDE.md, the canonical
- *     placeholder, the skeleton dirs, .gitignore, README, vivicy.json) — NOT the
- *     governance/method docs (those stay in the Vivicy repo) and NOT the canonical
- *     product docs (the user writes those).
- *
- * On success either mode sets the chosen project as current and calls
- * `onProjectChanged`, so the app re-fetches the map and lands on the project (the
- * "no architecture map yet" empty state for a fresh scaffold). Pure shadcn,
- * light-only, no arbitrary values.
- */
+// Two-mode onboarding chooser shown when no project is selected: open an
+// existing repo that already holds its canonical spec, or scaffold a new lean
+// project (skeleton only — never the governance/method or canonical product
+// docs). Either mode sets the project current and calls `onProjectChanged`.
 export function OnboardingChooser({
   onProjectChanged,
 }: {
@@ -55,7 +39,6 @@ export function OnboardingChooser({
         </div>
 
         <div className="grid gap-4 sm:grid-cols-2">
-          {/* Mode A — existing folder. */}
           <Card className="flex flex-col">
             <CardHeader className="gap-2">
               <span
@@ -84,7 +67,6 @@ export function OnboardingChooser({
             </CardFooter>
           </Card>
 
-          {/* Mode B — start from scratch. */}
           <Card className="flex flex-col">
             <CardHeader className="gap-2">
               <span

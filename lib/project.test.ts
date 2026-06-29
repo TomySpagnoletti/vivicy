@@ -63,16 +63,16 @@ describe("describeProject (validation)", () => {
     }
   })
 
-  it("describes a valid directory and flags hasDocs=false without docs/", () => {
+  it("describes a valid directory and flags hasCanonicalSpec=false without docs/", () => {
     const described = describeProject(projectDir)
     expect(described.root).toBe(projectDir)
     expect(described.name).toBe(path.basename(projectDir))
-    expect(described.hasDocs).toBe(false)
+    expect(described.hasCanonicalSpec).toBe(false)
   })
 
-  it("flags hasDocs=true when the directory holds a docs/ directory", () => {
-    mkdirSync(path.join(projectDir, "docs"))
-    expect(describeProject(projectDir).hasDocs).toBe(true)
+  it("flags hasCanonicalSpec=true when the directory holds a .vivicy/canonical/ directory", () => {
+    mkdirSync(path.join(projectDir, ".vivicy", "canonical"), { recursive: true })
+    expect(describeProject(projectDir).hasCanonicalSpec).toBe(true)
   })
 
   it("trims surrounding whitespace before validating", () => {

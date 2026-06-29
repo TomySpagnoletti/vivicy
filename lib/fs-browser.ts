@@ -1,17 +1,9 @@
 /**
- * Server-only directory browser backing `GET /api/fs/list` (R10).
- *
- * Vivicy is a LOCAL single-user tool, so the picker browses the operator's own
- * filesystem. This module enforces the path-safety the picker needs: a requested
- * path must be absolute, must resolve (after normalization) to an existing
- * directory, and must not be a traversal-encoded or non-canonical string — we
- * reject anything whose normalized+real form differs from a clean absolute
- * directory. Only DIRECTORIES are listed (the picker chooses a project folder,
- * never a file), and only the immediate children, so a single request can never
- * walk or enumerate the whole disk.
- *
- * `node:fs` lives here so it never reaches the client bundle; the client-safe
- * types are in {@link file://./project-types}.
+ * Server-only directory browser backing `GET /api/fs/list` (R10). Browses the
+ * operator's own filesystem (Vivicy is a local single-user tool) and enforces the
+ * path-safety contract documented on {@link resolveBrowsePath}. `node:fs` lives
+ * here so it never reaches the client bundle; client-safe types are in
+ * {@link file://./project-types}.
  */
 
 import { existsSync, mkdirSync, readdirSync, realpathSync, statSync } from "node:fs"

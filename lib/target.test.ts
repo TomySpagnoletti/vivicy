@@ -64,15 +64,16 @@ describe("isTargetResolved", () => {
     expect(isTargetResolved()).toBe(false)
   })
 
-  it("is true when the root exists and holds a docs/ directory", () => {
-    mkdirSync(path.join(tmp, "docs"))
+  it("is true when the root exists and holds a .vivicy/canonical/ directory", () => {
+    mkdirSync(path.join(tmp, ".vivicy", "canonical"), { recursive: true })
     process.env.VIVICY_TARGET_ROOT = tmp
     expect(isTargetResolved()).toBe(true)
   })
 
-  it("is false when docs is a file, not a directory", () => {
-    // A docs/ that is not a directory is not a usable canonical-spec home.
-    const docsAsFile = path.join(tmp, "docs")
+  it("is false when .vivicy/canonical is a file, not a directory", () => {
+    // A .vivicy/canonical that is not a directory is not a usable canonical-spec home.
+    mkdirSync(path.join(tmp, ".vivicy"), { recursive: true })
+    const docsAsFile = path.join(tmp, ".vivicy", "canonical")
     writeFileSync(docsAsFile, "not a dir")
     process.env.VIVICY_TARGET_ROOT = tmp
     expect(isTargetResolved()).toBe(false)

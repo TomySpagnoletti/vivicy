@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import { readDevStatusFromDisk } from "@/lib/dev-status-fs"
 
 /**
- * Builds a minimal on-disk `spec/development` tree under a real temp root so
+ * Builds a minimal on-disk `.vivicy/development` tree under a real temp root so
  * readDevStatusFromDisk exercises its real fs/JSON parsing. Every section is
  * optional, mirroring the partial trees the reader must tolerate.
  */
@@ -22,7 +22,7 @@ interface LedgerShape {
 }
 
 function devDir(): string {
-  return path.join(root, "spec", "development")
+  return path.join(root, ".vivicy", "development")
 }
 
 function writeIndex(index: IssueIndexShape): void {
@@ -291,7 +291,7 @@ describe("readDevStatusFromDisk — quota fallback", () => {
 
 describe("readDevStatusFromDisk — missing/empty inputs", () => {
   it("returns a fully NOT STARTED snapshot when the development tree is entirely absent", () => {
-    // No spec/development at all (root is an empty temp dir).
+    // No .vivicy/development at all (root is an empty temp dir).
     const status = readDevStatusFromDisk(root)
     expect(status).toMatchObject({
       verdict: "NOT STARTED",

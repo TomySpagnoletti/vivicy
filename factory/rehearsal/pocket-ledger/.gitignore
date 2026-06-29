@@ -16,8 +16,8 @@ dist/
 
 # The parallel loop's transient integration mutex — created/removed during a merge,
 # never part of history (committing its churn would dirty the tree).
-spec/development/gates/.integration.lock
+.vivicy/development/gates/.integration.lock
 
 # TRANSCRIPTS ARE NEVER COMMITTED (full agent session JSONL; the ledger links to
 # them, they never enter git history).
-spec/development/transcripts/
+.vivicy/development/transcripts/

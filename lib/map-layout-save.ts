@@ -1,29 +1,19 @@
 /**
- * Server-only layout-save for the architecture map.
+ * Server-only layout-save for the architecture map: patches the SOURCE
+ * `architecture-map.yml` in place (node `layout_x`/`layout_y`, edge
+ * `layout_label_ratio`), then regenerates the served `architecture-data.json`.
  *
- * Faithful port of the original viewer's layout-save middleware
- * (`docs/architecture-map/viewer/vite.config.ts`): it patches the SOURCE
- * `architecture-map.yml` of the resolved TARGET project in place — rewriting each
- * dirty node's `layout_x`/`layout_y` and each dirty edge's `layout_label_ratio` —
- * then regenerates the served `architecture-data.json` so a reload reflects the
- * saved positions.
- *
- * Layers that keep the source map (the source of truth) from being mutated by
- * accident or corruption:
- *   1. the UI edit-mode toggle (the everyday gate): drag + Save only exist when
- *      the user opts in — read-only pan/select by default;
- *   2. an operator kill-switch: setting `VIVICY_MAP_LAYOUT_WRITE` to a falsey
- *      value (0/false/no/off) hard-locks this endpoint to read-only regardless of
- *      the UI, mirroring the old viewer's server-side write gate (a frozen map
- *      can refuse all writes). It defaults to enabled so the toggle drives saves;
- *   3. this module's integrity guards: every patch is validated against the
- *      on-disk map (node ids and exact edge identity must match), the target path
- *      is resolved through a fixed in-repo relative path with a traversal guard,
- *      and a failed regeneration rolls the source file back to its pre-save bytes.
+ * Three layers protect the source map from accidental/corrupt mutation:
+ *   1. the UI edit-mode toggle — drag + Save only exist when the user opts in;
+ *   2. an operator kill-switch — `VIVICY_MAP_LAYOUT_WRITE` set falsey
+ *      (0/false/no/off) hard-locks this endpoint to read-only regardless of the
+ *      UI (a frozen map refuses all writes); defaults enabled;
+ *   3. integrity guards — every patch is validated against the on-disk map (node
+ *      ids and exact edge identity must match), the target path passes a traversal
+ *      guard, and a failed regeneration rolls the source back to its pre-save bytes.
  *
  * The YAML is edited line-by-line (never re-serialized) so untouched content is
- * preserved byte-for-byte; edge identity is read from the same line records, so
- * this module never has to import the generator's module-level side effects.
+ * preserved byte-for-byte.
  */
 
 import { execFile } from "node:child_process"
@@ -32,6 +22,7 @@ import path from "node:path"
 
 import { getFactoryRoot } from "@/lib/control"
 import { getTargetRoot } from "@/lib/target"
+import { isRecord } from "@/lib/type-guards"
 
 /** A dirty node's new committed coordinates. */
 export interface NodeLayoutPatch {
@@ -76,7 +67,7 @@ export class LayoutSaveError extends Error {
 }
 
 /** The committed architecture map, relative to the target project root. */
-export const MAP_RELATIVE_PATH = "docs/architecture-map/architecture-map.yml"
+export const MAP_RELATIVE_PATH = ".vivicy/architecture-map/architecture-map.yml"
 
 /** When an edge label sits at the midpoint we drop the key (it is the default). */
 const DEFAULT_LABEL_RATIO = 0.5
@@ -375,10 +366,6 @@ function formatNumber(value: number): string {
 
 function formatRatio(value: number): string {
   return Number(value.toFixed(4)).toString()
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value)
 }
 
 // --------------------------------------------------------------------------

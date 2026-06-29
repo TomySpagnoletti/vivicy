@@ -11,28 +11,19 @@ import { Button } from "@/components/ui/button"
 import { Progress } from "@/components/ui/progress"
 import { Separator } from "@/components/ui/separator"
 
-/**
- * Map each dev-loop agent actor to the settings role that configures it and the
- * display order. The label + thinking level are DERIVED from those live settings
- * (see {@link friendlyModel}), never hardcoded — so editing settings updates the
- * footer.
- */
+// Maps each dev-loop agent actor to the settings role that configures it; the
+// label + thinking level are derived from those live settings, never hardcoded.
 const AGENT_ROLE: Record<string, Role> = {
   claude: "implementer",
   codex: "reviewer",
 }
 
-/** The two rolling windows the footer surfaces, in display order. */
 const WINDOWS: Array<{ key: "5h" | "weekly"; short: string; long: string }> = [
   { key: "5h", short: "5h", long: "5-hour" },
   { key: "weekly", short: "wk", long: "Weekly" },
 ]
 
-/**
- * Friendly display name for a model id, derived from the configured model so the
- * footer reads "Opus 4.8" rather than the raw "claude-opus-4-8". Unknown ids
- * fall back to the raw model string (still honest, never fabricated).
- */
+// Unknown ids fall back to the raw model string — honest, never fabricated.
 export function friendlyModel(model: string): string {
   const map: Record<string, string> = {
     "claude-opus-4-8": "Opus 4.8",
@@ -57,30 +48,15 @@ function readCollapsed(): boolean {
   }
 }
 
-/**
- * Honest, collapsible per-agent quota footer.
- *
- * Driven by the live SSE status stream (the same `/api/status/stream` the
- * control bar uses), which carries the dev-loop's `quota` block — including the
- * REAL per-window usage extracted from each provider:
- *   - Codex  -> real % for the 5h AND weekly windows (rollout `rate_limits`)
- *   - Claude -> real % for the 5h AND weekly windows, captured from the
- *               documented status-line `rate_limits` surface
- *               (https://code.claude.com/docs/en/statusline); falls back to a
- *               real 5h reset with no percentage when the capture is unavailable
- *
- * Where a provider exposes no percentage we render "—", never a fabricated
- * number. Collapsed shows one compact line per agent; expanded shows a Progress
- * bar + reset countdown per window. The collapse state is persisted.
- */
+// Driven by the live SSE status stream, which carries the dev-loop's `quota`
+// block with the real per-window usage from each provider. Where a provider
+// exposes no percentage we render "—", never a fabricated number.
 export function QuotaFooter({
   settings = DEFAULT_SETTINGS,
 }: {
   settings?: AgentsSettings
 }) {
   const [quota, setQuota] = useState<QuotaState | null>(null)
-  // Restore the persisted collapse state via a lazy initializer (no
-  // setState-in-effect); written on toggle.
   const [collapsed, setCollapsed] = useState(readCollapsed)
 
   useEffect(() => {
@@ -179,10 +155,6 @@ function pctText(win: QuotaWindow | undefined): string {
   return win && typeof win.used_pct === "number" ? `${Math.round(win.used_pct)}%` : "—"
 }
 
-/**
- * Collapsed: one compact line per agent — model + just the window percentages,
- * e.g. "Opus 4.8  5h 38% · wk 12%" (or "—" per window when unknown).
- */
 function CollapsedRow({
   agent,
   config,
@@ -215,10 +187,6 @@ function CollapsedRow({
   )
 }
 
-/**
- * Expanded: model name + thinking level, then a Progress bar per window with its
- * % + reset countdown. Throttled agents are highlighted.
- */
 function ExpandedAgent({
   agent,
   config,
@@ -253,11 +221,8 @@ function ExpandedAgent({
   )
 }
 
-/**
- * One window's row: label, percentage (or "—"), a Progress bar (only when a real
- * percentage exists), and a reset countdown when known. Honest by construction —
- * no bar and no number when the provider exposes nothing.
- */
+// Honest by construction: no bar and no number when the provider exposes
+// nothing — only a real percentage renders a Progress bar.
 function WindowBar({
   label,
   win,
@@ -289,12 +254,8 @@ function WindowBar({
   )
 }
 
-/**
- * "resets in 2h14" countdown. The label is derived during render from the
- * `resetAt` prop and a ticking `nowMs` clock (advanced each minute), so we never
- * setState synchronously inside an effect — only the clock tick updates state.
- * Hidden when the reset time is unknown or already past.
- */
+// The label is derived during render from `resetAt` and a per-minute clock tick,
+// so state only ever changes on the tick, never synchronously inside an effect.
 function ResetCountdown({ resetAt }: { resetAt: string | null }) {
   const [nowMs, setNowMs] = useState(() => Date.now())
 

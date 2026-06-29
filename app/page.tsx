@@ -10,6 +10,7 @@ import type {
   MapEmptyState as MapEmptyStatePayload,
   ViewMode,
 } from "@/lib/types"
+import { edgeIndexFromId } from "@/lib/map-data"
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
 import {
   ArchitectureMap,
@@ -37,16 +38,9 @@ export default function Page() {
   const [statusFilter, setStatusFilter] = useState("all")
   const [scopeFilter, setScopeFilter] = useState("all")
   const [selectedRef, setSelectedRef] = useState<SelectedRef | null>(null)
-  // Bumped whenever the current project changes (picker or onboarding scaffold),
-  // so the setup bar re-fetches its project-name affordance.
   const [projectSignal, setProjectSignal] = useState(0)
-  // The right panel is a 3-state toggle (peek -> wide -> closed -> peek). The
-  // hook owns the cycle + persistence and derives the shadcn Sidebar's `open`
-  // flag and `--sidebar-width` (two open widths).
   const panel = usePanelState()
 
-  // Track mount so background refreshes don't flash the loading state or apply
-  // after unmount.
   const mountedRef = useRef(true)
   useEffect(() => {
     mountedRef.current = true
@@ -55,9 +49,6 @@ export default function Page() {
     }
   }, [])
 
-  // `foreground` loads surface loading/error states (initial load, manual
-  // reload); background refreshes (after Extract / status changes) update the
-  // map silently and keep the current view on failure.
   const loadMap = useCallback(async (foreground = false) => {
     try {
       const res = await fetch("/api/map", { cache: "no-store" })
@@ -72,8 +63,6 @@ export default function Page() {
         }
         return
       }
-      // The route returns a structured onboarding payload (HTTP 200) when there
-      // is no graph to render: no target, no generated map, or an empty map.
       if (isEmptyPayload(body)) {
         setState({ kind: "empty", reason: body.reason })
         return
@@ -129,8 +118,6 @@ export default function Page() {
     }
   }, [loadMap])
 
-  // Initial load. State starts as `loading`, so the effect only kicks off the
-  // fetch via a nested async call — no synchronous setState in the effect body.
   useEffect(() => {
     async function initialLoad() {
       await loadMap(true)
@@ -138,8 +125,6 @@ export default function Page() {
     void initialLoad()
   }, [loadMap])
 
-  // Surface a single agent-CLI warning toast (deduped) when an agent isn't ready,
-  // since the dev-loop can't run without both installed + signed in.
   const lastAgentsWarningRef = useRef<string | null>(null)
   const onAgentsWarning = useCallback((message: string) => {
     if (lastAgentsWarningRef.current === message) return
@@ -147,15 +132,13 @@ export default function Page() {
     toast.warning("Agent setup incomplete", { description: message })
   }, [])
 
-  // Keep the selected item in sync with the latest data: a background refresh
-  // can replace the node/edge object, so re-resolve it by identity.
   const selected = useMemo<SelectedItem>(() => {
     if (state.kind !== "ready" || !selectedRef) return null
     if (selectedRef.type === "node") {
       const node = state.data.nodes.find((n) => n.id === selectedRef.id)
       return node ? { type: "node", item: node } : null
     }
-    const index = edgeIndex(selectedRef.id)
+    const index = edgeIndexFromId(selectedRef.id)
     const edge = state.data.edges[index]
     return edge ? { type: "edge", id: selectedRef.id, item: edge } : null
   }, [state, selectedRef])
@@ -169,13 +152,7 @@ export default function Page() {
         // own CSS var, so width is the sidebar's own state, not a custom layout.
         style={{ "--sidebar-width": panel.width } as React.CSSProperties}
       >
-        {/* Map fills the inset; reclaims width when the right panel closes and
-            reflows when it changes width (both via the sidebar's CSS var). */}
         <SidebarInset className="relative min-w-0">
-          {/* Always-present setup bar: pick the project (R10) and check agent CLI
-              health (R11). Reachable in every state, including onboarding, so the
-              user can choose a project before any map exists. Selecting one
-              re-fetches the map. */}
           <SetupBar
             onProjectChanged={() => {
               setProjectSignal((n) => n + 1)
@@ -185,8 +162,6 @@ export default function Page() {
             reloadSignal={projectSignal}
           />
 
-          {/* Discreet 3-state toggle on the sidebar's LEFT edge (the boundary
-              with the map). Only meaningful once the panel is rendered. */}
           {state.kind === "ready" ? (
             <PanelToggle
               next={panel.next}
@@ -211,9 +186,6 @@ export default function Page() {
             </CenteredMessage>
           ) : null}
 
-          {/* No project yet => the R9 two-mode onboarding chooser. A project that
-              IS selected but has no map (no_map / empty_map) keeps the Extract
-              empty state. */}
           {state.kind === "empty" && state.reason === "no_target" ? (
             <OnboardingChooser
               onProjectChanged={() => {
@@ -283,11 +255,6 @@ function isEmptyPayload(body: unknown): body is MapEmptyStatePayload {
 
 /** Lightweight identity for the selected item, kept stable across refreshes. */
 type SelectedRef = { type: "node"; id: string } | { type: "edge"; id: string }
-
-function edgeIndex(id: string): number {
-  const match = id.match(/-(\d+)$/)
-  return match ? Number(match[1]) : -1
-}
 
 function CenteredMessage({ children }: { children: React.ReactNode }) {
   return (

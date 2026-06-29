@@ -7,18 +7,18 @@ This is the second, independent gate. The deterministic checks (semantic-extract
 ## Read first (in order)
 
 1. `AGENTS.md` (or `README.md`) at the target root — the project's operating context.
-2. The frozen baseline manifest under `docs/baselines/<baseline-id>.json` — the authoritative corpus files + line numbers. Treat its `files[]` as the only source of product truth.
-3. Every canonical document under `docs/canonical/**/*.md` the manifest lists — read them **with line numbers**.
+2. The frozen baseline manifest under `.vivicy/baselines/<baseline-id>.json` — the authoritative corpus files + line numbers. Treat its `files[]` as the only source of product truth.
+3. Every canonical document under `.vivicy/canonical/**/*.md` the manifest lists — read them **with line numbers**.
 4. The authored corpus:
-   - `spec/requirements/catalog.json` — the Requirement Catalog.
-   - `spec/requirements/traceability-matrix.json` — the Traceability Matrix.
-   - `spec/development/issue-index.json` — the issue index.
-   - `spec/development/issues/ISS-*.md` — the vertical issues.
-   - `docs/architecture-map/architecture-map.yml` — the architecture map.
+   - `.vivicy/requirements/catalog.json` — the Requirement Catalog.
+   - `.vivicy/requirements/traceability-matrix.json` — the Traceability Matrix.
+   - `.vivicy/development/issue-index.json` — the issue index.
+   - `.vivicy/development/issues/ISS-*.md` — the vertical issues.
+   - `.vivicy/architecture-map/architecture-map.yml` — the architecture map.
 
 ## What you verify (fidelity — for EVERY issue and requirement)
 
-1. **Source-line correspondence.** For each issue's `source_line_refs` (and each requirement's `sourceRefs`), open the cited `docs/canonical/<file>.md:<start>[-<end>]` range and confirm the cited lines **actually contain** the content the issue/requirement claims to draw from. A ref that points at the wrong lines, a blank/heading line, or an unrelated paragraph is a fidelity failure.
+1. **Source-line correspondence.** For each issue's `source_line_refs` (and each requirement's `sourceRefs`), open the cited `.vivicy/canonical/<file>.md:<start>[-<end>]` range and confirm the cited lines **actually contain** the content the issue/requirement claims to draw from. A ref that points at the wrong lines, a blank/heading line, or an unrelated paragraph is a fidelity failure.
 2. **Faithful (ISO) restatement.** Each issue's scope and each requirement's `statement` must be an iso (faithful, meaning-preserving) restatement of exactly the cited canonical content:
    - **Nothing invented** — no obligation, behavior, constraint, or scope the canonical lines do not state.
    - **Nothing silently dropped** — no obligation the cited canonical lines DO state that the issue/requirement omits while implying full coverage.
@@ -32,7 +32,7 @@ When in doubt, open the cited lines and compare. Cite the file:line and the exac
 
 ## Output — the structured verdict (the ONLY thing you write)
 
-Write your verdict, and nothing else, to `spec/development/reports/extraction-fidelity-verdict.json` as JSON:
+Write your verdict, and nothing else, to `.vivicy/development/reports/extraction-fidelity-verdict.json` as JSON:
 
 ```json
 {
@@ -47,8 +47,8 @@ or, when you find fidelity breaks:
 {
   "faithful": false,
   "problems": [
-    { "issue": "ISS-0003", "kind": "invented_requirement", "detail": "ISS-0003 scope requires rate-limiting, but cited lines docs/canonical/04-foo.md:40-52 say nothing about rate limits." },
-    { "issue": "ISS-0007", "kind": "bad_source_ref", "detail": "source_line_refs cites docs/canonical/02-bar.md:10-14, but those lines are the document heading + a blank line, not the claimed obligation." }
+    { "issue": "ISS-0003", "kind": "invented_requirement", "detail": "ISS-0003 scope requires rate-limiting, but cited lines .vivicy/canonical/04-foo.md:40-52 say nothing about rate limits." },
+    { "issue": "ISS-0007", "kind": "bad_source_ref", "detail": "source_line_refs cites .vivicy/canonical/02-bar.md:10-14, but those lines are the document heading + a blank line, not the claimed obligation." }
   ]
 }
 ```

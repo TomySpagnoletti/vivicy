@@ -1,8 +1,8 @@
 # {{PROJECT_NAME}} Development Operating Guide
 
-This repository is developed by the **Vivicy development factory** from the canonical spec under `docs/canonical/**`. This file is the lean entrypoint for any development agent working in this repo. Read it first; it is not a product specification.
+This repository is developed by the **Vivicy development factory** from the canonical spec under `.vivicy/canonical/**`. This file is the lean entrypoint for any development agent working in this repo. Read it first; it is not a product specification.
 
-Vivicy is the method machinery (the deterministic orchestrator, the documentation baseline lock, the traceability checks, the progress ledger, and the architecture-map viewer). It runs OUTSIDE this repository and points at it. The product you build lives in `docs/canonical/**/*.md`, written by the project owner.
+Vivicy is the method machinery (the deterministic orchestrator, the documentation baseline lock, the traceability checks, the progress ledger, and the architecture-map viewer). It runs OUTSIDE this repository and points at it. The product you build lives in `.vivicy/canonical/**/*.md`, written by the project owner.
 
 ## How development works here
 
@@ -17,9 +17,9 @@ The full per-action discipline (what to read, what to produce, the quality bar, 
 
 ## Product and architecture truth
 
-- Product and architecture truth lives **only** in the active frozen canonical baseline under `docs/canonical/**/*.md`. These docs are written by the project owner; until at least one exists and is frozen into a baseline, there is nothing to extract. Never implement product behavior, the component model, data ownership and isolation rules, protocol boundaries, the identity/auth model, secret handling, or runtime/cloud decisions from this file or from memory.
+- Product and architecture truth lives **only** in the active frozen canonical baseline under `.vivicy/canonical/**/*.md`. These docs are written by the project owner; until at least one exists and is frozen into a baseline, there is nothing to extract. Never implement product behavior, the component model, data ownership and isolation rules, protocol boundaries, the identity/auth model, secret handling, or runtime/cloud decisions from this file or from memory.
 - Read the relevant canonical document before coding a slice, and verify each product assumption against its canonical home. On any conflict, the canonical doc wins.
-- The EXTRACTION CORPUS is FROZEN and READ-ONLY during implementation: never modify `docs/canonical/**`, `docs/baselines/**`, `spec/requirements/**`, `spec/development/issue-index.json`, the issue files, or `docs/architecture-map/architecture-map.yml`.
+- The EXTRACTION CORPUS is FROZEN and READ-ONLY during implementation: never modify `.vivicy/canonical/**`, `.vivicy/baselines/**`, `.vivicy/requirements/**`, `.vivicy/development/issue-index.json`, the issue files, or `.vivicy/architecture-map/architecture-map.yml`.
 
 ## Build, test, and validate
 

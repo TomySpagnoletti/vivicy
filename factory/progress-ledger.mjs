@@ -4,21 +4,22 @@ import {
   mkdirSync,
   openSync,
   readFileSync,
-  renameSync,
   statSync,
   unlinkSync,
-  writeFileSync,
   writeSync,
 } from "node:fs";
 import { dirname, isAbsolute, relative, resolve } from "node:path";
 import { resolveTargetRoot } from "./target-root.mjs";
+import { atomicWriteJson } from "./atomic-write.mjs";
+import { sleepSync } from "./sleep-sync.mjs";
 
 // The target project whose ledger and issue index this module reads/writes.
-// VIVICY_TARGET_ROOT selects it (NAIGHT_DEV_ROOT is the legacy alias); unset =>
-// the project the factory is vendored into, so production behavior is unchanged.
+// Resolution lives in target-root.mjs (VIVICY_TARGET_ROOT, else null).
+// Entrypoints surface the null case; the in-process helpers below resolve
+// repo-relative paths against it.
 const repoRoot = resolveTargetRoot();
-const issueIndexPath = "spec/development/issue-index.json";
-const progressLedgerPath = "spec/development/progress-ledger.json";
+const issueIndexPath = ".vivicy/development/issue-index.json";
+const progressLedgerPath = ".vivicy/development/progress-ledger.json";
 
 export const progressEventTypes = [
   "issue_claimed",
@@ -38,8 +39,8 @@ export const progressEventTypes = [
 ];
 
 // Optional actor role on an event/active item, so the map can show which agent
-// (the implementer or the independent reviewer) is acting. Identity is injected
-// by each agent's hook config, not chosen per-call by the agent.
+// (the implementer or the independent reviewer) is acting. The orchestrator sets
+// the role mechanically from the leg it is running, never the agent itself.
 export const progressRoles = ["implementer", "reviewer"];
 
 const activeStateByEvent = {
@@ -97,34 +98,12 @@ export function recordProgressEvent(event, paths = {}) {
         continue;
       }
 
-      writeLedgerAtomically(absoluteLedgerPath, nextLedger);
+      atomicWriteJson(absoluteLedgerPath, nextLedger);
       return nextLedger;
     }
     throw new Error("Unable to record progress event: ledger revision kept changing (compare-and-swap exhausted)");
   } finally {
     releaseLock(lock);
-  }
-}
-
-// rename(2) is atomic only within a filesystem — hence the sibling temp file; a
-// reader never sees a half-written ledger.
-function writeLedgerAtomically(absoluteLedgerPath, ledger) {
-  const tmpPath = `${absoluteLedgerPath}.${process.pid}.${Math.random().toString(36).slice(2)}.tmp`;
-  const fd = openSync(tmpPath, "w");
-  try {
-    writeSync(fd, `${JSON.stringify(ledger, null, 2)}\n`);
-  } finally {
-    closeSync(fd);
-  }
-  try {
-    renameSync(tmpPath, absoluteLedgerPath);
-  } catch (error) {
-    try {
-      unlinkSync(tmpPath);
-    } catch {
-      // best-effort cleanup of the temp file
-    }
-    throw error;
   }
 }
 
@@ -146,7 +125,7 @@ function acquireLock(lockPath) {
         if (Date.now() >= deadline) {
           throw new Error(`Timed out acquiring progress ledger lock: ${lockPath}`);
         }
-        busyWait(LOCK_RETRY_MS);
+        sleepSync(LOCK_RETRY_MS);
         continue;
       }
       throw error;
@@ -202,14 +181,6 @@ function isProcessAlive(pid) {
   } catch (error) {
     // ESRCH => no such process. EPERM => process exists but not ours (alive).
     return error && error.code === "EPERM";
-  }
-}
-
-function busyWait(ms) {
-  const end = Date.now() + ms;
-  while (Date.now() < end) {
-    // Intentional short spin: the ledger writer holds the lock for microseconds, so
-    // contention windows are tiny. Avoids pulling in a sleep/async dependency.
   }
 }
 
@@ -541,6 +512,11 @@ function createVerificationEvidenceMatcher(grammar) {
 }
 
 function resolveRepoPath(path) {
+  if (!repoRoot) {
+    throw new Error(
+      "No target project configured. Set VIVICY_TARGET_ROOT to the absolute path of the project Vivicy should build.",
+    );
+  }
   if (isAbsolute(path)) throw new Error(`Path must be repository-relative: ${path}`);
   const absolute = resolve(repoRoot, path);
   const rel = relative(repoRoot, absolute);

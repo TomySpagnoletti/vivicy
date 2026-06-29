@@ -27,7 +27,7 @@ function makePlaceholderTarget() {
   // A frozen manifest needs at least one pinned doc; the checker stays in
   // placeholder mode (no issues) so the doc body is never line-classified.
   const doc = "# Placeholder Spec\n";
-  const docPath = "docs/canonical/placeholder-spec.md";
+  const docPath = ".vivicy/canonical/placeholder-spec.md";
   write(docPath, doc);
   const manifest = {
     baseline_id: "placeholder-baseline",
@@ -38,21 +38,21 @@ function makePlaceholderTarget() {
     status: "frozen",
     version: "0.0.1",
   };
-  write("docs/baselines/placeholder-manifest.json", `${JSON.stringify(manifest, null, 2)}\n`);
+  write(".vivicy/baselines/placeholder-manifest.json", `${JSON.stringify(manifest, null, 2)}\n`);
   const index = {
     baseline_id: manifest.baseline_id,
     baseline_version: manifest.version,
     document_set_hash: manifest.document_set_hash,
     issues: [],
     manifest_hash: manifest.manifest_hash,
-    manifest_path: "docs/baselines/placeholder-manifest.json",
+    manifest_path: ".vivicy/baselines/placeholder-manifest.json",
     schema_version: 1,
-    source_corpus: ["docs/canonical/**/*.md"],
+    source_corpus: [".vivicy/canonical/**/*.md"],
     status: "pending_llm_semantic_issue_generation",
-    verification_evidence_ref_grammar: "^spec/development/(gates|reports)/.+",
+    verification_evidence_ref_grammar: "^.vivicy/development/(gates|reports)/.+",
   };
-  write("spec/development/issue-index.json", `${JSON.stringify(index, null, 2)}\n`);
-  write("spec/requirements/exclusions.json", `${JSON.stringify({ exclusions: [], schema_version: 1 }, null, 2)}\n`);
+  write(".vivicy/development/issue-index.json", `${JSON.stringify(index, null, 2)}\n`);
+  write(".vivicy/requirements/exclusions.json", `${JSON.stringify({ exclusions: [], schema_version: 1 }, null, 2)}\n`);
   return {
     root,
     cleanup() {
@@ -70,7 +70,7 @@ test("real repo artifacts: placeholder index passes without writing reports", ()
     assert.equal(result.reportsWritten, false, "placeholder mode writes nothing");
     assert.match(result.summary, /nothing to check yet/);
     assert.ok(
-      !existsSync(resolve(target.root, "spec/requirements/source-map.json")),
+      !existsSync(resolve(target.root, ".vivicy/requirements/source-map.json")),
       "no source map written in placeholder mode",
     );
   } finally {
@@ -121,7 +121,7 @@ const SAMPLE_DOC = [
   "```",
 ].join("\n").concat("\n");
 
-const SAMPLE_DOC_PATH = "docs/canonical/sample-spec.md";
+const SAMPLE_DOC_PATH = ".vivicy/canonical/sample-spec.md";
 
 const HEADING_EXCLUSION = { end: 3, file: SAMPLE_DOC_PATH, note: "section heading", reason_class: "heading", start: 3 };
 const EXAMPLE_EXCLUSION = { end: 10, file: SAMPLE_DOC_PATH, note: "fence body is illustrative", reason_class: "example_illustration", start: 10 };
@@ -186,7 +186,7 @@ function toIndexEntry(issue) {
     depends_on: issue.dependsOn,
     graph_refs: issue.graphRefs,
     id: issue.id,
-    issue_path: `spec/development/issues/${issue.id}.md`,
+    issue_path: `.vivicy/development/issues/${issue.id}.md`,
     requirement_ids: issue.requirementIds,
     source_line_refs: issue.requirements,
     spike_gates: issue.spikeGates ?? [],
@@ -214,25 +214,25 @@ function makeFixture({ doc = SAMPLE_DOC, exclusions = [HEADING_EXCLUSION, EXAMPL
     status: "frozen",
     version: "0.0.1",
   };
-  write("docs/baselines/mini-manifest.json", `${JSON.stringify(manifest, null, 2)}\n`);
+  write(".vivicy/baselines/mini-manifest.json", `${JSON.stringify(manifest, null, 2)}\n`);
   const index = {
     baseline_id: manifest.baseline_id,
     baseline_version: manifest.version,
     document_set_hash: manifest.document_set_hash,
     issues: issues.map(toIndexEntry),
     manifest_hash: manifest.manifest_hash,
-    manifest_path: "docs/baselines/mini-manifest.json",
+    manifest_path: ".vivicy/baselines/mini-manifest.json",
     schema_version: 1,
-    source_corpus: ["docs/canonical/**/*.md"],
+    source_corpus: [".vivicy/canonical/**/*.md"],
     status: issues.length === 0 ? "pending_llm_semantic_issue_generation" : "issues_generated",
-    verification_evidence_ref_grammar: "^spec/development/(gates|reports)/.+",
+    verification_evidence_ref_grammar: "^.vivicy/development/(gates|reports)/.+",
     ...indexOverrides,
   };
-  write("spec/development/issue-index.json", `${JSON.stringify(index, null, 2)}\n`);
+  write(".vivicy/development/issue-index.json", `${JSON.stringify(index, null, 2)}\n`);
   for (const issue of issues) {
-    write(`spec/development/issues/${issue.id}.md`, issueMarkdown(issue));
+    write(`.vivicy/development/issues/${issue.id}.md`, issueMarkdown(issue));
   }
-  write("spec/requirements/exclusions.json", `${JSON.stringify({ exclusions, schema_version: 1 }, null, 2)}\n`);
+  write(".vivicy/requirements/exclusions.json", `${JSON.stringify({ exclusions, schema_version: 1 }, null, 2)}\n`);
   return {
     cleanup() {
       rmSync(root, { force: true, recursive: true });
@@ -251,7 +251,7 @@ test("fixture placeholder mode exits 0 and writes no reports", () => {
     assert.equal(result.exitCode, 0);
     assert.equal(result.placeholder, true);
     assert.equal(result.reportsWritten, false);
-    assert.ok(!existsSync(resolve(fixture.root, "spec/requirements/source-map.json")), "no source map written");
+    assert.ok(!existsSync(resolve(fixture.root, ".vivicy/requirements/source-map.json")), "no source map written");
   } finally {
     fixture.cleanup();
   }
@@ -284,7 +284,7 @@ test("valid refs with full coverage pass and write the three reports", () => {
       uncovered_lines: 0,
     });
 
-    const sourceMap = JSON.parse(readFileSync(resolve(fixture.root, "spec/requirements/source-map.json"), "utf8"));
+    const sourceMap = JSON.parse(readFileSync(resolve(fixture.root, ".vivicy/requirements/source-map.json"), "utf8"));
     assert.equal(sourceMap.baseline_id, "mini-baseline");
     const ranges = sourceMap.files[0].ranges;
     assert.ok(
@@ -297,10 +297,19 @@ test("valid refs with full coverage pass and write the three reports", () => {
     );
     assert.ok(!ranges.some((range) => range.classification === "uncovered"), "no uncovered ranges");
 
-    const coverageJson = JSON.parse(readFileSync(resolve(fixture.root, "spec/requirements/coverage-report.json"), "utf8"));
+    const coverageJson = JSON.parse(readFileSync(resolve(fixture.root, ".vivicy/requirements/coverage-report.json"), "utf8"));
     assert.equal(coverageJson.totals.uncovered_lines, 0);
-    const coverageMd = readFileSync(resolve(fixture.root, "spec/requirements/coverage-report.md"), "utf8");
-    assert.match(coverageMd, /\| docs\/canonical\/sample-spec\.md \| 11 \| 7 \| 3 \| 1 \| 0 \|/);
+    const sampleReport = coverageJson.files.find((file) => file.path === ".vivicy/canonical/sample-spec.md");
+    assert.deepEqual(
+      {
+        total: sampleReport.total_lines,
+        auto: sampleReport.auto_lines,
+        covered: sampleReport.covered_lines,
+        excluded: sampleReport.excluded_lines,
+        uncovered: sampleReport.uncovered_lines,
+      },
+      { total: 11, auto: 7, covered: 3, excluded: 1, uncovered: 0 },
+    );
   } finally {
     fixture.cleanup();
   }
@@ -340,7 +349,7 @@ test("an uncovered canonical line fails the gate and is listed in the report", (
     assert.equal(result.exitCode, 1);
     assert.ok(result.errors.some((error) => /UNCOVERED/.test(error)), result.errors.join("\n"));
     assert.equal(result.reportsWritten, true, "coverage failures still write the evidence reports");
-    const coverageJson = JSON.parse(readFileSync(resolve(fixture.root, "spec/requirements/coverage-report.json"), "utf8"));
+    const coverageJson = JSON.parse(readFileSync(resolve(fixture.root, ".vivicy/requirements/coverage-report.json"), "utf8"));
     assert.deepEqual(coverageJson.files[0].uncovered_ranges, ["10"]);
   } finally {
     fixture.cleanup();
@@ -380,7 +389,7 @@ test("llm_extraction_in_progress tolerates uncovered lines; --strict escalates",
       lenient.warnings.join("\n"),
     );
     assert.match(lenient.summary, /tolerated: extraction in progress/);
-    const coverageJson = JSON.parse(readFileSync(resolve(fixture.root, "spec/requirements/coverage-report.json"), "utf8"));
+    const coverageJson = JSON.parse(readFileSync(resolve(fixture.root, ".vivicy/requirements/coverage-report.json"), "utf8"));
     assert.deepEqual(coverageJson.files[0].uncovered_ranges, ["10"]);
 
     const strict = fixture.run({ strict: true });

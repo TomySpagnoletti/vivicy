@@ -1,6 +1,6 @@
 /**
  * The ONE shared derivation of the live development overlay from the progress
- * ledger. The progress ledger (`spec/development/progress-ledger.json`) is the
+ * ledger. The progress ledger (`.vivicy/development/progress-ledger.json`) is the
  * single source of truth for live per-issue/per-graph-item progress; the
  * architecture map data is a STATIC graph generated once at extraction. The live
  * overlay — `graph_item_states` and `active_items` — is DERIVED from the ledger,
@@ -345,6 +345,13 @@ function requiredEnum<T extends readonly string[]>(value: unknown, allowedValues
   return value as T[number]
 }
 
+/**
+ * Kept local rather than imported from `@/lib/type-guards` because this module
+ * must also load under the raw Node TS loader (the factory generator imports it
+ * by relative `.ts` path), where neither the `@/` alias nor extensionless `.ts`
+ * imports resolve. A cross-module import would force a `.ts` extension the
+ * Next/root tsconfig rejects, so the guard stays self-contained here.
+ */
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value)
 }

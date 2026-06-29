@@ -24,14 +24,8 @@ export interface MapNodeData {
   [key: string]: unknown
 }
 
-/**
- * Faithful port of the original architecture-map node card. The map surface is
- * intentionally allowed a custom (non-shadcn) style, so colors come from the
- * slate palette tokens. Top line shows `{id} • N edges`, an optional work-pulse
- * dot, and a `{kind} · {scope}` pill; below it a bold label, the tech, and the
- * owned-data summary (with a task count when linked). Future-scope nodes get a
- * dashed border; the selected node gets a focus ring; non-matching nodes dim.
- */
+// The map surface is intentionally allowed a custom (non-shadcn) style; colors
+// come from the slate palette tokens rather than the design system.
 function MapNodeComponent({ data }: NodeProps) {
   const node = data as MapNodeData
   const { color } = node

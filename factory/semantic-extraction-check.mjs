@@ -7,7 +7,7 @@
 // equal the frozen manifest, every requirement ref must resolve into a pinned
 // canonical doc line range, dependencies must be acyclic, and every canonical
 // doc line must be accounted for as covered (issue-linked), excluded (with a
-// governed reason in spec/requirements/exclusions.json), auto-excluded
+// governed reason in .vivicy/requirements/exclusions.json), auto-excluded
 // (mechanical: blank lines, code-fence delimiters, horizontal rules, the H1
 // title), or UNCOVERED. Any UNCOVERED line fails the gate.
 //
@@ -22,29 +22,20 @@
 // warnings become failures.
 //
 // The checker is read-only over the issue index; its outputs are
-// spec/requirements/source-map.json, coverage-report.json, coverage-report.md.
+// .vivicy/requirements/source-map.json and coverage-report.json.
 
-import {
-  closeSync,
-  existsSync,
-  mkdirSync,
-  openSync,
-  readFileSync,
-  renameSync,
-  unlinkSync,
-  writeSync,
-} from "node:fs";
+import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname, isAbsolute, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
 import { resolveTargetRoot } from "./target-root.mjs";
+import { atomicWriteJson } from "./atomic-write.mjs";
 
 const defaultPaths = {
-  coverageReportJsonPath: "spec/requirements/coverage-report.json",
-  coverageReportMarkdownPath: "spec/requirements/coverage-report.md",
-  exclusionsPath: "spec/requirements/exclusions.json",
-  issueIndexPath: "spec/development/issue-index.json",
-  sourceMapPath: "spec/requirements/source-map.json",
+  coverageReportJsonPath: ".vivicy/requirements/coverage-report.json",
+  exclusionsPath: ".vivicy/requirements/exclusions.json",
+  issueIndexPath: ".vivicy/development/issue-index.json",
+  sourceMapPath: ".vivicy/requirements/source-map.json",
 };
 
 export const placeholderStatus = "pending_llm_semantic_issue_generation";
@@ -59,10 +50,10 @@ export const exclusionReasonClasses = [
   "toc_or_index",
 ];
 
-// The deterministic ref grammar: docs/canonical/<file>.md:<start>[-<end>].
-export const requirementRefPattern = /^(docs\/canonical\/[a-z0-9-]+\.md):(\d+)(?:-(\d+))?$/;
-const requirementFilePattern = /^docs\/canonical\/[a-z0-9-]+\.md$/;
-const issuePathPattern = /^spec\/development\/issues\/[A-Za-z0-9._/-]+\.md$/;
+// The deterministic ref grammar: .vivicy/canonical/<file>.md:<start>[-<end>].
+export const requirementRefPattern = /^(\.vivicy\/canonical\/[a-z0-9-]+\.md):(\d+)(?:-(\d+))?$/;
+const requirementFilePattern = /^\.vivicy\/canonical\/[a-z0-9-]+\.md$/;
+const issuePathPattern = /^\.vivicy\/development\/issues\/[A-Za-z0-9._/-]+\.md$/;
 
 // Aligned with the development traceability method and the viewer validator
 // (vivicy/factory/generate-viewer-data.ts): issue_path, requirement_ids
@@ -408,7 +399,7 @@ export function runSemanticExtractionCheck(options = {}) {
   if (toleratedUncovered) {
     warnings.push(
       `coverage incomplete (tolerated: status "${inProgressStatus}"): ` +
-        `${totals.uncovered_lines} canonical doc line(s) still UNCOVERED (see ${paths.coverageReportMarkdownPath})`,
+        `${totals.uncovered_lines} canonical doc line(s) still UNCOVERED (see ${paths.coverageReportJsonPath})`,
     );
   }
   const sourceMap = {
@@ -427,15 +418,11 @@ export function runSemanticExtractionCheck(options = {}) {
     warnings,
   };
   try {
-    writeFileAtomically(resolveRepoPath(repoRoot, paths.sourceMapPath), `${JSON.stringify(sourceMap, null, 2)}\n`);
-    writeFileAtomically(resolveRepoPath(repoRoot, paths.coverageReportJsonPath), `${JSON.stringify(coverageReport, null, 2)}\n`);
-    writeFileAtomically(
-      resolveRepoPath(repoRoot, paths.coverageReportMarkdownPath),
-      renderCoverageMarkdown(index, totals, fileReports, warnings),
-    );
-    // coverage_summary is owned by this check (governance 05): same computation
-    // as the report, written back only when the numbers changed. issues[] stays
-    // read-only here.
+    writeReport(resolveRepoPath(repoRoot, paths.sourceMapPath), sourceMap);
+    writeReport(resolveRepoPath(repoRoot, paths.coverageReportJsonPath), coverageReport);
+    // coverage_summary is owned by this check (the traceability method): same
+    // computation as the report, written back only when the numbers changed.
+    // issues[] stays read-only here.
     const summary = {
       total_doc_lines: summaryTotals.total,
       classified_doc_lines: summaryTotals.classified,
@@ -445,7 +432,7 @@ export function runSemanticExtractionCheck(options = {}) {
     const current = indexRaw.coverage_summary ?? {};
     if (Object.keys(summary).some((key) => current[key] !== summary[key])) {
       const updated = { ...indexRaw, coverage_summary: { ...current, ...summary } };
-      writeFileAtomically(resolveRepoPath(repoRoot, paths.issueIndexPath), `${JSON.stringify(updated, null, 2)}\n`);
+      writeReport(resolveRepoPath(repoRoot, paths.issueIndexPath), updated);
     }
   } catch (error) {
     errors.push(`unable to write reports: ${error instanceof Error ? error.message : String(error)}`);
@@ -453,7 +440,7 @@ export function runSemanticExtractionCheck(options = {}) {
   }
 
   if (totals.uncovered_lines > 0 && !toleratedUncovered) {
-    errors.push(`coverage gate failed: ${totals.uncovered_lines} canonical doc line(s) UNCOVERED (see ${paths.coverageReportMarkdownPath})`);
+    errors.push(`coverage gate failed: ${totals.uncovered_lines} canonical doc line(s) UNCOVERED (see ${paths.coverageReportJsonPath})`);
   }
   if (strict && warnings.length > 0) {
     errors.push(`--strict: ${warnings.length} warning(s) escalated to failure`);
@@ -660,46 +647,6 @@ function formatRange(range) {
   return range.start === range.end ? `${range.start}` : `${range.start}-${range.end}`;
 }
 
-function renderCoverageMarkdown(index, totals, fileReports, warnings) {
-  const lines = [
-    "# Semantic Extraction Coverage Report",
-    "",
-    `Generated by \`vivicy/factory/semantic-extraction-check.mjs\` from frozen baseline \`${index.baseline_id}\` (version ${index.baseline_version}). Do not edit by hand.`,
-    "",
-    "| Document | Total | Auto | Covered | Excluded | Uncovered |",
-    "| --- | ---: | ---: | ---: | ---: | ---: |",
-  ];
-  for (const report of fileReports) {
-    lines.push(
-      `| ${report.path} | ${report.total_lines} | ${report.auto_lines} | ${report.covered_lines} | ${report.excluded_lines} | ${report.uncovered_lines} |`,
-    );
-  }
-  lines.push(
-    `| **All documents** | ${totals.total_lines} | ${totals.auto_lines} | ${totals.covered_lines} | ${totals.excluded_lines} | ${totals.uncovered_lines} |`,
-    "",
-    "## Uncovered Ranges",
-    "",
-  );
-  const uncovered = fileReports.filter((report) => report.uncovered_ranges.length > 0);
-  if (uncovered.length === 0) {
-    lines.push("None.");
-  } else {
-    for (const report of uncovered) {
-      for (const range of report.uncovered_ranges) {
-        lines.push(`- \`${report.path}:${range}\``);
-      }
-    }
-  }
-  lines.push("", "## Warnings", "");
-  if (warnings.length === 0) {
-    lines.push("None.");
-  } else {
-    for (const warning of warnings) lines.push(`- ${warning}`);
-  }
-  lines.push("");
-  return lines.join("\n");
-}
-
 // Minimal glob support for the source_corpus entries (`**/` segments and `*`).
 function globToRegExp(glob) {
   let pattern = "^";
@@ -728,27 +675,11 @@ function zodIssueMessages(label, error) {
   return error.issues.map((issue) => `${label}: ${issue.path.join(".") || "(root)"}: ${issue.message}`);
 }
 
-// rename(2) is atomic only within a filesystem — hence the sibling temp file; a
-// reader never sees a half-written report.
-function writeFileAtomically(absolutePath, content) {
+// The report dirs may not exist yet in a fresh target, and the shared atomic
+// writer never creates parents — so ensure the directory before the rename.
+function writeReport(absolutePath, value) {
   mkdirSync(dirname(absolutePath), { recursive: true });
-  const tmpPath = `${absolutePath}.${process.pid}.${Math.random().toString(36).slice(2)}.tmp`;
-  const fd = openSync(tmpPath, "w");
-  try {
-    writeSync(fd, content);
-  } finally {
-    closeSync(fd);
-  }
-  try {
-    renameSync(tmpPath, absolutePath);
-  } catch (error) {
-    try {
-      unlinkSync(tmpPath);
-    } catch {
-      // best-effort cleanup of the temp file
-    }
-    throw error;
-  }
+  atomicWriteJson(absolutePath, value);
 }
 
 function readJson(repoRoot, path, label) {
@@ -776,9 +707,9 @@ if (cliEntry === fileURLToPath(import.meta.url)) {
     console.error("Usage: node vivicy/factory/semantic-extraction-check.mjs [--strict]");
     process.exit(2);
   }
-  // VIVICY_TARGET_ROOT (NAIGHT_DEV_ROOT alias) selects the project to check.
-  // Vivicy is standalone: with no target there is nothing to check, so exit
-  // clearly instead of guessing a directory.
+  // VIVICY_TARGET_ROOT selects the project to check. Vivicy is standalone: with
+  // no target there is nothing to check, so exit clearly instead of guessing a
+  // directory.
   const targetRoot = resolveTargetRoot();
   if (!targetRoot) {
     console.error(

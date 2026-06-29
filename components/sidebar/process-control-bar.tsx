@@ -34,18 +34,12 @@ import {
 
 type Action = "start" | "stop" | "resume" | "extract"
 
-/**
- * The honest reason Extract is greyed out once extraction has produced issues
- * for the current target. Pure + exported so the tooltip copy is asserted in a
- * unit test without depending on portal rendering, and so the count's
- * singular/plural wording stays in one place.
- */
+// Exported and pure so the tooltip copy is unit-tested without portal rendering.
 export function extractedGateMessage(issueCount: number): string {
   const noun = issueCount === 1 ? "issue" : "issues"
   return `Already extracted — ${issueCount} ${noun}. Re-extraction isn't available yet.`
 }
 
-/** Phase -> badge dot color token. All from theme tokens; no inline color. */
 const PHASE_DOT: Record<RunPhase, string> = {
   idle: "bg-muted-foreground",
   running: "bg-primary",
@@ -54,22 +48,10 @@ const PHASE_DOT: Record<RunPhase, string> = {
   stalled: "bg-destructive",
 }
 
-/**
- * Live process-control bar. Subscribes to the SSE status stream and drives the
- * dev-factory: Run (start), Pause/Stop, Resume, and Extract. Each action posts
- * to its control endpoint and toasts the result; status changes (done count or
- * gate failures moving) re-fetch the map via `onMapRefresh`.
- */
 export function ProcessControlBar({
   development,
   onMapRefresh,
 }: {
-  /**
-   * The current map's development block. Extraction is gated on its issue set:
-   * once extraction has produced issues for this target, Extract is disabled
-   * (re-extraction isn't supported yet). Derived from the existing `/api/map`
-   * payload — not a parallel data source.
-   */
   development?: DevelopmentBlock
   onMapRefresh?: () => void
 }) {
@@ -77,7 +59,6 @@ export function ProcessControlBar({
   const [streamError, setStreamError] = useState(false)
   const [pending, setPending] = useState<Action | null>(null)
 
-  // Track the values that should trigger a map refresh when they change.
   const lastSignatureRef = useRef<string | null>(null)
   const onMapRefreshRef = useRef(onMapRefresh)
   useEffect(() => {
@@ -96,7 +77,6 @@ export function ProcessControlBar({
         setStreamError(false)
         setStatus(next)
 
-        // Refresh the map when progress or gate state moves.
         const signature = `${next.issues_done}/${next.issues_total}:${next.gates?.fail ?? 0}:${next.run_active}`
         if (lastSignatureRef.current !== null && lastSignatureRef.current !== signature) {
           onMapRefreshRef.current?.()
@@ -119,10 +99,8 @@ export function ProcessControlBar({
   const done = status?.issues_done ?? 0
   const percent = total > 0 ? Math.round((done / total) * 100) : 0
 
-  // Extraction is one-shot for now: once it has produced issues for this target,
-  // re-extraction isn't available, so Extract is greyed out and explains why. The
-  // signal is the map's own development.issues (the same payload the Tasks panel
-  // renders) — no parallel data source.
+  // Extraction is one-shot: once the map's development.issues is non-empty,
+  // re-extraction isn't available, so Extract is greyed out and explains why.
   const issueCount = development?.issues?.length ?? 0
   const alreadyExtracted = issueCount > 0
 

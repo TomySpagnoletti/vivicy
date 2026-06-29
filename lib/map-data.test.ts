@@ -6,7 +6,6 @@ import {
   buildEdgeCounts,
   buildGraphStatesByRef,
   buildIssuesByGraphRef,
-  buildStatusOverlay,
   clusterMovedPositions,
   computeVisibleCounts,
   edgeGraphRef,
@@ -17,13 +16,10 @@ import {
   nodeMatchesQuery,
   normalizeMapData,
   resolveNodeStatus,
-  resolveNodes,
-  snapCoordinate,
   snapXY,
-  statusColor,
   type XY,
 } from "@/lib/map-data"
-import type { DevelopmentBlock, MapEdge, MapNode } from "@/lib/types"
+import type { DevelopmentBlock, MapEdge, MapNode, NodeStatus } from "@/lib/types"
 
 function makeNode(overrides: Partial<MapNode> = {}): MapNode {
   return {
@@ -38,29 +34,6 @@ function makeNode(overrides: Partial<MapNode> = {}): MapNode {
   }
 }
 
-describe("statusColor", () => {
-  it("maps each known status to a distinct, non-neutral color", () => {
-    const colored = (
-      ["in_progress", "reviewing", "implemented", "verified", "blocked"] as const
-    ).map(statusColor)
-    // All distinct.
-    expect(new Set(colored).size).toBe(colored.length)
-    // None fall through to the neutral border token.
-    expect(colored).not.toContain("var(--border)")
-  })
-
-  it("treats not_started, null, and undefined as the neutral border token", () => {
-    expect(statusColor("not_started")).toBe("var(--border)")
-    expect(statusColor(null)).toBe("var(--border)")
-    expect(statusColor(undefined)).toBe("var(--border)")
-  })
-
-  it("falls back to neutral for an unknown status", () => {
-    // @ts-expect-error exercising the runtime guard with a bad value
-    expect(statusColor("frobnicated")).toBe("var(--border)")
-  })
-})
-
 describe("asNodeStatus", () => {
   it("accepts known statuses and rejects everything else", () => {
     expect(asNodeStatus("verified")).toBe("verified")
@@ -70,26 +43,8 @@ describe("asNodeStatus", () => {
   })
 })
 
-describe("buildStatusOverlay", () => {
-  it("indexes valid graph_item_states by graph_ref and drops invalid ones", () => {
-    const overlay = buildStatusOverlay([
-      { graph_ref: "node:a", status: "verified" },
-      { graph_ref: "node:b", status: "bogus" as never },
-      { graph_ref: "", status: "verified" },
-    ])
-    expect(overlay.get("node:a")).toBe("verified")
-    expect(overlay.has("node:b")).toBe(false)
-    expect(overlay.has("")).toBe(false)
-  })
-
-  it("returns an empty map when there are no states", () => {
-    expect(buildStatusOverlay(undefined).size).toBe(0)
-    expect(buildStatusOverlay([]).size).toBe(0)
-  })
-})
-
 describe("resolveNodeStatus", () => {
-  const overlay = buildStatusOverlay([{ graph_ref: "node:n1", status: "reviewing" }])
+  const overlay = new Map<string, NodeStatus>([["node:n1", "reviewing"]])
 
   it("is always neutral in the target view, even with a node status", () => {
     const node = makeNode({ status: "verified" })
@@ -171,30 +126,6 @@ describe("normalizeMapData", () => {
       development: { issues: [{ id: "i1" }] },
     })
     expect(data!.development?.issues).toHaveLength(1)
-  })
-})
-
-describe("resolveNodes", () => {
-  it("attaches view-aware effectiveStatus across the node set", () => {
-    const data = {
-      name: "Map",
-      nodes: [
-        makeNode({ id: "a", graph_ref: "node:a", status: "verified" }),
-        makeNode({ id: "b", graph_ref: "node:b", status: "in_progress" }),
-      ],
-      edges: [],
-      development: {
-        graph_item_states: [{ graph_ref: "node:b", status: "blocked" as const }],
-      },
-    }
-
-    const target = resolveNodes(data, "target")
-    expect(target.every((n) => n.effectiveStatus === null)).toBe(true)
-
-    const progress = resolveNodes(data, "progress")
-    expect(progress.find((n) => n.id === "a")!.effectiveStatus).toBe("verified")
-    // Overlay wins over node.status.
-    expect(progress.find((n) => n.id === "b")!.effectiveStatus).toBe("blocked")
   })
 })
 
@@ -349,8 +280,8 @@ describe("issueTranscriptRefs", () => {
           graph_ref: "node:a",
           status: "verified",
           transcript_refs: [
-            "spec/development/transcripts/ISS-1/claude.jsonl",
-            "spec/development/transcripts/ISS-9/other.jsonl",
+            ".vivicy/development/transcripts/ISS-1/claude.jsonl",
+            ".vivicy/development/transcripts/ISS-9/other.jsonl",
           ],
         },
       ],
@@ -359,7 +290,7 @@ describe("issueTranscriptRefs", () => {
           id: "ai",
           issue_id: "ISS-1",
           graph_refs: ["node:a"],
-          transcript_refs: ["spec/development/transcripts/ISS-1/codex.jsonl"],
+          transcript_refs: [".vivicy/development/transcripts/ISS-1/codex.jsonl"],
         },
       ],
     }
@@ -367,9 +298,9 @@ describe("issueTranscriptRefs", () => {
       { id: "ISS-1", graph_refs: ["node:a"] },
       development
     )
-    expect(refs).toContain("spec/development/transcripts/ISS-1/claude.jsonl")
-    expect(refs).toContain("spec/development/transcripts/ISS-1/codex.jsonl")
-    expect(refs).not.toContain("spec/development/transcripts/ISS-9/other.jsonl")
+    expect(refs).toContain(".vivicy/development/transcripts/ISS-1/claude.jsonl")
+    expect(refs).toContain(".vivicy/development/transcripts/ISS-1/codex.jsonl")
+    expect(refs).not.toContain(".vivicy/development/transcripts/ISS-9/other.jsonl")
   })
 })
 
@@ -436,12 +367,10 @@ describe("computeVisibleCounts", () => {
 })
 
 describe("snap helpers", () => {
-  it("snaps a coordinate to the layout grid", () => {
+  it("snaps a point's coordinates to the layout grid", () => {
     expect(LAYOUT_SNAP_GRID).toBe(20)
-    expect(snapCoordinate(0)).toBe(0)
-    expect(snapCoordinate(9)).toBe(0)
-    expect(snapCoordinate(11)).toBe(20)
-    expect(snapCoordinate(-11)).toBe(-20)
+    expect(snapXY({ x: 0, y: 9 })).toEqual({ x: 0, y: 0 })
+    expect(snapXY({ x: 11, y: -11 })).toEqual({ x: 20, y: -20 })
     expect(snapXY({ x: 23, y: -11 })).toEqual({ x: 20, y: -20 })
   })
 })

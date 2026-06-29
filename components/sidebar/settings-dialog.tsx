@@ -63,25 +63,9 @@ const OTHER_ROLE: Record<Role, Role> = {
   reviewer: "implementer",
 }
 
-/**
- * Agent settings dialog: per-role CLI assignment (R12) plus per-role model, thinking
- * level, and fast mode (P4) — with STRICT per-model compatibility.
- *
- * Opens from a gear button in the sidebar header. On open it loads the current
- * settings from `GET /api/settings`; Save persists via `PUT /api/settings` and
- * toasts the result.
- *
- * Each role gets a CLI Select, a MODEL Select (the curated last-4 list for the
- * assigned CLI — plus the persisted model as an extra option if it is custom), a
- * thinking-level Select restricted to THAT MODEL's allowed levels (hidden when the
- * model has no reasoning control), and a Fast switch enabled ONLY for a model+CLI
- * that genuinely supports fast on the headless run. The two roles must run DISTINCT
- * CLIs (a CLI can never review its own work). Save is disabled on any invalid
- * combination; the schema validators are the source of truth and the form mirrors
- * them so an impossible combo is never even submitted.
- *
- * `onSaved` lets the parent (e.g. the quota footer) reflect the new labels.
- */
+// Agent settings dialog. The schema validators in @/lib/settings are the source
+// of truth; the form mirrors them so an impossible model+CLI+effort+fast combo
+// is never submitted, and Save is disabled on any invalid combination.
 export function SettingsDialog({
   onSaved,
 }: {
@@ -114,26 +98,20 @@ export function SettingsDialog({
     }
   }, [open])
 
-  // Update one field of one role's agent block (effort / fast).
   const updateAgent = useCallback((role: Role, patch: Partial<AgentSettings>) => {
     setDraft((prev) => ({ ...prev, [role]: { ...prev[role], ...patch } }))
   }, [])
 
-  // Change a role's model. The effort + fast flag are re-coerced to the new model
-  // (withModel) so the form can never hold an incompatible model+effort/fast combo.
   const setModel = useCallback((role: Role, model: string) => {
     setDraft((prev) => ({ ...prev, [role]: withModel(prev[role], model) }))
   }, [])
 
-  // Set the max parallel issues knob, clamped to [MIN_PARALLEL, MAX_PARALLEL].
   const setMaxParallel = useCallback((value: number) => {
     setDraft((prev) => ({ ...prev, maxParallel: clampMaxParallel(value) }))
   }, [])
 
-  // Reassign a role to a different CLI. The two roles must stay distinct, so the
-  // OTHER role is forced to the complementary CLI; both roles reset to their new
-  // CLI's defaults (model + level + fast are CLI-specific). Picking the CLI the
-  // role already has is a no-op.
+  // The two roles must stay distinct, so reassigning one forces the other to the
+  // complementary CLI; both reset to the new CLI's defaults.
   const assignCli = useCallback((role: Role, provider: Provider) => {
     setDraft((prev) => {
       if (prev[role].provider === provider) return prev
@@ -179,9 +157,6 @@ export function SettingsDialog({
     }
   }, [draft, onSaved])
 
-  // The schema validators are the source of truth: Save is disabled unless the two
-  // roles are distinct AND every role block is internally compatible (effort valid
-  // for its model, fast only on a fast-capable model).
   const valid = isSettingsValid(draft)
   const distinct = draft.implementer.provider !== draft.reviewer.provider
 

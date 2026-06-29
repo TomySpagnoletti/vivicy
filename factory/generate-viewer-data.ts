@@ -55,9 +55,9 @@ export type NodeSpec = {
   layout_x: number;
   layout_y: number;
   layout_cluster: string;
-  layout_role: "primary_flow" | "support" | "shared_state" | "provider" | "future";
-  scope: "mvp" | "present" | "future";
-  status: "not_started" | "in_progress" | "implemented" | "verified" | "blocked";
+  layout_role: (typeof allowedLayoutRoles)[number];
+  scope: (typeof allowedScopes)[number];
+  status: (typeof allowedStatuses)[number];
   tech: string;
   owns_data: string[];
   source_refs: string[];
@@ -122,11 +122,11 @@ export type DevelopmentOverlay = {
 };
 
 // The target project whose architecture map this generator reads and whose viewer
-// data it writes. VIVICY_TARGET_ROOT selects it (NAIGHT_DEV_ROOT is the legacy
-// alias). Vivicy is standalone: with no target there is nothing to generate, so
-// we exit clearly instead of guessing a directory. The map and generated artifact
-// always live under the target project's docs/, never beside this script.
-const targetOverride = process.env.VIVICY_TARGET_ROOT ?? process.env.NAIGHT_DEV_ROOT;
+// data it writes. VIVICY_TARGET_ROOT selects it. Vivicy is standalone: with no
+// target there is nothing to generate, so we exit clearly instead of guessing a
+// directory. The map and generated artifact always live under the target
+// project's .vivicy/, never beside this script.
+const targetOverride = process.env.VIVICY_TARGET_ROOT;
 if (!(targetOverride && targetOverride.trim().length > 0)) {
   process.stderr.write(
     "error: no target project configured. Set VIVICY_TARGET_ROOT to the absolute path of the project whose viewer data to generate.\n",
@@ -134,14 +134,16 @@ if (!(targetOverride && targetOverride.trim().length > 0)) {
   process.exit(2);
 }
 const repoRoot = resolve(targetOverride);
-const mapPath = join(repoRoot, "docs/architecture-map/architecture-map.yml");
-const issueIndexPath = join(repoRoot, "spec/development/issue-index.json");
-const progressLedgerPath = join(repoRoot, "spec/development/progress-ledger.json");
+const mapPath = join(repoRoot, ".vivicy/architecture-map/architecture-map.yml");
+const issueIndexPath = join(repoRoot, ".vivicy/development/issue-index.json");
+const progressLedgerPath = join(repoRoot, ".vivicy/development/progress-ledger.json");
 const allowedStatuses = ["not_started", "in_progress", "reviewing", "implemented", "verified", "blocked"] as const;
+const allowedLayoutRoles = ["primary_flow", "support", "shared_state", "provider", "future"] as const;
+const allowedScopes = ["mvp", "present", "future"] as const;
 
 export function main(): void {
   const previousSource = readFileSync(mapPath, "utf8");
-  const today = getParisDate();
+  const today = getUtcDate();
   const shouldWriteMapMetadata = process.argv.includes("--write-map-metadata");
   const source = shouldWriteMapMetadata ? updateGeneratedDate(previousSource, today) : previousSource;
   assertArchitectureLayoutPreserved(previousSource, source);
@@ -280,13 +282,13 @@ export function validateMap(input: ArchitectureMap): void {
       throw new Error(`Node ${node.id} references kind outside kind_taxonomy: ${node.kind}`);
     }
     if (!(allowedStatuses as readonly string[]).includes(node.status)) {
-      throw new Error(`Node ${node.id} references unknown status: ${node.status}`);
+      throw new Error(`Node ${node.id} references unknown status: ${node.status} (allowed: ${allowedStatuses.join(", ")})`);
     }
     if (node.status !== "not_started") {
-      throw new Error(`Target map node ${node.id} must keep status not_started; live progress belongs in spec/development/progress-ledger.json`);
+      throw new Error(`Target map node ${node.id} must keep status not_started; live progress belongs in .vivicy/development/progress-ledger.json`);
     }
     if (node.evidence_refs?.length) {
-      throw new Error(`Target map node ${node.id} must not store evidence_refs; live evidence belongs in spec/development/progress-ledger.json`);
+      throw new Error(`Target map node ${node.id} must not store evidence_refs; live evidence belongs in .vivicy/development/progress-ledger.json`);
     }
     validateSourceRefs(node.source_refs, `Node ${node.id}`, input.source_baseline);
   }
@@ -422,7 +424,7 @@ export function assertYamlSourceStyle(source: string): void {
 /**
  * FILE-level gate only: every canonical file matched by the baseline globs must
  * be cited by at least one node or edge source_ref. BLOCK-level (within-file)
- * coverage is gated separately by the governance/05 coverage report.
+ * coverage is gated separately by the semantic-extraction coverage report.
  */
 function validateCanonicalCoverage(input: ArchitectureMap): void {
   const matchedFiles = enumerateBaselineFiles(input.source_baseline);
@@ -628,8 +630,8 @@ function loadDevelopmentOverlay(map: ArchitectureMap): DevelopmentOverlay {
     evidenceRefChecker: (evidenceRef, owner) => validateProgressEvidenceRefs([evidenceRef], owner),
   });
   return {
-    issue_index_path: "spec/development/issue-index.json",
-    progress_ledger_path: "spec/development/progress-ledger.json",
+    issue_index_path: ".vivicy/development/issue-index.json",
+    progress_ledger_path: ".vivicy/development/progress-ledger.json",
     issues,
     graph_item_states,
     active_items,
@@ -836,11 +838,11 @@ function validateNodeShape(node: NodeSpec): void {
   if (typeof node.layout_x !== "number" || typeof node.layout_y !== "number") {
     throw new Error(`Node ${node.id} must define numeric layout_x and layout_y coordinates`);
   }
-  if (!["primary_flow", "support", "shared_state", "provider", "future"].includes(node.layout_role)) {
-    throw new Error(`Node ${node.id} references unknown layout_role: ${node.layout_role}`);
+  if (!(allowedLayoutRoles as readonly string[]).includes(node.layout_role)) {
+    throw new Error(`Node ${node.id} references unknown layout_role: ${node.layout_role} (allowed: ${allowedLayoutRoles.join(", ")})`);
   }
-  if (!["mvp", "present", "future"].includes(node.scope)) {
-    throw new Error(`Node ${node.id} references unknown scope: ${node.scope}`);
+  if (!(allowedScopes as readonly string[]).includes(node.scope)) {
+    throw new Error(`Node ${node.id} references unknown scope: ${node.scope} (allowed: ${allowedScopes.join(", ")})`);
   }
   if (!isNonEmptyStringArray(node.owns_data)) {
     throw new Error(`Node ${node.id} owns_data must be a non-empty string array`);
@@ -1027,8 +1029,8 @@ function validateGeneratedArtifactPath(repoRelativePath: string): string {
   if (absolutePath === mapPath) {
     throw new Error("generated_artifact_path must not point to architecture-map.yml");
   }
-  if (repoRelativePath !== "docs/architecture-map/viewer/src/architecture-data.json") {
-    throw new Error("generated_artifact_path must be docs/architecture-map/viewer/src/architecture-data.json for this generator");
+  if (repoRelativePath !== ".vivicy/architecture-map/architecture-data.json") {
+    throw new Error("generated_artifact_path must be .vivicy/architecture-map/architecture-data.json for this generator");
   }
   if (!repoRelativePath.endsWith(".json")) {
     throw new Error("generated_artifact_path must point to a JSON artifact");
@@ -1052,15 +1054,10 @@ function toRepositoryRelativePath(absolutePath: string): string {
   return relative(repoRoot, absolutePath).split("\\").join("/");
 }
 
-function getParisDate(): string {
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    day: "2-digit",
-    month: "2-digit",
-    timeZone: "Europe/Paris",
-    year: "numeric",
-  }).formatToParts(new Date());
-  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
-  return `${values.year}-${values.month}-${values.day}`;
+// Vivicy is project-agnostic: stamp the generated date in UTC (YYYY-MM-DD) with
+// no host-locale or timezone assumption.
+function getUtcDate(): string {
+  return new Date().toISOString().slice(0, 10);
 }
 
 export function updateGeneratedDate(source: string, date: string): string {

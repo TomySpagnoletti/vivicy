@@ -294,7 +294,7 @@ describe("readDevStatus", () => {
 /** Write the status file the extraction orchestrator emits, so runExtract reads
  *  the terminal state back exactly as it would in production. */
 function writeExtractionStatus(phase: string, summary: string) {
-  const file = path.join(targetRoot, "spec/development/reports/extraction-status.json")
+  const file = path.join(targetRoot, ".vivicy/development/reports/extraction-status.json")
   mkdirSync(path.dirname(file), { recursive: true })
   writeFileSync(file, JSON.stringify({ phase, summary }, null, 2))
 }

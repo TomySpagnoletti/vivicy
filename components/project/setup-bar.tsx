@@ -13,13 +13,6 @@ import {
 } from "@/components/ui/tooltip"
 import { OpenProjectDialog } from "@/components/project/open-project-dialog"
 
-/**
- * The always-present setup bar (R10 + R11): the current-project affordance (folder
- * name + a button to change it) and the agent-CLI status chip. Rendered over the
- * map inset in EVERY state — including onboarding — so the user can pick a project
- * and check agent health before any map exists. Selecting a project re-fetches the
- * map via `onProjectChanged`.
- */
 export function SetupBar({
   onProjectChanged,
   onAgentsWarning,
@@ -27,17 +20,13 @@ export function SetupBar({
 }: {
   onProjectChanged: () => void
   onAgentsWarning?: (message: string) => void
-  /**
-   * Bumped by the parent when the current project changes from OUTSIDE the setup
-   * bar (e.g. the onboarding chooser's picker/scaffold dialogs). The bar then
-   * re-fetches its project so its name affordance stays in sync.
-   */
+  // Bumped by the parent when the project changes from outside the setup bar
+  // (e.g. the onboarding chooser), triggering a re-fetch of the name affordance.
   reloadSignal?: number
 }) {
   const [project, setProject] = useState<CurrentProject | null>(null)
   const [pickerOpen, setPickerOpen] = useState(false)
 
-  // Load the persisted current project so the affordance shows its name.
   const loadProject = useCallback(async () => {
     try {
       const res = await fetch("/api/project", { cache: "no-store" })
@@ -58,42 +47,43 @@ export function SetupBar({
 
   return (
     <div className="pointer-events-auto absolute top-2 left-2 z-10 flex items-center gap-1.5">
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Button
-            variant="outline"
-            size="sm"
-            className="max-w-56"
-            aria-label="Change project"
-            onClick={() => setPickerOpen(true)}
-          >
-            <FolderGit2 />
-            <span className="truncate">{project ? project.name : "No project"}</span>
-            <ChevronsUpDown className="text-muted-foreground" />
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent className="max-w-xs">
-          {project ? (
-            // The full target path: break anywhere so a long absolute path wraps
-            // cleanly inside the capped width instead of running off-screen, while
-            // staying fully readable (never clipped).
-            <span className="block break-all">{project.root}</span>
-          ) : (
-            "Choose the project to develop"
-          )}
-        </TooltipContent>
-      </Tooltip>
+      {/* The project picker lives here only once a project is selected — changing
+          projects, with no duplicate selector. Before any project exists the
+          onboarding chooser is the sole entry point, so this affordance is absent. */}
+      {project ? (
+        <>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="outline"
+                size="sm"
+                className="max-w-56"
+                aria-label="Change project"
+                onClick={() => setPickerOpen(true)}
+              >
+                <FolderGit2 />
+                <span className="truncate">{project.name}</span>
+                <ChevronsUpDown className="text-muted-foreground" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent className="max-w-xs">
+              {/* break-all so a long absolute path wraps inside the capped width. */}
+              <span className="block break-all">{project.root}</span>
+            </TooltipContent>
+          </Tooltip>
+
+          <OpenProjectDialog
+            open={pickerOpen}
+            onOpenChange={setPickerOpen}
+            onChanged={(next) => {
+              setProject(next)
+              onProjectChanged()
+            }}
+          />
+        </>
+      ) : null}
 
       <AgentsHealthDialog onWarning={onAgentsWarning} />
-
-      <OpenProjectDialog
-        open={pickerOpen}
-        onOpenChange={setPickerOpen}
-        onChanged={(next) => {
-          setProject(next)
-          onProjectChanged()
-        }}
-      />
     </div>
   )
 }

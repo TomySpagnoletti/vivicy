@@ -35,7 +35,7 @@ interface Ledger {
 }
 
 export function readDevStatusFromDisk(root: string): DevStatus {
-  const dev = path.join(root, "spec", "development")
+  const dev = path.join(root, ".vivicy", "development")
   const index = readJson<IssueIndex>(path.join(dev, "issue-index.json"), { issues: [] })
   const issues = Array.isArray(index.issues) ? index.issues : []
   const ledger = readJson<Ledger>(path.join(dev, "progress-ledger.json"), {

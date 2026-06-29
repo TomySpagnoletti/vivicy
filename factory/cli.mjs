@@ -16,8 +16,8 @@
 //   vivicy --help
 //
 // `--target <dir>` is shorthand for setting VIVICY_TARGET_ROOT for the child.
-// When omitted, the factory falls back to VIVICY_TARGET_ROOT, then the legacy
-// NAIGHT_DEV_ROOT, then the project this package is vendored into.
+// When omitted, the factory uses VIVICY_TARGET_ROOT; with no target configured
+// there is no implicit target (standalone default).
 import { spawn } from "node:child_process";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";

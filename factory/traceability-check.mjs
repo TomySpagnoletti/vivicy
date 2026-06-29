@@ -1,11 +1,10 @@
 #!/usr/bin/env node
 // traceability:check — the implementation-coverage gate from the Development
-// Traceability Method (docs/governance/05). It is the complement of
-// semantic-extraction:check (which proves SOURCE coverage): this proves every
-// requirement is carried forward to an issue, and every issue points at real
-// requirements. It is deterministic and read-only.
+// Traceability Method. It is the complement of semantic-extraction:check (which
+// proves SOURCE coverage): this proves every requirement is carried forward to an
+// issue, and every issue points at real requirements. It is deterministic and
+// read-only.
 //
-//   node vivicy/factory/traceability-check.mjs                 # the vendored project
 //   VIVICY_TARGET_ROOT=<root> node vivicy/factory/traceability-check.mjs
 //
 // Until extraction has run (the committed placeholder issue index has no
@@ -19,9 +18,9 @@ import { resolveTargetRoot } from "./target-root.mjs";
 
 const repoRoot = resolveTargetRoot();
 
-const ISSUE_INDEX = "spec/development/issue-index.json";
-const CATALOG = "spec/requirements/catalog.json";
-const MATRIX = "spec/requirements/traceability-matrix.json";
+const ISSUE_INDEX = ".vivicy/development/issue-index.json";
+const CATALOG = ".vivicy/requirements/catalog.json";
+const MATRIX = ".vivicy/requirements/traceability-matrix.json";
 const MVP_DISPOSITIONS = new Set(["must_implement", "must_test", "must_verify_with_spike"]);
 const MVP_MATURITIES = new Set(["mvp", "phase_0_spike"]);
 
@@ -46,7 +45,7 @@ export function runTraceabilityCheck(options = {}) {
     return { exitCode: 0, errors: [], placeholder: true, summary: "traceability-check: nothing to check yet (no issues extracted)" };
   }
 
-  // Once issues exist, the catalog and matrix are mandatory (method doc 05).
+  // Once issues exist, the catalog and matrix are mandatory (Development Traceability Method).
   if (!existsSync(resolveInside(root, CATALOG))) {
     fail("catalog_required", CATALOG, "file missing while issues exist", "the Requirement Catalog exists once extraction has run", `author ${CATALOG}`);
     return done(errors);

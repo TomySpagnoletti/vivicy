@@ -15,8 +15,8 @@ import path from "node:path"
 
 import { readDevStatusFromDisk } from "@/lib/dev-status-fs"
 import type { DetachedHandle, RunOptions, RunResult, Spawner } from "@/lib/control"
-import { getControlTargetRoot } from "@/lib/control"
 import { nodeSpawner } from "@/lib/node-spawner"
+import { getTargetRoot } from "@/lib/target"
 
 const FAKE_PID = 424242
 
@@ -32,7 +32,7 @@ function scriptName(args: string[]): string {
  *  dry/E2E `runExtract` reads back success without spawning a real agent. */
 function writeFakeExtractionStatus(targetRoot: string): void {
   try {
-    const file = path.join(targetRoot, "spec/development/reports/extraction-status.json")
+    const file = path.join(targetRoot, ".vivicy/development/reports/extraction-status.json")
     mkdirSync(path.dirname(file), { recursive: true })
     writeFileSync(
       file,
@@ -53,7 +53,7 @@ export const fakeSpawner: Spawner = {
     const name = scriptName(args)
     if (name === "dev-status.mjs") {
       // Read the real demo ledger from disk; overlay liveness from the fake.
-      const status = readDevStatusFromDisk(getControlTargetRoot())
+      const status = readDevStatusFromDisk(getTargetRoot())
       const withLive = { ...status, process_alive: fakeAlive }
       const json = JSON.stringify(withLive, null, 2)
       return { code: 0, lastLine: json.split("\n").at(-1) ?? "", stdout: json, stderr: "" }
@@ -62,7 +62,7 @@ export const fakeSpawner: Spawner = {
       // Never launch a real agent in the dry/E2E path: write the green terminal
       // status the orchestrator would emit so runExtract reports success without
       // authoring anything (the demo target is already extracted).
-      writeFakeExtractionStatus(getControlTargetRoot())
+      writeFakeExtractionStatus(getTargetRoot())
       return { code: 0, lastLine: "extraction green (fake spawn)", stdout: "extraction green (fake spawn)\n", stderr: "" }
     }
     // Other generation steps: report a benign success line.

@@ -32,6 +32,7 @@ import {
   buildIssuesByGraphRef,
   clusterMovedPositions,
   edgeGraphRef,
+  edgeIndexFromId,
   LAYOUT_SNAP_GRID,
   nodeMatchesQuery,
   snapXY,
@@ -118,7 +119,6 @@ function ArchitectureMapInner({
   selected,
   onSelect,
 }: ArchitectureMapProps) {
-  // Derived indices over the (immutable) data.
   const edgeCounts = useMemo(() => buildEdgeCounts(data.edges), [data.edges])
   const statesByRef = useMemo(
     () => buildGraphStatesByRef(data.development?.graph_item_states),
@@ -391,10 +391,8 @@ function ArchitectureMapInner({
     visibleNodeIds,
   ])
 
-  // Mutable node/edge state so React Flow can move nodes during a drag and the
-  // cluster handle can shift members; the derived flowNodes/flowEdges are synced
-  // in, preserving any in-flight drag position. (Read-only behavior is identical:
-  // with editMode off nothing is draggable, so the state simply mirrors flowNodes.)
+  // Mutable mirror of the derived flowNodes/flowEdges so React Flow can move
+  // nodes during a drag; the sync below preserves any in-flight drag position.
   const [nodes, setNodes, onNodesChange] = useNodesState<Node<MapNodeData>>(flowNodes)
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge<EdgeData>>(flowEdges)
 
@@ -523,8 +521,8 @@ function ArchitectureMapInner({
     }
   }, [edgeLabelRatios, edgesById, nodePositions, nodesById])
 
-  // The data prop is immutable for a given render; selection is driven entirely
-  // from it so it survives background refreshes.
+  // Selection is resolved from the immutable data prop so it survives background
+  // refreshes that replace the node/edge objects.
   const selectNode = useCallback(
     (event: React.MouseEvent, node: Node<MapNodeData>) => {
       event.stopPropagation()
@@ -601,9 +599,6 @@ function ArchitectureMapInner({
         <Controls position="bottom-left" showInteractive={false} />
       </ReactFlow>
 
-      {/* Edit-layout control: read-only by default; toggle ON to drag nodes,
-          drag clusters by their title handle, drag edge labels, and Save. Sits
-          below the floating setup bar (top-left) so it never overlaps it. */}
       <div className="absolute top-14 left-2 z-10">
         <div className="map-edit-toolbar">
           <button
@@ -945,11 +940,6 @@ function formatClusterLabel(clusterId: string): string {
 
 function edgeId(edge: MapEdge, index: number): string {
   return `${edge.from}->${edge.to}-${index}`
-}
-
-function edgeIndexFromId(id: string): number {
-  const match = id.match(/-(\d+)$/)
-  return match ? Number(match[1]) : -1
 }
 
 function clampRatio(ratio: number): number {

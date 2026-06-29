@@ -1,13 +1,8 @@
 /**
- * The single source of truth for Vivicy's gitignored runtime directory — where
- * the control-plane lock/log, the agent settings, and the current-project
- * selection are persisted.
- *
- * Server-only. Defaults to `<cwd>/.vivicy-runtime`. `VIVICY_RUNTIME_DIR` overrides
- * it (absolute or relative to cwd): the E2E suite uses this to give each dev
- * server its OWN runtime dir, so the demo and onboarding servers never share a
- * persisted current-project or run-state lock. A production launch leaves it
- * unset and gets the default per-repo dir.
+ * Single source of truth for Vivicy's gitignored runtime directory (lock/log,
+ * agent settings, current-project selection). Server-only. Defaults to
+ * `<cwd>/.vivicy-runtime`; `VIVICY_RUNTIME_DIR` overrides it so the E2E suite can
+ * give each dev server its OWN runtime dir (no shared current-project or lock).
  */
 
 import path from "node:path"

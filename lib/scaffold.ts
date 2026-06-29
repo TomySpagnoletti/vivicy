@@ -1,33 +1,9 @@
 /**
- * Server-only project scaffolder (R9) — LANGUAGE-AGNOSTIC and LEAN.
- *
- * Two modes, chosen by what is at the target path:
- *
- *   - FROM SCRATCH (empty or non-existent dir): write the minimal,
- *     language-neutral method skeleton — a lean `AGENTS.md`/`CLAUDE.md`, a
- *     `docs/canonical/` placeholder (the owner writes the real spec), the skeleton
- *     dirs the extraction/dev outputs need, a `.gitignore`, a `README.md`, and the
- *     gate config (`vivicy.json`). It does NOT bake in a Node `package.json` or a
- *     `node:test` placeholder: Vivicy builds ANY project in ANY language, so the
- *     agents create the real project files (manifest, sources, tests) per the spec.
- *
- *   - EXISTING PROJECT (populated dir): "add Vivicy to my repo" — create ONLY the
- *     files Vivicy needs that are MISSING (the skeleton dirs, the gate config, a
- *     lean `AGENTS.md` if absent). It NEVER clobbers or overwrites an existing file,
- *     so adding Vivicy to a real repo is safe and reversible.
- *
- * The target is LEAN by design: the agents' discipline travels in the
- * Vivicy-bundled agent PROMPTS (`factory/prompts/*.md`), and the rest is enforced
- * by Vivicy's deterministic checks — so the heavy governance METHOD docs are NOT
- * copied into every target. They remain in the Vivicy repo as its own method
- * reference.
- *
- * The lean template files are DATA shipped with Vivicy under `factory/templates/`.
- * Every occurrence of `{{PROJECT_NAME}}` is substituted with the chosen name.
- *
- * Path-safety: the target must be an absolute path. `node:fs` lives here so it
- * never reaches the client bundle; the client-safe types stay in
- * {@link file://./project-types}.
+ * Server-only project scaffolder (R9), in two modes chosen by the target path:
+ * FROM SCRATCH (empty/non-existent dir) writes the lean language-neutral
+ * skeleton; EXISTING PROJECT (populated dir) creates only the missing Vivicy
+ * files and NEVER clobbers an existing file. `node:fs` lives here so it never
+ * reaches the client bundle; client-safe types stay in {@link file://./project-types}.
  */
 
 import { spawnSync } from "node:child_process"
@@ -47,6 +23,7 @@ import type { CurrentProject } from "@/lib/project-types"
 
 /** The literal token replaced with the project name throughout the templates. */
 const PROJECT_NAME_TOKEN = "{{PROJECT_NAME}}"
+const GATE_COMMAND_TOKEN = "{{GATE_COMMAND}}"
 
 /** Project names: 1–64 chars of letters, digits, space, dot, underscore, hyphen. */
 const PROJECT_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9 ._-]{0,63}$/
@@ -129,19 +106,18 @@ export function resolveTargetDir(candidate: unknown): { target: string; mode: Sc
 }
 
 /**
- * The directory skeleton every Vivicy-managed project needs: the spec/data layout
+ * The directory skeleton every Vivicy-managed project needs: the `.vivicy/` layout
  * the factory reads + writes (so the empty-map onboarding resolves cleanly) and the
  * always-present output dirs. Empty dirs are tracked with a `.gitkeep` so they
- * survive a commit. `docs/canonical/` is intentionally NOT here — its placeholder
+ * survive a commit. `.vivicy/canonical/` is intentionally NOT here — its placeholder
  * README ships from the templates (from-scratch) and is never overwritten.
  */
 const SKELETON_DIRS = [
-  "docs/baselines",
-  "docs/architecture-map",
-  "spec/development/issues",
-  "spec/development/prompts",
-  "spec/development/reports",
-  "spec/requirements",
+  ".vivicy/baselines",
+  ".vivicy/architecture-map",
+  ".vivicy/development/issues",
+  ".vivicy/development/reports",
+  ".vivicy/requirements",
 ] as const
 
 /**
@@ -188,17 +164,12 @@ export function detectGateCommand(targetRoot: string): string | null {
   return null
 }
 
-/** The lean .gitignore: the COMPLETE never-commit set, and ONLY that set, so the
+/**
+ * The lean .gitignore: the COMPLETE never-commit set and ONLY that set, so the
  * orchestrator can safely `git add -A` after every checkpoint with zero human
- * edits. Everything Vivicy PRODUCES is committed (the progress ledger, gate
- * evidence, reports, the static architecture-map data, source-map, coverage
- * report); the ONLY exclusions are the things that must NEVER land in history:
- *   - node_modules/ + build output + *.log + .DS_Store — machine/OS noise.
- *   - .vivicy-runtime/ — the factory's own lock/logs/settings/current-project.
- *   - .vivicy-worktrees/ — per-issue parallel worktrees.
- *   - spec/development/transcripts/ — full agent session JSONL (the ledger links to
- *     them; they never enter history).
- *   - spec/development/gates/.integration.lock — the parallel loop's transient mutex.
+ * edits. Everything Vivicy produces is committed; only machine/OS noise, the
+ * runtime dir, per-issue worktrees, transcripts, and the transient integration
+ * mutex are excluded.
  */
 function gitignore(): string {
   return `# Dependencies / build output / OS noise
@@ -217,53 +188,12 @@ dist/
 
 # The parallel loop's transient integration mutex — created/removed during a merge,
 # never part of history (committing its churn would dirty the tree).
-spec/development/gates/.integration.lock
+.vivicy/development/gates/.integration.lock
 
 # TRANSCRIPTS ARE NEVER COMMITTED. The full agent session JSONL for every leg; the
 # progress ledger links to them, but they never enter git history.
-spec/development/transcripts/
+.vivicy/development/transcripts/
 `
-}
-
-/** The top-level project README (lean; no governance-method links). */
-function readme(projectName: string, gateCommand: string): string {
-  return `# ${projectName}
-
-This repository is built with the **Vivicy development factory**: you write the
-canonical product/architecture spec under \`docs/canonical/**\`, Vivicy freezes and
-hashes it into a documentation baseline, extracts a traceable issue set, and runs a
-two-agent loop (an implementer agent and an independent reviewer agent) that
-implements, reviews, and verifies each slice against a real gate.
-
-## Where things live
-
-- \`docs/canonical/**\` — **the product truth you write.** Start here. Until at
-  least one canonical doc exists and a baseline is frozen, there is nothing to
-  extract and the architecture map is empty. See \`docs/canonical/README.md\`.
-- \`spec/development/\` — the extracted issue set, progress ledger, and reports
-  (development OUTPUT; created/updated by the factory).
-- \`vivicy.json\` — the project gate config. \`gateCommand\` is the test command
-  Vivicy runs as the per-issue verification gate; set it to YOUR runner
-  (currently: \`${gateCommand}\`).
-- \`AGENTS.md\` — the lean development operating guide and entrypoint for any
-  development agent. \`CLAUDE.md\` includes it.
-
-## Build, test, validate
-
-The verification gate is whatever \`gateCommand\` in \`vivicy.json\` runs. Replace the
-default with your project's real test command (e.g. \`go test ./...\`, \`cargo test\`,
-\`pytest -q\`, \`phpunit\`, \`swift test\`, \`npm test\`).
-`
-}
-
-/** A filesystem-safe slug derived from the project name. */
-export function slugify(projectName: string): string {
-  const slug = projectName
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-  return slug.length > 0 ? slug : "project"
 }
 
 /**
@@ -298,20 +228,11 @@ function ensureLocalGitIdentity(cwd: string): void {
 }
 
 /**
- * Make the FROM-SCRATCH skeleton a clean, committed git repo — so the owner never
- * runs git by hand. Mechanically: `git init`, ensure a local identity exists (fresh
- * machines have none), `git add -A` (the lean `.gitignore` makes this safe — only
- * runtime/transcripts/worktrees/node_modules are ever excluded), and commit the
- * skeleton. `git add -A` honours `.gitignore`, which the skeleton just wrote.
- *
- * EXISTING-PROJECT mode never calls this: we leave the owner's repo and history
- * completely untouched — no init, no commit. We also never touch a remote and never
- * force anything.
- *
- * Best-effort and non-fatal: if `git` is unavailable, the scaffold still succeeds
- * (the files are written); `initialized` simply reports false so callers/tests can
- * see whether a repo was created. The extraction step has its own defensive
- * `git init` for exactly this reason.
+ * Make the FROM-SCRATCH skeleton a clean, committed git repo so the owner never
+ * runs git by hand. Best-effort and non-fatal: if `git` is unavailable the
+ * scaffold still succeeds (files are written) and `initialized` reports false.
+ * EXISTING-PROJECT mode never calls this — the owner's repo and history are
+ * left untouched.
  */
 function initFromScratchRepo(target: string): { initialized: boolean; committed: boolean } {
   // Defensive: if the target is ALREADY a repo (e.g. the owner ran `git init`
@@ -341,9 +262,13 @@ export interface ScaffoldResult {
 }
 
 /** Read a lean template file, substituting `{{PROJECT_NAME}}`. */
-function renderTemplate(rel: string, projectName: string): string {
+function renderTemplate(rel: string, replacements: Record<string, string>): string {
   const from = path.join(getTemplatesRoot(), rel)
-  return readFileSync(from, "utf8").split(PROJECT_NAME_TOKEN).join(projectName)
+  let out = readFileSync(from, "utf8")
+  for (const [token, value] of Object.entries(replacements)) {
+    out = out.split(token).join(value)
+  }
+  return out
 }
 
 /**
@@ -399,21 +324,24 @@ export function scaffoldProject(input: { targetDir: unknown; projectName: unknow
   // 2. The lean entrypoint + spec template + canonical placeholder. Each is written
   //    ONLY if missing, so an existing repo's own AGENTS.md / README are preserved.
   const templateFiles: Array<[string, string]> = [
-    ["AGENTS.md", renderTemplate("AGENTS.md", projectName)],
-    ["CLAUDE.md", renderTemplate("CLAUDE.md", projectName)],
-    ["docs/canonical/README.md", renderTemplate("docs/canonical/README.md", projectName)],
-    ["spec/development/ISSUE-TEMPLATE.md", renderTemplate("spec/development/ISSUE-TEMPLATE.md", projectName)],
+    ["AGENTS.md", renderTemplate("AGENTS.md", { [PROJECT_NAME_TOKEN]: projectName })],
+    ["CLAUDE.md", renderTemplate("CLAUDE.md", { [PROJECT_NAME_TOKEN]: projectName })],
+    [
+      "README.md",
+      renderTemplate("README.md", { [PROJECT_NAME_TOKEN]: projectName, [GATE_COMMAND_TOKEN]: gateCommand }),
+    ],
+    [".vivicy/canonical/README.md", renderTemplate(".vivicy/canonical/README.md", { [PROJECT_NAME_TOKEN]: projectName })],
+    [".vivicy/development/ISSUE-TEMPLATE.md", renderTemplate(".vivicy/development/ISSUE-TEMPLATE.md", { [PROJECT_NAME_TOKEN]: projectName })],
   ]
   for (const [rel, contents] of templateFiles) {
     const w = writeIfMissing(at(rel), contents)
     if (w) written.push(w)
   }
 
-  // 3. Generated root files (gate config, .gitignore, README). Never clobbered.
+  // 3. Generated root files (gate config, .gitignore). Never clobbered.
   const generatedFiles: Array<[string, string]> = [
     [VIVICY_CONFIG_FILENAME, vivicyConfig(gateCommand)],
     [".gitignore", gitignore()],
-    ["README.md", readme(projectName, gateCommand)],
   ]
   for (const [rel, contents] of generatedFiles) {
     const w = writeIfMissing(at(rel), contents)

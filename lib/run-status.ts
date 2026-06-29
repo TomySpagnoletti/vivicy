@@ -30,7 +30,7 @@ export function resolveRunPhase(status: RunStatus): RunPhase {
   }
   if (status.issues_total > 0 && status.issues_done >= status.issues_total) return "done"
   if (verdict.startsWith("STALE")) return "stalled"
-  if (status.gates?.fail > 0 && status.issues_done < status.issues_total) return "blocked"
+  if (status.gates.fail > 0 && status.issues_done < status.issues_total) return "blocked"
   return "idle"
 }
 
