@@ -22,7 +22,6 @@
       "sourceRefs": [
         ".vivicy/canonical/01-architecture.md:21"
       ],
-      "sourceExcerptSha256": "74bfef50faaddb4a1d64b3364726941a7228fd1416b6d354e8361ff85a77c3b7",
       "dependsOn": [],
       "blocks": [],
       "disposition": "must_implement",
@@ -49,7 +48,6 @@
       "sourceRefs": [
         ".vivicy/canonical/01-architecture.md:29"
       ],
-      "sourceExcerptSha256": "8f2229aea650b2bb1b995a0e4cea026cc57a4a069e8bba08d2db962aa58dd8da",
       "dependsOn": [],
       "blocks": [],
       "disposition": "must_implement",
@@ -77,7 +75,6 @@
         ".vivicy/canonical/01-architecture.md:21",
         ".vivicy/canonical/01-architecture.md:25"
       ],
-      "sourceExcerptSha256": "2fbb17d0e517f61e374e4ecf9494eae7b53f4ff2bcd73493fa20f5329e042c22",
       "dependsOn": [],
       "blocks": [],
       "disposition": "must_implement",
@@ -104,7 +101,6 @@
       "sourceRefs": [
         ".vivicy/canonical/02-ledger-model.md:7-13"
       ],
-      "sourceExcerptSha256": "02957ffca41f2463059f0915544b6819d7310e03c151abd2ec17be38fa5729aa",
       "dependsOn": [],
       "blocks": [],
       "disposition": "must_implement",
@@ -131,7 +127,6 @@
       "sourceRefs": [
         ".vivicy/canonical/02-ledger-model.md:17-19"
       ],
-      "sourceExcerptSha256": "7a89a9c17465680950274d72cb40fe57294473bd330f51f48a01660615f326d8",
       "dependsOn": [],
       "blocks": [],
       "disposition": "must_implement",
@@ -158,7 +153,6 @@
       "sourceRefs": [
         ".vivicy/canonical/02-ledger-model.md:23"
       ],
-      "sourceExcerptSha256": "53b505ebf7b313fe6caa9d73ad79ed0c359a93cdb82a76b03e3be8d1fd124a6a",
       "dependsOn": [],
       "blocks": [],
       "disposition": "must_implement",
@@ -185,7 +179,6 @@
       "sourceRefs": [
         ".vivicy/canonical/02-ledger-model.md:27"
       ],
-      "sourceExcerptSha256": "4cb660517f75539393d920963d8449d239595ababa8522daa5dce60b318dcfec",
       "dependsOn": [],
       "blocks": [],
       "disposition": "must_implement",
@@ -213,7 +206,6 @@
         ".vivicy/canonical/03-category-rules.md:7",
         ".vivicy/canonical/03-category-rules.md:11"
       ],
-      "sourceExcerptSha256": "b9c227d7b8063b570b0009b099281336517f6965c76033f95aa3095a1fac3ef0",
       "dependsOn": [],
       "blocks": [],
       "disposition": "must_implement",
@@ -240,7 +232,6 @@
       "sourceRefs": [
         ".vivicy/canonical/03-category-rules.md:15"
       ],
-      "sourceExcerptSha256": "73de57ff54be1a244040c4534f9797078c698487d0a6f1f10de6a869c3a8ca62",
       "dependsOn": [],
       "blocks": [],
       "disposition": "must_implement",
@@ -267,7 +258,6 @@
       "sourceRefs": [
         ".vivicy/canonical/03-category-rules.md:19"
       ],
-      "sourceExcerptSha256": "c913a75100cb06c2b32792e02eb5debbc6b47b10d266c05b29153bafd2e7fea4",
       "dependsOn": [],
       "blocks": [],
       "disposition": "must_implement",
@@ -294,7 +284,6 @@
       "sourceRefs": [
         ".vivicy/canonical/03-category-rules.md:23"
       ],
-      "sourceExcerptSha256": "4ee99b01875ef5368819842b22dcb36d75662e0bcbf51336d94024313db4e47f",
       "dependsOn": [],
       "blocks": [],
       "disposition": "must_implement",
@@ -322,7 +311,6 @@
         ".vivicy/canonical/04-reporting.md:7",
         ".vivicy/canonical/04-reporting.md:11-13"
       ],
-      "sourceExcerptSha256": "c0a2aa1416ce33fa9f3021083c2c64e344865da3fab2c240b5b62246388a9a20",
       "dependsOn": [],
       "blocks": [],
       "disposition": "must_implement",
@@ -349,7 +337,6 @@
       "sourceRefs": [
         ".vivicy/canonical/04-reporting.md:17"
       ],
-      "sourceExcerptSha256": "bc84ef9cee97834b691d40874281cb62b7f3e2fa78ad2d9585aea328e88c24ab",
       "dependsOn": [],
       "blocks": [],
       "disposition": "must_implement",
@@ -377,7 +364,6 @@
         ".vivicy/canonical/04-reporting.md:21",
         ".vivicy/canonical/04-reporting.md:23"
       ],
-      "sourceExcerptSha256": "4e9e81f33736b4b869c479ad03a32fe57f0fb730bf3685db04b6dd4e56f18df2",
       "dependsOn": [],
       "blocks": [],
       "disposition": "must_implement",
@@ -405,7 +391,6 @@
         ".vivicy/canonical/05-csv-export.md:7",
         ".vivicy/canonical/05-csv-export.md:11"
       ],
-      "sourceExcerptSha256": "5c094dd6c20d7d384f8a93dfc96a1e014e98830e75a34969dec4787d4a38338a",
       "dependsOn": [],
       "blocks": [],
       "disposition": "must_implement",
@@ -432,7 +417,6 @@
       "sourceRefs": [
         ".vivicy/canonical/05-csv-export.md:15"
       ],
-      "sourceExcerptSha256": "62633fa3d13edf44292996d101439ea2069bcb4dc2bc647f6bc0dcea1be285c8",
       "dependsOn": [],
       "blocks": [],
       "disposition": "must_implement",
@@ -459,7 +443,6 @@
       "sourceRefs": [
         ".vivicy/canonical/05-csv-export.md:19"
       ],
-      "sourceExcerptSha256": "279092b6144fbda311c4c3ddc9baa981a6451739848944983240c1bf6b820b9b",
       "dependsOn": [],
       "blocks": [],
       "disposition": "must_implement",
@@ -486,7 +469,6 @@
       "sourceRefs": [
         ".vivicy/canonical/05-csv-export.md:23"
       ],
-      "sourceExcerptSha256": "0c70bc99a1d12a26e37ed8037f15aee0b6e63c646574f9451985d8e26a872e0e",
       "dependsOn": [],
       "blocks": [],
       "disposition": "must_implement",
@@ -515,7 +497,6 @@
         ".vivicy/canonical/06-cli.md:11",
         ".vivicy/canonical/06-cli.md:13-16"
       ],
-      "sourceExcerptSha256": "9c28d3fe128e32fdc19140c97dcbe1f2f5185f4facc848bb83ddde84ede5565f",
       "dependsOn": [],
       "blocks": [],
       "disposition": "must_implement",
@@ -542,7 +523,6 @@
       "sourceRefs": [
         ".vivicy/canonical/06-cli.md:20"
       ],
-      "sourceExcerptSha256": "6a54849a5539c293c744acd341bbeb430d0b0c797c34f7951b8abaa884e29845",
       "dependsOn": [],
       "blocks": [],
       "disposition": "must_implement",
@@ -569,7 +549,6 @@
       "sourceRefs": [
         ".vivicy/canonical/06-cli.md:24"
       ],
-      "sourceExcerptSha256": "a618fa543b8cb6f85641570850f7f166d05aba55795cb03f824b8dc5a947771b",
       "dependsOn": [],
       "blocks": [],
       "disposition": "must_implement",

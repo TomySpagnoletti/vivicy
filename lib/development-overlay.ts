@@ -179,6 +179,12 @@ function validateGraphItemState(
       evidenceRefChecker(evidenceRef, `Progress graph item state ${graph_ref}`)
     }
   }
+  // Status discipline (the architecture-map method's overlay rules): a graph item stays
+  // not_started until real evidence exists — implemented/blocked/verified each REQUIRE
+  // non-empty evidence_refs, so status never optimistically advances ahead of proof, and
+  // verified additionally requires a verification-gate ref (below). `blocked` evidence may
+  // point to the blocking issue, an unresolved decision, missing access, an external
+  // condition, or a failed gate — it need NOT point to implemented code.
   if ((statusNeedsEvidence(input.status) || input.status === "verified") && evidenceRefs.length === 0) {
     throw new Error(`Progress graph item state ${graph_ref} status ${String(input.status)} requires evidence_refs`)
   }
@@ -295,7 +301,12 @@ export function nodeGraphRef(nodeId: string): string {
   return `node:${nodeId}`
 }
 
-/** Canonical edge graph_ref, mirroring the source-map / generator convention. */
+/**
+ * Canonical edge graph_ref, mirroring the source-map / generator convention. Edges are
+ * STRUCTURAL in the target map (EdgeSpec carries no status/evidence field); edge-level
+ * implementation progress would require a deliberate overlay-schema extension adding
+ * edge-status and edge-evidence validation rules — it is intentionally not modeled yet.
+ */
 export function edgeGraphRef(edge: {
   from: string
   to: string
@@ -307,6 +318,11 @@ export function edgeGraphRef(edge: {
   )}`
 }
 
+// INVARIANT (architecture-map method): overlay tooling consumes the generator-emitted
+// graph_refs VERBATIM and never recomputes slugs independently. This copy exists only
+// because the bundler cannot share the generator's `slugGraphRefPart` across the
+// generator/overlay split — it MUST stay byte-for-byte identical to
+// generate-viewer-data.ts's `slugGraphRefPart`; any drift between the two is a bug.
 function slugGraphRefPart(value: string): string {
   return value
     .trim()

@@ -9,7 +9,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { FACTORY_PROMPTS_DIR } from "./target-root.mjs";
 
-const PROMPTS = ["implementer.md", "reviewer.md", "extractor.md", "extraction-verifier.md"];
+const PROMPTS = ["implementer.md", "reviewer.md", "extractor.md", "extraction-verifier.md", "map-review.md", "change-request.md"];
 
 function readPrompt(name) {
   return readFileSync(join(FACTORY_PROMPTS_DIR, name), "utf8");
@@ -46,10 +46,58 @@ test("extractor.md is self-contained: carries the corpus schemas without a targe
   assert.match(text, /Traceability Matrix/);
   assert.match(text, /issue-index\.json/);
   assert.match(text, /architecture-map\.yml/);
+  assert.match(text, /owner-provided graph/i, "extractor must refine an owner-provided architecture map in place, not discard it");
+  assert.match(text, /Preserve every existing node's `layout_x`/i, "extractor must preserve manual node/edge placements verbatim");
+});
+
+test("extractor.md carries the spike evidence-gate and the normative-detection floor", () => {
+  const text = readPrompt("extractor.md");
+  assert.match(text, /SPIKE-TEMPLATE\.md/, "extractor must point at the spike template");
+  assert.match(text, /must_verify_with_spike/, "extractor must mint spike obligations");
+  assert.match(text, /gate:phase0:s/, "extractor must wire the spike gate id");
+  assert.match(text, /REUSE the spikes the owner already provided/i, "extractor must reuse owner-provided spikes, not just mint");
+  assert.match(text, /Normative detection floor/i, "extractor must carry the normative floor");
+});
+
+test("extraction-verifier.md verifies spike evidence", () => {
+  const text = readPrompt("extraction-verifier.md");
+  assert.match(text, /Spike evidence/i, "verifier must carry the spike-evidence lens");
+  assert.match(text, /spike_evidence_gap/, "verifier must offer the spike_evidence_gap problem kind");
 });
 
 test("reviewer.md is self-contained: carries the public-API review checklist", () => {
   const text = readPrompt("reviewer.md");
   assert.match(text, /Public-API review checklist/i);
   assert.match(text, /Garbage-input degradation/i);
+});
+
+test("extractor.md carries the architecture-map authoring craft (passes, layout storyboard, anti-patterns, conflict fix)", () => {
+  const text = readPrompt("extractor.md");
+  assert.match(text, /Pass 1 — Canonical decisions/i);
+  assert.match(text, /Pass 2 — Nodes/i);
+  assert.match(text, /Pass 3 — Edges/i);
+  assert.match(text, /Pass 4 — Source-ref audit/i);
+  assert.match(text, /operational storyboard/i, "the layout method narrative");
+  assert.match(text, /Anti-patterns — never author these/i);
+  assert.match(text, /Resolving a canonical contradiction/i, "the agent edits canonical + re-freeze, no change-request");
+});
+
+test("change-request.md carries the post-freeze Change-Control discipline", () => {
+  const text = readPrompt("change-request.md");
+  assert.match(text, /Change Request agent/i);
+  assert.match(text, /guided intake/i);
+  assert.match(text, /accepted_current_build/);
+  assert.match(text, /owner_decision_evidence/);
+  assert.match(text, /never silently edit/i, "the agent must not silently patch the frozen canonical");
+  assert.match(text, /CR-TEMPLATE\.md/);
+});
+
+test("map-review.md carries the independent per-lens review method", () => {
+  const text = readPrompt("map-review.md");
+  assert.match(text, /independent domain-expert reviewer/i);
+  assert.match(text, /ONE lens/i);
+  assert.match(text, /seven systemic passes/i);
+  assert.match(text, /Source-of-truth audit/i);
+  assert.match(text, /findings/i);
+  assert.match(text, /never a human reviewing/i);
 });

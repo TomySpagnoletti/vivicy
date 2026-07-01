@@ -1,0 +1,134 @@
+{
+  "baseline_id": "baseline-v1.0.0",
+  "baseline_version": "1.0.0",
+  "files": [
+    {
+      "auto_lines": 8,
+      "covered_lines": 12,
+      "excluded_lines": 7,
+      "path": ".vivicy/canonical/01-architecture.md",
+      "total_lines": 27,
+      "uncovered_lines": 0,
+      "uncovered_ranges": []
+    },
+    {
+      "auto_lines": 7,
+      "covered_lines": 15,
+      "excluded_lines": 1,
+      "path": ".vivicy/canonical/02-tokenizer.md",
+      "total_lines": 23,
+      "uncovered_lines": 0,
+      "uncovered_ranges": []
+    },
+    {
+      "auto_lines": 7,
+      "covered_lines": 15,
+      "excluded_lines": 1,
+      "path": ".vivicy/canonical/03-parser.md",
+      "total_lines": 23,
+      "uncovered_lines": 0,
+      "uncovered_ranges": []
+    },
+    {
+      "auto_lines": 7,
+      "covered_lines": 15,
+      "excluded_lines": 1,
+      "path": ".vivicy/canonical/04-evaluator.md",
+      "total_lines": 23,
+      "uncovered_lines": 0,
+      "uncovered_ranges": []
+    },
+    {
+      "auto_lines": 7,
+      "covered_lines": 15,
+      "excluded_lines": 1,
+      "path": ".vivicy/canonical/05-sheet-model.md",
+      "total_lines": 23,
+      "uncovered_lines": 0,
+      "uncovered_ranges": []
+    },
+    {
+      "auto_lines": 6,
+      "covered_lines": 12,
+      "excluded_lines": 1,
+      "path": ".vivicy/canonical/06-recalculation.md",
+      "total_lines": 19,
+      "uncovered_lines": 0,
+      "uncovered_ranges": []
+    },
+    {
+      "auto_lines": 6,
+      "covered_lines": 12,
+      "excluded_lines": 1,
+      "path": ".vivicy/canonical/07-errors.md",
+      "total_lines": 19,
+      "uncovered_lines": 0,
+      "uncovered_ranges": []
+    },
+    {
+      "auto_lines": 6,
+      "covered_lines": 12,
+      "excluded_lines": 1,
+      "path": ".vivicy/canonical/08-functions-core.md",
+      "total_lines": 19,
+      "uncovered_lines": 0,
+      "uncovered_ranges": []
+    },
+    {
+      "auto_lines": 6,
+      "covered_lines": 12,
+      "excluded_lines": 1,
+      "path": ".vivicy/canonical/09-functions-math.md",
+      "total_lines": 19,
+      "uncovered_lines": 0,
+      "uncovered_ranges": []
+    },
+    {
+      "auto_lines": 6,
+      "covered_lines": 12,
+      "excluded_lines": 1,
+      "path": ".vivicy/canonical/10-functions-logical.md",
+      "total_lines": 19,
+      "uncovered_lines": 0,
+      "uncovered_ranges": []
+    },
+    {
+      "auto_lines": 6,
+      "covered_lines": 12,
+      "excluded_lines": 1,
+      "path": ".vivicy/canonical/11-functions-text.md",
+      "total_lines": 19,
+      "uncovered_lines": 0,
+      "uncovered_ranges": []
+    },
+    {
+      "auto_lines": 5,
+      "covered_lines": 9,
+      "excluded_lines": 1,
+      "path": ".vivicy/canonical/12-functions-lookup.md",
+      "total_lines": 15,
+      "uncovered_lines": 0,
+      "uncovered_ranges": []
+    },
+    {
+      "auto_lines": 6,
+      "covered_lines": 12,
+      "excluded_lines": 1,
+      "path": ".vivicy/canonical/13-public-api.md",
+      "total_lines": 19,
+      "uncovered_lines": 0,
+      "uncovered_ranges": []
+    }
+  ],
+  "schema_version": 1,
+  "strict": false,
+  "totals": {
+    "auto_lines": 83,
+    "covered_lines": 165,
+    "doc_files": 13,
+    "excluded_lines": 19,
+    "total_lines": 267,
+    "uncovered_lines": 0
+  },
+  "warnings": []
+}

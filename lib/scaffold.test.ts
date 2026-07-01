@@ -150,11 +150,19 @@ describe("scaffoldProject — from scratch (lean, language-agnostic)", () => {
       ".vivicy/baselines",
       ".vivicy/architecture-map",
       ".vivicy/development/issues",
+      ".vivicy/development/spikes",
       ".vivicy/development/reports",
       ".vivicy/requirements",
     ]) {
       expect(existsSync(path.join(target, dir, ".gitkeep")), `missing ${dir}/.gitkeep`).toBe(true)
     }
+
+    // The spike evidence-gate template ships alongside the issue template.
+    expect(existsSync(path.join(target, ".vivicy/development/SPIKE-TEMPLATE.md")), "SPIKE-TEMPLATE shipped").toBe(true)
+
+    // The post-freeze Change-Request registry ships its template + readme.
+    expect(existsSync(path.join(target, ".vivicy/change-requests/CR-TEMPLATE.md")), "CR-TEMPLATE shipped").toBe(true)
+    expect(existsSync(path.join(target, ".vivicy/change-requests/README.md")), "change-requests README shipped").toBe(true)
 
     // Name substitution: AGENTS.md carries the real name, never the raw token.
     const agents = readFileSync(path.join(target, "AGENTS.md"), "utf8")

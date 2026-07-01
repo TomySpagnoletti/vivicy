@@ -1,0 +1,452 @@
+{
+  "schema_version": 1,
+  "baseline_id": "baseline-v1.0.0",
+  "baseline_version": "1.0.0",
+  "manifest_path": ".vivicy/baselines/baseline-v1.0.0.json",
+  "manifest_hash": "6278d06998e2c12364010498c54f206554a481e69bd1bbbf32705e46ce8ad0b4",
+  "document_set_hash": "64212ab7f1874f034e8b505d530f0b9d549ebab7000af7af6a6594873c8b35c8",
+  "source_corpus": [".vivicy/canonical/**/*.md"],
+  "source_ref_grammar": ".vivicy/canonical/<file>.md:<start>[-<end>]",
+  "requirements": [
+    {
+      "id": "REQ-ERR-001",
+      "statement": "The engine defines exactly four spreadsheet error values: #DIV/0! for division by zero, #VALUE! for a wrong-type or uncoercible operand, a malformed or unparseable formula, or an operation with no valid result, #NAME? for an unknown function name or unlexable input, and #REF! for an invalid or cyclic reference. Each error value is a distinct, comparable sentinel and is never a plain string that could collide with cell text.",
+      "sourceRefs": [".vivicy/canonical/07-errors.md:5-7"],
+      "maturity": "mvp",
+      "disposition": "must_implement",
+      "coveredByIssues": ["ISS-0001"]
+    },
+    {
+      "id": "REQ-ERR-002",
+      "statement": "An error value propagates through every operator and, by default, through every function: if an operand of an operator or an argument of a function is an error value, the operation yields that same error value, and when several are errors the first in left-to-right evaluation order is propagated. A function's own contract may override this default.",
+      "sourceRefs": [".vivicy/canonical/07-errors.md:9-11"],
+      "maturity": "mvp",
+      "disposition": "must_implement",
+      "coveredByIssues": ["ISS-0001"]
+    },
+    {
+      "id": "REQ-ERR-003",
+      "statement": "The engine exposes a predicate that reports whether a value is an error value and a reader that returns the error's code string. A function may inspect an argument to decide its result, but error values are never silently coerced to numbers, strings, or booleans.",
+      "sourceRefs": [".vivicy/canonical/07-errors.md:13-15"],
+      "maturity": "mvp",
+      "disposition": "must_implement",
+      "coveredByIssues": ["ISS-0001"]
+    },
+    {
+      "id": "REQ-ERR-004",
+      "statement": "The four error codes are a fixed, closed set defined once and reused everywhere; no module invents a new error code or reformats an existing one. The exact code strings are part of the public contract and never change.",
+      "sourceRefs": [".vivicy/canonical/07-errors.md:17-19"],
+      "maturity": "mvp",
+      "disposition": "must_implement",
+      "coveredByIssues": ["ISS-0001"]
+    },
+    {
+      "id": "REQ-ARCH-005",
+      "statement": "Evaluation never throws for a spreadsheet-level error; instead it produces one of the typed error values and propagates it. Any operand that is already an error value makes the whole expression evaluate to that same error value.",
+      "sourceRefs": [".vivicy/canonical/01-architecture.md:25-27"],
+      "maturity": "mvp",
+      "disposition": "must_implement",
+      "coveredByIssues": ["ISS-0001"]
+    },
+    {
+      "id": "REQ-CELLREF-001",
+      "statement": "A cell address is an A1 string with one or more column letters followed by a one-based row number, such as A1 or AB12; column letters are case-insensitive and normalized to upper case. The CellRef module converts an address to and from a zero-based column index and zero-based row index, and rejects a syntactically invalid address.",
+      "sourceRefs": [".vivicy/canonical/05-sheet-model.md:5-7"],
+      "maturity": "mvp",
+      "disposition": "must_implement",
+      "coveredByIssues": ["ISS-0002"]
+    },
+    {
+      "id": "REQ-CELLREF-002",
+      "statement": "A range is two cell addresses separated by a colon, such as A1:B3. The CellRef module expands a range into the ordered list of addresses it covers, iterating row by row from the top-left corner to the bottom-right corner, and normalizes a reversed range so the smaller column and row come first.",
+      "sourceRefs": [".vivicy/canonical/05-sheet-model.md:9-11"],
+      "maturity": "mvp",
+      "disposition": "must_implement",
+      "coveredByIssues": ["ISS-0002"]
+    },
+    {
+      "id": "REQ-SHEET-001",
+      "statement": "The Sheet stores a value per cell address keyed by its normalized A1 address; setting a cell records its value as the single source of truth, and reading an address that was never set returns an empty cell value rather than throwing. The Sheet is the only owner of stored cell values.",
+      "sourceRefs": [".vivicy/canonical/05-sheet-model.md:13-15"],
+      "maturity": "mvp",
+      "disposition": "must_implement",
+      "coveredByIssues": ["ISS-0003"]
+    },
+    {
+      "id": "REQ-SHEET-002",
+      "statement": "The Sheet reads a single cell value by address and a range of cell values as a rectangular block of its rows and columns. Returned range blocks are copies, so mutating a returned block never alters stored cell values, and reading is a pure query that never changes stored state.",
+      "sourceRefs": [".vivicy/canonical/05-sheet-model.md:17-19"],
+      "maturity": "mvp",
+      "disposition": "must_implement",
+      "coveredByIssues": ["ISS-0003"]
+    },
+    {
+      "id": "REQ-TOK-001",
+      "statement": "The Tokenizer turns a formula string into a flat, ordered list of tokens. It performs lexical analysis only: it recognizes token kinds but never interprets precedence or structure.",
+      "sourceRefs": [".vivicy/canonical/02-tokenizer.md:5-7"],
+      "maturity": "mvp",
+      "disposition": "must_implement",
+      "coveredByIssues": ["ISS-0004"]
+    },
+    {
+      "id": "REQ-TOK-002",
+      "statement": "The Tokenizer emits these token kinds: number for numeric literals, string for double-quoted string literals, ref for an A1 cell reference or range, name for a bare identifier such as a function name, operator for one of the arithmetic or comparison operators, lparen and rparen for parentheses, comma for an argument separator, and eof at the end of input.",
+      "sourceRefs": [".vivicy/canonical/02-tokenizer.md:9-11"],
+      "maturity": "mvp",
+      "disposition": "must_implement",
+      "coveredByIssues": ["ISS-0004"]
+    },
+    {
+      "id": "REQ-TOK-003",
+      "statement": "A number token matches an optional integer part, an optional fractional part introduced by a decimal point, and an optional exponent, and the lexeme is converted to a JavaScript number. A string token is delimited by double quotes, and a doubled double quote inside the literal encodes a single literal double quote.",
+      "sourceRefs": [".vivicy/canonical/02-tokenizer.md:13-15"],
+      "maturity": "mvp",
+      "disposition": "must_implement",
+      "coveredByIssues": ["ISS-0004"]
+    },
+    {
+      "id": "REQ-TOK-004",
+      "statement": "A ref token matches an A1 cell reference such as A1 or BC12, optionally followed by a colon and a second A1 reference to form a range such as A1:B3. A name token matches a letter followed by letters or digits and is used for function names; a name is only produced when the identifier is not a valid A1 reference.",
+      "sourceRefs": [".vivicy/canonical/02-tokenizer.md:17-19"],
+      "maturity": "mvp",
+      "disposition": "must_implement",
+      "coveredByIssues": ["ISS-0004"]
+    },
+    {
+      "id": "REQ-TOK-005",
+      "statement": "Spaces and tabs between tokens are skipped and never produce a token. Any character that cannot begin a valid token makes the Tokenizer report a #NAME? error result rather than throwing.",
+      "sourceRefs": [".vivicy/canonical/02-tokenizer.md:21-23"],
+      "maturity": "mvp",
+      "disposition": "must_implement",
+      "coveredByIssues": ["ISS-0004"]
+    },
+    {
+      "id": "REQ-PARSE-001",
+      "statement": "The Parser consumes the Tokenizer's token list and produces an abstract syntax tree. It is a precedence-climbing (Pratt) parser that encodes operator precedence and associativity.",
+      "sourceRefs": [".vivicy/canonical/03-parser.md:5-7"],
+      "maturity": "mvp",
+      "disposition": "must_implement",
+      "coveredByIssues": ["ISS-0005"]
+    },
+    {
+      "id": "REQ-PARSE-002",
+      "statement": "The Parser produces these AST node kinds: number and string literal nodes, a ref node carrying a cell reference or range, a unary node for a prefix operator, a binary node for an infix operator with a left and right child, and a call node carrying a function name and an ordered list of argument nodes.",
+      "sourceRefs": [".vivicy/canonical/03-parser.md:9-11"],
+      "maturity": "mvp",
+      "disposition": "must_implement",
+      "coveredByIssues": ["ISS-0005"]
+    },
+    {
+      "id": "REQ-PARSE-003",
+      "statement": "Comparison operators bind most loosely, then addition and subtraction, then multiplication and division, then exponentiation; the arithmetic operators are left-associative except exponentiation, which is right-associative. A unary minus binds tighter than any binary operator. Parentheses override precedence by grouping a sub-expression.",
+      "sourceRefs": [".vivicy/canonical/03-parser.md:13-15"],
+      "maturity": "mvp",
+      "disposition": "must_implement",
+      "coveredByIssues": ["ISS-0005"]
+    },
+    {
+      "id": "REQ-PARSE-004",
+      "statement": "A name token immediately followed by a left parenthesis begins a function call; arguments are expressions separated by commas, and an empty argument list is allowed. The function name is preserved verbatim so the Evaluator can look it up in the Registry.",
+      "sourceRefs": [".vivicy/canonical/03-parser.md:17-19"],
+      "maturity": "mvp",
+      "disposition": "must_implement",
+      "coveredByIssues": ["ISS-0005"]
+    },
+    {
+      "id": "REQ-PARSE-005",
+      "statement": "A token sequence that does not form a complete expression, an unmatched parenthesis, or a trailing token after a complete expression makes the Parser report a #VALUE! error result rather than throwing.",
+      "sourceRefs": [".vivicy/canonical/03-parser.md:21-23"],
+      "maturity": "mvp",
+      "disposition": "must_implement",
+      "coveredByIssues": ["ISS-0005"]
+    },
+    {
+      "id": "REQ-REG-001",
+      "statement": "The function Registry maps an upper-cased function name to a function implementation. Lookup is case-insensitive, so sum, Sum, and SUM resolve to the same implementation, and a name with no registered implementation resolves to nothing so the Evaluator can raise #NAME?.",
+      "sourceRefs": [".vivicy/canonical/08-functions-core.md:5-7"],
+      "maturity": "mvp",
+      "disposition": "must_implement",
+      "coveredByIssues": ["ISS-0006"]
+    },
+    {
+      "id": "REQ-REG-002",
+      "statement": "Every registered function receives its already-evaluated arguments as an ordered list, error values included, and returns a single value. By default an error argument is resolved by propagation before any coercion: the function returns the first error value among its arguments, then applies its coercion and type rules to the remaining non-error values. Error-aware functions (IF on its condition, VLOOKUP on its key, and the error predicate and error-code reader) inspect an error argument to decide their result; error-skipping functions (COUNT) filter error values out instead of propagating. A function never reads the Sheet directly and never throws for a domain error, returning a typed error value instead.",
+      "sourceRefs": [".vivicy/canonical/08-functions-core.md:9-11"],
+      "maturity": "mvp",
+      "disposition": "must_implement",
+      "coveredByIssues": ["ISS-0006"]
+    },
+    {
+      "id": "REQ-REG-003",
+      "statement": "A function that expects a number coerces a boolean to 1 for true and 0 for false, parses a numeric string, and treats an empty cell value as 0; a value that cannot be coerced yields a #VALUE! error value. A function that expects text coerces a number or boolean to its text form.",
+      "sourceRefs": [".vivicy/canonical/08-functions-core.md:13-15"],
+      "maturity": "mvp",
+      "disposition": "must_implement",
+      "coveredByIssues": ["ISS-0006"]
+    },
+    {
+      "id": "REQ-REG-004",
+      "statement": "When an argument is a range, the function receives the range's rectangular block of cell values. An aggregating function reduces that block over its values in row-by-row order and skips empty cell values; a wrong-type value inside a range yields a #VALUE! error value for functions that compute over numbers, except a pure counting function, which skips any value that is not a number. A lookup function instead reads the block by its rows and columns.",
+      "sourceRefs": [".vivicy/canonical/08-functions-core.md:17-19"],
+      "maturity": "mvp",
+      "disposition": "must_implement",
+      "coveredByIssues": ["ISS-0006"]
+    },
+    {
+      "id": "REQ-FNMATH-001",
+      "statement": "SUM returns the sum of its numeric arguments, AVERAGE returns their arithmetic mean, MIN returns the smallest and MAX the largest, and COUNT returns how many arguments are already numbers before any coercion. SUM, MIN, and MAX over no numeric values return 0, while AVERAGE over no numeric values returns a #DIV/0! error value.",
+      "sourceRefs": [".vivicy/canonical/09-functions-math.md:5-7"],
+      "maturity": "mvp",
+      "disposition": "must_implement",
+      "coveredByIssues": ["ISS-0007"]
+    },
+    {
+      "id": "REQ-FNMATH-002",
+      "statement": "Aggregation functions accept any mix of scalar arguments and ranges, flatten ranges in range order, skip empty cell values, and coerce booleans and numeric strings to numbers. COUNT counts only values that are already numbers, applying no coercion, and never counts empty cells; a non-coercible value yields a #VALUE! error value for SUM, AVERAGE, MIN, and MAX.",
+      "sourceRefs": [".vivicy/canonical/09-functions-math.md:9-11"],
+      "maturity": "mvp",
+      "disposition": "must_implement",
+      "coveredByIssues": ["ISS-0007"]
+    },
+    {
+      "id": "REQ-FNMATH-003",
+      "statement": "ROUND(number, digits) rounds the number to the given number of decimal digits using round-half-away-from-zero, where a negative digits rounds to the left of the decimal point. ABS(number) returns the absolute value of its single numeric argument.",
+      "sourceRefs": [".vivicy/canonical/09-functions-math.md:13-15"],
+      "maturity": "mvp",
+      "disposition": "must_implement",
+      "coveredByIssues": ["ISS-0007"]
+    },
+    {
+      "id": "REQ-FNMATH-004",
+      "statement": "MOD(number, divisor) returns the remainder of number divided by divisor and carries the sign of the divisor, and a divisor of zero yields a #DIV/0! error value. POWER(base, exponent) raises base to exponent and yields a #VALUE! error value when the result is not a finite real number.",
+      "sourceRefs": [".vivicy/canonical/09-functions-math.md:17-19"],
+      "maturity": "mvp",
+      "disposition": "must_implement",
+      "coveredByIssues": ["ISS-0007"]
+    },
+    {
+      "id": "REQ-FNLOGIC-001",
+      "statement": "A logical function treats a boolean as itself, a number as false when it is zero and true otherwise, and an empty cell value as false; a value being truthiness-tested that is an error value propagates unchanged, and any other value that is neither boolean, number, nor empty yields a #VALUE! error value. Logical functions return a boolean except IF, which returns one of its branch values.",
+      "sourceRefs": [".vivicy/canonical/10-functions-logical.md:5-7"],
+      "maturity": "mvp",
+      "disposition": "must_implement",
+      "coveredByIssues": ["ISS-0008"]
+    },
+    {
+      "id": "REQ-FNLOGIC-002",
+      "statement": "IF(condition, whenTrue, whenFalse) evaluates the condition to a boolean and returns whenTrue when it is true and whenFalse when it is false. When the condition is an error value, IF returns that error value, and a missing third argument defaults its false branch to the boolean false.",
+      "sourceRefs": [".vivicy/canonical/10-functions-logical.md:9-11"],
+      "maturity": "mvp",
+      "disposition": "must_implement",
+      "coveredByIssues": ["ISS-0008"]
+    },
+    {
+      "id": "REQ-FNLOGIC-003",
+      "statement": "AND returns true only when every argument is truthy and false otherwise, while OR returns true when at least one argument is truthy and false otherwise. Both accept ranges, flatten them in range order, skip empty cell values, and require at least one non-empty argument.",
+      "sourceRefs": [".vivicy/canonical/10-functions-logical.md:13-15"],
+      "maturity": "mvp",
+      "disposition": "must_implement",
+      "coveredByIssues": ["ISS-0008"]
+    },
+    {
+      "id": "REQ-FNLOGIC-004",
+      "statement": "NOT(value) returns the boolean negation of its single argument's truthiness: true becomes false and false becomes true. NOT requires exactly one argument and yields a #VALUE! error value when given the wrong number of arguments.",
+      "sourceRefs": [".vivicy/canonical/10-functions-logical.md:17-19"],
+      "maturity": "mvp",
+      "disposition": "must_implement",
+      "coveredByIssues": ["ISS-0008"]
+    },
+    {
+      "id": "REQ-FNTEXT-001",
+      "statement": "CONCAT joins all of its arguments into one string in argument order, coercing numbers and booleans to their text form and treating an empty cell value as the empty string. LEN(text) returns the number of characters in its single text argument after coercion.",
+      "sourceRefs": [".vivicy/canonical/11-functions-text.md:5-7"],
+      "maturity": "mvp",
+      "disposition": "must_implement",
+      "coveredByIssues": ["ISS-0009"]
+    },
+    {
+      "id": "REQ-FNTEXT-002",
+      "statement": "UPPER(text) returns its argument with every letter in upper case and LOWER(text) returns it with every letter in lower case. TRIM(text) removes leading and trailing spaces and collapses each run of internal spaces to a single space.",
+      "sourceRefs": [".vivicy/canonical/11-functions-text.md:9-11"],
+      "maturity": "mvp",
+      "disposition": "must_implement",
+      "coveredByIssues": ["ISS-0009"]
+    },
+    {
+      "id": "REQ-FNTEXT-003",
+      "statement": "LEFT(text, count) returns the first count characters and RIGHT(text, count) returns the last count characters, where a count of zero returns the empty string and a count larger than the length returns the whole string. A negative count yields a #VALUE! error value.",
+      "sourceRefs": [".vivicy/canonical/11-functions-text.md:13-15"],
+      "maturity": "mvp",
+      "disposition": "must_implement",
+      "coveredByIssues": ["ISS-0009"]
+    },
+    {
+      "id": "REQ-FNTEXT-004",
+      "statement": "MID(text, start, count) returns count characters beginning at the one-based start position, returning the empty string when start is past the end of the text and fewer characters when the text ends first. A start below one or a negative count yields a #VALUE! error value.",
+      "sourceRefs": [".vivicy/canonical/11-functions-text.md:17-19"],
+      "maturity": "mvp",
+      "disposition": "must_implement",
+      "coveredByIssues": ["ISS-0009"]
+    },
+    {
+      "id": "REQ-FNLOOKUP-001",
+      "statement": "VLOOKUP(key, range, columnIndex, exactMatch) searches the first column of the given range for the key and returns the value in the same row at the one-based columnIndex. The range argument is a two-dimensional range of cell values, and columnIndex counts columns from one starting at the range's first column.",
+      "sourceRefs": [".vivicy/canonical/12-functions-lookup.md:5-7"],
+      "maturity": "mvp",
+      "disposition": "must_implement",
+      "coveredByIssues": ["ISS-0010"]
+    },
+    {
+      "id": "REQ-FNLOOKUP-002",
+      "statement": "When exactMatch is true, VLOOKUP returns the value from the first row whose first-column value equals the key. When exactMatch is false, the first column is assumed sorted ascending and VLOOKUP returns the value for the largest first-column entry that is less than or equal to the key.",
+      "sourceRefs": [".vivicy/canonical/12-functions-lookup.md:9-11"],
+      "maturity": "mvp",
+      "disposition": "must_implement",
+      "coveredByIssues": ["ISS-0010"]
+    },
+    {
+      "id": "REQ-FNLOOKUP-003",
+      "statement": "A columnIndex below one or greater than the range's column count yields a #REF! error value, and a key not found in exact-match mode yields a #VALUE! error value. An empty range, or a non-range value supplied as the range argument, yields a #VALUE! error value, and any error value passed as the key propagates unchanged.",
+      "sourceRefs": [".vivicy/canonical/12-functions-lookup.md:13-15"],
+      "maturity": "mvp",
+      "disposition": "must_implement",
+      "coveredByIssues": ["ISS-0010"]
+    },
+    {
+      "id": "REQ-EVAL-001",
+      "statement": "The Evaluator walks an abstract syntax tree and reduces it to a single value. It is a pure function of the tree and the Sheet it is given; it stores no state between calls.",
+      "sourceRefs": [".vivicy/canonical/04-evaluator.md:5-7"],
+      "maturity": "mvp",
+      "disposition": "must_implement",
+      "coveredByIssues": ["ISS-0011"]
+    },
+    {
+      "id": "REQ-EVAL-002",
+      "statement": "A number or string literal node evaluates to its literal value. A binary arithmetic node applies the operator to its evaluated children using JavaScript number arithmetic; a comparison node yields a boolean. A unary minus negates its evaluated child. Division whose right operand evaluates to zero produces a #DIV/0! error value.",
+      "sourceRefs": [".vivicy/canonical/04-evaluator.md:9-11"],
+      "maturity": "mvp",
+      "disposition": "must_implement",
+      "coveredByIssues": ["ISS-0011"]
+    },
+    {
+      "id": "REQ-EVAL-003",
+      "statement": "If any operand of an operator node evaluates to an error value, the node evaluates to that same error value without applying the operator, and the first error in evaluation order is propagated. A call node does not short-circuit this way: it passes its evaluated arguments, error values included, to the function, which handles errors per its own contract. An arithmetic operator applied to a non-numeric, non-coercible operand produces a #VALUE! error value.",
+      "sourceRefs": [".vivicy/canonical/04-evaluator.md:13-15"],
+      "maturity": "mvp",
+      "disposition": "must_implement",
+      "coveredByIssues": ["ISS-0011"]
+    },
+    {
+      "id": "REQ-EVAL-004",
+      "statement": "A call node resolves its function name against the Registry case-insensitively, evaluates the argument nodes left to right, and invokes the function with the evaluated arguments, error values included. A name that is not registered makes the node evaluate to a #NAME? error value.",
+      "sourceRefs": [".vivicy/canonical/04-evaluator.md:17-19"],
+      "maturity": "mvp",
+      "disposition": "must_implement",
+      "coveredByIssues": ["ISS-0011"]
+    },
+    {
+      "id": "REQ-EVAL-005",
+      "statement": "A ref node for a single cell resolves to that cell's current value through the Sheet; a ref node for a range resolves to the rectangular block of cell values the range covers, its rows and columns. A reference whose address does not exist in the Sheet contributes an empty value, and a structurally invalid reference produces a #REF! error value.",
+      "sourceRefs": [".vivicy/canonical/04-evaluator.md:21-23"],
+      "maturity": "mvp",
+      "disposition": "must_implement",
+      "coveredByIssues": ["ISS-0011"]
+    },
+    {
+      "id": "REQ-DEP-001",
+      "statement": "The DepGraph records, for each cell that holds a formula, the set of cells its formula reads. It exposes the direct dependents of a cell and computes a recalculation order. A dependency cycle is detected and reported to recalculation.",
+      "sourceRefs": [".vivicy/canonical/05-sheet-model.md:21-23"],
+      "maturity": "mvp",
+      "disposition": "must_implement",
+      "coveredByIssues": ["ISS-0012"]
+    },
+    {
+      "id": "REQ-RECALC-001",
+      "statement": "Recalculation keeps formula cells consistent with the cells they depend on. When a cell's stored value changes, every cell that transitively depends on it is recomputed in dependency order.",
+      "sourceRefs": [".vivicy/canonical/06-recalculation.md:5-7"],
+      "maturity": "mvp",
+      "disposition": "must_implement",
+      "coveredByIssues": ["ISS-0012"]
+    },
+    {
+      "id": "REQ-RECALC-002",
+      "statement": "The recalculation order is a topological sort of the dependency graph: a cell is recomputed only after every cell it reads has been recomputed. Cells that do not depend, directly or transitively, on a changed cell are not recomputed.",
+      "sourceRefs": [".vivicy/canonical/06-recalculation.md:9-11"],
+      "maturity": "mvp",
+      "disposition": "must_implement",
+      "coveredByIssues": ["ISS-0012"]
+    },
+    {
+      "id": "REQ-RECALC-003",
+      "statement": "If the dependency graph contains a cycle, the cells that participate in the cycle each resolve to a #REF! error value, and recalculation still terminates for every cell outside the cycle. A cycle never causes infinite recomputation.",
+      "sourceRefs": [".vivicy/canonical/06-recalculation.md:13-15"],
+      "maturity": "mvp",
+      "disposition": "must_implement",
+      "coveredByIssues": ["ISS-0012"]
+    },
+    {
+      "id": "REQ-RECALC-004",
+      "statement": "Given the same stored cells and the same formulas, recalculation produces the same values every time, independent of the order in which cells were set. Recalculation reads stored state through the Sheet and never mutates a cell the formula did not target.",
+      "sourceRefs": [".vivicy/canonical/06-recalculation.md:17-19"],
+      "maturity": "mvp",
+      "disposition": "must_implement",
+      "coveredByIssues": ["ISS-0012"]
+    },
+    {
+      "id": "REQ-API-001",
+      "statement": "The package exposes a single public entry function that evaluates a formula string against a sheet, plus a factory that creates an empty sheet, the error-inspection predicate, and an error-code reader that returns an error value's code string. No other module is part of the public surface; callers import only from the package entry point.",
+      "sourceRefs": [".vivicy/canonical/13-public-api.md:5-7"],
+      "maturity": "mvp",
+      "disposition": "must_implement",
+      "coveredByIssues": ["ISS-0013"]
+    },
+    {
+      "id": "REQ-API-002",
+      "statement": "evaluate(formula, sheet) accepts a formula string and a sheet, runs the formula through the Tokenizer, Parser, and Evaluator, and returns the resulting value. A leading equals sign on the formula is optional and stripped, and any lexical, parse, evaluation, or reference failure is returned as one of the typed error values rather than thrown.",
+      "sourceRefs": [".vivicy/canonical/13-public-api.md:9-11"],
+      "maturity": "mvp",
+      "disposition": "must_implement",
+      "coveredByIssues": ["ISS-0013"]
+    },
+    {
+      "id": "REQ-API-003",
+      "statement": "The factory creates an empty sheet and exposes setting a cell's literal value or formula by A1 address and reading a cell's current value. Setting a formula cell registers its dependencies so a later read reflects recalculation against the cells it references.",
+      "sourceRefs": [".vivicy/canonical/13-public-api.md:13-15"],
+      "maturity": "mvp",
+      "disposition": "must_implement",
+      "coveredByIssues": ["ISS-0013"]
+    },
+    {
+      "id": "REQ-API-004",
+      "statement": "The public functions are pure with respect to inputs other than the sheet they are given: evaluating the same formula against the same sheet returns the same value, and evaluate never mutates the sheet it reads. Errors surface only as typed error values, so a caller can branch on them with the error-inspection predicate.",
+      "sourceRefs": [".vivicy/canonical/13-public-api.md:17-19"],
+      "maturity": "mvp",
+      "disposition": "must_implement",
+      "coveredByIssues": ["ISS-0013"]
+    },
+    {
+      "id": "REQ-ARCH-002",
+      "statement": "Formula is a small, dependency-free JavaScript (ESM) library that evaluates spreadsheet formula strings against an in-memory sheet. It runs entirely in memory; it talks to no external service, database, file system, or network.",
+      "sourceRefs": [".vivicy/canonical/01-architecture.md:5-7"],
+      "maturity": "mvp",
+      "disposition": "must_implement",
+      "coveredByIssues": ["ISS-0013"]
+    },
+    {
+      "id": "REQ-ARCH-001",
+      "statement": "The Sheet is the single source of truth for stored cell values, and no other module may mutate a cell's stored value directly. The Tokenizer, Parser, Evaluator, and the function families are pure transformations that hold no spreadsheet state of their own. The API module is the only public entry point and the only module a caller imports.",
+      "sourceRefs": [".vivicy/canonical/01-architecture.md:17-19"],
+      "maturity": "mvp",
+      "disposition": "must_implement",
+      "coveredByIssues": ["ISS-0013"]
+    },
+    {
+      "id": "REQ-ARCH-003",
+      "statement": "A formula string enters through the API, is lexed by the Tokenizer into tokens, parsed by the Parser into an abstract syntax tree, and walked by the Evaluator. The Evaluator resolves cell and range references against the Sheet, calls registered functions for function nodes, and returns a single value to the API.",
+      "sourceRefs": [".vivicy/canonical/01-architecture.md:21-23"],
+      "maturity": "mvp",
+      "disposition": "must_implement",
+      "coveredByIssues": ["ISS-0013"]
+    }
+  ]
+}

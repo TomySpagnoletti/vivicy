@@ -14,6 +14,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { isAbsolute, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { readSpikes } from "./spike-check.mjs";
 import { resolveTargetRoot } from "./target-root.mjs";
 
 const repoRoot = resolveTargetRoot();
@@ -111,6 +112,71 @@ export function runTraceabilityCheck(options = {}) {
           `correct ${req.id}.coveredByIssues in ${CATALOG}`,
         );
       }
+    }
+  }
+
+  // 4. Spike referential integrity + back-fill. Every issue spike_gate must
+  //    resolve to a well-formed spike on disk, and every spike's requirement_ids
+  //    must be back-filled (not the template placeholder) and resolve to the
+  //    catalog. Verification STATUS is enforced at build time by the dev-loop
+  //    readiness gate, not here: at extraction a freshly-minted spike is `pending`.
+  const spikes = readSpikes(root);
+  const spikeGateIds = new Set(spikes.map((spike) => spike.gate_id));
+  for (const issue of issues) {
+    for (const gateId of issue.spike_gates ?? []) {
+      if (!spikeGateIds.has(gateId)) {
+        fail(
+          "issue_spike_resolves",
+          `issue ${issue.id}`,
+          `spike_gate ${gateId} has no well-formed spike under .vivicy/development/spikes/`,
+          "every issue spike_gate resolves to an existing spike",
+          `author the spike for ${gateId} or correct the issue's spike_gates`,
+        );
+      }
+    }
+  }
+  for (const spike of spikes) {
+    const reqField = (spike.requirement_ids ?? "").trim();
+    if (/^pending-extraction\b/.test(reqField)) {
+      fail(
+        "spike_requirement_backfilled",
+        spike.file,
+        "requirement_ids is still the template placeholder",
+        "extraction back-fills each spike's requirement_ids with the catalog id(s) it gates",
+        `set requirement_ids in ${spike.file} to the phase_0_spike requirement id(s)`,
+      );
+      continue;
+    }
+    for (const reqId of reqField.split(/[\s,]+/).filter(Boolean)) {
+      if (!catalogById.has(reqId)) {
+        fail(
+          "spike_requirement_resolves",
+          spike.file,
+          `requirement_id ${reqId} is not in the catalog`,
+          "every spike requirement_id resolves to a catalog requirement",
+          `add ${reqId} to ${CATALOG} or correct ${spike.file}`,
+        );
+      }
+    }
+  }
+
+  // 5. Every must_verify_with_spike requirement must be gated by a spike: some
+  //    spike's (back-filled) requirement_ids must reference it. This closes the
+  //    loop — an obligation that depends on unproven external behaviour cannot
+  //    reach implementation without a spike standing as its evidence gate.
+  const spikeRequirementIds = new Set();
+  for (const spike of spikes) {
+    for (const id of (spike.requirement_ids ?? "").split(/[\s,]+/).filter(Boolean)) spikeRequirementIds.add(id);
+  }
+  for (const req of requirements) {
+    if (req.disposition === "must_verify_with_spike" && !spikeRequirementIds.has(req.id)) {
+      fail(
+        "spike_requirement_gated",
+        `requirement ${req.id}`,
+        "disposition is must_verify_with_spike but no spike references it",
+        "every must_verify_with_spike requirement is gated by a spike",
+        `author a spike whose requirement_ids include ${req.id}`,
+      );
     }
   }
 

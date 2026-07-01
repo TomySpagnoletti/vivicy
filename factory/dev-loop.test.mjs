@@ -44,6 +44,7 @@ import {
   runLoop,
   runLoopParallel,
   selectIndependentBatch,
+  spikeGatesSatisfied,
 } from "./dev-loop.mjs";
 import { checkSkills, missingSkills, readDeclaredSkills } from "./dev-preflight.mjs";
 import { nextSupervisorAction } from "./dev-loop-supervised.mjs";
@@ -75,6 +76,31 @@ test("pickNextIssue respects done, dependencies, and order", () => {
   assert.equal(pickNextIssue(issues, new Set()).id, "A");
   assert.equal(pickNextIssue(issues, new Set(["A"])).id, "B");
   assert.equal(pickNextIssue(issues, new Set(["A", "B"])), null);
+});
+
+test("spikeGatesSatisfied gates an issue on its verified spikes", () => {
+  assert.equal(spikeGatesSatisfied({ spike_gates: [] }, new Set()), true);
+  assert.equal(spikeGatesSatisfied({}, new Set()), true);
+  assert.equal(spikeGatesSatisfied({ spike_gates: ["gate:phase0:s01-x"] }, new Set()), false);
+  assert.equal(spikeGatesSatisfied({ spike_gates: ["gate:phase0:s01-x"] }, new Set(["gate:phase0:s01-x"])), true);
+  assert.equal(
+    spikeGatesSatisfied({ spike_gates: ["gate:phase0:s01-x", "gate:phase0:s02-y"] }, new Set(["gate:phase0:s01-x"])),
+    false,
+  );
+});
+
+test("readiness holds back issues whose spikes are not verified", () => {
+  const issues = [
+    { id: "A", depends_on: [], spike_gates: ["gate:phase0:s01-x"] },
+    { id: "B", depends_on: [], spike_gates: [] },
+  ];
+  // No spike verified: A is held back; B is the only ready issue.
+  assert.equal(pickNextIssue(issues, new Set(), new Set()).id, "B");
+  assert.deepEqual(computeReadySet(issues, new Set(), new Set(), new Set()).map((i) => i.id), ["B"]);
+  // Spike verified: A becomes ready and leads by index order.
+  const verified = new Set(["gate:phase0:s01-x"]);
+  assert.equal(pickNextIssue(issues, new Set(), verified).id, "A");
+  assert.deepEqual(computeReadySet(issues, new Set(), new Set(), verified).map((i) => i.id), ["A", "B"]);
 });
 
 test("computeDoneIds counts moved files and per-issue verified graph refs", () => {

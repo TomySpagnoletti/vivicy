@@ -52,3 +52,4 @@ next-env.d.ts
 # Local working docs — kept OUT of the public repo (internal method backlog)
 /METHOD-TRANSFER.md
 /TASKS.md
+/PREWIPE-ZERO-LOSS-AUDIT.md

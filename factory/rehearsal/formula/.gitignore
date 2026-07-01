@@ -1,0 +1,23 @@
+# The COMPLETE never-commit set, and ONLY that set, so the orchestrator can
+# `git add -A` safely every checkpoint and end with a clean tree. Everything else
+# the factory produces (the progress ledger, gate evidence, reports, the static
+# architecture-map data, source-map, coverage report, catalog/traceability JSON)
+# IS committed. The architecture map is a STATIC graph generated once at
+# extraction; live per-issue progress lives in the ledger and is projected onto the
+# static graph at read time, so the map file stays unchanged across the dev-loop.
+node_modules/
+dist/
+*.log
+.DS_Store
+
+# Vivicy factory runtime + per-issue parallel worktrees.
+.vivicy-runtime/
+.vivicy-worktrees/
+
+# The parallel loop's transient integration mutex — created/removed during a merge,
+# never part of history (committing its churn would dirty the tree).
+.vivicy/development/gates/.integration.lock
+
+# TRANSCRIPTS ARE NEVER COMMITTED (full agent session JSONL; the ledger links to
+# them, they never enter git history).
+.vivicy/development/transcripts/

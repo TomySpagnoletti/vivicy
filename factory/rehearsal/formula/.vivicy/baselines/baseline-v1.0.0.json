@@ -1,0 +1,109 @@
+{
+  "approval": {
+    "approval_ref": "vivicy-extract-2026-06-27T15:59:34.723Z",
+    "approved_at": "2026-06-27T15:59:34.823Z",
+    "approved_by": "vivicy:extraction-orchestrator"
+  },
+  "baseline_id": "baseline-v1.0.0",
+  "change_request_policy": {
+    "accepted_current_build_required": true,
+    "new_baseline_required_after_docs_change": true,
+    "registry_path": "docs/change-requests"
+  },
+  "document_set_hash": "64212ab7f1874f034e8b505d530f0b9d549ebab7000af7af6a6594873c8b35c8",
+  "exclude": [
+    "_tmp/**",
+    "node_modules/**",
+    "dist/**",
+    "**/.DS_Store",
+    ".vivicy/baselines/*.json",
+    ".vivicy/baselines/doc-baseline.mjs",
+    "docs/change-requests/CR-[0-9][0-9][0-9][0-9]-*.md",
+    ".vivicy/architecture-map/viewer/**",
+    "docs/governance/**",
+    "docs/reviews/**",
+    "docs/spikes/**"
+  ],
+  "files": [
+    {
+      "bytes": 1887,
+      "path": ".vivicy/canonical/01-architecture.md",
+      "sha256": "d782842c6cb18eec8125482610fad9f2f173fd1036a659e38df295dfe154d4ce"
+    },
+    {
+      "bytes": 1545,
+      "path": ".vivicy/canonical/02-tokenizer.md",
+      "sha256": "f92010ad195dd70e6c81e2b8a1aa148d07981b27bc41069000577e4e5f592934"
+    },
+    {
+      "bytes": 1445,
+      "path": ".vivicy/canonical/03-parser.md",
+      "sha256": "f6805ebe0ea444b6bfcce87dc732d9bff395291563c6efa22bdedfdcac6e5ed0"
+    },
+    {
+      "bytes": 1820,
+      "path": ".vivicy/canonical/04-evaluator.md",
+      "sha256": "381c65f9d587de3d8ff3d00664fcefb317b6272420c4219df6668eafef12348f"
+    },
+    {
+      "bytes": 1577,
+      "path": ".vivicy/canonical/05-sheet-model.md",
+      "sha256": "9240d02801b1f916d9505460df00a80ddb4026a9b33523c2523ee1fa09969b58"
+    },
+    {
+      "bytes": 1039,
+      "path": ".vivicy/canonical/06-recalculation.md",
+      "sha256": "96cf535386bd6a6fa976a91e97d85f4fbc41f513d22d9485ca7fcfd05731d73a"
+    },
+    {
+      "bytes": 1496,
+      "path": ".vivicy/canonical/07-errors.md",
+      "sha256": "46d54e4ddaef820a7b1343ef452bd02473272177cfd95ac2ec31e155f73b673f"
+    },
+    {
+      "bytes": 2083,
+      "path": ".vivicy/canonical/08-functions-core.md",
+      "sha256": "f234d2c57ba5d6e13c021131205ed1897b1bac99dd0849c9c5d155e4a6e2ac6c"
+    },
+    {
+      "bytes": 1462,
+      "path": ".vivicy/canonical/09-functions-math.md",
+      "sha256": "2d14fcc185a7d235a6d8954335ba69d42668b07428846a042cb0afe2030c77c0"
+    },
+    {
+      "bytes": 1336,
+      "path": ".vivicy/canonical/10-functions-logical.md",
+      "sha256": "e669bc502b64c779e4d4924629f80c40ce76aeab5d3997c505f0d3107bc38217"
+    },
+    {
+      "bytes": 1215,
+      "path": ".vivicy/canonical/11-functions-text.md",
+      "sha256": "0163eccc2c0e70f0461dc26bac4bb944b21b89d4eccaa0939dcf96247f7208d5"
+    },
+    {
+      "bytes": 1054,
+      "path": ".vivicy/canonical/12-functions-lookup.md",
+      "sha256": "bdfd6df270fa7bd0e39ee1459331ba802ea51d467e35af02df834d5a4f7e80d7"
+    },
+    {
+      "bytes": 1393,
+      "path": ".vivicy/canonical/13-public-api.md",
+      "sha256": "6d2889b75baefb0d04503cd614b0b109677b6d40a05bd9d16862792e45f874d8"
+    }
+  ],
+  "generated_at": "2026-06-27T15:59:34.824Z",
+  "generated_by": ".vivicy/baselines/doc-baseline.mjs",
+  "git": {
+    "available": true,
+    "head_sha": "534fe5922d3d3dd3fb013d32193d43e13d3ae176",
+    "working_tree_clean": true
+  },
+  "include": [
+    ".vivicy/canonical/**/*.md"
+  ],
+  "manifest_hash": "6278d06998e2c12364010498c54f206554a481e69bd1bbbf32705e46ce8ad0b4",
+  "product": "Project",
+  "schema_version": 1,
+  "status": "frozen",
+  "version": "1.0.0"
+}

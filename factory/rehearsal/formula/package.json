@@ -1,0 +1,11 @@
+{
+  "name": "formula",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Rehearsal fixture: a spreadsheet-formula engine (tokenizer, parser, evaluator, sheet recalculation, core/math/logical/text/lookup functions) used to exercise the Vivicy development method end-to-end on a differently-shaped spec than pocket-ledger.",
+  "license": "MIT",
+  "scripts": {
+    "test": "node --test"
+  }
+}

@@ -116,6 +116,7 @@ const SKELETON_DIRS = [
   ".vivicy/baselines",
   ".vivicy/architecture-map",
   ".vivicy/development/issues",
+  ".vivicy/development/spikes",
   ".vivicy/development/reports",
   ".vivicy/requirements",
 ] as const
@@ -332,6 +333,9 @@ export function scaffoldProject(input: { targetDir: unknown; projectName: unknow
     ],
     [".vivicy/canonical/README.md", renderTemplate(".vivicy/canonical/README.md", { [PROJECT_NAME_TOKEN]: projectName })],
     [".vivicy/development/ISSUE-TEMPLATE.md", renderTemplate(".vivicy/development/ISSUE-TEMPLATE.md", { [PROJECT_NAME_TOKEN]: projectName })],
+    [".vivicy/development/SPIKE-TEMPLATE.md", renderTemplate(".vivicy/development/SPIKE-TEMPLATE.md", {})],
+    [".vivicy/change-requests/CR-TEMPLATE.md", renderTemplate(".vivicy/change-requests/CR-TEMPLATE.md", {})],
+    [".vivicy/change-requests/README.md", renderTemplate(".vivicy/change-requests/README.md", {})],
   ]
   for (const [rel, contents] of templateFiles) {
     const w = writeIfMissing(at(rel), contents)

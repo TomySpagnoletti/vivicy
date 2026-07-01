@@ -42,6 +42,8 @@ import { sleepSync } from "./sleep-sync.mjs";
 import { recordProgressEvent } from "./progress-ledger.mjs";
 import { checkSkills } from "./dev-preflight.mjs";
 import { runTraceabilityCheck } from "./traceability-check.mjs";
+import { runSpikeCheck, transitivelyVerifiedGates } from "./spike-check.mjs";
+import { runReferenceCheck } from "./reference-check.mjs";
 import { resolveTargetRoot, FACTORY_DIR, FACTORY_PROMPTS_DIR } from "./target-root.mjs";
 import { resolveGateCommand } from "./project-config.mjs";
 // Shared agent-leg spawn + transcript-capture primitives (one owner, reused by
@@ -314,6 +316,16 @@ export function dependenciesSatisfied(issue, doneIds) {
   return deps.every((dep) => doneIds.has(dep));
 }
 
+// The build-time evidence gate: an issue's spike gates are satisfied only when
+// every spike it depends on is verified. `verifiedGates` is the set of gate ids
+// whose spike status is "verified"; an issue with no spike_gates is always
+// satisfied, and one that declares an unverified (or missing) spike is held back
+// exactly like an unsatisfied dependency.
+export function spikeGatesSatisfied(issue, verifiedGates) {
+  const gates = Array.isArray(issue.spike_gates) ? issue.spike_gates : [];
+  return gates.every((gate) => verifiedGates.has(gate));
+}
+
 // An issue is done if its file already lives in done/, or the ledger records
 // THIS issue verified on every one of its graph refs. (Resume falls out of this
 // for free.) The check is per-issue, not per-node: a shared node verified by a
@@ -341,10 +353,10 @@ export function computeDoneIds(issues, ledger, doneFileNames) {
   return done;
 }
 
-export function pickNextIssue(issues, doneIds) {
+export function pickNextIssue(issues, doneIds, verifiedGates = new Set()) {
   for (const issue of issues) {
     if (doneIds.has(issue.id)) continue;
-    if (dependenciesSatisfied(issue, doneIds)) return issue;
+    if (dependenciesSatisfied(issue, doneIds) && spikeGatesSatisfied(issue, verifiedGates)) return issue;
   }
   return null;
 }
@@ -365,9 +377,13 @@ export function pickNextIssue(issues, doneIds) {
 // in the issue index's own order (so selection is deterministic and stable).
 // `running` (a set of issue ids already executing in this wave) is excluded so a
 // resumed schedule never double-claims an in-flight issue.
-export function computeReadySet(issues, doneIds, running = new Set()) {
+export function computeReadySet(issues, doneIds, running = new Set(), verifiedGates = new Set()) {
   return issues.filter(
-    (issue) => !doneIds.has(issue.id) && !running.has(issue.id) && dependenciesSatisfied(issue, doneIds),
+    (issue) =>
+      !doneIds.has(issue.id) &&
+      !running.has(issue.id) &&
+      dependenciesSatisfied(issue, doneIds) &&
+      spikeGatesSatisfied(issue, verifiedGates),
   );
 }
 
@@ -1129,6 +1145,15 @@ function abs(relPath) {
   return resolve(requireRepoRoot(), relPath);
 }
 
+// The set of spike gate ids whose spike is verified, read from the MAIN root (the
+// shared corpus — never a worktree). Recomputed each scheduling turn so a spike
+// marked verified mid-run unblocks the issues that depend on it.
+function verifiedSpikeGates() {
+  // Chain-aware: a gate counts as satisfied only when the spike AND its whole transitive
+  // gated_by chain are verified (E2), so a mid-run status edit can't bypass the chain.
+  return transitivelyVerifiedGates(requireRepoRoot());
+}
+
 // The EXECUTION root for an issue: where its agent legs (cwd), its gate command
 // (cwd), and its commit/clean-tree checks run. In the sequential path this is the
 // main repo root (cfg.execRoot unset => requireRepoRoot()). For a parallel issue
@@ -1474,6 +1499,31 @@ export function defaultVerifyTraceability(cfg) {
   if ((result.exitCode ?? 1) !== 0) {
     const detail = (result.errors ?? []).join("\n") || result.summary || `exit ${result.exitCode}`;
     throw new Error(`dev-loop refuses to develop on a failing traceability check:\n${detail}`);
+  }
+  return true;
+}
+
+// The spikes must be well-formed (the evidence-gate corpus is valid) before the
+// loop develops against them. Verification status itself is the per-issue
+// readiness gate, not this corpus-level check.
+export function defaultVerifySpike(cfg) {
+  const root = requireRepoRoot();
+  const result = runSpikeCheck({ repoRoot: root });
+  if ((result.exitCode ?? 1) !== 0) {
+    const detail = (result.errors ?? []).join("\n") || result.summary || `exit ${result.exitCode}`;
+    throw new Error(`dev-loop refuses to develop with malformed spikes:\n${detail}`);
+  }
+  return true;
+}
+
+// The target's doc-to-doc links must resolve: a broken canonical cross-link
+// silently misleads the agents, which read AGENTS.md / README.md first.
+export function defaultVerifyReference(cfg) {
+  const root = requireRepoRoot();
+  const result = runReferenceCheck({ repoRoot: root });
+  if ((result.exitCode ?? 1) !== 0) {
+    const detail = (result.errors ?? []).join("\n") || result.summary || `exit ${result.exitCode}`;
+    throw new Error(`dev-loop refuses to develop on broken doc references:\n${detail}`);
   }
   return true;
 }
@@ -2236,11 +2286,15 @@ export function runLoop(userConfig = {}, steps = {}) {
     // observe/skip; default to the real frozen-baseline + traceability verifiers.
     verifyBaseline: steps.verifyBaseline ?? (() => defaultVerifyBaseline(cfg)),
     verifyTraceability: steps.verifyTraceability ?? (() => defaultVerifyTraceability(cfg)),
+    verifySpike: steps.verifySpike ?? (() => defaultVerifySpike(cfg)),
+    verifyReference: steps.verifyReference ?? (() => defaultVerifyReference(cfg)),
   };
   // Refuse to develop against a tampered baseline or a failing traceability matrix
   // BEFORE touching a single issue (these THROW on failure).
   resolvedSteps.verifyBaseline(cfg);
   resolvedSteps.verifyTraceability(cfg);
+  resolvedSteps.verifySpike(cfg);
+  resolvedSteps.verifyReference(cfg);
   const index = readJson(cfg.issueIndexPath);
   const issues = Array.isArray(index.issues) ? index.issues : [];
   const processed = [];
@@ -2250,7 +2304,7 @@ export function runLoop(userConfig = {}, steps = {}) {
   // here — the loop writes only the ledger and commits it per checkpoint.
   for (;;) {
     const doneIds = computeDoneIds(issues, readLedger(cfg), listDoneFiles(cfg));
-    const issue = pickNextIssue(issues, doneIds);
+    const issue = pickNextIssue(issues, doneIds, verifiedSpikeGates());
     if (!issue) break;
 
     const result = runIssueCycle(issue, cfg, resolvedSteps);
@@ -2322,8 +2376,12 @@ export async function runLoopParallel(userConfig = {}, steps = {}) {
   // BEFORE scheduling any issue (these THROW on failure). Injectable for tests.
   const verifyBaseline = steps.verifyBaseline ?? (() => defaultVerifyBaseline(cfg));
   const verifyTraceability = steps.verifyTraceability ?? (() => defaultVerifyTraceability(cfg));
+  const verifySpike = steps.verifySpike ?? (() => defaultVerifySpike(cfg));
+  const verifyReference = steps.verifyReference ?? (() => defaultVerifyReference(cfg));
   verifyBaseline(cfg);
   verifyTraceability(cfg);
+  verifySpike(cfg);
+  verifyReference(cfg);
 
   // Keep parallel worktrees out of the main tree's status/`git add -A`.
   if (!steps.skipWorktreeIgnore) ensureWorktreesIgnored(cfg);
@@ -2427,7 +2485,7 @@ export async function runLoopParallel(userConfig = {}, steps = {}) {
   for (;;) {
     const doneIds = computeDoneIds(issues, readLedger(cfg), listDoneFiles(cfg));
     const excluded = new Set([...running.keys(), ...blocked]);
-    const ready = computeReadySet(issues, doneIds, excluded);
+    const ready = computeReadySet(issues, doneIds, excluded, verifiedSpikeGates());
     const batch = selectIndependentBatch(
       ready,
       [...runningIssueById.values()],

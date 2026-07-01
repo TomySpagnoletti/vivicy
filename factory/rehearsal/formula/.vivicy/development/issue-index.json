@@ -1,0 +1,396 @@
+{
+  "schema_version": 1,
+  "baseline_id": "baseline-v1.0.0",
+  "baseline_version": "1.0.0",
+  "manifest_path": ".vivicy/baselines/baseline-v1.0.0.json",
+  "manifest_hash": "6278d06998e2c12364010498c54f206554a481e69bd1bbbf32705e46ce8ad0b4",
+  "document_set_hash": "64212ab7f1874f034e8b505d530f0b9d549ebab7000af7af6a6594873c8b35c8",
+  "source_corpus": [
+    ".vivicy/canonical/**/*.md"
+  ],
+  "verification_evidence_ref_grammar": "^.vivicy/development/(gates|reports)/.+",
+  "status": "issues_generated",
+  "issues": [
+    {
+      "id": "ISS-0001",
+      "title": "Error Values and Propagation Contract",
+      "summary": "Define the four typed spreadsheet error values (#DIV/0!, #VALUE!, #NAME?, #REF!) as distinct, comparable sentinels that never collide with cell text, plus the is-error predicate, the error-code reader, and the default first-error-wins propagation contract shared by every operator and function.",
+      "issue_path": ".vivicy/development/issues/ISS-0001.md",
+      "requirement_ids": [
+        "REQ-ERR-001",
+        "REQ-ERR-002",
+        "REQ-ERR-003",
+        "REQ-ERR-004",
+        "REQ-ARCH-005"
+      ],
+      "source_line_refs": [
+        ".vivicy/canonical/07-errors.md:5-7",
+        ".vivicy/canonical/07-errors.md:9-11",
+        ".vivicy/canonical/07-errors.md:13-15",
+        ".vivicy/canonical/07-errors.md:17-19",
+        ".vivicy/canonical/01-architecture.md:25-27"
+      ],
+      "depends_on": [],
+      "spike_gates": [],
+      "graph_refs": [
+        "node:errors"
+      ],
+      "verification_gate_ids": [
+        "gate:test:error-values"
+      ]
+    },
+    {
+      "id": "ISS-0002",
+      "title": "CellRef A1 Addresses and Ranges",
+      "summary": "Implement the CellRef module that parses A1 cell addresses (case-insensitive column letters normalized to upper case) to and from zero-based column/row indices, rejects invalid addresses, and expands a colon range into its ordered row-by-row address list while normalizing reversed ranges.",
+      "issue_path": ".vivicy/development/issues/ISS-0002.md",
+      "requirement_ids": [
+        "REQ-CELLREF-001",
+        "REQ-CELLREF-002"
+      ],
+      "source_line_refs": [
+        ".vivicy/canonical/05-sheet-model.md:5-7",
+        ".vivicy/canonical/05-sheet-model.md:9-11"
+      ],
+      "depends_on": [],
+      "spike_gates": [],
+      "graph_refs": [
+        "node:cellref"
+      ],
+      "verification_gate_ids": [
+        "gate:test:cellref"
+      ]
+    },
+    {
+      "id": "ISS-0003",
+      "title": "Sheet Cell Storage and Reads",
+      "summary": "Implement the Sheet as the sole owner of stored cell values keyed by normalized A1 address: set records a value, reading an unset address returns an empty cell value, single-cell reads return the stored value, and range reads return defensive copies of the rectangular block so callers cannot mutate stored state.",
+      "issue_path": ".vivicy/development/issues/ISS-0003.md",
+      "requirement_ids": [
+        "REQ-SHEET-001",
+        "REQ-SHEET-002"
+      ],
+      "source_line_refs": [
+        ".vivicy/canonical/05-sheet-model.md:13-15",
+        ".vivicy/canonical/05-sheet-model.md:17-19"
+      ],
+      "depends_on": [
+        "ISS-0002"
+      ],
+      "spike_gates": [],
+      "graph_refs": [
+        "node:sheet"
+      ],
+      "verification_gate_ids": [
+        "gate:test:sheet"
+      ]
+    },
+    {
+      "id": "ISS-0004",
+      "title": "Tokenizer Lexical Analysis",
+      "summary": "Implement the Tokenizer that lexes a formula string into a flat ordered token list (number, string, ref, name, operator, lparen, rparen, comma, eof), handling numeric and double-quoted string literals, A1 refs and ranges, function-name identifiers, skipped whitespace, and an unlexable character that yields a #NAME? error result rather than throwing.",
+      "issue_path": ".vivicy/development/issues/ISS-0004.md",
+      "requirement_ids": [
+        "REQ-TOK-001",
+        "REQ-TOK-002",
+        "REQ-TOK-003",
+        "REQ-TOK-004",
+        "REQ-TOK-005"
+      ],
+      "source_line_refs": [
+        ".vivicy/canonical/02-tokenizer.md:5-7",
+        ".vivicy/canonical/02-tokenizer.md:9-11",
+        ".vivicy/canonical/02-tokenizer.md:13-15",
+        ".vivicy/canonical/02-tokenizer.md:17-19",
+        ".vivicy/canonical/02-tokenizer.md:21-23"
+      ],
+      "depends_on": [
+        "ISS-0001"
+      ],
+      "spike_gates": [],
+      "graph_refs": [
+        "node:tokenizer"
+      ],
+      "verification_gate_ids": [
+        "gate:test:tokenizer"
+      ]
+    },
+    {
+      "id": "ISS-0005",
+      "title": "Pratt Parser and AST",
+      "summary": "Implement the precedence-climbing parser that turns the token list into an AST (number, string, ref, unary, binary, call nodes), encoding operator precedence and associativity, parenthesized grouping, comma-separated function-call arguments with verbatim names, and a #VALUE! error result for incomplete, unmatched, or trailing-token sequences.",
+      "issue_path": ".vivicy/development/issues/ISS-0005.md",
+      "requirement_ids": [
+        "REQ-PARSE-001",
+        "REQ-PARSE-002",
+        "REQ-PARSE-003",
+        "REQ-PARSE-004",
+        "REQ-PARSE-005"
+      ],
+      "source_line_refs": [
+        ".vivicy/canonical/03-parser.md:5-7",
+        ".vivicy/canonical/03-parser.md:9-11",
+        ".vivicy/canonical/03-parser.md:13-15",
+        ".vivicy/canonical/03-parser.md:17-19",
+        ".vivicy/canonical/03-parser.md:21-23"
+      ],
+      "depends_on": [
+        "ISS-0004"
+      ],
+      "spike_gates": [],
+      "graph_refs": [
+        "node:parser"
+      ],
+      "verification_gate_ids": [
+        "gate:test:parser"
+      ]
+    },
+    {
+      "id": "ISS-0006",
+      "title": "Function Registry and Calling Convention",
+      "summary": "Implement the case-insensitive function Registry and the shared calling convention: every function receives already-evaluated arguments including error values, default first-error propagation with the error-aware (IF, VLOOKUP, error predicate/reader) and error-skipping (COUNT) overrides, number/text argument coercion rules, and range flattening into a rectangular block.",
+      "issue_path": ".vivicy/development/issues/ISS-0006.md",
+      "requirement_ids": [
+        "REQ-REG-001",
+        "REQ-REG-002",
+        "REQ-REG-003",
+        "REQ-REG-004"
+      ],
+      "source_line_refs": [
+        ".vivicy/canonical/08-functions-core.md:5-7",
+        ".vivicy/canonical/08-functions-core.md:9-11",
+        ".vivicy/canonical/08-functions-core.md:13-15",
+        ".vivicy/canonical/08-functions-core.md:17-19"
+      ],
+      "depends_on": [
+        "ISS-0001"
+      ],
+      "spike_gates": [],
+      "graph_refs": [
+        "node:registry"
+      ],
+      "verification_gate_ids": [
+        "gate:test:registry"
+      ]
+    },
+    {
+      "id": "ISS-0007",
+      "title": "Math Functions",
+      "summary": "Register the math function family: SUM, AVERAGE, MIN, MAX, and COUNT aggregation with their empty-input results, ROUND with round-half-away-from-zero and negative digits, ABS, MOD carrying the divisor sign with a #DIV/0! on zero divisor, and POWER yielding #VALUE! for non-finite-real results.",
+      "issue_path": ".vivicy/development/issues/ISS-0007.md",
+      "requirement_ids": [
+        "REQ-FNMATH-001",
+        "REQ-FNMATH-002",
+        "REQ-FNMATH-003",
+        "REQ-FNMATH-004"
+      ],
+      "source_line_refs": [
+        ".vivicy/canonical/09-functions-math.md:5-7",
+        ".vivicy/canonical/09-functions-math.md:9-11",
+        ".vivicy/canonical/09-functions-math.md:13-15",
+        ".vivicy/canonical/09-functions-math.md:17-19"
+      ],
+      "depends_on": [
+        "ISS-0006"
+      ],
+      "spike_gates": [],
+      "graph_refs": [
+        "node:fn-math"
+      ],
+      "verification_gate_ids": [
+        "gate:test:functions-math"
+      ]
+    },
+    {
+      "id": "ISS-0008",
+      "title": "Logical Functions",
+      "summary": "Register the logical function family: the shared truthiness rule (boolean, nonzero number true, empty false, error propagates, other types #VALUE!), IF with error-condition propagation and a defaulted false branch, AND/OR over flattened ranges requiring a non-empty argument, and single-argument NOT.",
+      "issue_path": ".vivicy/development/issues/ISS-0008.md",
+      "requirement_ids": [
+        "REQ-FNLOGIC-001",
+        "REQ-FNLOGIC-002",
+        "REQ-FNLOGIC-003",
+        "REQ-FNLOGIC-004"
+      ],
+      "source_line_refs": [
+        ".vivicy/canonical/10-functions-logical.md:5-7",
+        ".vivicy/canonical/10-functions-logical.md:9-11",
+        ".vivicy/canonical/10-functions-logical.md:13-15",
+        ".vivicy/canonical/10-functions-logical.md:17-19"
+      ],
+      "depends_on": [
+        "ISS-0006"
+      ],
+      "spike_gates": [],
+      "graph_refs": [
+        "node:fn-logical"
+      ],
+      "verification_gate_ids": [
+        "gate:test:functions-logical"
+      ]
+    },
+    {
+      "id": "ISS-0009",
+      "title": "Text Functions",
+      "summary": "Register the text function family: CONCAT joining coerced arguments, LEN character count, UPPER/LOWER case conversion, TRIM trimming and collapsing internal spaces, LEFT/RIGHT substring extraction with count bounds, and MID one-based substring extraction, each returning #VALUE! on an invalid negative or below-one argument.",
+      "issue_path": ".vivicy/development/issues/ISS-0009.md",
+      "requirement_ids": [
+        "REQ-FNTEXT-001",
+        "REQ-FNTEXT-002",
+        "REQ-FNTEXT-003",
+        "REQ-FNTEXT-004"
+      ],
+      "source_line_refs": [
+        ".vivicy/canonical/11-functions-text.md:5-7",
+        ".vivicy/canonical/11-functions-text.md:9-11",
+        ".vivicy/canonical/11-functions-text.md:13-15",
+        ".vivicy/canonical/11-functions-text.md:17-19"
+      ],
+      "depends_on": [
+        "ISS-0006"
+      ],
+      "spike_gates": [],
+      "graph_refs": [
+        "node:fn-text"
+      ],
+      "verification_gate_ids": [
+        "gate:test:functions-text"
+      ]
+    },
+    {
+      "id": "ISS-0010",
+      "title": "Lookup Function VLOOKUP",
+      "summary": "Register VLOOKUP, searching the first column of a two-dimensional range for the key and returning the same-row value at a one-based columnIndex, supporting exact-match and sorted-ascending approximate-match modes and the #REF!/#VALUE! error cases for out-of-bounds columns, missing keys, empty or non-range arguments, and error-key propagation.",
+      "issue_path": ".vivicy/development/issues/ISS-0010.md",
+      "requirement_ids": [
+        "REQ-FNLOOKUP-001",
+        "REQ-FNLOOKUP-002",
+        "REQ-FNLOOKUP-003"
+      ],
+      "source_line_refs": [
+        ".vivicy/canonical/12-functions-lookup.md:5-7",
+        ".vivicy/canonical/12-functions-lookup.md:9-11",
+        ".vivicy/canonical/12-functions-lookup.md:13-15"
+      ],
+      "depends_on": [
+        "ISS-0006"
+      ],
+      "spike_gates": [],
+      "graph_refs": [
+        "node:fn-lookup"
+      ],
+      "verification_gate_ids": [
+        "gate:test:functions-lookup"
+      ]
+    },
+    {
+      "id": "ISS-0011",
+      "title": "Evaluator Tree Walk",
+      "summary": "Implement the Evaluator that reduces an AST to a single value as a pure function of the tree and the Sheet: literal and operator evaluation including division-by-zero, first-error operator propagation with non-short-circuiting call nodes, case-insensitive Registry dispatch with #NAME? for unknown functions, and single-cell and range reference resolution against the Sheet with #REF! for invalid references.",
+      "issue_path": ".vivicy/development/issues/ISS-0011.md",
+      "requirement_ids": [
+        "REQ-EVAL-001",
+        "REQ-EVAL-002",
+        "REQ-EVAL-003",
+        "REQ-EVAL-004",
+        "REQ-EVAL-005"
+      ],
+      "source_line_refs": [
+        ".vivicy/canonical/04-evaluator.md:5-7",
+        ".vivicy/canonical/04-evaluator.md:9-11",
+        ".vivicy/canonical/04-evaluator.md:13-15",
+        ".vivicy/canonical/04-evaluator.md:17-19",
+        ".vivicy/canonical/04-evaluator.md:21-23"
+      ],
+      "depends_on": [
+        "ISS-0005",
+        "ISS-0003",
+        "ISS-0006",
+        "ISS-0001"
+      ],
+      "spike_gates": [],
+      "graph_refs": [
+        "node:evaluator"
+      ],
+      "verification_gate_ids": [
+        "gate:test:evaluator"
+      ]
+    },
+    {
+      "id": "ISS-0012",
+      "title": "Dependency Graph and Recalculation",
+      "summary": "Implement the DepGraph that records each formula cell's read set, exposes direct dependents, and computes a topological recalculation order; and the recalculation that recomputes only transitively affected cells in dependency order, resolves cyclic cells to #REF! while still terminating, and is deterministic regardless of cell-set order.",
+      "issue_path": ".vivicy/development/issues/ISS-0012.md",
+      "requirement_ids": [
+        "REQ-DEP-001",
+        "REQ-RECALC-001",
+        "REQ-RECALC-002",
+        "REQ-RECALC-003",
+        "REQ-RECALC-004"
+      ],
+      "source_line_refs": [
+        ".vivicy/canonical/05-sheet-model.md:21-23",
+        ".vivicy/canonical/06-recalculation.md:5-7",
+        ".vivicy/canonical/06-recalculation.md:9-11",
+        ".vivicy/canonical/06-recalculation.md:13-15",
+        ".vivicy/canonical/06-recalculation.md:17-19"
+      ],
+      "depends_on": [
+        "ISS-0003",
+        "ISS-0011"
+      ],
+      "spike_gates": [],
+      "graph_refs": [
+        "node:depgraph"
+      ],
+      "verification_gate_ids": [
+        "gate:test:recalculation"
+      ]
+    },
+    {
+      "id": "ISS-0013",
+      "title": "Public API Surface",
+      "summary": "Implement the single public entry point: evaluate(formula, sheet) running the pipeline with optional leading-equals stripping and typed-error return, the empty-sheet factory exposing literal/formula set and current-value read with dependency registration, and the exported is-error predicate and error-code reader, enforcing the dependency-free in-memory architecture and the Sheet/API boundaries.",
+      "issue_path": ".vivicy/development/issues/ISS-0013.md",
+      "requirement_ids": [
+        "REQ-API-001",
+        "REQ-API-002",
+        "REQ-API-003",
+        "REQ-API-004",
+        "REQ-ARCH-002",
+        "REQ-ARCH-001",
+        "REQ-ARCH-003"
+      ],
+      "source_line_refs": [
+        ".vivicy/canonical/13-public-api.md:5-7",
+        ".vivicy/canonical/13-public-api.md:9-11",
+        ".vivicy/canonical/13-public-api.md:13-15",
+        ".vivicy/canonical/13-public-api.md:17-19",
+        ".vivicy/canonical/01-architecture.md:5-7",
+        ".vivicy/canonical/01-architecture.md:17-19",
+        ".vivicy/canonical/01-architecture.md:21-23"
+      ],
+      "depends_on": [
+        "ISS-0004",
+        "ISS-0005",
+        "ISS-0011",
+        "ISS-0003",
+        "ISS-0012",
+        "ISS-0001"
+      ],
+      "spike_gates": [],
+      "graph_refs": [
+        "node:api"
+      ],
+      "verification_gate_ids": [
+        "gate:test:public-api"
+      ]
+    }
+  ],
+  "coverage_summary": {
+    "total_doc_lines": 141,
+    "classified_doc_lines": 141,
+    "requirement_linked_doc_lines": 110,
+    "issue_linked_doc_lines": 110
+  }
+}

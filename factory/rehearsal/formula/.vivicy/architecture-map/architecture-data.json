@@ -1,0 +1,878 @@
+{
+  "version": 1,
+  "updated": "2026-06-27",
+  "name": "Formula Engine Architecture Map",
+  "purpose": "Machine-readable index of the spreadsheet formula engine: pipeline, model, function library, and public API.",
+  "views": {
+    "target": {
+      "title": "Target Architecture",
+      "subtitle": "Complete planned formula engine graph."
+    },
+    "progress": {
+      "title": "Development Progress",
+      "subtitle": "Same graph, colored by progress overlay."
+    }
+  },
+  "statusLegend": {
+    "not_started": "Documented target; implementation not started.",
+    "in_progress": "Implementation underway on this slice.",
+    "reviewing": "Implemented and under independent review.",
+    "implemented": "Implemented; verification gates not yet all green.",
+    "verified": "Implemented and passed all required verification gates.",
+    "blocked": "Blocked on an unmet dependency or open question."
+  },
+  "lanes": [
+    {
+      "id": "entry",
+      "label": "Caller and Public API"
+    },
+    {
+      "id": "pipeline",
+      "label": "Evaluation Pipeline"
+    },
+    {
+      "id": "model",
+      "label": "Sheet Model"
+    },
+    {
+      "id": "functions",
+      "label": "Function Library"
+    },
+    {
+      "id": "foundation",
+      "label": "Foundation"
+    }
+  ],
+  "nodes": [
+    {
+      "id": "caller",
+      "label": "Caller",
+      "kind": "actor",
+      "lane": "entry",
+      "order": 10,
+      "layout_x": -420,
+      "layout_y": 0,
+      "layout_cluster": "entry",
+      "layout_role": "primary_flow",
+      "scope": "mvp",
+      "status": "not_started",
+      "tech": "External JavaScript code importing the package",
+      "owns_data": [
+        "formula strings",
+        "sheet handle"
+      ],
+      "source_refs": [
+        ".vivicy/canonical/01-architecture.md:23"
+      ],
+      "graph_ref": "node:caller"
+    },
+    {
+      "id": "api",
+      "label": "Public API",
+      "kind": "service",
+      "lane": "entry",
+      "order": 20,
+      "layout_x": -240,
+      "layout_y": 0,
+      "layout_cluster": "entry",
+      "layout_role": "primary_flow",
+      "scope": "mvp",
+      "status": "not_started",
+      "tech": "ESM package entry module",
+      "owns_data": [
+        "public entry points"
+      ],
+      "source_refs": [
+        ".vivicy/canonical/13-public-api.md:7"
+      ],
+      "graph_ref": "node:api"
+    },
+    {
+      "id": "tokenizer",
+      "label": "Tokenizer",
+      "kind": "service",
+      "lane": "pipeline",
+      "order": 30,
+      "layout_x": -60,
+      "layout_y": -120,
+      "layout_cluster": "pipeline",
+      "layout_role": "primary_flow",
+      "scope": "mvp",
+      "status": "not_started",
+      "tech": "Lexer over the formula string",
+      "owns_data": [
+        "(stateless)"
+      ],
+      "source_refs": [
+        ".vivicy/canonical/02-tokenizer.md:7"
+      ],
+      "graph_ref": "node:tokenizer"
+    },
+    {
+      "id": "parser",
+      "label": "Parser",
+      "kind": "service",
+      "lane": "pipeline",
+      "order": 40,
+      "layout_x": 120,
+      "layout_y": -120,
+      "layout_cluster": "pipeline",
+      "layout_role": "primary_flow",
+      "scope": "mvp",
+      "status": "not_started",
+      "tech": "Precedence-climbing (Pratt) parser",
+      "owns_data": [
+        "(stateless)"
+      ],
+      "source_refs": [
+        ".vivicy/canonical/03-parser.md:7"
+      ],
+      "graph_ref": "node:parser"
+    },
+    {
+      "id": "evaluator",
+      "label": "Evaluator",
+      "kind": "service",
+      "lane": "pipeline",
+      "order": 50,
+      "layout_x": 300,
+      "layout_y": -120,
+      "layout_cluster": "pipeline",
+      "layout_role": "primary_flow",
+      "scope": "mvp",
+      "status": "not_started",
+      "tech": "AST tree-walking evaluator",
+      "owns_data": [
+        "(stateless)"
+      ],
+      "source_refs": [
+        ".vivicy/canonical/04-evaluator.md:7"
+      ],
+      "graph_ref": "node:evaluator"
+    },
+    {
+      "id": "cellref",
+      "label": "CellRef",
+      "kind": "library",
+      "lane": "model",
+      "order": 60,
+      "layout_x": -60,
+      "layout_y": 120,
+      "layout_cluster": "model",
+      "layout_role": "support",
+      "scope": "mvp",
+      "status": "not_started",
+      "tech": "A1 address and range parsing",
+      "owns_data": [
+        "(stateless)"
+      ],
+      "source_refs": [
+        ".vivicy/canonical/05-sheet-model.md:7"
+      ],
+      "graph_ref": "node:cellref"
+    },
+    {
+      "id": "sheet",
+      "label": "Sheet",
+      "kind": "store",
+      "lane": "model",
+      "order": 70,
+      "layout_x": 140,
+      "layout_y": 120,
+      "layout_cluster": "model",
+      "layout_role": "shared_state",
+      "scope": "mvp",
+      "status": "not_started",
+      "tech": "In-memory cell store keyed by A1 address",
+      "owns_data": [
+        "stored cell values"
+      ],
+      "source_refs": [
+        ".vivicy/canonical/05-sheet-model.md:15"
+      ],
+      "graph_ref": "node:sheet"
+    },
+    {
+      "id": "depgraph",
+      "label": "DepGraph",
+      "kind": "store",
+      "lane": "model",
+      "order": 80,
+      "layout_x": 320,
+      "layout_y": 120,
+      "layout_cluster": "model",
+      "layout_role": "shared_state",
+      "scope": "mvp",
+      "status": "not_started",
+      "tech": "Dependency graph and recalculation ordering",
+      "owns_data": [
+        "dependency edges",
+        "recalc order"
+      ],
+      "source_refs": [
+        ".vivicy/canonical/05-sheet-model.md:23"
+      ],
+      "graph_ref": "node:depgraph"
+    },
+    {
+      "id": "registry",
+      "label": "Function Registry",
+      "kind": "library",
+      "lane": "functions",
+      "order": 90,
+      "layout_x": 480,
+      "layout_y": -120,
+      "layout_cluster": "functions",
+      "layout_role": "support",
+      "scope": "mvp",
+      "status": "not_started",
+      "tech": "Case-insensitive name to implementation map",
+      "owns_data": [
+        "function name to implementation map"
+      ],
+      "source_refs": [
+        ".vivicy/canonical/08-functions-core.md:7"
+      ],
+      "graph_ref": "node:registry"
+    },
+    {
+      "id": "fn-math",
+      "label": "Math Functions",
+      "kind": "library",
+      "lane": "functions",
+      "order": 100,
+      "layout_x": 660,
+      "layout_y": -210,
+      "layout_cluster": "functions",
+      "layout_role": "provider",
+      "scope": "mvp",
+      "status": "not_started",
+      "tech": "SUM, AVERAGE, MIN, MAX, COUNT, ROUND, ABS, MOD, POWER",
+      "owns_data": [
+        "(stateless)"
+      ],
+      "source_refs": [
+        ".vivicy/canonical/09-functions-math.md:7"
+      ],
+      "graph_ref": "node:fn-math"
+    },
+    {
+      "id": "fn-logical",
+      "label": "Logical Functions",
+      "kind": "library",
+      "lane": "functions",
+      "order": 110,
+      "layout_x": 660,
+      "layout_y": -130,
+      "layout_cluster": "functions",
+      "layout_role": "provider",
+      "scope": "mvp",
+      "status": "not_started",
+      "tech": "IF, AND, OR, NOT",
+      "owns_data": [
+        "(stateless)"
+      ],
+      "source_refs": [
+        ".vivicy/canonical/10-functions-logical.md:7"
+      ],
+      "graph_ref": "node:fn-logical"
+    },
+    {
+      "id": "fn-text",
+      "label": "Text Functions",
+      "kind": "library",
+      "lane": "functions",
+      "order": 120,
+      "layout_x": 660,
+      "layout_y": -50,
+      "layout_cluster": "functions",
+      "layout_role": "provider",
+      "scope": "mvp",
+      "status": "not_started",
+      "tech": "CONCAT, LEN, UPPER, LOWER, TRIM, LEFT, RIGHT, MID",
+      "owns_data": [
+        "(stateless)"
+      ],
+      "source_refs": [
+        ".vivicy/canonical/11-functions-text.md:7"
+      ],
+      "graph_ref": "node:fn-text"
+    },
+    {
+      "id": "fn-lookup",
+      "label": "Lookup Functions",
+      "kind": "library",
+      "lane": "functions",
+      "order": 130,
+      "layout_x": 660,
+      "layout_y": 30,
+      "layout_cluster": "functions",
+      "layout_role": "provider",
+      "scope": "mvp",
+      "status": "not_started",
+      "tech": "VLOOKUP",
+      "owns_data": [
+        "(stateless)"
+      ],
+      "source_refs": [
+        ".vivicy/canonical/12-functions-lookup.md:7"
+      ],
+      "graph_ref": "node:fn-lookup"
+    },
+    {
+      "id": "errors",
+      "label": "Error Values",
+      "kind": "library",
+      "lane": "foundation",
+      "order": 140,
+      "layout_x": 300,
+      "layout_y": 260,
+      "layout_cluster": "foundation",
+      "layout_role": "support",
+      "scope": "mvp",
+      "status": "not_started",
+      "tech": "Typed error sentinels, predicate, and code reader",
+      "owns_data": [
+        "error value sentinels"
+      ],
+      "source_refs": [
+        ".vivicy/canonical/07-errors.md:7"
+      ],
+      "graph_ref": "node:errors"
+    }
+  ],
+  "edges": [
+    {
+      "from": "caller",
+      "to": "api",
+      "relation": "invokes",
+      "protocol": "ESM module import",
+      "data": [
+        "formula string",
+        "sheet"
+      ],
+      "source_refs": [
+        ".vivicy/canonical/01-architecture.md:23"
+      ],
+      "graph_ref": "edge:caller->api:invokes:esm_module_import"
+    },
+    {
+      "from": "api",
+      "to": "tokenizer",
+      "relation": "lexes formula",
+      "protocol": "Function call",
+      "data": [
+        "formula string"
+      ],
+      "source_refs": [
+        ".vivicy/canonical/13-public-api.md:11"
+      ],
+      "graph_ref": "edge:api->tokenizer:lexes_formula:function_call"
+    },
+    {
+      "from": "tokenizer",
+      "to": "parser",
+      "relation": "supplies tokens",
+      "protocol": "Function call",
+      "data": [
+        "token list"
+      ],
+      "source_refs": [
+        ".vivicy/canonical/01-architecture.md:23"
+      ],
+      "graph_ref": "edge:tokenizer->parser:supplies_tokens:function_call"
+    },
+    {
+      "from": "parser",
+      "to": "evaluator",
+      "relation": "supplies AST",
+      "protocol": "Function call",
+      "data": [
+        "abstract syntax tree"
+      ],
+      "source_refs": [
+        ".vivicy/canonical/01-architecture.md:23"
+      ],
+      "graph_ref": "edge:parser->evaluator:supplies_ast:function_call"
+    },
+    {
+      "from": "evaluator",
+      "to": "sheet",
+      "relation": "resolves references",
+      "protocol": "Function call",
+      "data": [
+        "cell value",
+        "range block"
+      ],
+      "source_refs": [
+        ".vivicy/canonical/04-evaluator.md:23"
+      ],
+      "graph_ref": "edge:evaluator->sheet:resolves_references:function_call"
+    },
+    {
+      "from": "evaluator",
+      "to": "registry",
+      "relation": "dispatches functions",
+      "protocol": "Function call",
+      "data": [
+        "function name",
+        "evaluated arguments"
+      ],
+      "source_refs": [
+        ".vivicy/canonical/04-evaluator.md:19"
+      ],
+      "graph_ref": "edge:evaluator->registry:dispatches_functions:function_call"
+    },
+    {
+      "from": "evaluator",
+      "to": "errors",
+      "relation": "propagates error values",
+      "protocol": "Value",
+      "data": [
+        "error value"
+      ],
+      "source_refs": [
+        ".vivicy/canonical/04-evaluator.md:15"
+      ],
+      "graph_ref": "edge:evaluator->errors:propagates_error_values:value"
+    },
+    {
+      "from": "registry",
+      "to": "fn-math",
+      "relation": "invokes",
+      "protocol": "Function call",
+      "data": [
+        "evaluated arguments"
+      ],
+      "source_refs": [
+        ".vivicy/canonical/08-functions-core.md:7"
+      ],
+      "graph_ref": "edge:registry->fn-math:invokes:function_call"
+    },
+    {
+      "from": "registry",
+      "to": "fn-logical",
+      "relation": "invokes",
+      "protocol": "Function call",
+      "data": [
+        "evaluated arguments"
+      ],
+      "source_refs": [
+        ".vivicy/canonical/08-functions-core.md:7"
+      ],
+      "graph_ref": "edge:registry->fn-logical:invokes:function_call"
+    },
+    {
+      "from": "registry",
+      "to": "fn-text",
+      "relation": "invokes",
+      "protocol": "Function call",
+      "data": [
+        "evaluated arguments"
+      ],
+      "source_refs": [
+        ".vivicy/canonical/08-functions-core.md:7"
+      ],
+      "graph_ref": "edge:registry->fn-text:invokes:function_call"
+    },
+    {
+      "from": "registry",
+      "to": "fn-lookup",
+      "relation": "invokes",
+      "protocol": "Function call",
+      "data": [
+        "evaluated arguments"
+      ],
+      "source_refs": [
+        ".vivicy/canonical/08-functions-core.md:7"
+      ],
+      "graph_ref": "edge:registry->fn-lookup:invokes:function_call"
+    },
+    {
+      "from": "sheet",
+      "to": "cellref",
+      "relation": "parses addresses",
+      "protocol": "Function call",
+      "data": [
+        "A1 address",
+        "range"
+      ],
+      "source_refs": [
+        ".vivicy/canonical/05-sheet-model.md:7"
+      ],
+      "graph_ref": "edge:sheet->cellref:parses_addresses:function_call"
+    },
+    {
+      "from": "api",
+      "to": "sheet",
+      "relation": "creates and mutates",
+      "protocol": "Function call",
+      "data": [
+        "cell value",
+        "formula"
+      ],
+      "source_refs": [
+        ".vivicy/canonical/13-public-api.md:15"
+      ],
+      "graph_ref": "edge:api->sheet:creates_and_mutates:function_call"
+    },
+    {
+      "from": "api",
+      "to": "depgraph",
+      "relation": "registers dependencies",
+      "protocol": "Function call",
+      "data": [
+        "dependency edges"
+      ],
+      "source_refs": [
+        ".vivicy/canonical/13-public-api.md:15"
+      ],
+      "graph_ref": "edge:api->depgraph:registers_dependencies:function_call"
+    },
+    {
+      "from": "depgraph",
+      "to": "sheet",
+      "relation": "reads stored values",
+      "protocol": "Function call",
+      "data": [
+        "cell value"
+      ],
+      "source_refs": [
+        ".vivicy/canonical/06-recalculation.md:19"
+      ],
+      "graph_ref": "edge:depgraph->sheet:reads_stored_values:function_call"
+    },
+    {
+      "from": "depgraph",
+      "to": "evaluator",
+      "relation": "drives recalculation",
+      "protocol": "Function call",
+      "data": [
+        "recalc order"
+      ],
+      "source_refs": [
+        ".vivicy/canonical/06-recalculation.md:7"
+      ],
+      "graph_ref": "edge:depgraph->evaluator:drives_recalculation:function_call"
+    }
+  ],
+  "development": {
+    "issue_index_path": ".vivicy/development/issue-index.json",
+    "progress_ledger_path": ".vivicy/development/progress-ledger.json",
+    "issues": [
+      {
+        "id": "ISS-0001",
+        "title": "Error Values and Propagation Contract",
+        "issue_path": ".vivicy/development/issues/ISS-0001.md",
+        "requirement_ids": [
+          "REQ-ERR-001",
+          "REQ-ERR-002",
+          "REQ-ERR-003",
+          "REQ-ERR-004",
+          "REQ-ARCH-005"
+        ],
+        "graph_refs": [
+          "node:errors"
+        ],
+        "verification_gate_ids": [
+          "gate:test:error-values"
+        ],
+        "source_line_refs": [
+          ".vivicy/canonical/07-errors.md:5-7",
+          ".vivicy/canonical/07-errors.md:9-11",
+          ".vivicy/canonical/07-errors.md:13-15",
+          ".vivicy/canonical/07-errors.md:17-19",
+          ".vivicy/canonical/01-architecture.md:25-27"
+        ]
+      },
+      {
+        "id": "ISS-0002",
+        "title": "CellRef A1 Addresses and Ranges",
+        "issue_path": ".vivicy/development/issues/ISS-0002.md",
+        "requirement_ids": [
+          "REQ-CELLREF-001",
+          "REQ-CELLREF-002"
+        ],
+        "graph_refs": [
+          "node:cellref"
+        ],
+        "verification_gate_ids": [
+          "gate:test:cellref"
+        ],
+        "source_line_refs": [
+          ".vivicy/canonical/05-sheet-model.md:5-7",
+          ".vivicy/canonical/05-sheet-model.md:9-11"
+        ]
+      },
+      {
+        "id": "ISS-0003",
+        "title": "Sheet Cell Storage and Reads",
+        "issue_path": ".vivicy/development/issues/ISS-0003.md",
+        "requirement_ids": [
+          "REQ-SHEET-001",
+          "REQ-SHEET-002"
+        ],
+        "graph_refs": [
+          "node:sheet"
+        ],
+        "verification_gate_ids": [
+          "gate:test:sheet"
+        ],
+        "source_line_refs": [
+          ".vivicy/canonical/05-sheet-model.md:13-15",
+          ".vivicy/canonical/05-sheet-model.md:17-19"
+        ]
+      },
+      {
+        "id": "ISS-0004",
+        "title": "Tokenizer Lexical Analysis",
+        "issue_path": ".vivicy/development/issues/ISS-0004.md",
+        "requirement_ids": [
+          "REQ-TOK-001",
+          "REQ-TOK-002",
+          "REQ-TOK-003",
+          "REQ-TOK-004",
+          "REQ-TOK-005"
+        ],
+        "graph_refs": [
+          "node:tokenizer"
+        ],
+        "verification_gate_ids": [
+          "gate:test:tokenizer"
+        ],
+        "source_line_refs": [
+          ".vivicy/canonical/02-tokenizer.md:5-7",
+          ".vivicy/canonical/02-tokenizer.md:9-11",
+          ".vivicy/canonical/02-tokenizer.md:13-15",
+          ".vivicy/canonical/02-tokenizer.md:17-19",
+          ".vivicy/canonical/02-tokenizer.md:21-23"
+        ]
+      },
+      {
+        "id": "ISS-0005",
+        "title": "Pratt Parser and AST",
+        "issue_path": ".vivicy/development/issues/ISS-0005.md",
+        "requirement_ids": [
+          "REQ-PARSE-001",
+          "REQ-PARSE-002",
+          "REQ-PARSE-003",
+          "REQ-PARSE-004",
+          "REQ-PARSE-005"
+        ],
+        "graph_refs": [
+          "node:parser"
+        ],
+        "verification_gate_ids": [
+          "gate:test:parser"
+        ],
+        "source_line_refs": [
+          ".vivicy/canonical/03-parser.md:5-7",
+          ".vivicy/canonical/03-parser.md:9-11",
+          ".vivicy/canonical/03-parser.md:13-15",
+          ".vivicy/canonical/03-parser.md:17-19",
+          ".vivicy/canonical/03-parser.md:21-23"
+        ]
+      },
+      {
+        "id": "ISS-0006",
+        "title": "Function Registry and Calling Convention",
+        "issue_path": ".vivicy/development/issues/ISS-0006.md",
+        "requirement_ids": [
+          "REQ-REG-001",
+          "REQ-REG-002",
+          "REQ-REG-003",
+          "REQ-REG-004"
+        ],
+        "graph_refs": [
+          "node:registry"
+        ],
+        "verification_gate_ids": [
+          "gate:test:registry"
+        ],
+        "source_line_refs": [
+          ".vivicy/canonical/08-functions-core.md:5-7",
+          ".vivicy/canonical/08-functions-core.md:9-11",
+          ".vivicy/canonical/08-functions-core.md:13-15",
+          ".vivicy/canonical/08-functions-core.md:17-19"
+        ]
+      },
+      {
+        "id": "ISS-0007",
+        "title": "Math Functions",
+        "issue_path": ".vivicy/development/issues/ISS-0007.md",
+        "requirement_ids": [
+          "REQ-FNMATH-001",
+          "REQ-FNMATH-002",
+          "REQ-FNMATH-003",
+          "REQ-FNMATH-004"
+        ],
+        "graph_refs": [
+          "node:fn-math"
+        ],
+        "verification_gate_ids": [
+          "gate:test:functions-math"
+        ],
+        "source_line_refs": [
+          ".vivicy/canonical/09-functions-math.md:5-7",
+          ".vivicy/canonical/09-functions-math.md:9-11",
+          ".vivicy/canonical/09-functions-math.md:13-15",
+          ".vivicy/canonical/09-functions-math.md:17-19"
+        ]
+      },
+      {
+        "id": "ISS-0008",
+        "title": "Logical Functions",
+        "issue_path": ".vivicy/development/issues/ISS-0008.md",
+        "requirement_ids": [
+          "REQ-FNLOGIC-001",
+          "REQ-FNLOGIC-002",
+          "REQ-FNLOGIC-003",
+          "REQ-FNLOGIC-004"
+        ],
+        "graph_refs": [
+          "node:fn-logical"
+        ],
+        "verification_gate_ids": [
+          "gate:test:functions-logical"
+        ],
+        "source_line_refs": [
+          ".vivicy/canonical/10-functions-logical.md:5-7",
+          ".vivicy/canonical/10-functions-logical.md:9-11",
+          ".vivicy/canonical/10-functions-logical.md:13-15",
+          ".vivicy/canonical/10-functions-logical.md:17-19"
+        ]
+      },
+      {
+        "id": "ISS-0009",
+        "title": "Text Functions",
+        "issue_path": ".vivicy/development/issues/ISS-0009.md",
+        "requirement_ids": [
+          "REQ-FNTEXT-001",
+          "REQ-FNTEXT-002",
+          "REQ-FNTEXT-003",
+          "REQ-FNTEXT-004"
+        ],
+        "graph_refs": [
+          "node:fn-text"
+        ],
+        "verification_gate_ids": [
+          "gate:test:functions-text"
+        ],
+        "source_line_refs": [
+          ".vivicy/canonical/11-functions-text.md:5-7",
+          ".vivicy/canonical/11-functions-text.md:9-11",
+          ".vivicy/canonical/11-functions-text.md:13-15",
+          ".vivicy/canonical/11-functions-text.md:17-19"
+        ]
+      },
+      {
+        "id": "ISS-0010",
+        "title": "Lookup Function VLOOKUP",
+        "issue_path": ".vivicy/development/issues/ISS-0010.md",
+        "requirement_ids": [
+          "REQ-FNLOOKUP-001",
+          "REQ-FNLOOKUP-002",
+          "REQ-FNLOOKUP-003"
+        ],
+        "graph_refs": [
+          "node:fn-lookup"
+        ],
+        "verification_gate_ids": [
+          "gate:test:functions-lookup"
+        ],
+        "source_line_refs": [
+          ".vivicy/canonical/12-functions-lookup.md:5-7",
+          ".vivicy/canonical/12-functions-lookup.md:9-11",
+          ".vivicy/canonical/12-functions-lookup.md:13-15"
+        ]
+      },
+      {
+        "id": "ISS-0011",
+        "title": "Evaluator Tree Walk",
+        "issue_path": ".vivicy/development/issues/ISS-0011.md",
+        "requirement_ids": [
+          "REQ-EVAL-001",
+          "REQ-EVAL-002",
+          "REQ-EVAL-003",
+          "REQ-EVAL-004",
+          "REQ-EVAL-005"
+        ],
+        "graph_refs": [
+          "node:evaluator"
+        ],
+        "verification_gate_ids": [
+          "gate:test:evaluator"
+        ],
+        "source_line_refs": [
+          ".vivicy/canonical/04-evaluator.md:5-7",
+          ".vivicy/canonical/04-evaluator.md:9-11",
+          ".vivicy/canonical/04-evaluator.md:13-15",
+          ".vivicy/canonical/04-evaluator.md:17-19",
+          ".vivicy/canonical/04-evaluator.md:21-23"
+        ]
+      },
+      {
+        "id": "ISS-0012",
+        "title": "Dependency Graph and Recalculation",
+        "issue_path": ".vivicy/development/issues/ISS-0012.md",
+        "requirement_ids": [
+          "REQ-DEP-001",
+          "REQ-RECALC-001",
+          "REQ-RECALC-002",
+          "REQ-RECALC-003",
+          "REQ-RECALC-004"
+        ],
+        "graph_refs": [
+          "node:depgraph"
+        ],
+        "verification_gate_ids": [
+          "gate:test:recalculation"
+        ],
+        "source_line_refs": [
+          ".vivicy/canonical/05-sheet-model.md:21-23",
+          ".vivicy/canonical/06-recalculation.md:5-7",
+          ".vivicy/canonical/06-recalculation.md:9-11",
+          ".vivicy/canonical/06-recalculation.md:13-15",
+          ".vivicy/canonical/06-recalculation.md:17-19"
+        ]
+      },
+      {
+        "id": "ISS-0013",
+        "title": "Public API Surface",
+        "issue_path": ".vivicy/development/issues/ISS-0013.md",
+        "requirement_ids": [
+          "REQ-API-001",
+          "REQ-API-002",
+          "REQ-API-003",
+          "REQ-API-004",
+          "REQ-ARCH-002",
+          "REQ-ARCH-001",
+          "REQ-ARCH-003"
+        ],
+        "graph_refs": [
+          "node:api"
+        ],
+        "verification_gate_ids": [
+          "gate:test:public-api"
+        ],
+        "source_line_refs": [
+          ".vivicy/canonical/13-public-api.md:5-7",
+          ".vivicy/canonical/13-public-api.md:9-11",
+          ".vivicy/canonical/13-public-api.md:13-15",
+          ".vivicy/canonical/13-public-api.md:17-19",
+          ".vivicy/canonical/01-architecture.md:5-7",
+          ".vivicy/canonical/01-architecture.md:17-19",
+          ".vivicy/canonical/01-architecture.md:21-23"
+        ]
+      }
+    ],
+    "graph_item_states": [],
+    "active_items": [],
+    "coverage_summary": {
+      "total_doc_lines": 141,
+      "classified_doc_lines": 141,
+      "requirement_linked_doc_lines": 110,
+      "issue_linked_doc_lines": 110
+    }
+  }
+}

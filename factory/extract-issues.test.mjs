@@ -147,6 +147,9 @@ function stubSeams(extra = {}) {
       commitCalls.push(ctx);
       return { committed: true };
     },
+    // The per-lens map review defaults to CLEAN (no findings) so happy paths green; a
+    // test overrides it via `extra` to exercise the find -> fix-pass feedback.
+    mapReview: async () => ({ findings: [], actionable: [], legs: [] }),
     _calls: { mapCalls, freezeCalls, statusEvents, commitCalls },
     ...extra,
   };
@@ -207,15 +210,51 @@ describe("extractIssues — two-agent happy path", () => {
     seedInputs(temp); // a frozen manifest exists, but the spec has since changed
     const { spawnExtractor } = fakeAgent([(ctx) => writeValidCorpus(ctx.repoRoot)]);
     const { spawnVerifier } = alwaysFaithfulVerifier();
-    // verifyFrozenManifest:false models the owner editing .vivicy/canonical/** after the
-    // freeze (document_set_hash no longer verifies) — the stale baseline is discarded.
-    const seams = stubSeams({ verifyFrozenManifest: () => false });
+    // verifyFrozenManifest:false on the FIRST (pre-loop) check models the owner editing
+    // .vivicy/canonical/** after the freeze (document_set_hash no longer verifies) — the
+    // stale baseline is discarded and re-frozen. After the re-freeze the new baseline
+    // matches, so the per-attempt re-check passes (true).
+    let vfmCalls = 0;
+    const seams = stubSeams({ verifyFrozenManifest: () => vfmCalls++ > 0 });
 
     const result = await extractIssues({ repoRoot: temp, spawnExtractor, spawnVerifier, ...seams });
 
     assert.equal(result.status, "green");
     assert.equal(result.froze, true, "a stale baseline is re-frozen, not reused");
     assert.equal(seams._calls.freezeCalls.length, 1, "freeze seam invoked once to re-establish the baseline");
+  });
+
+  it("re-freezes when the EXTRACTOR edits canonical mid-loop (Pass 1 contradiction fix)", async () => {
+    seedInputs(temp);
+    const { spawnExtractor, calls } = fakeAgent([(ctx) => writeValidCorpus(ctx.repoRoot)]);
+    const { spawnVerifier } = alwaysFaithfulVerifier();
+    // Pre-loop the baseline matches (reuse, no freeze). On attempt 1 the extractor edits
+    // canonical to resolve a contradiction, so the post-extractor re-check fails ONCE — the
+    // orchestrator re-freezes + re-pins and re-authors; the re-frozen baseline then matches.
+    let vfmCalls = 0;
+    const seams = stubSeams({ verifyFrozenManifest: () => vfmCalls++ !== 1 });
+    const result = await extractIssues({ repoRoot: temp, spawnExtractor, spawnVerifier, ...seams });
+    assert.equal(result.status, "green");
+    assert.equal(seams._calls.freezeCalls.length, 1, "the mid-loop canonical edit triggers exactly one re-freeze");
+    assert.equal(calls.length, 2, "attempt 1 re-freezes after the canonical edit; attempt 2 re-authors to green");
+  });
+
+  it("re-prompts the extractor when the per-lens map review finds an actionable issue, then greens on a clean review", async () => {
+    seedInputs(temp);
+    const { spawnExtractor, calls } = fakeAgent([(ctx) => writeValidCorpus(ctx.repoRoot)]);
+    const { spawnVerifier } = alwaysFaithfulVerifier();
+    // First map review surfaces a real finding (-> extractor fix pass); the second is clean (-> green).
+    let reviewCalls = 0;
+    const mapReview = async () => {
+      reviewCalls += 1;
+      const f = { lens: "data-ownership", target: "node:x", detail: "two owners", real: true };
+      return reviewCalls === 1 ? { findings: [f], actionable: [f], legs: [] } : { findings: [], actionable: [], legs: [] };
+    };
+    const result = await extractIssues({ repoRoot: temp, spawnExtractor, spawnVerifier, ...stubSeams({ mapReview }) });
+    assert.equal(result.status, "green");
+    assert.equal(reviewCalls, 2, "the map review runs on each faithful attempt; the run greens only when it is clean");
+    assert.equal(calls.length, 2, "the actionable finding triggers exactly one extractor fix pass");
+    assert.match(result.summary, /map review clean/);
   });
 
   it("accepts the legacy spawnAgent alias for the extractor leg (back-compat)", async () => {

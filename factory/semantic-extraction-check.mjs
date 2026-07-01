@@ -24,6 +24,7 @@
 // The checker is read-only over the issue index; its outputs are
 // .vivicy/requirements/source-map.json and coverage-report.json.
 
+import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname, isAbsolute, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -402,10 +403,16 @@ export function runSemanticExtractionCheck(options = {}) {
         `${totals.uncovered_lines} canonical doc line(s) still UNCOVERED (see ${paths.coverageReportJsonPath})`,
     );
   }
+  // Per-requirement source-excerpt hashes: TOOL-computed (deterministic) over the
+  // exact cited canonical lines, persisted so a later baseline can detect which
+  // requirements a doc edit invalidated. The hash is owned by tooling, never
+  // authored by the extractor (an LLM cannot compute a hash); the drift COMPARISON
+  // across baselines is the Change-Control step, this only computes + persists it.
   const sourceMap = {
     baseline_id: index.baseline_id,
     baseline_version: index.baseline_version,
     files: sourceMapFiles,
+    requirement_excerpts: computeRequirementExcerpts(repoRoot, corpusPaths, loadDocLines),
     schema_version: 1,
   };
   const coverageReport = {
@@ -457,6 +464,49 @@ export function runSemanticExtractionCheck(options = {}) {
       (toleratedUncovered ? " (tolerated: extraction in progress)" : ""),
     warnings,
   };
+}
+
+// Compute the deterministic source-excerpt hash for every catalog requirement
+// whose cited refs all resolve into the pinned corpus: the SHA-256 of the exact
+// cited lines, joined in ref order. Requirements with malformed or out-of-range
+// refs are skipped here (that is traceability:check's domain), so this stays a
+// pure, additive enrichment of the source map.
+function computeRequirementExcerpts(repoRoot, corpusPaths, loadDocLines) {
+  const catalogPath = ".vivicy/requirements/catalog.json";
+  if (!existsSync(resolveRepoPath(repoRoot, catalogPath))) return [];
+  let catalog;
+  try {
+    catalog = JSON.parse(readFileSync(resolveRepoPath(repoRoot, catalogPath), "utf8"));
+  } catch {
+    return [];
+  }
+  const requirements = Array.isArray(catalog.requirements) ? catalog.requirements : [];
+  const excerpts = [];
+  for (const req of requirements) {
+    const refs = Array.isArray(req.sourceRefs) ? req.sourceRefs : [];
+    if (refs.length === 0 || !req.id) continue;
+    const parts = [];
+    let resolvable = true;
+    for (const ref of refs) {
+      const match = requirementRefPattern.exec(ref);
+      if (!match || !corpusPaths.has(match[1])) {
+        resolvable = false;
+        break;
+      }
+      const start = Number(match[2]);
+      const end = match[3] ? Number(match[3]) : start;
+      const lines = loadDocLines(match[1]);
+      if (start < 1 || start > end || end > lines.length) {
+        resolvable = false;
+        break;
+      }
+      parts.push(lines.slice(start - 1, end).join("\n"));
+    }
+    if (resolvable) {
+      excerpts.push({ id: req.id, source_excerpt_sha256: createHash("sha256").update(parts.join("\n")).digest("hex") });
+    }
+  }
+  return excerpts;
 }
 
 // The Traceability block is YAML-shaped but parsed with fixed line rules so the

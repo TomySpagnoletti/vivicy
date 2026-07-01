@@ -17,10 +17,11 @@ import { beforeAll, describe, expect, it } from "vitest"
 // itself reads no files — it just parses the YAML string we pass.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let parseArchitectureMap: (source: string) => any
+let reconcileLayout: (reference: string, current: string) => { source: string; restored: string[] }
 
 beforeAll(async () => {
   process.env.VIVICY_TARGET_ROOT = tmpdir()
-  ;({ parseArchitectureMap } = await import("./generate-viewer-data"))
+  ;({ parseArchitectureMap, reconcileLayout } = await import("./generate-viewer-data"))
 })
 
 // A minimal but complete map in the supported style: clusters live on each node
@@ -155,5 +156,35 @@ clusters:
   it("throws on any other unsupported top-level section", () => {
     const withUnknownSection = SUPPORTED_MAP + `\nbogus_section:\n  - one\n`
     expect(() => parseArchitectureMap(withUnknownSection)).toThrow(/Unsupported architecture-map\.yml line/)
+  })
+})
+
+describe("reconcileLayout — self-heal owner placements", () => {
+  // The extractor "moved" the user node: new x and a different cluster.
+  const moved = SUPPORTED_MAP.replace("layout_x: -160", "layout_x: 999").replace('layout_cluster: "entry"', 'layout_cluster: "moved"')
+
+  it("restores a moved node's position and cluster to the owner's reference", () => {
+    const { source, restored } = reconcileLayout(SUPPORTED_MAP, moved)
+    expect(restored.some((entry) => entry.startsWith("node user"))).toBe(true)
+    const healed = parseArchitectureMap(source)
+    const user = healed.nodes.find((n: { id: string }) => n.id === "user")
+    expect(user.layout_x).toBe(-160)
+    expect(user.layout_cluster).toBe("entry")
+    // The untouched node keeps its position.
+    const service = healed.nodes.find((n: { id: string }) => n.id === "service")
+    expect(service.layout_x).toBe(200)
+  })
+
+  it("is a no-op when the layout already matches (no restoration, source unchanged)", () => {
+    const { source, restored } = reconcileLayout(SUPPORTED_MAP, SUPPORTED_MAP)
+    expect(restored).toEqual([])
+    expect(source).toBe(SUPPORTED_MAP)
+  })
+
+  it("never throws on a malformed reference — it heals nothing and WARNS (not silent)", () => {
+    const { source, restored, warning } = reconcileLayout("clusters:\n  - id: bad\n", moved)
+    expect(restored).toEqual([])
+    expect(source).toBe(moved)
+    expect(warning).toBeTruthy()
   })
 })

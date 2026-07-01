@@ -141,8 +141,128 @@ const allowedStatuses = ["not_started", "in_progress", "reviewing", "implemented
 const allowedLayoutRoles = ["primary_flow", "support", "shared_state", "provider", "future"] as const;
 const allowedScopes = ["mvp", "present", "future"] as const;
 
+// Self-heal the owner's manual graph layout. For every node and edge present in
+// BOTH the reference map (the owner's pre-extraction graph) and the current,
+// extractor-rewritten map, restore the reference's layout — node `layout_x/_y/
+// _cluster/_role` and edge `layout_label_ratio`. New nodes/edges (absent from the
+// reference) keep their fresh layout. This NEVER throws: a malformed reference, or
+// a patch it cannot place, simply yields fewer restorations — so a refine pass can
+// never lose a manually placed position, and never blocks the run on one.
+export function reconcileLayout(reference: string, current: string): { source: string; restored: string[]; warning?: string } {
+  let ref: ArchitectureMap;
+  try {
+    ref = parseArchitectureMap(reference);
+  } catch {
+    // The owner's reference did not parse: there is nothing reliable to restore
+    // from. Never block, but never SILENT — surface that placements went
+    // unprotected this run so it is visible in the map-gen output.
+    return {
+      source: current,
+      restored: [],
+      warning:
+        "layout self-heal skipped: the reference architecture-map did not parse — manual placements are NOT protected this run; fix the map so they can be restored",
+    };
+  }
+  let cur: ArchitectureMap;
+  try {
+    cur = parseArchitectureMap(current);
+  } catch {
+    // The current map is the map-gen gate's job to fail on; nothing to reconcile.
+    return { source: current, restored: [] };
+  }
+  const currentNodeById = new Map(cur.nodes.map((node) => [node.id, node]));
+  const nodeFixes = new Map<string, NodeSpec>();
+  for (const refNode of ref.nodes) {
+    const curNode = currentNodeById.get(refNode.id);
+    if (
+      curNode &&
+      (refNode.layout_x !== curNode.layout_x ||
+        refNode.layout_y !== curNode.layout_y ||
+        refNode.layout_cluster !== curNode.layout_cluster ||
+        refNode.layout_role !== curNode.layout_role)
+    ) {
+      nodeFixes.set(refNode.id, refNode);
+    }
+  }
+  const currentEdgeRatio = new Map(cur.edges.map((edge) => [edgeLayoutIdentity(edge), edge.layout_label_ratio]));
+  const edgeFixes = new Map<string, number>();
+  for (const refEdge of ref.edges) {
+    const id = edgeLayoutIdentity(refEdge);
+    if (refEdge.layout_label_ratio !== undefined && currentEdgeRatio.has(id) && currentEdgeRatio.get(id) !== refEdge.layout_label_ratio) {
+      edgeFixes.set(id, refEdge.layout_label_ratio);
+    }
+  }
+  if (nodeFixes.size === 0 && edgeFixes.size === 0) return { source: current, restored: [] };
+
+  const formatNodeValue = (key: string, node: NodeSpec): string =>
+    key === "layout_cluster" ? JSON.stringify(node.layout_cluster) : String(node[key as "layout_x" | "layout_y" | "layout_role"]);
+  const unquote = (raw: string): string => raw.trim().replace(/^"(.*)"$/, "$1");
+
+  const lines = current.split(/\r?\n/);
+  const restored: string[] = [];
+  let section: "nodes" | "edges" | "other" = "other";
+  let nodeId: string | null = null;
+  let edge: { from: string; to?: string; relation?: string; protocol?: string } | null = null;
+
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i];
+    const top = line.match(/^([a-z_]+):/);
+    if (top) {
+      section = top[1] === "nodes" ? "nodes" : top[1] === "edges" ? "edges" : "other";
+      nodeId = null;
+      edge = null;
+      continue;
+    }
+    const nodeStart = line.match(/^ {2}- id:\s*(\S+)/);
+    if (section === "nodes" && nodeStart) {
+      nodeId = nodeStart[1];
+      continue;
+    }
+    const edgeStart = line.match(/^ {2}- from:\s*(\S+)/);
+    if (section === "edges" && edgeStart) {
+      edge = { from: edgeStart[1] };
+      continue;
+    }
+    if (section === "nodes" && nodeId && nodeFixes.has(nodeId)) {
+      const m = line.match(/^( {4})(layout_x|layout_y|layout_cluster|layout_role):\s*.*$/);
+      if (m) {
+        lines[i] = `${m[1]}${m[2]}: ${formatNodeValue(m[2], nodeFixes.get(nodeId) as NodeSpec)}`;
+        restored.push(`node ${nodeId}.${m[2]}`);
+      }
+    }
+    if (section === "edges" && edge) {
+      const field = line.match(/^ {4}(to|relation|protocol):\s*(.*)$/);
+      if (field) edge[field[1] as "to" | "relation" | "protocol"] = unquote(field[2]);
+      const ratio = line.match(/^( {4})layout_label_ratio:\s*.*$/);
+      if (ratio && edge.to !== undefined && edge.relation !== undefined && edge.protocol !== undefined) {
+        const id = `${edge.from}->${edge.to}|${edge.relation}|${edge.protocol}`;
+        if (edgeFixes.has(id)) {
+          lines[i] = `${ratio[1]}layout_label_ratio: ${String(edgeFixes.get(id))}`;
+          restored.push(`edge ${id}`);
+        }
+      }
+    }
+  }
+  return { source: lines.join("\n"), restored };
+}
+
 export function main(): void {
-  const previousSource = readFileSync(mapPath, "utf8");
+  let previousSource = readFileSync(mapPath, "utf8");
+  const reconcileIndex = process.argv.indexOf("--reconcile-against");
+  if (reconcileIndex !== -1) {
+    const referencePath = process.argv[reconcileIndex + 1];
+    if (referencePath && existsSync(referencePath)) {
+      const { source: healed, restored, warning } = reconcileLayout(readFileSync(referencePath, "utf8"), previousSource);
+      if (warning) process.stderr.write(`${warning}\n`);
+      if (restored.length > 0) {
+        writeFileSync(mapPath, healed);
+        previousSource = healed;
+        process.stderr.write(
+          `layout self-heal: restored ${restored.length} owner placement(s) the extractor moved (${restored.slice(0, 8).join(", ")}${restored.length > 8 ? ", …" : ""})\n`,
+        );
+      }
+    }
+  }
   const today = getUtcDate();
   const shouldWriteMapMetadata = process.argv.includes("--write-map-metadata");
   const source = shouldWriteMapMetadata ? updateGeneratedDate(previousSource, today) : previousSource;

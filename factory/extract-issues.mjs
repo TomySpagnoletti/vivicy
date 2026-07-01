@@ -20,14 +20,20 @@
 // extractor. A prior run reported "green with map FAILED" because the map ran only
 // after green — never as a gate — so a malformed map never triggered a fix.
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { runClaudeLeg, runCodexLeg } from "./agent-spawn.mjs";
 import { agentCliArgs, CLI_DEFAULTS, composePrompt, DEFAULT_CONFIG, resolveAgentLegs } from "./dev-loop.mjs";
 import { runSemanticExtractionCheck } from "./semantic-extraction-check.mjs";
 import { runTraceabilityCheck } from "./traceability-check.mjs";
+import { runSpikeCheck as runSpikeCheckImpl } from "./spike-check.mjs";
+import { runReferenceCheck as runReferenceCheckImpl } from "./reference-check.mjs";
+import { runChangeControlCheck as runChangeControlCheckImpl } from "./change-control.mjs";
+import { runReDrive } from "./re-drive.mjs";
+import { formatMapReviewFix, mapReviewLensContext, mapReviewReportRel, runMapReview } from "./map-review.mjs";
 import { FACTORY_DIR, FACTORY_PROMPTS_DIR, resolveTargetRoot } from "./target-root.mjs";
 
 const BASELINE_DIR = ".vivicy/baselines";
@@ -93,8 +99,14 @@ export async function extractIssues(options = {}) {
   const verifyFrozenManifest = options.verifyFrozenManifest ?? defaultVerifyFrozenManifest;
   const runSemanticCheck = options.runSemanticCheck ?? defaultRunSemanticCheck;
   const runTraceability = options.runTraceability ?? defaultRunTraceability;
+  const runSpikeCheck = options.runSpikeCheck ?? defaultRunSpikeCheck;
+  const runReferenceCheck = options.runReferenceCheck ?? defaultRunReferenceCheck;
+  const runChangeControl = options.runChangeControl ?? defaultRunChangeControl;
   const readVerdict = options.readVerdict ?? defaultReadVerdict;
   const runGenerateMap = options.runGenerateMap ?? defaultRunGenerateMap;
+  // The independent per-lens architecture-map review (method Review Method): a fan-out of
+  // domain-expert sub-agents over the generated map. Injectable for tests.
+  const mapReview = options.mapReview ?? makeDefaultMapReview(options, cfg, legs);
   const emitStatus = options.emitStatus ?? defaultEmitStatus;
   // Mechanical corpus commit (Item 2): on a green extraction the orchestrator —
   // never a human — commits the whole authored corpus (frozen baseline + issues +
@@ -141,11 +153,12 @@ export async function extractIssues(options = {}) {
     frozen = await runFreeze({ repoRoot, version });
     froze = true;
   }
-  const { manifestPath, baselineId } = frozen;
+  let { manifestPath, baselineId } = frozen;
 
   let lastChecks = null;
   let lastMap = null;
   let lastVerdict = null;
+  let lastMapReview = null;
   // The most recent per-leg TIMEOUT reason (set by leg-timeout.mjs when the
   // extractor or verifier CLI was killed for overrunning the cap / going idle).
   // A timed-out leg authors nothing usable, so the deterministic gate fails and
@@ -154,16 +167,54 @@ export async function extractIssues(options = {}) {
   // mysterious empty corpus.
   let lastTimeoutReason = null;
   const maxAttempts = maxRetries + 1; // the initial author + up to maxRetries fixes
+  // Snapshot the owner's architecture-map layout BEFORE the extractor touches it, so
+  // map generation can self-heal any node/edge the extractor moved back to the
+  // owner's placement (never lost, never a block — see generate-viewer-data).
+  const mapAbs = resolve(repoRoot, ".vivicy/architecture-map/architecture-map.yml");
+  let layoutBaselinePath = null;
+  if (existsSync(mapAbs)) {
+    layoutBaselinePath = join(mkdtempSync(join(tmpdir(), "vivicy-map-")), "baseline.yml");
+    writeFileSync(layoutBaselinePath, readFileSync(mapAbs, "utf8"));
+  }
+  // Snapshot the PRIOR source-map before re-authoring overwrites it, so a Change-Control
+  // re-extraction can deterministically reopen exactly the issues whose requirement excerpts
+  // changed (see runReDrive). Null on a first extraction (no prior, nothing to reopen).
+  const sourceMapAbs = resolve(repoRoot, ".vivicy/requirements/source-map.json");
+  const priorSourceMap = readJsonOrNull(sourceMapAbs);
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     const isFix = attempt > 1;
     record({ phase: isFix ? "fixing" : "authoring", attempt });
 
     // On a fix pass, feed BACK whatever made the previous attempt non-green: the
     // deterministic check output, the map-gen error, and/or the fidelity verdict.
-    const fixContext = isFix ? formatFixContext(lastChecks, lastVerdict, lastMap) : null;
+    const fixContext = isFix
+      ? [
+          formatFixContext(lastChecks, lastVerdict, lastMap),
+          lastMapReview?.actionable?.length ? formatMapReviewFix(lastMapReview.actionable) : "",
+        ]
+          .filter(Boolean)
+          .join("\n\n")
+      : null;
     const leg = await spawnExtractor({ repoRoot, manifestPath, baselineId, cfg, attempt, checkOutput: fixContext, isFix });
     if (leg?.transcriptRel) transcripts.push(leg.transcriptRel);
     lastTimeoutReason = legTimeoutReason(leg) ?? lastTimeoutReason;
+
+    // Canonical contradiction resolution (extractor Pass 1): the extractor may EDIT
+    // .vivicy/canonical/** to resolve a genuine contradiction. If it did, the frozen
+    // baseline no longer matches the spec on disk — re-freeze + re-pin and re-author
+    // against the corrected corpus, autonomously: no human, no change-request. The
+    // re-freeze consumes an attempt, so the bounded loop still terminates.
+    if (!verifyFrozenManifest({ repoRoot, manifestPath, baselineId })) {
+      record({ phase: "refreezing", attempt });
+      commitSpecSnapshot({ repoRoot });
+      const refrozen = await runFreeze({ repoRoot, version });
+      manifestPath = refrozen.manifestPath;
+      baselineId = refrozen.baselineId;
+      lastChecks = null;
+      lastMap = null;
+      lastVerdict = null;
+      continue;
+    }
 
     // The first verdict is fully mechanical: coverage / pins / DAG / schema (the
     // two checks) AND that the authored architecture-map.yml actually generates
@@ -172,8 +223,17 @@ export async function extractIssues(options = {}) {
     record({ phase: "validating", attempt });
     const semantic = runSemanticCheck({ repoRoot });
     const traceability = runTraceability({ repoRoot });
-    lastChecks = { semantic, traceability, attempt };
-    const deterministicGreen = semantic.exitCode === 0 && traceability.exitCode === 0 && !semantic.placeholder;
+    const spike = runSpikeCheck({ repoRoot });
+    const reference = runReferenceCheck({ repoRoot });
+    const changeControl = runChangeControl({ repoRoot });
+    lastChecks = { semantic, traceability, spike, reference, changeControl, attempt };
+    const deterministicGreen =
+      semantic.exitCode === 0 &&
+      traceability.exitCode === 0 &&
+      spike.exitCode === 0 &&
+      reference.exitCode === 0 &&
+      changeControl.exitCode === 0 &&
+      !semantic.placeholder;
     // The semantic checker treats an unchanged placeholder index as exit 0 +
     // placeholder:true — the agent authored nothing usable. Treat it as a failed
     // attempt so the fix loop re-prompts rather than declaring success. A red
@@ -183,6 +243,7 @@ export async function extractIssues(options = {}) {
     if (!deterministicGreen) {
       lastMap = null;
       lastVerdict = null;
+      lastMapReview = null;
       continue;
     }
 
@@ -191,10 +252,11 @@ export async function extractIssues(options = {}) {
     // `clusters:` section) is NOT green. Feed the exact generator error back to the
     // EXTRACTOR like any other mechanical failure.
     record({ phase: "mapping", attempt });
-    const map = runGenerateMap({ repoRoot });
+    const map = runGenerateMap({ repoRoot, reconcileAgainst: layoutBaselinePath });
     lastMap = map;
     if (map.code !== 0) {
       lastVerdict = null;
+      lastMapReview = null;
       continue;
     }
 
@@ -213,7 +275,33 @@ export async function extractIssues(options = {}) {
     const faithful = verdict?.faithful === true;
     if (!faithful) {
       // Fidelity failure: re-prompt the EXTRACTOR (not the verifier) to fix.
+      lastMapReview = null;
       continue;
+    }
+
+    // Final gate — the independent per-lens map review (the method's Review Method): the
+    // generated map is reviewed AS A SYSTEM by independent domain-expert sub-agents, one
+    // lens each, never a human reviewing their output. Real findings flow back to the
+    // EXTRACTOR (which fixes the map, or per Pass 1 the canonical it cites) like a fidelity
+    // problem; an empty review is the last thing between the corpus and green.
+    record({ phase: "map-review", attempt });
+    const review = await mapReview({ repoRoot, manifestPath, baselineId, cfg, attempt });
+    for (const lensLeg of review.legs ?? []) {
+      if (lensLeg?.transcriptRel) transcripts.push(lensLeg.transcriptRel);
+    }
+    lastMapReview = review;
+    if (review.actionable.length > 0) {
+      continue;
+    }
+
+    // Deterministic Change-Control re-drive: if this extraction re-ran over a CHANGED
+    // baseline (a prior source-map existed), reopen exactly the issues whose requirement
+    // excerpts changed or were removed — the orchestrator does this mechanically, never an
+    // agent's recollection. A first extraction or an unchanged corpus reopens nothing.
+    let reopened = [];
+    if (priorSourceMap) {
+      const currentSourceMap = readJsonOrNull(sourceMapAbs);
+      if (currentSourceMap) reopened = runReDrive({ repoRoot, priorSourceMap, currentSourceMap }).reopened;
     }
 
     const status = {
@@ -226,7 +314,8 @@ export async function extractIssues(options = {}) {
       verdict,
       map,
       transcripts,
-      summary: `extraction green after ${attempt} attempt(s): ${countIssues(repoRoot)} issue(s); deterministic checks pass; map regenerated; verifier faithful:true; corpus committed`,
+      ...(reopened.length ? { reopened } : {}),
+      summary: `extraction green after ${attempt} attempt(s): ${countIssues(repoRoot)} issue(s); deterministic checks pass; map regenerated; verifier faithful:true; map review clean${reopened.length ? `; re-drive reopened ${reopened.length} impacted issue(s)` : ""}; corpus committed`,
     };
     // Emit the final green status FIRST, then commit MECHANICALLY — so the single
     // commit captures the whole corpus (frozen baseline + authored issues +
@@ -325,6 +414,52 @@ function runLegForProvider(leg, issue, legCfg, deps) {
   return runClaudeLeg(leg, issue, legCfg, deps);
 }
 
+// Build the real per-lens MAP-REVIEW seam: one REVIEWER-CLI leg per lens, each reading
+// map-review.md with its lens injected via context and writing a per-lens findings file.
+// The reviewer CLI differs from the extractor CLI (the same distinct-agent invariant the
+// fidelity verifier uses), so the agents that review the map never authored it. Each leg's
+// transcript carries a unique UUID, so the shared "map-review" role does not collide.
+function makeDefaultSpawnLens(options, baseCfg, legs) {
+  const promptsDir = options.promptsDir ?? FACTORY_PROMPTS_DIR;
+  const reviewer = legs?.reviewer ?? { actor: "codex", provider: "codex", model: CLI_DEFAULTS.codex.model, effort: CLI_DEFAULTS.codex.effort, fast: false };
+  const leg = { ...reviewer, role: "map-review" };
+  return async ({ repoRoot, manifestPath, baselineId, cfg, lens }) => {
+    const legCfg = { ...cfg, promptsDir, execRoot: repoRoot };
+    const issue = extractionIssue();
+    const context = mapReviewLensContext({ lens, manifestPath, baselineId });
+    const deps = legDepsForTarget(legCfg, issue, repoRoot, context);
+    return runLegForProvider(leg, issue, legCfg, deps);
+  };
+}
+
+// Parse a JSON file, or null if it is missing or unparseable.
+function readJsonOrNull(abs) {
+  if (!existsSync(abs)) return null;
+  try {
+    return JSON.parse(readFileSync(abs, "utf8"));
+  } catch {
+    return null;
+  }
+}
+
+// Read one lens's structured findings; a missing or unparseable file means that lens
+// surfaced nothing, so it never blocks the run.
+function defaultReadMapFindings({ repoRoot, lensKey }) {
+  const abs = resolve(repoRoot, mapReviewReportRel(lensKey));
+  if (!existsSync(abs)) return { findings: [] };
+  try {
+    return JSON.parse(readFileSync(abs, "utf8"));
+  } catch {
+    return { findings: [] };
+  }
+}
+
+// Bind the real per-lens spawn + findings read into the pure map-review fan-out.
+function makeDefaultMapReview(options, cfg, legs) {
+  const spawnLens = makeDefaultSpawnLens(options, cfg, legs);
+  return (args) => runMapReview({ ...args, spawnLens, readFindings: defaultReadMapFindings });
+}
+
 // Extra prompt context for the EXTRACTOR leg: the frozen baseline + (on a fix
 // pass) the exact deterministic-check output and/or fidelity-verdict problems.
 function extractorContext({ manifestPath, baselineId, attempt, checkOutput, isFix }) {
@@ -388,7 +523,7 @@ function defaultVerifyFrozenManifest({ repoRoot, manifestPath, baselineId }) {
   const tool = resolve(FACTORY_DIR, "doc-baseline.mjs");
   const r = spawnSync(
     "node",
-    [tool, "verify", "--manifest", manifestPath, "--require-status", "frozen", "--require-baseline-id", baselineId],
+    [tool, "verify", "--manifest", manifestPath, "--require-status", "frozen", "--require-baseline-id", baselineId, "--require-min-version", "1.0.0"],
     { cwd: repoRoot, env: { ...process.env, VIVICY_TARGET_ROOT: repoRoot }, encoding: "utf8" },
   );
   return (r.status ?? 1) === 0;
@@ -433,6 +568,18 @@ function defaultRunTraceability({ repoRoot }) {
   return runTraceabilityCheck({ repoRoot });
 }
 
+function defaultRunSpikeCheck({ repoRoot }) {
+  return runSpikeCheckImpl({ repoRoot });
+}
+
+function defaultRunChangeControl({ repoRoot }) {
+  return runChangeControlCheckImpl({ repoRoot });
+}
+
+function defaultRunReferenceCheck({ repoRoot }) {
+  return runReferenceCheckImpl({ repoRoot });
+}
+
 // Read the independent verifier's structured fidelity verdict. The verdict is the
 // authority on FIDELITY (source faithfulness), the half the deterministic checks
 // cannot judge. A missing or unparseable file is NOT faithful: we return a verdict
@@ -471,9 +618,11 @@ function clearVerdict(repoRoot) {
 // Regenerate the viewer's architecture-data.json. generate-viewer-data.ts is a TS
 // entry the project runs via the same node-with-TS path the rest of the factory
 // uses; we shell out and surface its exit code.
-function defaultRunGenerateMap({ repoRoot }) {
+function defaultRunGenerateMap({ repoRoot, reconcileAgainst }) {
   const tool = resolve(FACTORY_DIR, "generate-viewer-data.ts");
-  const result = spawnSync("node", [tool], {
+  const args = [tool];
+  if (reconcileAgainst) args.push("--reconcile-against", reconcileAgainst);
+  const result = spawnSync("node", args, {
     cwd: repoRoot,
     env: { ...process.env, VIVICY_TARGET_ROOT: repoRoot },
     encoding: "utf8",
@@ -639,6 +788,16 @@ export function formatCheckOutput(checks) {
     parts.push(`traceability-check: ${traceability.summary ?? `exit ${traceability.exitCode}`}`);
     for (const e of traceability.errors ?? []) parts.push(`  error:\n${e}`);
   }
+  // The remaining deterministic gates only matter to the fix prompt when they FAILED.
+  for (const [name, check] of [
+    ["spike-check", checks.spike],
+    ["reference-check", checks.reference],
+    ["change-control", checks.changeControl],
+  ]) {
+    if (!check || check.exitCode === 0) continue;
+    parts.push(`${name}: ${check.summary ?? `exit ${check.exitCode}`}`);
+    for (const e of check.errors ?? []) parts.push(`  error:\n${e}`);
+  }
   return parts.join("\n");
 }
 
@@ -686,9 +845,10 @@ export function formatFixContext(checks, verdict, map) {
   // deterministic check that was then rejected on fidelity should not re-feed
   // passing check output as if it were the problem).
   if (checks) {
-    const semGreen = checks.semantic?.exitCode === 0 && !checks.semantic?.placeholder;
-    const traceGreen = checks.traceability?.exitCode === 0;
-    if (!(semGreen && traceGreen)) blocks.push(formatCheckOutput(checks));
+    const anyFailed =
+      (checks.semantic && (checks.semantic.exitCode !== 0 || checks.semantic.placeholder)) ||
+      [checks.traceability, checks.spike, checks.reference, checks.changeControl].some((c) => c && c.exitCode !== 0);
+    if (anyFailed) blocks.push(formatCheckOutput(checks));
   }
   const mapBlock = formatMapError(map);
   if (mapBlock) blocks.push(mapBlock);

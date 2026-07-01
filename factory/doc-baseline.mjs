@@ -72,6 +72,7 @@ function generate(args) {
   const status = args.status || "draft";
   assertVersion(version);
   assertStatus(status);
+  if (args.bump) assertBumpClass(version, args["previous-version"], args.bump);
 
   const baselineId = args.id || `baseline-v${version}${status === "draft" ? "-draft" : ""}`;
   assertBaselineIdFormat(baselineId, version, status);
@@ -127,7 +128,7 @@ function generate(args) {
     git,
     ...(approval ? { approval } : {}),
     change_request_policy: {
-      registry_path: "docs/change-requests",
+      registry_path: ".vivicy/change-requests",
       accepted_current_build_required: true,
       new_baseline_required_after_docs_change: true
     },
@@ -192,6 +193,12 @@ function verify(args) {
   }
   if (args["require-version"] && manifest.version !== args["require-version"]) {
     fail(`Manifest version mismatch: expected ${args["require-version"]}, got ${manifest.version}`);
+  }
+  if (args["require-min-version"] && compareSemver(manifest.version, args["require-min-version"]) < 0) {
+    fail(
+      `Manifest version ${manifest.version} is below the required minimum ${args["require-min-version"]}: ` +
+        "a frozen 0.x baseline is immutable but cannot drive extraction — the first extraction baseline must be >=1.0.0."
+    );
   }
 
   // A frozen baseline must prove it was cut from a clean, committed tree.
@@ -491,6 +498,34 @@ function requireArg(args, name) {
 function assertVersion(version) {
   if (!/^\d+\.\d+\.\d+$/.test(version)) {
     fail(`Invalid version: ${version}. Expected MAJOR.MINOR.PATCH`);
+  }
+}
+
+// Compare two MAJOR.MINOR.PATCH versions: -1 if a<b, 0 if equal, 1 if a>b.
+function compareSemver(a, b) {
+  const pa = String(a).split(".").map(Number);
+  const pb = String(b).split(".").map(Number);
+  for (let i = 0; i < 3; i += 1) {
+    const da = pa[i] ?? 0;
+    const db = pb[i] ?? 0;
+    if (da !== db) return da < db ? -1 : 1;
+  }
+  return 0;
+}
+
+// E4: a re-freeze declares its bump CLASS; the new version must be the exact SemVer
+// increment of the previous version for that class. The class itself (architecture=major,
+// behaviour=minor, wording=patch) is owner judgment; this enforces only the mechanical half
+// — that the version delta matches the declared bump.
+function assertBumpClass(version, previousVersion, bump) {
+  if (!previousVersion) fail(`--bump ${bump} requires --previous-version <prior frozen version>`);
+  assertVersion(previousVersion);
+  const allowed = ["major", "minor", "patch"];
+  if (!allowed.includes(bump)) fail(`Invalid --bump: ${bump}. Expected one of ${allowed.join(", ")}`);
+  const [M, m, p] = previousVersion.split(".").map(Number);
+  const expected = bump === "major" ? `${M + 1}.0.0` : bump === "minor" ? `${M}.${m + 1}.0` : `${M}.${m}.${p + 1}`;
+  if (version !== expected) {
+    fail(`Version ${version} does not match a ${bump} bump from ${previousVersion} (expected ${expected}).`);
   }
 }
 

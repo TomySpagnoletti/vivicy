@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "exclusions": [
+    { "file": ".vivicy/canonical/01-architecture.md", "start": 3, "end": 3, "reason_class": "narrative_context", "note": "Document status metadata; carries no implementable obligation." },
+    { "file": ".vivicy/canonical/01-architecture.md", "start": 9, "end": 9, "reason_class": "heading", "note": "Components section heading." },
+    { "file": ".vivicy/canonical/01-architecture.md", "start": 11, "end": 15, "reason_class": "narrative_context", "note": "Component cluster overview; each module's obligations are owned by its own canonical doc and covered by the per-module issues." },
+    { "file": ".vivicy/canonical/02-tokenizer.md", "start": 3, "end": 3, "reason_class": "narrative_context", "note": "Document status metadata; carries no implementable obligation." },
+    { "file": ".vivicy/canonical/03-parser.md", "start": 3, "end": 3, "reason_class": "narrative_context", "note": "Document status metadata; carries no implementable obligation." },
+    { "file": ".vivicy/canonical/04-evaluator.md", "start": 3, "end": 3, "reason_class": "narrative_context", "note": "Document status metadata; carries no implementable obligation." },
+    { "file": ".vivicy/canonical/05-sheet-model.md", "start": 3, "end": 3, "reason_class": "narrative_context", "note": "Document status metadata; carries no implementable obligation." },
+    { "file": ".vivicy/canonical/06-recalculation.md", "start": 3, "end": 3, "reason_class": "narrative_context", "note": "Document status metadata; carries no implementable obligation." },
+    { "file": ".vivicy/canonical/07-errors.md", "start": 3, "end": 3, "reason_class": "narrative_context", "note": "Document status metadata; carries no implementable obligation." },
+    { "file": ".vivicy/canonical/08-functions-core.md", "start": 3, "end": 3, "reason_class": "narrative_context", "note": "Document status metadata; carries no implementable obligation." },
+    { "file": ".vivicy/canonical/09-functions-math.md", "start": 3, "end": 3, "reason_class": "narrative_context", "note": "Document status metadata; carries no implementable obligation." },
+    { "file": ".vivicy/canonical/10-functions-logical.md", "start": 3, "end": 3, "reason_class": "narrative_context", "note": "Document status metadata; carries no implementable obligation." },
+    { "file": ".vivicy/canonical/11-functions-text.md", "start": 3, "end": 3, "reason_class": "narrative_context", "note": "Document status metadata; carries no implementable obligation." },
+    { "file": ".vivicy/canonical/12-functions-lookup.md", "start": 3, "end": 3, "reason_class": "narrative_context", "note": "Document status metadata; carries no implementable obligation." },
+    { "file": ".vivicy/canonical/13-public-api.md", "start": 3, "end": 3, "reason_class": "narrative_context", "note": "Document status metadata; carries no implementable obligation." }
+  ]
+}

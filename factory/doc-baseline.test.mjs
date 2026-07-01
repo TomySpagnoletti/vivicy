@@ -207,6 +207,56 @@ test("product is derived from the target package.json name, title-cased (never a
   }
 });
 
+test("generate --bump validates the version delta matches the declared bump class (E4)", () => {
+  const root = makeTargetRoot();
+  try {
+    writeDoc(root, "01-a.md", "# Doc One\n\nbody\n");
+    writePackage(root, "formula");
+    // A correct minor bump from 1.0.0 is 1.1.0.
+    assert.equal(
+      runCli(root, ["generate", "--version", "1.1.0", "--status", "draft", "--bump", "minor", "--previous-version", "1.0.0"]).status,
+      0,
+    );
+    // A wrong delta (1.2.0 is not a minor bump from 1.0.0) fails before writing anything.
+    const wrong = runCli(root, ["generate", "--version", "1.2.0", "--status", "draft", "--bump", "minor", "--previous-version", "1.0.0"]);
+    assert.equal(wrong.status, 1);
+    assert.match(wrong.stderr, /does not match a minor bump from 1\.0\.0 \(expected 1\.1\.0\)/);
+    // A major bump from 1.4.2 is 2.0.0.
+    assert.equal(
+      runCli(root, ["generate", "--version", "2.0.0", "--status", "draft", "--bump", "major", "--previous-version", "1.4.2"]).status,
+      0,
+    );
+  } finally {
+    rmSync(root, { force: true, recursive: true });
+  }
+});
+
+test("verify --require-min-version rejects a frozen 0.x as an extraction source (E4)", () => {
+  const root = makeTargetRoot();
+  try {
+    writeDoc(root, "01-a.md", "# Doc One\n\nbody\n");
+    writePackage(root, "formula");
+    assert.equal(runCli(root, ["generate", "--version", "0.2.0", "--status", "draft"]).status, 0);
+    const tooLow = runCli(root, [
+      "verify",
+      "--manifest",
+      ".vivicy/baselines/baseline-v0.2.0-draft.json",
+      "--require-min-version",
+      "1.0.0",
+    ]);
+    assert.equal(tooLow.status, 1, "a 0.x baseline cannot drive extraction");
+    assert.match(tooLow.stderr, /below the required minimum 1\.0\.0/);
+    // A 1.0.0 baseline passes the same gate.
+    assert.equal(runCli(root, ["generate", "--version", "1.0.0", "--status", "draft"]).status, 0);
+    assert.equal(
+      runCli(root, ["verify", "--manifest", `.vivicy/baselines/${BASELINE_ID}.json`, "--require-min-version", "1.0.0"]).status,
+      0,
+    );
+  } finally {
+    rmSync(root, { force: true, recursive: true });
+  }
+});
+
 test("product title-cases multi-word and scoped package names", () => {
   const cases = [
     ["my-cool-lib", "My Cool Lib"],

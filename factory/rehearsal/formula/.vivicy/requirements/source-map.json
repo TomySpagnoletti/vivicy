@@ -1,0 +1,800 @@
+{
+  "baseline_id": "baseline-v1.0.0",
+  "baseline_version": "1.0.0",
+  "files": [
+    {
+      "path": ".vivicy/canonical/01-architecture.md",
+      "ranges": [
+        {
+          "classification": "auto",
+          "end": 2,
+          "start": 1
+        },
+        {
+          "classification": "excluded",
+          "end": 3,
+          "start": 3,
+          "reason_class": "narrative_context"
+        },
+        {
+          "classification": "auto",
+          "end": 4,
+          "start": 4
+        },
+        {
+          "classification": "covered",
+          "end": 7,
+          "start": 5
+        },
+        {
+          "classification": "auto",
+          "end": 8,
+          "start": 8
+        },
+        {
+          "classification": "excluded",
+          "end": 9,
+          "start": 9,
+          "reason_class": "heading"
+        },
+        {
+          "classification": "auto",
+          "end": 10,
+          "start": 10
+        },
+        {
+          "classification": "excluded",
+          "end": 15,
+          "start": 11,
+          "reason_class": "narrative_context"
+        },
+        {
+          "classification": "auto",
+          "end": 16,
+          "start": 16
+        },
+        {
+          "classification": "covered",
+          "end": 19,
+          "start": 17
+        },
+        {
+          "classification": "auto",
+          "end": 20,
+          "start": 20
+        },
+        {
+          "classification": "covered",
+          "end": 23,
+          "start": 21
+        },
+        {
+          "classification": "auto",
+          "end": 24,
+          "start": 24
+        },
+        {
+          "classification": "covered",
+          "end": 27,
+          "start": 25
+        }
+      ],
+      "total_lines": 27
+    },
+    {
+      "path": ".vivicy/canonical/02-tokenizer.md",
+      "ranges": [
+        {
+          "classification": "auto",
+          "end": 2,
+          "start": 1
+        },
+        {
+          "classification": "excluded",
+          "end": 3,
+          "start": 3,
+          "reason_class": "narrative_context"
+        },
+        {
+          "classification": "auto",
+          "end": 4,
+          "start": 4
+        },
+        {
+          "classification": "covered",
+          "end": 7,
+          "start": 5
+        },
+        {
+          "classification": "auto",
+          "end": 8,
+          "start": 8
+        },
+        {
+          "classification": "covered",
+          "end": 11,
+          "start": 9
+        },
+        {
+          "classification": "auto",
+          "end": 12,
+          "start": 12
+        },
+        {
+          "classification": "covered",
+          "end": 15,
+          "start": 13
+        },
+        {
+          "classification": "auto",
+          "end": 16,
+          "start": 16
+        },
+        {
+          "classification": "covered",
+          "end": 19,
+          "start": 17
+        },
+        {
+          "classification": "auto",
+          "end": 20,
+          "start": 20
+        },
+        {
+          "classification": "covered",
+          "end": 23,
+          "start": 21
+        }
+      ],
+      "total_lines": 23
+    },
+    {
+      "path": ".vivicy/canonical/03-parser.md",
+      "ranges": [
+        {
+          "classification": "auto",
+          "end": 2,
+          "start": 1
+        },
+        {
+          "classification": "excluded",
+          "end": 3,
+          "start": 3,
+          "reason_class": "narrative_context"
+        },
+        {
+          "classification": "auto",
+          "end": 4,
+          "start": 4
+        },
+        {
+          "classification": "covered",
+          "end": 7,
+          "start": 5
+        },
+        {
+          "classification": "auto",
+          "end": 8,
+          "start": 8
+        },
+        {
+          "classification": "covered",
+          "end": 11,
+          "start": 9
+        },
+        {
+          "classification": "auto",
+          "end": 12,
+          "start": 12
+        },
+        {
+          "classification": "covered",
+          "end": 15,
+          "start": 13
+        },
+        {
+          "classification": "auto",
+          "end": 16,
+          "start": 16
+        },
+        {
+          "classification": "covered",
+          "end": 19,
+          "start": 17
+        },
+        {
+          "classification": "auto",
+          "end": 20,
+          "start": 20
+        },
+        {
+          "classification": "covered",
+          "end": 23,
+          "start": 21
+        }
+      ],
+      "total_lines": 23
+    },
+    {
+      "path": ".vivicy/canonical/04-evaluator.md",
+      "ranges": [
+        {
+          "classification": "auto",
+          "end": 2,
+          "start": 1
+        },
+        {
+          "classification": "excluded",
+          "end": 3,
+          "start": 3,
+          "reason_class": "narrative_context"
+        },
+        {
+          "classification": "auto",
+          "end": 4,
+          "start": 4
+        },
+        {
+          "classification": "covered",
+          "end": 7,
+          "start": 5
+        },
+        {
+          "classification": "auto",
+          "end": 8,
+          "start": 8
+        },
+        {
+          "classification": "covered",
+          "end": 11,
+          "start": 9
+        },
+        {
+          "classification": "auto",
+          "end": 12,
+          "start": 12
+        },
+        {
+          "classification": "covered",
+          "end": 15,
+          "start": 13
+        },
+        {
+          "classification": "auto",
+          "end": 16,
+          "start": 16
+        },
+        {
+          "classification": "covered",
+          "end": 19,
+          "start": 17
+        },
+        {
+          "classification": "auto",
+          "end": 20,
+          "start": 20
+        },
+        {
+          "classification": "covered",
+          "end": 23,
+          "start": 21
+        }
+      ],
+      "total_lines": 23
+    },
+    {
+      "path": ".vivicy/canonical/05-sheet-model.md",
+      "ranges": [
+        {
+          "classification": "auto",
+          "end": 2,
+          "start": 1
+        },
+        {
+          "classification": "excluded",
+          "end": 3,
+          "start": 3,
+          "reason_class": "narrative_context"
+        },
+        {
+          "classification": "auto",
+          "end": 4,
+          "start": 4
+        },
+        {
+          "classification": "covered",
+          "end": 7,
+          "start": 5
+        },
+        {
+          "classification": "auto",
+          "end": 8,
+          "start": 8
+        },
+        {
+          "classification": "covered",
+          "end": 11,
+          "start": 9
+        },
+        {
+          "classification": "auto",
+          "end": 12,
+          "start": 12
+        },
+        {
+          "classification": "covered",
+          "end": 15,
+          "start": 13
+        },
+        {
+          "classification": "auto",
+          "end": 16,
+          "start": 16
+        },
+        {
+          "classification": "covered",
+          "end": 19,
+          "start": 17
+        },
+        {
+          "classification": "auto",
+          "end": 20,
+          "start": 20
+        },
+        {
+          "classification": "covered",
+          "end": 23,
+          "start": 21
+        }
+      ],
+      "total_lines": 23
+    },
+    {
+      "path": ".vivicy/canonical/06-recalculation.md",
+      "ranges": [
+        {
+          "classification": "auto",
+          "end": 2,
+          "start": 1
+        },
+        {
+          "classification": "excluded",
+          "end": 3,
+          "start": 3,
+          "reason_class": "narrative_context"
+        },
+        {
+          "classification": "auto",
+          "end": 4,
+          "start": 4
+        },
+        {
+          "classification": "covered",
+          "end": 7,
+          "start": 5
+        },
+        {
+          "classification": "auto",
+          "end": 8,
+          "start": 8
+        },
+        {
+          "classification": "covered",
+          "end": 11,
+          "start": 9
+        },
+        {
+          "classification": "auto",
+          "end": 12,
+          "start": 12
+        },
+        {
+          "classification": "covered",
+          "end": 15,
+          "start": 13
+        },
+        {
+          "classification": "auto",
+          "end": 16,
+          "start": 16
+        },
+        {
+          "classification": "covered",
+          "end": 19,
+          "start": 17
+        }
+      ],
+      "total_lines": 19
+    },
+    {
+      "path": ".vivicy/canonical/07-errors.md",
+      "ranges": [
+        {
+          "classification": "auto",
+          "end": 2,
+          "start": 1
+        },
+        {
+          "classification": "excluded",
+          "end": 3,
+          "start": 3,
+          "reason_class": "narrative_context"
+        },
+        {
+          "classification": "auto",
+          "end": 4,
+          "start": 4
+        },
+        {
+          "classification": "covered",
+          "end": 7,
+          "start": 5
+        },
+        {
+          "classification": "auto",
+          "end": 8,
+          "start": 8
+        },
+        {
+          "classification": "covered",
+          "end": 11,
+          "start": 9
+        },
+        {
+          "classification": "auto",
+          "end": 12,
+          "start": 12
+        },
+        {
+          "classification": "covered",
+          "end": 15,
+          "start": 13
+        },
+        {
+          "classification": "auto",
+          "end": 16,
+          "start": 16
+        },
+        {
+          "classification": "covered",
+          "end": 19,
+          "start": 17
+        }
+      ],
+      "total_lines": 19
+    },
+    {
+      "path": ".vivicy/canonical/08-functions-core.md",
+      "ranges": [
+        {
+          "classification": "auto",
+          "end": 2,
+          "start": 1
+        },
+        {
+          "classification": "excluded",
+          "end": 3,
+          "start": 3,
+          "reason_class": "narrative_context"
+        },
+        {
+          "classification": "auto",
+          "end": 4,
+          "start": 4
+        },
+        {
+          "classification": "covered",
+          "end": 7,
+          "start": 5
+        },
+        {
+          "classification": "auto",
+          "end": 8,
+          "start": 8
+        },
+        {
+          "classification": "covered",
+          "end": 11,
+          "start": 9
+        },
+        {
+          "classification": "auto",
+          "end": 12,
+          "start": 12
+        },
+        {
+          "classification": "covered",
+          "end": 15,
+          "start": 13
+        },
+        {
+          "classification": "auto",
+          "end": 16,
+          "start": 16
+        },
+        {
+          "classification": "covered",
+          "end": 19,
+          "start": 17
+        }
+      ],
+      "total_lines": 19
+    },
+    {
+      "path": ".vivicy/canonical/09-functions-math.md",
+      "ranges": [
+        {
+          "classification": "auto",
+          "end": 2,
+          "start": 1
+        },
+        {
+          "classification": "excluded",
+          "end": 3,
+          "start": 3,
+          "reason_class": "narrative_context"
+        },
+        {
+          "classification": "auto",
+          "end": 4,
+          "start": 4
+        },
+        {
+          "classification": "covered",
+          "end": 7,
+          "start": 5
+        },
+        {
+          "classification": "auto",
+          "end": 8,
+          "start": 8
+        },
+        {
+          "classification": "covered",
+          "end": 11,
+          "start": 9
+        },
+        {
+          "classification": "auto",
+          "end": 12,
+          "start": 12
+        },
+        {
+          "classification": "covered",
+          "end": 15,
+          "start": 13
+        },
+        {
+          "classification": "auto",
+          "end": 16,
+          "start": 16
+        },
+        {
+          "classification": "covered",
+          "end": 19,
+          "start": 17
+        }
+      ],
+      "total_lines": 19
+    },
+    {
+      "path": ".vivicy/canonical/10-functions-logical.md",
+      "ranges": [
+        {
+          "classification": "auto",
+          "end": 2,
+          "start": 1
+        },
+        {
+          "classification": "excluded",
+          "end": 3,
+          "start": 3,
+          "reason_class": "narrative_context"
+        },
+        {
+          "classification": "auto",
+          "end": 4,
+          "start": 4
+        },
+        {
+          "classification": "covered",
+          "end": 7,
+          "start": 5
+        },
+        {
+          "classification": "auto",
+          "end": 8,
+          "start": 8
+        },
+        {
+          "classification": "covered",
+          "end": 11,
+          "start": 9
+        },
+        {
+          "classification": "auto",
+          "end": 12,
+          "start": 12
+        },
+        {
+          "classification": "covered",
+          "end": 15,
+          "start": 13
+        },
+        {
+          "classification": "auto",
+          "end": 16,
+          "start": 16
+        },
+        {
+          "classification": "covered",
+          "end": 19,
+          "start": 17
+        }
+      ],
+      "total_lines": 19
+    },
+    {
+      "path": ".vivicy/canonical/11-functions-text.md",
+      "ranges": [
+        {
+          "classification": "auto",
+          "end": 2,
+          "start": 1
+        },
+        {
+          "classification": "excluded",
+          "end": 3,
+          "start": 3,
+          "reason_class": "narrative_context"
+        },
+        {
+          "classification": "auto",
+          "end": 4,
+          "start": 4
+        },
+        {
+          "classification": "covered",
+          "end": 7,
+          "start": 5
+        },
+        {
+          "classification": "auto",
+          "end": 8,
+          "start": 8
+        },
+        {
+          "classification": "covered",
+          "end": 11,
+          "start": 9
+        },
+        {
+          "classification": "auto",
+          "end": 12,
+          "start": 12
+        },
+        {
+          "classification": "covered",
+          "end": 15,
+          "start": 13
+        },
+        {
+          "classification": "auto",
+          "end": 16,
+          "start": 16
+        },
+        {
+          "classification": "covered",
+          "end": 19,
+          "start": 17
+        }
+      ],
+      "total_lines": 19
+    },
+    {
+      "path": ".vivicy/canonical/12-functions-lookup.md",
+      "ranges": [
+        {
+          "classification": "auto",
+          "end": 2,
+          "start": 1
+        },
+        {
+          "classification": "excluded",
+          "end": 3,
+          "start": 3,
+          "reason_class": "narrative_context"
+        },
+        {
+          "classification": "auto",
+          "end": 4,
+          "start": 4
+        },
+        {
+          "classification": "covered",
+          "end": 7,
+          "start": 5
+        },
+        {
+          "classification": "auto",
+          "end": 8,
+          "start": 8
+        },
+        {
+          "classification": "covered",
+          "end": 11,
+          "start": 9
+        },
+        {
+          "classification": "auto",
+          "end": 12,
+          "start": 12
+        },
+        {
+          "classification": "covered",
+          "end": 15,
+          "start": 13
+        }
+      ],
+      "total_lines": 15
+    },
+    {
+      "path": ".vivicy/canonical/13-public-api.md",
+      "ranges": [
+        {
+          "classification": "auto",
+          "end": 2,
+          "start": 1
+        },
+        {
+          "classification": "excluded",
+          "end": 3,
+          "start": 3,
+          "reason_class": "narrative_context"
+        },
+        {
+          "classification": "auto",
+          "end": 4,
+          "start": 4
+        },
+        {
+          "classification": "covered",
+          "end": 7,
+          "start": 5
+        },
+        {
+          "classification": "auto",
+          "end": 8,
+          "start": 8
+        },
+        {
+          "classification": "covered",
+          "end": 11,
+          "start": 9
+        },
+        {
+          "classification": "auto",
+          "end": 12,
+          "start": 12
+        },
+        {
+          "classification": "covered",
+          "end": 15,
+          "start": 13
+        },
+        {
+          "classification": "auto",
+          "end": 16,
+          "start": 16
+        },
+        {
+          "classification": "covered",
+          "end": 19,
+          "start": 17
+        }
+      ],
+      "total_lines": 19
+    }
+  ],
+  "schema_version": 1
+}

@@ -10,6 +10,14 @@ This directory is where **you, the project owner, write the product and architec
 - One source of truth per fact. State each decision in exactly one canonical document and link to it from anywhere else; never duplicate it.
 - When an executable contract exists (a schema, a migration, code), the doc summarizes and links to it instead of copying it.
 
+## Spec-quality rules
+
+These make your spec extract into complete, testable requirements instead of prose the factory has to guess at:
+
+- **Document every lifecycle as a complete state machine.** When something has states (a job, an order, a session, a connection), give it an enumerated state list, an allowed-transitions table (`| From | To | Trigger |`), an explicit set of terminal states, and the rules that resolve racing transitions and require idempotent operations. A prose "it can be paused or cancelled" leaves the implementer guessing the matrix; a transition table extracts into exhaustive transition-coverage requirements.
+- **For every known failure mode, pair a detection condition with a recovery procedure** so the behavior is an implementable obligation rather than improvisation.
+- **State each normative obligation in its own sentence.** A `must` / `must not` / `required` / `never` rule buried inside an explanatory paragraph is easy to miss; lift it into its own atomic statement so it becomes its own requirement.
+
 ## How the factory uses these docs
 
 1. You write canonical docs.

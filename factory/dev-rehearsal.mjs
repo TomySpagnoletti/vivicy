@@ -36,7 +36,12 @@ const factoryDir = dirname(fileURLToPath(import.meta.url));
 // NOT read from or write to any target/host project. The factory scripts it drives
 // are this dir's own siblings; the isolated temp repo it materializes is the only
 // project ever written to.
-const fixtureDir = join(FACTORY_REHEARSAL_DIR, "pocket-ledger");
+// Which bundled fixture to rehearse: --fixture=<name> (default pocket-ledger).
+// A second fixture (`formula`, a spreadsheet-formula engine) exercises the same
+// method chain on a differently-shaped spec — tokenizer/parser/evaluator/lookup
+// functions vs a ledger/CLI — for broader rehearsal coverage.
+const fixtureName = (process.argv.find((a) => a.startsWith("--fixture="))?.split("=")[1] || "pocket-ledger").replace(/[^a-z0-9-]/gi, "");
+const fixtureDir = join(FACTORY_REHEARSAL_DIR, fixtureName);
 const reportPath = join(FACTORY_REHEARSAL_DIR, "reports/method-rehearsal-report.md");
 const BASELINE_ID = "baseline-v1.0.0";
 const MANIFEST_REL = `.vivicy/baselines/${BASELINE_ID}.json`;
@@ -463,7 +468,7 @@ function writeReport(ctx) {
 Verdict: **${verdict}**${ctx.dry ? " (dry agents — harness validation only)" : " (real two-agent loop)"}
 
 This report records an end-to-end rehearsal of the development method against the
-factory-bundled Pocket Ledger fixture (\`factory/rehearsal/pocket-ledger/\`). The
+factory-bundled \`${fixtureName}\` fixture (\`factory/rehearsal/${fixtureName}/\`). The
 fixture was copied into a throwaway git repo and every tool was driven through
 \`VIVICY_TARGET_ROOT\`; the rehearsal is fully self-contained (bundled fixture +
 bundled role prompts) and no target/host project was committed to by this run.

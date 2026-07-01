@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
@@ -263,6 +264,28 @@ test("--strict turns placeholder mode into a failure", () => {
     const result = fixture.run({ strict: true });
     assert.equal(result.exitCode, 1);
     assert.ok(result.errors.some((error) => /has not produced issues yet/.test(error)));
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("C1: source-map carries the tool-computed per-requirement excerpt hash", () => {
+  const fixture = makeFixture({ issues: [makeIssue()] });
+  try {
+    writeFileSync(
+      resolve(fixture.root, ".vivicy/requirements/catalog.json"),
+      JSON.stringify({
+        schema_version: 1,
+        requirements: [{ id: "REQ-SAMPLE-001", sourceRefs: [`${SAMPLE_DOC_PATH}:5`] }],
+      }),
+    );
+    const result = fixture.run();
+    assert.equal(result.exitCode, 0, result.errors.join("\n"));
+    const sourceMap = JSON.parse(readFileSync(resolve(fixture.root, ".vivicy/requirements/source-map.json"), "utf8"));
+    const excerpt = sourceMap.requirement_excerpts.find((entry) => entry.id === "REQ-SAMPLE-001");
+    // Tool-computed over the exact cited line (line 5 of the sample doc), never authored.
+    const expected = createHash("sha256").update("The system must do A.").digest("hex");
+    assert.equal(excerpt.source_excerpt_sha256, expected);
   } finally {
     fixture.cleanup();
   }
