@@ -19,6 +19,7 @@
 // Agent/gate/commit steps are injectable (opts) so the flow is unit-tested with
 // fast deterministic stubs; the defaults invoke the real claude / codex CLIs.
 import { spawn, spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import {
   closeSync,
   existsSync,
@@ -182,6 +183,13 @@ export const DEFAULT_CONFIG = {
   doneDir: ".vivicy/development/issues/done",
   gatesDir: ".vivicy/development/gates",
   reportsDir: ".vivicy/development/reports",
+  // S8 per-issue readiness check (G5). ON by default: before an issue is implemented,
+  // a readiness-checker leg (implementer CLI, prompt readiness.md) confronts it with
+  // the CURRENT code tree and returns implementable / issue_update / needs_cr. Set
+  // cfg.readiness = false to skip the check entirely (proceed straight to the
+  // implementer) — used where no real agent legs back the check (e.g. the dry
+  // rehearsal), so the default is ON precisely when real legs are configured.
+  readiness: true,
   // Role prompts are Vivicy's OWN assets, bundled in factory/prompts/ — they are
   // NOT read from the target project (which only receives the dev OUTPUT: issues,
   // ledger, gates, done). Resolved factory-relative; see readPrompt.
@@ -353,12 +361,52 @@ export function computeDoneIds(issues, ledger, doneFileNames) {
   return done;
 }
 
-export function pickNextIssue(issues, doneIds, verifiedGates = new Set()) {
+export function pickNextIssue(issues, doneIds, verifiedGates = new Set(), parkedIds = new Set()) {
   for (const issue of issues) {
     if (doneIds.has(issue.id)) continue;
+    // A parked issue (readiness verdict needs_cr, S8) is skipped exactly like a done
+    // one until its CR is decided and re-extraction/re-drive unparks it — the loop
+    // moves on to other ready issues rather than dead-ending (P4).
+    if (parkedIds.has(issue.id)) continue;
     if (dependenciesSatisfied(issue, doneIds) && spikeGatesSatisfied(issue, verifiedGates)) return issue;
   }
   return null;
+}
+
+// --------------------------------------------------------------------------
+// Readiness verdict routing (S8/G5, pure — unit-tested)
+// --------------------------------------------------------------------------
+
+// The traceability block is the fenced ```text``` block under the issue file's
+// `## Traceability` heading — it carries issue_id / graph_refs / requirement_ids /
+// source_line_refs / depends_on / spike_gates / verification_gate_ids, the issue's
+// identity and its links back to the FROZEN canonical. A readiness `issue_update`
+// may revise only EXECUTION prose and MUST leave this block byte-identical; the
+// orchestrator enforces that by comparing this extraction before/after. Returns the
+// block's inner text (between the fences), or null when no such block is present.
+export function extractTraceabilityBlock(body) {
+  const text = String(body ?? "");
+  // Anchor on the `## Traceability` section so a stray ```text``` fence elsewhere in
+  // the issue is never mistaken for it. From that heading, take the FIRST fenced block.
+  const heading = /^##\s+Traceability\s*$/m.exec(text);
+  if (!heading) return null;
+  const after = text.slice(heading.index + heading[0].length);
+  const fence = /```(?:\w+)?\n([\s\S]*?)\n```/.exec(after);
+  return fence ? fence[1] : null;
+}
+
+// Is a candidate body a legal readiness `issue_update`? It is legal only when both
+// the old and new bodies expose a traceability block AND the two blocks are
+// byte-identical — i.e. the patch touched only execution prose, never the frozen
+// traceability/identity lines (§4 rule 4: a plan edit stays on the issue prose; a
+// traceability/intention change is a CR, not an issue_update). A patch that drops or
+// mutates the block is refused (→ routed to needs_cr instead) so the source of
+// truth can never be silently rewritten through the readiness path.
+export function issueUpdatePreservesTraceability(oldBody, newBody) {
+  const before = extractTraceabilityBlock(oldBody);
+  const after = extractTraceabilityBlock(newBody);
+  if (before === null || after === null) return false;
+  return before === after;
 }
 
 // --------------------------------------------------------------------------
@@ -377,11 +425,14 @@ export function pickNextIssue(issues, doneIds, verifiedGates = new Set()) {
 // in the issue index's own order (so selection is deterministic and stable).
 // `running` (a set of issue ids already executing in this wave) is excluded so a
 // resumed schedule never double-claims an in-flight issue.
-export function computeReadySet(issues, doneIds, running = new Set(), verifiedGates = new Set()) {
+export function computeReadySet(issues, doneIds, running = new Set(), verifiedGates = new Set(), parkedIds = new Set()) {
   return issues.filter(
     (issue) =>
       !doneIds.has(issue.id) &&
       !running.has(issue.id) &&
+      // Parked-on-CR issues (S8) are held out of the ready set just like done ones,
+      // until a CR decision unparks them (see readParkedIssueIds).
+      !parkedIds.has(issue.id) &&
       dependenciesSatisfied(issue, doneIds) &&
       spikeGatesSatisfied(issue, verifiedGates),
   );
@@ -1197,6 +1248,67 @@ function listDoneFiles(cfg) {
   return new Set(readdirSync(doneAbs).filter((name) => name.endsWith(".md")));
 }
 
+// The set of currently-parked issue ids (S8: readiness returned needs_cr, so the
+// issue is held out of scheduling until its CR is decided). A parked issue writes a
+// `<id>-parked.json` report stamping the issue file's identity (mtime + content hash)
+// at park time. A park is CLEARED — the issue naturally unparks — as soon as the
+// issue file CHANGES: a CR-driven re-extraction / re-drive rewrites the issue, so its
+// current mtime+hash no longer match the stamped ones, and we drop the stale report.
+// This is the same "the file moved on, so the block is gone" mechanism re-drive uses
+// for done issues. Resolved against the MAIN root (shared orchestration state).
+function readParkedIssueIds(cfg) {
+  const reportsAbs = abs(cfg.reportsDir);
+  if (!existsSync(reportsAbs)) return new Set();
+  const parked = new Set();
+  for (const name of readdirSync(reportsAbs)) {
+    if (!name.endsWith("-parked.json")) continue;
+    let report;
+    try {
+      report = JSON.parse(readFileSync(resolve(reportsAbs, name), "utf8"));
+    } catch {
+      continue; // an unreadable report is not authoritative; ignore it
+    }
+    if (!report || typeof report.issue_id !== "string") continue;
+    const identity = issueFileIdentity(cfg, report);
+    // No issue file on disk (e.g. it was moved to done/ or removed): the park no
+    // longer applies. A matching identity keeps the park; a changed one clears it.
+    if (identity && report.issue_hash === identity.hash) {
+      parked.add(report.issue_id);
+    } else {
+      try {
+        unlinkSync(resolve(reportsAbs, name));
+      } catch {
+        // best-effort unpark; a leftover stale report is re-checked next turn
+      }
+    }
+  }
+  return parked;
+}
+
+// The current identity (mtime-ms + content hash) of a parked issue's file, resolved
+// from its recorded path, or null when the file is absent. The hash is the source of
+// truth for "did the issue change"; mtime is recorded alongside for human inspection.
+function issueFileIdentity(cfg, report) {
+  const rel = report.issue_path ?? `${cfg.issuesDir}/${report.issue_id}.md`;
+  let abspath;
+  try {
+    abspath = abs(rel);
+  } catch {
+    return null;
+  }
+  if (!existsSync(abspath)) return null;
+  try {
+    const content = readFileSync(abspath, "utf8");
+    return { hash: sha256(content), mtimeMs: statSync(abspath).mtimeMs, path: rel };
+  } catch {
+    return null;
+  }
+}
+
+function sha256(text) {
+  return createHash("sha256").update(text, "utf8").digest("hex");
+}
+
 
 // --------------------------------------------------------------------------
 // Real steps (default implementations; overridable for tests)
@@ -1292,6 +1404,36 @@ export function defaultRunImplementerAsync(issue, cfg) {
 
 export function defaultRunReviewerAsync(issue, cfg) {
   return runAssignedLegAsync(cfg.reviewer, issue, cfg);
+}
+
+// The readiness-checker leg (S8/G5) and the merge-resolver leg (S10/G6) both run on
+// the IMPLEMENTER CLI, under their own role identity so the transcript + ledger show
+// which stage acted. Judgment call (documented, R12): these verdicts feed the
+// implementer's own downstream work and the orchestrator treats them as ADVISORY
+// routing — every outcome is re-gated deterministically (readiness → re-gated by the
+// normal implement→review→gate cycle; merge-resolver → re-gated by the orchestrator's
+// own worktree gate run + the post-merge re-gate) — so an independent second-CLI
+// cross-check is not required here and the R12 implement≠review invariant is untouched.
+// A dedicated leg object reuses the implementer's model/effort but carries the leg's
+// own role; the orchestrator reads the verdict FILE these legs write, never stdout.
+function readinessLeg(cfg) {
+  return { ...cfg.implementer, role: "readiness-checker" };
+}
+function mergeResolverLeg(cfg) {
+  return { ...cfg.implementer, role: "merge-resolver" };
+}
+
+export function defaultRunReadiness(issue, cfg) {
+  return runAssignedLeg(readinessLeg(cfg), issue, cfg);
+}
+export function defaultRunReadinessAsync(issue, cfg) {
+  return runAssignedLegAsync(readinessLeg(cfg), issue, cfg);
+}
+export function defaultRunMergeResolver(issue, cfg) {
+  return runAssignedLeg(mergeResolverLeg(cfg), issue, cfg);
+}
+export function defaultRunMergeResolverAsync(issue, cfg) {
+  return runAssignedLegAsync(mergeResolverLeg(cfg), issue, cfg);
 }
 
 // The orchestrator runs the gate ITSELF — the authoritative verdict — and writes
@@ -1652,6 +1794,34 @@ export function defaultIntegrateWorktree(issue, cfg, branch) {
   // Abort the failed merge so the integration branch is left exactly as it was.
   spawnSync("git", ["merge", "--abort"], { cwd: root, encoding: "utf8" });
   return { ok: false, conflict: true, message: (merge.stderr || merge.stdout || "merge failed").trim() };
+}
+
+// The integration branch's current HEAD sha, captured on the MAIN root under the
+// integration lock so it is a stable pre-merge marker. Post-merge re-gate uses it to
+// hard-reset the ONE merge commit if the merge damaged the integration tree (G6).
+export function defaultCaptureHead(cfg) {
+  const root = requireRepoRoot();
+  const r = spawnSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" });
+  return (r.stdout ?? "").trim();
+}
+
+// Hard-reset the integration branch back to `sha` on the MAIN root. Called under the
+// integration lock, where the just-created merge commit is the ONLY new commit since
+// the captured pre-merge HEAD, so `reset --hard <preMergeSha>` cleanly REVERTS exactly
+// that merge (safer than `git revert` on a merge commit) and leaves the branch green.
+export function defaultResetHard(cfg, sha) {
+  const root = requireRepoRoot();
+  return spawnSync("git", ["reset", "--hard", sha], { cwd: root, encoding: "utf8" });
+}
+
+// Rebase this issue's worktree branch onto the current integration HEAD (the merge
+// target). Run in the WORKTREE before the merge-resolver leg resolves conflicts, so
+// the leg works against integration's latest code. Returns { ok, message }; a failed
+// rebase (conflicts) is left in-progress for the leg to resolve, then re-checked.
+export function defaultRebaseWorktree(issue, cfg, worktreeRoot) {
+  const base = currentBranch(requireRepoRoot());
+  const r = spawnSync("git", ["rebase", base], { cwd: worktreeRoot, encoding: "utf8" });
+  return { ok: (r.status ?? 1) === 0, message: (r.stderr || r.stdout || "").trim() };
 }
 
 // Remove an issue's worktree and delete its branch once integrated (or on block).
@@ -2019,6 +2189,189 @@ export async function runLegWithQuotaAsync(runLeg, leg, issue, cfg) {
 }
 
 // --------------------------------------------------------------------------
+// Readiness check (S8/G5): confront an issue with the CURRENT code before it is
+// implemented, and route on the verdict. Shared by the sequential path (inline,
+// per issue) and the parallel path (per batch member, before any worktree spawns).
+// The orchestrator reads the verdict FILE the leg writes — never its stdout — and
+// re-gates every downstream outcome deterministically, so the verdict is advisory
+// routing, not an authority.
+// --------------------------------------------------------------------------
+
+const READINESS_VERDICTS = new Set(["implementable", "issue_update", "needs_cr"]);
+
+// Read + validate the readiness verdict JSON the leg wrote. Returns the parsed
+// verdict object, or null when the file is missing / unparseable / malformed — the
+// honest "no verdict" signal the caller treats as a transient failure (retry once,
+// then park). Never trusts stdout: the file is the sole contract.
+function readReadinessVerdict(issue, cfg) {
+  const rel = `${cfg.reportsDir}/${issue.id}-readiness.json`;
+  let parsed;
+  try {
+    parsed = JSON.parse(readFileSync(abs(rel), "utf8"));
+  } catch {
+    return null;
+  }
+  if (!parsed || typeof parsed !== "object" || !READINESS_VERDICTS.has(parsed.verdict)) return null;
+  return parsed;
+}
+
+// Apply a readiness `issue_update` to the issue FILE only, after proving the patch
+// left the traceability block byte-identical (execution-prose edits only, §4 rule 4).
+// Returns true when the bounded update was applied; false when the patch is absent or
+// would touch the traceability/identity block (the caller then routes to needs_cr and
+// discards the patch — the source of truth is never rewritten through this path).
+function applyReadinessUpdate(issue, cfg, verdict) {
+  const patch = verdict?.updates?.body_patch;
+  if (typeof patch !== "string" || patch.length === 0) return false;
+  const rel = issue.path ?? issue.issue_path ?? `${cfg.issuesDir}/${issue.id}.md`;
+  let current;
+  try {
+    current = readFileSync(abs(rel), "utf8");
+  } catch {
+    return false; // no issue file to update -> cannot apply; caller parks
+  }
+  if (!issueUpdatePreservesTraceability(current, patch)) return false;
+  writeFileSync(abs(rel), patch.endsWith("\n") ? patch : `${patch}\n`);
+  return true;
+}
+
+// Park an issue on a CR (readiness needs_cr, or an exhausted transient failure):
+// write the `<id>-parked.json` report stamping the issue file's identity so a later
+// CR-driven re-extraction naturally unparks it (readParkedIssueIds), and emit
+// issue_parked_on_cr. Returns the parked cycle result. Written to the MAIN root.
+function parkIssueOnCr(issue, cfg, reason) {
+  mkdirSync(abs(cfg.reportsDir), { recursive: true });
+  const rel = `${cfg.reportsDir}/${issue.id}-parked.json`;
+  const issueRel = issue.path ?? issue.issue_path ?? `${cfg.issuesDir}/${issue.id}.md`;
+  const identity = issueFileIdentity(cfg, { issue_id: issue.id, issue_path: issueRel });
+  writeFileSync(
+    abs(rel),
+    `${JSON.stringify(
+      {
+        issue_id: issue.id,
+        reason,
+        issue_path: issueRel,
+        // The identity stamp: the park clears the instant the issue file changes
+        // (a CR re-extraction rewrites it), so the issue unparks without manual state.
+        issue_hash: identity?.hash ?? null,
+        issue_mtime_ms: identity?.mtimeMs ?? null,
+        at: nowIso(cfg),
+      },
+      null,
+      2,
+    )}\n`,
+  );
+  // Emit against the issue's graph refs so the map lights the parked node. Best-effort:
+  // a ledger emit failure must not crash the loop and strand the other ready issues.
+  try {
+    emit(cfg, {
+      event_type: "issue_parked_on_cr",
+      issue_id: issue.id,
+      graph_refs: issue.graph_refs,
+      actor: cfg.implementer.actor,
+      role: "readiness-checker",
+      evidence_refs: [rel],
+    });
+  } catch (error) {
+    process.stderr.write(`[readiness] failed to emit issue_parked_on_cr for ${issue.id}: ${error?.message ?? error}\n`);
+  }
+  return { status: "parked", reason, parkedRel: rel };
+}
+
+// Emit readiness_check_started for an issue (S8). Kept tiny so the sync + async
+// runners stay symmetric without duplicating the event shape.
+function emitReadinessStarted(issue, cfg) {
+  emit(cfg, {
+    event_type: "readiness_check_started",
+    issue_id: issue.id,
+    graph_refs: issue.graph_refs,
+    actor: cfg.implementer.actor,
+    role: "readiness-checker",
+  });
+}
+
+// Route on a readiness verdict (or a null "no usable verdict" after the transient
+// retries) and perform the consequent side-effects. Pure of the leg spawn — the sync
+// and async runners both funnel here — so the routing logic lives in ONE place.
+// Returns { status: "implementable" } to proceed, or { status: "parked", reason }.
+function routeReadinessVerdict(issue, cfg, verdict) {
+  emit(cfg, {
+    event_type: "readiness_check_completed",
+    issue_id: issue.id,
+    graph_refs: issue.graph_refs,
+    actor: cfg.implementer.actor,
+    role: "readiness-checker",
+  });
+  // Transient honesty (P3): a missing/unparseable verdict OR a dead leg is NOT
+  // silently treated as needs_cr — it is a transient failure. The caller already
+  // retried once; a still-null verdict parks with reason "readiness_leg_failed"
+  // (never proceed to implement on an unknown verdict).
+  if (!verdict) return parkIssueOnCr(issue, cfg, "readiness_leg_failed");
+  if (verdict.verdict === "needs_cr") {
+    return parkIssueOnCr(issue, cfg, verdict.reason || "readiness verdict needs_cr");
+  }
+  if (verdict.verdict === "issue_update") {
+    // Bounded plan edit: apply only if it left the traceability block untouched;
+    // otherwise it is really an intention/traceability change -> route to needs_cr
+    // and DISCARD the patch (never rewrite the source of truth through readiness).
+    if (applyReadinessUpdate(issue, cfg, verdict)) {
+      emit(cfg, {
+        event_type: "readiness_update_applied",
+        issue_id: issue.id,
+        graph_refs: issue.graph_refs,
+        actor: cfg.implementer.actor,
+        role: "readiness-checker",
+      });
+      return { status: "implementable" };
+    }
+    return parkIssueOnCr(
+      issue,
+      cfg,
+      "readiness issue_update touched the traceability block (intention/traceability change) — routed to needs_cr",
+    );
+  }
+  return { status: "implementable" };
+}
+
+// Sequential readiness (S8): run the readiness leg synchronously (like every other
+// sequential leg), obtaining the verdict from the FILE it writes, then route. The leg
+// is re-run ONCE on a missing/unparseable verdict (a transient failure), never on a
+// quotaBlocked leg. Returns { status: "implementable" | "parked", reason? }.
+function runReadinessSync(issue, cfg, runReadinessStep) {
+  emitReadinessStarted(issue, cfg);
+  let verdict = null;
+  for (let attempt = 1; attempt <= 2 && !verdict; attempt += 1) {
+    const legResult = runLegWithQuota(runReadinessStep, readinessLeg(cfg), issue, cfg);
+    if (!legResult.quotaBlocked) verdict = readReadinessVerdict(issue, cfg);
+  }
+  return routeReadinessVerdict(issue, cfg, verdict);
+}
+
+// Parallel readiness (S8): identical routing, async leg spawn. Used per batch member
+// BEFORE any worktree is created, so a member that fails readiness is excluded this
+// round (parked or updated) and never gets a worktree.
+async function runReadinessAsync(issue, cfg, runReadinessStep) {
+  emitReadinessStarted(issue, cfg);
+  let verdict = null;
+  for (let attempt = 1; attempt <= 2 && !verdict; attempt += 1) {
+    const legResult = await runLegWithQuotaAsync(runReadinessStep, readinessLeg(cfg), issue, cfg);
+    if (!legResult.quotaBlocked) verdict = readReadinessVerdict(issue, cfg);
+  }
+  return routeReadinessVerdict(issue, cfg, verdict);
+}
+
+// Resolve the injectable readiness leg step, or null when readiness is disabled
+// (cfg.readiness === false: no real agent legs back the check, e.g. the dry
+// rehearsal — the loop then proceeds straight to the implementer, as before G5).
+// The default binds the real readiness leg on the sync or async runner; a test
+// supplies steps.runReadiness (a fake leg that writes the verdict file).
+function resolveReadinessRunner(cfg, steps, { async: wantAsync }) {
+  if (cfg.readiness === false) return null;
+  if (steps.runReadiness) return steps.runReadiness;
+  return wantAsync ? (iss, c) => defaultRunReadinessAsync(iss, c ?? cfg) : (iss, c) => defaultRunReadiness(iss, c ?? cfg);
+}
+
+// --------------------------------------------------------------------------
 // Cycle + loop
 // --------------------------------------------------------------------------
 
@@ -2289,6 +2642,9 @@ export function runLoop(userConfig = {}, steps = {}) {
     verifySpike: steps.verifySpike ?? (() => defaultVerifySpike(cfg)),
     verifyReference: steps.verifyReference ?? (() => defaultVerifyReference(cfg)),
   };
+  // S8 readiness leg step (G5), or null when readiness is disabled (cfg.readiness ===
+  // false: proceed straight to the implementer). Sync runner on the sequential path.
+  const readinessRunner = resolveReadinessRunner(cfg, steps, { async: false });
   // Refuse to develop against a tampered baseline or a failing traceability matrix
   // BEFORE touching a single issue (these THROW on failure).
   resolvedSteps.verifyBaseline(cfg);
@@ -2304,8 +2660,24 @@ export function runLoop(userConfig = {}, steps = {}) {
   // here — the loop writes only the ledger and commits it per checkpoint.
   for (;;) {
     const doneIds = computeDoneIds(issues, readLedger(cfg), listDoneFiles(cfg));
-    const issue = pickNextIssue(issues, doneIds, verifiedSpikeGates());
+    // Parked-on-CR issues (S8 needs_cr) are skipped like done ones until a CR decision
+    // unparks them; the set is recomputed each turn (a report cleared by an issue-file
+    // change re-admits the issue). This is how the loop moves on instead of dead-ending.
+    const parkedIds = readParkedIssueIds(cfg);
+    const issue = pickNextIssue(issues, doneIds, verifiedSpikeGates(), parkedIds);
     if (!issue) break;
+
+    // S8: confront the issue with the CURRENT code BEFORE implementing it. A needs_cr
+    // (or an exhausted transient failure) parks the issue and we CONTINUE to the next
+    // ready issue — sequential skip-and-continue, never a break. An issue_update that
+    // stayed within the execution prose is applied; then we implement.
+    if (readinessRunner) {
+      const readiness = runReadinessSync(issue, cfg, readinessRunner);
+      if (readiness.status === "parked") {
+        processed.push({ id: issue.id, status: "parked" });
+        continue;
+      }
+    }
 
     const result = runIssueCycle(issue, cfg, resolvedSteps);
     if (result.status === "verified") {
@@ -2370,6 +2742,14 @@ export async function runLoopParallel(userConfig = {}, steps = {}) {
     resetFrozenArtifacts:
       steps.resetFrozenArtifacts ??
       ((issue, worktreeRoot) => defaultResetWorktreeFrozenArtifacts(issue, cfg, worktreeRoot)),
+    // S10/G6 merge-integrity seams (all injectable so tests script them without git):
+    //   captureHead  — the pre-merge integration HEAD sha (for a post-merge revert).
+    //   resetHard    — revert the merge by hard-resetting to that sha.
+    //   rebaseWorktree / runMergeResolver — the conflict-resolution path (rebase the
+    //     worktree branch, then a bounded merge-resolver leg reconciles + re-greens it).
+    captureHead: steps.captureHead ?? (() => defaultCaptureHead(cfg)),
+    resetHard: steps.resetHard ?? ((sha) => defaultResetHard(cfg, sha)),
+    rebaseWorktree: steps.rebaseWorktree ?? ((issue, worktreeRoot) => defaultRebaseWorktree(issue, cfg, worktreeRoot)),
   };
 
   // Refuse to develop against a tampered baseline or a failing traceability matrix
@@ -2383,6 +2763,11 @@ export async function runLoopParallel(userConfig = {}, steps = {}) {
   verifySpike(cfg);
   verifyReference(cfg);
 
+  // S8 readiness leg step (G5), or null when readiness is disabled. Async runner on
+  // the parallel path; run per batch member against current integration HEAD BEFORE a
+  // worktree is created (a member that fails readiness is excluded this round).
+  const readinessRunner = resolveReadinessRunner(cfg, steps, { async: true });
+
   // Keep parallel worktrees out of the main tree's status/`git add -A`.
   if (!steps.skipWorktreeIgnore) ensureWorktreesIgnored(cfg);
 
@@ -2394,6 +2779,10 @@ export async function runLoopParallel(userConfig = {}, steps = {}) {
   const running = new Map(); // issue.id -> Promise of its settled result
   const runningIssueById = new Map(); // issue.id -> issue (for independence checks)
   const blocked = new Set(); // issue ids that settled blocked (and never run again)
+  // Issues parked on a CR this run (readiness needs_cr). Recorded once in `processed`
+  // and never re-selected: the disk parked report also feeds computeReadySet below, so
+  // a park survives a restart; this in-memory set just guards double-recording.
+  const parkedThisRun = new Set();
 
   // Per-issue task: worktree -> async cycle (deferred verified) -> integrate +
   // done + verified emit (under the integration lock) -> remove worktree. Returns
@@ -2414,12 +2803,26 @@ export async function runLoopParallel(userConfig = {}, steps = {}) {
       return { id: issue.id, status: "blocked" };
     }
     const issueCfg = { ...cfg, execRoot: created.worktreeRoot, deferVerified: true };
+    // A cfg whose execRoot is the MAIN root (execRoot unset => execRootOf(cfg) = main),
+    // used to re-run the gate ON THE INTEGRATION TREE post-merge — exactly the gate the
+    // orchestrator already runs, just against the integrated code. Same evidence writer.
+    const integrationCfg = { ...cfg, deferVerified: true };
     const issueSteps = {
       runImplementer: steps.runImplementer ?? ((iss, c) => defaultRunImplementerAsync(iss, c ?? issueCfg)),
       runReviewer: steps.runReviewer ?? ((iss, c) => defaultRunReviewerAsync(iss, c ?? issueCfg)),
       // The gate is ASYNC on the parallel path so a slow gate never freezes the
       // event loop (which would stall every other issue and age out the lock).
       runGate: steps.runGate ?? ((iss, c) => defaultRunGateAsync(iss, c ?? issueCfg)),
+      // The merge-resolver leg (S10) runs IN THE WORKTREE on the implementer CLI.
+      runMergeResolver:
+        steps.runMergeResolver ?? ((iss, c) => defaultRunMergeResolverAsync(iss, c ?? issueCfg)),
+    };
+    // Re-run the gate the orchestrator's own way against a given execution root (the
+    // worktree, or the main integration tree). Awaits both the sync + async runners so
+    // an injected sync fake and the default async gate both work; returns the verdict.
+    const runGateAt = async (c) => {
+      const step = issueSteps.runGate;
+      return await step(issue, c);
     };
     try {
       const result = await runIssueCycleAsync(issue, issueCfg, issueSteps);
@@ -2430,16 +2833,78 @@ export async function runLoopParallel(userConfig = {}, steps = {}) {
       // under the integration lock (one issue onto main at a time).
       const commit = steps.commit ?? ((iss, c) => defaultCommit(iss, c ?? issueCfg));
       commit(issue, issueCfg);
-      return await withIntegrationLock(cfg, () => {
+      return await withIntegrationLock(cfg, async () => {
+        // Capture the pre-merge integration HEAD FIRST (under the lock, so it is stable):
+        // it is the exact sha to revert to if the post-merge re-gate finds the merge
+        // damaged the integration tree (G6). The merge is the only new commit after it.
+        const preMergeSha = wt.captureHead(cfg);
         // Defense-in-depth: under the lock (so the merge target is stable), discard
         // any out-of-scope edits this worktree made to the FROZEN extraction corpus,
         // resetting them to the integration head. This makes a frozen-artifact edit a
         // clean no-op at merge — it can never cause spec drift or a frozen-file
         // conflict — while the worktree's legitimate src/test changes still merge.
         wt.resetFrozenArtifacts(issue, created.worktreeRoot);
-        const merge = wt.integrateWorktree(issue, created.branch);
+        let merge = wt.integrateWorktree(issue, created.branch);
         if (!merge.ok) {
-          writeIntegrationBlock(issue, cfg, `integration conflict: ${merge.message}`);
+          // S10 merge-resolver (G6): the merge conflicted and was aborted cleanly
+          // (defaultIntegrateWorktree already ran `merge --abort`). Try ONCE to
+          // reconcile: rebase the worktree onto integration HEAD, run a bounded
+          // merge-resolver leg IN THE WORKTREE, then TRUST NOTHING — the orchestrator
+          // re-runs the gate in the worktree itself. Only a resolver-claims-resolved
+          // AND orchestrator-verified-green worktree earns a single merge retry.
+          // Independent of readiness; steps.runMergeResolver === false opts a test out.
+          if (steps.runMergeResolver !== false) {
+            wt.rebaseWorktree(issue, created.worktreeRoot);
+            await runLegWithQuotaAsync(issueSteps.runMergeResolver, mergeResolverLeg(cfg), issue, issueCfg);
+            const verdict = readMergeResolutionVerdict(issue, cfg);
+            const worktreeGate = await runGateAt(issueCfg); // orchestrator's own verdict, in the worktree
+            if (verdict?.resolved === true && worktreeGate.pass) {
+              // Re-neutralize frozen edits the rebase/resolve may have reintroduced, then
+              // retry the merge exactly once.
+              wt.resetFrozenArtifacts(issue, created.worktreeRoot);
+              merge = wt.integrateWorktree(issue, created.branch);
+              if (merge.ok) {
+                emit(cfg, {
+                  event_type: "merge_conflict_resolved",
+                  issue_id: issue.id,
+                  graph_refs: issue.graph_refs,
+                  actor: cfg.implementer.actor,
+                  role: "merge-resolver",
+                });
+              }
+            }
+          }
+          if (!merge.ok) {
+            // Resolver absent, unresolved, gate red, or the retried merge still failed:
+            // block only this issue (current behavior), naming the unresolved conflict.
+            writeIntegrationBlock(issue, cfg, `integration conflict (unresolved): ${merge.message}`);
+            try {
+              emit(cfg, {
+                event_type: "merge_conflict_unresolved",
+                issue_id: issue.id,
+                graph_refs: issue.graph_refs,
+                actor: cfg.implementer.actor,
+                role: "merge-resolver",
+              });
+            } catch (error) {
+              process.stderr.write(`[parallel] failed to emit merge_conflict_unresolved for ${issue.id}: ${error?.message ?? error}\n`);
+            }
+            return { id: issue.id, status: "blocked" };
+          }
+        }
+        // POST-MERGE RE-GATE (S10, deterministic first): the merge landed; re-run this
+        // issue's gate ON THE INTEGRATION TREE. Green pre-merge + red post-merge = the
+        // merge damaged something. Revert the merge (reset --hard to the captured
+        // pre-merge sha — the merge is the only commit since) and block only this issue,
+        // never leaving the integration branch red.
+        const postMergeGate = await runGateAt(integrationCfg);
+        if (!postMergeGate.pass) {
+          wt.resetHard(cfg, preMergeSha);
+          writePostMergeIntegrationBlock(issue, cfg, {
+            preMergeEvidenceRel: result.evidenceRel,
+            postMergeEvidenceRel: postMergeGate.evidenceRel,
+            preMergeSha,
+          });
           return { id: issue.id, status: "blocked" };
         }
         // Move to done/ BEFORE the orchestration commit so a kill between them never
@@ -2452,13 +2917,15 @@ export async function runLoopParallel(userConfig = {}, steps = {}) {
         // HEAD that already reflects this issue's completion. No map regeneration:
         // the static map is unchanged and the app overlays the live ledger at read
         // time, so the next worktree (and the viewer) already see this issue done.
+        // The verified evidence is the POST-MERGE gate run (the integration tree is the
+        // code that actually landed), which supersedes the pre-merge worktree run.
         emit(cfg, {
           event_type: "gate_passed",
           issue_id: issue.id,
           graph_refs: issue.graph_refs,
           actor: cfg.implementer.actor,
           role: cfg.implementer.role,
-          evidence_refs: [result.evidenceRel],
+          evidence_refs: [postMergeGate.evidenceRel],
           transcript_refs: result.gateTranscripts ?? [],
         });
         if (steps.commitDoneMove !== false) commitDoneMove(issue, cfg);
@@ -2485,7 +2952,11 @@ export async function runLoopParallel(userConfig = {}, steps = {}) {
   for (;;) {
     const doneIds = computeDoneIds(issues, readLedger(cfg), listDoneFiles(cfg));
     const excluded = new Set([...running.keys(), ...blocked]);
-    const ready = computeReadySet(issues, doneIds, excluded, verifiedSpikeGates());
+    // Parked-on-CR issues are held out of the ready set (disk report + in-memory guard)
+    // until a CR decision re-extraction clears the report — the same exclusion done/
+    // gets, so a parked batch member is never re-selected.
+    const parkedIds = new Set([...readParkedIssueIds(cfg), ...parkedThisRun]);
+    const ready = computeReadySet(issues, doneIds, excluded, verifiedSpikeGates(), parkedIds);
     const batch = selectIndependentBatch(
       ready,
       [...runningIssueById.values()],
@@ -2493,7 +2964,30 @@ export async function runLoopParallel(userConfig = {}, steps = {}) {
       depsClosure,
       archIndex,
     );
-    for (const issue of batch) {
+    // S8: readiness-check the WHOLE selected batch against current integration HEAD
+    // BEFORE any worktree spawns. A member that parks (needs_cr) or whose issue_update
+    // is refused is EXCLUDED this round — no worktree is ever created for it — while the
+    // others proceed. Readiness runs at the MAIN root (no execRoot): it reads the live
+    // integration tree, exactly what the batch would branch from. Run sequentially so a
+    // readiness leg and a running implementer leg do not both fight for the same CLI
+    // quota window; the batch is at most maxParallel issues.
+    const readyToRun = [];
+    if (readinessRunner) {
+      for (const issue of batch) {
+        const readiness = await runReadinessAsync(issue, cfg, readinessRunner);
+        if (readiness.status === "parked") {
+          if (!parkedThisRun.has(issue.id)) {
+            parkedThisRun.add(issue.id);
+            processed.push({ id: issue.id, status: "parked" });
+          }
+          continue;
+        }
+        readyToRun.push(issue);
+      }
+    } else {
+      readyToRun.push(...batch);
+    }
+    for (const issue of readyToRun) {
       runningIssueById.set(issue.id, issue);
       const task = runOne(issue)
         .catch((error) => ({ id: issue.id, status: "blocked", error: String(error?.message ?? error) }))
@@ -2550,6 +3044,77 @@ function writeIntegrationBlock(issue, cfg, reason) {
     });
   } catch (error) {
     process.stderr.write(`[parallel] failed to emit issue_blocked for ${issue.id}: ${error?.message ?? error}\n`);
+  }
+  return rel;
+}
+
+// --------------------------------------------------------------------------
+// Merge integrity (S10/G6): post-merge re-gate + bounded merge-resolver leg.
+// Both run inside runLoopParallel's integration critical section (under the lock).
+// The orchestrator TRUSTS NOTHING: it re-runs the gate itself (on the integration
+// tree post-merge, and in the worktree after a resolver leg) — the resolver's own
+// claim is never the verdict. It never leaves the integration branch red.
+// --------------------------------------------------------------------------
+
+// Read + validate the merge-resolver verdict JSON the leg wrote. Returns the parsed
+// verdict, or null when missing / unparseable / malformed (treated as unresolved).
+// Never trusts stdout: the file is the sole contract.
+function readMergeResolutionVerdict(issue, cfg) {
+  const rel = `${cfg.reportsDir}/${issue.id}-merge-resolution.json`;
+  let parsed;
+  try {
+    parsed = JSON.parse(readFileSync(abs(rel), "utf8"));
+  } catch {
+    return null;
+  }
+  if (!parsed || typeof parsed !== "object" || typeof parsed.resolved !== "boolean") return null;
+  return parsed;
+}
+
+// Write the post-merge integration-block evidence for ONE issue: the merge went green
+// pre-merge but the re-run gate on the integration tree came back red, so the merge
+// damaged something. Records BOTH gate evidences (the green pre-merge run and the red
+// post-merge run) so a human sees exactly what regressed. Written to the MAIN root.
+function writePostMergeIntegrationBlock(issue, cfg, { preMergeEvidenceRel, postMergeEvidenceRel, preMergeSha }) {
+  mkdirSync(abs(cfg.reportsDir), { recursive: true });
+  const rel = `${cfg.reportsDir}/${issue.id}-integration-blocked.json`;
+  writeFileSync(
+    abs(rel),
+    `${JSON.stringify(
+      {
+        issue_id: issue.id,
+        reason:
+          "post-merge gate red: the issue's gate was green pre-merge but red on the integration tree after merging — the merge damaged the integration state. The merge commit was reverted (reset to the pre-merge HEAD).",
+        kind: "post_merge_gate",
+        pre_merge_gate_evidence: preMergeEvidenceRel ?? null,
+        post_merge_gate_evidence: postMergeEvidenceRel ?? null,
+        reverted_to_sha: preMergeSha ?? null,
+        at: nowIso(cfg),
+      },
+      null,
+      2,
+    )}\n`,
+  );
+  // Light the node blocked, and record the deterministic post_merge_gate_failed event.
+  // Best-effort: a ledger emit failure must not crash the loop or strand other issues.
+  try {
+    emit(cfg, {
+      event_type: "post_merge_gate_failed",
+      issue_id: issue.id,
+      graph_refs: issue.graph_refs,
+      actor: cfg.implementer.actor,
+      role: cfg.implementer.role,
+    });
+    emit(cfg, {
+      event_type: "issue_blocked",
+      issue_id: issue.id,
+      graph_refs: issue.graph_refs,
+      actor: cfg.implementer.actor,
+      role: cfg.implementer.role,
+      evidence_refs: [rel],
+    });
+  } catch (error) {
+    process.stderr.write(`[parallel] failed to emit post_merge_gate_failed for ${issue.id}: ${error?.message ?? error}\n`);
   }
   return rel;
 }
