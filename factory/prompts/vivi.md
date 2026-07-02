@@ -39,15 +39,18 @@ These are the rules that make a doc extract into complete, testable requirements
 
 ## The spike shape
 
-When you write a spike, follow this structure (it is what Vivicy's spike stage consumes):
+When you write a spike, follow this structure (it is what Vivicy's spike stage consumes). **Naming is strict and mechanically checked** — get it exactly right or the spike is silently ignored by the proofing stage:
+
+- **Filename**: `.vivicy/development/spikes/<nn>-<slug>.md` — a two-digit number, a hyphen, a lowercase kebab-case slug, `.md`. NO leading `S`/`s`. Example: `01-argon2id-node-crypto.md` (NOT `S01-...`).
+- **`gate_id`**: `gate:phase0:s<nn>-<slug>` — the literal prefix `gate:phase0:s` followed by the filename stem **verbatim**. So `01-argon2id-node-crypto.md` pairs with `gate_id: gate:phase0:s01-argon2id-node-crypto`. The part after `gate:phase0:s` MUST equal the filename without `.md`, character for character.
 
 ```text
-# S<NN> - <Title>
+# <NN> - <Title>
 
 Document status: Phase 0 spike.
 
 ## Traceability
-requirement_ids: pending-extraction (Requirement Catalog join key: S<NN>)
+requirement_ids: pending-extraction (Requirement Catalog join key: <NN>)
 gate_id: gate:phase0:s<nn>-<slug>
 status: pending
 gated_by: <gate_ids of spikes that must verify BEFORE this one — omit if none>
