@@ -55,7 +55,8 @@ test("extractor.md carries the spike evidence-gate and the normative-detection f
   assert.match(text, /SPIKE-TEMPLATE\.md/, "extractor must point at the spike template");
   assert.match(text, /must_verify_with_spike/, "extractor must mint spike obligations");
   assert.match(text, /gate:phase0:s/, "extractor must wire the spike gate id");
-  assert.match(text, /REUSE the spikes the owner already provided/i, "extractor must reuse owner-provided spikes, not just mint");
+  assert.match(text, /INTEGRATE mode \(existing spikes are the authority\)/i, "extractor must integrate owner-provided spikes, not just mint");
+  assert.match(text, /NEVER rewrite, renumber, recreate/i, "integrate mode must preserve provided spikes verbatim");
   assert.match(text, /Normative detection floor/i, "extractor must carry the normative floor");
 });
 
