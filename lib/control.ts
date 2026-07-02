@@ -27,6 +27,13 @@ import { getRuntimeDir } from "@/lib/runtime-dir"
 import { settingsToEnv } from "@/lib/settings"
 import { readSettings } from "@/lib/settings-store"
 import { getTargetRoot } from "@/lib/target"
+import {
+  getStagingDir,
+  normalizeStaging,
+  readReport,
+  type NormalizedFile,
+  type NormalizationProblem,
+} from "@/lib/upload"
 
 /** A single detached child process the spawner has launched. */
 export interface DetachedHandle {
@@ -194,6 +201,10 @@ const STATUS_SCRIPT = "dev-status.mjs"
 // validates and regenerates the map (freeze -> author -> verify -> map). The
 // agent leg lives inside this script; the control plane only launches it.
 const EXTRACT_SCRIPT = "extract-issues.mjs"
+// The S1-import CHECK: one agent leg reads a normalized upload corpus and writes
+// its verdict report. The agent leg lives inside this script; the control plane
+// only launches it (same pattern as EXTRACT_SCRIPT) — see runUploadVerify.
+const UPLOAD_VERIFY_SCRIPT = "verify-upload.mjs"
 
 /** Resolve the in-package factory root (vivicy/factory by default). */
 export function getFactoryRoot(): string {
@@ -526,4 +537,92 @@ function readExtractionStatus(
   } catch {
     return null
   }
+}
+
+/**
+ * Outcome of the S1-import CHECK (G1): the deterministic normalization pass plus
+ * the agent verdict. `verdict` is "green" only when the CHECK leg wrote a green
+ * report AND normalization had no fatal problem; a red verdict (or a leg that died
+ * without a report) is surfaced honestly rather than hidden — nothing is placed
+ * downstream unless this is green.
+ */
+export interface UploadVerifyResult {
+  ok: boolean
+  verdict: "green" | "red"
+  problems: Array<{ file: string; kind: string; detail: string }>
+  summary: string
+  normalized: NormalizedFile[]
+}
+
+/**
+ * VERIFY a staged upload (G1's check-then-place gate). Two passes:
+ *   1. deterministic NORMALIZATION (lib/upload normalizeStaging) into
+ *      <staging>/normalized/ — .txt/.doc/.docx -> MD, map verbatim; a per-file
+ *      conversion problem excludes that file and continues.
+ *   2. the agent CHECK — drives `verify-upload.mjs` through the injected
+ *      {@link Spawner} (identical control-plane pattern to {@link runExtract}); the
+ *      script spawns ONE claude leg (role upload-verifier) that reads the normalized
+ *      corpus and writes <staging>/report.json { verdict, problems, summary }.
+ *
+ * The agent leg lives INSIDE the script; this control plane only launches it (so
+ * tests inject a fake spawner and never spawn claude). The final verdict is green
+ * only when the report says green AND normalization produced no problems — the
+ * report is the source of truth for the AGENT half, and a red normalization is a
+ * fatal problem the agent never gets to override.
+ */
+export async function runUploadVerify(
+  spawner: Spawner,
+  stagingId: string
+): Promise<UploadVerifyResult> {
+  const { factoryRoot, targetRoot } = resolveContext()
+  if (!existsSync(targetRoot)) {
+    throw new ControlError(`target root does not exist: ${targetRoot}`, "missing_target")
+  }
+  const stagingDir = getStagingDir(stagingId)
+  if (!existsSync(stagingDir)) {
+    throw new ControlError(`unknown staging id: ${stagingId}`, "missing_target")
+  }
+  const command = resolveScript(factoryRoot, UPLOAD_VERIFY_SCRIPT)
+
+  // Deterministic normalization first; its per-file problems are fatal (they mean
+  // a file could not be normalized), so a non-empty problems list forces red.
+  const { normalized, problems: normProblems } = normalizeStaging(stagingId)
+
+  // The agent CHECK. VIVICY_TARGET_ROOT lets the leg cross-check the normalized
+  // corpus against the target's EXISTING .vivicy/canonical docs; --staging points
+  // it at the corpus + the report path it must write.
+  const result = await spawner.run({
+    command: process.execPath,
+    args: [command, "--staging", stagingDir],
+    cwd: factoryRoot,
+    env: devEnv(targetRoot),
+  })
+
+  const report = readReport(stagingId)
+  const lastLine =
+    result.lastLine || result.stderr.trim().split("\n").filter(Boolean).at(-1) || ""
+
+  // Honest verdict: green requires the script to have exited 0, a green report, AND
+  // no fatal normalization problem. Any other combination is red — a missing report
+  // (a dead/timed-out leg) or a red report both fail closed, never a silent pass.
+  const reportGreen = result.code === 0 && report?.verdict === "green"
+  const verdict: "green" | "red" =
+    reportGreen && normProblems.length === 0 ? "green" : "red"
+
+  return {
+    ok: verdict === "green",
+    verdict,
+    problems: mergeUploadProblems(normProblems, report),
+    summary: report?.summary ?? lastLine ?? "upload verification produced no report",
+    normalized,
+  }
+}
+
+/** Combine the deterministic normalization problems with the agent report's. */
+function mergeUploadProblems(
+  normProblems: NormalizationProblem[],
+  report: { problems?: Array<{ file: string; kind: string; detail: string }> } | null
+): Array<{ file: string; kind: string; detail: string }> {
+  const fromReport = Array.isArray(report?.problems) ? report.problems : []
+  return [...normProblems, ...fromReport]
 }
