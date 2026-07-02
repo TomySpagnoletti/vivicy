@@ -1,5 +1,6 @@
 import { ControlError, runUploadVerify } from "@/lib/control"
 import { nodeSpawner } from "@/lib/node-spawner"
+import { appendNotification } from "@/lib/notifications"
 
 import { uploadErrorResponse } from "../route"
 
@@ -21,6 +22,12 @@ export async function POST(request: Request) {
     const stagingId = typeof body?.stagingId === "string" ? body.stagingId : ""
 
     const result = await runUploadVerify(nodeSpawner, stagingId)
+    appendNotification({
+      level: result.verdict === "green" ? "info" : "error",
+      stage: "upload",
+      event: result.verdict === "green" ? "verify_green" : "verify_red",
+      message: result.summary,
+    })
     return Response.json({
       ok: result.ok,
       verdict: result.verdict,

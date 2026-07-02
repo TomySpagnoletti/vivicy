@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import {
   ControlError,
   decideCr,
+  getExtractionStatus,
   isRunActive,
   listChangeRequests,
   readDevStatus,
@@ -399,6 +400,24 @@ describe("runExtract", () => {
     rmSync(path.join(factoryRoot, "extract-issues.mjs"))
     const { spawner } = makeFakeSpawner()
     await expect(runExtract(spawner)).rejects.toThrow(ControlError)
+  })
+})
+
+describe("getExtractionStatus (G8 pipeline widget read)", () => {
+  it("returns null when extraction has never run", () => {
+    expect(getExtractionStatus()).toBeNull()
+  })
+
+  it("surfaces the orchestrator's in-flight/terminal status verbatim", () => {
+    writeExtractionStatus("green", "extraction green after 1 attempt(s): 8 issue(s)")
+    const status = getExtractionStatus()
+    expect(status?.phase).toBe("green")
+    expect(status?.summary).toMatch(/8 issue/)
+  })
+
+  it("fails clearly when the target root does not exist", () => {
+    rmSync(targetRoot, { recursive: true, force: true })
+    expect(() => getExtractionStatus()).toThrow(ControlError)
   })
 })
 

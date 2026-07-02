@@ -1,4 +1,5 @@
 import { ControlError, runExtract, startSupervisor } from "@/lib/control"
+import { appendNotification } from "@/lib/notifications"
 import { getSpawner } from "@/lib/spawner"
 
 // Per-stage retry (G8 buttons call this; the `vivicy retry-stage` CLI dispatches
@@ -38,11 +39,24 @@ export async function POST(request: Request) {
   }
   const stage = body.stage
 
+  appendNotification({
+    level: "info",
+    stage: "retry",
+    event: `retry_${stage}_started`,
+    message: `manual retry requested for stage "${stage}"`,
+  })
+
   try {
     if (stage === "extract") {
       const result = await runExtract(getSpawner())
       // Same 200/422 honest split as the extract route: a blocked extraction is not
       // a clean success.
+      appendNotification({
+        level: result.ok ? "info" : "error",
+        stage: "retry",
+        event: result.ok ? "retry_extract_green" : "retry_extract_blocked",
+        message: result.summary,
+      })
       return Response.json(
         { ok: result.ok, stage, blocked: result.blocked, status: result.status, summary: result.summary },
         { status: result.ok ? 200 : 422 }
@@ -50,15 +64,26 @@ export async function POST(request: Request) {
     }
     // stage === "dev": relaunch the supervisor as a resume.
     const run = startSupervisor(getSpawner(), "resume")
+    appendNotification({
+      level: "info",
+      stage: "retry",
+      event: "retry_dev_started",
+      message: `dev-loop retried (pid ${run.pid})`,
+    })
     return Response.json({ ok: true, stage, run })
   } catch (error) {
     if (error instanceof ControlError) {
+      appendNotification({
+        level: "error",
+        stage: "retry",
+        event: `retry_${stage}_error`,
+        message: error.message,
+      })
       const status = error.code === "already_running" ? 409 : 422
       return Response.json({ ok: false, error: error.message, code: error.code }, { status })
     }
-    return Response.json(
-      { ok: false, error: error instanceof Error ? error.message : "retry failed" },
-      { status: 500 }
-    )
+    const message = error instanceof Error ? error.message : "retry failed"
+    appendNotification({ level: "error", stage: "retry", event: `retry_${stage}_error`, message })
+    return Response.json({ ok: false, error: message }, { status: 500 })
   }
 }

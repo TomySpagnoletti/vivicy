@@ -17,6 +17,7 @@ import {
   type SelectedItem,
 } from "@/components/map/architecture-map"
 import { MapEmptyState } from "@/components/map/map-empty-state"
+import { PipelineWidget } from "@/components/pipeline/pipeline-widget"
 import { OnboardingChooser } from "@/components/project/onboarding-chooser"
 import { SetupBar } from "@/components/project/setup-bar"
 import { PanelToggle } from "@/components/sidebar/panel-toggle"
@@ -219,21 +220,27 @@ export default function Page() {
           ) : null}
 
           {state.kind === "ready" ? (
-            <ArchitectureMap
-              data={state.data}
-              view={view}
-              query={query}
-              laneFilter={laneFilter}
-              statusFilter={statusFilter}
-              scopeFilter={scopeFilter}
-              selected={selected}
-              onSelect={(next) => {
-                if (!next) setSelectedRef(null)
-                else if (next.type === "node")
-                  setSelectedRef({ type: "node", id: next.item.id })
-                else setSelectedRef({ type: "edge", id: next.id })
-              }}
-            />
+            <>
+              <ArchitectureMap
+                data={state.data}
+                view={view}
+                query={query}
+                laneFilter={laneFilter}
+                statusFilter={statusFilter}
+                scopeFilter={scopeFilter}
+                selected={selected}
+                onSelect={(next) => {
+                  if (!next) setSelectedRef(null)
+                  else if (next.type === "node")
+                    setSelectedRef({ type: "node", id: next.item.id })
+                  else setSelectedRef({ type: "edge", id: next.id })
+                }}
+              />
+              {/* Absolutely positioned OVER the map viewport (not a ViewportPortal —
+                  the widget must stay fixed to the screen, never pan/zoom with the
+                  graph), matching the SetupBar overlay pattern above. */}
+              <PipelineWidget />
+            </>
           ) : null}
         </SidebarInset>
 
