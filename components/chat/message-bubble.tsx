@@ -2,60 +2,75 @@
 
 import { CircleAlert, FileText } from "lucide-react"
 
-import { Badge } from "@/components/ui/badge"
-import { Card } from "@/components/ui/card"
-import { cn } from "@/lib/utils"
+import {
+  Attachment,
+  AttachmentContent,
+  AttachmentGroup,
+  AttachmentMedia,
+  AttachmentTitle,
+} from "@/components/ui/attachment"
+import { Bubble, BubbleContent } from "@/components/ui/bubble"
+import { Marker, MarkerContent, MarkerIcon } from "@/components/ui/marker"
+import { Message, MessageContent, MessageFooter } from "@/components/ui/message"
 
 /** One message in the Vivi conversation, mirroring `lib/vivi.ts` `ViviTurn`. */
 export interface ChatMessage {
   role: "user" | "vivi"
   text: string
-  /** Repo-relative `.md` paths a Vivi turn wrote (rendered as chips). */
+  /** Repo-relative `.md` paths a Vivi turn wrote (rendered as attachments). */
   wrote?: string[]
   /** Set on a Vivi turn whose writes were rejected + rolled back. */
   rejected?: string
 }
 
 /**
- * A single chat bubble: a right-aligned muted Card for the user, a left-aligned
- * bordered Card for Vivi. A Vivi turn that wrote files shows one "wrote" Badge per
- * path; a rejected turn shows a destructive notice (the writes were rolled back).
- * Pure shadcn primitives (Card, Badge) — no raw colors.
+ * A single chat turn built from the dedicated shadcn chat primitives: a
+ * `Message` (alignment), a `Bubble` (muted for the user, outline for Vivi), and a
+ * `MessageFooter` carrying the turn's outcome — the `.md` files Vivi wrote as
+ * `Attachment` chips, or a destructive `Marker` when the writes were rejected and
+ * rolled back. No raw Tailwind design, no hand-rolled bubbles.
  */
 export function MessageBubble({ message }: { message: ChatMessage }) {
   const isUser = message.role === "user"
+  const align = isUser ? "end" : "start"
+  const wrote = message.wrote ?? []
+  const hasFooter = Boolean(message.rejected) || (!isUser && wrote.length > 0)
+
   return (
-    <div className={cn("flex w-full", isUser ? "justify-end" : "justify-start")}>
-      <div className={cn("flex max-w-[85%] flex-col gap-1.5", isUser ? "items-end" : "items-start")}>
-        <Card
-          data-role={message.role}
-          className={cn(
-            "px-3 py-2 text-xs/relaxed whitespace-pre-wrap",
-            isUser ? "bg-muted text-foreground" : "bg-background text-foreground"
-          )}
-        >
-          {message.text}
-        </Card>
+    <Message align={align}>
+      <MessageContent>
+        <Bubble variant={isUser ? "muted" : "outline"} align={align}>
+          <BubbleContent className="whitespace-pre-wrap">{message.text}</BubbleContent>
+        </Bubble>
 
-        {message.rejected ? (
-          <p className="flex items-start gap-1.5 text-left text-xs text-destructive">
-            <CircleAlert className="mt-0.5 size-3.5 shrink-0" aria-hidden />
-            <span>{message.rejected}</span>
-          </p>
-        ) : null}
+        {hasFooter ? (
+          <MessageFooter className="flex-col items-start gap-1.5">
+            {message.rejected ? (
+              <Marker className="text-destructive">
+                <MarkerIcon>
+                  <CircleAlert />
+                </MarkerIcon>
+                <MarkerContent>{message.rejected}</MarkerContent>
+              </Marker>
+            ) : null}
 
-        {!isUser && message.wrote && message.wrote.length > 0 ? (
-          <div className="flex flex-wrap items-center gap-1.5">
-            <span className="text-xs text-muted-foreground">wrote</span>
-            {message.wrote.map((file) => (
-              <Badge key={file} variant="secondary" className="gap-1 font-mono" title={file}>
-                <FileText className="size-3" aria-hidden />
-                {file}
-              </Badge>
-            ))}
-          </div>
+            {!isUser && wrote.length > 0 ? (
+              <AttachmentGroup>
+                {wrote.map((file) => (
+                  <Attachment key={file} size="sm" title={file}>
+                    <AttachmentMedia>
+                      <FileText />
+                    </AttachmentMedia>
+                    <AttachmentContent>
+                      <AttachmentTitle className="font-mono">{file}</AttachmentTitle>
+                    </AttachmentContent>
+                  </Attachment>
+                ))}
+              </AttachmentGroup>
+            ) : null}
+          </MessageFooter>
         ) : null}
-      </div>
-    </div>
+      </MessageContent>
+    </Message>
   )
 }

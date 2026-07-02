@@ -1,12 +1,20 @@
 "use client"
 
-import { useCallback, useEffect, useRef, useState } from "react"
-import { SendHorizontal, Sparkles } from "lucide-react"
+import { useCallback, useEffect, useState } from "react"
+import { Loader2, SendHorizontal, Sparkles } from "lucide-react"
 import { toast } from "sonner"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { ScrollArea } from "@/components/ui/scroll-area"
+import { Marker, MarkerContent, MarkerIcon } from "@/components/ui/marker"
+import {
+  MessageScroller,
+  MessageScrollerButton,
+  MessageScrollerContent,
+  MessageScrollerItem,
+  MessageScrollerProvider,
+  MessageScrollerViewport,
+} from "@/components/ui/message-scroller"
 import {
   Sheet,
   SheetContent,
@@ -14,7 +22,6 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet"
-import { Skeleton } from "@/components/ui/skeleton"
 import { Textarea } from "@/components/ui/textarea"
 import { MessageBubble, type ChatMessage } from "@/components/chat/message-bubble"
 
@@ -29,12 +36,15 @@ interface ViviEngine {
  * Vivi chat panel (G2, S1-chat): a full-height right-side Sheet. The user grills
  * their idea into a spec with Vivi; each turn POSTs `{ sessionId?, message }` to
  * `/api/vivi`, which drives ONE agent exec in the target repo and returns the reply
- * plus the `.md` files Vivi wrote (shown as chips on the bubble). Turn-based: there is
- * no token streaming in v0.5.0, so a pending turn shows a Skeleton placeholder.
+ * plus the `.md` files Vivi wrote (shown as Attachment chips on the bubble). The
+ * conversation is a `MessageScroller` (auto-anchors to newest, with a jump-to-latest
+ * button); turn-based, so a pending turn shows a `Marker` with a spinner (no token
+ * streaming in v0.5.0).
  *
  * Agent selection is read-only here (P6): the engine badge shows which CLI + model
- * Vivi runs on, read from settings; it is never editable from the chat.
- * Strictly ShadcnUI primitives.
+ * Vivi runs on, read from settings; it is never editable from the chat. Built from
+ * the dedicated shadcn chat components (Message / Bubble / Marker / MessageScroller /
+ * Attachment) — nothing hand-rolled.
  */
 export function ViviChat({
   open,
@@ -51,8 +61,6 @@ export function ViviChat({
   const [draft, setDraft] = useState("")
   const [sending, setSending] = useState(false)
   const [engine, setEngine] = useState<ViviEngine | null>(null)
-
-  const scrollRef = useRef<HTMLDivElement>(null)
 
   // Load the read-only engine (which CLI/model Vivi runs on) whenever the panel
   // opens, so it always reflects the current settings.
@@ -72,12 +80,6 @@ export function ViviChat({
       cancelled = true
     }
   }, [open])
-
-  // Keep the newest message in view as the conversation grows / a turn resolves.
-  useEffect(() => {
-    const node = scrollRef.current
-    if (node) node.scrollTop = node.scrollHeight
-  }, [messages, sending])
 
   const send = useCallback(async () => {
     const message = draft.trim()
@@ -158,20 +160,31 @@ export function ViviChat({
           ) : null}
         </SheetHeader>
 
-        <ScrollArea className="flex-1">
-          <div ref={scrollRef} className="flex flex-col gap-3 p-4">
-            {messages.length === 0 && !sending ? (
-              <p className="text-xs text-muted-foreground">
-                Tell Vivi what you want to build — a sentence is enough to start. Vivi
-                will ask the questions that turn it into a complete spec.
-              </p>
-            ) : null}
-            {messages.map((message, i) => (
-              <MessageBubble key={i} message={message} />
-            ))}
-            {sending ? <PendingBubble /> : null}
-          </div>
-        </ScrollArea>
+        <MessageScrollerProvider>
+          <MessageScroller className="flex-1">
+            <MessageScrollerViewport>
+              <MessageScrollerContent className="gap-3 p-4">
+                {messages.length === 0 && !sending ? (
+                  <p className="text-xs text-muted-foreground">
+                    Tell Vivi what you want to build — a sentence is enough to start. Vivi
+                    will ask the questions that turn it into a complete spec.
+                  </p>
+                ) : null}
+                {messages.map((message, i) => (
+                  <MessageScrollerItem key={i}>
+                    <MessageBubble message={message} />
+                  </MessageScrollerItem>
+                ))}
+                {sending ? (
+                  <MessageScrollerItem scrollAnchor>
+                    <PendingMarker />
+                  </MessageScrollerItem>
+                ) : null}
+              </MessageScrollerContent>
+            </MessageScrollerViewport>
+            <MessageScrollerButton />
+          </MessageScroller>
+        </MessageScrollerProvider>
 
         <div className="flex items-end gap-2 border-t border-border p-3">
           <Textarea
@@ -199,18 +212,14 @@ export function ViviChat({
   )
 }
 
-/** The turn-based pending placeholder — a Vivi-side Skeleton while the exec runs. */
-function PendingBubble() {
+/** The turn-based pending state — a shadcn Marker with a spinner while the exec runs. */
+function PendingMarker() {
   return (
-    <div className="flex w-full justify-start">
-      <div className="flex max-w-[85%] flex-col gap-1.5">
-        <div className="flex flex-col gap-1.5 border border-border bg-background px-3 py-2">
-          <Skeleton className="h-3 w-40" />
-          <Skeleton className="h-3 w-56" />
-          <Skeleton className="h-3 w-32" />
-        </div>
-        <span className="text-xs text-muted-foreground">Vivi is thinking…</span>
-      </div>
-    </div>
+    <Marker>
+      <MarkerIcon>
+        <Loader2 className="animate-spin" />
+      </MarkerIcon>
+      <MarkerContent>Vivi is thinking…</MarkerContent>
+    </Marker>
   )
 }

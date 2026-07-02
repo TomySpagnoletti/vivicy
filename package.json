@@ -27,6 +27,7 @@
     "factory:rehearsal:all": "node factory/dev-rehearsal.mjs && node factory/dev-rehearsal.mjs --fixture=formula"
   },
   "dependencies": {
+    "@shadcn/react": "^0.2.0",
     "@xyflow/react": "12.11.1",
     "class-variance-authority": "0.7.1",
     "clsx": "2.1.1",
