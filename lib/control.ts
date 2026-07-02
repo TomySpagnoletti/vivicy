@@ -6,6 +6,21 @@
  * an injectable {@link Spawner}. Real routes use {@link nodeSpawner}; tests
  * inject a fake so `start` never launches real claude/codex.
  *
+ * ── G14: CLI + API parity (why this file and factory/cli.mjs do NOT share code) ──
+ * This module is the UI's client (behind the Next API routes). The agents' client
+ * is the `vivicy` CLI (factory/cli.mjs), a plain Node ESM executable. The two MUST
+ * NOT import each other: this is Next-bundled server-only TS (the `@/` alias, the
+ * injectable Spawner), while cli.mjs is resolved by the package `bin` and cannot
+ * pull in Next internals. PARITY is NOT shared code — it is both clients (a) spawning
+ * the SAME factory scripts (SUPERVISOR/STATUS/EXTRACT/CHANGE_CONTROL/CR_APPLY) with the
+ * same args + env, and (b) reading the SAME state files with the same schema (the
+ * run-state lock below, extraction-status.json, the CR registry, cr-apply reports).
+ * The lock lives at getRuntimeDir()/run-state.json under the APP's cwd (the package
+ * root); cli.mjs reproduces that exact path from resolve(<factory>, "..") so a
+ * CLI-started run is visible to the UI and vice versa. Any script/schema change moves
+ * both clients together; neither owns a verb the other lacks (retry-stage dispatches
+ * {extract -> runExtract, dev -> startSupervisor("resume")} identically on both sides).
+ *
  * Roots:
  *   factoryRoot = VIVICY_FACTORY_ROOT ?? <cwd>/factory   (the in-package factory)
  *   targetRoot  = the UI-chosen project (persisted) ?? VIVICY_TARGET_ROOT
