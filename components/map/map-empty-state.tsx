@@ -118,12 +118,12 @@ const COPY: Record<
   no_target: {
     icon: FolderSearch,
     title: "No project selected",
-    body: "Vivicy needs a project whose docs/ folder holds the canonical spec. Use “Open project” in the top-left to choose the local repository to develop.",
+    body: "Vivicy needs a project whose .vivicy/canonical/ holds the canonical spec. Use “Open project” in the top-left to choose the local repository to develop.",
   },
   no_map: {
     icon: Workflow,
     title: "No issues extracted yet",
-    body: "Extract reads the frozen canonical spec in docs/ and authors the full plan — requirements, vertical issues, and the architecture map. Import docs first if the canonical is still empty, or run Extract to generate the graph.",
+    body: "Extract reads the frozen canonical spec in .vivicy/canonical/ and authors the full plan — requirements, vertical issues, and the architecture map. Import docs first if the canonical is still empty, or run Extract to generate the graph.",
   },
   empty_map: {
     icon: MapPin,

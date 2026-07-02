@@ -189,6 +189,30 @@ describe("runViviTurn — allowlist enforcement", () => {
     expect((turns.at(-1) as ViviTurn).wrote).toEqual(result.wrote)
   })
 
+  it("ignores the leg's own transcript write and keeps the legit spike", async () => {
+    // The real agent leg writes its transcript under .vivicy/development/transcripts/
+    // (gitignored infrastructure). That must NOT be treated as an allowlist violation
+    // — otherwise every real turn rolls back and destroys the spikes it just wrote.
+    const { spawner } = makeFakeSpawner((o) => {
+      writeInTarget(targetRoot, path.join(SPIKES, "S01-native-argon2id.md"), "# S01\n")
+      writeInTarget(
+        targetRoot,
+        path.join(".vivicy", "development", "transcripts", "VIVI-CHAT", "claude-vivi-abc.jsonl"),
+        '{"type":"assistant"}\n'
+      )
+      writeReply(o, "Wrote 3 spikes.")
+    })
+    const result = await runViviTurn(spawner, { message: "start" })
+
+    expect(result.rejected).toBeUndefined()
+    expect(result.wrote).toEqual([path.join(SPIKES, "S01-native-argon2id.md")])
+    // The spike SURVIVES (not rolled back), and the transcript is left in place.
+    expect(existsSync(path.join(targetRoot, SPIKES, "S01-native-argon2id.md"))).toBe(true)
+    expect(
+      existsSync(path.join(targetRoot, ".vivicy", "development", "transcripts", "VIVI-CHAT", "claude-vivi-abc.jsonl"))
+    ).toBe(true)
+  })
+
   it("rejects a write OUTSIDE the allowlist and REMOVES the offending file", async () => {
     // Seed an existing canonical doc so we can prove the legit dirs are restored
     // byte-for-byte even when the turn also touches a legit file.
