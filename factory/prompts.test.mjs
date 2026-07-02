@@ -123,6 +123,16 @@ test("proof-verifier.md carries the independent counter-verification discipline"
   assert.match(text, /Report, never edit|edit no file|You edit nothing/i);
 });
 
+test("vivi.md pins the strict spike filename/gate_id grammar", () => {
+  const text = readPrompt("vivi.md");
+  // Vivi writes spikes the rest of the pipeline consumes; a filename that does not
+  // match the gate_id slug is silently skipped by the proofing stage (real bug found
+  // in the torture run — Vivi wrote `S01-...md` with `gate:phase0:s01-...`).
+  assert.match(text, /NO leading `S`\/`s`/i, "vivi.md must forbid the leading-S filename");
+  assert.match(text, /gate:phase0:s<nn>-<slug>/, "vivi.md must show the gate_id grammar");
+  assert.match(text, /filename stem \*\*verbatim\*\*|equal the filename without `\.md`/i, "vivi.md must require gate_id slug == filename stem");
+});
+
 test("map-review.md carries the independent per-lens review method", () => {
   const text = readPrompt("map-review.md");
   assert.match(text, /independent domain-expert reviewer/i);
