@@ -5,6 +5,7 @@ import { ChevronsUpDown, FolderGit2 } from "lucide-react"
 
 import type { CurrentProject } from "@/lib/project-types"
 import { AgentsHealthDialog } from "@/components/agents/agents-health-dialog"
+import { NotificationBell } from "@/components/notifications/notification-bell"
 import { Button } from "@/components/ui/button"
 import {
   Tooltip,
@@ -84,6 +85,7 @@ export function SetupBar({
       ) : null}
 
       <AgentsHealthDialog onWarning={onAgentsWarning} />
+      <NotificationBell />
     </div>
   )
 }

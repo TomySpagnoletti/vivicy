@@ -465,6 +465,26 @@ export async function readDevStatus(
 const EXTRACTION_STATUS_FILE = ".vivicy/development/reports/extraction-status.json"
 
 /**
+ * The orchestrator's terminal/in-flight status file (extract-issues.mjs
+ * `defaultEmitStatus`), read back for display. Every field beyond `phase`/
+ * `summary` is optional because a report can be a mid-run snapshot (`phase`
+ * one of "authoring" | "fixing" | "refreezing" | "validating" | "mapping" |
+ * "verifying" | "map-review" | "green" | "extraction_blocked" |
+ * "blocked_on_unverified_spikes") or an older run predating a field.
+ */
+export interface ExtractionStatus {
+  phase?: string
+  attempt?: number
+  spike_mode?: "integrate" | "extract"
+  map_mode?: "reused" | "authored"
+  spike_proofing?: { proofed?: unknown[]; failed?: unknown[]; skipped?: unknown[] }
+  unverified_spike_gate_ids?: string[]
+  summary?: string
+  updated_at?: string
+  [key: string]: unknown
+}
+
+/**
  * AUTHOR the issues from the frozen canonical spec, then validate and regenerate
  * the map. This drives the single `extract-issues.mjs` orchestrator, which:
  *   1. freezes .vivicy/canonical/** if no frozen baseline exists (else reuses it),
@@ -550,17 +570,30 @@ function assertRealCanonical(targetRoot: string): void {
   )
 }
 
-/** Read the orchestrator's terminal status file (best-effort). */
-function readExtractionStatus(
-  targetRoot: string
-): { phase?: string; summary?: string } | null {
+/** Read the orchestrator's status file for a resolved target root (best-effort:
+ *  a missing or unparseable file is `null`, never a throw). */
+function readExtractionStatus(targetRoot: string): ExtractionStatus | null {
   const file = path.join(targetRoot, EXTRACTION_STATUS_FILE)
   if (!existsSync(file)) return null
   try {
-    return JSON.parse(readFileSync(file, "utf8")) as { phase?: string; summary?: string }
+    return JSON.parse(readFileSync(file, "utf8")) as ExtractionStatus
   } catch {
     return null
   }
+}
+
+/**
+ * Read the extraction status for display (G8's pipeline widget): resolves the
+ * current target itself, mirroring {@link listChangeRequests}'s read-only
+ * projection pattern. `null` when no status has ever been written (extraction
+ * has not run yet) — an honest "no data", never a fabricated pending state.
+ */
+export function getExtractionStatus(): ExtractionStatus | null {
+  const { targetRoot } = resolveContext()
+  if (!existsSync(targetRoot)) {
+    throw new ControlError(`target root does not exist: ${targetRoot}`, "missing_target")
+  }
+  return readExtractionStatus(targetRoot)
 }
 
 /**

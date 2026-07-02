@@ -1,4 +1,8 @@
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { mkdtempSync, rmSync } from "node:fs"
+import { tmpdir } from "node:os"
+import path from "node:path"
+
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 // Mock the control plane so the route never spawns a factory script. `runExtract`
 // backs the `extract` stage; `startSupervisor` backs the `dev` (resume) stage.
@@ -27,8 +31,23 @@ function postJson(body: unknown): Request {
   })
 }
 
+// The route appends real notifications (lib/notifications, unmocked) on every
+// retry — isolate the log to a temp runtime dir so the test suite never writes
+// into the developer's real .vivicy-runtime.
+let runtimeDir: string
+let prevRuntimeEnv: string | undefined
+
 beforeEach(() => {
   vi.clearAllMocks()
+  runtimeDir = mkdtempSync(path.join(tmpdir(), "vivicy-retry-stage-"))
+  prevRuntimeEnv = process.env.VIVICY_RUNTIME_DIR
+  process.env.VIVICY_RUNTIME_DIR = runtimeDir
+})
+
+afterEach(() => {
+  rmSync(runtimeDir, { recursive: true, force: true })
+  if (prevRuntimeEnv === undefined) delete process.env.VIVICY_RUNTIME_DIR
+  else process.env.VIVICY_RUNTIME_DIR = prevRuntimeEnv
 })
 
 describe("POST /api/control/retry-stage", () => {
