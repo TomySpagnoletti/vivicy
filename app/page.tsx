@@ -81,8 +81,10 @@ export default function Page() {
   // map-regeneration chain, then reloads the map so a freshly generated graph
   // replaces the empty state. The panel's Extract drives the same endpoint.
   const [extracting, setExtracting] = useState(false)
+  const [extractError, setExtractError] = useState<{ message: string; code?: string } | null>(null)
   const runExtract = useCallback(async () => {
     setExtracting(true)
+    setExtractError(null)
     try {
       const res = await fetch("/api/control/extract", { method: "POST" })
       const body = (await res.json().catch(() => ({}))) as {
@@ -90,8 +92,16 @@ export default function Page() {
         blocked?: boolean
         summary?: string
         error?: string
+        code?: string
       }
       if (!res.ok || body.ok === false) {
+        // The pre-flight guard refusals (no/empty canonical) are onboarding
+        // signals, not failures: surface them inline in the empty state, where
+        // the Import button is the fix, instead of a transient toast.
+        if (body.code === "empty_canonical") {
+          setExtractError({ message: body.error ?? "canonical is empty", code: body.code })
+          return
+        }
         // Distinguish "blocked for a human" (the deterministic checks stayed red
         // after the bounded retries) from a transient failure, so the operator
         // knows whether to look at the corpus or just retry.
@@ -200,6 +210,11 @@ export default function Page() {
               reason={state.reason}
               onExtract={runExtract}
               extracting={extracting}
+              extractError={extractError}
+              onImported={() => {
+                setExtractError(null)
+                void loadMap(true)
+              }}
             />
           ) : null}
 
