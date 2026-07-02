@@ -32,12 +32,11 @@ import { resolve } from "node:path";
 
 import { runClaudeLeg, runCodexLeg } from "./agent-spawn.mjs";
 import { agentCliArgs, CLI_DEFAULTS, composePrompt } from "./dev-loop.mjs";
-import { nextCrId, readChangeRequests, runChangeControlCheck } from "./change-control.mjs";
+import { createChangeRequest } from "./change-control.mjs";
 import { readSpikes } from "./spike-check.mjs";
 import { FACTORY_PROMPTS_DIR } from "./target-root.mjs";
 
 const REPORTS_DIR = ".vivicy/development/reports";
-const CHANGE_REQUESTS_DIR = ".vivicy/change-requests";
 // The synthetic "issue" a spike's legs run against — the transcript + actor/role
 // identity handle the shared spawn infra keys on, exactly like the extractor's.
 // graph_refs is required by the leg deps but never consumed for a spike leg.
@@ -288,72 +287,35 @@ export function flipSpikeStatus(repoRoot, spike, status) {
 // ---------------------------------------------------------------------------
 
 // Draft a `status: idea` Change Request capturing a disproven (or disagreed) spike so
-// the owner (P2's single touchpoint) decides. The frontmatter is the FULL CR-TEMPLATE
-// shape with valid enums, so runChangeControlCheck accepts it; both proof reports are
-// linked as the machine evidence. source: agent (an agent-emitted CR — G7 source).
+// the owner (P2's single touchpoint) decides. Delegates the frontmatter + id + write to
+// change-control.mjs's createChangeRequest (the single CR writer — G7), passing this
+// stage's rich narrative body and classification; both proof reports ride as the machine
+// evidence. source: agent (an agent-emitted CR — G7 source). Signature preserved so the
+// proofier's injectable seam is unchanged.
 export function defaultWriteChangeRequest({ repoRoot, spike, proof, verdict, reason, kind, now }) {
-  const dirAbs = resolve(repoRoot, CHANGE_REQUESTS_DIR);
-  mkdirSync(dirAbs, { recursive: true });
-  const id = nextCrId(readChangeRequests(repoRoot));
-  const slug = `spike-${spikeStem(spike.file)}-proof`;
-  const file = `${CHANGE_REQUESTS_DIR}/${id}-${slug}.md`;
-  // created_at rides on the injected clock (defaults to real time), so the CR date is
-  // consistent with the proofing events and reproducible under a pinned `now` in tests.
-  const created = (typeof now === "function" ? now() : new Date().toISOString()).slice(0, 10);
   const title = kind === "disagreement" ? `Spike ${spike.gate_id} proof unresolved` : `Spike ${spike.gate_id} hypothesis disproven`;
-  const body = renderChangeRequest({ id, title, created, spike, proof, verdict, reason, kind });
-  writeFileSync(resolve(repoRoot, file), body);
-  return { file, id };
+  const body = renderChangeRequest({ title, spike, proof, verdict, reason, kind });
+  const { id, path } = createChangeRequest({
+    repoRoot,
+    title,
+    classification: "major_product_change",
+    source: "agent",
+    body,
+    now,
+  });
+  return { file: path, id };
 }
 
-// The CR body: full CR-TEMPLATE frontmatter (id/status/classification/created_at/source
-// + the null baseline-identity scaffold the checker needs to stay silent for an `idea`)
-// and the narrative sections. classification `major_product_change` — a disproven Phase-0
-// assumption is a product-intention event, not a mere clarification or ordering tweak.
-function renderChangeRequest({ id, title, created, spike, proof, verdict, reason, kind }) {
-  const fm = [
-    "---",
-    `id: ${id}`,
-    `title: ${title}`,
-    "status: idea",
-    "classification: major_product_change",
-    `created_at: ${created}`,
-    `updated_at: ${created}`,
-    "source: agent",
-    "owner_decision: pending",
-    "owner_decision_by: null",
-    "owner_decision_at: null",
-    "owner_decision_evidence: null",
-    "previous_baseline_id: null",
-    "previous_baseline_version: null",
-    "previous_baseline_manifest_path: null",
-    "previous_document_set_hash: null",
-    "previous_manifest_hash: null",
-    "target_baseline_bump: null",
-    "resulting_baseline_id: null",
-    "resulting_baseline_version: null",
-    "resulting_baseline_manifest_path: null",
-    "resulting_document_set_hash: null",
-    "resulting_manifest_hash: null",
-    "affected_docs: []",
-    "affected_issues: []",
-    "affected_requirements: []",
-    "affected_verification_gates: []",
-    "issue_generation_required: false",
-    "catalog_delta_required: false",
-    "matrix_rows_pending: false",
-    "supersedes: []",
-    "superseded_by: null",
-    "---",
-  ].join("\n");
+// The CR narrative body (everything AFTER the frontmatter — createChangeRequest owns the
+// frontmatter). classification `major_product_change` — a disproven Phase-0 assumption is
+// a product-intention event, not a mere clarification or ordering tweak.
+function renderChangeRequest({ title, spike, proof, verdict, reason, kind }) {
   const outcome =
     kind === "disagreement"
       ? "The proofier and the independent proof-verifier could not agree after a bounded retry, so the proof is untrustworthy."
       : "The proofier ran the spike's experiments and DISPROVED its hypothesis; the independent proof-verifier agreed.";
   return [
-    fm,
-    "",
-    `# ${id} - ${title}`,
+    `# ${title}`,
     "",
     "## Idea",
     "",
@@ -398,7 +360,7 @@ function renderChangeRequest({ id, title, created, spike, proof, verdict, reason
     "## Audit Trail",
     "",
     "```text",
-    `${created} - CR created by the spike proofier (source: agent) after ${kind === "disagreement" ? "an unresolved proof disagreement" : "a disproven spike hypothesis"}.`,
+    `CR created by the spike proofier (source: agent) after ${kind === "disagreement" ? "an unresolved proof disagreement" : "a disproven spike hypothesis"}.`,
     "```",
     "",
   ].join("\n");
