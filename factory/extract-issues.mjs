@@ -26,6 +26,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { runClaudeLeg, runCodexLeg } from "./agent-spawn.mjs";
+import { notify } from "./notify.mjs";
 import { agentCliArgs, CLI_DEFAULTS, composePrompt, DEFAULT_CONFIG, resolveAgentLegs } from "./dev-loop.mjs";
 import { runSemanticExtractionCheck } from "./semantic-extraction-check.mjs";
 import { runTraceabilityCheck } from "./traceability-check.mjs";
@@ -728,11 +729,25 @@ function defaultRunGenerateMap({ repoRoot, reconcileAgainst }) {
 // extraction is (authoring / validating / fixing / green / blocked). This is a
 // dedicated status surface, NOT the per-issue progress ledger (which is keyed by
 // graph items of issues that do not exist until extraction finishes).
+// Extraction phases mirrored to the notification log (P9) — observability only,
+// a no-op unless the launcher passed VIVICY_RUNTIME_DIR; the status file stays
+// the source of truth.
+const NOTIFY_BY_PHASE = {
+  spike_proofing: { level: "info", stage: "S3", message: "proofing spikes in the target repo" },
+  authoring: { level: "info", stage: "S6", message: "extracting issues from the frozen canonical" },
+  fixing: { level: "warning", stage: "S6", message: "re-prompting the extractor after red checks" },
+  blocked_on_unverified_spikes: { level: "error", stage: "S3", message: "extraction refused: unverified spikes" },
+  extraction_blocked: { level: "error", stage: "S6", message: "extraction blocked after bounded retries" },
+  green: { level: "success", stage: "S7", message: "extraction green — corpus committed" },
+};
+
 function defaultEmitStatus(status, repoRoot) {
   const abs = resolve(repoRoot, EXTRACTION_STATUS_REL);
   mkdirSync(dirname(abs), { recursive: true });
   const payload = { ...status, updated_at: new Date().toISOString() };
   writeFileSync(abs, `${JSON.stringify(payload, null, 2)}\n`);
+  const mapped = NOTIFY_BY_PHASE[status?.phase];
+  if (mapped) notify({ ...mapped, event: `extraction_${status.phase}` });
 }
 
 // Commit the whole authored corpus MECHANICALLY on a green extraction (Item 2): the
