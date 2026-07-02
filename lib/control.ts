@@ -268,7 +268,11 @@ function resolveScript(factoryRoot: string, relativeScript: string): string {
 }
 
 function devEnv(targetRoot: string): NodeJS.ProcessEnv {
-  return { ...process.env, VIVICY_TARGET_ROOT: targetRoot }
+  // VIVICY_RUNTIME_DIR is passed explicitly so factory orchestrators (dev-loop,
+  // extract-issues, cr-apply) append their notifications to the SAME log the app
+  // reads; factory-side notify is a no-op without it (explicit contract, no
+  // guessed paths from a detached process).
+  return { ...process.env, VIVICY_TARGET_ROOT: targetRoot, VIVICY_RUNTIME_DIR: getRuntimeDir() }
 }
 
 /** Read the persisted run-state lock, or null when no run is recorded. */

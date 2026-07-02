@@ -39,6 +39,7 @@ import { platform, tmpdir } from "node:os";
 import { dirname, isAbsolute, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { atomicWriteJson } from "./atomic-write.mjs";
+import { notify } from "./notify.mjs";
 import { sleepSync } from "./sleep-sync.mjs";
 import { recordProgressEvent } from "./progress-ledger.mjs";
 import { checkSkills } from "./dev-preflight.mjs";
@@ -2019,7 +2020,31 @@ function ensureWorktreesIgnored(cfg) {
   writeFileSync(gitignorePath, next);
 }
 
+// The user-meaningful subset of ledger events mirrored to the notification log
+// (P9). The ledger stays the source of truth; this is observability only, and
+// notify() is a no-op unless the launcher passed VIVICY_RUNTIME_DIR.
+const NOTIFY_BY_EVENT = {
+  gate_passed: { level: "success", stage: "S9", label: "gate green" },
+  gate_failed: { level: "warning", stage: "S9", label: "gate red" },
+  issue_blocked: { level: "error", stage: "S9", label: "issue blocked" },
+  issue_parked_on_cr: { level: "warning", stage: "S8", label: "parked on CR" },
+  issue_reopened: { level: "info", stage: "S11", label: "issue reopened" },
+  readiness_update_applied: { level: "info", stage: "S8", label: "issue updated by readiness" },
+  merge_conflict_resolved: { level: "success", stage: "S10", label: "merge conflict resolved" },
+  merge_conflict_unresolved: { level: "error", stage: "S10", label: "merge conflict unresolved" },
+  post_merge_gate_failed: { level: "error", stage: "S10", label: "post-merge gate red — merge reverted" },
+};
+
 function emit(cfg, event) {
+  const mapped = NOTIFY_BY_EVENT[event.event_type];
+  if (mapped) {
+    notify({
+      level: mapped.level,
+      stage: mapped.stage,
+      event: event.event_type,
+      message: `${event.issue_id}: ${mapped.label}`,
+    });
+  }
   return recordProgressEvent(
     { session_ref: `dev-loop:${event.issue_id}`, ...event },
     { issueIndexPath: cfg.issueIndexPath, progressLedgerPath: cfg.progressLedgerPath },
