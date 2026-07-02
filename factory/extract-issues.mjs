@@ -29,7 +29,7 @@ import { runClaudeLeg, runCodexLeg } from "./agent-spawn.mjs";
 import { agentCliArgs, CLI_DEFAULTS, composePrompt, DEFAULT_CONFIG, resolveAgentLegs } from "./dev-loop.mjs";
 import { runSemanticExtractionCheck } from "./semantic-extraction-check.mjs";
 import { runTraceabilityCheck } from "./traceability-check.mjs";
-import { runSpikeCheck as runSpikeCheckImpl } from "./spike-check.mjs";
+import { readSpikes, runSpikeCheck as runSpikeCheckImpl } from "./spike-check.mjs";
 import { runReferenceCheck as runReferenceCheckImpl } from "./reference-check.mjs";
 import { runChangeControlCheck as runChangeControlCheckImpl } from "./change-control.mjs";
 import { runReDrive } from "./re-drive.mjs";
@@ -75,8 +75,15 @@ const EXTRACTOR_ISSUE_ID = "EXTRACTION";
  * `options.spawnExtractor` (the extractor leg), so existing callers/tests keep
  * working.
  *
+ * S2 spike mode (G12) and S5 map mode (G4) are decided from the pre-run corpus and
+ * recorded in extraction-status.json so the UI/CLI can display which path S2/S5 took:
+ *   - `spike_mode`: "integrate" when the owner already provided spikes (uploaded via G1
+ *     or Vivi-written) so the extractor LINKS them, "extract" when it mints them.
+ *   - `map_mode`: "reused" when an architecture-map.yml pre-exists so the extractor
+ *     refines it in place, "authored" when it authors one from scratch.
+ *
  * @returns {{ status: "green"|"extraction_blocked", attempts, manifestPath,
- *             baselineId, checks, map, verdict, transcripts, summary }}
+ *             baselineId, checks, map, verdict, spike_mode, map_mode, transcripts, summary }}
  */
 export async function extractIssues(options = {}) {
   const repoRoot = options.repoRoot;
@@ -172,10 +179,20 @@ export async function extractIssues(options = {}) {
   // owner's placement (never lost, never a block — see generate-viewer-data).
   const mapAbs = resolve(repoRoot, ".vivicy/architecture-map/architecture-map.yml");
   let layoutBaselinePath = null;
-  if (existsSync(mapAbs)) {
+  // S5 map mode (G4): a map already on disk pre-run is REUSED (the extractor refines it
+  // in place, preserving every layout_* field; the reconcile gate restores them anyway).
+  // Otherwise the extractor AUTHORS one from scratch. Decided from the pre-run state.
+  const mapMode = existsSync(mapAbs) ? "reused" : "authored";
+  if (mapMode === "reused") {
     layoutBaselinePath = join(mkdtempSync(join(tmpdir(), "vivicy-map-")), "baseline.yml");
     writeFileSync(layoutBaselinePath, readFileSync(mapAbs, "utf8"));
   }
+  // S2 spike mode (G12): owner-provided spikes (uploaded via G1 or Vivi-written) put S2
+  // in INTEGRATE mode — the extractor treats them as the authority and only back-fills /
+  // corrects what is stale, never re-mints. No spikes -> EXTRACT mode (mint from the
+  // canonical). readSpikes indexes only WELL-FORMED spikes, so a byte-compatible imported
+  // corpus (the Naight case: 21 valid spikes) selects integrate deterministically.
+  const spikeMode = readSpikes(repoRoot).length > 0 ? "integrate" : "extract";
   // Snapshot the PRIOR source-map before re-authoring overwrites it, so a Change-Control
   // re-extraction can deterministically reopen exactly the issues whose requirement excerpts
   // changed (see runReDrive). Null on a first extraction (no prior, nothing to reopen).
@@ -195,7 +212,7 @@ export async function extractIssues(options = {}) {
           .filter(Boolean)
           .join("\n\n")
       : null;
-    const leg = await spawnExtractor({ repoRoot, manifestPath, baselineId, cfg, attempt, checkOutput: fixContext, isFix });
+    const leg = await spawnExtractor({ repoRoot, manifestPath, baselineId, cfg, attempt, checkOutput: fixContext, isFix, spikeMode, mapMode });
     if (leg?.transcriptRel) transcripts.push(leg.transcriptRel);
     lastTimeoutReason = legTimeoutReason(leg) ?? lastTimeoutReason;
 
@@ -310,6 +327,8 @@ export async function extractIssues(options = {}) {
       manifestPath,
       baselineId,
       froze,
+      spike_mode: spikeMode,
+      map_mode: mapMode,
       checks: { semantic, traceability },
       verdict,
       map,
@@ -323,7 +342,7 @@ export async function extractIssues(options = {}) {
     // status) and leaves a CLEAN tree (only gitignored files untracked). No human
     // commit step. `git add -A` is safe: the scaffold/fixture .gitignore covers the
     // complete never-commit set (transcripts/runtime/worktrees/node_modules).
-    record({ phase: "green", attempt, summary: status.summary });
+    record({ phase: "green", attempt, spike_mode: spikeMode, map_mode: mapMode, summary: status.summary });
     const commit = commitCorpus({ repoRoot, baselineId });
     status.committed = commit?.committed ?? false;
     return status;
@@ -335,6 +354,8 @@ export async function extractIssues(options = {}) {
     manifestPath,
     baselineId,
     froze,
+    spike_mode: spikeMode,
+    map_mode: mapMode,
     checks: lastChecks ? { semantic: lastChecks.semantic, traceability: lastChecks.traceability } : null,
     map: lastMap,
     verdict: lastVerdict,
@@ -345,7 +366,7 @@ export async function extractIssues(options = {}) {
       (lastTimeoutReason ? `A leg was killed: ${lastTimeoutReason}. ` : "") +
       formatFixContext(lastChecks, lastVerdict, lastMap),
   };
-  record({ phase: "extraction_blocked", attempt: maxAttempts, summary: status.summary });
+  record({ phase: "extraction_blocked", attempt: maxAttempts, spike_mode: spikeMode, map_mode: mapMode, summary: status.summary });
   return status;
 }
 
@@ -374,13 +395,13 @@ function makeDefaultSpawnExtractor(options, baseCfg, legs) {
   // extractor.md and names its transcript / actor identity for extraction.
   const implementer = legs?.implementer ?? { actor: "claude", provider: "claude", model: CLI_DEFAULTS.claude.model, effort: CLI_DEFAULTS.claude.effort, fast: false };
   const leg = { ...implementer, role: "extractor" };
-  return async ({ repoRoot, manifestPath, baselineId, cfg, attempt, checkOutput, isFix }) => {
+  return async ({ repoRoot, manifestPath, baselineId, cfg, attempt, checkOutput, isFix, spikeMode, mapMode }) => {
     // The leg cfg points the shared spawn infra at the TARGET repo for the
     // transcript store and at the factory prompts for the role prompt. abs/execRoot
     // resolve against the target so the agent runs inside the project it extracts.
     const legCfg = { ...cfg, promptsDir, execRoot: repoRoot };
     const issue = extractionIssue();
-    const context = extractorContext({ manifestPath, baselineId, attempt, checkOutput, isFix });
+    const context = extractorContext({ manifestPath, baselineId, attempt, checkOutput, isFix, spikeMode, mapMode });
     const deps = legDepsForTarget(legCfg, issue, repoRoot, context);
     return runLegForProvider(leg, issue, legCfg, deps);
   };
@@ -460,14 +481,23 @@ function makeDefaultMapReview(options, cfg, legs) {
   return (args) => runMapReview({ ...args, spawnLens, readFindings: defaultReadMapFindings });
 }
 
-// Extra prompt context for the EXTRACTOR leg: the frozen baseline + (on a fix
-// pass) the exact deterministic-check output and/or fidelity-verdict problems.
-function extractorContext({ manifestPath, baselineId, attempt, checkOutput, isFix }) {
+// Extra prompt context for the EXTRACTOR leg: the frozen baseline, the resolved S2
+// spike mode (G12) and S5 map mode (G4), + (on a fix pass) the exact
+// deterministic-check output and/or fidelity-verdict problems.
+function extractorContext({ manifestPath, baselineId, attempt, checkOutput, isFix, spikeMode, mapMode }) {
   return (
     `\n\n---\n\n## Extraction context for this run\n\n` +
     `- Frozen baseline manifest: \`${manifestPath}\` (baseline_id \`${baselineId}\`). ` +
     `Read it for the exact corpus files + hashes to pin.\n` +
     `- Attempt: ${attempt}${isFix ? " (FIX pass)" : " (initial author)"}.\n` +
+    `- Spike mode (S2): **${spikeMode}** — ` +
+    (spikeMode === "integrate"
+      ? `existing spikes are the authority; LINK them (back-fill requirement_ids, fix stale refs), NEVER rewrite/renumber/recreate them (see "Phase 0 spikes").\n`
+      : `no spikes on disk; MINT any the spec requires from SPIKE-TEMPLATE.md (see "Phase 0 spikes").\n`) +
+    `- Map mode (S5): **${mapMode}** — ` +
+    (mapMode === "reused"
+      ? `an architecture-map.yml already exists; UPDATE it in place, preserving every layout_* field verbatim, NEVER re-author from scratch (see "Architecture map").\n`
+      : `no map on disk; AUTHOR one from the frozen canonical (see "Architecture map").\n`) +
     (checkOutput
       ? `\n### What to FIX this run\n\nThe previous corpus did NOT reach green — either a deterministic ` +
         `check failed or the INDEPENDENT fidelity verifier rejected it. Read every line, locate the exact ` +

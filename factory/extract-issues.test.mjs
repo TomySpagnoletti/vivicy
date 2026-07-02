@@ -77,6 +77,56 @@ function writeInvalidCorpus(root) {
   writeFileSync(indexPath, `${JSON.stringify(index, null, 2)}\n`);
 }
 
+/**
+ * Write a well-formed spike whose gate-id slug equals its filename stem (so
+ * spike-check passes) and whose requirement_ids resolve to a real fixture catalog
+ * requirement (so traceability-check's back-fill rule passes). `pending` status
+ * keeps the completion-fields rule from firing. This is exactly the byte-compatible
+ * shape an owner-provided (or Vivi-written) spike arrives in.
+ */
+function writeSpike(root, filename, reqId = "REQ-ARCH-001") {
+  const slug = filename.replace(/\.md$/, "");
+  const content = [
+    `# S - ${slug}`,
+    "",
+    "Document status: Phase 0 spike.",
+    "",
+    "## Traceability",
+    "",
+    "```text",
+    `requirement_ids: ${reqId}`,
+    `gate_id: gate:phase0:s${slug}`,
+    "status: pending",
+    "```",
+    "",
+    "## Question",
+    "",
+    "Does the provider behave as assumed?",
+    "",
+    "## Must Verify",
+    "",
+    "- [Live test required: ...] the assumption",
+    "",
+    "## Evidence Required",
+    "",
+    "```text",
+    "environment: date, runtime, versions",
+    "```",
+    "",
+  ].join("\n");
+  const p = resolve(root, ".vivicy/development/spikes", filename);
+  mkdirSync(dirname(p), { recursive: true });
+  writeFileSync(p, content);
+  return { path: p, content };
+}
+
+/** Seed a minimal architecture-map.yml so the map pre-exists pre-run (map_mode reused). */
+function seedArchitectureMap(root) {
+  const p = resolve(root, ".vivicy/architecture-map/architecture-map.yml");
+  mkdirSync(dirname(p), { recursive: true });
+  writeFileSync(p, 'version: 1\nname: "Owner Map"\n');
+}
+
 /** A fake EXTRACTOR that runs a per-attempt scripted action and records the calls. */
 function fakeAgent(perAttempt) {
   const calls = [];
@@ -267,6 +317,96 @@ describe("extractIssues — two-agent happy path", () => {
 
     assert.equal(result.status, "green");
     assert.equal(calls.length, 1, "the spawnAgent alias drove the extractor leg");
+  });
+});
+
+describe("extractIssues — S2 spike mode (G12) + S5 map mode (G4)", () => {
+  it("INTEGRATE mode: pre-existing spikes pass through byte-for-byte, status says spike_mode integrate", async () => {
+    seedInputs(temp);
+    // Two owner-provided spikes on disk BEFORE the run: S2 must integrate, not extract.
+    const s1 = writeSpike(temp, "01-provider-auth.md");
+    const s2 = writeSpike(temp, "02-runtime-limits.md", "REQ-ARCH-002");
+    const before1 = readFileSync(s1.path, "utf8");
+    const before2 = readFileSync(s2.path, "utf8");
+
+    const { spawnExtractor, calls } = fakeAgent([(ctx) => writeValidCorpus(ctx.repoRoot)]);
+    const { spawnVerifier } = alwaysFaithfulVerifier();
+    const seams = stubSeams();
+
+    const result = await extractIssues({ repoRoot: temp, spawnExtractor, spawnVerifier, ...seams });
+
+    assert.equal(result.status, "green");
+    // The mode is resolved from the pre-run corpus and handed to the extractor leg.
+    assert.equal(result.spike_mode, "integrate");
+    assert.equal(calls[0].spikeMode, "integrate", "the extractor leg is told to INTEGRATE");
+    // The persisted extraction-status.json (the exact object emitStatus writes) records it.
+    const greenStatus = seams._calls.statusEvents.find((e) => e.phase === "green");
+    assert.equal(greenStatus.spike_mode, "integrate", "extraction-status.json says spike_mode integrate");
+    // The provided spikes are untouched BYTE-FOR-BYTE — integrate never rewrites them.
+    assert.equal(readFileSync(s1.path, "utf8"), before1, "spike 1 is byte-identical");
+    assert.equal(readFileSync(s2.path, "utf8"), before2, "spike 2 is byte-identical");
+  });
+
+  it("EXTRACT mode: no spikes on disk -> status says spike_mode extract", async () => {
+    seedInputs(temp); // fixture has no spikes/ directory
+    const { spawnExtractor, calls } = fakeAgent([(ctx) => writeValidCorpus(ctx.repoRoot)]);
+    const { spawnVerifier } = alwaysFaithfulVerifier();
+    const seams = stubSeams();
+
+    const result = await extractIssues({ repoRoot: temp, spawnExtractor, spawnVerifier, ...seams });
+
+    assert.equal(result.status, "green");
+    assert.equal(result.spike_mode, "extract");
+    assert.equal(calls[0].spikeMode, "extract", "the extractor leg is told to EXTRACT");
+    const greenStatus = seams._calls.statusEvents.find((e) => e.phase === "green");
+    assert.equal(greenStatus.spike_mode, "extract", "extraction-status.json says spike_mode extract");
+  });
+
+  it("REUSED map mode: a pre-existing architecture-map.yml -> status says map_mode reused", async () => {
+    seedInputs(temp);
+    seedArchitectureMap(temp); // the owner brought his own map
+
+    const { spawnExtractor, calls } = fakeAgent([(ctx) => writeValidCorpus(ctx.repoRoot)]);
+    const { spawnVerifier } = alwaysFaithfulVerifier();
+    const seams = stubSeams();
+
+    const result = await extractIssues({ repoRoot: temp, spawnExtractor, spawnVerifier, ...seams });
+
+    assert.equal(result.status, "green");
+    assert.equal(result.map_mode, "reused", "a map existing pre-run is reused, not authored");
+    assert.equal(calls[0].mapMode, "reused", "the extractor leg is told to REUSE the map");
+    const greenStatus = seams._calls.statusEvents.find((e) => e.phase === "green");
+    assert.equal(greenStatus.map_mode, "reused", "extraction-status.json says map_mode reused");
+  });
+
+  it("AUTHORED map mode: no map on disk -> status says map_mode authored", async () => {
+    seedInputs(temp); // fixture has no architecture-map.yml
+    const { spawnExtractor, calls } = fakeAgent([(ctx) => writeValidCorpus(ctx.repoRoot)]);
+    const { spawnVerifier } = alwaysFaithfulVerifier();
+    const seams = stubSeams();
+
+    const result = await extractIssues({ repoRoot: temp, spawnExtractor, spawnVerifier, ...seams });
+
+    assert.equal(result.status, "green");
+    assert.equal(result.map_mode, "authored");
+    assert.equal(calls[0].mapMode, "authored", "the extractor leg is told to AUTHOR a map");
+  });
+
+  it("records both modes on the BLOCKED path too (a red run still reports which path S2/S5 took)", async () => {
+    seedInputs(temp);
+    writeSpike(temp, "01-provider-auth.md"); // integrate
+    const { spawnExtractor } = fakeAgent([(ctx) => writeInvalidCorpus(ctx.repoRoot)]); // pin mismatch -> never green
+    const { spawnVerifier } = alwaysFaithfulVerifier();
+    const seams = stubSeams();
+
+    const result = await extractIssues({ repoRoot: temp, spawnExtractor, spawnVerifier, maxRetries: 0, ...seams });
+
+    assert.equal(result.status, "extraction_blocked");
+    assert.equal(result.spike_mode, "integrate");
+    assert.equal(result.map_mode, "authored");
+    const blockedStatus = seams._calls.statusEvents.find((e) => e.phase === "extraction_blocked");
+    assert.equal(blockedStatus.spike_mode, "integrate", "the blocked extraction-status.json carries spike_mode");
+    assert.equal(blockedStatus.map_mode, "authored", "the blocked extraction-status.json carries map_mode");
   });
 });
 
