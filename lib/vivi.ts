@@ -56,6 +56,14 @@ const ALLOWED_DIRS = [
 /** The `.vivicy` subtree we snapshot/diff to enforce the allowlist. */
 const VIVICY_DIR = ".vivicy"
 
+/**
+ * Subtree the diff ignores entirely: the agent leg writes its OWN transcript here
+ * (gitignored infrastructure, never Vivi's product surface). Without this, every
+ * turn that spawns a leg trips the allowlist on the leg's transcript and rolls the
+ * whole turn back — destroying the legitimate canonical/spike writes with it.
+ */
+const IGNORED_SUBTREE = path.join(".vivicy", "development", "transcripts")
+
 /** One recorded conversation turn, persisted as a single JSONL line. */
 export interface ViviTurn {
   role: "user" | "vivi"
@@ -270,6 +278,7 @@ function diffVivicy(targetRoot: string, before: Snapshot): DiffResult {
   const violations: string[] = []
   for (const abs of walkFiles(path.join(targetRoot, VIVICY_DIR))) {
     const rel = path.relative(targetRoot, abs)
+    if (rel === IGNORED_SUBTREE || rel.startsWith(`${IGNORED_SUBTREE}${path.sep}`)) continue
     const priorHash = before.get(rel)
     const changed = priorHash === undefined || priorHash !== hashFile(abs)
     if (!changed) continue
