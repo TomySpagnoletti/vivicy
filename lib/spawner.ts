@@ -51,18 +51,21 @@ export const fakeSpawner: Spawner = {
 
   async run({ args }: RunOptions): Promise<RunResult> {
     const name = scriptName(args)
-    if (name === "dev-status.mjs") {
+    // The control plane only reaches a run after resolveContext() has asserted a
+    // target, so a null here would be a caller bug; the fake stays inert either way.
+    const targetRoot = getTargetRoot()
+    if (name === "dev-status.mjs" && targetRoot !== null) {
       // Read the real demo ledger from disk; overlay liveness from the fake.
-      const status = readDevStatusFromDisk(getTargetRoot())
+      const status = readDevStatusFromDisk(targetRoot)
       const withLive = { ...status, process_alive: fakeAlive }
       const json = JSON.stringify(withLive, null, 2)
       return { code: 0, lastLine: json.split("\n").at(-1) ?? "", stdout: json, stderr: "" }
     }
-    if (name === "extract-issues.mjs") {
+    if (name === "extract-issues.mjs" && targetRoot !== null) {
       // Never launch a real agent in the dry/E2E path: write the green terminal
       // status the orchestrator would emit so runExtract reports success without
       // authoring anything (the demo target is already extracted).
-      writeFakeExtractionStatus(getTargetRoot())
+      writeFakeExtractionStatus(targetRoot)
       return { code: 0, lastLine: "extraction green (fake spawn)", stdout: "extraction green (fake spawn)\n", stderr: "" }
     }
     // Other generation steps: report a benign success line.

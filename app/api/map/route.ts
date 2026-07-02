@@ -32,7 +32,12 @@ export async function GET() {
     return emptyState("no_target")
   }
 
+  // isTargetResolved() being true guarantees a non-null target, hence a non-null
+  // map path; the guard keeps the type honest and reuses the same onboarding signal.
   const filePath = getArchitectureDataPath()
+  if (filePath === null) {
+    return emptyState("no_target")
+  }
 
   // (b) The target exists but no architecture map has been generated yet.
   let contents: string
@@ -84,8 +89,10 @@ export async function GET() {
  * so a target mid-extraction (no ledger yet) renders the static graph cleanly.
  */
 async function readLedger(): Promise<unknown> {
+  const ledgerPath = getProgressLedgerPath()
+  if (ledgerPath === null) return undefined
   try {
-    return JSON.parse(await readFile(getProgressLedgerPath(), "utf8")) as unknown
+    return JSON.parse(await readFile(ledgerPath, "utf8")) as unknown
   } catch {
     return undefined
   }

@@ -139,8 +139,11 @@ export type MapEmptyReason = "no_target" | "no_map" | "empty_map"
 export interface MapEmptyState {
   empty: true
   reason: MapEmptyReason
-  /** Absolute target root the viewer resolved, for operator-facing detail. */
-  targetRoot: string
+  /**
+   * Absolute target root the viewer resolved, for operator-facing detail. Null in
+   * the `no_target` case: no project is selected, so there is genuinely no root.
+   */
+  targetRoot: string | null
 }
 
 /** A node enriched with its effective, view-aware status for rendering. */
