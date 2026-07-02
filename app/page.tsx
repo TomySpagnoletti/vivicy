@@ -207,16 +207,23 @@ export default function Page() {
           ) : null}
 
           {state.kind === "empty" && state.reason !== "no_target" ? (
-            <MapEmptyState
-              reason={state.reason}
-              onExtract={runExtract}
-              extracting={extracting}
-              extractError={extractError}
-              onImported={() => {
-                setExtractError(null)
-                void loadMap(true)
-              }}
-            />
+            <>
+              <MapEmptyState
+                reason={state.reason}
+                onExtract={runExtract}
+                extracting={extracting}
+                extractError={extractError}
+                onImported={() => {
+                  setExtractError(null)
+                  void loadMap(true)
+                }}
+              />
+              {/* The pipeline widget must be visible BEFORE a map exists too — the
+                  first extraction (S2–S6) is exactly what it should show, and there
+                  is no map yet at that point. It renders whenever a project is
+                  resolved, not only in the ready state. */}
+              <PipelineWidget />
+            </>
           ) : null}
 
           {state.kind === "ready" ? (
