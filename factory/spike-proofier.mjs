@@ -1,0 +1,617 @@
+#!/usr/bin/env node
+// Vivicy spike PROOFIER (S3 / G3): the substance-verification stage that turns a
+// `pending` spike into `verified` (or `failed`) by ACTUALLY running its experiments
+// in the target repo — never a human hand-writing evidence, which would contradict
+// the autonomous dev-loop. spike-check.mjs proves a spike's FORM (shape, gate-id
+// grammar, the six evidence LABELS at `verified`); this module proves its SUBSTANCE.
+//
+// It runs BEFORE the freeze (S3 precedes S4): a disproven hypothesis is a truth-model
+// rule-1 event (pre-baseline) that may require a direct canonical edit, so proofing
+// after the freeze would force a re-freeze loop on every correction. extract-issues.mjs
+// therefore calls this ahead of its freeze/reuse-manifest block.
+//
+// Two-agent sequence per spike, preserving R12 (a CLI never verifies its own work):
+//   1. PROOFIER  (implementer CLI, role "spike-proofier") runs the spike's Must-Verify
+//      experiments in the target repo, writes the six evidence fields INTO the spike
+//      file's Evidence Required section (the file is the artifact), and a machine
+//      verdict JSON { verdict, reason } to the reports dir.
+//   2. VERIFIER  (reviewer CLI, role "proof-verifier") independently re-derives from
+//      the spike + evidence + repo and writes { agree, problems } — the due-diligence
+//      against a hallucinated proof (a proof rarely survives two different models).
+//
+// The orchestrator is deterministic and NEVER trusts a leg's word: it reads both
+// JSONs and decides. agree+verified flips status IN the traceability block (single
+// source of truth — no /_verified folder move, ruling §6.2). agree+failed flips to
+// `failed` and drafts a Change Request (a false assumption is an intention-level
+// event — truth-model rule 2). Disagreement is treated as a failed proof attempt: one
+// bounded retry of the whole pair with the disagreement fed back, then a CR on
+// persistent disagreement. Leg death/timeout is an honest failed attempt on the same
+// path — never a silent green.
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { resolve } from "node:path";
+
+import { runClaudeLeg, runCodexLeg } from "./agent-spawn.mjs";
+import { agentCliArgs, CLI_DEFAULTS, composePrompt } from "./dev-loop.mjs";
+import { nextCrId, readChangeRequests, runChangeControlCheck } from "./change-control.mjs";
+import { readSpikes } from "./spike-check.mjs";
+import { FACTORY_PROMPTS_DIR } from "./target-root.mjs";
+
+const REPORTS_DIR = ".vivicy/development/reports";
+const CHANGE_REQUESTS_DIR = ".vivicy/change-requests";
+// The synthetic "issue" a spike's legs run against — the transcript + actor/role
+// identity handle the shared spawn infra keys on, exactly like the extractor's.
+// graph_refs is required by the leg deps but never consumed for a spike leg.
+const SPIKE_GRAPH_REF = "node:spike-proof";
+
+/**
+ * Proof every proofable `pending` spike in the target repo, in topological order of
+ * the inter-spike `gated_by` graph, as a two-agent PROOFIER→VERIFIER pair per spike.
+ * Deterministic outcome per spike; the file's traceability status is the single
+ * source of truth (no folder move). A failed proof or persistent disagreement drafts
+ * a Change Request (truth-model rule 2). Runs BEFORE the freeze (S3 before S4).
+ *
+ * Injectable seams (all default to the real tooling):
+ *   spawnProofier({ repoRoot, spike, cfg, attempt, disagreement })
+ *       -> leg result; the PROOFIER runs the spike's experiments in-repo, writes the
+ *          six evidence fields into the spike file, and writes spike-proof-<stem>.json.
+ *   spawnProofVerifier({ repoRoot, spike, cfg, attempt })
+ *       -> leg result; the VERIFIER writes spike-proof-<stem>-verdict.json.
+ *   writeChangeRequest({ repoRoot, spike, proof, verdict, reason })
+ *       -> { file } ; drafts a `status: idea` CR capturing both reports as evidence.
+ *   now()  -> ISO timestamp (tests pin it).
+ *
+ * @param {object} args
+ * @param {string} args.repoRoot
+ * @param {{ implementer: object, reviewer: object }} [args.legs] resolved agent legs (R12)
+ * @param {object} [args.cfg] leg cfg (transcriptsDir, promptsDir, …)
+ * @param {(event: object) => void|null} [args.recordEvent] ledger sink; may be null
+ * @returns {Promise<{ proofed: Array<{file,gate_id,verdict}>, failed: Array, skipped: Array, changeRequests: Array }>}
+ */
+export async function runSpikeProofing(args = {}) {
+  const repoRoot = args.repoRoot;
+  if (!repoRoot) {
+    throw new Error(
+      "No target project configured. Set VIVICY_TARGET_ROOT to the absolute path of the project to proof, or pass repoRoot.",
+    );
+  }
+  const cfg = args.cfg ?? { transcriptsDir: ".vivicy/development/transcripts", promptsDir: FACTORY_PROMPTS_DIR };
+  const legs = args.legs ?? defaultLegs();
+  const now = args.now ?? (() => new Date().toISOString());
+  const recordEvent = args.recordEvent ?? null;
+  const spawnProofier = args.spawnProofier ?? makeDefaultSpawnProofier(cfg, legs);
+  const spawnProofVerifier = args.spawnProofVerifier ?? makeDefaultSpawnProofVerifier(cfg, legs);
+  const writeChangeRequest = args.writeChangeRequest ?? defaultWriteChangeRequest;
+
+  // A LIVE view of statuses that this run mutates as it proofs: a spike gated by one
+  // proofed earlier in the same run sees the fresh status here, so the chain is
+  // honoured within a single invocation, not only across runs.
+  const spikes = readSpikes(repoRoot);
+  const statusByGate = new Map(spikes.map((s) => [s.gate_id, s.status]));
+  const byGate = new Map(spikes.map((s) => [s.gate_id, s]));
+
+  const proofed = [];
+  const failed = [];
+  const skipped = [];
+  const changeRequests = [];
+
+  for (const spike of topoOrder(spikes)) {
+    if (spike.status !== "pending") continue; // only pending spikes are proof candidates
+
+    // Chain gate: a spike is proofable this round only if every gate in its transitive
+    // gated_by chain is (or becomes, earlier in this same topo-ordered run) verified. A
+    // chain member that is failed/blocked/deferred can never satisfy the chain, so the
+    // dependent is skipped loudly with the offending gate named — never proofed on an
+    // unproven foundation.
+    const chain = transitiveGatedBy(spike.gate_id, byGate);
+    const blocker = chain.find((g) => statusByGate.get(g) !== "verified");
+    if (blocker) {
+      skipped.push({ file: spike.file, gate_id: spike.gate_id, reason: `gated_by ${blocker} is ${statusByGate.get(blocker) ?? "unknown"} (not verified)` });
+      continue;
+    }
+
+    const outcome = await proofOneSpike({
+      repoRoot,
+      spike,
+      cfg,
+      spawnProofier,
+      spawnProofVerifier,
+      writeChangeRequest,
+      recordEvent,
+      now,
+    });
+    // Reflect the decided status into the live view so later dependents see it.
+    statusByGate.set(spike.gate_id, outcome.status);
+    if (outcome.status === "verified") {
+      proofed.push({ file: spike.file, gate_id: spike.gate_id, verdict: "verified" });
+    } else {
+      failed.push({ file: spike.file, gate_id: spike.gate_id, verdict: "failed", reason: outcome.reason });
+    }
+    if (outcome.changeRequest) changeRequests.push(outcome.changeRequest);
+  }
+
+  return { proofed, failed, skipped, changeRequests };
+}
+
+// Proof a SINGLE spike: run the PROOFIER→VERIFIER pair (one bounded retry on
+// disagreement), then decide deterministically. Returns the decided status, the
+// reason, and any drafted CR. NEVER trusts a leg: it reads both JSON files itself.
+async function proofOneSpike(ctx) {
+  const { repoRoot, spike, cfg, spawnProofier, spawnProofVerifier, writeChangeRequest, recordEvent, now } = ctx;
+  const stem = spikeStem(spike.file);
+  const proofRel = `${REPORTS_DIR}/spike-proof-${stem}.json`;
+  const verdictRel = `${REPORTS_DIR}/spike-proof-${stem}-verdict.json`;
+
+  emit(recordEvent, {
+    event_type: "spike_proof_started",
+    actor: "spike-proofier",
+    // The ledger role vocabulary (progressRoles) uses underscores; the hyphenated
+    // "spike-proofier" is the LEG role (the prompt filename). Emit the vocabulary form.
+    role: "spike_proofier",
+    gate_id: spike.gate_id,
+    file: spike.file,
+    timestamp: now(),
+  });
+
+  // Two attempts total: the initial pair, and — only on DISAGREEMENT — one retry with
+  // the disagreement fed back to both legs. A leg that dies/times out authors no usable
+  // JSON, so the deterministic read below treats it as an honest failed proof attempt.
+  let last = null;
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    clearFile(repoRoot, proofRel);
+    clearFile(repoRoot, verdictRel);
+    const proofLeg = await spawnProofier({ repoRoot, spike, cfg, attempt, disagreement: last?.disagreement ?? null });
+    const proof = readProofReport(repoRoot, proofRel, proofLeg);
+    const verdictLeg = await spawnProofVerifier({ repoRoot, spike, cfg, attempt });
+    const verdict = readVerifierReport(repoRoot, verdictRel, verdictLeg);
+
+    last = { attempt, proof, verdict, proofLeg, verdictLeg };
+
+    // Deterministic decision — the orchestrator's, never a leg's assertion:
+    //   agree + verified -> flip verified (canonical untouched here; the proofier edited
+    //     it directly if reality forced it, per rule 1 pre-freeze).
+    //   agree + failed   -> flip failed + draft a CR (rule 2: a false assumption is an
+    //     intention-level event).
+    //   disagree         -> a failed proof ATTEMPT; retry once feeding the disagreement
+    //     back, then (on persistent disagreement) a CR.
+    // A leg death/timeout collapses to !agree or a non-"verified"/"failed" verdict, so it
+    // lands on the disagreement/failed path — an honest failed attempt, never a silent green.
+    if (verdict.agree === true && proof.verdict === "verified") {
+      flipSpikeStatus(repoRoot, spike, "verified");
+      emit(recordEvent, spikeProofCompleted(spike, "verified", now, [proofRel, verdictRel]));
+      return { status: "verified", reason: proof.reason ?? "proof verified", changeRequest: null };
+    }
+    if (verdict.agree === true && proof.verdict === "failed") {
+      flipSpikeStatus(repoRoot, spike, "failed");
+      const reason = proof.reason || "the proofier disproved the spike's hypothesis";
+      const cr = writeChangeRequest({ repoRoot, spike, proof: proofRel, verdict: verdictRel, reason, kind: "disproven", now });
+      emit(recordEvent, spikeProofCompleted(spike, "failed", now, [proofRel, verdictRel, ...(cr?.file ? [cr.file] : [])]));
+      return { status: "failed", reason, changeRequest: cr };
+    }
+    // Disagreement (or an unusable verdict/proof): retry once, feeding the verifier's
+    // problems back so the next pair addresses them; keep the loop deterministic.
+    last.disagreement = disagreementFeedback(proof, verdict);
+  }
+
+  // Persistent disagreement after the bounded retry: a proof that two models could not
+  // agree on is not trustworthy — treat it as failed and route through change control so
+  // a human sees WHY (both reports are the evidence). Never flip to verified on a
+  // non-agreement.
+  flipSpikeStatus(repoRoot, spike, "failed");
+  const reason = `proofier and proof-verifier did not agree after a bounded retry: ${last.disagreement}`;
+  const cr = writeChangeRequest({ repoRoot, spike, proof: proofRel, verdict: verdictRel, reason, kind: "disagreement", now });
+  emit(recordEvent, spikeProofCompleted(spike, "failed", now, [proofRel, verdictRel, ...(cr?.file ? [cr.file] : [])]));
+  return { status: "failed", reason, changeRequest: cr };
+}
+
+// ---------------------------------------------------------------------------
+// Deterministic report readers — the orchestrator's trust boundary
+// ---------------------------------------------------------------------------
+
+// The PROOFIER's machine verdict { verdict: "verified"|"failed", reason }. A missing,
+// unparseable, or off-enum verdict is NOT a proof — it collapses to a distinct
+// "no_report" verdict so a dead/timed-out proofier can never read as verified.
+function readProofReport(repoRoot, rel, leg) {
+  const parsed = readJsonOrNull(resolve(repoRoot, rel));
+  if (!parsed || (parsed.verdict !== "verified" && parsed.verdict !== "failed")) {
+    return { verdict: "no_report", reason: legFailureReason(leg) ?? `proofier wrote no valid verdict at ${rel}` };
+  }
+  return { verdict: parsed.verdict, reason: typeof parsed.reason === "string" ? parsed.reason : "" };
+}
+
+// The VERIFIER's independent judgement { agree: boolean, problems: [] }. `agree` is
+// true ONLY when the boolean is exactly true; anything else (missing, string "true",
+// a dead leg) reads as NOT agreeing, so no proof is trusted on a malformed verdict.
+function readVerifierReport(repoRoot, rel, leg) {
+  const parsed = readJsonOrNull(resolve(repoRoot, rel));
+  if (!parsed) {
+    return { agree: false, problems: [legFailureReason(leg) ?? `proof-verifier wrote no verdict at ${rel}`] };
+  }
+  return {
+    agree: parsed.agree === true,
+    problems: Array.isArray(parsed.problems) ? parsed.problems : [],
+  };
+}
+
+// One readable line summarising why a pair disagreed (or produced no usable report),
+// fed back verbatim to the retry pair so it addresses the exact objection.
+function disagreementFeedback(proof, verdict) {
+  const problems = (verdict.problems ?? []).map((p) => (typeof p === "string" ? p : JSON.stringify(p))).join("; ");
+  return `proofier said "${proof.verdict}" (${proof.reason || "no reason"}); proof-verifier agree=${verdict.agree}${problems ? ` — problems: ${problems}` : ""}`;
+}
+
+// A leg's own failure reason (a killed/timed-out CLI), so a "no report" carries WHY.
+function legFailureReason(leg) {
+  if (leg?.result?.timedOut) return leg.result.timeoutReason || "leg timed out";
+  const status = leg?.result?.status;
+  if (typeof status === "number" && status !== 0) return `leg exited non-zero (status ${status})`;
+  return null;
+}
+
+// ---------------------------------------------------------------------------
+// Spike file mutation — the file's traceability status is the single source of truth
+// ---------------------------------------------------------------------------
+
+// Flip a spike's `status:` scalar IN its Traceability block (no folder move — ruling
+// §6.2: the status field is the machine truth the gating already consumes). Rewrites
+// exactly the one `status:` line inside the `## Traceability` section, leaving every
+// other byte — including the evidence the proofier just wrote — untouched.
+export function flipSpikeStatus(repoRoot, spike, status) {
+  const abs = resolve(repoRoot, spike.file);
+  const text = readFileSync(abs, "utf8");
+  // Preserve the file's original line ending: splitting on /\r?\n/ then re-joining with a
+  // fixed "\n" would rewrite every CRLF to LF, breaking the "every other byte untouched"
+  // guarantee on a Windows-authored spike. Detect the dominant ending and re-join with it.
+  const eol = text.includes("\r\n") ? "\r\n" : "\n";
+  const lines = text.split(/\r?\n/);
+  const headingIndex = lines.findIndex((line) => /^##\s+Traceability\s*$/.test(line));
+  if (headingIndex === -1) {
+    throw new Error(`spike-proofier: ${spike.file} has no "## Traceability" block to update`);
+  }
+  let updated = false;
+  for (let i = headingIndex + 1; i < lines.length; i += 1) {
+    if (/^#{1,2}\s/.test(lines[i])) break; // next section — the block ended
+    const m = lines[i].match(/^(\s*status:\s*)(.*)$/);
+    if (m) {
+      lines[i] = `${m[1]}${status}`;
+      updated = true;
+      break;
+    }
+  }
+  if (!updated) {
+    throw new Error(`spike-proofier: ${spike.file} Traceability block has no "status:" line to update`);
+  }
+  writeFileSync(abs, lines.join(eol), "utf8");
+}
+
+// ---------------------------------------------------------------------------
+// Change-Request drafting (truth-model rule 2)
+// ---------------------------------------------------------------------------
+
+// Draft a `status: idea` Change Request capturing a disproven (or disagreed) spike so
+// the owner (P2's single touchpoint) decides. The frontmatter is the FULL CR-TEMPLATE
+// shape with valid enums, so runChangeControlCheck accepts it; both proof reports are
+// linked as the machine evidence. source: agent (an agent-emitted CR — G7 source).
+export function defaultWriteChangeRequest({ repoRoot, spike, proof, verdict, reason, kind, now }) {
+  const dirAbs = resolve(repoRoot, CHANGE_REQUESTS_DIR);
+  mkdirSync(dirAbs, { recursive: true });
+  const id = nextCrId(readChangeRequests(repoRoot));
+  const slug = `spike-${spikeStem(spike.file)}-proof`;
+  const file = `${CHANGE_REQUESTS_DIR}/${id}-${slug}.md`;
+  // created_at rides on the injected clock (defaults to real time), so the CR date is
+  // consistent with the proofing events and reproducible under a pinned `now` in tests.
+  const created = (typeof now === "function" ? now() : new Date().toISOString()).slice(0, 10);
+  const title = kind === "disagreement" ? `Spike ${spike.gate_id} proof unresolved` : `Spike ${spike.gate_id} hypothesis disproven`;
+  const body = renderChangeRequest({ id, title, created, spike, proof, verdict, reason, kind });
+  writeFileSync(resolve(repoRoot, file), body);
+  return { file, id };
+}
+
+// The CR body: full CR-TEMPLATE frontmatter (id/status/classification/created_at/source
+// + the null baseline-identity scaffold the checker needs to stay silent for an `idea`)
+// and the narrative sections. classification `major_product_change` — a disproven Phase-0
+// assumption is a product-intention event, not a mere clarification or ordering tweak.
+function renderChangeRequest({ id, title, created, spike, proof, verdict, reason, kind }) {
+  const fm = [
+    "---",
+    `id: ${id}`,
+    `title: ${title}`,
+    "status: idea",
+    "classification: major_product_change",
+    `created_at: ${created}`,
+    `updated_at: ${created}`,
+    "source: agent",
+    "owner_decision: pending",
+    "owner_decision_by: null",
+    "owner_decision_at: null",
+    "owner_decision_evidence: null",
+    "previous_baseline_id: null",
+    "previous_baseline_version: null",
+    "previous_baseline_manifest_path: null",
+    "previous_document_set_hash: null",
+    "previous_manifest_hash: null",
+    "target_baseline_bump: null",
+    "resulting_baseline_id: null",
+    "resulting_baseline_version: null",
+    "resulting_baseline_manifest_path: null",
+    "resulting_document_set_hash: null",
+    "resulting_manifest_hash: null",
+    "affected_docs: []",
+    "affected_issues: []",
+    "affected_requirements: []",
+    "affected_verification_gates: []",
+    "issue_generation_required: false",
+    "catalog_delta_required: false",
+    "matrix_rows_pending: false",
+    "supersedes: []",
+    "superseded_by: null",
+    "---",
+  ].join("\n");
+  const outcome =
+    kind === "disagreement"
+      ? "The proofier and the independent proof-verifier could not agree after a bounded retry, so the proof is untrustworthy."
+      : "The proofier ran the spike's experiments and DISPROVED its hypothesis; the independent proof-verifier agreed.";
+  return [
+    fm,
+    "",
+    `# ${id} - ${title}`,
+    "",
+    "## Idea",
+    "",
+    `Spike \`${spike.gate_id}\` (\`${spike.file}\`) did not survive substance verification. ${outcome} A Phase-0 assumption the product intention rested on is no longer safe to build on.`,
+    "",
+    "## Why It Matters",
+    "",
+    `A spike is the evidence gate for external behaviour the spec cannot settle on its own. When that behaviour proves different from the assumption, the product intention that depended on it must be revisited BEFORE any issue is extracted against it (truth-model rule 2: a spike discovering a real constraint is a Change Request, not a local patch). Reason recorded by the orchestrator: ${reason}`,
+    "",
+    "## Protected Product Truth",
+    "",
+    "Whatever the canonical spec states independently of this spike's assumption must remain true; only the disproven assumption and the obligations that rested on it are in question.",
+    "",
+    "## Current Documentation Coverage",
+    "",
+    `The requirement(s) this spike gates: ${formatRequirementIds(spike)}. The owner decides how to reconcile the canonical with the proven reality.`,
+    "",
+    "## Development Agent Recommendation",
+    "",
+    "Recommended status `idea` pending the owner decision. Classification `major_product_change`: a disproven Phase-0 assumption changes what the product can rely on. The owner may accept a canonical correction (then the spike is re-authored and re-proofed) or reject the change.",
+    "",
+    "## Impact Assessment",
+    "",
+    "- Product behavior: the obligations gated by this spike may no longer hold as written.",
+    "- Architecture / data model / protocols / security: `N/A - no impact found` unless the owner's reconciliation touches them.",
+    "- Tests and verification gates: the spike's own gate stays un-verified until a corrected assumption is re-proofed.",
+    "",
+    "## Machine Evidence",
+    "",
+    "The orchestrator captured both agent reports as the evidence for this CR (never an agent's unverified assertion):",
+    "",
+    "```text",
+    `proofier verdict report:      ${proof}`,
+    `proof-verifier agree report:  ${verdict}`,
+    `spike file (with evidence):   ${spike.file}`,
+    "```",
+    "",
+    "## Decision",
+    "",
+    "Record the owner decision, date, and reason, and populate `owner_decision_by`, `owner_decision_at`, and `owner_decision_evidence`. A decided CR without this evidence is invalid.",
+    "",
+    "## Audit Trail",
+    "",
+    "```text",
+    `${created} - CR created by the spike proofier (source: agent) after ${kind === "disagreement" ? "an unresolved proof disagreement" : "a disproven spike hypothesis"}.`,
+    "```",
+    "",
+  ].join("\n");
+}
+
+function formatRequirementIds(spike) {
+  const ids = spike.requirement_ids;
+  if (!ids) return "(recorded in the spike's Traceability block)";
+  return Array.isArray(ids) ? ids.join(", ") : String(ids);
+}
+
+// ---------------------------------------------------------------------------
+// Default leg seams (the real CLIs)
+// ---------------------------------------------------------------------------
+
+// Resolve the two legs the same way extract-issues does when the caller passes none:
+// implementer CLI = proofier, reviewer CLI = proof-verifier (R12 distinct-CLI).
+function defaultLegs() {
+  return {
+    implementer: { actor: "claude", provider: "claude", model: CLI_DEFAULTS.claude.model, effort: CLI_DEFAULTS.claude.effort, fast: false },
+    reviewer: { actor: "codex", provider: "codex", model: CLI_DEFAULTS.codex.model, effort: CLI_DEFAULTS.codex.effort, fast: false },
+  };
+}
+
+// The PROOFIER seam: drive the IMPLEMENTER-role CLI (Claude by default), re-roled to
+// "spike-proofier", against the TARGET repo so it runs the spike's experiments in the
+// project it is proving. The role name selects the spike-proofier.md prompt and names
+// the transcript.
+function makeDefaultSpawnProofier(baseCfg, legs) {
+  const implementer = legs?.implementer ?? defaultLegs().implementer;
+  const leg = { ...implementer, role: "spike-proofier" };
+  return async ({ repoRoot, spike, cfg, attempt, disagreement }) => {
+    const legCfg = { ...cfg, promptsDir: cfg?.promptsDir ?? FACTORY_PROMPTS_DIR, execRoot: repoRoot };
+    const issue = spikeIssue(spike);
+    const context = proofierContext({ spike, attempt, disagreement });
+    const deps = legDepsForTarget(legCfg, issue, repoRoot, context);
+    return runLegForProvider(leg, issue, legCfg, deps);
+  };
+}
+
+// The VERIFIER seam: drive the REVIEWER-role CLI (Codex by default), re-roled to
+// "proof-verifier". resolveAgentLegs guarantees the reviewer CLI differs from the
+// implementer CLI, so the agent that verifies a proof never established it (R12).
+function makeDefaultSpawnProofVerifier(baseCfg, legs) {
+  const reviewer = legs?.reviewer ?? defaultLegs().reviewer;
+  const leg = { ...reviewer, role: "proof-verifier" };
+  return async ({ repoRoot, spike, cfg, attempt }) => {
+    const legCfg = { ...cfg, promptsDir: cfg?.promptsDir ?? FACTORY_PROMPTS_DIR, execRoot: repoRoot };
+    const issue = spikeIssue(spike);
+    const context = verifierContext({ spike, attempt });
+    const deps = legDepsForTarget(legCfg, issue, repoRoot, context);
+    return runLegForProvider(leg, issue, legCfg, deps);
+  };
+}
+
+// Dispatch a leg to the shared spawn helper for its CLI — the SAME infra the dev-loop
+// and extractor use (runClaudeLeg / runCodexLeg), so flags/transcript capture are not
+// duplicated here.
+function runLegForProvider(leg, issue, legCfg, deps) {
+  if (leg.provider === "codex") return runCodexLeg(leg, issue, legCfg, deps);
+  return runClaudeLeg(leg, issue, legCfg, deps);
+}
+
+// The synthetic issue a spike's legs run against (transcript + actor/role handle).
+// Keyed by the spike stem so the two legs' transcripts land under a per-spike dir.
+function spikeIssue(spike) {
+  return { id: `SPIKE-${spikeStem(spike.file)}`, graph_refs: [SPIKE_GRAPH_REF], path: spike.file };
+}
+
+// Extra prompt context for the PROOFIER leg: which spike file to prove, where to write
+// the six evidence fields and the machine verdict, and — on a retry — the exact
+// disagreement to address.
+function proofierContext({ spike, attempt, disagreement }) {
+  const stem = spikeStem(spike.file);
+  return (
+    `\n\n---\n\n## Spike proofing context for this run\n\n` +
+    `- Spike to prove: \`${spike.file}\` (gate_id \`${spike.gate_id}\`).\n` +
+    `- Run its **Must Verify** experiments IN THIS TARGET REPO and record the six evidence fields ` +
+    `(environment, commands, observed output, decision, documentation updates, unresolved risks) INTO the spike file's ` +
+    `\`## Evidence Required\` section. Never fabricate output.\n` +
+    `- Write your machine verdict — and nothing else — to \`${REPORTS_DIR}/spike-proof-${stem}.json\` as JSON ` +
+    `\`{ "verdict": "verified" | "failed", "reason": string }\`. \`verified\` only if the hypothesis held; \`failed\` if reality differed.\n` +
+    `- Attempt: ${attempt}.\n` +
+    (disagreement
+      ? `\n### Address this — the previous attempt did not survive independent verification\n\n` +
+        "```text\n" +
+        disagreement +
+        "\n```\n"
+      : "")
+  );
+}
+
+// Extra prompt context for the VERIFIER leg: the spike + evidence to re-derive from,
+// and where to write its independent agree verdict (it edits nothing).
+function verifierContext({ spike, attempt }) {
+  const stem = spikeStem(spike.file);
+  return (
+    `\n\n---\n\n## Proof verification context for this run\n\n` +
+    `- Spike under review: \`${spike.file}\` (gate_id \`${spike.gate_id}\`), including the evidence the proofier recorded ` +
+    `in its \`## Evidence Required\` section, and the proofier's verdict at \`${REPORTS_DIR}/spike-proof-${stem}.json\`.\n` +
+    `- Re-derive INDEPENDENTLY in this repo: does the recorded evidence actually support the verdict? Are the commands plausible ` +
+    `against the repo's reality? Do NOT edit the spike or any other file.\n` +
+    `- Write your verdict — and nothing else — to \`${REPORTS_DIR}/spike-proof-${stem}-verdict.json\` as JSON ` +
+    `\`{ "agree": boolean, "problems": [string] }\`. \`agree\` true only when the evidence genuinely supports the proofier's verdict.\n` +
+    `- Attempt under review: ${attempt}.\n`
+  );
+}
+
+// Bind the shared leg runner to the TARGET repo's roots and inject the run-specific
+// prompt context by wrapping composePrompt, exactly as extract-issues' legDepsForTarget.
+function legDepsForTarget(legCfg, issue, repoRoot, context) {
+  const abs = (rel) => resolve(repoRoot, rel);
+  return {
+    composePrompt: (template, iss) => composePrompt(template, iss) + context,
+    agentCliArgs,
+    abs,
+    execRoot: repoRoot,
+    transcriptDirAbs: abs(`${legCfg.transcriptsDir}/${issue.id}`),
+    cwdFilter: null,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Ledger events
+// ---------------------------------------------------------------------------
+
+// Emit a ledger event when a sink is provided; the extraction path may pass null
+// (spikes have no graph-item states yet), so guard it. The event carries the spike
+// identity, not a graph_ref, since the spike is not yet a mapped node.
+function emit(recordEvent, event) {
+  if (typeof recordEvent === "function") recordEvent(event);
+}
+
+function spikeProofCompleted(spike, verdict, now, evidence) {
+  return {
+    event_type: "spike_proof_completed",
+    actor: "proof-verifier",
+    role: "proof_verifier",
+    gate_id: spike.gate_id,
+    file: spike.file,
+    verdict,
+    evidence_refs: evidence,
+    timestamp: now(),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Topological ordering over the inter-spike gated_by graph
+// ---------------------------------------------------------------------------
+
+// Order the spikes so each appears AFTER every spike in its gated_by chain — a spike
+// gated by a still-pending spike is proofed only after that gate, within the same run.
+// The graph is validated acyclic by spike-check upstream; a defensive cycle break
+// (append leftovers) keeps this total even on a malformed corpus rather than looping.
+function topoOrder(spikes) {
+  const byGate = new Map(spikes.map((s) => [s.gate_id, s]));
+  const visited = new Set();
+  const order = [];
+  const visit = (gate, stack) => {
+    if (visited.has(gate) || !byGate.has(gate) || stack.has(gate)) return;
+    stack.add(gate);
+    for (const dep of byGate.get(gate).gated_by ?? []) visit(dep, stack);
+    stack.delete(gate);
+    visited.add(gate);
+    order.push(byGate.get(gate));
+  };
+  for (const spike of spikes) visit(spike.gate_id, new Set());
+  return order;
+}
+
+// The set of gate_ids in a spike's transitive gated_by chain (excludes itself), used to
+// decide proofability. Mirrors spike-check's transitiveGatedBy, kept local so this
+// module owns no cross-module private import.
+function transitiveGatedBy(gate, byGate) {
+  const seen = new Set();
+  const stack = [...(byGate.get(gate)?.gated_by ?? [])];
+  while (stack.length) {
+    const g = stack.pop();
+    if (seen.has(g) || !byGate.has(g)) continue;
+    seen.add(g);
+    stack.push(...(byGate.get(g).gated_by ?? []));
+  }
+  return [...seen];
+}
+
+// ---------------------------------------------------------------------------
+// Small helpers
+// ---------------------------------------------------------------------------
+
+// The spike filename stem (e.g. ".vivicy/development/spikes/03-codex-auth.md" ->
+// "03-codex-auth"), the join key shared by the gate id and the report file names.
+function spikeStem(file) {
+  const base = file.split("/").pop() ?? file;
+  return base.replace(/\.md$/i, "");
+}
+
+function readJsonOrNull(abs) {
+  if (!existsSync(abs)) return null;
+  try {
+    return JSON.parse(readFileSync(abs, "utf8"));
+  } catch {
+    return null;
+  }
+}
+
+// The proof/verdict JSONs are transient leg->orchestrator handoffs: cleared before each
+// attempt (a dead leg then reads as no_report, never a stale pass from a prior attempt).
+function clearFile(repoRoot, rel) {
+  rmSync(resolve(repoRoot, rel), { force: true });
+}
+
+// Ensure the reports dir exists before a real leg writes into it (tests' fake legs
+// create it themselves; the real legs rely on it being present).
+export function ensureReportsDir(repoRoot) {
+  mkdirSync(resolve(repoRoot, REPORTS_DIR), { recursive: true });
+}
