@@ -19,7 +19,7 @@
  * documents it). Nothing is ever written or spawned outside these two roots.
  */
 
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs"
 import path from "node:path"
 
 import { getRuntimeDir } from "@/lib/runtime-dir"
@@ -176,6 +176,7 @@ export class ControlError extends Error {
       | "not_running"
       | "missing_script"
       | "missing_target"
+      | "empty_canonical"
       | "spawn_failed"
   ) {
     super(message)
@@ -444,6 +445,7 @@ export async function runExtract(spawner: Spawner): Promise<ExtractResult> {
   if (!existsSync(targetRoot)) {
     throw new ControlError(`target root does not exist: ${targetRoot}`, "missing_target")
   }
+  assertRealCanonical(targetRoot)
   const command = resolveScript(factoryRoot, EXTRACT_SCRIPT)
 
   const result = await spawner.run({
@@ -472,6 +474,40 @@ export async function runExtract(spawner: Spawner): Promise<ExtractResult> {
     summary: status?.summary ?? lastLine,
     lastLine,
   }
+}
+
+/**
+ * Pre-flight guard: extraction needs a real canonical corpus. The scaffold ships
+ * a placeholder README.md in `.vivicy/canonical/`, and canonical docs are numbered
+ * area files by contract — so "real" means at least one non-README `.md` anywhere
+ * under the canonical dir. Without this, "Extract from docs" launches agents into
+ * an empty spec and spins until the retry budget dies.
+ */
+function assertRealCanonical(targetRoot: string): void {
+  const canonicalDir = path.join(targetRoot, ".vivicy", "canonical")
+  if (!existsSync(canonicalDir)) {
+    throw new ControlError(
+      `no canonical directory at ${path.join(".vivicy", "canonical")} — import or write the spec before extracting`,
+      "empty_canonical"
+    )
+  }
+  const stack = [canonicalDir]
+  while (stack.length > 0) {
+    const dir = stack.pop() as string
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      if (entry.isDirectory()) {
+        stack.push(path.join(dir, entry.name))
+        continue
+      }
+      if (entry.isFile() && entry.name.endsWith(".md") && entry.name !== "README.md") {
+        return
+      }
+    }
+  }
+  throw new ControlError(
+    "canonical is empty (only the scaffold README) — write or import canonical docs (01-<area>.md, ...) before extracting",
+    "empty_canonical"
+  )
 }
 
 /** Read the orchestrator's terminal status file (best-effort). */

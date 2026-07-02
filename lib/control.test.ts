@@ -299,7 +299,50 @@ function writeExtractionStatus(phase: string, summary: string) {
   writeFileSync(file, JSON.stringify({ phase, summary }, null, 2))
 }
 
+/** Give the target a real canonical doc so the empty-canonical guard passes. */
+function writeCanonicalDoc(name = "01-product.md", body = "# Product\n\nThe product must exist.\n") {
+  const file = path.join(targetRoot, ".vivicy", "canonical", name)
+  mkdirSync(path.dirname(file), { recursive: true })
+  writeFileSync(file, body)
+}
+
+describe("runExtract empty-canonical guard", () => {
+  it("refuses to extract when the canonical directory is missing", async () => {
+    const { spawner, calls } = makeFakeSpawner()
+    await expect(runExtract(spawner)).rejects.toThrow(/no canonical directory/)
+    try {
+      await runExtract(spawner)
+    } catch (error) {
+      expect((error as ControlError).code).toBe("empty_canonical")
+    }
+    // The guard fires before any spawn: no agents launched into an empty spec.
+    expect(calls.run).toHaveLength(0)
+  })
+
+  it("refuses to extract when canonical holds only the scaffold README", async () => {
+    writeCanonicalDoc("README.md", "# Canonical Documentation — placeholder\n")
+    const { spawner, calls } = makeFakeSpawner()
+    await expect(runExtract(spawner)).rejects.toThrow(/only the scaffold README/)
+    expect(calls.run).toHaveLength(0)
+  })
+
+  it("accepts a real canonical doc even when nested in a subdirectory", async () => {
+    writeCanonicalDoc(path.join("areas", "01-core.md"))
+    const { spawner } = makeFakeSpawner({
+      run: async () => {
+        writeExtractionStatus("green", "extraction green")
+        return { code: 0, lastLine: "green", stdout: "green\n", stderr: "" }
+      },
+    })
+    const result = await runExtract(spawner)
+    expect(result.ok).toBe(true)
+  })
+})
+
 describe("runExtract", () => {
+  beforeEach(() => {
+    writeCanonicalDoc()
+  })
   it("drives the single extract-issues orchestrator with VIVICY_TARGET_ROOT=target and reports green", async () => {
     let seenScript = ""
     const { spawner } = makeFakeSpawner({
