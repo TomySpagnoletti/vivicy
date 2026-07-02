@@ -9,7 +9,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { FACTORY_PROMPTS_DIR } from "./target-root.mjs";
 
-const PROMPTS = ["implementer.md", "reviewer.md", "extractor.md", "extraction-verifier.md", "map-review.md", "change-request.md"];
+const PROMPTS = ["implementer.md", "reviewer.md", "extractor.md", "extraction-verifier.md", "map-review.md", "change-request.md", "spike-proofier.md", "proof-verifier.md"];
 
 function readPrompt(name) {
   return readFileSync(join(FACTORY_PROMPTS_DIR, name), "utf8");
@@ -90,6 +90,36 @@ test("change-request.md carries the post-freeze Change-Control discipline", () =
   assert.match(text, /owner_decision_evidence/);
   assert.match(text, /never silently edit/i, "the agent must not silently patch the frozen canonical");
   assert.match(text, /CR-TEMPLATE\.md/);
+});
+
+test("spike-proofier.md carries the run-it-in-the-target-repo proofing discipline", () => {
+  const text = readPrompt("spike-proofier.md");
+  assert.match(text, /SELF-CONTAINED/, "spike-proofier.md must declare it is self-contained");
+  assert.match(text, /Spike Proofier/i);
+  // It proves substance by RUNNING experiments in the target repo, never by reasoning.
+  assert.match(text, /IN THIS TARGET REPO/i);
+  assert.match(text, /never fabricate|never claim a proof/i);
+  // The six evidence fields it must record.
+  for (const field of ["environment", "commands", "observed output", "decision", "documentation updates", "unresolved risks"]) {
+    assert.match(text, new RegExp(field, "i"), `spike-proofier must record the "${field}" evidence field`);
+  }
+  // The machine verdict contract.
+  assert.match(text, /spike-proof-<stem>\.json/);
+  assert.match(text, /"verdict":\s*"verified"/);
+  // It stays in scope and only corrects canonical when reality forces it (rule 1).
+  assert.match(text, /truth-model rule 1|pre-freeze correction/i);
+  assert.match(text, /Forbidden/i, "must forbid touching other spikes / the corpus");
+});
+
+test("proof-verifier.md carries the independent counter-verification discipline", () => {
+  const text = readPrompt("proof-verifier.md");
+  assert.match(text, /SELF-CONTAINED/, "proof-verifier.md must declare it is self-contained");
+  assert.match(text, /independent Proof Verifier/i);
+  assert.match(text, /did \*\*NOT\*\* establish this proof|You did .*NOT.* establish/i);
+  // It writes the agree verdict and edits nothing.
+  assert.match(text, /spike-proof-<stem>-verdict\.json/);
+  assert.match(text, /"agree":\s*(true|boolean)/i);
+  assert.match(text, /Report, never edit|edit no file|You edit nothing/i);
 });
 
 test("map-review.md carries the independent per-lens review method", () => {

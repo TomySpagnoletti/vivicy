@@ -29,7 +29,8 @@ import { runClaudeLeg, runCodexLeg } from "./agent-spawn.mjs";
 import { agentCliArgs, CLI_DEFAULTS, composePrompt, DEFAULT_CONFIG, resolveAgentLegs } from "./dev-loop.mjs";
 import { runSemanticExtractionCheck } from "./semantic-extraction-check.mjs";
 import { runTraceabilityCheck } from "./traceability-check.mjs";
-import { readSpikes, runSpikeCheck as runSpikeCheckImpl } from "./spike-check.mjs";
+import { readSpikes, runSpikeCheck as runSpikeCheckImpl, transitivelyVerifiedGates } from "./spike-check.mjs";
+import { runSpikeProofing } from "./spike-proofier.mjs";
 import { runReferenceCheck as runReferenceCheckImpl } from "./reference-check.mjs";
 import { runChangeControlCheck as runChangeControlCheckImpl } from "./change-control.mjs";
 import { runReDrive } from "./re-drive.mjs";
@@ -82,8 +83,16 @@ const EXTRACTOR_ISSUE_ID = "EXTRACTION";
  *   - `map_mode`: "reused" when an architecture-map.yml pre-exists so the extractor
  *     refines it in place, "authored" when it authors one from scratch.
  *
- * @returns {{ status: "green"|"extraction_blocked", attempts, manifestPath,
- *             baselineId, checks, map, verdict, spike_mode, map_mode, transcripts, summary }}
+ * S3 spike proofing (G3) runs BEFORE the freeze and S6 is gated on its result (G13):
+ *   - `options.runSpikeProofing` — injectable spike-proofing stage (defaults to the real
+ *     proofier/verifier legs). It flips pending spikes to verified/failed in-place.
+ *   - `spike_proofing` (in the status) — { proofed, failed, skipped } summary counts.
+ *   - `status: "blocked_on_unverified_spikes"` — extraction REFUSES to author issues while
+ *     any non-deferred spike is not transitively verified (with the offending gate_ids).
+ *
+ * @returns {{ status: "green"|"extraction_blocked"|"blocked_on_unverified_spikes", attempts,
+ *             manifestPath, baselineId, checks, map, verdict, spike_mode, map_mode,
+ *             spike_proofing, transcripts, summary }}
  */
 export async function extractIssues(options = {}) {
   const repoRoot = options.repoRoot;
@@ -128,9 +137,29 @@ export async function extractIssues(options = {}) {
   // it) and commits any pending changes (the spec + any skeleton additions) as a clear
   // "spec snapshot". No human ever runs git. Injectable for tests.
   const commitSpecSnapshot = options.commitSpecSnapshot ?? defaultCommitSpecSnapshot;
+  // S3 spike proofing (G3): the substance-verification stage that flips pending spikes
+  // to verified/failed by running their experiments in the target repo. It runs BEFORE
+  // the freeze (S3 precedes S4) so a disproven hypothesis can correct the canonical
+  // directly (truth-model rule 1, pre-baseline) without forcing a re-freeze loop.
+  // Injectable so tests fake the legs; the default wires the real proofier/verifier legs.
+  const runSpikeProofingStage = options.runSpikeProofing ?? runSpikeProofing;
 
   const transcripts = [];
   const record = (status) => emitStatus(status, repoRoot);
+
+  // S3 BEFORE S4 (critical sequence): proof the spikes' SUBSTANCE before the freeze.
+  // A disproven hypothesis is a pre-baseline, truth-model rule-1 event — the proofier
+  // may correct the canonical directly (or the orchestrator drafts a CR) — so proofing
+  // must precede the freeze, or every correction would force a re-freeze loop. The spike
+  // files it flips are committed into the spec snapshot below, so the freeze hashes the
+  // settled corpus. recordEvent is null here (spikes are not graph items yet); the
+  // resulting summary counts ride on extraction-status.json once the freeze lets us emit.
+  const spikeProofing = await runSpikeProofingStage({ repoRoot, legs, cfg, recordEvent: null });
+  const spikeProofingSummary = {
+    proofed: spikeProofing.proofed.length,
+    failed: spikeProofing.failed.length,
+    skipped: spikeProofing.skipped.length,
+  };
 
   // Freeze must precede every record(): doc-baseline refuses to cut a frozen
   // baseline on a dirty tree, and our own extraction-status.json lives under a
@@ -198,6 +227,39 @@ export async function extractIssues(options = {}) {
   // changed (see runReDrive). Null on a first extraction (no prior, nothing to reopen).
   const sourceMapAbs = resolve(repoRoot, ".vivicy/requirements/source-map.json");
   const priorSourceMap = readJsonOrNull(sourceMapAbs);
+
+  // G13 — extraction gated on VERIFIED spikes (S6 ordering). The diagram places issue
+  // extraction after spike verification: a NON-DEFERRED spike that is not transitively
+  // verified (pending/failed/blocked, or verified with an unverified gated_by chain) must
+  // block extraction LOUDLY rather than letting issues be authored against unproven
+  // ground. Deferred spikes never block — their dependents are gated in the dev loop
+  // anyway (a deferred spike is an accepted, tracked deferral, not an open question). This
+  // runs AFTER proofing + the freeze, so the statuses reflect this run's proofing.
+  const verifiedGates = transitivelyVerifiedGates(repoRoot);
+  const unverifiedRequiredGates = readSpikes(repoRoot)
+    .filter((spike) => spike.status !== "deferred" && !verifiedGates.has(spike.gate_id))
+    .map((spike) => spike.gate_id);
+  if (unverifiedRequiredGates.length > 0) {
+    const status = {
+      status: "blocked_on_unverified_spikes",
+      attempts: 0,
+      manifestPath,
+      baselineId,
+      froze,
+      spike_mode: spikeMode,
+      map_mode: mapMode,
+      spike_proofing: spikeProofingSummary,
+      unverified_spike_gate_ids: unverifiedRequiredGates,
+      transcripts,
+      summary:
+        `blocked_on_unverified_spikes: issue extraction refuses to run while ${unverifiedRequiredGates.length} ` +
+        `required spike(s) are not transitively verified: ${unverifiedRequiredGates.join(", ")}. ` +
+        `Proof or defer them (S3) before extraction (S6).`,
+    };
+    record({ phase: "blocked_on_unverified_spikes", spike_proofing: spikeProofingSummary, unverified_spike_gate_ids: unverifiedRequiredGates, summary: status.summary });
+    return status;
+  }
+
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     const isFix = attempt > 1;
     record({ phase: isFix ? "fixing" : "authoring", attempt });
@@ -329,6 +391,7 @@ export async function extractIssues(options = {}) {
       froze,
       spike_mode: spikeMode,
       map_mode: mapMode,
+      spike_proofing: spikeProofingSummary,
       checks: { semantic, traceability },
       verdict,
       map,
@@ -356,6 +419,7 @@ export async function extractIssues(options = {}) {
     froze,
     spike_mode: spikeMode,
     map_mode: mapMode,
+    spike_proofing: spikeProofingSummary,
     checks: lastChecks ? { semantic: lastChecks.semantic, traceability: lastChecks.traceability } : null,
     map: lastMap,
     verdict: lastVerdict,
