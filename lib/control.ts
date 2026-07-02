@@ -8,12 +8,13 @@
  *
  * Roots:
  *   factoryRoot = VIVICY_FACTORY_ROOT ?? <cwd>/factory   (the in-package factory)
- *   targetRoot  = the UI-chosen project (persisted) ?? VIVICY_TARGET_ROOT ?? <cwd>/..
+ *   targetRoot  = the UI-chosen project (persisted) ?? VIVICY_TARGET_ROOT
  *                 (the project being built; resolved by {@link getTargetRoot})
  *
  * The factory is bundled inside this package (vivicy/factory). The target is the
- * project the user picked from the UI (R10), falling back to the env override and
- * then to the project Vivicy is vendored into (the parent of the app dir).
+ * project the user picked from the UI (R10), falling back to the env override;
+ * with neither, there is no target and {@link resolveContext} refuses with a
+ * `missing_target` error rather than guessing a directory (Vivicy is standalone).
  * Scripts are resolved inside factoryRoot and always invoked with
  * VIVICY_TARGET_ROOT=<targetRoot> (plus `--dir <targetRoot>` where the script
  * documents it). Nothing is ever written or spawned outside these two roots.
@@ -308,7 +309,11 @@ export interface ControlContext {
 }
 
 function resolveContext(): ControlContext {
-  return { factoryRoot: getFactoryRoot(), targetRoot: getTargetRoot() }
+  const targetRoot = getTargetRoot()
+  if (targetRoot === null) {
+    throw new ControlError("no project selected — choose a target project first", "missing_target")
+  }
+  return { factoryRoot: getFactoryRoot(), targetRoot }
 }
 
 /**
