@@ -1,6 +1,6 @@
 # Pipeline Evolution — v0.5.0
 
-Sources: the owner's Excalidraw pipeline diagram (July 2026), nine dictated explanation blocks plus three annex notes (speech-to-text — names/terms are not 100% reliable; intent prevails over literal wording), the owner's ChatGPT exchange on sources of truth (kept as project knowledge, confronted and adapted below), a 5-agent audit of the current codebase, and a 14-agent adversarial verification of this document against the full requirement inventory (§9). Status: validated scope for the v0.5.0 development effort.
+Sources: the owner's Excalidraw pipeline diagram (July 2026), nine dictated explanation blocks plus three annex notes (speech-to-text — names/terms are not 100% reliable; intent prevails over literal wording), the owner's ChatGPT exchange on sources of truth (kept as project knowledge, confronted and adapted below), a 5-agent audit of the current codebase, and a 14-agent adversarial verification of this document against the full requirement inventory (§9). Status: **implemented** — all 14 gaps (G1–G14) landed on branch evolution/v0.5.0 (July 3, 2026); this document remains the contract of record for what was built.
 
 This evolution is large enough to jump the project version to **0.5.0**.
 

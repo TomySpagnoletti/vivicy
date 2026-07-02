@@ -1,6 +1,6 @@
 {
   "name": "vivicy",
-  "version": "0.2.0",
+  "version": "0.5.0",
   "description": "A visual autonomous dev factory: write the canonical spec, Vivicy extracts issues, the two-agent loop implements + reviews + verifies, all driven from the architecture map. Language- and project-agnostic.",
   "license": "MIT",
   "author": "Tomy Spagnoletti Duval",
