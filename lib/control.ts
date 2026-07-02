@@ -186,6 +186,8 @@ export class ControlError extends Error {
       | "missing_target"
       | "empty_canonical"
       | "spawn_failed"
+      | "unknown_cr"
+      | "cr_not_decidable"
   ) {
     super(message)
     this.name = "ControlError"
@@ -205,6 +207,13 @@ const EXTRACT_SCRIPT = "extract-issues.mjs"
 // its verdict report. The agent leg lives inside this script; the control plane
 // only launches it (same pattern as EXTRACT_SCRIPT) — see runUploadVerify.
 const UPLOAD_VERIFY_SCRIPT = "verify-upload.mjs"
+// The Change-Request registry validator, which also carries the `decide` subcommand
+// that records an owner decision deterministically (no agent) — see decideCr.
+const CHANGE_CONTROL_SCRIPT = "change-control.mjs"
+// The CR APPLICATION chain (G7): apply -> re-freeze -> re-extract -> re-drive for an
+// approved CR. A standalone factory script; the agent APPLY leg lives inside it and the
+// control plane only launches it (same pattern as EXTRACT_SCRIPT) — see decideCr.
+const CR_APPLY_SCRIPT = "cr-apply.mjs"
 
 /** Resolve the in-package factory root (vivicy/factory by default). */
 export function getFactoryRoot(): string {
@@ -625,4 +634,209 @@ function mergeUploadProblems(
 ): Array<{ file: string; kind: string; detail: string }> {
   const fromReport = Array.isArray(report?.problems) ? report.problems : []
   return [...normProblems, ...fromReport]
+}
+
+// ---------------------------------------------------------------------------
+// Change requests (G7 — the CR decision + application chain, control-plane verbs)
+// ---------------------------------------------------------------------------
+
+/** Repo-relative registry directory the CR files live under. */
+const CHANGE_REQUESTS_DIR = ".vivicy/change-requests"
+/** Repo-relative dir the cr-apply chain writes its per-CR progress report into. */
+const REPORTS_DIR = ".vivicy/development/reports"
+/** Non-CR files in the registry directory (the template + the readme). */
+const NON_CR_FILES = new Set(["cr-template.md", "readme.md"])
+
+/** One CR as surfaced to the UI/CLI list — read-only display data. */
+export interface ChangeRequestSummary {
+  id: string
+  title: string
+  status: string
+  classification: string
+  created_at: string | null
+  source: string | null
+}
+
+/**
+ * Outcome of a CR decision (G7). `recorded` is always true once the deterministic
+ * decision landed; for an APPROVED CR the application chain then ran, and `applied`
+ * carries its terminal state (green vs. blocked, surfaced honestly like {@link ExtractResult}).
+ * A rejection records the decision only — no chain, `applied` absent.
+ */
+export interface DecideCrResult {
+  ok: boolean
+  id: string
+  decision: "approved" | "rejected"
+  /** The registry status after the decision (accepted_current_build | rejected). */
+  status: string
+  /** Present for an approval: the apply chain's terminal state. */
+  applied?: {
+    ok: boolean
+    blocked: boolean
+    status: "green" | "blocked" | string
+    summary: string
+  }
+  summary: string
+}
+
+/**
+ * List the change requests as read-only display data for the UI/CLI. Deterministic
+ * disk read (no agent, no spawn): the registry frontmatter is parsed directly here —
+ * change-control.mjs stays the VALIDATOR of record (the `decide`/apply paths and the
+ * extraction gate enforce well-formedness); this is a lightweight projection for
+ * display, mirroring how {@link readDevStatus} reads status files rather than owning
+ * their schema. Malformed/ template files are skipped, never surfaced.
+ */
+export function listChangeRequests(): { crs: ChangeRequestSummary[] } {
+  const { targetRoot } = resolveContext()
+  if (!existsSync(targetRoot)) {
+    throw new ControlError(`target root does not exist: ${targetRoot}`, "missing_target")
+  }
+  const dir = path.join(targetRoot, CHANGE_REQUESTS_DIR)
+  if (!existsSync(dir)) return { crs: [] }
+  const crs: ChangeRequestSummary[] = []
+  for (const file of readdirSync(dir).sort()) {
+    const lower = file.toLowerCase()
+    if (!lower.endsWith(".md") || NON_CR_FILES.has(lower)) continue
+    const fm = parseFrontmatter(readFileSync(path.join(dir, file), "utf8"))
+    const id = typeof fm.id === "string" ? fm.id : ""
+    if (!/^CR-\d{4}$/.test(id)) continue // only well-identified CRs are display rows
+    crs.push({
+      id,
+      title: typeof fm.title === "string" ? fm.title : id,
+      status: typeof fm.status === "string" ? fm.status : "",
+      classification: typeof fm.classification === "string" ? fm.classification : "",
+      created_at: typeof fm.created_at === "string" ? fm.created_at : null,
+      source: typeof fm.source === "string" ? fm.source : null,
+    })
+  }
+  return { crs }
+}
+
+/**
+ * Record the owner decision on a CR (G7 — P2's single human touchpoint), and, for an
+ * APPROVAL, run the application chain. Two factory steps, both launched through the
+ * injected {@link Spawner} (so tests never spawn agents):
+ *   1. DECIDE — `change-control.mjs decide` records the decision deterministically
+ *      (approved -> accepted_current_build with previous_* from the frozen baseline;
+ *      rejected -> rejected). It prints a JSON line the control plane reads.
+ *   2. APPLY (approvals only) — `cr-apply.mjs --cr <id>` runs apply -> re-freeze ->
+ *      re-extract -> re-drive; the agent APPLY leg lives inside the script. Its terminal
+ *      state is read back from the cr-apply-<id>.json report (blocked vs green surfaced
+ *      honestly, exactly as {@link runExtract} does for extraction).
+ *
+ * `decidedBy` is the actor recorded as owner_decision_by (the route passes "owner:ui";
+ * the G14 CLI passes its own actor) — honest provenance, never an agent self-assertion.
+ */
+export async function decideCr(
+  spawner: Spawner,
+  input: { id: string; decision: "approved" | "rejected"; decidedBy: string }
+): Promise<DecideCrResult> {
+  const { factoryRoot, targetRoot } = resolveContext()
+  if (!existsSync(targetRoot)) {
+    throw new ControlError(`target root does not exist: ${targetRoot}`, "missing_target")
+  }
+  const { id, decision, decidedBy } = input
+  if (decision !== "approved" && decision !== "rejected") {
+    throw new ControlError(`invalid decision "${decision}" (expected approved|rejected)`, "cr_not_decidable")
+  }
+
+  // 1. DECIDE — deterministic, no agent. The subcommand exits 0 with a JSON line on
+  // success; non-zero with a JSON error otherwise. Map its known failures to typed
+  // ControlErrors so the route can surface them (422) distinctly from a spawn error.
+  const ccScript = resolveScript(factoryRoot, CHANGE_CONTROL_SCRIPT)
+  const decideRun = await spawner.run({
+    command: process.execPath,
+    args: [ccScript, "decide", "--cr", id, "--decision", decision, "--by", decidedBy],
+    cwd: factoryRoot,
+    env: devEnv(targetRoot),
+  })
+  const decided = parseJsonLine(decideRun.stdout) ?? parseJsonLine(decideRun.stderr)
+  if (decideRun.code !== 0 || !decided?.ok) {
+    const message = typeof decided?.error === "string" ? decided.error : decideRun.stderr || decideRun.lastLine || "decision failed"
+    throw classifyDecisionError(id, message)
+  }
+  const status = typeof decided.status === "string" ? decided.status : decision === "approved" ? "accepted_current_build" : "rejected"
+
+  // A rejection stops here — the decision is the whole outcome (no chain).
+  if (decision === "rejected") {
+    return { ok: true, id, decision, status, summary: `CR ${id} rejected` }
+  }
+
+  // 2. APPLY chain (approvals) — spawn cr-apply.mjs; read its terminal report back.
+  const applyScript = resolveScript(factoryRoot, CR_APPLY_SCRIPT)
+  const applyRun = await spawner.run({
+    command: process.execPath,
+    args: [applyScript, "--cr", id],
+    cwd: factoryRoot,
+    env: devEnv(targetRoot),
+  })
+  const report = readCrApplyReport(targetRoot, id)
+  const applyStatus = report?.status ?? (applyRun.code === 0 ? "green" : "blocked")
+  const applied = {
+    ok: applyRun.code === 0 && applyStatus === "green",
+    blocked: applyStatus === "blocked",
+    status: applyStatus,
+    summary: report?.summary ?? applyRun.lastLine ?? applyRun.stderr.trim().split("\n").filter(Boolean).at(-1) ?? "cr-apply produced no report",
+  }
+  return {
+    ok: applied.ok,
+    id,
+    decision,
+    status,
+    applied,
+    summary: applied.summary,
+  }
+}
+
+/** Map a change-control `decide` failure message to a typed ControlError. */
+function classifyDecisionError(id: string, message: string): ControlError {
+  if (/no CR with id/i.test(message)) return new ControlError(`unknown change request: ${id}`, "unknown_cr")
+  if (/only idea\|under_review|can be decided|only .* can be/i.test(message)) {
+    return new ControlError(message, "cr_not_decidable")
+  }
+  if (/no frozen baseline/i.test(message)) return new ControlError(message, "cr_not_decidable")
+  return new ControlError(message, "spawn_failed")
+}
+
+/** Read the cr-apply chain's terminal report for a CR (best-effort). */
+function readCrApplyReport(targetRoot: string, id: string): { status?: string; summary?: string } | null {
+  const file = path.join(targetRoot, REPORTS_DIR, `cr-apply-${id}.json`)
+  if (!existsSync(file)) return null
+  try {
+    return JSON.parse(readFileSync(file, "utf8")) as { status?: string; summary?: string }
+  } catch {
+    return null
+  }
+}
+
+/** Parse one JSON object from text (the first `{...}` line), or null. */
+function parseJsonLine(text: string): Record<string, unknown> | null {
+  for (const line of text.split("\n")) {
+    const trimmed = line.trim()
+    if (!trimmed.startsWith("{")) continue
+    try {
+      return JSON.parse(trimmed) as Record<string, unknown>
+    } catch {
+      // keep scanning — a non-JSON `{` line is not the payload
+    }
+  }
+  return null
+}
+
+/**
+ * Minimal, dependency-free frontmatter reader for the CR list (read-only display).
+ * Mirrors change-control.mjs's parser: the `--- ... ---` block's `key: value` lines,
+ * unquoted. This is display projection only; change-control.mjs stays the validator.
+ */
+function parseFrontmatter(text: string): Record<string, string> {
+  const m = text.match(/^---\r?\n([\s\S]*?)\r?\n---/)
+  if (!m) return {}
+  const fm: Record<string, string> = {}
+  for (const line of m[1].split(/\r?\n/)) {
+    const km = line.match(/^([a-z_]+):\s*(.*)$/)
+    if (!km) continue
+    fm[km[1]] = km[2].trim().replace(/^["']|["']$/g, "")
+  }
+  return fm
 }

@@ -9,7 +9,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { FACTORY_PROMPTS_DIR } from "./target-root.mjs";
 
-const PROMPTS = ["implementer.md", "reviewer.md", "extractor.md", "extraction-verifier.md", "map-review.md", "change-request.md", "spike-proofier.md", "proof-verifier.md"];
+const PROMPTS = ["implementer.md", "reviewer.md", "extractor.md", "extraction-verifier.md", "map-review.md", "change-request.md", "spike-proofier.md", "proof-verifier.md", "cr-applier.md"];
 
 function readPrompt(name) {
   return readFileSync(join(FACTORY_PROMPTS_DIR, name), "utf8");

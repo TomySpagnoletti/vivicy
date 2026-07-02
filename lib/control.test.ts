@@ -6,7 +6,9 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest"
 
 import {
   ControlError,
+  decideCr,
   isRunActive,
+  listChangeRequests,
   readDevStatus,
   readRunState,
   runExtract,
@@ -62,6 +64,8 @@ function scaffoldFactory(root: string) {
     "dev-loop-supervised.mjs",
     "dev-status.mjs",
     "extract-issues.mjs",
+    "change-control.mjs",
+    "cr-apply.mjs",
   ]) {
     writeFileSync(path.join(root, rel), "// stub\n")
   }
@@ -405,5 +409,142 @@ describe("path safety", () => {
     const lock = path.join(process.cwd(), ".vivicy-runtime", "run-state.json")
     expect(existsSync(lock)).toBe(true)
     expect(lock.startsWith(process.cwd())).toBe(true)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Change requests (G7 control-plane verbs)
+// ---------------------------------------------------------------------------
+
+/** Seed a CR file under the target registry with the given frontmatter fields. */
+function writeCr(name: string, fields: Record<string, string>) {
+  const lines = ["---", ...Object.entries(fields).map(([k, v]) => `${k}: ${v}`), "---", "", `# ${fields.id ?? name}`, ""]
+  const file = path.join(targetRoot, ".vivicy", "change-requests", name)
+  mkdirSync(path.dirname(file), { recursive: true })
+  writeFileSync(file, lines.join("\n"))
+}
+
+/** Write the terminal cr-apply report the chain would leave for a CR. */
+function writeCrApplyReport(id: string, report: { status: string; summary: string }) {
+  const file = path.join(targetRoot, ".vivicy", "development", "reports", `cr-apply-${id}.json`)
+  mkdirSync(path.dirname(file), { recursive: true })
+  writeFileSync(file, JSON.stringify({ cr: id, ...report }, null, 2))
+}
+
+describe("listChangeRequests", () => {
+  it("parses seeded CR files into display rows, skipping the template and readme", () => {
+    writeCr("CR-0001-first.md", { id: "CR-0001", title: "First", status: "idea", classification: "minor_product_change", created_at: "2026-07-01", source: "agent" })
+    writeCr("CR-0002-second.md", { id: "CR-0002", title: "Second", status: "accepted_current_build", classification: "major_product_change", created_at: "2026-07-02", source: "owner" })
+    writeCr("CR-TEMPLATE.md", { id: "CR-0000", title: "tpl", status: "idea", classification: "pending", created_at: "x", source: "owner" })
+    writeFileSync(path.join(targetRoot, ".vivicy", "change-requests", "README.md"), "# Change Requests\n")
+
+    const { crs } = listChangeRequests()
+
+    expect(crs.map((c) => c.id)).toEqual(["CR-0001", "CR-0002"])
+    expect(crs[0]).toEqual({ id: "CR-0001", title: "First", status: "idea", classification: "minor_product_change", created_at: "2026-07-01", source: "agent" })
+    expect(crs[1].status).toBe("accepted_current_build")
+  })
+
+  it("returns an empty list when there is no registry directory", () => {
+    expect(listChangeRequests().crs).toEqual([])
+  })
+})
+
+describe("decideCr", () => {
+  it("approves: records the decision, runs cr-apply, and reports the chain green", async () => {
+    writeCr("CR-0001-x.md", { id: "CR-0001", title: "x", status: "idea", classification: "minor_product_change", created_at: "2026-07-01", source: "agent" })
+    const seen: string[][] = []
+    const { spawner } = makeFakeSpawner({
+      run: async ({ args }) => {
+        seen.push(args)
+        if (args.some((a) => a.endsWith("change-control.mjs"))) {
+          // The decide subcommand prints its JSON result line.
+          return { code: 0, lastLine: "{}", stdout: JSON.stringify({ ok: true, id: "CR-0001", status: "accepted_current_build" }), stderr: "" }
+        }
+        // cr-apply writes its terminal report, then exits 0 on green.
+        writeCrApplyReport("CR-0001", { status: "green", summary: "CR-0001 applied — re-frozen, re-extracted green" })
+        return { code: 0, lastLine: "green", stdout: "green\n", stderr: "" }
+      },
+    })
+
+    const result = await decideCr(spawner, { id: "CR-0001", decision: "approved", decidedBy: "owner:ui" })
+
+    expect(result.ok).toBe(true)
+    expect(result.decision).toBe("approved")
+    expect(result.status).toBe("accepted_current_build")
+    expect(result.applied?.status).toBe("green")
+    expect(result.applied?.blocked).toBe(false)
+    expect(result.summary).toMatch(/re-extracted green/)
+    // Both steps ran: the decision, then the apply chain, both with --cr CR-0001.
+    const decideCall = seen.find((a) => a.some((x) => x.endsWith("change-control.mjs")))
+    const applyCall = seen.find((a) => a.some((x) => x.endsWith("cr-apply.mjs")))
+    expect(decideCall).toContain("decide")
+    expect(decideCall).toContain("CR-0001")
+    expect(decideCall).toContain("owner:ui")
+    expect(applyCall).toContain("--cr")
+    expect(applyCall).toContain("CR-0001")
+  })
+
+  it("approves but surfaces a blocked apply chain honestly (ok:false, blocked:true)", async () => {
+    writeCr("CR-0001-x.md", { id: "CR-0001", title: "x", status: "idea", classification: "minor_product_change", created_at: "2026-07-01", source: "agent" })
+    const { spawner } = makeFakeSpawner({
+      run: async ({ args }) => {
+        if (args.some((a) => a.endsWith("change-control.mjs"))) {
+          return { code: 0, lastLine: "{}", stdout: JSON.stringify({ ok: true, id: "CR-0001", status: "accepted_current_build" }), stderr: "" }
+        }
+        writeCrApplyReport("CR-0001", { status: "blocked", summary: "cr-apply: reference-check stayed red — CR left accepted_current_build" })
+        return { code: 1, lastLine: "blocked", stdout: "", stderr: "blocked\n" }
+      },
+    })
+
+    const result = await decideCr(spawner, { id: "CR-0001", decision: "approved", decidedBy: "owner:ui" })
+
+    expect(result.ok).toBe(false)
+    expect(result.applied?.blocked).toBe(true)
+    expect(result.applied?.status).toBe("blocked")
+    expect(result.summary).toMatch(/reference-check stayed red/)
+  })
+
+  it("rejects: records the decision only, never launching the apply chain", async () => {
+    writeCr("CR-0001-x.md", { id: "CR-0001", title: "x", status: "idea", classification: "minor_product_change", created_at: "2026-07-01", source: "agent" })
+    const scripts: string[] = []
+    const { spawner } = makeFakeSpawner({
+      run: async ({ args }) => {
+        scripts.push(path.basename(args.find((a) => a.endsWith(".mjs")) ?? ""))
+        return { code: 0, lastLine: "{}", stdout: JSON.stringify({ ok: true, id: "CR-0001", status: "rejected" }), stderr: "" }
+      },
+    })
+
+    const result = await decideCr(spawner, { id: "CR-0001", decision: "rejected", decidedBy: "owner:ui" })
+
+    expect(result.ok).toBe(true)
+    expect(result.status).toBe("rejected")
+    expect(result.applied).toBeUndefined()
+    // Only the decision script ran — no cr-apply.mjs on a rejection.
+    expect(scripts).toEqual(["change-control.mjs"])
+  })
+
+  it("maps an unknown CR id to an unknown_cr ControlError", async () => {
+    const { spawner } = makeFakeSpawner({
+      run: async () => ({ code: 1, lastLine: "{}", stdout: JSON.stringify({ ok: false, error: "decideChangeRequest: no CR with id CR-9999 under .vivicy/change-requests" }), stderr: "" }),
+    })
+    await expect(decideCr(spawner, { id: "CR-9999", decision: "approved", decidedBy: "owner:ui" })).rejects.toThrow(ControlError)
+    try {
+      await decideCr(spawner, { id: "CR-9999", decision: "approved", decidedBy: "owner:ui" })
+    } catch (error) {
+      expect((error as ControlError).code).toBe("unknown_cr")
+    }
+  })
+
+  it("maps an undecidable CR (already decided) to a cr_not_decidable ControlError", async () => {
+    const { spawner } = makeFakeSpawner({
+      run: async () => ({ code: 1, lastLine: "{}", stdout: JSON.stringify({ ok: false, error: 'decideChangeRequest: CR CR-0001 is "docs_applied", only idea|under_review CRs can be decided' }), stderr: "" }),
+    })
+    try {
+      await decideCr(spawner, { id: "CR-0001", decision: "approved", decidedBy: "owner:ui" })
+      throw new Error("expected throw")
+    } catch (error) {
+      expect((error as ControlError).code).toBe("cr_not_decidable")
+    }
   })
 })
