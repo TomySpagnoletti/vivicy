@@ -26,7 +26,7 @@ describe("MapEmptyState — guidance per empty reason", () => {
   test("empty_map shows the re-run guidance and an Extract button", () => {
     render(<MapEmptyState reason="empty_map" onExtract={vi.fn()} />)
     expect(screen.getByText("Architecture map is empty")).toBeInTheDocument()
-    expect(screen.getByText(/Re-run Extract after the canonical docs/)).toBeInTheDocument()
+    expect(screen.getByText(/re-run Extract/)).toBeInTheDocument()
     expect(screen.getByRole("button", { name: "Extract from docs" })).toBeInTheDocument()
     // The reason is reflected on the Card for downstream selectors.
     expect(document.querySelector('[data-empty-reason="empty_map"]')).toBeTruthy()
@@ -52,9 +52,66 @@ describe("MapEmptyState — guidance per empty reason", () => {
     expect(onExtract).not.toHaveBeenCalled()
   })
 
-  test("no Extract button when onExtract is omitted, even for an extractable reason", () => {
+  test("no Extract button when onExtract is omitted, but Import docs still offered", () => {
     render(<MapEmptyState reason="no_map" />)
     expect(screen.getByText("No issues extracted yet")).toBeInTheDocument()
-    expect(screen.queryByRole("button")).toBeNull()
+    expect(screen.queryByRole("button", { name: /Extract from docs/ })).toBeNull()
+    // A target already exists in no_map/empty_map, so Import docs (G1) is always
+    // offered regardless of whether the caller wired an Extract handler.
+    expect(screen.getByRole("button", { name: /Import docs/ })).toBeInTheDocument()
+  })
+
+  test("Import docs button opens the import dialog", async () => {
+    const user = userEvent.setup()
+    render(<MapEmptyState reason="no_map" onExtract={vi.fn()} />)
+    await user.click(screen.getByRole("button", { name: /Import docs/ }))
+    expect(screen.getByRole("dialog", { name: "Import your docs" })).toBeInTheDocument()
+  })
+
+  test("no_target shows neither Extract nor Import docs", () => {
+    render(<MapEmptyState reason="no_target" onExtract={vi.fn()} />)
+    expect(screen.queryByRole("button", { name: /Extract from docs/ })).toBeNull()
+    expect(screen.queryByRole("button", { name: /Import docs/ })).toBeNull()
+  })
+
+  test("empty-canonical extractError shows the guard message and highlights Import", () => {
+    render(
+      <MapEmptyState
+        reason="no_map"
+        onExtract={vi.fn()}
+        extractError={{
+          message: "canonical is empty (only the scaffold README) — import or write docs first",
+          code: "empty_canonical",
+        }}
+      />
+    )
+    expect(
+      screen.getByText(/canonical is empty \(only the scaffold README\)/)
+    ).toBeInTheDocument()
+    // The Import action becomes the primary (default-variant) button — the fix
+    // for an empty canonical — while Extract stays the secondary outline action.
+    expect(screen.getByRole("button", { name: /Import docs/ })).toHaveAttribute(
+      "data-variant",
+      "default"
+    )
+    expect(screen.getByRole("button", { name: "Extract from docs" })).toHaveAttribute(
+      "data-variant",
+      "outline"
+    )
+  })
+
+  test("a non-empty-canonical extractError shows the message without highlighting Import", () => {
+    render(
+      <MapEmptyState
+        reason="no_map"
+        onExtract={vi.fn()}
+        extractError={{ message: "extraction blocked after 3 retries", code: "spawn_failed" }}
+      />
+    )
+    expect(screen.getByText("extraction blocked after 3 retries")).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: /Import docs/ })).toHaveAttribute(
+      "data-variant",
+      "outline"
+    )
   })
 })

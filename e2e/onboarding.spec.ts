@@ -5,10 +5,11 @@ import { expect, test } from "@playwright/test"
 import { onboardScaffoldParent } from "../playwright.config"
 
 /**
- * R9 onboarding. The onboarding server points at a target with NO docs/, so the
- * map route returns `no_target` and the two-mode chooser renders. This spec:
+ * G10 onboarding. The onboarding server points at a target with NO docs/, so the
+ * map route returns `no_target` and the three-card chooser renders. This spec:
  *
- *   1. asserts BOTH modes are offered (existing folder + start from scratch);
+ *   1. asserts ALL THREE cards are offered (open a project, start from scratch,
+ *      import your docs);
  *   2. drives Mode B end to end — opens the scaffold dialog, gives a name +
  *      absolute target, scaffolds, and confirms the app lands on the freshly
  *      scaffolded project's "no architecture map yet" empty state.
@@ -26,11 +27,11 @@ function scaffoldTargetFor(projectName: string): string {
   return path.join(onboardScaffoldParent(browserKey), "e2e-scaffolded")
 }
 
-test.describe("Vivicy onboarding (two start modes)", () => {
-  test("shows both start modes", async ({ page }, testInfo) => {
+test.describe("Vivicy onboarding (three start modes)", () => {
+  test("shows all three start modes", async ({ page }, testInfo) => {
     await page.goto("/")
 
-    // The chooser heading + both mode cards render.
+    // The chooser heading + all three mode cards render.
     await expect(page.getByRole("heading", { name: "Start a project" })).toBeVisible({
       timeout: 30_000,
     })
@@ -39,6 +40,9 @@ test.describe("Vivicy onboarding (two start modes)", () => {
     ).toBeVisible()
     await expect(
       page.getByRole("button", { name: /Scaffold a new project/i })
+    ).toBeVisible()
+    await expect(
+      page.getByRole("button", { name: /Import docs/i })
     ).toBeVisible()
 
     // Cross-browser capture of the pristine `no_target` chooser. This is the FIRST
