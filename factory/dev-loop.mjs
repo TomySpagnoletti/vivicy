@@ -2837,7 +2837,7 @@ export async function runLoopParallel(userConfig = {}, steps = {}) {
         // Capture the pre-merge integration HEAD FIRST (under the lock, so it is stable):
         // it is the exact sha to revert to if the post-merge re-gate finds the merge
         // damaged the integration tree (G6). The merge is the only new commit after it.
-        const preMergeSha = wt.captureHead(cfg);
+        const preMergeSha = wt.captureHead();
         // Defense-in-depth: under the lock (so the merge target is stable), discard
         // any out-of-scope edits this worktree made to the FROZEN extraction corpus,
         // resetting them to the integration head. This makes a frozen-artifact edit a
@@ -2897,12 +2897,27 @@ export async function runLoopParallel(userConfig = {}, steps = {}) {
         // merge damaged something. Revert the merge (reset --hard to the captured
         // pre-merge sha — the merge is the only commit since) and block only this issue,
         // never leaving the integration branch red.
+        //
+        // Snapshot the GREEN pre-merge evidence CONTENT first: the post-merge gate run
+        // writes to the same `<id>-gate.json` path and would clobber it, so we capture
+        // the green record now to embed BOTH evidences honestly in the block (P1).
+        const preMergeEvidence = readGateEvidenceSnapshot(cfg, result.evidenceRel);
         const postMergeGate = await runGateAt(integrationCfg);
         if (!postMergeGate.pass) {
-          wt.resetHard(cfg, preMergeSha);
+          const postMergeEvidence = readGateEvidenceSnapshot(cfg, postMergeGate.evidenceRel);
+          // Revert the damaging merge. The reset is the load-bearing step of "never
+          // leave the integration branch red", so a FAILED reset is a loud, run-level
+          // event (P3: no blind states) — we do not throw (that would crash the
+          // scheduler for the independent siblings too), but we surface it unmistakably.
+          const reset = wt.resetHard(preMergeSha);
+          if (reset && typeof reset.status === "number" && reset.status !== 0) {
+            process.stderr.write(
+              `[parallel] CRITICAL: failed to revert damaging merge for ${issue.id} (reset --hard ${preMergeSha} exited ${reset.status}); the integration branch may be left red — manual intervention required:\n${`${reset.stdout ?? ""}\n${reset.stderr ?? ""}`.trim()}\n`,
+            );
+          }
           writePostMergeIntegrationBlock(issue, cfg, {
-            preMergeEvidenceRel: result.evidenceRel,
-            postMergeEvidenceRel: postMergeGate.evidenceRel,
+            preMergeEvidence,
+            postMergeEvidence,
             preMergeSha,
           });
           return { id: issue.id, status: "blocked" };
@@ -2990,7 +3005,13 @@ export async function runLoopParallel(userConfig = {}, steps = {}) {
     for (const issue of readyToRun) {
       runningIssueById.set(issue.id, issue);
       const task = runOne(issue)
-        .catch((error) => ({ id: issue.id, status: "blocked", error: String(error?.message ?? error) }))
+        .catch((error) => {
+          // An UNEXPECTED throw inside a task blocks only that issue (never crashes the
+          // scheduler and strands the siblings) — but it must not be a blind state (P3):
+          // surface why, so a blocked-by-exception issue is diagnosable.
+          process.stderr.write(`[parallel] ${issue.id} blocked by an unexpected error: ${error?.stack ?? error?.message ?? error}\n`);
+          return { id: issue.id, status: "blocked", error: String(error?.message ?? error) };
+        })
         .then((settled) => {
           running.delete(issue.id);
           runningIssueById.delete(issue.id);
@@ -3071,11 +3092,25 @@ function readMergeResolutionVerdict(issue, cfg) {
   return parsed;
 }
 
+// Snapshot a gate-run evidence record's CONTENT (parsed) from the MAIN root, or the
+// bare path when it cannot be read. Used to preserve the GREEN pre-merge record before
+// the post-merge gate run overwrites the same `<id>-gate.json` path (P1: the block must
+// carry both real gate verdicts, not two pointers to the surviving red one).
+function readGateEvidenceSnapshot(cfg, evidenceRel) {
+  if (!evidenceRel) return null;
+  try {
+    return { path: evidenceRel, record: JSON.parse(readFileSync(abs(evidenceRel), "utf8")) };
+  } catch {
+    return { path: evidenceRel, record: null };
+  }
+}
+
 // Write the post-merge integration-block evidence for ONE issue: the merge went green
 // pre-merge but the re-run gate on the integration tree came back red, so the merge
-// damaged something. Records BOTH gate evidences (the green pre-merge run and the red
-// post-merge run) so a human sees exactly what regressed. Written to the MAIN root.
-function writePostMergeIntegrationBlock(issue, cfg, { preMergeEvidenceRel, postMergeEvidenceRel, preMergeSha }) {
+// damaged something. Embeds BOTH gate evidences' CONTENT (the green pre-merge snapshot
+// and the red post-merge run) so a human sees exactly what regressed — the two share a
+// gate file path, so paths alone would both point at the surviving red one. Main root.
+function writePostMergeIntegrationBlock(issue, cfg, { preMergeEvidence, postMergeEvidence, preMergeSha }) {
   mkdirSync(abs(cfg.reportsDir), { recursive: true });
   const rel = `${cfg.reportsDir}/${issue.id}-integration-blocked.json`;
   writeFileSync(
@@ -3086,8 +3121,8 @@ function writePostMergeIntegrationBlock(issue, cfg, { preMergeEvidenceRel, postM
         reason:
           "post-merge gate red: the issue's gate was green pre-merge but red on the integration tree after merging — the merge damaged the integration state. The merge commit was reverted (reset to the pre-merge HEAD).",
         kind: "post_merge_gate",
-        pre_merge_gate_evidence: preMergeEvidenceRel ?? null,
-        post_merge_gate_evidence: postMergeEvidenceRel ?? null,
+        pre_merge_gate_evidence: preMergeEvidence ?? null,
+        post_merge_gate_evidence: postMergeEvidence ?? null,
         reverted_to_sha: preMergeSha ?? null,
         at: nowIso(cfg),
       },

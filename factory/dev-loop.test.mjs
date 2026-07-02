@@ -26,12 +26,14 @@ import {
   defaultRunImplementer,
   defaultRunReviewer,
   dependenciesSatisfied,
+  extractTraceabilityBlock,
   frozenIntegrationPaths,
   detectRateLimit,
   footprintDistance,
   issueClaim,
   issueFootprint,
   issuesIndependent,
+  issueUpdatePreservesTraceability,
   MAX_CONCURRENCY,
   parseClaudeQuotaWindows,
   parseClaudeStatusRateLimits,
@@ -548,7 +550,10 @@ function buildScratch(gateCommand, { perIssueGate = true } = {}) {
   writeFileSync(resolve(repoRoot, indexRel), `${JSON.stringify(index, null, 2)}\n`);
   // Keep quota-state writes inside the scratch dir, never the real reports path.
   const quotaStatePath = `${reportsDir}/quota-state.json`;
-  return { dir, cfg: { issueIndexPath: indexRel, progressLedgerPath: ledgerRel, issuesDir, doneDir, gatesDir, reportsDir, quotaStatePath, baselineId: "baseline-test" } };
+  // readiness OFF by default in the fixtures: the pre-G5 tests exercise the
+  // implement->review->gate cycle and must not spawn a real readiness leg. The G5
+  // tests opt back in explicitly (readiness:true + an injected runReadiness fake).
+  return { dir, cfg: { issueIndexPath: indexRel, progressLedgerPath: ledgerRel, issuesDir, doneDir, gatesDir, reportsDir, quotaStatePath, baselineId: "baseline-test", readiness: false } };
 }
 
 // The integrity verifiers are stubbed: the orchestrator runs the frozen-baseline /
@@ -1701,6 +1706,9 @@ function buildParallelScratch({ issues, gateById = {} }) {
     quotaStatePath: `${reportsDir}/quota-state.json`,
     baselineId: "baseline-test",
     worktreesDir: `${scratchRel}/.wt`,
+    // readiness OFF by default (see buildScratch): the parallel-loop + G6 tests do not
+    // exercise S8; the G5 parallel test re-enables it with an injected runReadiness.
+    readiness: false,
   };
   return { dir, scratchRel, cfg };
 }
@@ -2154,6 +2162,602 @@ test("runLoop(maxParallel=1) is the sequential path: returns an array, identical
       { id: "ISS-A", status: "verified" },
       { id: "ISS-B", status: "verified" },
     ]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// --------------------------------------------------------------------------
+// G5 — per-issue readiness check (S8): verdict routing + parking
+//
+// Fake readiness legs write the verdict FILE the orchestrator reads (never stdout),
+// mirroring the real leg contract. The quota probe is disabled so no real CLI spawns.
+// --------------------------------------------------------------------------
+
+// An issue file body carrying a REAL `## Traceability` fenced block — the block a
+// readiness issue_update must leave byte-identical. `exec` is the mutable execution
+// prose above it, so a test can produce a legal (prose-only) or illegal (block-edited)
+// patch from the same helper.
+function issueBody({ id = "ISS-A", exec = "Original scope prose.", refs = ["node:x"] } = {}) {
+  return [
+    `# ${id} — a slice`,
+    "",
+    "## Summary",
+    "",
+    exec,
+    "",
+    "## Traceability",
+    "",
+    "```text",
+    `issue_id: ${id}`,
+    "graph_refs:",
+    ...refs.map((r) => `  - ${r}`),
+    "requirement_ids:",
+    "  - REQ-X-001",
+    "source_line_refs:",
+    "  - .vivicy/canonical/01.md:7",
+    "depends_on:",
+    "spike_gates:",
+    "verification_gate_ids:",
+    `  - gate:test:${id}`,
+    "```",
+    "",
+    "## Scope",
+    "",
+    exec,
+    "",
+  ].join("\n");
+}
+
+// A fake readiness leg that writes `<id>-readiness.json` per a scripted verdict map
+// (issue id -> verdict object), then returns a clean leg result. When an id has no
+// scripted verdict the leg writes NOTHING (simulates a dead/silent leg -> no verdict
+// file), so the transient retry-then-park path is exercised. Records the call count
+// per issue so a test can assert the one-retry behavior.
+function fakeReadiness(verdictById, calls = {}) {
+  return (issue, cfg) => {
+    calls[issue.id] = (calls[issue.id] ?? 0) + 1;
+    const verdict = verdictById[issue.id];
+    if (verdict !== undefined) {
+      mkdirSync(resolve(repoRoot, cfg.reportsDir), { recursive: true });
+      writeFileSync(
+        resolve(repoRoot, `${cfg.reportsDir}/${issue.id}-readiness.json`),
+        `${JSON.stringify(verdict, null, 2)}\n`,
+      );
+    }
+    return { output: `readiness ${issue.id}`, result: { status: 0 } };
+  };
+}
+
+// Sequential readiness fixture: writes each issue file with a real traceability block
+// so issue_update patches can be validated against it. readiness ON, probe OFF.
+function buildReadinessScratch(issues) {
+  ensureRepoRootGit();
+  const dir = mkdtempSync(resolve(repoRoot, "_tmp-readiness-"));
+  const scratchRel = relative(repoRoot, dir);
+  const issuesDir = `${scratchRel}/issues`;
+  const doneDir = `${scratchRel}/issues/done`;
+  const gatesDir = `${scratchRel}/gates`;
+  const reportsDir = `${scratchRel}/reports`;
+  mkdirSync(resolve(repoRoot, issuesDir), { recursive: true });
+  for (const issue of issues) {
+    writeFileSync(resolve(repoRoot, `${issuesDir}/${issue.id}.md`), issueBody({ id: issue.id, refs: issue.graph_refs }));
+  }
+  const indexRel = `${scratchRel}/issue-index.json`;
+  const ledgerRel = `${scratchRel}/progress-ledger.json`;
+  const index = {
+    baseline_id: "baseline-test",
+    verification_evidence_ref_grammar: `^${scratchRel}/(gates|reports)/.+`,
+    issues: issues.map((issue) => ({
+      ...issue,
+      title: issue.title ?? issue.id,
+      verification_gate_ids: [`gate:test:${issue.id}`],
+      gate_command: "true",
+      path: `${issuesDir}/${issue.id}.md`,
+    })),
+  };
+  writeFileSync(resolve(repoRoot, indexRel), `${JSON.stringify(index, null, 2)}\n`);
+  const cfg = {
+    issueIndexPath: indexRel,
+    progressLedgerPath: ledgerRel,
+    issuesDir,
+    doneDir,
+    gatesDir,
+    reportsDir,
+    quotaStatePath: `${reportsDir}/quota-state.json`,
+    baselineId: "baseline-test",
+    readiness: true,
+    claudeQuotaProbeEnabled: false,
+  };
+  return { dir, scratchRel, cfg };
+}
+
+test("extractTraceabilityBlock returns the fenced block under ## Traceability, ignoring stray fences", () => {
+  const body = issueBody({ id: "ISS-A" });
+  const block = extractTraceabilityBlock(body);
+  assert.ok(block && block.includes("issue_id: ISS-A"), "the traceability block is extracted");
+  assert.ok(block.includes("verification_gate_ids:"), "the whole block is captured");
+  // A body with a stray ```text fence BEFORE the Traceability section must still anchor
+  // on the section, not the stray fence.
+  const withStray = "```text\nnot the block\n```\n\n" + body;
+  assert.equal(extractTraceabilityBlock(withStray), block, "anchors on ## Traceability, not a stray fence");
+  // No traceability section => null.
+  assert.equal(extractTraceabilityBlock("# just a title\n\nno block here"), null);
+});
+
+test("issueUpdatePreservesTraceability accepts prose-only edits and rejects block edits", () => {
+  const before = issueBody({ id: "ISS-A", exec: "Original prose." });
+  // Prose-only change: the traceability block is byte-identical -> legal issue_update.
+  const proseOnly = issueBody({ id: "ISS-A", exec: "Revised execution prose, same refs." });
+  assert.equal(issueUpdatePreservesTraceability(before, proseOnly), true);
+  // Touching the block (a changed graph_ref) -> illegal (traceability/intention change).
+  const blockEdited = issueBody({ id: "ISS-A", exec: "Original prose.", refs: ["node:y"] });
+  assert.equal(issueUpdatePreservesTraceability(before, blockEdited), false);
+  // A patch that drops the block entirely -> illegal.
+  assert.equal(issueUpdatePreservesTraceability(before, "# ISS-A\n\nno traceability block"), false);
+});
+
+test("readiness implementable -> the implementer runs and the issue verifies", () => {
+  const issues = [{ id: "ISS-A", depends_on: [], graph_refs: ["node:x"] }];
+  const { dir, cfg } = buildReadinessScratch(issues);
+  let implemented = 0;
+  try {
+    const processed = runLoop(cfg, {
+      ...stubLifecycle,
+      runReadiness: fakeReadiness({ "ISS-A": { verdict: "implementable", reason: "clean" } }),
+      runImplementer: () => {
+        implemented += 1;
+      },
+      runReviewer: () => {},
+      commit: () => {},
+    });
+    assert.deepEqual(processed, [{ id: "ISS-A", status: "verified" }]);
+    assert.equal(implemented, 1, "an implementable verdict runs the implementer");
+    // The readiness lifecycle was recorded.
+    const ledger = JSON.parse(readFileSync(resolve(repoRoot, cfg.progressLedgerPath), "utf8"));
+    const node = ledger.graph_item_states.find((s) => s.graph_ref === "node:x");
+    assert.equal(node.issue_states["ISS-A"], "verified");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("readiness issue_update: a prose-only patch is applied to the issue file, then it implements", () => {
+  const issues = [{ id: "ISS-A", depends_on: [], graph_refs: ["node:x"] }];
+  const { dir, cfg } = buildReadinessScratch(issues);
+  const patched = issueBody({ id: "ISS-A", exec: "PATCHED execution detail (ordering fixed)." });
+  let implemented = 0;
+  try {
+    const processed = runLoop(cfg, {
+      ...stubLifecycle,
+      runReadiness: fakeReadiness({
+        "ISS-A": { verdict: "issue_update", reason: "ordering drifted", updates: { body_patch: patched } },
+      }),
+      runImplementer: () => {
+        implemented += 1;
+      },
+      runReviewer: () => {},
+      commit: () => {},
+    });
+    assert.deepEqual(processed, [{ id: "ISS-A", status: "verified" }]);
+    assert.equal(implemented, 1, "after a bounded update the issue implements");
+    // The issue FILE was rewritten to the patch (execution prose changed). It moved to
+    // done/ after verifying, so read from wherever it now lives.
+    const activePath = resolve(repoRoot, `${cfg.issuesDir}/ISS-A.md`);
+    const body = existsSync(activePath)
+      ? readFileSync(activePath, "utf8")
+      : readFileSync(resolve(repoRoot, `${cfg.doneDir}/ISS-A.md`), "utf8");
+    assert.ok(body.includes("PATCHED execution detail"), "the bounded prose patch was applied");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("readiness issue_update touching the traceability block is REFUSED, routed to parked, patch NOT applied", () => {
+  const issues = [
+    { id: "ISS-A", depends_on: [], graph_refs: ["node:x"] },
+    { id: "ISS-B", depends_on: [], graph_refs: ["node:y"] },
+  ];
+  const { dir, cfg } = buildReadinessScratch(issues);
+  // An "issue_update" whose patch mutates the traceability block (changed graph_ref):
+  // the orchestrator must refuse it, PARK the issue, and NOT rewrite the file.
+  const illegalPatch = issueBody({ id: "ISS-A", exec: "prose", refs: ["node:HIJACKED"] });
+  const original = readFileSync(resolve(repoRoot, `${cfg.issuesDir}/ISS-A.md`), "utf8");
+  let implementedA = 0;
+  try {
+    const processed = runLoop(cfg, {
+      ...stubLifecycle,
+      runReadiness: fakeReadiness({
+        "ISS-A": { verdict: "issue_update", reason: "sneaky", updates: { body_patch: illegalPatch } },
+        "ISS-B": { verdict: "implementable", reason: "fine" },
+      }),
+      runImplementer: (iss) => {
+        if (iss.id === "ISS-A") implementedA += 1;
+      },
+      runReviewer: () => {},
+      commit: () => {},
+    });
+    // A parked, B verified — the loop continued to the next ready issue.
+    const byId = Object.fromEntries(processed.map((p) => [p.id, p.status]));
+    assert.equal(byId["ISS-A"], "parked", "the traceability-touching update is parked (routed to needs_cr)");
+    assert.equal(byId["ISS-B"], "verified", "the loop continued to the next ready issue");
+    assert.equal(implementedA, 0, "the refused issue never reached the implementer");
+    // The issue file is UNCHANGED (the illegal patch was discarded).
+    assert.equal(readFileSync(resolve(repoRoot, `${cfg.issuesDir}/ISS-A.md`), "utf8"), original, "issue file untouched");
+    // A parked report was written.
+    assert.ok(existsSync(resolve(repoRoot, `${cfg.reportsDir}/ISS-A-parked.json`)), "parked report written");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("readiness needs_cr: the issue is parked, the implementer is NEVER called, the loop continues", () => {
+  const issues = [
+    { id: "ISS-A", depends_on: [], graph_refs: ["node:x"] },
+    { id: "ISS-B", depends_on: [], graph_refs: ["node:y"] },
+  ];
+  const { dir, cfg } = buildReadinessScratch(issues);
+  const implementedIds = [];
+  try {
+    const processed = runLoop(cfg, {
+      ...stubLifecycle,
+      runReadiness: fakeReadiness({
+        "ISS-A": { verdict: "needs_cr", reason: "code made the requirement false" },
+        "ISS-B": { verdict: "implementable", reason: "fine" },
+      }),
+      runImplementer: (iss) => implementedIds.push(iss.id),
+      runReviewer: () => {},
+      commit: () => {},
+    });
+    const byId = Object.fromEntries(processed.map((p) => [p.id, p.status]));
+    assert.equal(byId["ISS-A"], "parked");
+    assert.equal(byId["ISS-B"], "verified");
+    assert.deepEqual(implementedIds, ["ISS-B"], "the parked issue never reached the implementer; the loop continued");
+    // The parked report carries the reason and the issue's identity stamp (for unparking).
+    const report = JSON.parse(readFileSync(resolve(repoRoot, `${cfg.reportsDir}/ISS-A-parked.json`), "utf8"));
+    assert.match(report.reason, /requirement false/);
+    assert.ok(typeof report.issue_hash === "string" && report.issue_hash.length > 0, "identity hash stamped for unparking");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("readiness leg death (no verdict file) -> ONE retry then parked with reason readiness_leg_failed", () => {
+  const issues = [{ id: "ISS-A", depends_on: [], graph_refs: ["node:x"] }];
+  const { dir, cfg } = buildReadinessScratch(issues);
+  const calls = {};
+  let implemented = 0;
+  try {
+    // No scripted verdict for ISS-A => the fake leg writes NO file (a dead/silent leg).
+    const processed = runLoop(cfg, {
+      ...stubLifecycle,
+      runReadiness: fakeReadiness({}, calls),
+      runImplementer: () => {
+        implemented += 1;
+      },
+      runReviewer: () => {},
+      commit: () => {},
+    });
+    assert.deepEqual(processed, [{ id: "ISS-A", status: "parked" }]);
+    assert.equal(calls["ISS-A"], 2, "the readiness leg was retried exactly once (2 total attempts)");
+    assert.equal(implemented, 0, "a leg that never yields a verdict never proceeds to implement");
+    const report = JSON.parse(readFileSync(resolve(repoRoot, `${cfg.reportsDir}/ISS-A-parked.json`), "utf8"));
+    assert.equal(report.reason, "readiness_leg_failed", "parked as a transient failure, never silently proceeded");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a parked report is CLEARED when its issue file changes (CR-driven unpark)", () => {
+  const issues = [{ id: "ISS-A", depends_on: [], graph_refs: ["node:x"] }];
+  const { dir, cfg } = buildReadinessScratch(issues);
+  try {
+    // Round 1: needs_cr parks ISS-A; nothing else is ready, so the run ends with it parked.
+    let processed = runLoop(cfg, {
+      ...stubLifecycle,
+      runReadiness: fakeReadiness({ "ISS-A": { verdict: "needs_cr", reason: "blocked on CR" } }),
+      runImplementer: () => {},
+      runReviewer: () => {},
+      commit: () => {},
+    });
+    assert.deepEqual(processed, [{ id: "ISS-A", status: "parked" }]);
+    assert.ok(existsSync(resolve(repoRoot, `${cfg.reportsDir}/ISS-A-parked.json`)));
+
+    // A CR re-extraction rewrites the issue file (its content changes).
+    writeFileSync(
+      resolve(repoRoot, `${cfg.issuesDir}/ISS-A.md`),
+      issueBody({ id: "ISS-A", exec: "REVISED after CR — now implementable." }),
+    );
+    // Round 2: readiness now says implementable. The stale parked report must clear
+    // (issue file changed), so ISS-A is admitted and verifies.
+    let implemented = 0;
+    processed = runLoop(cfg, {
+      ...stubLifecycle,
+      runReadiness: fakeReadiness({ "ISS-A": { verdict: "implementable", reason: "CR resolved" } }),
+      runImplementer: () => {
+        implemented += 1;
+      },
+      runReviewer: () => {},
+      commit: () => {},
+    });
+    assert.deepEqual(processed, [{ id: "ISS-A", status: "verified" }], "the changed issue unparked and verified");
+    assert.equal(implemented, 1);
+    assert.ok(
+      !existsSync(resolve(repoRoot, `${cfg.reportsDir}/ISS-A-parked.json`)),
+      "the stale parked report was cleared when the issue file changed",
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("parallel readiness: a batch member that parks gets NO worktree (excluded pre-worktree)", async () => {
+  const issues = [
+    { id: "ISS-A", depends_on: [], graph_refs: ["node:a"] },
+    { id: "ISS-B", depends_on: [], graph_refs: ["node:b"] },
+  ];
+  const { dir, cfg } = buildParallelScratch({ issues });
+  const hermetic = hermeticWorktreeSteps();
+  const worktreesCreated = [];
+  try {
+    const processed = await runLoopParallel(
+      { ...cfg, maxParallel: 2, defaultGateCommand: "true", readiness: true, claudeQuotaProbeEnabled: false },
+      {
+        ...hermetic,
+        ...hermeticLegs(),
+        skipWorktreeIgnore: true,
+        // B parks (needs_cr); A is implementable.
+        runReadiness: fakeReadiness({
+          "ISS-A": { verdict: "implementable", reason: "ok" },
+          "ISS-B": { verdict: "needs_cr", reason: "blocked" },
+        }),
+        // Observe worktree creation via the seam call log: the parked member must never
+        // get a worktree. Record the id, then delegate to the hermetic fake creator.
+        createWorktree: (issue) => {
+          worktreesCreated.push(issue.id);
+          return hermetic.createWorktree(issue);
+        },
+        // A implementable -> every gate stage green -> verifies (no merge damage).
+        integrateWorktree: () => ({ ok: true, conflict: false, message: "merged" }),
+        runGate: makeFakeGate(() => true),
+        captureHead: () => "PRE_SHA",
+        resetHard: () => {},
+      },
+    );
+    const byId = Object.fromEntries(processed.map((p) => [p.id, p.status]));
+    assert.equal(byId["ISS-A"], "verified", "the implementable member ran and verified");
+    assert.equal(byId["ISS-B"], "parked", "the needs_cr member is parked");
+    // The decisive assertion: NO worktree was ever created for the parked issue.
+    assert.ok(worktreesCreated.includes("ISS-A"), "the admitted issue got a worktree");
+    assert.ok(!worktreesCreated.includes("ISS-B"), "the parked issue got NO worktree (excluded pre-worktree)");
+    assert.ok(existsSync(resolve(repoRoot, `${cfg.reportsDir}/ISS-B-parked.json`)), "B parked report written");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// --------------------------------------------------------------------------
+// G6 — merge integrity (S10): post-merge re-gate + bounded merge-resolver
+//
+// The worktree/integration git ops are faked via the injectable seams so the tests
+// script conflict/reset/resolution deterministically without real merges.
+// --------------------------------------------------------------------------
+
+// A fake merge-resolver leg that writes `<id>-merge-resolution.json` per a scripted
+// verdict (resolved boolean), mirroring the real leg's file contract.
+function fakeMergeResolver(resolvedById) {
+  return (issue, cfg) => {
+    mkdirSync(resolve(repoRoot, cfg.reportsDir), { recursive: true });
+    writeFileSync(
+      resolve(repoRoot, `${cfg.reportsDir}/${issue.id}-merge-resolution.json`),
+      `${JSON.stringify({ resolved: resolvedById[issue.id] ?? false, reason: "fake" }, null, 2)}\n`,
+    );
+    return { output: `resolve ${issue.id}`, result: { status: 0 } };
+  };
+}
+
+// A fake gate that WRITES a valid gate-run evidence record (as the real gate does, so
+// the ledger's gate_passed validation — which reads that file — is satisfied) and
+// returns the verdict. The decision is keyed on the STAGE the orchestrator is in, not a
+// raw call count, so it is robust to how many times a phase re-runs:
+//   phase "worktree"    — cfg.execRoot set, before any merge (the in-cycle gate AND the
+//                         post-resolution worktree re-gate both run here).
+//   phase "post_merge"  — cfg.execRoot unset (main integration tree), after the merge.
+// `verdict(issue, { stage, worktreeCall })` returns a boolean pass. worktreeCall is the
+// per-issue count of worktree-stage calls (1 = in-cycle gate, 2 = post-resolution
+// re-gate) so a test can still distinguish those two when it needs to.
+function makeFakeGate(verdict) {
+  const worktreeCallsByIssue = {};
+  return (issue, cfg) => {
+    const stage = cfg.execRoot ? "worktree" : "post_merge";
+    if (stage === "worktree") worktreeCallsByIssue[issue.id] = (worktreeCallsByIssue[issue.id] ?? 0) + 1;
+    const pass = verdict(issue, { stage, worktreeCall: worktreeCallsByIssue[issue.id] ?? 0 });
+    mkdirSync(resolve(repoRoot, cfg.gatesDir), { recursive: true });
+    const evidenceRel = `${cfg.gatesDir}/${issue.id}-gate.json`;
+    writeFileSync(
+      resolve(repoRoot, evidenceRel),
+      `${JSON.stringify(
+        {
+          gate_id: `gate:test:${issue.id}`,
+          issue_id: issue.id,
+          command: "true",
+          exit_code: pass ? 0 : 1,
+          status: pass ? "pass" : "fail",
+          finished_at: new Date().toISOString(),
+          baseline_id: "baseline-test",
+        },
+        null,
+        2,
+      )}\n`,
+    );
+    return { pass, evidenceRel, exitCode: pass ? 0 : 1 };
+  };
+}
+
+// Fully-faked worktree lifecycle for the G6 orchestration tests: NO real git touches
+// the shared repoRoot (so these tests are hermetic and order-independent). createWorktree
+// returns a throwaway per-issue dir as the "worktree root"; reset/rebase/remove are
+// no-ops. Merge/gate/resolver behavior is scripted per test on top of this base.
+function hermeticWorktreeSteps() {
+  return {
+    createWorktree: (issue) => {
+      const wt = resolve(repoRoot, `_tmp-wt-${issue.id}-${Math.random().toString(36).slice(2)}`);
+      mkdirSync(wt, { recursive: true });
+      return { worktreeRoot: wt, branch: `vivicy/${issue.id}` };
+    },
+    removeWorktree: (issue, worktreeRoot) => {
+      if (worktreeRoot) rmSync(worktreeRoot, { recursive: true, force: true });
+    },
+    resetFrozenArtifacts: () => false,
+    rebaseWorktree: () => ({ ok: true, message: "rebased" }),
+    // Never write the done/-move commit on the shared repoRoot; the ledger + done/-move
+    // (scratch-scoped) still run and are what these tests assert.
+    commitDoneMove: false,
+    commit: () => {},
+    verifyBaseline: () => "baseline-test",
+    verifyTraceability: () => true,
+  };
+}
+
+// Hermetic fake legs (no worktree writes, no shared-repo git): just return green so
+// the async cycle reaches "verified". Paired with hermeticWorktreeSteps + a scripted
+// gate so the whole G6 flow is order-independent.
+function hermeticLegs() {
+  return {
+    runImplementer: async () => ({ output: "impl", result: { status: 0 } }),
+    runReviewer: async () => ({ output: "rev", result: { status: 0 } }),
+  };
+}
+
+test("G6 conflict -> resolver resolved + worktree gate green -> merge retried once -> success", async () => {
+  const issues = [{ id: "ISS-A", depends_on: [], graph_refs: ["node:a"] }];
+  const { dir, cfg } = buildParallelScratch({ issues });
+  let mergeCalls = 0;
+  let resolverCalls = 0;
+  let rebased = 0;
+  try {
+    const processed = await runLoopParallel(
+      { ...cfg, maxParallel: 1, defaultGateCommand: "true", claudeQuotaProbeEnabled: false },
+      {
+        ...hermeticWorktreeSteps(),
+        ...hermeticLegs(),
+        skipWorktreeIgnore: true,
+        // First integrate attempt conflicts; the retry (after resolution) succeeds.
+        integrateWorktree: () => {
+          mergeCalls += 1;
+          return mergeCalls === 1
+            ? { ok: false, conflict: true, message: "CONFLICT in src/x" }
+            : { ok: true, conflict: false, message: "merged" };
+        },
+        rebaseWorktree: () => {
+          rebased += 1;
+          return { ok: true, message: "rebased" };
+        },
+        runMergeResolver: (issue, c) => {
+          resolverCalls += 1;
+          return fakeMergeResolver({ "ISS-A": true })(issue, c);
+        },
+        // The orchestrator re-runs the gate itself: every stage green -> the issue
+        // verifies. The fake writes valid gate evidence so gate_passed validation holds.
+        runGate: makeFakeGate(() => true),
+        // No damage on the retried merge, so the reset path must never fire.
+        captureHead: () => "PRE_SHA",
+        resetHard: () => {
+          throw new Error("resetHard must NOT be called on a clean post-merge gate");
+        },
+      },
+    );
+    assert.deepEqual(processed, [{ id: "ISS-A", status: "verified" }], "resolved conflict + green gates -> verified");
+    assert.equal(mergeCalls, 2, "the merge was retried exactly once after resolution");
+    assert.equal(resolverCalls, 1, "the merge-resolver leg ran once");
+    assert.equal(rebased, 1, "the worktree was rebased onto integration HEAD before resolving");
+    assert.ok(existsSync(resolve(repoRoot, `${cfg.reportsDir}/ISS-A-merge-resolution.json`)), "resolution verdict written");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("G6 resolver CLAIMS resolved but the orchestrator's worktree gate re-run is RED -> blocked (trust nothing)", async () => {
+  const issues = [{ id: "ISS-A", depends_on: [], graph_refs: ["node:a"] }];
+  const { dir, cfg } = buildParallelScratch({ issues });
+  let mergeCalls = 0;
+  try {
+    const processed = await runLoopParallel(
+      { ...cfg, maxParallel: 1, defaultGateCommand: "true", claudeQuotaProbeEnabled: false },
+      {
+        ...hermeticWorktreeSteps(),
+        ...hermeticLegs(),
+        skipWorktreeIgnore: true,
+        integrateWorktree: () => {
+          mergeCalls += 1;
+          return { ok: false, conflict: true, message: "CONFLICT" };
+        },
+        rebaseWorktree: () => ({ ok: true, message: "rebased" }),
+        // Resolver lies: it claims resolved, but the orchestrator's own gate re-run is red.
+        runMergeResolver: fakeMergeResolver({ "ISS-A": true }),
+        // Worktree call 1 = in-cycle gate (green, to reach verified pre-merge); worktree
+        // call 2 = the orchestrator's own re-gate after resolution (RED) — the lie is caught.
+        runGate: makeFakeGate((issue, { stage, worktreeCall }) => stage === "worktree" && worktreeCall <= 1),
+        captureHead: () => "PRE_SHA",
+        resetHard: () => {},
+      },
+    );
+    assert.deepEqual(processed, [{ id: "ISS-A", status: "blocked" }], "a lying resolver is caught by the orchestrator's own gate");
+    assert.equal(mergeCalls, 1, "the merge was NOT retried (the orchestrator's gate re-run was red)");
+    assert.ok(existsSync(resolve(repoRoot, `${cfg.reportsDir}/ISS-A-blocked.json`)), "an integration block was written");
+    const block = JSON.parse(readFileSync(resolve(repoRoot, `${cfg.reportsDir}/ISS-A-blocked.json`), "utf8"));
+    assert.match(block.reason, /unresolved/i);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("G6 post-merge re-gate RED -> integration reset to pre-merge sha + issue blocked + others continue", async () => {
+  const issues = [
+    { id: "ISS-A", depends_on: [], graph_refs: ["node:a"] }, // its merge damages integration
+    { id: "ISS-C", depends_on: [], graph_refs: ["node:c"] }, // independent, stays green
+  ];
+  const { dir, cfg } = buildParallelScratch({ issues });
+  const resetCalls = [];
+  try {
+    const processed = await runLoopParallel(
+      { ...cfg, maxParallel: 1, defaultGateCommand: "true", claudeQuotaProbeEnabled: false },
+      {
+        ...hermeticWorktreeSteps(),
+        ...hermeticLegs(),
+        skipWorktreeIgnore: true,
+        // Both merges succeed cleanly (no conflict) — the damage is caught by the
+        // post-merge re-gate, not the merge itself.
+        integrateWorktree: () => ({ ok: true, conflict: false, message: "merged" }),
+        // Pre-merge HEAD sha captured per issue; the reset must target it.
+        captureHead: () => "PRE_SHA_A",
+        resetHard: (sha) => {
+          resetCalls.push(sha);
+          return { status: 0 };
+        },
+        // ISS-A: worktree gate green (pre-merge), post-merge gate RED (the damage).
+        // ISS-C: green in every stage. Keyed on stage, so robust to phase re-runs.
+        runGate: makeFakeGate((issue, { stage }) => !(issue.id === "ISS-A" && stage === "post_merge")),
+      },
+    );
+    const byId = Object.fromEntries(processed.map((p) => [p.id, p.status]));
+    assert.equal(byId["ISS-A"], "blocked", "the damaging issue is blocked");
+    assert.equal(byId["ISS-C"], "verified", "the independent issue still verifies");
+    // The integration branch was reset to the captured pre-merge sha (merge reverted).
+    assert.deepEqual(resetCalls, ["PRE_SHA_A"], "the merge was reverted to the pre-merge HEAD sha");
+    // The dedicated post-merge integration block carries both gate evidences.
+    const block = JSON.parse(readFileSync(resolve(repoRoot, `${cfg.reportsDir}/ISS-A-integration-blocked.json`), "utf8"));
+    assert.equal(block.kind, "post_merge_gate");
+    assert.equal(block.reverted_to_sha, "PRE_SHA_A");
+    // BOTH gate verdicts are recorded HONESTLY (they share a gate file path, so the
+    // pre-merge GREEN record is snapshotted before the post-merge run overwrites it):
+    // pre-merge pass, post-merge fail — exactly the "merge damaged something" signal.
+    assert.equal(block.pre_merge_gate_evidence?.record?.status, "pass", "the green pre-merge verdict is preserved");
+    assert.equal(block.post_merge_gate_evidence?.record?.status, "fail", "the red post-merge verdict is recorded");
+    // ISS-A did not move to done/; ISS-C did.
+    const done = readdirSync(resolve(repoRoot, cfg.doneDir));
+    assert.ok(!done.includes("ISS-A.md"), "damaged issue NOT moved to done/");
+    assert.ok(done.includes("ISS-C.md"), "independent issue moved to done/");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

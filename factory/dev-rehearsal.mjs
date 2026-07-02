@@ -222,7 +222,13 @@ async function main() {
     // NOTE: no defaultGateCommand is passed — the loop resolves the POLYGLOT gate
     // from the fixture's own `vivicy.json` ("npm test"), exercising the real
     // project-config path end-to-end (the Node fixture stays green).
-    processed = await devloop.runLoop({ maxParallel: concurrency }, steps);
+    // readiness OFF (S8/G5): this rehearsal is the harness/lifecycle self-test for the
+    // freeze->extract->dev->merge->ledger chain and carries NO readiness leg (dry legs
+    // don't cover it, and a real readiness leg is out of this self-test's scope). The
+    // S8 verdict routing has its own dedicated unit tests; keeping it off preserves the
+    // rehearsal's determinism. This is exactly the "default readiness ON only when real
+    // legs are configured" rule — the rehearsal configures none, so it disables it.
+    processed = await devloop.runLoop({ maxParallel: concurrency, readiness: false }, steps);
   } catch (error) {
     record("dev-loop two-agent run", false, String(error?.message ?? error));
   }
