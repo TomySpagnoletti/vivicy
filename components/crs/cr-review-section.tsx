@@ -43,18 +43,26 @@ export function CrReviewSection({ reloadSignal, onDecided }: { reloadSignal?: un
   const [crs, setCrs] = useState<ChangeRequestSummary[]>([])
   const [deciding, setDeciding] = useState<string | null>(null)
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (): Promise<ChangeRequestSummary[] | null> => {
     try {
       const res = await fetch("/api/control/crs", { cache: "no-store" })
       const body = (await res.json().catch(() => ({}))) as { ok?: boolean; crs?: ChangeRequestSummary[] }
-      if (body.ok && Array.isArray(body.crs)) setCrs(body.crs)
+      if (body.ok && Array.isArray(body.crs)) return body.crs
     } catch {
       // Non-fatal: the CR section just stays empty if the registry can't be read.
     }
+    return null
   }, [])
 
   useEffect(() => {
-    void load()
+    let cancelled = false
+    void (async () => {
+      const next = await load()
+      if (!cancelled && next) setCrs(next)
+    })()
+    return () => {
+      cancelled = true
+    }
   }, [load, reloadSignal])
 
   const decide = useCallback(
@@ -81,7 +89,8 @@ export function CrReviewSection({ reloadSignal, onDecided }: { reloadSignal?: un
         })
       } finally {
         setDeciding(null)
-        await load()
+        const next = await load()
+        if (next) setCrs(next)
         onDecided?.()
       }
     },
