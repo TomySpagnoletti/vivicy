@@ -9,7 +9,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { FACTORY_PROMPTS_DIR } from "./target-root.mjs";
 
-const PROMPTS = ["implementer.md", "reviewer.md", "extractor.md", "extraction-verifier.md", "map-review.md", "change-request.md", "spike-prover.md", "proof-verifier.md", "cr-applier.md"];
+const PROMPTS = ["implementer.md", "reviewer.md", "extractor.md", "extraction-verifier.md", "map-review.md", "change-request.md", "spike-prover.md", "spike-verifier.md", "cr-applier.md"];
 
 function readPrompt(name) {
   return readFileSync(join(FACTORY_PROMPTS_DIR, name), "utf8");
@@ -112,10 +112,10 @@ test("spike-prover.md carries the run-it-in-the-target-repo proving discipline",
   assert.match(text, /Forbidden/i, "must forbid touching other spikes / the corpus");
 });
 
-test("proof-verifier.md carries the independent counter-verification discipline", () => {
-  const text = readPrompt("proof-verifier.md");
-  assert.match(text, /SELF-CONTAINED/, "proof-verifier.md must declare it is self-contained");
-  assert.match(text, /independent Proof Verifier/i);
+test("spike-verifier.md carries the independent counter-verification discipline", () => {
+  const text = readPrompt("spike-verifier.md");
+  assert.match(text, /SELF-CONTAINED/, "spike-verifier.md must declare it is self-contained");
+  assert.match(text, /independent Spike Verifier/i);
   assert.match(text, /did \*\*NOT\*\* establish this proof|You did .*NOT.* establish/i);
   // It writes the agree verdict and edits nothing.
   assert.match(text, /spike-proof-<stem>-verdict\.json/);

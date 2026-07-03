@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Vivicy CR APPLICATION chain (S11 / G7): the docs_applied automation for an APPROVED
-// Change Request. Today the sequence "patch canonical -> re-freeze -> re-extract -> re-drive"
+// Change Request. Today the sequence "patch canonical -> re-freeze -> re-extract -> reopen impacted issues"
 // is run by hand; this module makes it mechanical for a CR in status
 // accepted_current_build, honouring the fold rule (§4): the CR ends `docs_applied` and the
 // canonical becomes the single consolidated intention (never an old spec + infinite annexes).
@@ -23,11 +23,11 @@
 //                 docs_applied with resulting_baseline_* (stampChangeRequestApplied — the
 //                 stamped file must pass change-control).
 //   (d) EXTRACT — spawn extract-issues.mjs as a CHILD. That orchestrator already snapshots
-//                 the prior source-map and, on green, runs re-drive INTERNALLY to reopen
-//                 exactly the impacted done issues (see extract-issues.mjs, the runReDrive
-//                 block near the green return). So re-drive is INTRINSIC to the extraction
-//                 spawn — this chain deliberately does NOT call runReDrive itself, to keep a
-//                 single owner of the re-drive step.
+//                 the prior source-map and, on green, reopens impacted issues INTERNALLY to
+//                 reopen exactly the impacted done issues (see extract-issues.mjs, the runReopen
+//                 block near the green return). So reopening is INTRINSIC to the extraction
+//                 spawn — this chain deliberately does NOT call runReopen itself, to keep a
+//                 single owner of the reopening step.
 //   (e) TERMINAL — { status: "green" | "blocked", cr, baseline, extraction }.
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -202,9 +202,9 @@ export async function applyChangeRequest(args = {}) {
     }
   }
 
-  // (d) RE-EXTRACT (+ RE-DRIVE, intrinsic): spawn extract-issues.mjs. It captures the prior
-  // source-map and, on green, reopens exactly the impacted done issues via re-drive
-  // INTERNALLY — see extract-issues.mjs. We do NOT re-drive here; the extraction owns it.
+  // (d) RE-EXTRACT (+ REOPEN, intrinsic): spawn extract-issues.mjs. It captures the prior
+  // source-map and, on green, reopens exactly the impacted done issues
+  // INTERNALLY — see extract-issues.mjs. We do NOT reopen here; the extraction owns it.
   recordReport({ phase: "extract", cr: id, updated_at: now() });
   const extraction = await runExtraction({ repoRoot });
   if (extraction.status !== "green") {
@@ -218,7 +218,7 @@ export async function applyChangeRequest(args = {}) {
   return terminal(recordReport, "green", "green", id, {
     baseline,
     extraction,
-    summary: `cr-apply: ${id} applied — canonical folded, re-frozen as ${baseline.baselineId}, re-extracted green${extraction.reopened?.length ? ` (re-drive reopened ${extraction.reopened.length} impacted issue(s))` : ""}.`,
+    summary: `cr-apply: ${id} applied — canonical folded, re-frozen as ${baseline.baselineId}, re-extracted green${extraction.reopened?.length ? ` (reopened ${extraction.reopened.length} impacted issue(s))` : ""}.`,
   });
 }
 
@@ -344,11 +344,11 @@ function defaultRunFreeze({ repoRoot, version, previousVersion, approvedBy, appr
   };
 }
 
-// Spawn the extraction orchestrator as a CHILD (re-extract + re-drive; re-drive intrinsic
+// Spawn the extraction orchestrator as a CHILD (re-extract + reopen; reopening intrinsic
 // to it). We shell out — rather than import extractIssues — so the child runs the full real
 // path (freeze reuse, spike gating, commit) exactly as a standalone extraction, and reads
 // the terminal state back from the status file it writes (the same file the control plane
-// reads). The child's own re-drive reopens the impacted done issues.
+// reads). The child's own reopening restores the impacted done issues.
 function defaultRunExtraction({ repoRoot }) {
   const tool = resolve(FACTORY_DIR, "extract-issues.mjs");
   const result = spawnSync("node", [tool], { cwd: repoRoot, env: { ...process.env, VIVICY_TARGET_ROOT: repoRoot }, encoding: "utf8" });

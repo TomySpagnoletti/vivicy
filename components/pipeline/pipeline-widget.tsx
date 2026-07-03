@@ -196,7 +196,7 @@ export function PipelineWidget() {
           </div>
           <div className="flex items-center justify-between gap-3 px-1 text-[10px] text-muted-foreground">
             <span>Non-loop</span>
-            <span>Dev-loop (autonomous)</span>
+            <span>Development loop (autonomous)</span>
           </div>
         </CollapsibleContent>
       </Collapsible>
@@ -276,7 +276,7 @@ function StageNode({
             <AlertDialogDescription>
               {retryStage === "extract"
                 ? "Re-runs freeze -> author -> validate -> verify from the frozen canonical."
-                : "Resumes the dev-loop supervisor from done/ and the progress ledger."}
+                : "Resumes the development-loop supervisor from done/ and the progress ledger."}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

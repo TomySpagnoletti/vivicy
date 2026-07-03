@@ -15,7 +15,7 @@
 //      experiments in the target repo, writes the six evidence fields INTO the spike
 //      file's Evidence Required section (the file is the artifact), and a machine
 //      verdict JSON { verdict, reason } to the reports dir.
-//   2. VERIFIER  (reviewer CLI, role "proof-verifier") independently re-derives from
+//   2. VERIFIER  (reviewer CLI, role "spike-verifier") independently re-derives from
 //      the spike + evidence + repo and writes { agree, problems } — the due-diligence
 //      against a hallucinated proof (a proof rarely survives two different models).
 //
@@ -53,7 +53,7 @@ const SPIKE_GRAPH_REF = "node:spike-proof";
  *   spawnProver({ repoRoot, spike, cfg, attempt, disagreement })
  *       -> leg result; the PROVER runs the spike's experiments in-repo, writes the
  *          six evidence fields into the spike file, and writes spike-proof-<stem>.json.
- *   spawnProofVerifier({ repoRoot, spike, cfg, attempt })
+ *   spawnSpikeVerifier({ repoRoot, spike, cfg, attempt })
  *       -> leg result; the VERIFIER writes spike-proof-<stem>-verdict.json.
  *   writeChangeRequest({ repoRoot, spike, proof, verdict, reason })
  *       -> { file } ; drafts a `status: idea` CR capturing both reports as evidence.
@@ -78,7 +78,7 @@ export async function runSpikeProving(args = {}) {
   const now = args.now ?? (() => new Date().toISOString());
   const recordEvent = args.recordEvent ?? null;
   const spawnProver = args.spawnProver ?? makeDefaultSpawnProver(cfg, legs);
-  const spawnProofVerifier = args.spawnProofVerifier ?? makeDefaultSpawnProofVerifier(cfg, legs);
+  const spawnSpikeVerifier = args.spawnSpikeVerifier ?? makeDefaultSpawnSpikeVerifier(cfg, legs);
   const writeChangeRequest = args.writeChangeRequest ?? defaultWriteChangeRequest;
 
   // A LIVE view of statuses that this run mutates as it proves: a spike gated by one
@@ -113,7 +113,7 @@ export async function runSpikeProving(args = {}) {
       spike,
       cfg,
       spawnProver,
-      spawnProofVerifier,
+      spawnSpikeVerifier,
       writeChangeRequest,
       recordEvent,
       now,
@@ -135,7 +135,7 @@ export async function runSpikeProving(args = {}) {
 // disagreement), then decide deterministically. Returns the decided status, the
 // reason, and any drafted CR. NEVER trusts a leg: it reads both JSON files itself.
 async function proveOneSpike(ctx) {
-  const { repoRoot, spike, cfg, spawnProver, spawnProofVerifier, writeChangeRequest, recordEvent, now } = ctx;
+  const { repoRoot, spike, cfg, spawnProver, spawnSpikeVerifier, writeChangeRequest, recordEvent, now } = ctx;
   const stem = spikeStem(spike.file);
   const proofRel = `${REPORTS_DIR}/spike-proof-${stem}.json`;
   const verdictRel = `${REPORTS_DIR}/spike-proof-${stem}-verdict.json`;
@@ -160,7 +160,7 @@ async function proveOneSpike(ctx) {
     clearFile(repoRoot, verdictRel);
     const proverLeg = await spawnProver({ repoRoot, spike, cfg, attempt, disagreement: last?.disagreement ?? null });
     const proof = readProofReport(repoRoot, proofRel, proverLeg);
-    const verdictLeg = await spawnProofVerifier({ repoRoot, spike, cfg, attempt });
+    const verdictLeg = await spawnSpikeVerifier({ repoRoot, spike, cfg, attempt });
     const verdict = readVerifierReport(repoRoot, verdictRel, verdictLeg);
 
     last = { attempt, proof, verdict, proverLeg, verdictLeg };
@@ -196,7 +196,7 @@ async function proveOneSpike(ctx) {
   // a human sees WHY (both reports are the evidence). Never flip to verified on a
   // non-agreement.
   flipSpikeStatus(repoRoot, spike, "failed");
-  const reason = `prover and proof-verifier did not agree after a bounded retry: ${last.disagreement}`;
+  const reason = `prover and spike-verifier did not agree after a bounded retry: ${last.disagreement}`;
   const cr = writeChangeRequest({ repoRoot, spike, proof: proofRel, verdict: verdictRel, reason, kind: "disagreement", now });
   emit(recordEvent, spikeProofCompleted(spike, "failed", now, [proofRel, verdictRel, ...(cr?.file ? [cr.file] : [])]));
   return { status: "failed", reason, changeRequest: cr };
@@ -223,7 +223,7 @@ function readProofReport(repoRoot, rel, leg) {
 function readVerifierReport(repoRoot, rel, leg) {
   const parsed = readJsonOrNull(resolve(repoRoot, rel));
   if (!parsed) {
-    return { agree: false, problems: [legFailureReason(leg) ?? `proof-verifier wrote no verdict at ${rel}`] };
+    return { agree: false, problems: [legFailureReason(leg) ?? `spike-verifier wrote no verdict at ${rel}`] };
   }
   return {
     agree: parsed.agree === true,
@@ -235,7 +235,7 @@ function readVerifierReport(repoRoot, rel, leg) {
 // fed back verbatim to the retry pair so it addresses the exact objection.
 function disagreementFeedback(proof, verdict) {
   const problems = (verdict.problems ?? []).map((p) => (typeof p === "string" ? p : JSON.stringify(p))).join("; ");
-  return `prover said "${proof.verdict}" (${proof.reason || "no reason"}); proof-verifier agree=${verdict.agree}${problems ? ` — problems: ${problems}` : ""}`;
+  return `prover said "${proof.verdict}" (${proof.reason || "no reason"}); spike-verifier agree=${verdict.agree}${problems ? ` — problems: ${problems}` : ""}`;
 }
 
 // A leg's own failure reason (a killed/timed-out CLI), so a "no report" carries WHY.
@@ -315,8 +315,8 @@ export function defaultWriteChangeRequest({ repoRoot, spike, proof, verdict, rea
 function renderChangeRequest({ title, spike, proof, verdict, reason, kind }) {
   const outcome =
     kind === "disagreement"
-      ? "The prover and the independent proof-verifier could not agree after a bounded retry, so the proof is untrustworthy."
-      : "The prover ran the spike's experiments and DISPROVED its hypothesis; the independent proof-verifier agreed.";
+      ? "The prover and the independent spike-verifier could not agree after a bounded retry, so the proof is untrustworthy."
+      : "The prover ran the spike's experiments and DISPROVED its hypothesis; the independent spike-verifier agreed.";
   return [
     `# ${title}`,
     "",
@@ -352,7 +352,7 @@ function renderChangeRequest({ title, spike, proof, verdict, reason, kind }) {
     "",
     "```text",
     `prover verdict report:        ${proof}`,
-    `proof-verifier agree report:  ${verdict}`,
+    `spike-verifier agree report:  ${verdict}`,
     `spike file (with evidence):   ${spike.file}`,
     "```",
     "",
@@ -380,7 +380,7 @@ function formatRequirementIds(spike) {
 // ---------------------------------------------------------------------------
 
 // Resolve the two legs the same way extract-issues does when the caller passes none:
-// implementer CLI = prover, reviewer CLI = proof-verifier (R12 distinct-CLI).
+// implementer CLI = prover, reviewer CLI = spike-verifier (R12 distinct-CLI).
 function defaultLegs() {
   return {
     implementer: { actor: "claude", provider: "claude", model: CLI_DEFAULTS.claude.model, effort: CLI_DEFAULTS.claude.effort, fast: false },
@@ -405,11 +405,11 @@ function makeDefaultSpawnProver(baseCfg, legs) {
 }
 
 // The VERIFIER seam: drive the REVIEWER-role CLI (Codex by default), re-roled to
-// "proof-verifier". resolveAgentLegs guarantees the reviewer CLI differs from the
+// "spike-verifier". resolveAgentLegs guarantees the reviewer CLI differs from the
 // implementer CLI, so the agent that verifies a proof never established it (R12).
-function makeDefaultSpawnProofVerifier(baseCfg, legs) {
+function makeDefaultSpawnSpikeVerifier(baseCfg, legs) {
   const reviewer = legs?.reviewer ?? defaultLegs().reviewer;
-  const leg = { ...reviewer, role: "proof-verifier" };
+  const leg = { ...reviewer, role: "spike-verifier" };
   return async ({ repoRoot, spike, cfg, attempt }) => {
     const legCfg = { ...cfg, promptsDir: cfg?.promptsDir ?? FACTORY_PROMPTS_DIR, execRoot: repoRoot };
     const issue = spikeIssue(spike);
@@ -500,8 +500,8 @@ function emit(recordEvent, event) {
 function spikeProofCompleted(spike, verdict, now, evidence) {
   return {
     event_type: "spike_proof_completed",
-    actor: "proof-verifier",
-    role: "proof_verifier",
+    actor: "spike-verifier",
+    role: "spike_verifier",
     gate_id: spike.gate_id,
     file: spike.file,
     verdict,

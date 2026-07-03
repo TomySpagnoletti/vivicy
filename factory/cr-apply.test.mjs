@@ -219,7 +219,7 @@ describe("applyChangeRequest — happy path (green)", () => {
     assert.equal(freezeCalls.length, 1);
     assert.deepEqual(freezeCalls[0], { version: "1.0.1", previousVersion: "1.0.0", approvedBy: "owner:ui", approvalRef: "CR-0001" });
 
-    // EXTRACTION was spawned (re-drive is intrinsic to it; the chain does not re-drive here).
+    // EXTRACTION was spawned (reopening is intrinsic to it; the chain does not reopen here).
     assert.equal(extractCalls.length, 1, "extraction spawn invoked exactly once");
     assert.equal(extractCalls[0].repoRoot, temp);
 
@@ -240,7 +240,7 @@ describe("applyChangeRequest — happy path (green)", () => {
 
     // The report file was written to disk by the default recorder path only when used; here
     // we injected a sink, so assert the terminal object rather than the file.
-    assert.match(result.summary, /re-drive reopened 1 impacted issue/);
+    assert.match(result.summary, /reopened 1 impacted issue/);
   });
 
   it("commits the applied canonical edit BEFORE freezing (else doc-baseline refuses a dirty tree)", async () => {

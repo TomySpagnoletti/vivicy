@@ -769,7 +769,7 @@ async function cmdCr(argv, opts) {
   }
 
   // 2. APPLY chain (approvals) — cr-apply.mjs; read its terminal report back.
-  note(`vivicy: applying ${id} (apply -> re-freeze -> re-extract -> re-drive)…`);
+  note(`vivicy: applying ${id} (apply -> re-freeze -> re-extract -> reopen impacted issues)…`);
   const applyRes = await runScript(process.execPath, [scriptPath(CR_APPLY_SCRIPT), "--cr", id], {
     cwd: factoryDir,
     env: childEnv(target),

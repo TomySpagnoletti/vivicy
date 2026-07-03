@@ -61,10 +61,10 @@ export const progressEventTypes = [
 // Optional actor role on an event/active item, so the map can show which agent
 // (the implementer or the independent reviewer) is acting. The orchestrator sets
 // the role mechanically from the leg it is running, never the agent itself.
-// spike_prover / proof_verifier are the S3 proving legs (G3), the R12 pair on the
+// spike_prover / spike_verifier are the S3 proving legs (G3), the R12 pair on the
 // spike substance stage. readiness-checker (S8) and merge-resolver (S10) are advisory
 // legs that run on the implementer CLI; their verdicts the orchestrator re-gates deterministically.
-export const progressRoles = ["implementer", "reviewer", "spike_prover", "proof_verifier", "readiness-checker", "merge-resolver"];
+export const progressRoles = ["implementer", "reviewer", "spike_prover", "spike_verifier", "readiness-checker", "merge-resolver"];
 
 const activeStateByEvent = {
   gate_failed: "verifying",
@@ -78,7 +78,7 @@ const activeStateByEvent = {
   review_completed: "reviewing",
   review_started: "reviewing",
   // S8 readiness: the check + a bounded issue edit are working-phase; parking on a CR
-  // is a block state so the map lights the parked node until a CR decision re-drives it.
+  // is a block state so the map lights the parked node until a CR decision reopens it.
   readiness_check_started: "working",
   readiness_check_completed: "working",
   readiness_update_applied: "working",

@@ -17,14 +17,14 @@ This evolution is large enough to jump the project version to **0.5.0**.
 ## 1. Operating principles (apply to every gap)
 
 - P1 — **No fakery**: every safety/traceability/coverage/progress mechanism must be genuinely verified and enforced by the orchestrator. Producing a report, matrix, or hash that nothing downstream checks is forbidden. Deterministic wherever possible.
-- P2 — **Zero humans in the dev-loop**: the autonomous side runs with no human step. Exactly one legitimate human touchpoint exists in the whole system: the owner decision on a change request (an intention change). Retry buttons (§G8) are human interventions *on* the machine, never steps the machine waits for.
+- P2 — **Zero humans in the development loop**: the autonomous side runs with no human step. Exactly one legitimate human touchpoint exists in the whole system: the owner decision on a change request (an intention change). Retry buttons (§G8) are human interventions *on* the machine, never steps the machine waits for.
 - P3 — **Absolute rigor as consequence of P2**: because no human watches the loop, the discipline must be extreme — hard gates, loud failures, no silent loss, no blind states. Being blind about what happened, where, or why is forbidden.
 - P4 — **Never leave an error standing**: on any detected problem the orchestrator remediates automatically (re-extract, correct, re-freeze, re-gate) within bounded attempts; if bounds are exhausted it blocks *loudly* (report + notification), never silently. The loop must always either progress or surface a block.
-- P5 — **Flexibility inside determinism**: agents must not act "like brutes" grabbing work blindly. The system embeds human-like judgment legs (readiness verdicts, proof verdicts) at decision points, while the orchestration around them stays deterministic and evidence-based.
+- P5 — **Flexibility inside determinism**: agents must not grab work blindly. The system embeds human-like judgment legs (readiness verdicts, proof verdicts) at decision points, while the orchestration around them stays deterministic and evidence-based.
 - P6 — **ShadcnUI only, everywhere**: design tokens, components, and pages all come from ShadcnUI. Nothing is hand-invented in raw Tailwind. This applies to all UI work in this document, not just the chat.
-- P7 — **Non-loop / dev-loop boundary**: left of the boundary (spec creation: import, Vivi conversation) there is no automatism — only a user↔Vivi discussion. Right of it, everything is autonomous. The pipeline UI (§G8) must preserve and display this boundary.
+- P7 — **Non-loop / development-loop boundary**: left of the boundary (spec creation: import, Vivi conversation) there is no automatism — only a user↔Vivi discussion. Right of it, everything is autonomous. The pipeline UI (§G8) must preserve and display this boundary.
 - P8 — **Stage typing**: every stage is typed deterministic (🖥️ — strongly or totally deterministic), agent (🤖 — performed by an LLM: Claude or Codex), or mixed (🖥️🤖). §3 assigns the type per stage; the UI displays it.
-- P9 — **Notifications at every step**: each pipeline step, including autonomous dev-loop internals, reports where the system is, what succeeded, what failed, and what is being redone (e.g. "re-extracting issues after verification found 2 missing"). See §G9.
+- P9 — **Notifications at every step**: each pipeline step, including autonomous development-loop internals, reports where the system is, what succeeded, what failed, and what is being redone (e.g. "re-extracting issues after verification found 2 missing"). See §G9.
 - P10 — **No useless work**: the canonical never chases the code. Doc updates happen only when intention changes (§4), never to mirror code evolution.
 
 ## 2. Current engine — audited and fact-checked state
@@ -33,30 +33,30 @@ Every claim below was verified against source by independent agents (one claim c
 
 | Capability | Status | Evidence |
 |---|---|---|
-| Freeze + hash verification | ✅ | doc-baseline.mjs:138/143 — SHA-256 document_set_hash + manifest_hash (computeDocumentSetHash :364-370, computeManifestHash :372-383); prior frozen baselines stamped superseded (:601-636). Enforcement is asymmetric by design: at extraction start a mismatch triggers autonomous re-freeze (extract-issues.mjs:140,202-216); at dev-loop entry it is a hard gate that throws (dev-loop.mjs:1471) |
+| Freeze + hash verification | ✅ | doc-baseline.mjs:138/143 — SHA-256 document_set_hash + manifest_hash (computeDocumentSetHash :364-370, computeManifestHash :372-383); prior frozen baselines stamped superseded (:601-636). Enforcement is asymmetric by design: at extraction start a mismatch triggers autonomous re-freeze (extract-issues.mjs:140,202-216); at development-loop entry it is a hard gate that throws (dev-loop.mjs:1471) |
 | Extraction two-agent loop | ✅ | extract-issues.mjs: Claude extractor authors corpus → 5 deterministic gates (semantic-extraction, traceability, spike, reference, change-control) → Codex fidelity verdict (faithful:true required) → 8-lens map review (map-review.mjs) → bounded retries re-prompting the extractor |
 | Auto spec-correction during extraction | ✅ | Extractor may edit .vivicy/canonical to fix contradictions; orchestrator detects hash mismatch, re-freezes autonomously, continues (extract-issues.mjs:202-216) |
 | 100% coverage accounting | ✅ | semantic-extraction-check.mjs: every canonical line covered, governed-excluded, or auto-excluded; uncovered lines fatal outside in-progress tolerance |
-| Two-agent dev loop | ✅ | dev-loop.mjs: distinct implementer/reviewer CLIs enforced (R12, resolveAgentLegs :145-176); orchestrator re-runs the verification gate itself, never trusts agent claims |
+| Two-agent development loop | ✅ | dev-loop.mjs: distinct implementer/reviewer CLIs enforced (R12, resolveAgentLegs :145-176); orchestrator re-runs the verification gate itself, never trusts agent claims |
 | Parallel dev ≤12 worktrees | ✅ | runLoopParallel: per-issue git worktrees, independence gate (no transitive deps + disjoint claims), max-spread batch selection, integration lock, conflict aborts and blocks only that issue, frozen-artifact reset pre-merge. **No post-merge re-verification exists** (→ G6) |
-| Detached loop (the "PM2 idea") | ✅ | node-spawner.ts spawnDetached (detached:true + unref): supervisor survives Next.js server restart; UI reattaches via run-lock (lib/control.ts). PM2 unnecessary — the property the owner wanted (update/restart Vivicy while the loop keeps developing Naight) already holds. Machine shutdown kills everything, as expected |
-| CR registry | ✅ | change-control.mjs: CR-NNNN files, 8-status lifecycle (idea → under_review → accepted_current_build → docs_applied / accepted_future / rejected / implemented / superseded), owner-decision evidence required on decided statuses, previous_*/resulting_* baseline identity chained; re-drive.mjs mechanically reopens impacted issues via excerpt drift. **All transitions manual today** (→ G7) |
+| Detached loop (the "PM2 idea") | ✅ | node-spawner.ts spawnDetached (detached:true + unref): supervisor survives Next.js server restart; UI reattaches via run-lock (lib/control.ts). PM2 unnecessary — the property the owner wanted (update/restart Vivicy while the loop keeps developing the target project) already holds. Machine shutdown kills everything, as expected |
+| CR registry | ✅ | change-control.mjs: CR-NNNN files, 8-status lifecycle (idea → under_review → accepted_current_build → docs_applied / accepted_future / rejected / implemented / superseded), owner-decision evidence required on decided statuses, previous_*/resulting_* baseline identity chained; reopen.mjs mechanically reopens impacted issues via excerpt drift. **All transitions manual today** (→ G7) |
 | Empty-canonical guard | ❌ bug | lib/control.ts:442-475 spawns extraction with no check that canonical holds real content; template README alone launches agents that spin (→ G11) |
 | Chat / notifications / pipeline widget | ❌ | No chat UI or endpoint; sonner toasts only (ephemeral); no stage widget (aggregate progress bar + phase pill only); top-center over the ReactFlow map is free, ViewportPortal available (→ G2, G8, G9) |
-| Naight import compatibility | ✅ 100% | _naight-docs: 34 canonical docs, 21 spikes (inter-spike gating already valid), architecture-map.yml — byte-compatible with the .vivicy contract. Copy as-is, one re-freeze, one extraction. Zero normalization |
+| Existing-project import compatibility | ✅ 100% | a real imported corpus: 34 canonical docs, 21 spikes (inter-spike gating already valid), architecture-map.yml — byte-compatible with the .vivicy contract. Copy as-is, one re-freeze, one extraction. Zero normalization |
 
 ## 3. Target pipeline — stage by stage
 
-Stage typing per P8. Loop-backs are part of the contract, not exceptions. The "can be retried" bracket (§G8) spans the whole dev-loop side, S2→S12 (as drawn on the diagram, from spike extraction/integration through Done): any stage can be relaunched manually from the UI after a failure.
+Stage typing per P8. Loop-backs are part of the contract, not exceptions. The "can be retried" bracket (§G8) spans the whole development-loop side, S2→S12 (as drawn on the diagram, from spike extraction/integration through Done): any stage can be relaunched manually from the UI after a failure.
 
 **Non-loop side (no automatism, user ↔ Vivi only):**
 
 - **S0 — Onboarding** (🖥️ + user): choose the project start — (a) import existing docs, (b) build the spec conversing with Vivi, (c) open a project that already carries a .vivicy. → G10.
 - **S1 — Spec + spikes intake**, two paths:
-  - **Import** (owner's primary personal path, built for the Naight case): any text files (.md, .doc, .txt, …) via drop zone or picker — individual files, a folder, or a zip. Vivicy **checks first, then places**: verification (no drift, no contradictions, zero modification of the intention) runs on the staged upload, and only then is content normalized to MD and routed to .vivicy/canonical, .vivicy/development/spikes, .vivicy/architecture-map/. → G1.
+  - **Import** (owner's primary personal path, built for the existing-project case): any text files (.md, .doc, .txt, …) via drop zone or picker — individual files, a folder, or a zip. Vivicy **checks first, then places**: verification (no drift, no contradictions, zero modification of the intention) runs on the staged upload, and only then is content normalized to MD and routed to .vivicy/canonical, .vivicy/development/spikes, .vivicy/architecture-map/. → G1.
   - **Vivi** (for users who did no prior spec work — Vivicy helps them from spec writing to finished product): a relatively technical chatbot; the user can ask explanation questions; Vivi grills the user (grill-me style, §G2) and writes only MD files — the canonical, and spikes too, which eases the extractor later (fewer spikes left to extract). → G2.
 
-**Dev-loop side (autonomous):**
+**Development-loop side (autonomous):**
 
 - **S2 — Extract from canonical OR integrate existing spikes** (🤖): if no spikes exist, extract them from the canonical; if spikes were uploaded or Vivi-written, **integrate** them — check against the canonical, update contents only if needed, never rewrite, never re-extract. → G12.
 - **S3 — Verify spikes / check the proofs** (🤖, in the **target repo** directly): substance, not form (form was S2). Investigate each spike's claims and prove its hypotheses. Cross-agent by design: **Claude establishes the proof, Codex verifies the verification** — protection against hallucinated proofs (a proof rarely survives two different models). Outcomes: (a) hypothesis proven → spike marked verified, canonical untouched; (b) reality differs → once definitive proof of the actual behavior exists, the canonical is updated **only as necessary**, then the spike is marked verified. Pre-freeze this update is a direct edit (truth-model rule 1 zone); post-freeze re-verification routes through a CR (rule 2). Fully automatic, non-human. → G3.
@@ -103,8 +103,8 @@ Nothing exists today (audit: app/api/fs has list/mkdir only; no upload, no norma
 - UI: drop zone + file picker; three modes: individual files, folder, zip.
 - Staging + check-then-place: uploads land in a staging area; an agent leg verifies no drift, no contradictions, zero intention rewrite; a report is produced; only on green is content normalized (.md pass-through; .txt/.doc/.docx → MD via agent leg, intention preserved verbatim) and routed to .vivicy/canonical, .vivicy/development/spikes, .vivicy/architecture-map/.
 - Failure path: red check → nothing placed, report + notification explain exactly what drifted/contradicted.
-- Naight: zero normalization (§2); the flow must still run its check.
-- Acceptance: from a fresh Vivicy, importing _naight-docs via the UI yields a verified, placed corpus ready for S2 without touching a terminal.
+- An already-conformant corpus: zero normalization (§2); the flow must still run its check.
+- Acceptance: from a fresh Vivicy, importing an existing corpus via the UI yields a verified, placed corpus ready for S2 without touching a terminal.
 
 ### G2. Vivi — the chatbot (S1-chat)
 Nothing exists (no chat components, no endpoint, no "Vivi" anywhere). Build:
@@ -118,22 +118,22 @@ Nothing exists (no chat components, no endpoint, no "Vivi" anywhere). Build:
 - Acceptance: a user with an empty project reaches a canonical + spikes corpus that passes S2 checks, purely through conversation.
 
 ### G3. Spike prover — substance verification (S3)
-spike-check.mjs validates form only; "verified" today requires hand-written evidence — a human, which contradicts the autonomous dev-loop. Build:
+spike-check.mjs validates form only; "verified" today requires hand-written evidence — a human, which contradicts the autonomous development loop. Build:
 - Prover leg: Claude (implementer CLI, new role spike-prover) executes the spike's experiments **in the target repo**, captures the six evidence fields (environment, commands, observed output, decision, documentation updates, unresolved risks).
-- Counter-verification leg: Codex (reviewer CLI, new role proof-verifier) independently verifies the proof — the due-diligence against hallucinated proofs. Only on agreement does the orchestrator flip status.
+- Counter-verification leg: Codex (reviewer CLI, new role spike-verifier) independently verifies the proof — the due-diligence against hallucinated proofs. Only on agreement does the orchestrator flip status.
 - Leg assignment ruling (owner asked who should run it — implementer or reviewer): **both, as above** — reuse the existing leg infrastructure with two new roles, preserving the R12 distinct-CLI invariant. Not a third CLI.
 - Outcomes: proven → verified, canonical untouched (updated **only if necessary**); disproven → status failed + auto-drafted CR (status idea), because a false assumption is an intention-level event (rule 2).
 - Ruling on `/_verified` folder (owner's question, analogy with issues done/): **no folder move**. For issues, done/ is the physical state machine; for spikes the status field in the traceability block is already the machine truth consumed by gating — a parallel folder would duplicate state. The UI surfaces verification state instead (G8/sidebar).
-- Acceptance: on the Naight corpus, at least one spike goes pending → proven/failed with orchestrator-captured evidence and zero human edits.
+- Acceptance: on a real corpus, at least one spike goes pending → proven/failed with orchestrator-captured evidence and zero human edits.
 
 ### G4. Reuse-and-verify imported map (S5)
-The extractor refines an existing map in place and --reconcile-against exists, but there is no import path and no verify-without-re-extraction mode. Build: map import via G1 + a verify-only mode — deterministic parse gate (generate-viewer-data) + 8-lens agent review against the frozen baseline, with the extractor prompted to update, never to re-author. Acceptance: Naight's architecture-map.yml imported, verified, refined in place — its layout preserved.
+The extractor refines an existing map in place and --reconcile-against exists, but there is no import path and no verify-without-re-extraction mode. Build: map import via G1 + a verify-only mode — deterministic parse gate (generate-viewer-data) + 8-lens agent review against the frozen baseline, with the extractor prompted to update, never to re-author. Acceptance: an existing project's architecture-map.yml imported, verified, refined in place — its layout preserved.
 
 ### G5. Per-issue readiness check — non-linear dev (S8)
 Issues are consumed as-extracted today; nothing confronts issue N with the code produced by issues 1..N-1. Build:
 - Readiness leg before implementation, per issue: verdict implementable / issue-update / needs-CR (rule 4 decides which of the last two).
 - issue-update is bounded: execution details only (ordering, dependency, split, prerequisite); cited canonical lines untouched; recorded in the ledger.
-- needs-CR: CR drafted (idea), issue parked in a blocked-on-CR state, notification fired — and **the loop keeps running** on other ready issues; if nothing is ready the run pauses loudly. The loop must always progress or block loudly, never dead-end silently (P4); after the owner decides, G7 automation re-drives.
+- needs-CR: CR drafted (idea), issue parked in a blocked-on-CR state, notification fired — and **the loop keeps running** on other ready issues; if nothing is ready the run pauses loudly. The loop must always progress or block loudly, never dead-end silently (P4); after the owner decides, G7 automation re-opens impacted issues.
 - Parallel mode: the whole selected batch (≤12) is readiness-checked against current integration HEAD before any worktree spawns.
 - Acceptance: a deliberately staled issue (fixture) is caught pre-implementation and routed correctly both sequentially and in parallel.
 
@@ -145,10 +145,10 @@ Today a conflict aborts and blocks only that issue; nothing re-verifies after in
 - Acceptance: a fixture with two issues editing the same file yields either a resolved rebase with green post-merge gate, or a loud block — never silent loss.
 
 ### G7. CR automation (S11)
-Registry, lifecycle, and re-drive exist; every transition is manual; nothing emits CRs from the loop; docs_applied triggers nothing. Build:
+Registry, lifecycle, and impacted-issue reopening exist; every transition is manual; nothing emits CRs from the loop; docs_applied triggers nothing. Build:
 - **Emission (open set of sources)**: Vivi chat mid-run (the user talks to Vivi while the loop works; intention-changing input becomes a drafted CR), spike prover failure (G3), readiness/dev/review legs (G5/S9), extraction/verification (S6/S7) — each lands as status idea with source evidence. New sources must be addable without schema change.
 - **Decision**: pending CRs surface in the notification center (G9) and sidebar; the owner approves/rejects in the UI; recorded as owner_decision evidence (P2's single human touchpoint).
-- **Application chain**: on docs_applied, the orchestrator runs apply → re-freeze → re-extract → re-drive automatically (today's manual sequence, automated). This is the diagram's dotted CR→freeze arrow, confirmed: a CR touching the canonical always forces a re-freeze.
+- **Application chain**: on docs_applied, the orchestrator runs apply → re-freeze → re-extract → reopen impacted issues automatically (today's manual sequence, automated). This is the diagram's dotted CR→freeze arrow, confirmed: a CR touching the canonical always forces a re-freeze.
 - **Folding**: accepted-not-yet-folded CRs are tracked; folding into the canonical is part of the application chain (§4 structural rules), keeping the current-contract formula true.
 - Acceptance: a CR emitted by an agent reaches the UI, is approved, and the chain lands a new frozen baseline with impacted issues reopened — no terminal.
 
@@ -157,7 +157,7 @@ No stage visualization exists. Build:
 - **Mini-pipeline overlay**: top-center **over the map canvas** (overlay above the ReactFlow viewport, not a DOM band above it; ViewportPortal or absolutely-positioned layer). A small technical schema — very graphic yet explicit, clear, simple: all stages with arrows, mirroring the diagram including the non-loop/dev-loop boundary (P7); per-stage 🖥️/🤖/🖥️🤖 markers (P8); color changes for state (pending/running/green/red); current-stage highlight; which loop is currently running; visible backward/forward movement when the system re-enters an earlier stage (e.g. CR → re-freeze).
 - **Actions**: per-stage retry buttons — the "can be retried" bracket: a human may relaunch/re-test stages after an error. Confirm dialogs on **all sensitive actions** (retry, stop, CR decisions), not just retry.
 - **Full process view**: the owner's noted variant — a complete state view (modal or sidebar; recommendation: sidebar section + modal detail on stage click) spanning freeze through extraction to dev, with timings and evidence links.
-- Acceptance: during a Naight run, a user can tell at a glance which stage runs, what re-entered, what failed, and can retry a failed stage with confirmation.
+- Acceptance: during a real run, a user can tell at a glance which stage runs, what re-entered, what failed, and can retry a failed stage with confirmation.
 
 ### G9. Notification center
 Only ephemeral sonner toasts exist. Build:
@@ -173,7 +173,7 @@ Today's onboarding is confusing — folder selection was even duplicated in the 
 Confirmed: lib/control.ts:442-475 spawns extraction with no pre-flight content check; with a template-only canonical, the **"Extract from docs" button** launches agents into the void and stays blocked spinning ("no issues extracted yet" while it runs). Fix: deterministic guard — canonical contains at least one real (non-template) doc — before spawn; clear UI error otherwise. The pipeline's stage states (G8) make the broken sequence structurally impossible; this guard stays as defense in depth (P1).
 
 ### G12. Spike integrate-or-extract mode (S2)
-Today spikes are authored during extraction; there is no integrate-uploaded-spikes path. Build: when spikes exist (uploaded via G1 or Vivi-written), S2 checks them against the canonical and updates only what is needed — integrate, never rewrite, never re-extract; when none exist, extract from the canonical as today. Naight's 21 spikes pass through the integrate path untouched (byte-compatible). Acceptance: imported spikes keep their identity (gate_ids, gating graph) through S2 and reach S3 unmodified except necessary updates.
+Today spikes are authored during extraction; there is no integrate-uploaded-spikes path. Build: when spikes exist (uploaded via G1 or Vivi-written), S2 checks them against the canonical and updates only what is needed — integrate, never rewrite, never re-extract; when none exist, extract from the canonical as today. An existing project's spikes pass through the integrate path untouched (byte-compatible). Acceptance: imported spikes keep their identity (gate_ids, gating graph) through S2 and reach S3 unmodified except necessary updates.
 
 ### G13. Extraction gated on verified spikes (S6 ordering)
 Today spike gates gate dev-loop issue picks, not extraction; the diagram places issue extraction after spike verification. Build: S6 requires the spike corpus proved (G3) — spikes verified/deferred per their gating graph — before issue extraction proceeds; the orchestrator enforces the S2→S3→S4→S5→S6 order end-to-end. Acceptance: extraction refuses to run (loud, notified) while a required spike is pending/failed.
@@ -200,7 +200,7 @@ The engine is already headless-first (factory/cli.mjs: app|loop|status; detached
 ## 7. Build order (one delivery — internal ordering only)
 
 1. G11 guard + target-resolution alignment (existing TASKS.md debt that blocks clean onboarding)
-2. G1 import → G12 spike integration → G4 map reuse → G10 onboarding (the Naight path, end-to-end)
+2. G1 import → G12 spike integration → G4 map reuse → G10 onboarding (the existing-project path, end-to-end)
 3. G13 ordering + G3 prover (autonomy of the spike stage)
 4. G5 readiness + G6 merge integrity + G7 CR automation (loop hardening)
 5. G2 Vivi (second intake path)
@@ -221,13 +221,13 @@ Three owner ideas examined for architectural impact now, while there are no user
 76 requirements: 73 extracted from the owner's blocks, diagram, and annexes — each verified against this document by independent agents over two adversarial passes — plus 3 post-verification additions (N1–N3, §8). Inventory → coverage:
 
 - M1–M7 (method, purpose, version, delivery) → §0, header
-- B1.1–B1.12 (upload, Naight, Vivi, grill-me, ShadcnUI, upload check) → §3-S1, G1, G2, P6
+- B1.1–B1.12 (upload, existing-project import, Vivi, grill-me, ShadcnUI, upload check) → §3-S1, G1, G2, P6
 - B2.1–B2.4 (boundary, legend, spike integrate-or-extract) → P7, P8, §3-S2, G12
 - B3.1–B3.8 (proofs in target repo, cross-agent, _verified ruling, leg choice) → §3-S3, G3, §6.2, §6.8
 - B4.1–B4.4 (freeze, no fakery, map reuse, stage typing) → §3-S4/S5, P1, G4, P8
 - B5.1–B5.6 (extraction ordering, auto spec-fix, delegation question, loop-back incl. map, no humans, notifications design) → §3-S6, G13, §6.1, §6.7, G9
 - B6.1–B6.3 (nothing forgotten, three remediations, notifications every step) → §3-S7, P4, P9
-- B7.1–B7.9 (two agents, ≤12 parallel rationale, merge no-loss, dedicated agent, non-linear dev, batch pre-check, no-brute judgment, fix paths, rigor, flexibility) → §3-S8/S9/S10, G5, G6, P3, P5, §6.3, §6.4
+- B7.1–B7.9 (two agents, ≤12 parallel rationale, merge no-loss, dedicated agent, non-linear dev, batch pre-check, judgment not blind grabbing, fix paths, rigor, flexibility) → §3-S8/S9/S10, G5, G6, P3, P5, §6.3, §6.4
 - B8.1–B8.13 (CR sources open set, human validation, re-freeze confirmation, full truth model, rules 1–4, folding, contract formula, negative rules, adaptation mandate) → §3-S11, §4, G7, §6.5, §6.6
 - B9.1–B9.4 (Done step, retry bracket, widget spec, modal/sidebar + confirms) → §3-S12, G8
 - A1–A3 (onboarding motivation, empty-canonical bug, detached process purpose & limits) → G10, G11, §2

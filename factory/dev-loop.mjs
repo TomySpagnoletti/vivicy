@@ -366,7 +366,7 @@ export function pickNextIssue(issues, doneIds, verifiedGates = new Set(), parked
   for (const issue of issues) {
     if (doneIds.has(issue.id)) continue;
     // A parked issue (readiness verdict needs_cr, S8) is skipped exactly like a done
-    // one until its CR is decided and re-extraction/re-drive unparks it — the loop
+    // one until its CR is decided and re-extraction/reopening unparks it — the loop
     // moves on to other ready issues rather than dead-ending (P4).
     if (parkedIds.has(issue.id)) continue;
     if (dependenciesSatisfied(issue, doneIds) && spikeGatesSatisfied(issue, verifiedGates)) return issue;
@@ -1253,9 +1253,9 @@ function listDoneFiles(cfg) {
 // issue is held out of scheduling until its CR is decided). A parked issue writes a
 // `<id>-parked.json` report stamping the issue file's identity (mtime + content hash)
 // at park time. A park is CLEARED — the issue naturally unparks — as soon as the
-// issue file CHANGES: a CR-driven re-extraction / re-drive rewrites the issue, so its
+// issue file CHANGES: a CR-driven re-extraction / reopening rewrites the issue, so its
 // current mtime+hash no longer match the stamped ones, and we drop the stale report.
-// This is the same "the file moved on, so the block is gone" mechanism re-drive uses
+// This is the same "the file moved on, so the block is gone" mechanism reopening uses
 // for done issues. Resolved against the MAIN root (shared orchestration state).
 function readParkedIssueIds(cfg) {
   const reportsAbs = abs(cfg.reportsDir);

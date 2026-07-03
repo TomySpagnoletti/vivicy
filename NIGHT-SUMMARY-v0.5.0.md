@@ -49,11 +49,11 @@ Après le fix commit-avant-freeze (2 commits), la chaîne apply de CR-0001 a ét
 
 - **Suite e2e Playwright périmée** — teste l'ancienne convention `docs/` alors que l'app est passée à `.vivicy/canonical/` depuis longtemps. Pré-existant, pas une régression v0.5.0. Tâche séparée flaggée (migration fixtures + specs + specs onboarding 4 cartes).
 - **Chaîne apply CR-0001 / re-extraction** — tournait encore au moment du rapport (édition canonical + re-freeze + re-extraction sur une spec volontairement horrible; peut boucler sur les autres pièges non résolus: monthly, round-trip). État final dans le monitor.
-- **Import Naight réel** — retiré à ta demande (trop long, à voir ensemble).
+- **Import projet réel** — retiré à ta demande (trop long, à voir ensemble).
 - **Dev-loop parallèle ≥4 à Done** — non atteint sur cette fixture car l'extraction bloque par design sur le spike faux; le parallèle/merge/readiness est couvert par la rehearsal N=4 verte + code-vs-contrat 17/17.
 
 ## Prochaine session
 
 - Migrer la suite e2e vers `.vivicy/`
-- Voir ensemble l'import Naight réel
+- Voir ensemble l'import projet réel
 - Décider quoi faire des pièges profonds restants de habit-hydra (ou jeter le projet, c'était un test)

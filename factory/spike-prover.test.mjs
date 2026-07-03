@@ -3,7 +3,7 @@
 // BOTH agent legs are ALWAYS faked here — no real CLI is launched:
 //   - the PROVER leg (spawnProver) records the six evidence fields into the spike
 //     file and writes the machine verdict spike-proof-<stem>.json, and
-//   - the independent PROOF-VERIFIER leg (spawnProofVerifier) writes its agree verdict
+//   - the independent SPIKE-VERIFIER leg (spawnSpikeVerifier) writes its agree verdict
 //     spike-proof-<stem>-verdict.json.
 // The orchestrator's DECISION logic is real: it reads both JSONs, flips the spike's
 // traceability status IN the file (single source of truth, no folder move), and — on a
@@ -119,12 +119,12 @@ function fakeProver(verdictByGate = {}, { onAttempt } = {}) {
 }
 
 /**
- * A fake PROOF-VERIFIER: writes an agree verdict per a lookup keyed by gate_id (default
+ * A fake SPIKE-VERIFIER: writes an agree verdict per a lookup keyed by gate_id (default
  * agree:true), or a scripted per-attempt decision. Records every call.
  */
-function fakeProofVerifier(agreeByGate = {}, { onAttempt } = {}) {
+function fakeSpikeVerifier(agreeByGate = {}, { onAttempt } = {}) {
   const calls = [];
-  const spawnProofVerifier = async (ctx) => {
+  const spawnSpikeVerifier = async (ctx) => {
     calls.push({ gate_id: ctx.spike.gate_id, attempt: ctx.attempt });
     const decided = onAttempt ? onAttempt(ctx) : null;
     const agree = decided ?? agreeByGate[ctx.spike.gate_id] ?? true;
@@ -133,7 +133,7 @@ function fakeProofVerifier(agreeByGate = {}, { onAttempt } = {}) {
     }
     return { transcriptRel: `${SPIKES_DIR}/../transcripts/x/verify-${ctx.attempt}.jsonl`, result: { status: 0 } };
   };
-  return { spawnProofVerifier, calls };
+  return { spawnSpikeVerifier, calls };
 }
 
 // Replace the spike file's Evidence Required section with all six filled fields, so a
@@ -165,9 +165,9 @@ describe("runSpikeProving — agree + verified", () => {
     assert.equal(readStatus(s.file), "pending");
 
     const { spawnProver } = fakeProver({ [s.gate_id]: "verified" });
-    const { spawnProofVerifier } = fakeProofVerifier({ [s.gate_id]: true });
+    const { spawnSpikeVerifier } = fakeSpikeVerifier({ [s.gate_id]: true });
 
-    const result = await runSpikeProving({ repoRoot: temp, spawnProver, spawnProofVerifier });
+    const result = await runSpikeProving({ repoRoot: temp, spawnProver, spawnSpikeVerifier });
 
     assert.deepEqual(
       result.proved.map((p) => [p.gate_id, p.verdict]),
@@ -188,15 +188,15 @@ describe("runSpikeProving — agree + verified", () => {
     const s = writeSpike("01-provider-auth.md");
     const events = [];
     const { spawnProver } = fakeProver({ [s.gate_id]: "verified" });
-    const { spawnProofVerifier } = fakeProofVerifier({ [s.gate_id]: true });
+    const { spawnSpikeVerifier } = fakeSpikeVerifier({ [s.gate_id]: true });
 
-    await runSpikeProving({ repoRoot: temp, spawnProver, spawnProofVerifier, recordEvent: (e) => events.push(e), now: () => "2026-07-02T00:00:00.000Z" });
+    await runSpikeProving({ repoRoot: temp, spawnProver, spawnSpikeVerifier, recordEvent: (e) => events.push(e), now: () => "2026-07-02T00:00:00.000Z" });
 
     const types = events.map((e) => e.event_type);
     assert.deepEqual(types, ["spike_proof_started", "spike_proof_completed"]);
     // The emitted roles are the ledger-vocabulary form (underscores), matching progressRoles.
     assert.equal(events[0].role, "spike_prover");
-    assert.equal(events[1].role, "proof_verifier");
+    assert.equal(events[1].role, "spike_verifier");
     assert.ok(progressRoles.includes(events[0].role), "spike_proof_started role is a declared progress role");
     assert.ok(progressRoles.includes(events[1].role), "spike_proof_completed role is a declared progress role");
     assert.ok(
@@ -210,8 +210,8 @@ describe("runSpikeProving — agree + verified", () => {
   it("does not throw when recordEvent is null (the extraction path passes null)", async () => {
     const s = writeSpike("01-provider-auth.md");
     const { spawnProver } = fakeProver({ [s.gate_id]: "verified" });
-    const { spawnProofVerifier } = fakeProofVerifier({ [s.gate_id]: true });
-    const result = await runSpikeProving({ repoRoot: temp, spawnProver, spawnProofVerifier, recordEvent: null });
+    const { spawnSpikeVerifier } = fakeSpikeVerifier({ [s.gate_id]: true });
+    const result = await runSpikeProving({ repoRoot: temp, spawnProver, spawnSpikeVerifier, recordEvent: null });
     assert.equal(result.proved.length, 1);
   });
 });
@@ -220,9 +220,9 @@ describe("runSpikeProving — agree + failed drafts a Change Request", () => {
   it("flips the spike to failed and writes a CR whose frontmatter passes change-control", async () => {
     const s = writeSpike("01-provider-auth.md");
     const { spawnProver } = fakeProver({ [s.gate_id]: "failed" });
-    const { spawnProofVerifier } = fakeProofVerifier({ [s.gate_id]: true }); // agrees it failed
+    const { spawnSpikeVerifier } = fakeSpikeVerifier({ [s.gate_id]: true }); // agrees it failed
 
-    const result = await runSpikeProving({ repoRoot: temp, spawnProver, spawnProofVerifier });
+    const result = await runSpikeProving({ repoRoot: temp, spawnProver, spawnSpikeVerifier });
 
     assert.equal(result.proved.length, 0);
     assert.deepEqual(
@@ -240,6 +240,9 @@ describe("runSpikeProving — agree + failed drafts a Change Request", () => {
     assert.match(crText, /classification: major_product_change/);
     assert.match(crText, new RegExp(proofRel(s.file).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")), "CR cites the prover report");
     assert.match(crText, new RegExp(verdictRel(s.file).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")), "CR cites the verifier report");
+    // The disproven spike's own gate rides on affected_verification_gates — the link cr-apply
+    // follows to retire this now-moot spike (failed -> deferred) once the CR is folded.
+    assert.match(crText, new RegExp(`affected_verification_gates: \\[${s.gate_id.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\]`), "the CR records the spike gate_id on affected_verification_gates");
     // The drafted CR passes the REAL change-control gate (valid enums, sequential id, decision scaffold).
     const cc = runChangeControlCheck({ repoRoot: temp });
     assert.equal(cc.exitCode, 0, `change-control must accept the drafted CR:\n${cc.errors.join("\n")}`);
@@ -249,9 +252,9 @@ describe("runSpikeProving — agree + failed drafts a Change Request", () => {
     const a = writeSpike("01-a.md");
     const b = writeSpike("02-b.md", { reqId: "REQ-ARCH-002" });
     const { spawnProver } = fakeProver({ [a.gate_id]: "failed", [b.gate_id]: "failed" });
-    const { spawnProofVerifier } = fakeProofVerifier({ [a.gate_id]: true, [b.gate_id]: true });
+    const { spawnSpikeVerifier } = fakeSpikeVerifier({ [a.gate_id]: true, [b.gate_id]: true });
 
-    const result = await runSpikeProving({ repoRoot: temp, spawnProver, spawnProofVerifier });
+    const result = await runSpikeProving({ repoRoot: temp, spawnProver, spawnSpikeVerifier });
 
     assert.equal(result.changeRequests.length, 2);
     const ids = result.changeRequests.map((c) => c.id).sort();
@@ -265,9 +268,9 @@ describe("runSpikeProving — disagreement retries once then drafts a CR", () =>
     const s = writeSpike("01-provider-auth.md");
     // Prover always claims verified; verifier always disagrees -> never resolves.
     const { spawnProver, calls: proofCalls } = fakeProver({ [s.gate_id]: "verified" });
-    const { spawnProofVerifier, calls: verifyCalls } = fakeProofVerifier({ [s.gate_id]: false });
+    const { spawnSpikeVerifier, calls: verifyCalls } = fakeSpikeVerifier({ [s.gate_id]: false });
 
-    const result = await runSpikeProving({ repoRoot: temp, spawnProver, spawnProofVerifier });
+    const result = await runSpikeProving({ repoRoot: temp, spawnProver, spawnSpikeVerifier });
 
     // The whole pair ran exactly twice (initial + one bounded retry).
     assert.equal(proofCalls.length, 2, "prover ran twice (bounded retry)");
@@ -289,9 +292,9 @@ describe("runSpikeProving — disagreement retries once then drafts a CR", () =>
     const s = writeSpike("01-provider-auth.md");
     const { spawnProver, calls: proofCalls } = fakeProver({ [s.gate_id]: "verified" });
     // Verifier disagrees on attempt 1, agrees on attempt 2.
-    const { spawnProofVerifier } = fakeProofVerifier({}, { onAttempt: (ctx) => ctx.attempt === 1 ? false : true });
+    const { spawnSpikeVerifier } = fakeSpikeVerifier({}, { onAttempt: (ctx) => ctx.attempt === 1 ? false : true });
 
-    const result = await runSpikeProving({ repoRoot: temp, spawnProver, spawnProofVerifier });
+    const result = await runSpikeProving({ repoRoot: temp, spawnProver, spawnSpikeVerifier });
 
     assert.equal(proofCalls.length, 2, "the retry ran once, then resolved");
     assert.equal(readStatus(s.file), "verified");
@@ -307,9 +310,9 @@ describe("runSpikeProving — topological ordering of the gated_by graph", () =>
     const b = writeSpike("02-b.md", { reqId: "REQ-ARCH-002", blocks: "gate:phase0:s01-a" });
 
     const { spawnProver, calls: proofCalls } = fakeProver({ [a.gate_id]: "verified", [b.gate_id]: "verified" });
-    const { spawnProofVerifier } = fakeProofVerifier({ [a.gate_id]: true, [b.gate_id]: true });
+    const { spawnSpikeVerifier } = fakeSpikeVerifier({ [a.gate_id]: true, [b.gate_id]: true });
 
-    const result = await runSpikeProving({ repoRoot: temp, spawnProver, spawnProofVerifier });
+    const result = await runSpikeProving({ repoRoot: temp, spawnProver, spawnSpikeVerifier });
 
     // Both verified, and b (the gate) was proved before a (the dependent).
     const order = proofCalls.map((c) => c.gate_id);
@@ -326,9 +329,9 @@ describe("runSpikeProving — topological ordering of the gated_by graph", () =>
     const b = writeSpike("02-b.md", { reqId: "REQ-ARCH-002", blocks: "gate:phase0:s01-a" });
     // b fails; a must then be SKIPPED (its gate is not verified), not proved.
     const { spawnProver, calls: proofCalls } = fakeProver({ [a.gate_id]: "verified", [b.gate_id]: "failed" });
-    const { spawnProofVerifier } = fakeProofVerifier({ [a.gate_id]: true, [b.gate_id]: true });
+    const { spawnSpikeVerifier } = fakeSpikeVerifier({ [a.gate_id]: true, [b.gate_id]: true });
 
-    const result = await runSpikeProving({ repoRoot: temp, spawnProver, spawnProofVerifier });
+    const result = await runSpikeProving({ repoRoot: temp, spawnProver, spawnSpikeVerifier });
 
     // Only b ran through the prover; a was skipped before spawning any leg.
     assert.deepEqual(proofCalls.map((c) => c.gate_id), [b.gate_id], "the dependent's legs never ran");
@@ -343,9 +346,9 @@ describe("runSpikeProving — topological ordering of the gated_by graph", () =>
     const a = writeSpike("01-a.md", { gated_by: "gate:phase0:s02-b" });
     writeSpike("02-b.md", { reqId: "REQ-ARCH-002", status: "failed", blocks: "gate:phase0:s01-a" });
     const { spawnProver, calls: proofCalls } = fakeProver({ [a.gate_id]: "verified" });
-    const { spawnProofVerifier } = fakeProofVerifier({ [a.gate_id]: true });
+    const { spawnSpikeVerifier } = fakeSpikeVerifier({ [a.gate_id]: true });
 
-    const result = await runSpikeProving({ repoRoot: temp, spawnProver, spawnProofVerifier });
+    const result = await runSpikeProving({ repoRoot: temp, spawnProver, spawnSpikeVerifier });
 
     assert.equal(proofCalls.length, 0, "no leg runs — the only pending spike is gated by a failed one");
     assert.deepEqual(result.skipped.map((s2) => s2.gate_id), [a.gate_id]);
@@ -355,8 +358,8 @@ describe("runSpikeProving — topological ordering of the gated_by graph", () =>
   it("leaves an already-verified spike alone (only pending spikes are proof candidates)", async () => {
     const s = writeSpike("01-provider-auth.md", { status: "verified" });
     const { spawnProver, calls: proofCalls } = fakeProver();
-    const { spawnProofVerifier } = fakeProofVerifier();
-    const result = await runSpikeProving({ repoRoot: temp, spawnProver, spawnProofVerifier });
+    const { spawnSpikeVerifier } = fakeSpikeVerifier();
+    const result = await runSpikeProving({ repoRoot: temp, spawnProver, spawnSpikeVerifier });
     assert.equal(proofCalls.length, 0, "a verified spike is not re-proved");
     assert.equal(result.proved.length, 0);
     assert.equal(result.failed.length, 0);
@@ -373,9 +376,9 @@ describe("runSpikeProving — honest failure on a dead/timed-out leg", () => {
       output: "",
     });
     // The verifier can't agree with a proof that does not exist -> reads as no report either.
-    const spawnProofVerifier = async () => ({ result: { status: 124, timedOut: true, timeoutReason: "leg timed out" }, output: "" });
+    const spawnSpikeVerifier = async () => ({ result: { status: 124, timedOut: true, timeoutReason: "leg timed out" }, output: "" });
 
-    const result = await runSpikeProving({ repoRoot: temp, spawnProver, spawnProofVerifier });
+    const result = await runSpikeProving({ repoRoot: temp, spawnProver, spawnSpikeVerifier });
 
     assert.equal(result.proved.length, 0, "a timed-out proof is never verified");
     assert.deepEqual(result.failed.map((f) => f.gate_id), [s.gate_id]);
@@ -392,9 +395,9 @@ describe("runSpikeProving — honest failure on a dead/timed-out leg", () => {
       fillEvidence(resolve(temp, ctx.spike.file));
       return { result: { status: 0 }, output: "" }; // NO writeJson of the verdict
     };
-    const { spawnProofVerifier } = fakeProofVerifier({ [s.gate_id]: true });
+    const { spawnSpikeVerifier } = fakeSpikeVerifier({ [s.gate_id]: true });
 
-    const result = await runSpikeProving({ repoRoot: temp, spawnProver, spawnProofVerifier });
+    const result = await runSpikeProving({ repoRoot: temp, spawnProver, spawnSpikeVerifier });
 
     assert.equal(result.proved.length, 0, "a missing proof report is never a green");
     assert.equal(readStatus(s.file), "failed");
@@ -405,8 +408,8 @@ describe("runSpikeProving — honest failure on a dead/timed-out leg", () => {
 describe("runSpikeProving — nothing to do", () => {
   it("returns empty results and spawns no leg when there are no spikes", async () => {
     const { spawnProver, calls: proofCalls } = fakeProver();
-    const { spawnProofVerifier, calls: verifyCalls } = fakeProofVerifier();
-    const result = await runSpikeProving({ repoRoot: temp, spawnProver, spawnProofVerifier });
+    const { spawnSpikeVerifier, calls: verifyCalls } = fakeSpikeVerifier();
+    const result = await runSpikeProving({ repoRoot: temp, spawnProver, spawnSpikeVerifier });
     assert.deepEqual(result, { proved: [], failed: [], skipped: [], changeRequests: [] });
     assert.equal(proofCalls.length, 0);
     assert.equal(verifyCalls.length, 0);
