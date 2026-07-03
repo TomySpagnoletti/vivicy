@@ -5,6 +5,7 @@ import { CircleAlert, Info, TriangleAlert, X } from "lucide-react"
 
 import type { Notification } from "@/lib/notifications"
 import { cn } from "@/lib/utils"
+import { CrReviewSection } from "@/components/crs/cr-review-section"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -104,6 +105,10 @@ export function NotificationCenter({
             Every pipeline transition: stage starts, greens, blocks, and redos.
           </SheetDescription>
         </SheetHeader>
+
+        {/* The owner's one human touchpoint (P2): agent-drafted CRs, decided right
+            here — reachable in any app state, unlike the map-gated sidebar. */}
+        <CrReviewSection reloadSignal={open} onDecided={onDismissed} />
 
         <div className="flex-1 overflow-y-auto px-4">
           {visible.length === 0 ? (
