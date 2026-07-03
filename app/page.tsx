@@ -17,6 +17,7 @@ import {
   type SelectedItem,
 } from "@/components/map/architecture-map"
 import { MapEmptyState } from "@/components/map/map-empty-state"
+import { PipelineWidget } from "@/components/pipeline/pipeline-widget"
 import { OnboardingChooser } from "@/components/project/onboarding-chooser"
 import { SetupBar } from "@/components/project/setup-bar"
 import { PanelToggle } from "@/components/sidebar/panel-toggle"
@@ -81,8 +82,10 @@ export default function Page() {
   // map-regeneration chain, then reloads the map so a freshly generated graph
   // replaces the empty state. The panel's Extract drives the same endpoint.
   const [extracting, setExtracting] = useState(false)
+  const [extractError, setExtractError] = useState<{ message: string; code?: string } | null>(null)
   const runExtract = useCallback(async () => {
     setExtracting(true)
+    setExtractError(null)
     try {
       const res = await fetch("/api/control/extract", { method: "POST" })
       const body = (await res.json().catch(() => ({}))) as {
@@ -90,8 +93,16 @@ export default function Page() {
         blocked?: boolean
         summary?: string
         error?: string
+        code?: string
       }
       if (!res.ok || body.ok === false) {
+        // The pre-flight guard refusals (no/empty canonical) are onboarding
+        // signals, not failures: surface them inline in the empty state, where
+        // the Import button is the fix, instead of a transient toast.
+        if (body.code === "empty_canonical") {
+          setExtractError({ message: body.error ?? "canonical is empty", code: body.code })
+          return
+        }
         // Distinguish "blocked for a human" (the deterministic checks stayed red
         // after the bounded retries) from a transient failure, so the operator
         // knows whether to look at the corpus or just retry.
@@ -196,29 +207,47 @@ export default function Page() {
           ) : null}
 
           {state.kind === "empty" && state.reason !== "no_target" ? (
-            <MapEmptyState
-              reason={state.reason}
-              onExtract={runExtract}
-              extracting={extracting}
-            />
+            <>
+              <MapEmptyState
+                reason={state.reason}
+                onExtract={runExtract}
+                extracting={extracting}
+                extractError={extractError}
+                onImported={() => {
+                  setExtractError(null)
+                  void loadMap(true)
+                }}
+              />
+              {/* The pipeline widget must be visible BEFORE a map exists too — the
+                  first extraction (S2–S6) is exactly what it should show, and there
+                  is no map yet at that point. It renders whenever a project is
+                  resolved, not only in the ready state. */}
+              <PipelineWidget />
+            </>
           ) : null}
 
           {state.kind === "ready" ? (
-            <ArchitectureMap
-              data={state.data}
-              view={view}
-              query={query}
-              laneFilter={laneFilter}
-              statusFilter={statusFilter}
-              scopeFilter={scopeFilter}
-              selected={selected}
-              onSelect={(next) => {
-                if (!next) setSelectedRef(null)
-                else if (next.type === "node")
-                  setSelectedRef({ type: "node", id: next.item.id })
-                else setSelectedRef({ type: "edge", id: next.id })
-              }}
-            />
+            <>
+              <ArchitectureMap
+                data={state.data}
+                view={view}
+                query={query}
+                laneFilter={laneFilter}
+                statusFilter={statusFilter}
+                scopeFilter={scopeFilter}
+                selected={selected}
+                onSelect={(next) => {
+                  if (!next) setSelectedRef(null)
+                  else if (next.type === "node")
+                    setSelectedRef({ type: "node", id: next.item.id })
+                  else setSelectedRef({ type: "edge", id: next.id })
+                }}
+              />
+              {/* Absolutely positioned OVER the map viewport (not a ViewportPortal —
+                  the widget must stay fixed to the screen, never pan/zoom with the
+                  graph), matching the SetupBar overlay pattern above. */}
+              <PipelineWidget />
+            </>
           ) : null}
         </SidebarInset>
 

@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test"
 
-import { ensurePanelOpen, isMobileProject } from "./helpers"
+import { clickPastOverlap, ensurePanelOpen, isMobileProject } from "./helpers"
 
 test.describe("Vivicy architecture map viewer", () => {
   test("renders the map and the interactive shadcn sidebar shell", async ({
@@ -34,7 +34,10 @@ test.describe("Vivicy architecture map viewer", () => {
     const targetBtn = page.getByRole("radio", { name: "Target" })
     const progressBtn = page.getByRole("radio", { name: "Progress" })
     await expect(targetBtn).toHaveAttribute("aria-checked", "true")
-    await progressBtn.click()
+    // In the mobile off-canvas Sheet the panel scrolls, so sibling accordion
+    // content (the status-legend copy) can sit over the toggle at its resting
+    // position; click past that overlap.
+    await clickPastOverlap(progressBtn)
     await expect(progressBtn).toHaveAttribute("aria-checked", "true")
     await expect(targetBtn).toHaveAttribute("aria-checked", "false")
 

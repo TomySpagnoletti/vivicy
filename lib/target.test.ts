@@ -38,9 +38,9 @@ describe("getTargetRoot", () => {
     expect(getTargetRoot()).toBe(path.resolve(tmp))
   })
 
-  it("falls back to the parent of the cwd when unset", () => {
+  it("is null when neither a persisted project nor VIVICY_TARGET_ROOT is set", () => {
     delete process.env.VIVICY_TARGET_ROOT
-    expect(getTargetRoot()).toBe(path.resolve(process.cwd(), ".."))
+    expect(getTargetRoot()).toBeNull()
   })
 })
 
@@ -50,6 +50,11 @@ describe("getArchitectureDataPath", () => {
     expect(getArchitectureDataPath()).toBe(
       path.join(path.resolve(tmp), ARCHITECTURE_DATA_RELATIVE_PATH)
     )
+  })
+
+  it("is null when no target is set", () => {
+    delete process.env.VIVICY_TARGET_ROOT
+    expect(getArchitectureDataPath()).toBeNull()
   })
 })
 

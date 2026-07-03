@@ -1,0 +1,10 @@
+{
+  "gate_id": "gate:test:csv-export",
+  "issue_id": "ISS-0007",
+  "graph_ref": "node:exporter",
+  "kind": "test",
+  "status": "passed",
+  "command": "node --test exporter.csv.test.mjs",
+  "checked_at": "2026-06-27T14:18:30Z",
+  "summary": "Exporter produces deterministic CSV with a fixed header and column order, insertion-order rows, RFC-style quoting, and plain-integer amountCents."
+}

@@ -9,7 +9,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { FACTORY_PROMPTS_DIR } from "./target-root.mjs";
 
-const PROMPTS = ["implementer.md", "reviewer.md", "extractor.md", "extraction-verifier.md", "map-review.md", "change-request.md"];
+const PROMPTS = ["implementer.md", "reviewer.md", "extractor.md", "extraction-verifier.md", "map-review.md", "change-request.md", "spike-prover.md", "spike-verifier.md", "cr-applier.md"];
 
 function readPrompt(name) {
   return readFileSync(join(FACTORY_PROMPTS_DIR, name), "utf8");
@@ -55,7 +55,8 @@ test("extractor.md carries the spike evidence-gate and the normative-detection f
   assert.match(text, /SPIKE-TEMPLATE\.md/, "extractor must point at the spike template");
   assert.match(text, /must_verify_with_spike/, "extractor must mint spike obligations");
   assert.match(text, /gate:phase0:s/, "extractor must wire the spike gate id");
-  assert.match(text, /REUSE the spikes the owner already provided/i, "extractor must reuse owner-provided spikes, not just mint");
+  assert.match(text, /INTEGRATE mode \(existing spikes are the authority\)/i, "extractor must integrate owner-provided spikes, not just mint");
+  assert.match(text, /NEVER rewrite, renumber, recreate/i, "integrate mode must preserve provided spikes verbatim");
   assert.match(text, /Normative detection floor/i, "extractor must carry the normative floor");
 });
 
@@ -90,6 +91,46 @@ test("change-request.md carries the post-freeze Change-Control discipline", () =
   assert.match(text, /owner_decision_evidence/);
   assert.match(text, /never silently edit/i, "the agent must not silently patch the frozen canonical");
   assert.match(text, /CR-TEMPLATE\.md/);
+});
+
+test("spike-prover.md carries the run-it-in-the-target-repo proving discipline", () => {
+  const text = readPrompt("spike-prover.md");
+  assert.match(text, /SELF-CONTAINED/, "spike-prover.md must declare it is self-contained");
+  assert.match(text, /Spike Prover/i);
+  // It proves substance by RUNNING experiments in the target repo, never by reasoning.
+  assert.match(text, /IN THIS TARGET REPO/i);
+  assert.match(text, /never fabricate|never claim a proof/i);
+  // The six evidence fields it must record.
+  for (const field of ["environment", "commands", "observed output", "decision", "documentation updates", "unresolved risks"]) {
+    assert.match(text, new RegExp(field, "i"), `spike-prover must record the "${field}" evidence field`);
+  }
+  // The machine verdict contract.
+  assert.match(text, /spike-proof-<stem>\.json/);
+  assert.match(text, /"verdict":\s*"verified"/);
+  // It stays in scope and only corrects canonical when reality forces it (rule 1).
+  assert.match(text, /truth-model rule 1|pre-freeze correction/i);
+  assert.match(text, /Forbidden/i, "must forbid touching other spikes / the corpus");
+});
+
+test("spike-verifier.md carries the independent counter-verification discipline", () => {
+  const text = readPrompt("spike-verifier.md");
+  assert.match(text, /SELF-CONTAINED/, "spike-verifier.md must declare it is self-contained");
+  assert.match(text, /independent Spike Verifier/i);
+  assert.match(text, /did \*\*NOT\*\* establish this proof|You did .*NOT.* establish/i);
+  // It writes the agree verdict and edits nothing.
+  assert.match(text, /spike-proof-<stem>-verdict\.json/);
+  assert.match(text, /"agree":\s*(true|boolean)/i);
+  assert.match(text, /Report, never edit|edit no file|You edit nothing/i);
+});
+
+test("vivi.md pins the strict spike filename/gate_id grammar", () => {
+  const text = readPrompt("vivi.md");
+  // Vivi writes spikes the rest of the pipeline consumes; a filename that does not
+  // match the gate_id slug is silently skipped by the proving stage (real bug found
+  // in the torture run — Vivi wrote `S01-...md` with `gate:phase0:s01-...`).
+  assert.match(text, /NO leading `S`\/`s`/i, "vivi.md must forbid the leading-S filename");
+  assert.match(text, /gate:phase0:s<nn>-<slug>/, "vivi.md must show the gate_id grammar");
+  assert.match(text, /filename stem \*\*verbatim\*\*|equal the filename without `\.md`/i, "vivi.md must require gate_id slug == filename stem");
 });
 
 test("map-review.md carries the independent per-lens review method", () => {

@@ -12,7 +12,7 @@
 //   VIVICY_TARGET_ROOT=<root> node vivicy/factory/change-control.mjs
 //
 // With no change-requests/ directory or no CR files it exits 0 ("nothing to check yet").
-import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -71,6 +71,12 @@ export function readChangeRequests(root = repoRoot) {
   return out;
 }
 
+// One CR by its frontmatter id (e.g. "CR-0003"), or null when none matches. The single
+// lookup both cr-apply and the control plane use so the id→file resolution lives here.
+export function readChangeRequest(root, id) {
+  return readChangeRequests(root).find((cr) => String(cr.fm?.id ?? "") === id) ?? null;
+}
+
 // The next CR id is the highest existing CR-#### plus one (CR-0001 when none exist).
 export function nextCrId(crs = readChangeRequests()) {
   const max = crs.reduce((acc, cr) => {
@@ -78,6 +84,150 @@ export function nextCrId(crs = readChangeRequests()) {
     return Math.max(acc, n);
   }, 0);
   return `CR-${String(max + 1).padStart(4, "0")}`;
+}
+
+// The single writer of a new Change Request (G7 emission). Every CR source — the spike
+// prover, a readiness/dev leg, Vivi mid-run — routes through here so the frontmatter
+// shape stays consistent with CR-TEMPLATE.md and the written file passes
+// runChangeControlCheck. Computes the next sequential id, renders the full frontmatter
+// (status: idea, owner_decision: pending, the null baseline-identity scaffold the checker
+// needs to stay silent for an idea) + the template's narrative sections, writes the file,
+// and returns its refs. `now` is a seam (tests pin it); `sourceEvidence` is the machine
+// evidence (report paths, transcript refs) captured verbatim so the CR never rests on an
+// agent's unverified assertion. `affectedVerificationGates` records the spike gate_id(s)
+// this CR resolves at the intention level, so cr-apply can retire them on the fold (a
+// disproven spike drafts its own gate here — the link the apply chain follows to unblock
+// re-extraction). Throws if the rendered CR would not pass the checker.
+export function createChangeRequest({ repoRoot, title, classification = "minor_product_change", source = "agent", sourceEvidence = [], affectedVerificationGates = [], body = null, now } = {}) {
+  if (!repoRoot) throw new Error("createChangeRequest: repoRoot is required");
+  if (!isNonEmptyString(title)) throw new Error("createChangeRequest: a non-empty title is required");
+  if (!CR_CLASSIFICATIONS.includes(classification)) {
+    throw new Error(`createChangeRequest: invalid classification "${classification}" (one of ${CR_CLASSIFICATIONS.join(", ")})`);
+  }
+  const dirAbs = resolveInside(repoRoot, CHANGE_REQUESTS_DIR);
+  mkdirSync(dirAbs, { recursive: true });
+  const id = nextCrId(readChangeRequests(repoRoot));
+  const nowIso = typeof now === "function" ? now() : new Date().toISOString();
+  const date = nowIso.slice(0, 10);
+  const file = `${CHANGE_REQUESTS_DIR}/${id}-${slugify(title)}.md`;
+  const content = renderNewChangeRequest({ id, title, classification, source, sourceEvidence, affectedVerificationGates, body, date });
+  writeFileSync(resolve(repoRoot, file), content);
+
+  // Validation of record: the written file must pass the deterministic gate, or the
+  // writer is buggy — fail loudly here rather than leave a malformed CR on disk.
+  const check = runChangeControlCheck({ repoRoot });
+  if (check.exitCode !== 0) {
+    throw new Error(`createChangeRequest: the written CR ${id} does not pass change-control:\n${check.errors.join("\n")}`);
+  }
+  return { id, path: file };
+}
+
+// Record the owner decision on a CR (G7 decision — P2's single human touchpoint). Pure
+// deterministic frontmatter rewrite, no agent: an `approved` CR becomes
+// accepted_current_build with previous_baseline_* filled from the CURRENT frozen baseline
+// manifest (the immutable pre-change identity the registry chains); a `rejected` CR
+// becomes rejected. Both stamp owner_decision/owner_decision_by/at/evidence. The decided
+// file must pass runChangeControlCheck. `now` is a seam (tests pin it).
+export function decideChangeRequest({ repoRoot, id, decision, decidedBy, evidenceRef, now } = {}) {
+  if (!repoRoot) throw new Error("decideChangeRequest: repoRoot is required");
+  if (decision !== "approved" && decision !== "rejected") {
+    throw new Error(`decideChangeRequest: decision must be "approved" or "rejected", got "${decision}"`);
+  }
+  const crs = readChangeRequests(repoRoot);
+  const cr = crs.find((c) => String(c.fm?.id ?? "") === id);
+  if (!cr) throw new Error(`decideChangeRequest: no CR with id ${id} under ${CHANGE_REQUESTS_DIR}`);
+  const status = String(cr.fm?.status ?? "");
+  if (status !== "idea" && status !== "under_review") {
+    throw new Error(`decideChangeRequest: CR ${id} is "${status}", only idea|under_review CRs can be decided`);
+  }
+
+  const nowIso = typeof now === "function" ? now() : new Date().toISOString();
+  const patch = {
+    updated_at: nowIso.slice(0, 10),
+    owner_decision: decision,
+    owner_decision_by: decidedBy || "owner",
+    owner_decision_at: nowIso.slice(0, 10),
+    owner_decision_evidence: evidenceRef || `owner decision recorded ${nowIso}`,
+  };
+  if (decision === "rejected") {
+    patch.status = "rejected";
+  } else {
+    // accepted_current_build requires the pre-change baseline identity: the CURRENT frozen
+    // manifest. A CR cannot be approved into the build with no baseline to change against.
+    const frozen = readFrozenBaselineIdentity(repoRoot);
+    if (!frozen) {
+      throw new Error(`decideChangeRequest: cannot approve ${id} — no frozen baseline manifest under ${BASELINES_DIR}/ to record as previous_baseline_*`);
+    }
+    patch.status = "accepted_current_build";
+    Object.assign(patch, frozen);
+  }
+
+  const rel = `${CHANGE_REQUESTS_DIR}/${cr.file}`;
+  const abs = resolve(repoRoot, rel);
+  writeFileSync(abs, rewriteFrontmatter(readFileSync(abs, "utf8"), patch));
+  const check = runChangeControlCheck({ repoRoot });
+  if (check.exitCode !== 0) {
+    throw new Error(`decideChangeRequest: the decided CR ${id} does not pass change-control:\n${check.errors.join("\n")}`);
+  }
+  return { id, path: rel, status: patch.status };
+}
+
+// Stamp an APPROVED CR (status accepted_current_build) as docs_applied after the canonical
+// edit has been re-frozen (G7 application chain, step c). Deterministic frontmatter
+// rewrite: status → docs_applied, resulting_baseline_* filled from the NEW frozen manifest
+// identity, updated_at bumped. `resulting` is { resulting_baseline_id, resulting_baseline_version,
+// resulting_baseline_manifest_path, resulting_document_set_hash, resulting_manifest_hash }
+// — the resulting_manifest_hash must exist in a baselines/ manifest (the checker verifies
+// it). The stamped file must pass runChangeControlCheck. `now` is a seam (tests pin it).
+export function stampChangeRequestApplied({ repoRoot, id, resulting, now } = {}) {
+  if (!repoRoot) throw new Error("stampChangeRequestApplied: repoRoot is required");
+  const crs = readChangeRequests(repoRoot);
+  const cr = crs.find((c) => String(c.fm?.id ?? "") === id);
+  if (!cr) throw new Error(`stampChangeRequestApplied: no CR with id ${id} under ${CHANGE_REQUESTS_DIR}`);
+  if (String(cr.fm?.status ?? "") !== "accepted_current_build") {
+    throw new Error(`stampChangeRequestApplied: CR ${id} is "${cr.fm?.status}", only accepted_current_build can be marked docs_applied`);
+  }
+  const missing = RESULTING_FIELDS.filter((f) => isBlank(resulting?.[f]));
+  if (missing.length > 0) {
+    throw new Error(`stampChangeRequestApplied: resulting identity is missing ${missing.join(", ")}`);
+  }
+  const nowIso = typeof now === "function" ? now() : new Date().toISOString();
+  const patch = { status: "docs_applied", updated_at: nowIso.slice(0, 10), ...resulting };
+  const rel = `${CHANGE_REQUESTS_DIR}/${cr.file}`;
+  const abs = resolve(repoRoot, rel);
+  writeFileSync(abs, rewriteFrontmatter(readFileSync(abs, "utf8"), patch));
+  const check = runChangeControlCheck({ repoRoot });
+  if (check.exitCode !== 0) {
+    throw new Error(`stampChangeRequestApplied: the stamped CR ${id} does not pass change-control:\n${check.errors.join("\n")}`);
+  }
+  return { id, path: rel, status: "docs_applied" };
+}
+
+// The single active frozen baseline's previous_* identity fields, or null when none is
+// frozen. The active manifest is status:frozen with no `superseded` marker (the same
+// definition doc-baseline and extract-issues use). Mirrors those fields into the
+// previous_baseline_* names the checker's PREVIOUS_FIELDS require.
+export function readFrozenBaselineIdentity(root) {
+  const dirAbs = resolve(root, BASELINES_DIR);
+  if (!existsSync(dirAbs) || !statSync(dirAbs).isDirectory()) return null;
+  for (const file of readdirSync(dirAbs)) {
+    if (!file.toLowerCase().endsWith(".json")) continue;
+    let manifest;
+    try {
+      manifest = JSON.parse(readFileSync(join(dirAbs, file), "utf8"));
+    } catch {
+      continue;
+    }
+    if (!manifest || manifest.status !== "frozen" || manifest.superseded || typeof manifest.baseline_id !== "string") continue;
+    return {
+      previous_baseline_id: manifest.baseline_id,
+      previous_baseline_version: manifest.version,
+      previous_baseline_manifest_path: `${BASELINES_DIR}/${file}`,
+      previous_document_set_hash: manifest.document_set_hash,
+      previous_manifest_hash: manifest.manifest_hash,
+    };
+  }
+  return null;
 }
 
 export function runChangeControlCheck(options = {}) {
@@ -255,8 +405,137 @@ function toList(value) {
   return [];
 }
 
+// A filename-safe slug from a CR title: lowercase, non-alphanumerics to single hyphens,
+// trimmed and capped so the CR-####-slug.md filename stays readable and matches the
+// CR_FILENAME grammar ([a-z0-9-]+).
+function slugify(title) {
+  const slug = String(title)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 60)
+    .replace(/-+$/g, "");
+  return slug || "change";
+}
+
+// Render a fresh CR file: the FULL CR-TEMPLATE frontmatter (valid enums + the null
+// baseline-identity scaffold an `idea` needs to pass the checker) followed by the
+// template's narrative sections. A caller may pass a `body` (already-formatted markdown
+// after the frontmatter) for a richer narrative; otherwise the template sections are
+// emitted with the machine evidence folded into the Audit Trail so the CR never rests on
+// an unverified assertion.
+function renderNewChangeRequest({ id, title, classification, source, sourceEvidence, affectedVerificationGates = [], body, date }) {
+  const fm = [
+    "---",
+    `id: ${id}`,
+    `title: ${title}`,
+    "status: idea",
+    `classification: ${classification}`,
+    `created_at: ${date}`,
+    `updated_at: ${date}`,
+    `source: ${source}`,
+    "owner_decision: pending",
+    "owner_decision_by: null",
+    "owner_decision_at: null",
+    "owner_decision_evidence: null",
+    "previous_baseline_id: null",
+    "previous_baseline_version: null",
+    "previous_baseline_manifest_path: null",
+    "previous_document_set_hash: null",
+    "previous_manifest_hash: null",
+    "target_baseline_bump: null",
+    "resulting_baseline_id: null",
+    "resulting_baseline_version: null",
+    "resulting_baseline_manifest_path: null",
+    "resulting_document_set_hash: null",
+    "resulting_manifest_hash: null",
+    "affected_docs: []",
+    "affected_issues: []",
+    "affected_requirements: []",
+    `affected_verification_gates: ${serializeFmValue(toList(affectedVerificationGates))}`,
+    "issue_generation_required: false",
+    "catalog_delta_required: false",
+    "matrix_rows_pending: false",
+    "supersedes: []",
+    "superseded_by: null",
+    "---",
+  ].join("\n");
+  if (isNonEmptyString(body)) return `${fm}\n\n${body.trim()}\n`;
+  const evidence = toList(sourceEvidence);
+  return [
+    fm,
+    "",
+    `# ${id} - ${title}`,
+    "",
+    "## Idea",
+    "",
+    `${title}. Restated as a product change, decided by the owner.`,
+    "",
+    "## Why It Matters",
+    "",
+    `Raised via ${source}. The owner decides whether this changes the product intention.`,
+    "",
+    "## Development Agent Recommendation",
+    "",
+    `Recommended status \`idea\` pending the owner decision. Classification \`${classification}\`.`,
+    "",
+    "## Impact Assessment",
+    "",
+    "- Product behavior: recorded above.",
+    "- Architecture / data model / protocols / security: `N/A - no impact found` unless the owner's decision touches them.",
+    "",
+    "## Decision",
+    "",
+    "Record the owner decision, date, and reason, and populate `owner_decision_by`, `owner_decision_at`, and `owner_decision_evidence`. A decided CR without this evidence is invalid.",
+    "",
+    "## Machine Evidence",
+    "",
+    evidence.length ? "```text" : "`N/A - no machine evidence captured`",
+    ...(evidence.length ? [...evidence, "```"] : []),
+    "",
+    "## Audit Trail",
+    "",
+    "```text",
+    `${date} - CR created (source: ${source}).`,
+    "```",
+    "",
+  ].join("\n");
+}
+
+// Deterministically rewrite the frontmatter `key: value` lines of a CR file: keys present
+// in `patch` are replaced in place (preserving their original position); keys not yet in
+// the block are appended just before the closing `---`. Everything outside the frontmatter
+// block is byte-preserved, and the file's dominant line ending is kept (no CRLF->LF).
+function rewriteFrontmatter(text, patch) {
+  const m = text.match(/^---\r?\n([\s\S]*?)\r?\n---/);
+  if (!m) throw new Error("rewriteFrontmatter: no --- frontmatter block");
+  const eol = text.includes("\r\n") ? "\r\n" : "\n";
+  const remaining = new Set(Object.keys(patch));
+  const rewritten = m[1].split(/\r?\n/).map((line) => {
+    const km = line.match(/^([a-z_]+):\s*(.*)$/);
+    if (km && Object.prototype.hasOwnProperty.call(patch, km[1])) {
+      remaining.delete(km[1]);
+      return `${km[1]}: ${serializeFmValue(patch[km[1]])}`;
+    }
+    return line;
+  });
+  for (const key of remaining) rewritten.push(`${key}: ${serializeFmValue(patch[key])}`);
+  const newBlock = `---\n${rewritten.join("\n")}\n---`.replace(/\n/g, eol);
+  return text.slice(0, m.index) + newBlock + text.slice(m.index + m[0].length);
+}
+
+function serializeFmValue(value) {
+  if (value === null || value === undefined) return "null";
+  if (Array.isArray(value)) return `[${value.join(", ")}]`;
+  return String(value);
+}
+
 function isBlank(value) {
   return value === null || value === undefined || value === "" || (Array.isArray(value) && value.length === 0);
+}
+
+function isNonEmptyString(value) {
+  return typeof value === "string" && value.trim().length > 0;
 }
 
 function placeholder(reason) {
@@ -289,8 +568,41 @@ if (cliEntry === fileURLToPath(import.meta.url)) {
     console.error("error: no target project configured. Set VIVICY_TARGET_ROOT to the absolute path of the project to check.");
     process.exit(2);
   }
-  const result = runChangeControlCheck();
-  for (const error of result.errors) console.error(`error:\n${error}`);
-  console.log(result.summary);
-  process.exit(result.exitCode);
+  // Default (no subcommand): run the registry check, exactly as before. The `decide`
+  // subcommand records an owner decision on a CR without disturbing that default — the
+  // control plane (lib/control.ts) and the CLI (G14) both drive decisions through it.
+  const [subcommand, ...rest] = process.argv.slice(2);
+  if (subcommand === "decide") {
+    runDecideCli(rest);
+  } else {
+    const result = runChangeControlCheck();
+    for (const error of result.errors) console.error(`error:\n${error}`);
+    console.log(result.summary);
+    process.exit(result.exitCode);
+  }
+}
+
+// `change-control.mjs decide --cr CR-#### --decision approved|rejected [--by <actor>]
+// [--evidence <ref>]` — records an owner decision and prints the resulting status as JSON
+// for a non-human caller. Exit 0 on success, 1 on any decision error (unknown/undecidable
+// CR, no frozen baseline to approve against), 2 on a usage error.
+function runDecideCli(args) {
+  const opt = (name) => {
+    const i = args.indexOf(`--${name}`);
+    return i !== -1 ? args[i + 1] : undefined;
+  };
+  const id = opt("cr");
+  const decision = opt("decision");
+  if (!id || !decision) {
+    console.error("usage: change-control.mjs decide --cr CR-#### --decision approved|rejected [--by <actor>] [--evidence <ref>]");
+    process.exit(2);
+  }
+  try {
+    const result = decideChangeRequest({ repoRoot, id, decision, decidedBy: opt("by"), evidenceRef: opt("evidence") });
+    console.log(JSON.stringify({ ok: true, ...result }));
+    process.exit(0);
+  } catch (error) {
+    console.error(JSON.stringify({ ok: false, error: error instanceof Error ? error.message : String(error) }));
+    process.exit(1);
+  }
 }

@@ -4,7 +4,7 @@
 // the exact canonical lines it cites) into source-map.json. When a Change Request regenerates
 // the baseline, this compares the NEW baseline's per-requirement excerpt hashes against the
 // PRIOR baseline's and reports exactly which requirements a doc edit invalidated — the input
-// the Change-Control re-drive needs to know what to re-extract, amend, or drop. Pure helpers
+// the Change-Control reopening needs to know what to re-extract, amend, or drop. Pure helpers
 // + one file-reading entry; no agent judgment.
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -42,7 +42,7 @@ export function compareExcerpts(priorSourceMap, newSourceMap) {
   return { unchanged: unchanged.sort(), changed: changed.sort(), added: added.sort(), removed: removed.sort() };
 }
 
-// Format the drift as the Change-Control re-drive disposition: a changed excerpt is
+// Format the drift as the Change-Control reopening disposition: a changed excerpt is
 // `amended`, an added one is `new`, a removed one is `removed` (the agent decides split/merged
 // on top of this mechanical signal). Pure.
 export function formatExcerptDrift(drift) {

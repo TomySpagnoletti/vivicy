@@ -36,12 +36,35 @@ export const progressEventTypes = [
   "issue_reopened",
   "review_started",
   "review_completed",
+  // S3 spike proving (G3): the substance-verification stage emits these around each
+  // spike's prover/verifier pair. They are keyed by spike gate_id (not a graph item),
+  // so they are recorded through the spike prover's own sink, not applyProgressEvent.
+  "spike_proof_started",
+  "spike_proof_completed",
+  // S8 readiness check (G5): the per-issue non-linear-dev verdict and its
+  // consequences. readiness_update_applied records a bounded issue-text (execution
+  // detail) edit; issue_parked_on_cr records an intention-level block that parks the
+  // issue on a change request while the loop keeps moving on other ready issues.
+  "readiness_check_started",
+  "readiness_check_completed",
+  "readiness_update_applied",
+  "issue_parked_on_cr",
+  // S10 merge integrity (G6): the two integration-time judgments. post_merge_gate_failed
+  // is the deterministic detection that a merge damaged the integration tree (green
+  // pre-merge, red post-merge); the merge_conflict_* pair records whether the bounded
+  // merge-resolver leg reconciled a conflicting worktree branch.
+  "post_merge_gate_failed",
+  "merge_conflict_resolved",
+  "merge_conflict_unresolved",
 ];
 
 // Optional actor role on an event/active item, so the map can show which agent
 // (the implementer or the independent reviewer) is acting. The orchestrator sets
 // the role mechanically from the leg it is running, never the agent itself.
-export const progressRoles = ["implementer", "reviewer"];
+// spike_prover / spike_verifier are the S3 proving legs (G3), the R12 pair on the
+// spike substance stage. readiness-checker (S8) and merge-resolver (S10) are advisory
+// legs that run on the implementer CLI; their verdicts the orchestrator re-gates deterministically.
+export const progressRoles = ["implementer", "reviewer", "spike_prover", "spike_verifier", "readiness-checker", "merge-resolver"];
 
 const activeStateByEvent = {
   gate_failed: "verifying",
@@ -54,6 +77,17 @@ const activeStateByEvent = {
   issue_started: "working",
   review_completed: "reviewing",
   review_started: "reviewing",
+  // S8 readiness: the check + a bounded issue edit are working-phase; parking on a CR
+  // is a block state so the map lights the parked node until a CR decision reopens it.
+  readiness_check_started: "working",
+  readiness_check_completed: "working",
+  readiness_update_applied: "working",
+  issue_parked_on_cr: "blocked",
+  // S10 merge integrity: a damaged-merge detection or an unresolved conflict is a block;
+  // a resolved conflict returns the issue to the working phase for its retried merge.
+  post_merge_gate_failed: "blocked",
+  merge_conflict_unresolved: "blocked",
+  merge_conflict_resolved: "working",
 };
 
 // Higher rank = more advanced; normal events may only raise (or hold) a status.

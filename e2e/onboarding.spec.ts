@@ -1,17 +1,20 @@
+import { rmSync } from "node:fs"
 import path from "node:path"
 
 import { expect, test } from "@playwright/test"
 
-import { onboardScaffoldParent } from "../playwright.config"
+import { onboardScaffoldParent, RUNTIME_DIR } from "../playwright.config"
 
 /**
- * R9 onboarding. The onboarding server points at a target with NO docs/, so the
- * map route returns `no_target` and the two-mode chooser renders. This spec:
+ * G10 onboarding. The onboarding server points at a target with NO `.vivicy/`, so
+ * the map route returns `no_target` and the four-card chooser renders. This spec:
  *
- *   1. asserts BOTH modes are offered (existing folder + start from scratch);
- *   2. drives Mode B end to end — opens the scaffold dialog, gives a name +
- *      absolute target, scaffolds, and confirms the app lands on the freshly
- *      scaffolded project's "no architecture map yet" empty state.
+ *   1. asserts ALL FOUR cards are offered (open a project, start from scratch,
+ *      import your docs, build the spec with Vivi);
+ *   2. drives the scaffold (start-from-scratch) card end to end — opens the
+ *      scaffold dialog, gives a name + absolute target, scaffolds, and confirms
+ *      the app lands on the freshly scaffolded project's "no architecture map yet"
+ *      empty state.
  *
  * Serial: the scaffold persists a current-project into this server's runtime dir,
  * which changes the map state for the rest of the file.
@@ -21,16 +24,34 @@ test.describe.configure({ mode: "serial" })
 // The browser key is the project-name suffix ("onboarding-<browserKey>"); each
 // browser scaffolds into its OWN parent dir (global-setup wipes each), so the
 // matrix's parallel onboarding projects never race the same scaffold target.
-function scaffoldTargetFor(projectName: string): string {
-  const browserKey = projectName.replace(/^onboarding-/, "")
-  return path.join(onboardScaffoldParent(browserKey), "e2e-scaffolded")
+function browserKeyFor(projectName: string): string {
+  return projectName.replace(/^onboarding-/, "")
 }
 
-test.describe("Vivicy onboarding (two start modes)", () => {
-  test("shows both start modes", async ({ page }, testInfo) => {
+function scaffoldTargetFor(projectName: string): string {
+  return path.join(onboardScaffoldParent(browserKeyFor(projectName)), "e2e-scaffolded")
+}
+
+test.describe("Vivicy onboarding (four start modes)", () => {
+  // Both tests must start from the pristine `no_target` chooser. The scaffold test
+  // persists a current-project into this server's runtime dir, and Playwright's
+  // serial-mode retry re-runs the WHOLE group — so without this reset a retried
+  // "shows four modes" would boot into the scaffolded project's no-map state, not
+  // the chooser. Deleting the persisted current-project before each test restores
+  // `no_target` deterministically (the env target has no `.vivicy/`), independent
+  // of run/retry order.
+  test.beforeEach(async ({}, testInfo) => {
+    rmSync(path.join(RUNTIME_DIR("onboarding", browserKeyFor(testInfo.project.name)), "current-project.json"), {
+      force: true,
+    })
+  })
+
+  test("shows all four start modes", async ({ page }, testInfo) => {
     await page.goto("/")
 
-    // The chooser heading + both mode cards render.
+    // The chooser heading + all four mode cards render: the two acquisition cards
+    // (Open a project, Start from scratch) and the two intake cards (Import your
+    // docs, Build the spec with Vivi).
     await expect(page.getByRole("heading", { name: "Start a project" })).toBeVisible({
       timeout: 30_000,
     })
@@ -39,6 +60,12 @@ test.describe("Vivicy onboarding (two start modes)", () => {
     ).toBeVisible()
     await expect(
       page.getByRole("button", { name: /Scaffold a new project/i })
+    ).toBeVisible()
+    await expect(
+      page.getByRole("button", { name: /Import docs/i })
+    ).toBeVisible()
+    await expect(
+      page.getByRole("button", { name: /Talk to Vivi/i })
     ).toBeVisible()
 
     // Cross-browser capture of the pristine `no_target` chooser. This is the FIRST
@@ -81,8 +108,8 @@ test.describe("Vivicy onboarding (two start modes)", () => {
     await expect(dialog).not.toBeVisible()
 
     // The app re-fetched the map and now lands on the freshly-scaffolded project:
-    // it HAS docs/ (the canonical README placeholder) but no generated map, so the
-    // no-map onboarding card renders.
+    // it HAS a `.vivicy/canonical/` (the scaffolded skeleton) but no generated map,
+    // so the no-map onboarding card renders.
     const card = page.locator('[data-empty-reason="no_map"]')
     await expect(card).toBeVisible({ timeout: 30_000 })
     await expect(

@@ -69,7 +69,21 @@
     ".next-e2e-onboarding-firefox-desktop/types/**/*.ts",
     ".next-e2e-onboarding-firefox-desktop/dev/types/**/*.ts",
     ".next-e2e-onboarding-webkit-desktop/types/**/*.ts",
-    ".next-e2e-onboarding-webkit-desktop/dev/types/**/*.ts"
+    ".next-e2e-onboarding-webkit-desktop/dev/types/**/*.ts",
+    ".next-e2e-probe/types/**/*.ts",
+    ".next-e2e-probe/dev/types/**/*.ts",
+    ".next-e2e-probe2/types/**/*.ts",
+    ".next-e2e-probe2/dev/types/**/*.ts",
+    ".next-e2e-probe3/types/**/*.ts",
+    ".next-e2e-probe3/dev/types/**/*.ts",
+    ".next-e2e-probeE/types/**/*.ts",
+    ".next-e2e-probeE/dev/types/**/*.ts",
+    ".next-e2e-probeO/types/**/*.ts",
+    ".next-e2e-probeO/dev/types/**/*.ts",
+    ".next-e2e-lay/types/**/*.ts",
+    ".next-e2e-lay/dev/types/**/*.ts",
+    ".next-e2e-lay2/types/**/*.ts",
+    ".next-e2e-lay2/dev/types/**/*.ts"
   ],
   "exclude": [
     "node_modules",

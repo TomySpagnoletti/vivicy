@@ -128,7 +128,7 @@ export function AgentsHealthDialog({
         <DialogHeader>
           <DialogTitle>Agent CLIs</DialogTitle>
           <DialogDescription>
-            The dev-loop needs both the Claude Code and Codex CLIs installed and
+            The development loop needs both the Claude Code and Codex CLIs installed and
             signed in. Detection is read-only — it never runs the agents.
           </DialogDescription>
         </DialogHeader>
@@ -225,7 +225,7 @@ function AgentCard({
       {!loading && present && auth === null ? (
         <p className="text-xs text-muted-foreground">
           No clean signal to confirm sign-in (e.g. credentials stored in the macOS
-          Keychain). If the dev-loop reports auth errors, run{" "}
+          Keychain). If the development loop reports auth errors, run{" "}
           <code className="break-all text-foreground">{guidance.authCommand}</code>.
         </p>
       ) : null}
@@ -473,5 +473,5 @@ function warningFor(health: AgentsHealth): string | null {
     else if (a.authenticated === null) problems.push(`${label} sign-in could not be verified`)
   }
   if (problems.length === 0) return null
-  return `${problems.join("; ")}. The dev-loop needs both CLIs installed and signed in to run.`
+  return `${problems.join("; ")}. The development loop needs both CLIs installed and signed in to run.`
 }

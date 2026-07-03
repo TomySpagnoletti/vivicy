@@ -1,0 +1,10 @@
+{
+  "gate_id": "gate:test:ledger-total",
+  "issue_id": "ISS-0003",
+  "graph_ref": "node:ledger",
+  "kind": "test",
+  "status": "passed",
+  "command": "node --test ledger.total.test.mjs",
+  "checked_at": "2026-06-27T14:18:20Z",
+  "summary": "Ledger total is the integer-cents sum of amountCents across stored expenses, zero for an empty ledger, with no floating-point arithmetic."
+}
