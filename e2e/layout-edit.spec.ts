@@ -66,23 +66,32 @@ test.describe("Architecture map layout editing", () => {
     // Drag the first node by a screen offset large enough to clear the snap grid.
     // React Flow's drag needs the pointer-down to register before the moves; under
     // CI/matrix load that init can occasionally be dropped, leaving the node
-    // un-moved. Retry the whole drag until it marks the layout dirty (the Save
-    // button appears), so the test reliably proves a real move rather than flaking
-    // on a dropped pointer-down. The position is re-measured each attempt.
+    // un-moved. Retry the whole drag until it BOTH marks the layout dirty (Save
+    // appears) AND the node's on-screen position actually changed — a drag that
+    // registers a click but nets zero movement can reveal Save yet leave the yml
+    // byte-identical, so requiring a real positional delta here removes that flake
+    // at its source rather than letting the later yml comparison fail. The position
+    // is re-measured each attempt.
     const saveButton = page.getByRole("button", { name: "Save layout" })
     await expect(async () => {
-      const box = await firstNode.boundingBox()
-      if (!box) throw new Error("could not measure the node to drag")
-      const startX = box.x + box.width / 2
-      const startY = box.y + box.height / 2
+      const before = await firstNode.boundingBox()
+      if (!before) throw new Error("could not measure the node to drag")
+      const startX = before.x + before.width / 2
+      const startY = before.y + before.height / 2
       await page.mouse.move(startX, startY)
       await page.mouse.down()
       // A short settle so React Flow registers the drag start before the moves.
       await page.waitForTimeout(50)
       await page.mouse.move(startX + 90, startY + 70, { steps: 12 })
       await page.mouse.up()
-      // The move must have marked the layout dirty, revealing Save.
+      // The move must have marked the layout dirty, revealing Save...
       await expect(saveButton).toBeVisible({ timeout: 3_000 })
+      // ...and actually shifted the node on screen (a real move, not a jiggle that
+      // snaps back to the origin — that would reveal Save but not change the yml).
+      const after = await firstNode.boundingBox()
+      if (!after) throw new Error("could not re-measure the node after the drag")
+      const moved = Math.abs(after.x - before.x) + Math.abs(after.y - before.y)
+      expect(moved, "the node did not move on screen after the drag").toBeGreaterThan(10)
     }).toPass({ timeout: 30_000 })
 
     await saveButton.click()

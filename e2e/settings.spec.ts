@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test"
 
-import { openSettingsDialog } from "./helpers"
+import { clickPastOverlap, openSettingsDialog } from "./helpers"
 
 /**
  * Drives the per-agent settings dialog end to end: open it from the sidebar gear,
@@ -34,7 +34,7 @@ test.describe("Vivicy agent settings", () => {
     await expect(effortTrigger).toContainText("max")
 
     // Save: PUT /api/settings, success toast, dialog closes.
-    await dialog.getByRole("button", { name: "Save" }).click()
+    await clickPastOverlap(dialog.getByRole("button", { name: "Save" }))
     // sonner stacks toasts; scope to the most recent so a lingering prior toast
     // never trips strict mode.
     await expect(page.getByText(/Settings saved/i).first()).toBeVisible({ timeout: 15_000 })
@@ -52,7 +52,7 @@ test.describe("Vivicy agent settings", () => {
     // store for other runs.
     await dialog2.getByRole("combobox", { name: "Implementer thinking level" }).click()
     await page.getByRole("option", { name: "xhigh", exact: true }).click()
-    await dialog2.getByRole("button", { name: "Save" }).click()
+    await clickPastOverlap(dialog2.getByRole("button", { name: "Save" }))
     await expect(page.getByText(/Settings saved/i).first()).toBeVisible({ timeout: 15_000 })
     await expect(dialog2).not.toBeVisible()
   })
@@ -78,7 +78,7 @@ test.describe("Vivicy agent settings", () => {
     await expect(reviewerCli).toContainText("Claude Code")
 
     // Save: PUT /api/settings, success toast, dialog closes.
-    await dialog.getByRole("button", { name: "Save" }).click()
+    await clickPastOverlap(dialog.getByRole("button", { name: "Save" }))
     await expect(page.getByText(/Settings saved/i).first()).toBeVisible({ timeout: 15_000 })
     await expect(dialog).not.toBeVisible()
 
@@ -99,7 +99,7 @@ test.describe("Vivicy agent settings", () => {
     await expect(
       dialog2.getByRole("combobox", { name: "Reviewer agent" })
     ).toContainText("Codex")
-    await dialog2.getByRole("button", { name: "Save" }).click()
+    await clickPastOverlap(dialog2.getByRole("button", { name: "Save" }))
     await expect(page.getByText(/Settings saved/i).first()).toBeVisible({ timeout: 15_000 })
     await expect(dialog2).not.toBeVisible()
   })
@@ -133,7 +133,7 @@ test.describe("Vivicy agent settings", () => {
     const fast2 = dialog.getByRole("switch", { name: "Implementer fast mode" })
     await expect(fast2).toBeEnabled()
     await expect(fast2).not.toBeChecked() // reset by the model switch
-    await dialog.getByRole("button", { name: "Save" }).click()
+    await clickPastOverlap(dialog.getByRole("button", { name: "Save" }))
     await expect(page.getByText(/Settings saved/i).first()).toBeVisible({ timeout: 15_000 })
     await expect(dialog).not.toBeVisible()
   })
@@ -183,7 +183,7 @@ test.describe("Vivicy agent settings", () => {
     await page.getByRole("option", { name: "gpt-5.5", exact: true }).click()
     await implFast.click()
     await expect(implFast).not.toBeChecked()
-    await dialog.getByRole("button", { name: "Save" }).click()
+    await clickPastOverlap(dialog.getByRole("button", { name: "Save" }))
     await expect(page.getByText(/Settings saved/i).first()).toBeVisible({ timeout: 15_000 })
     await expect(dialog).not.toBeVisible()
   })
@@ -201,7 +201,7 @@ test.describe("Vivicy agent settings", () => {
 
     // Set it to 3 and save.
     await maxParallel.fill("3")
-    await dialog.getByRole("button", { name: "Save" }).click()
+    await clickPastOverlap(dialog.getByRole("button", { name: "Save" }))
     await expect(page.getByText(/Settings saved/i).first()).toBeVisible({ timeout: 15_000 })
     await expect(dialog).not.toBeVisible()
 
@@ -213,7 +213,7 @@ test.describe("Vivicy agent settings", () => {
 
     // Restore the default (1) so the store is clean for other runs.
     await dialog2.getByLabel("Max parallel issues").fill("1")
-    await dialog2.getByRole("button", { name: "Save" }).click()
+    await clickPastOverlap(dialog2.getByRole("button", { name: "Save" }))
     await expect(page.getByText(/Settings saved/i).first()).toBeVisible({ timeout: 15_000 })
     await expect(dialog2).not.toBeVisible()
   })
@@ -245,7 +245,7 @@ test.describe("Vivicy agent settings", () => {
     await expect(decrease).toBeDisabled()
 
     // Leave the store clean (1 = sequential default).
-    await dialog.getByRole("button", { name: "Save" }).click()
+    await clickPastOverlap(dialog.getByRole("button", { name: "Save" }))
     await expect(page.getByText(/Settings saved/i).first()).toBeVisible({ timeout: 15_000 })
     await expect(dialog).not.toBeVisible()
   })
@@ -283,7 +283,7 @@ test.describe("Vivicy agent settings", () => {
 
     // Restore the default (1) so the store is clean for other runs.
     await maxParallel.fill("1")
-    await dialog.getByRole("button", { name: "Save" }).click()
+    await clickPastOverlap(dialog.getByRole("button", { name: "Save" }))
     await expect(page.getByText(/Settings saved/i).first()).toBeVisible({ timeout: 15_000 })
     await expect(dialog).not.toBeVisible()
   })

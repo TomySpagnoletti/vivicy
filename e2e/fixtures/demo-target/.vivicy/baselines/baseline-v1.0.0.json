@@ -1,0 +1,74 @@
+{
+  "approval": {
+    "approval_ref": "rehearsal-fixture",
+    "approved_at": "2026-06-27T12:18:56.482Z",
+    "approved_by": "vivicy:rehearsal"
+  },
+  "baseline_id": "baseline-v1.0.0",
+  "change_request_policy": {
+    "accepted_current_build_required": true,
+    "new_baseline_required_after_docs_change": true,
+    "registry_path": "docs/change-requests"
+  },
+  "document_set_hash": "3acb63c617f40a55ea7624447f9609fba9a10599d3a659e3a70deaaf89e0670b",
+  "exclude": [
+    "_tmp/**",
+    "node_modules/**",
+    "dist/**",
+    "**/.DS_Store",
+    ".vivicy/baselines/*.json",
+    ".vivicy/baselines/doc-baseline.mjs",
+    "docs/change-requests/CR-[0-9][0-9][0-9][0-9]-*.md",
+    ".vivicy/architecture-map/viewer/**",
+    "docs/governance/**",
+    "docs/reviews/**",
+    "docs/spikes/**"
+  ],
+  "files": [
+    {
+      "bytes": 1439,
+      "path": ".vivicy/canonical/01-architecture.md",
+      "sha256": "de909a93a1b7bf00b36b6a91a311ba03d3f18cf80c4b08bf13cffbc977f29373"
+    },
+    {
+      "bytes": 1219,
+      "path": ".vivicy/canonical/02-ledger-model.md",
+      "sha256": "ec402c996515906171398e2adbb46d6c416bb1de9aefa0355929b88d22f8eb9c"
+    },
+    {
+      "bytes": 1003,
+      "path": ".vivicy/canonical/03-category-rules.md",
+      "sha256": "57d5087a75b7161e0fa8e9d0c4c71b61b4738c7935dea41cf9522714c20c4866"
+    },
+    {
+      "bytes": 1123,
+      "path": ".vivicy/canonical/04-reporting.md",
+      "sha256": "95d52e9acf7f903e1d1dcd2c2db435fbf76d9dd6948935a1bf5be2370afdaf00"
+    },
+    {
+      "bytes": 957,
+      "path": ".vivicy/canonical/05-csv-export.md",
+      "sha256": "8d09572bb8c65c389355a4de7ebca4840e4bb60992c145ed7b87c5bead181726"
+    },
+    {
+      "bytes": 1110,
+      "path": ".vivicy/canonical/06-cli.md",
+      "sha256": "844c011a6cee1a4ed239358027a3eb8fc262d81213400030f9ccc83442187086"
+    }
+  ],
+  "generated_at": "2026-06-27T12:18:56.482Z",
+  "generated_by": ".vivicy/baselines/doc-baseline.mjs",
+  "git": {
+    "available": true,
+    "head_sha": "a686b3a4b30a681e874c9acf16e6910bff52c309",
+    "working_tree_clean": true
+  },
+  "include": [
+    ".vivicy/canonical/**/*.md"
+  ],
+  "manifest_hash": "d546deaa4b893d1ddc9dfb9a3150c5a7159a98439df9569839f3bcd6cebd9b59",
+  "product": "Project",
+  "schema_version": 1,
+  "status": "frozen",
+  "version": "1.0.0"
+}

@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test"
 
-import { ensurePanelOpen } from "./helpers"
+import { clickPastOverlap, ensurePanelOpen } from "./helpers"
 
 /**
  * Drives the control plane end to end against the populated demo target
@@ -36,7 +36,7 @@ test.describe("Vivicy control plane", () => {
 
     // Make sure no prior run is active: if a Stop control is present, clear it.
     if (await page.getByRole("button", { name: "Stop" }).count()) {
-      await page.getByRole("button", { name: "Stop" }).click()
+      await clickPastOverlap(page.getByRole("button", { name: "Stop" }))
       await page.getByRole("button", { name: "Stop", exact: true }).last().click()
       await expect(page.getByRole("button", { name: /^(Run|Resume)$/ })).toBeVisible({
         timeout: 15_000,
@@ -44,15 +44,18 @@ test.describe("Vivicy control plane", () => {
     }
 
     // Run: the start endpoint records the fake lock; SSE flips the pill to running.
-    await page.getByRole("button", { name: /^(Run|Resume)$/ }).click()
+    // The control-bar buttons live in the scrollable panel, so on the mobile Sheet
+    // a neighbouring row (the sidebar header / status row) can overlap them at rest;
+    // click past that overlap.
+    await clickPastOverlap(page.getByRole("button", { name: /^(Run|Resume)$/ }))
     await expect(statusBadge).toHaveText(/running/i, { timeout: 15_000 })
     await expect(page.getByRole("button", { name: "Stop" })).toBeVisible()
 
     // Stop: confirm via the AlertDialog, then the pill leaves the running state.
-    await page.getByRole("button", { name: "Stop" }).click()
+    await clickPastOverlap(page.getByRole("button", { name: "Stop" }))
     const dialog = page.getByRole("alertdialog")
     await expect(dialog).toBeVisible()
-    await expect(dialog.getByText("Stop the dev-loop?")).toBeVisible()
+    await expect(dialog.getByText("Stop the development loop?")).toBeVisible()
     await dialog.getByRole("button", { name: "Stop", exact: true }).click()
     await expect(statusBadge).not.toHaveText(/running/i, { timeout: 15_000 })
     await expect(page.getByRole("button", { name: /^(Run|Resume)$/ })).toBeVisible()
@@ -71,8 +74,9 @@ test.describe("Vivicy control plane", () => {
 
     // The Tasks accordion section is present and lists the demo issues. The
     // rich issue card shows the issue id and its file path, so match the id
-    // element exactly to avoid colliding with the path text.
-    await page.getByRole("button", { name: "Tasks" }).click()
+    // element exactly to avoid colliding with the path text. Click past any
+    // mobile-Sheet sibling overlap (same rationale as the control-bar clicks).
+    await clickPastOverlap(page.getByRole("button", { name: "Tasks" }))
     await expect(sidebar.getByText("ISS-0001", { exact: true })).toBeVisible()
     await expect(nodes.first()).toBeVisible()
   })

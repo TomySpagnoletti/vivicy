@@ -1,0 +1,10 @@
+{
+  "gate_id": "gate:test:ledger-retrieval",
+  "issue_id": "ISS-0002",
+  "graph_ref": "node:ledger",
+  "kind": "test",
+  "status": "passed",
+  "command": "node --test ledger.retrieval.test.mjs",
+  "checked_at": "2026-06-27T14:18:10Z",
+  "summary": "Ledger reads list all expenses in insertion order and read-one returns defensive copies, with no record for an unknown id."
+}

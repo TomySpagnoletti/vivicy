@@ -1,0 +1,451 @@
+{
+  "schema_version": 1,
+  "baselineId": "baseline-v1.0.0",
+  "baselineVersion": "1.0.0",
+  "baselineManifestPath": ".vivicy/baselines/baseline-v1.0.0.json",
+  "manifestHash": "d546deaa4b893d1ddc9dfb9a3150c5a7159a98439df9569839f3bcd6cebd9b59",
+  "documentSetHash": "3acb63c617f40a55ea7624447f9609fba9a10599d3a659e3a70deaaf89e0670b",
+  "rows": [
+    {
+      "requirementId": "REQ-ARCH-001",
+      "requirementTitle": "Ledger is the single source of truth for stored expenses",
+      "sourceFile": ".vivicy/canonical/01-architecture.md",
+      "sourceSection": "Boundaries",
+      "maturity": "mvp",
+      "disposition": "must_implement",
+      "issueIds": [
+        "ISS-0001"
+      ],
+      "verificationGateIds": [
+        "gate:test:ledger-add-expense"
+      ],
+      "verificationStage": "unit",
+      "testFilesOrCommands": [
+        "npm test (node --test)"
+      ],
+      "implementationReferences": [],
+      "status": "issue_planned",
+      "openQuestions": []
+    },
+    {
+      "requirementId": "REQ-ARCH-002",
+      "requirementTitle": "Money is represented as integer minor units",
+      "sourceFile": ".vivicy/canonical/01-architecture.md",
+      "sourceSection": "Money representation",
+      "maturity": "mvp",
+      "disposition": "must_implement",
+      "issueIds": [
+        "ISS-0003"
+      ],
+      "verificationGateIds": [
+        "gate:test:ledger-total"
+      ],
+      "verificationStage": "unit",
+      "testFilesOrCommands": [
+        "npm test (node --test)"
+      ],
+      "implementationReferences": [],
+      "status": "issue_planned",
+      "openQuestions": []
+    },
+    {
+      "requirementId": "REQ-ARCH-003",
+      "requirementTitle": "CLI is the sole process-argument and stdout owner that drives the flow",
+      "sourceFile": ".vivicy/canonical/01-architecture.md",
+      "sourceSection": "Boundaries / Data flow",
+      "maturity": "mvp",
+      "disposition": "must_implement",
+      "issueIds": [
+        "ISS-0008"
+      ],
+      "verificationGateIds": [
+        "gate:test:cli-dispatch"
+      ],
+      "verificationStage": "unit",
+      "testFilesOrCommands": [
+        "npm test (node --test)"
+      ],
+      "implementationReferences": [],
+      "status": "issue_planned",
+      "openQuestions": []
+    },
+    {
+      "requirementId": "REQ-LEDGER-001",
+      "requirementTitle": "Expense record has exactly five typed fields",
+      "sourceFile": ".vivicy/canonical/02-ledger-model.md",
+      "sourceSection": "Expense record",
+      "maturity": "mvp",
+      "disposition": "must_implement",
+      "issueIds": [
+        "ISS-0001"
+      ],
+      "verificationGateIds": [
+        "gate:test:ledger-add-expense"
+      ],
+      "verificationStage": "unit",
+      "testFilesOrCommands": [
+        "npm test (node --test)"
+      ],
+      "implementationReferences": [],
+      "status": "issue_planned",
+      "openQuestions": []
+    },
+    {
+      "requirementId": "REQ-LEDGER-002",
+      "requirementTitle": "Ledger stores in insertion order and rejects invalid or duplicate records",
+      "sourceFile": ".vivicy/canonical/02-ledger-model.md",
+      "sourceSection": "Storage rules",
+      "maturity": "mvp",
+      "disposition": "must_implement",
+      "issueIds": [
+        "ISS-0001"
+      ],
+      "verificationGateIds": [
+        "gate:test:ledger-add-expense"
+      ],
+      "verificationStage": "unit",
+      "testFilesOrCommands": [
+        "npm test (node --test)"
+      ],
+      "implementationReferences": [],
+      "status": "issue_planned",
+      "openQuestions": []
+    },
+    {
+      "requirementId": "REQ-LEDGER-003",
+      "requirementTitle": "Ledger reads return defensive copies and tolerate unknown ids",
+      "sourceFile": ".vivicy/canonical/02-ledger-model.md",
+      "sourceSection": "Retrieval rules",
+      "maturity": "mvp",
+      "disposition": "must_implement",
+      "issueIds": [
+        "ISS-0002"
+      ],
+      "verificationGateIds": [
+        "gate:test:ledger-retrieval"
+      ],
+      "verificationStage": "unit",
+      "testFilesOrCommands": [
+        "npm test (node --test)"
+      ],
+      "implementationReferences": [],
+      "status": "issue_planned",
+      "openQuestions": []
+    },
+    {
+      "requirementId": "REQ-LEDGER-004",
+      "requirementTitle": "Ledger total sums amountCents with empty total zero",
+      "sourceFile": ".vivicy/canonical/02-ledger-model.md",
+      "sourceSection": "Totals",
+      "maturity": "mvp",
+      "disposition": "must_implement",
+      "issueIds": [
+        "ISS-0003"
+      ],
+      "verificationGateIds": [
+        "gate:test:ledger-total"
+      ],
+      "verificationStage": "unit",
+      "testFilesOrCommands": [
+        "npm test (node --test)"
+      ],
+      "implementationReferences": [],
+      "status": "issue_planned",
+      "openQuestions": []
+    },
+    {
+      "requirementId": "REQ-CATEGORY-001",
+      "requirementTitle": "Categorizer matches a rule by lowercase keyword substring",
+      "sourceFile": ".vivicy/canonical/03-category-rules.md",
+      "sourceSection": "Purpose / Rule shape",
+      "maturity": "mvp",
+      "disposition": "must_implement",
+      "issueIds": [
+        "ISS-0004"
+      ],
+      "verificationGateIds": [
+        "gate:test:categorize-expense"
+      ],
+      "verificationStage": "unit",
+      "testFilesOrCommands": [
+        "npm test (node --test)"
+      ],
+      "implementationReferences": [],
+      "status": "issue_planned",
+      "openQuestions": []
+    },
+    {
+      "requirementId": "REQ-CATEGORY-002",
+      "requirementTitle": "Rules are evaluated in order, first match wins, case-insensitively",
+      "sourceFile": ".vivicy/canonical/03-category-rules.md",
+      "sourceSection": "Evaluation order",
+      "maturity": "mvp",
+      "disposition": "must_implement",
+      "issueIds": [
+        "ISS-0004"
+      ],
+      "verificationGateIds": [
+        "gate:test:categorize-expense"
+      ],
+      "verificationStage": "unit",
+      "testFilesOrCommands": [
+        "npm test (node --test)"
+      ],
+      "implementationReferences": [],
+      "status": "issue_planned",
+      "openQuestions": []
+    },
+    {
+      "requirementId": "REQ-CATEGORY-003",
+      "requirementTitle": "Unmatched expenses get the fixed uncategorized label",
+      "sourceFile": ".vivicy/canonical/03-category-rules.md",
+      "sourceSection": "Default category",
+      "maturity": "mvp",
+      "disposition": "must_implement",
+      "issueIds": [
+        "ISS-0004"
+      ],
+      "verificationGateIds": [
+        "gate:test:categorize-expense"
+      ],
+      "verificationStage": "unit",
+      "testFilesOrCommands": [
+        "npm test (node --test)"
+      ],
+      "implementationReferences": [],
+      "status": "issue_planned",
+      "openQuestions": []
+    },
+    {
+      "requirementId": "REQ-CATEGORY-004",
+      "requirementTitle": "Categorization is a pure, stateless function",
+      "sourceFile": ".vivicy/canonical/03-category-rules.md",
+      "sourceSection": "Determinism",
+      "maturity": "mvp",
+      "disposition": "must_implement",
+      "issueIds": [
+        "ISS-0004"
+      ],
+      "verificationGateIds": [
+        "gate:test:categorize-expense"
+      ],
+      "verificationStage": "unit",
+      "testFilesOrCommands": [
+        "npm test (node --test)"
+      ],
+      "implementationReferences": [],
+      "status": "issue_planned",
+      "openQuestions": []
+    },
+    {
+      "requirementId": "REQ-REPORT-001",
+      "requirementTitle": "Monthly totals group by YYYY-MM and order ascending",
+      "sourceFile": ".vivicy/canonical/04-reporting.md",
+      "sourceSection": "Purpose / Monthly totals",
+      "maturity": "mvp",
+      "disposition": "must_implement",
+      "issueIds": [
+        "ISS-0005"
+      ],
+      "verificationGateIds": [
+        "gate:test:monthly-report"
+      ],
+      "verificationStage": "unit",
+      "testFilesOrCommands": [
+        "npm test (node --test)"
+      ],
+      "implementationReferences": [],
+      "status": "issue_planned",
+      "openQuestions": []
+    },
+    {
+      "requirementId": "REQ-REPORT-002",
+      "requirementTitle": "Category breakdown within a month is ordered by label ascending",
+      "sourceFile": ".vivicy/canonical/04-reporting.md",
+      "sourceSection": "Category totals within a month",
+      "maturity": "mvp",
+      "disposition": "must_implement",
+      "issueIds": [
+        "ISS-0005"
+      ],
+      "verificationGateIds": [
+        "gate:test:monthly-report"
+      ],
+      "verificationStage": "unit",
+      "testFilesOrCommands": [
+        "npm test (node --test)"
+      ],
+      "implementationReferences": [],
+      "status": "issue_planned",
+      "openQuestions": []
+    },
+    {
+      "requirementId": "REQ-REPORT-003",
+      "requirementTitle": "Budget evaluation classifies the month and reports the signed difference",
+      "sourceFile": ".vivicy/canonical/04-reporting.md",
+      "sourceSection": "Budget evaluation",
+      "maturity": "mvp",
+      "disposition": "must_implement",
+      "issueIds": [
+        "ISS-0006"
+      ],
+      "verificationGateIds": [
+        "gate:test:budget-evaluation"
+      ],
+      "verificationStage": "unit",
+      "testFilesOrCommands": [
+        "npm test (node --test)"
+      ],
+      "implementationReferences": [],
+      "status": "issue_planned",
+      "openQuestions": []
+    },
+    {
+      "requirementId": "REQ-EXPORT-001",
+      "requirementTitle": "CSV export has a fixed header and column order",
+      "sourceFile": ".vivicy/canonical/05-csv-export.md",
+      "sourceSection": "Purpose / Column order",
+      "maturity": "mvp",
+      "disposition": "must_implement",
+      "issueIds": [
+        "ISS-0007"
+      ],
+      "verificationGateIds": [
+        "gate:test:csv-export"
+      ],
+      "verificationStage": "unit",
+      "testFilesOrCommands": [
+        "npm test (node --test)"
+      ],
+      "implementationReferences": [],
+      "status": "issue_planned",
+      "openQuestions": []
+    },
+    {
+      "requirementId": "REQ-EXPORT-002",
+      "requirementTitle": "CSV rows follow Ledger insertion order",
+      "sourceFile": ".vivicy/canonical/05-csv-export.md",
+      "sourceSection": "Row order",
+      "maturity": "mvp",
+      "disposition": "must_implement",
+      "issueIds": [
+        "ISS-0007"
+      ],
+      "verificationGateIds": [
+        "gate:test:csv-export"
+      ],
+      "verificationStage": "unit",
+      "testFilesOrCommands": [
+        "npm test (node --test)"
+      ],
+      "implementationReferences": [],
+      "status": "issue_planned",
+      "openQuestions": []
+    },
+    {
+      "requirementId": "REQ-EXPORT-003",
+      "requirementTitle": "CSV quotes special characters and escapes inner quotes",
+      "sourceFile": ".vivicy/canonical/05-csv-export.md",
+      "sourceSection": "Quoting rules",
+      "maturity": "mvp",
+      "disposition": "must_implement",
+      "issueIds": [
+        "ISS-0007"
+      ],
+      "verificationGateIds": [
+        "gate:test:csv-export"
+      ],
+      "verificationStage": "unit",
+      "testFilesOrCommands": [
+        "npm test (node --test)"
+      ],
+      "implementationReferences": [],
+      "status": "issue_planned",
+      "openQuestions": []
+    },
+    {
+      "requirementId": "REQ-EXPORT-004",
+      "requirementTitle": "CSV uses LF separators, plain-integer amounts, header-only when empty",
+      "sourceFile": ".vivicy/canonical/05-csv-export.md",
+      "sourceSection": "Line endings and amount format",
+      "maturity": "mvp",
+      "disposition": "must_implement",
+      "issueIds": [
+        "ISS-0007"
+      ],
+      "verificationGateIds": [
+        "gate:test:csv-export"
+      ],
+      "verificationStage": "unit",
+      "testFilesOrCommands": [
+        "npm test (node --test)"
+      ],
+      "implementationReferences": [],
+      "status": "issue_planned",
+      "openQuestions": []
+    },
+    {
+      "requirementId": "REQ-CLI-001",
+      "requirementTitle": "CLI dispatches add, list, report, and export commands",
+      "sourceFile": ".vivicy/canonical/06-cli.md",
+      "sourceSection": "Purpose / Commands",
+      "maturity": "mvp",
+      "disposition": "must_implement",
+      "issueIds": [
+        "ISS-0008"
+      ],
+      "verificationGateIds": [
+        "gate:test:cli-dispatch"
+      ],
+      "verificationStage": "unit",
+      "testFilesOrCommands": [
+        "npm test (node --test)"
+      ],
+      "implementationReferences": [],
+      "status": "issue_planned",
+      "openQuestions": []
+    },
+    {
+      "requirementId": "REQ-CLI-002",
+      "requirementTitle": "CLI reads only process arguments and fails non-zero on bad invocation",
+      "sourceFile": ".vivicy/canonical/06-cli.md",
+      "sourceSection": "Argument handling",
+      "maturity": "mvp",
+      "disposition": "must_implement",
+      "issueIds": [
+        "ISS-0008"
+      ],
+      "verificationGateIds": [
+        "gate:test:cli-dispatch"
+      ],
+      "verificationStage": "unit",
+      "testFilesOrCommands": [
+        "npm test (node --test)"
+      ],
+      "implementationReferences": [],
+      "status": "issue_planned",
+      "openQuestions": []
+    },
+    {
+      "requirementId": "REQ-CLI-003",
+      "requirementTitle": "CLI separates stdout and stderr and emits no partial output on error",
+      "sourceFile": ".vivicy/canonical/06-cli.md",
+      "sourceSection": "Output discipline",
+      "maturity": "mvp",
+      "disposition": "must_implement",
+      "issueIds": [
+        "ISS-0008"
+      ],
+      "verificationGateIds": [
+        "gate:test:cli-dispatch"
+      ],
+      "verificationStage": "unit",
+      "testFilesOrCommands": [
+        "npm test (node --test)"
+      ],
+      "implementationReferences": [],
+      "status": "issue_planned",
+      "openQuestions": []
+    }
+  ]
+}
