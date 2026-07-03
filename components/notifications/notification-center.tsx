@@ -102,7 +102,7 @@ export function NotificationCenter({
         <SheetHeader>
           <SheetTitle>Notifications</SheetTitle>
           <SheetDescription>
-            Every pipeline transition: stage starts, greens, blocks, and redos.
+            Every pipeline transition: stages starting, passing, blocking, and retrying.
           </SheetDescription>
         </SheetHeader>
 

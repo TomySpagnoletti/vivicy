@@ -4,7 +4,7 @@ Branche `evolution/v0.5.0`, 23 commits. Tout le contrat `PIPELINE-EVOLUTION.md` 
 
 ## Ce qui a été construit — 14 gaps + principes
 
-G1 import/normalize/check-then-place · G2 Vivi (chatbot grill-me) · G3 spike proofier cross-agent · G4 map reuse · G5 readiness leg · G6 intégrité merge · G7 automatisation CR · G8 widget pipeline · G9 centre de notifications · G10 onboarding · G11 guard canonical vide · G12 spikes integrate/extract · G13 extraction gated · G14 CLI/API pilotable. Plus: modèle de vérité (§4), no-pipeau, autonomie détachée.
+G1 import/normalize/check-then-place · G2 Vivi (chatbot grill-me) · G3 spike prover cross-agent · G4 map reuse · G5 readiness leg · G6 intégrité merge · G7 automatisation CR · G8 widget pipeline · G9 centre de notifications · G10 onboarding · G11 guard canonical vide · G12 spikes integrate/extract · G13 extraction gated · G14 CLI/API pilotable. Plus: modèle de vérité (§4), no-pipeau, autonomie détachée.
 
 ## Vérification
 
@@ -22,7 +22,7 @@ Projet `~/Desktop/habit-hydra`: spec volontairement horrible (5 contradictions c
 3. Import 4 docs → **verify réel a capturé les 5 contradictions plantées** (rouge), rien placé ✓
 4. Réconciliation → verify vert → apply (4 fichiers `.txt`→`.md` placés) ✓
 5. Vivi: grilling a trouvé tous les pièges avec file:line, écrit un spike, moteur = implémenteur ✓
-6. Extraction → **spike proofing a démoli argon2id avec preuve réelle** ("node:crypto argon2id n'existe que depuis Node v24.7.0, falsifiant product-vision.md:15") → **CR-0001 auto-draftée** → **G13 a bloqué l'extraction** (refuse de construire sur une hypothèse fausse) ✓
+6. Extraction → **spike proving a démoli argon2id avec preuve réelle** ("node:crypto argon2id n'existe que depuis Node v24.7.0, falsifiant product-vision.md:15") → **CR-0001 auto-draftée** → **G13 a bloqué l'extraction** (refuse de construire sur une hypothèse fausse) ✓
 7. **CR surfacée dans le centre de notifications → owner approuve avec confirm dialog → chaîne apply (apply→re-freeze→re-extract) kickée** ✓
 8. Notifications: 5+ vrais événements, dismiss, clear all ✓
 9. Widget pipeline: strip 13 stages, frontière non-loop/dev-loop, marqueurs 🖥️/🧁, stage courant surligné, boucles ✓
@@ -33,7 +33,7 @@ Projet `~/Desktop/habit-hydra`: spec volontairement horrible (5 contradictions c
 
 1. **Vivi rollback** — l'allowlist rejetait chaque tour à cause du transcript que le leg écrit lui-même → spikes légitimes détruits. Fixé + test.
 2. **Widget invisible pendant l'extraction** — gated sur `ready` (map existante), absent pile quand il doit montrer S2-S6. Fixé.
-3. **Vivi gate_id non conforme** — `S01-...md` + `s01-...` → spike skippé silencieusement, argon2id jamais proofé. Prompt fixé + test.
+3. **Vivi gate_id non conforme** — `S01-...md` + `s01-...` → spike skippé silencieusement, argon2id jamais prouvé. Prompt fixé + test.
 4. **CR sans UI** — routes API sans consommateur front → CR invisible, décision owner impossible. Construit `CrReviewSection`.
 5. **Setup bar sous le widget** — le widget large interceptait les clics sur la cloche. z-index fixé.
 6. **Copie stale `docs/`** dans map-empty-state → `.vivicy/canonical/`. Fixé.

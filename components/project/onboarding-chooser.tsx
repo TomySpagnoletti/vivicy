@@ -175,8 +175,8 @@ export function OnboardingChooser({
               </span>
               <CardTitle>Build the spec with Vivi</CardTitle>
               <CardDescription className="text-balance">
-                No docs yet? Talk to Vivi. She grills your idea into a rigorous
-                canonical spec and writes it into{" "}
+                No docs yet? Talk to Vivi. She grills you until your idea is a
+                rigorous canonical spec and writes it into{" "}
                 <code className="text-foreground">.vivicy/</code> for you.
               </CardDescription>
             </CardHeader>

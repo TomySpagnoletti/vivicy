@@ -45,7 +45,7 @@ const REPORTS_DIR = ".vivicy/development/reports";
 const CHANGE_REQUESTS_DIR = ".vivicy/change-requests";
 // The synthetic "issue" the applier leg runs against (transcript + actor/role handle),
 // keyed by the CR id so the transcript lands under a per-CR dir — the same pattern the
-// extractor and proofier use for a leg that is not a product issue.
+// extractor and prover use for a leg that is not a product issue.
 const APPLIER_GRAPH_REF = "node:cr-apply";
 const DEFAULT_APPLY_ATTEMPTS = 2; // the initial apply + one bounded retry on a red gate
 

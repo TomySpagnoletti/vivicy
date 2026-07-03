@@ -113,7 +113,7 @@ describe("status --json", () => {
       phase: "green",
       spike_mode: "integrate",
       map_mode: "reused",
-      spike_proofing: { proofed: 2, failed: 0, skipped: 1 },
+      spike_proving: { proved: 2, failed: 0, skipped: 1 },
       summary: "extraction green after 1 attempt(s): 2 issue(s)",
     });
     writeCr(target, "CR-0001-a.md", {
@@ -137,11 +137,11 @@ describe("status --json", () => {
     // dev block came from dev-status.mjs (real, read-only).
     assert.equal(r.json.dev.issues_total, 2);
     assert.equal(r.json.dev.issues_done, 1);
-    // extraction block: phase + spike/map modes + proofing summary.
+    // extraction block: phase + spike/map modes + proving summary.
     assert.equal(r.json.extraction.phase, "green");
     assert.equal(r.json.extraction.spike_mode, "integrate");
     assert.equal(r.json.extraction.map_mode, "reused");
-    assert.deepEqual(r.json.extraction.spike_proofing, { proofed: 2, failed: 0, skipped: 1 });
+    assert.deepEqual(r.json.extraction.spike_proving, { proved: 2, failed: 0, skipped: 1 });
     // pending CRs: the single idea-status CR.
     assert.equal(r.json.pending_crs, 1);
     // stdout is JSON only; human/log noise stays on stderr.
@@ -322,7 +322,7 @@ describe("spawning verbs against a stub factory", () => {
         "const dir = join(root, '.vivicy/development/reports');",
         "mkdirSync(dir, { recursive: true });",
         "const summary = phase === 'green' ? 'extraction green after 1 attempt(s): 2 issue(s)' : `${phase}: still red`;",
-        "writeFileSync(join(dir, 'extraction-status.json'), JSON.stringify({ phase, spike_mode: 'author', map_mode: 'generated', spike_proofing: { proofed: 0, failed: 0, skipped: 0 }, summary, updated_at: new Date().toISOString() }));",
+        "writeFileSync(join(dir, 'extraction-status.json'), JSON.stringify({ phase, spike_mode: 'author', map_mode: 'generated', spike_proving: { proved: 0, failed: 0, skipped: 0 }, summary, updated_at: new Date().toISOString() }));",
         "console.log(summary);",
         "process.exit(phase === 'green' ? 0 : 1);",
       ].join("\n")

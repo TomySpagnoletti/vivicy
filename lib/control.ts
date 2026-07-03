@@ -481,7 +481,7 @@ export interface ExtractionStatus {
   attempt?: number
   spike_mode?: "integrate" | "extract"
   map_mode?: "reused" | "authored"
-  spike_proofing?: { proofed?: unknown[]; failed?: unknown[]; skipped?: unknown[] }
+  spike_proving?: { proved?: unknown[]; failed?: unknown[]; skipped?: unknown[] }
   unverified_spike_gate_ids?: string[]
   summary?: string
   updated_at?: string

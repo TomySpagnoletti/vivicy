@@ -87,7 +87,7 @@ export function nextCrId(crs = readChangeRequests()) {
 }
 
 // The single writer of a new Change Request (G7 emission). Every CR source — the spike
-// proofier, a readiness/dev leg, Vivi mid-run — routes through here so the frontmatter
+// prover, a readiness/dev leg, Vivi mid-run — routes through here so the frontmatter
 // shape stays consistent with CR-TEMPLATE.md and the written file passes
 // runChangeControlCheck. Computes the next sequential id, renders the full frontmatter
 // (status: idea, owner_decision: pending, the null baseline-identity scaffold the checker

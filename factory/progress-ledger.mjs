@@ -36,9 +36,9 @@ export const progressEventTypes = [
   "issue_reopened",
   "review_started",
   "review_completed",
-  // S3 spike proofing (G3): the substance-verification stage emits these around each
-  // spike's proofier/verifier pair. They are keyed by spike gate_id (not a graph item),
-  // so they are recorded through the spike proofier's own sink, not applyProgressEvent.
+  // S3 spike proving (G3): the substance-verification stage emits these around each
+  // spike's prover/verifier pair. They are keyed by spike gate_id (not a graph item),
+  // so they are recorded through the spike prover's own sink, not applyProgressEvent.
   "spike_proof_started",
   "spike_proof_completed",
   // S8 readiness check (G5): the per-issue non-linear-dev verdict and its
@@ -61,10 +61,10 @@ export const progressEventTypes = [
 // Optional actor role on an event/active item, so the map can show which agent
 // (the implementer or the independent reviewer) is acting. The orchestrator sets
 // the role mechanically from the leg it is running, never the agent itself.
-// spike_proofier / proof_verifier are the S3 proofing legs (G3), the R12 pair on the
+// spike_prover / proof_verifier are the S3 proving legs (G3), the R12 pair on the
 // spike substance stage. readiness-checker (S8) and merge-resolver (S10) are advisory
 // legs that run on the implementer CLI; their verdicts the orchestrator re-gates deterministically.
-export const progressRoles = ["implementer", "reviewer", "spike_proofier", "proof_verifier", "readiness-checker", "merge-resolver"];
+export const progressRoles = ["implementer", "reviewer", "spike_prover", "proof_verifier", "readiness-checker", "merge-resolver"];
 
 const activeStateByEvent = {
   gate_failed: "verifying",

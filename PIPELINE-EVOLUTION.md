@@ -16,7 +16,7 @@ This evolution is large enough to jump the project version to **0.5.0**.
 
 ## 1. Operating principles (apply to every gap)
 
-- P1 — **No pipeau**: every safety/traceability/coverage/progress mechanism must be genuinely verified and enforced by the orchestrator. Producing a report, matrix, or hash that nothing downstream checks is forbidden. Deterministic wherever possible.
+- P1 — **No fakery**: every safety/traceability/coverage/progress mechanism must be genuinely verified and enforced by the orchestrator. Producing a report, matrix, or hash that nothing downstream checks is forbidden. Deterministic wherever possible.
 - P2 — **Zero humans in the dev-loop**: the autonomous side runs with no human step. Exactly one legitimate human touchpoint exists in the whole system: the owner decision on a change request (an intention change). Retry buttons (§G8) are human interventions *on* the machine, never steps the machine waits for.
 - P3 — **Absolute rigor as consequence of P2**: because no human watches the loop, the discipline must be extreme — hard gates, loud failures, no silent loss, no blind states. Being blind about what happened, where, or why is forbidden.
 - P4 — **Never leave an error standing**: on any detected problem the orchestrator remediates automatically (re-extract, correct, re-freeze, re-gate) within bounded attempts; if bounds are exhausted it blocks *loudly* (report + notification), never silently. The loop must always either progress or surface a block.
@@ -84,7 +84,7 @@ There is **no single universal source of truth** — one source of truth per typ
 Rules, mapped to the pipeline:
 
 1. **Ambiguity detected during extraction** (pre-build): modify the spec directly, re-freeze, re-extract. A lightweight spec correction before engagement — no heavy CR. (= S6's auto-correction, already implemented.)
-2. **A spike discovers a real constraint**: CR mandatory — new technical knowledge changes product intention. The spike must **not** modify the spec directly; it proposes. (Post-freeze; pre-freeze spike proofing may edit directly, §3-S3.)
+2. **A spike discovers a real constraint**: CR mandatory — new technical knowledge changes product intention. The spike must **not** modify the spec directly; it proposes. (Post-freeze; pre-freeze spike proving may edit directly, §3-S3.)
 3. **The need changes during development**: CR mandatory. The CR is the official mechanism to say "the initial intention is no longer right".
 4. **An issue becomes non-implementable because of already-produced code**: execution-plan problem (ordering, dependency, split, missing prerequisite) → modify the **issue** only; product-intention problem (false, contradictory, insufficient intention) → **CR toward the spec**. Short form: plan problem → issue; intention problem → spec via CR.
 
@@ -117,9 +117,9 @@ Nothing exists (no chat components, no endpoint, no "Vivi" anywhere). Build:
 - Endpoint: /api/vivi driving the configured agent CLI in exec mode.
 - Acceptance: a user with an empty project reaches a canonical + spikes corpus that passes S2 checks, purely through conversation.
 
-### G3. Spike proofier — substance verification (S3)
+### G3. Spike prover — substance verification (S3)
 spike-check.mjs validates form only; "verified" today requires hand-written evidence — a human, which contradicts the autonomous dev-loop. Build:
-- Proofier leg: Claude (implementer CLI, new role spike-proofier) executes the spike's experiments **in the target repo**, captures the six evidence fields (environment, commands, observed output, decision, documentation updates, unresolved risks).
+- Prover leg: Claude (implementer CLI, new role spike-prover) executes the spike's experiments **in the target repo**, captures the six evidence fields (environment, commands, observed output, decision, documentation updates, unresolved risks).
 - Counter-verification leg: Codex (reviewer CLI, new role proof-verifier) independently verifies the proof — the due-diligence against hallucinated proofs. Only on agreement does the orchestrator flip status.
 - Leg assignment ruling (owner asked who should run it — implementer or reviewer): **both, as above** — reuse the existing leg infrastructure with two new roles, preserving the R12 distinct-CLI invariant. Not a third CLI.
 - Outcomes: proven → verified, canonical untouched (updated **only if necessary**); disproven → status failed + auto-drafted CR (status idea), because a false assumption is an intention-level event (rule 2).
@@ -146,7 +146,7 @@ Today a conflict aborts and blocks only that issue; nothing re-verifies after in
 
 ### G7. CR automation (S11)
 Registry, lifecycle, and re-drive exist; every transition is manual; nothing emits CRs from the loop; docs_applied triggers nothing. Build:
-- **Emission (open set of sources)**: Vivi chat mid-run (the user talks to Vivi while the loop works; intention-changing input becomes a drafted CR), spike proofier failure (G3), readiness/dev/review legs (G5/S9), extraction/verification (S6/S7) — each lands as status idea with source evidence. New sources must be addable without schema change.
+- **Emission (open set of sources)**: Vivi chat mid-run (the user talks to Vivi while the loop works; intention-changing input becomes a drafted CR), spike prover failure (G3), readiness/dev/review legs (G5/S9), extraction/verification (S6/S7) — each lands as status idea with source evidence. New sources must be addable without schema change.
 - **Decision**: pending CRs surface in the notification center (G9) and sidebar; the owner approves/rejects in the UI; recorded as owner_decision evidence (P2's single human touchpoint).
 - **Application chain**: on docs_applied, the orchestrator runs apply → re-freeze → re-extract → re-drive automatically (today's manual sequence, automated). This is the diagram's dotted CR→freeze arrow, confirmed: a CR touching the canonical always forces a re-freeze.
 - **Folding**: accepted-not-yet-folded CRs are tracked; folding into the canonical is part of the application chain (§4 structural rules), keeping the current-contract formula true.
@@ -176,7 +176,7 @@ Confirmed: lib/control.ts:442-475 spawns extraction with no pre-flight content c
 Today spikes are authored during extraction; there is no integrate-uploaded-spikes path. Build: when spikes exist (uploaded via G1 or Vivi-written), S2 checks them against the canonical and updates only what is needed — integrate, never rewrite, never re-extract; when none exist, extract from the canonical as today. Naight's 21 spikes pass through the integrate path untouched (byte-compatible). Acceptance: imported spikes keep their identity (gate_ids, gating graph) through S2 and reach S3 unmodified except necessary updates.
 
 ### G13. Extraction gated on verified spikes (S6 ordering)
-Today spike gates gate dev-loop issue picks, not extraction; the diagram places issue extraction after spike verification. Build: S6 requires the spike corpus proofed (G3) — spikes verified/deferred per their gating graph — before issue extraction proceeds; the orchestrator enforces the S2→S3→S4→S5→S6 order end-to-end. Acceptance: extraction refuses to run (loud, notified) while a required spike is pending/failed.
+Today spike gates gate dev-loop issue picks, not extraction; the diagram places issue extraction after spike verification. Build: S6 requires the spike corpus proved (G3) — spikes verified/deferred per their gating graph — before issue extraction proceeds; the orchestrator enforces the S2→S3→S4→S5→S6 order end-to-end. Acceptance: extraction refuses to run (loud, notified) while a required spike is pending/failed.
 
 ### G14. Agent-drivable control surface (CLI + API parity)
 The engine is already headless-first (factory/cli.mjs: app|loop|status; detached supervisor; the Next.js UI is just a client), but the control surface is split — some verbs exist only as Next API routes — and outputs are not machine-consumable. Build:
@@ -194,14 +194,14 @@ The engine is already headless-first (factory/cli.mjs: app|loop|status; detached
 5. **Humans in the loop?** Exactly one touchpoint: the CR owner decision. Retry buttons are interventions, not awaited steps (P2).
 6. **Does an accepted CR force a re-freeze?** Yes — confirmed. Any CR whose application touches the canonical produces a new frozen baseline (the registry already chains previous_/resulting_ identities); the automation chain makes it mechanical (G7).
 7. **Should the extractor delegate the spec fix to a second specialized agent (or Vivi)?** No — keep the extractor's self-fix (existing, working): it holds the failure context, and a hand-off would add a lossy hop for no verification gain. The independent Codex fidelity verdict already cross-checks the result. Vivi stays a non-loop persona (P7).
-8. **Which leg runs the proofier?** Claude proofs, Codex counter-verifies — two new roles on the existing leg pair (G3), preserving R12.
+8. **Which leg runs the prover?** Claude proves, Codex counter-verifies — two new roles on the existing leg pair (G3), preserving R12.
 9. **PM2?** Not needed — the detached supervisor already provides the property (§2); remaining work is UI visibility (G8) of the reattached run.
 
 ## 7. Build order (one delivery — internal ordering only)
 
 1. G11 guard + target-resolution alignment (existing TASKS.md debt that blocks clean onboarding)
 2. G1 import → G12 spike integration → G4 map reuse → G10 onboarding (the Naight path, end-to-end)
-3. G13 ordering + G3 proofier (autonomy of the spike stage)
+3. G13 ordering + G3 prover (autonomy of the spike stage)
 4. G5 readiness + G6 merge integrity + G7 CR automation (loop hardening)
 5. G2 Vivi (second intake path)
 6. G14 control surface → G8 widget → G9 notifications (control verbs first, then the UI and CLI clients that consume them; event-bus stubs land earlier, with each stage they observe)
@@ -224,7 +224,7 @@ Three owner ideas examined for architectural impact now, while there are no user
 - B1.1–B1.12 (upload, Naight, Vivi, grill-me, ShadcnUI, upload check) → §3-S1, G1, G2, P6
 - B2.1–B2.4 (boundary, legend, spike integrate-or-extract) → P7, P8, §3-S2, G12
 - B3.1–B3.8 (proofs in target repo, cross-agent, _verified ruling, leg choice) → §3-S3, G3, §6.2, §6.8
-- B4.1–B4.4 (freeze, no-pipeau, map reuse, stage typing) → §3-S4/S5, P1, G4, P8
+- B4.1–B4.4 (freeze, no fakery, map reuse, stage typing) → §3-S4/S5, P1, G4, P8
 - B5.1–B5.6 (extraction ordering, auto spec-fix, delegation question, loop-back incl. map, no humans, notifications design) → §3-S6, G13, §6.1, §6.7, G9
 - B6.1–B6.3 (nothing forgotten, three remediations, notifications every step) → §3-S7, P4, P9
 - B7.1–B7.9 (two agents, ≤12 parallel rationale, merge no-loss, dedicated agent, non-linear dev, batch pre-check, no-brute judgment, fix paths, rigor, flexibility) → §3-S8/S9/S10, G5, G6, P3, P5, §6.3, §6.4

@@ -31,7 +31,7 @@ import { agentCliArgs, CLI_DEFAULTS, composePrompt, DEFAULT_CONFIG, resolveAgent
 import { runSemanticExtractionCheck } from "./semantic-extraction-check.mjs";
 import { runTraceabilityCheck } from "./traceability-check.mjs";
 import { readSpikes, runSpikeCheck as runSpikeCheckImpl, transitivelyVerifiedGates } from "./spike-check.mjs";
-import { runSpikeProofing } from "./spike-proofier.mjs";
+import { runSpikeProving } from "./spike-prover.mjs";
 import { runReferenceCheck as runReferenceCheckImpl } from "./reference-check.mjs";
 import { runChangeControlCheck as runChangeControlCheckImpl } from "./change-control.mjs";
 import { runReDrive } from "./re-drive.mjs";
@@ -84,16 +84,16 @@ const EXTRACTOR_ISSUE_ID = "EXTRACTION";
  *   - `map_mode`: "reused" when an architecture-map.yml pre-exists so the extractor
  *     refines it in place, "authored" when it authors one from scratch.
  *
- * S3 spike proofing (G3) runs BEFORE the freeze and S6 is gated on its result (G13):
- *   - `options.runSpikeProofing` — injectable spike-proofing stage (defaults to the real
- *     proofier/verifier legs). It flips pending spikes to verified/failed in-place.
- *   - `spike_proofing` (in the status) — { proofed, failed, skipped } summary counts.
+ * S3 spike proving (G3) runs BEFORE the freeze and S6 is gated on its result (G13):
+ *   - `options.runSpikeProving` — injectable spike-proving stage (defaults to the real
+ *     prover/verifier legs). It flips pending spikes to verified/failed in-place.
+ *   - `spike_proving` (in the status) — { proved, failed, skipped } summary counts.
  *   - `status: "blocked_on_unverified_spikes"` — extraction REFUSES to author issues while
  *     any non-deferred spike is not transitively verified (with the offending gate_ids).
  *
  * @returns {{ status: "green"|"extraction_blocked"|"blocked_on_unverified_spikes", attempts,
  *             manifestPath, baselineId, checks, map, verdict, spike_mode, map_mode,
- *             spike_proofing, transcripts, summary }}
+ *             spike_proving, transcripts, summary }}
  */
 export async function extractIssues(options = {}) {
   const repoRoot = options.repoRoot;
@@ -138,28 +138,28 @@ export async function extractIssues(options = {}) {
   // it) and commits any pending changes (the spec + any skeleton additions) as a clear
   // "spec snapshot". No human ever runs git. Injectable for tests.
   const commitSpecSnapshot = options.commitSpecSnapshot ?? defaultCommitSpecSnapshot;
-  // S3 spike proofing (G3): the substance-verification stage that flips pending spikes
+  // S3 spike proving (G3): the substance-verification stage that flips pending spikes
   // to verified/failed by running their experiments in the target repo. It runs BEFORE
   // the freeze (S3 precedes S4) so a disproven hypothesis can correct the canonical
   // directly (truth-model rule 1, pre-baseline) without forcing a re-freeze loop.
-  // Injectable so tests fake the legs; the default wires the real proofier/verifier legs.
-  const runSpikeProofingStage = options.runSpikeProofing ?? runSpikeProofing;
+  // Injectable so tests fake the legs; the default wires the real prover/verifier legs.
+  const runSpikeProvingStage = options.runSpikeProving ?? runSpikeProving;
 
   const transcripts = [];
   const record = (status) => emitStatus(status, repoRoot);
 
-  // S3 BEFORE S4 (critical sequence): proof the spikes' SUBSTANCE before the freeze.
-  // A disproven hypothesis is a pre-baseline, truth-model rule-1 event — the proofier
-  // may correct the canonical directly (or the orchestrator drafts a CR) — so proofing
+  // S3 BEFORE S4 (critical sequence): prove the spikes' SUBSTANCE before the freeze.
+  // A disproven hypothesis is a pre-baseline, truth-model rule-1 event — the prover
+  // may correct the canonical directly (or the orchestrator drafts a CR) — so proving
   // must precede the freeze, or every correction would force a re-freeze loop. The spike
   // files it flips are committed into the spec snapshot below, so the freeze hashes the
   // settled corpus. recordEvent is null here (spikes are not graph items yet); the
   // resulting summary counts ride on extraction-status.json once the freeze lets us emit.
-  const spikeProofing = await runSpikeProofingStage({ repoRoot, legs, cfg, recordEvent: null });
-  const spikeProofingSummary = {
-    proofed: spikeProofing.proofed.length,
-    failed: spikeProofing.failed.length,
-    skipped: spikeProofing.skipped.length,
+  const spikeProving = await runSpikeProvingStage({ repoRoot, legs, cfg, recordEvent: null });
+  const spikeProvingSummary = {
+    proved: spikeProving.proved.length,
+    failed: spikeProving.failed.length,
+    skipped: spikeProving.skipped.length,
   };
 
   // Freeze must precede every record(): doc-baseline refuses to cut a frozen
@@ -235,7 +235,7 @@ export async function extractIssues(options = {}) {
   // block extraction LOUDLY rather than letting issues be authored against unproven
   // ground. Deferred spikes never block — their dependents are gated in the dev loop
   // anyway (a deferred spike is an accepted, tracked deferral, not an open question). This
-  // runs AFTER proofing + the freeze, so the statuses reflect this run's proofing.
+  // runs AFTER proving + the freeze, so the statuses reflect this run's proving.
   const verifiedGates = transitivelyVerifiedGates(repoRoot);
   const unverifiedRequiredGates = readSpikes(repoRoot)
     .filter((spike) => spike.status !== "deferred" && !verifiedGates.has(spike.gate_id))
@@ -249,15 +249,15 @@ export async function extractIssues(options = {}) {
       froze,
       spike_mode: spikeMode,
       map_mode: mapMode,
-      spike_proofing: spikeProofingSummary,
+      spike_proving: spikeProvingSummary,
       unverified_spike_gate_ids: unverifiedRequiredGates,
       transcripts,
       summary:
         `blocked_on_unverified_spikes: issue extraction refuses to run while ${unverifiedRequiredGates.length} ` +
         `required spike(s) are not transitively verified: ${unverifiedRequiredGates.join(", ")}. ` +
-        `Proof or defer them (S3) before extraction (S6).`,
+        `Prove or defer them (S3) before extraction (S6).`,
     };
-    record({ phase: "blocked_on_unverified_spikes", spike_proofing: spikeProofingSummary, unverified_spike_gate_ids: unverifiedRequiredGates, summary: status.summary });
+    record({ phase: "blocked_on_unverified_spikes", spike_proving: spikeProvingSummary, unverified_spike_gate_ids: unverifiedRequiredGates, summary: status.summary });
     return status;
   }
 
@@ -392,7 +392,7 @@ export async function extractIssues(options = {}) {
       froze,
       spike_mode: spikeMode,
       map_mode: mapMode,
-      spike_proofing: spikeProofingSummary,
+      spike_proving: spikeProvingSummary,
       checks: { semantic, traceability },
       verdict,
       map,
@@ -420,7 +420,7 @@ export async function extractIssues(options = {}) {
     froze,
     spike_mode: spikeMode,
     map_mode: mapMode,
-    spike_proofing: spikeProofingSummary,
+    spike_proving: spikeProvingSummary,
     checks: lastChecks ? { semantic: lastChecks.semantic, traceability: lastChecks.traceability } : null,
     map: lastMap,
     verdict: lastVerdict,
@@ -733,7 +733,7 @@ function defaultRunGenerateMap({ repoRoot, reconcileAgainst }) {
 // a no-op unless the launcher passed VIVICY_RUNTIME_DIR; the status file stays
 // the source of truth.
 const NOTIFY_BY_PHASE = {
-  spike_proofing: { level: "info", stage: "S3", message: "proofing spikes in the target repo" },
+  spike_proving: { level: "info", stage: "S3", message: "proving spikes in the target repo" },
   authoring: { level: "info", stage: "S6", message: "extracting issues from the frozen canonical" },
   fixing: { level: "warning", stage: "S6", message: "re-prompting the extractor after red checks" },
   blocked_on_unverified_spikes: { level: "error", stage: "S3", message: "extraction refused: unverified spikes" },
