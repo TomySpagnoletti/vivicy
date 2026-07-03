@@ -81,6 +81,7 @@ export async function applyChangeRequest(args = {}) {
   const spawnApplier = args.spawnApplier ?? makeDefaultSpawnApplier(cfg, legs);
   const runReferenceCheck = args.runReferenceCheck ?? ((a) => runReferenceCheckImpl(a));
   const runFreeze = args.runFreeze ?? defaultRunFreeze;
+  const commitApplied = args.commitApplied ?? defaultCommitApplied;
   const runExtraction = args.runExtraction ?? defaultRunExtraction;
   const recordReport = args.recordReport ?? ((report) => defaultRecordReport(repoRoot, id, report));
 
@@ -138,6 +139,16 @@ export async function applyChangeRequest(args = {}) {
   }
   const newVersion = patchBump(previousVersion);
   const approvedBy = String(cr.fm?.owner_decision_by ?? "owner:cr-apply");
+
+  // COMMIT the applied canonical edit BEFORE freezing: doc-baseline refuses to cut a
+  // frozen baseline on a dirty tree, so the applier's edit must land as a commit first
+  // (the same commit-before-freeze extraction does). Without this the freeze fails with
+  // "working tree clean: false" and the whole chain blocks — caught in the torture run.
+  const committed = commitApplied({ repoRoot, id });
+  if (!committed.committed) {
+    return terminal(recordReport, "blocked", "commit", id, { summary: `cr-apply: could not commit the applied canonical edit for ${id} before freezing (git add/commit failed)` });
+  }
+
   recordReport({ phase: "freeze", cr: id, from_version: previousVersion, to_version: newVersion, updated_at: now() });
   let baseline;
   try {
@@ -258,6 +269,26 @@ function legDepsForTarget(legCfg, issue, repoRoot, context) {
 // Freeze .vivicy/canonical/** at the patch-bumped version via doc-baseline (shelled out so
 // its corpus-policy + git-clean + approval + bump-class guards run exactly as in
 // production). Returns the new baseline identity parsed from the written manifest.
+// Commit the applier's canonical edit so the tree is clean before the freeze. `git
+// add -A` is safe: the scaffold .gitignore covers the never-commit set. A no-op
+// commit (nothing staged — the applier made no net change) is tolerated as an
+// already-clean tree, not a failure.
+function defaultCommitApplied({ repoRoot, id }) {
+  const add = spawnSync("git", ["add", "-A"], { cwd: repoRoot, encoding: "utf8" });
+  if ((add.status ?? 1) !== 0) {
+    process.stderr.write(`cr-apply: git add -A failed: ${add.stderr || add.stdout}\n`);
+    return { committed: false };
+  }
+  const message = `change-request: fold ${id} into the canonical`;
+  const commit = spawnSync("git", ["commit", "-m", message], { cwd: repoRoot, encoding: "utf8" });
+  const out = `${commit.stdout ?? ""}\n${commit.stderr ?? ""}`;
+  if ((commit.status ?? 1) !== 0 && !/nothing to commit/i.test(out)) {
+    process.stderr.write(`cr-apply: applied-edit commit failed: ${out.trim()}\n`);
+    return { committed: false };
+  }
+  return { committed: true };
+}
+
 function defaultRunFreeze({ repoRoot, version, previousVersion, approvedBy, approvalRef }) {
   const tool = resolve(FACTORY_DIR, "doc-baseline.mjs");
   const baselineId = `baseline-v${version}`;
