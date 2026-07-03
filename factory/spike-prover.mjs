@@ -290,8 +290,10 @@ export function flipSpikeStatus(repoRoot, spike, status) {
 // the owner (P2's single touchpoint) decides. Delegates the frontmatter + id + write to
 // change-control.mjs's createChangeRequest (the single CR writer — G7), passing this
 // stage's rich narrative body and classification; both proof reports ride as the machine
-// evidence. source: agent (an agent-emitted CR — G7 source). Signature preserved so the
-// prover's injectable seam is unchanged.
+// evidence. source: agent (an agent-emitted CR — G7 source). The spike's own gate_id rides
+// on affected_verification_gates: it is the link cr-apply follows to RETIRE this now-moot
+// spike (failed -> deferred) once the CR is folded, so the disproven assumption no longer
+// blocks re-extraction at G13. Signature preserved so the prover's injectable seam is unchanged.
 export function defaultWriteChangeRequest({ repoRoot, spike, proof, verdict, reason, kind, now }) {
   const title = kind === "disagreement" ? `Spike ${spike.gate_id} proof unresolved` : `Spike ${spike.gate_id} hypothesis disproven`;
   const body = renderChangeRequest({ title, spike, proof, verdict, reason, kind });
@@ -300,6 +302,7 @@ export function defaultWriteChangeRequest({ repoRoot, spike, proof, verdict, rea
     title,
     classification: "major_product_change",
     source: "agent",
+    affectedVerificationGates: [spike.gate_id],
     body,
     now,
   });

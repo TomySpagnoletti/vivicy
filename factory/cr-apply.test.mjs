@@ -15,6 +15,7 @@ import { afterEach, beforeEach, describe, it } from "node:test";
 
 import { applyChangeRequest } from "./cr-apply.mjs";
 import { readChangeRequest, runChangeControlCheck } from "./change-control.mjs";
+import { readSpikes, transitivelyVerifiedGates } from "./spike-check.mjs";
 
 let temp;
 
@@ -53,9 +54,44 @@ function seedCanonical() {
   write(".vivicy/canonical/01-x.md", "# X\n\nThe product must do the original thing.\n");
 }
 
+// A well-formed spike on disk whose gate-id slug equals its filename stem. `status` seeds
+// the Traceability status (default `failed`, the disproven-spike case the retirement targets).
+function seedSpike(filename, { status = "failed", reqId = "REQ-ARCH-001" } = {}) {
+  const slug = filename.replace(/\.md$/, "");
+  write(`.vivicy/development/spikes/${filename}`, [
+    `# S - ${slug}`,
+    "",
+    "## Traceability",
+    "",
+    "```text",
+    `requirement_ids: ${reqId}`,
+    `gate_id: gate:phase0:s${slug}`,
+    `status: ${status}`,
+    "```",
+    "",
+    "## Question",
+    "",
+    "Does the provider behave as assumed?",
+    "",
+    "## Must Verify",
+    "",
+    "- [Live test required: ...] the assumption",
+    "",
+    "## Evidence Required",
+    "",
+    "```text",
+    "environment: (recorded)",
+    "```",
+    "",
+  ].join("\n"));
+  return { file: `.vivicy/development/spikes/${filename}`, gate_id: `gate:phase0:s${slug}` };
+}
+
 // An approved CR (accepted_current_build) with the decided + previous_baseline_* fields the
 // registry requires from that status onward, so it passes change-control before we apply it.
-function seedApprovedCr(id = "CR-0001") {
+// `affectedGates` seeds affected_verification_gates (the spike gate_id(s) a disproven-spike
+// CR carries, which the apply chain retires on the fold).
+function seedApprovedCr(id = "CR-0001", { affectedGates = [] } = {}) {
   const fm = [
     "---",
     `id: ${id}`,
@@ -83,7 +119,7 @@ function seedApprovedCr(id = "CR-0001") {
     "affected_docs: []",
     "affected_issues: []",
     "affected_requirements: []",
-    "affected_verification_gates: []",
+    `affected_verification_gates: [${affectedGates.join(", ")}]`,
     "issue_generation_required: false",
     "catalog_delta_required: false",
     "matrix_rows_pending: false",
@@ -258,6 +294,109 @@ describe("applyChangeRequest — happy path (green)", () => {
     assert.equal(result.phase, "commit");
     // The CR stays accepted_current_build — NOT docs_applied — since the freeze never ran.
     assert.equal(readChangeRequest(temp, "CR-0001").fm.status, "accepted_current_build");
+  });
+});
+
+describe("applyChangeRequest — retires the disproven spike(s) the CR folds (failed -> deferred)", () => {
+  it("flips a failed spike named on affected_verification_gates to deferred BEFORE re-extraction, and leaves unnamed spikes untouched", async () => {
+    seedPreviousBaseline();
+    seedCanonical();
+    // The CR folds the correction for a disproven spike (gate on affected_verification_gates).
+    const target = seedSpike("s01-argon2id-node-crypto.md", { status: "failed" });
+    // A second failed spike NOT named on the CR — it must stay failed (only THIS CR's gate retires).
+    const bystander = seedSpike("s02-other.md", { status: "failed", reqId: "REQ-ARCH-002" });
+    seedApprovedCr("CR-0001", { affectedGates: [target.gate_id] });
+
+    const { spawnApplier } = fakeApplier();
+    const { runFreeze } = fakeFreeze();
+    // Capture the on-disk spike status AT THE MOMENT extraction spawns — the retirement must
+    // already be committed to disk before the child re-extraction reads the corpus (G13).
+    let statusAtExtraction = null;
+    let bystanderAtExtraction = null;
+    const runExtraction = async ({ repoRoot }) => {
+      statusAtExtraction = readSpikes(repoRoot).find((s) => s.gate_id === target.gate_id)?.status ?? null;
+      bystanderAtExtraction = readSpikes(repoRoot).find((s) => s.gate_id === bystander.gate_id)?.status ?? null;
+      return { status: "green", summary: "extraction green" };
+    };
+    const commits = [];
+    const sink = reportSink();
+
+    const result = await applyChangeRequest({
+      repoRoot: temp, id: "CR-0001",
+      spawnApplier, runFreeze, runExtraction, recordReport: sink.recordReport,
+      commitApplied: ({ id }) => { commits.push(id); return { committed: true }; },
+      now: () => "2026-07-02T00:00:00.000Z",
+    });
+
+    assert.equal(result.status, "green");
+    // The named spike is deferred (retired) BY THE TIME extraction runs — not still failed.
+    assert.equal(statusAtExtraction, "deferred", "the disproven spike is deferred before re-extraction spawns");
+    assert.equal(readSpikes(temp).find((s) => s.gate_id === target.gate_id)?.status, "deferred");
+    // The unnamed failed spike is untouched.
+    assert.equal(bystanderAtExtraction, "failed", "a spike not named on the CR is not retired");
+    assert.equal(readSpikes(temp).find((s) => s.gate_id === bystander.gate_id)?.status, "failed");
+    // The report recorded the retirement, naming exactly the one retired gate.
+    const retireReport = sink.reports.find((r) => r.phase === "retire_spikes");
+    assert.ok(retireReport, "a retire_spikes phase was recorded");
+    assert.deepEqual(retireReport.retired, [target.gate_id]);
+    // The retirement edit was committed (a second commitApplied call, after the fold commit),
+    // so the child extraction reads a clean tree.
+    assert.equal(commits.length, 2, "the fold commit and the retirement commit both ran");
+  });
+
+  it("a deferred spike does NOT count as unverified-blocking in the G13 path (transitivelyVerifiedGates)", async () => {
+    seedPreviousBaseline();
+    seedCanonical();
+    const target = seedSpike("s01-argon2id-node-crypto.md", { status: "failed" });
+    seedApprovedCr("CR-0001", { affectedGates: [target.gate_id] });
+
+    const { spawnApplier } = fakeApplier();
+    const { runFreeze } = fakeFreeze();
+    const { runExtraction } = fakeExtraction();
+
+    // Before apply: the failed spike WOULD block G13 (it is neither deferred nor verified).
+    const blockingBefore = readSpikes(temp)
+      .filter((s) => s.status !== "deferred" && !transitivelyVerifiedGates(temp).has(s.gate_id))
+      .map((s) => s.gate_id);
+    assert.deepEqual(blockingBefore, [target.gate_id], "the failed spike blocks G13 before the fold");
+
+    await applyChangeRequest({
+      repoRoot: temp, id: "CR-0001",
+      spawnApplier, runFreeze, runExtraction,
+      commitApplied: () => ({ committed: true }), recordReport: () => {},
+    });
+
+    // After apply: retired to deferred, so the SAME G13 filter yields no blocking gate — the
+    // moot spike no longer holds up re-extraction (the blocked_on_unverified_spikes edge).
+    assert.equal(readSpikes(temp).find((s) => s.gate_id === target.gate_id)?.status, "deferred");
+    const blockingAfter = readSpikes(temp)
+      .filter((s) => s.status !== "deferred" && !transitivelyVerifiedGates(temp).has(s.gate_id))
+      .map((s) => s.gate_id);
+    assert.deepEqual(blockingAfter, [], "the retired (deferred) spike is non-blocking in G13");
+  });
+
+  it("leaves a spike alone when the CR names its gate but the spike is NOT failed (no verified/pending downgrade)", async () => {
+    seedPreviousBaseline();
+    seedCanonical();
+    // The CR names a gate whose spike is `verified` — retirement must NOT touch it (only
+    // failed spikes retire; a verified spike is settled truth, never downgraded here).
+    const verified = seedSpike("s01-provider-auth.md", { status: "verified" });
+    seedApprovedCr("CR-0001", { affectedGates: [verified.gate_id] });
+
+    const { spawnApplier } = fakeApplier();
+    const { runFreeze } = fakeFreeze();
+    const { runExtraction } = fakeExtraction();
+    const sink = reportSink();
+
+    const result = await applyChangeRequest({
+      repoRoot: temp, id: "CR-0001",
+      spawnApplier, runFreeze, runExtraction, recordReport: sink.recordReport,
+      commitApplied: () => ({ committed: true }),
+    });
+
+    assert.equal(result.status, "green");
+    assert.equal(readSpikes(temp).find((s) => s.gate_id === verified.gate_id)?.status, "verified", "a verified spike named on the CR is not downgraded");
+    assert.ok(!sink.reports.some((r) => r.phase === "retire_spikes"), "no retire_spikes phase when nothing failed is named");
   });
 });
 
