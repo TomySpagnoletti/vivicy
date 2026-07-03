@@ -1,0 +1,257 @@
+{
+  "schema_version": 1,
+  "exclusions": [
+    {
+      "file": ".vivicy/canonical/01-architecture.md",
+      "start": 3,
+      "end": 3,
+      "reason_class": "narrative_context",
+      "note": "Document status banner; not a normative requirement."
+    },
+    {
+      "file": ".vivicy/canonical/01-architecture.md",
+      "start": 5,
+      "end": 5,
+      "reason_class": "heading",
+      "note": "Section heading."
+    },
+    {
+      "file": ".vivicy/canonical/01-architecture.md",
+      "start": 7,
+      "end": 7,
+      "reason_class": "narrative_context",
+      "note": "Goal narrative describing the library's scope; the implementable invariants live in the per-module contracts."
+    },
+    {
+      "file": ".vivicy/canonical/01-architecture.md",
+      "start": 9,
+      "end": 9,
+      "reason_class": "heading",
+      "note": "Section heading."
+    },
+    {
+      "file": ".vivicy/canonical/01-architecture.md",
+      "start": 11,
+      "end": 11,
+      "reason_class": "narrative_context",
+      "note": "Introductory sentence for the component list."
+    },
+    {
+      "file": ".vivicy/canonical/01-architecture.md",
+      "start": 13,
+      "end": 17,
+      "reason_class": "cross_reference_pointer",
+      "note": "Component roster; each module's behavior is specified in its own canonical contract doc (02-06) and covered by the corresponding issue."
+    },
+    {
+      "file": ".vivicy/canonical/01-architecture.md",
+      "start": 19,
+      "end": 19,
+      "reason_class": "heading",
+      "note": "Section heading."
+    },
+    {
+      "file": ".vivicy/canonical/01-architecture.md",
+      "start": 23,
+      "end": 23,
+      "reason_class": "heading",
+      "note": "Section heading."
+    },
+    {
+      "file": ".vivicy/canonical/01-architecture.md",
+      "start": 27,
+      "end": 27,
+      "reason_class": "heading",
+      "note": "Section heading."
+    },
+    {
+      "file": ".vivicy/canonical/02-ledger-model.md",
+      "start": 3,
+      "end": 3,
+      "reason_class": "narrative_context",
+      "note": "Document status banner; not a normative requirement."
+    },
+    {
+      "file": ".vivicy/canonical/02-ledger-model.md",
+      "start": 5,
+      "end": 5,
+      "reason_class": "heading",
+      "note": "Section heading."
+    },
+    {
+      "file": ".vivicy/canonical/02-ledger-model.md",
+      "start": 15,
+      "end": 15,
+      "reason_class": "heading",
+      "note": "Section heading."
+    },
+    {
+      "file": ".vivicy/canonical/02-ledger-model.md",
+      "start": 21,
+      "end": 21,
+      "reason_class": "heading",
+      "note": "Section heading."
+    },
+    {
+      "file": ".vivicy/canonical/02-ledger-model.md",
+      "start": 25,
+      "end": 25,
+      "reason_class": "heading",
+      "note": "Section heading."
+    },
+    {
+      "file": ".vivicy/canonical/03-category-rules.md",
+      "start": 3,
+      "end": 3,
+      "reason_class": "narrative_context",
+      "note": "Document status banner; not a normative requirement."
+    },
+    {
+      "file": ".vivicy/canonical/03-category-rules.md",
+      "start": 5,
+      "end": 5,
+      "reason_class": "heading",
+      "note": "Section heading."
+    },
+    {
+      "file": ".vivicy/canonical/03-category-rules.md",
+      "start": 9,
+      "end": 9,
+      "reason_class": "heading",
+      "note": "Section heading."
+    },
+    {
+      "file": ".vivicy/canonical/03-category-rules.md",
+      "start": 13,
+      "end": 13,
+      "reason_class": "heading",
+      "note": "Section heading."
+    },
+    {
+      "file": ".vivicy/canonical/03-category-rules.md",
+      "start": 17,
+      "end": 17,
+      "reason_class": "heading",
+      "note": "Section heading."
+    },
+    {
+      "file": ".vivicy/canonical/03-category-rules.md",
+      "start": 21,
+      "end": 21,
+      "reason_class": "heading",
+      "note": "Section heading."
+    },
+    {
+      "file": ".vivicy/canonical/04-reporting.md",
+      "start": 3,
+      "end": 3,
+      "reason_class": "narrative_context",
+      "note": "Document status banner; not a normative requirement."
+    },
+    {
+      "file": ".vivicy/canonical/04-reporting.md",
+      "start": 5,
+      "end": 5,
+      "reason_class": "heading",
+      "note": "Section heading."
+    },
+    {
+      "file": ".vivicy/canonical/04-reporting.md",
+      "start": 9,
+      "end": 9,
+      "reason_class": "heading",
+      "note": "Section heading."
+    },
+    {
+      "file": ".vivicy/canonical/04-reporting.md",
+      "start": 15,
+      "end": 15,
+      "reason_class": "heading",
+      "note": "Section heading."
+    },
+    {
+      "file": ".vivicy/canonical/04-reporting.md",
+      "start": 19,
+      "end": 19,
+      "reason_class": "heading",
+      "note": "Section heading."
+    },
+    {
+      "file": ".vivicy/canonical/05-csv-export.md",
+      "start": 3,
+      "end": 3,
+      "reason_class": "narrative_context",
+      "note": "Document status banner; not a normative requirement."
+    },
+    {
+      "file": ".vivicy/canonical/05-csv-export.md",
+      "start": 5,
+      "end": 5,
+      "reason_class": "heading",
+      "note": "Section heading."
+    },
+    {
+      "file": ".vivicy/canonical/05-csv-export.md",
+      "start": 9,
+      "end": 9,
+      "reason_class": "heading",
+      "note": "Section heading."
+    },
+    {
+      "file": ".vivicy/canonical/05-csv-export.md",
+      "start": 13,
+      "end": 13,
+      "reason_class": "heading",
+      "note": "Section heading."
+    },
+    {
+      "file": ".vivicy/canonical/05-csv-export.md",
+      "start": 17,
+      "end": 17,
+      "reason_class": "heading",
+      "note": "Section heading."
+    },
+    {
+      "file": ".vivicy/canonical/05-csv-export.md",
+      "start": 21,
+      "end": 21,
+      "reason_class": "heading",
+      "note": "Section heading."
+    },
+    {
+      "file": ".vivicy/canonical/06-cli.md",
+      "start": 3,
+      "end": 3,
+      "reason_class": "narrative_context",
+      "note": "Document status banner; not a normative requirement."
+    },
+    {
+      "file": ".vivicy/canonical/06-cli.md",
+      "start": 5,
+      "end": 5,
+      "reason_class": "heading",
+      "note": "Section heading."
+    },
+    {
+      "file": ".vivicy/canonical/06-cli.md",
+      "start": 9,
+      "end": 9,
+      "reason_class": "heading",
+      "note": "Section heading."
+    },
+    {
+      "file": ".vivicy/canonical/06-cli.md",
+      "start": 18,
+      "end": 18,
+      "reason_class": "heading",
+      "note": "Section heading."
+    },
+    {
+      "file": ".vivicy/canonical/06-cli.md",
+      "start": 22,
+      "end": 22,
+      "reason_class": "heading",
+      "note": "Section heading."
+    }
+  ]
+}

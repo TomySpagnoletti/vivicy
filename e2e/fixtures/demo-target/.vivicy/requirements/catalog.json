@@ -1,0 +1,564 @@
+{
+  "schema_version": 1,
+  "baselineId": "baseline-v1.0.0",
+  "baselineVersion": "1.0.0",
+  "baselineManifestPath": ".vivicy/baselines/baseline-v1.0.0.json",
+  "manifestHash": "d546deaa4b893d1ddc9dfb9a3150c5a7159a98439df9569839f3bcd6cebd9b59",
+  "documentSetHash": "3acb63c617f40a55ea7624447f9609fba9a10599d3a659e3a70deaaf89e0670b",
+  "generatedFrom": "semantic-extraction:write (rehearsal)",
+  "requirements": [
+    {
+      "baselineId": "baseline-v1.0.0",
+      "baselineVersion": "1.0.0",
+      "baselineManifestPath": ".vivicy/baselines/baseline-v1.0.0.json",
+      "manifestHash": "d546deaa4b893d1ddc9dfb9a3150c5a7159a98439df9569839f3bcd6cebd9b59",
+      "documentSetHash": "3acb63c617f40a55ea7624447f9609fba9a10599d3a659e3a70deaaf89e0670b",
+      "id": "REQ-ARCH-001",
+      "title": "Ledger is the single source of truth for stored expenses",
+      "statement": "The Ledger is the single source of truth for stored expenses; no other module may mutate the store directly, and the Categorizer, Reporter, and Exporter are pure read consumers that must not hold their own copy of the store.",
+      "area": "architecture",
+      "type": "runtime_invariant",
+      "maturity": "mvp",
+      "sourceRefs": [
+        ".vivicy/canonical/01-architecture.md:21"
+      ],
+      "dependsOn": [],
+      "blocks": [],
+      "disposition": "must_implement",
+      "coveredByIssues": [
+        "ISS-0001"
+      ],
+      "coveredByTests": [],
+      "coveredByCode": [],
+      "verificationLevel": "unit",
+      "notes": []
+    },
+    {
+      "baselineId": "baseline-v1.0.0",
+      "baselineVersion": "1.0.0",
+      "baselineManifestPath": ".vivicy/baselines/baseline-v1.0.0.json",
+      "manifestHash": "d546deaa4b893d1ddc9dfb9a3150c5a7159a98439df9569839f3bcd6cebd9b59",
+      "documentSetHash": "3acb63c617f40a55ea7624447f9609fba9a10599d3a659e3a70deaaf89e0670b",
+      "id": "REQ-ARCH-002",
+      "title": "Money is represented as integer minor units",
+      "statement": "All monetary amounts are integers in minor units (cents); floating-point money is forbidden because rounding error must never enter a stored total.",
+      "area": "architecture",
+      "type": "data_contract",
+      "maturity": "mvp",
+      "sourceRefs": [
+        ".vivicy/canonical/01-architecture.md:29"
+      ],
+      "dependsOn": [],
+      "blocks": [],
+      "disposition": "must_implement",
+      "coveredByIssues": [
+        "ISS-0003"
+      ],
+      "coveredByTests": [],
+      "coveredByCode": [],
+      "verificationLevel": "unit",
+      "notes": []
+    },
+    {
+      "baselineId": "baseline-v1.0.0",
+      "baselineVersion": "1.0.0",
+      "baselineManifestPath": ".vivicy/baselines/baseline-v1.0.0.json",
+      "manifestHash": "d546deaa4b893d1ddc9dfb9a3150c5a7159a98439df9569839f3bcd6cebd9b59",
+      "documentSetHash": "3acb63c617f40a55ea7624447f9609fba9a10599d3a659e3a70deaaf89e0670b",
+      "id": "REQ-ARCH-003",
+      "title": "CLI is the sole process-argument and stdout owner that drives the flow",
+      "statement": "The CLI is the only module permitted to read from process arguments and to write to standard output, and it drives the flow in which an expense enters through the Ledger, is classified by the Categorizer, aggregated by the Reporter, and may be serialized by the Exporter.",
+      "area": "cli",
+      "type": "runtime_invariant",
+      "maturity": "mvp",
+      "sourceRefs": [
+        ".vivicy/canonical/01-architecture.md:21",
+        ".vivicy/canonical/01-architecture.md:25"
+      ],
+      "dependsOn": [],
+      "blocks": [],
+      "disposition": "must_implement",
+      "coveredByIssues": [
+        "ISS-0008"
+      ],
+      "coveredByTests": [],
+      "coveredByCode": [],
+      "verificationLevel": "unit",
+      "notes": []
+    },
+    {
+      "baselineId": "baseline-v1.0.0",
+      "baselineVersion": "1.0.0",
+      "baselineManifestPath": ".vivicy/baselines/baseline-v1.0.0.json",
+      "manifestHash": "d546deaa4b893d1ddc9dfb9a3150c5a7159a98439df9569839f3bcd6cebd9b59",
+      "documentSetHash": "3acb63c617f40a55ea7624447f9609fba9a10599d3a659e3a70deaaf89e0670b",
+      "id": "REQ-LEDGER-001",
+      "title": "Expense record has exactly five typed fields",
+      "statement": "An expense record has exactly these fields: id (a unique non-empty string), amountCents (a positive integer amount in cents), description (a non-empty human-readable string), date (an ISO-8601 YYYY-MM-DD calendar date string), and category (a string label assigned by the Categorizer).",
+      "area": "ledger",
+      "type": "data_contract",
+      "maturity": "mvp",
+      "sourceRefs": [
+        ".vivicy/canonical/02-ledger-model.md:7-13"
+      ],
+      "dependsOn": [],
+      "blocks": [],
+      "disposition": "must_implement",
+      "coveredByIssues": [
+        "ISS-0001"
+      ],
+      "coveredByTests": [],
+      "coveredByCode": [],
+      "verificationLevel": "unit",
+      "notes": []
+    },
+    {
+      "baselineId": "baseline-v1.0.0",
+      "baselineVersion": "1.0.0",
+      "baselineManifestPath": ".vivicy/baselines/baseline-v1.0.0.json",
+      "manifestHash": "d546deaa4b893d1ddc9dfb9a3150c5a7159a98439df9569839f3bcd6cebd9b59",
+      "documentSetHash": "3acb63c617f40a55ea7624447f9609fba9a10599d3a659e3a70deaaf89e0670b",
+      "id": "REQ-LEDGER-002",
+      "title": "Ledger stores in insertion order and rejects invalid or duplicate records",
+      "statement": "The Ledger stores expense records in insertion order and rejects with an error: an id duplicating an already-stored record, an amountCents that is zero, negative, or non-integer, a date not matching YYYY-MM-DD, and a blank description or blank id.",
+      "area": "ledger",
+      "type": "data_contract",
+      "maturity": "mvp",
+      "sourceRefs": [
+        ".vivicy/canonical/02-ledger-model.md:17-19"
+      ],
+      "dependsOn": [],
+      "blocks": [],
+      "disposition": "must_implement",
+      "coveredByIssues": [
+        "ISS-0001"
+      ],
+      "coveredByTests": [],
+      "coveredByCode": [],
+      "verificationLevel": "unit",
+      "notes": []
+    },
+    {
+      "baselineId": "baseline-v1.0.0",
+      "baselineVersion": "1.0.0",
+      "baselineManifestPath": ".vivicy/baselines/baseline-v1.0.0.json",
+      "manifestHash": "d546deaa4b893d1ddc9dfb9a3150c5a7159a98439df9569839f3bcd6cebd9b59",
+      "documentSetHash": "3acb63c617f40a55ea7624447f9609fba9a10599d3a659e3a70deaaf89e0670b",
+      "id": "REQ-LEDGER-003",
+      "title": "Ledger reads return defensive copies and tolerate unknown ids",
+      "statement": "The Ledger exposes a read of all expenses in insertion order and a read of a single expense by id; reading an unknown id returns no record rather than throwing, and returned collections are copies so mutating a returned value never alters the stored record.",
+      "area": "ledger",
+      "type": "data_contract",
+      "maturity": "mvp",
+      "sourceRefs": [
+        ".vivicy/canonical/02-ledger-model.md:23"
+      ],
+      "dependsOn": [],
+      "blocks": [],
+      "disposition": "must_implement",
+      "coveredByIssues": [
+        "ISS-0002"
+      ],
+      "coveredByTests": [],
+      "coveredByCode": [],
+      "verificationLevel": "unit",
+      "notes": []
+    },
+    {
+      "baselineId": "baseline-v1.0.0",
+      "baselineVersion": "1.0.0",
+      "baselineManifestPath": ".vivicy/baselines/baseline-v1.0.0.json",
+      "manifestHash": "d546deaa4b893d1ddc9dfb9a3150c5a7159a98439df9569839f3bcd6cebd9b59",
+      "documentSetHash": "3acb63c617f40a55ea7624447f9609fba9a10599d3a659e3a70deaaf89e0670b",
+      "id": "REQ-LEDGER-004",
+      "title": "Ledger total sums amountCents with empty total zero",
+      "statement": "The Ledger can compute the sum of amountCents across all stored expenses, and the total of an empty Ledger is zero.",
+      "area": "ledger",
+      "type": "data_contract",
+      "maturity": "mvp",
+      "sourceRefs": [
+        ".vivicy/canonical/02-ledger-model.md:27"
+      ],
+      "dependsOn": [],
+      "blocks": [],
+      "disposition": "must_implement",
+      "coveredByIssues": [
+        "ISS-0003"
+      ],
+      "coveredByTests": [],
+      "coveredByCode": [],
+      "verificationLevel": "unit",
+      "notes": []
+    },
+    {
+      "baselineId": "baseline-v1.0.0",
+      "baselineVersion": "1.0.0",
+      "baselineManifestPath": ".vivicy/baselines/baseline-v1.0.0.json",
+      "manifestHash": "d546deaa4b893d1ddc9dfb9a3150c5a7159a98439df9569839f3bcd6cebd9b59",
+      "documentSetHash": "3acb63c617f40a55ea7624447f9609fba9a10599d3a659e3a70deaaf89e0670b",
+      "id": "REQ-CATEGORY-001",
+      "title": "Categorizer matches a rule by lowercase keyword substring",
+      "statement": "The Categorizer assigns a category label based on an ordered set of keyword rules applied to the description; a rule has a category label and a list of lowercase keywords and matches when the lowercased description contains at least one keyword as a substring.",
+      "area": "category",
+      "type": "tool_contract",
+      "maturity": "mvp",
+      "sourceRefs": [
+        ".vivicy/canonical/03-category-rules.md:7",
+        ".vivicy/canonical/03-category-rules.md:11"
+      ],
+      "dependsOn": [],
+      "blocks": [],
+      "disposition": "must_implement",
+      "coveredByIssues": [
+        "ISS-0004"
+      ],
+      "coveredByTests": [],
+      "coveredByCode": [],
+      "verificationLevel": "unit",
+      "notes": []
+    },
+    {
+      "baselineId": "baseline-v1.0.0",
+      "baselineVersion": "1.0.0",
+      "baselineManifestPath": ".vivicy/baselines/baseline-v1.0.0.json",
+      "manifestHash": "d546deaa4b893d1ddc9dfb9a3150c5a7159a98439df9569839f3bcd6cebd9b59",
+      "documentSetHash": "3acb63c617f40a55ea7624447f9609fba9a10599d3a659e3a70deaaf89e0670b",
+      "id": "REQ-CATEGORY-002",
+      "title": "Rules are evaluated in order, first match wins, case-insensitively",
+      "statement": "Rules are evaluated in declaration order; the first matching rule wins and later rules are not consulted once a match is found, and evaluation is case-insensitive.",
+      "area": "category",
+      "type": "tool_contract",
+      "maturity": "mvp",
+      "sourceRefs": [
+        ".vivicy/canonical/03-category-rules.md:15"
+      ],
+      "dependsOn": [],
+      "blocks": [],
+      "disposition": "must_implement",
+      "coveredByIssues": [
+        "ISS-0004"
+      ],
+      "coveredByTests": [],
+      "coveredByCode": [],
+      "verificationLevel": "unit",
+      "notes": []
+    },
+    {
+      "baselineId": "baseline-v1.0.0",
+      "baselineVersion": "1.0.0",
+      "baselineManifestPath": ".vivicy/baselines/baseline-v1.0.0.json",
+      "manifestHash": "d546deaa4b893d1ddc9dfb9a3150c5a7159a98439df9569839f3bcd6cebd9b59",
+      "documentSetHash": "3acb63c617f40a55ea7624447f9609fba9a10599d3a659e3a70deaaf89e0670b",
+      "id": "REQ-CATEGORY-003",
+      "title": "Unmatched expenses get the fixed uncategorized label",
+      "statement": "When no rule matches, the Categorizer assigns the category uncategorized; that default label is a fixed constant and is never configurable per call.",
+      "area": "category",
+      "type": "tool_contract",
+      "maturity": "mvp",
+      "sourceRefs": [
+        ".vivicy/canonical/03-category-rules.md:19"
+      ],
+      "dependsOn": [],
+      "blocks": [],
+      "disposition": "must_implement",
+      "coveredByIssues": [
+        "ISS-0004"
+      ],
+      "coveredByTests": [],
+      "coveredByCode": [],
+      "verificationLevel": "unit",
+      "notes": []
+    },
+    {
+      "baselineId": "baseline-v1.0.0",
+      "baselineVersion": "1.0.0",
+      "baselineManifestPath": ".vivicy/baselines/baseline-v1.0.0.json",
+      "manifestHash": "d546deaa4b893d1ddc9dfb9a3150c5a7159a98439df9569839f3bcd6cebd9b59",
+      "documentSetHash": "3acb63c617f40a55ea7624447f9609fba9a10599d3a659e3a70deaaf89e0670b",
+      "id": "REQ-CATEGORY-004",
+      "title": "Categorization is a pure, stateless function",
+      "statement": "Categorization is a pure function of the description and the rule list: the same description and rule list always produce the same category, and the Categorizer holds no mutable state between calls.",
+      "area": "category",
+      "type": "tool_contract",
+      "maturity": "mvp",
+      "sourceRefs": [
+        ".vivicy/canonical/03-category-rules.md:23"
+      ],
+      "dependsOn": [],
+      "blocks": [],
+      "disposition": "must_implement",
+      "coveredByIssues": [
+        "ISS-0004"
+      ],
+      "coveredByTests": [],
+      "coveredByCode": [],
+      "verificationLevel": "unit",
+      "notes": []
+    },
+    {
+      "baselineId": "baseline-v1.0.0",
+      "baselineVersion": "1.0.0",
+      "baselineManifestPath": ".vivicy/baselines/baseline-v1.0.0.json",
+      "manifestHash": "d546deaa4b893d1ddc9dfb9a3150c5a7159a98439df9569839f3bcd6cebd9b59",
+      "documentSetHash": "3acb63c617f40a55ea7624447f9609fba9a10599d3a659e3a70deaaf89e0670b",
+      "id": "REQ-REPORT-001",
+      "title": "Monthly totals group by YYYY-MM and order ascending",
+      "statement": "The Reporter computes monthly totals by grouping expenses by the YYYY-MM prefix of each expense date and summing amountCents per month, never mutating the Ledger; the result is ordered by month ascending and a month with no expenses does not appear.",
+      "area": "report",
+      "type": "product_behavior",
+      "maturity": "mvp",
+      "sourceRefs": [
+        ".vivicy/canonical/04-reporting.md:7",
+        ".vivicy/canonical/04-reporting.md:11-13"
+      ],
+      "dependsOn": [],
+      "blocks": [],
+      "disposition": "must_implement",
+      "coveredByIssues": [
+        "ISS-0005"
+      ],
+      "coveredByTests": [],
+      "coveredByCode": [],
+      "verificationLevel": "unit",
+      "notes": []
+    },
+    {
+      "baselineId": "baseline-v1.0.0",
+      "baselineVersion": "1.0.0",
+      "baselineManifestPath": ".vivicy/baselines/baseline-v1.0.0.json",
+      "manifestHash": "d546deaa4b893d1ddc9dfb9a3150c5a7159a98439df9569839f3bcd6cebd9b59",
+      "documentSetHash": "3acb63c617f40a55ea7624447f9609fba9a10599d3a659e3a70deaaf89e0670b",
+      "id": "REQ-REPORT-002",
+      "title": "Category breakdown within a month is ordered by label ascending",
+      "statement": "For a given month the Reporter can break the monthly total down by category, summing amountCents per category, with the breakdown ordered by category label ascending.",
+      "area": "report",
+      "type": "product_behavior",
+      "maturity": "mvp",
+      "sourceRefs": [
+        ".vivicy/canonical/04-reporting.md:17"
+      ],
+      "dependsOn": [],
+      "blocks": [],
+      "disposition": "must_implement",
+      "coveredByIssues": [
+        "ISS-0005"
+      ],
+      "coveredByTests": [],
+      "coveredByCode": [],
+      "verificationLevel": "unit",
+      "notes": []
+    },
+    {
+      "baselineId": "baseline-v1.0.0",
+      "baselineVersion": "1.0.0",
+      "baselineManifestPath": ".vivicy/baselines/baseline-v1.0.0.json",
+      "manifestHash": "d546deaa4b893d1ddc9dfb9a3150c5a7159a98439df9569839f3bcd6cebd9b59",
+      "documentSetHash": "3acb63c617f40a55ea7624447f9609fba9a10599d3a659e3a70deaaf89e0670b",
+      "id": "REQ-REPORT-003",
+      "title": "Budget evaluation classifies the month and reports the signed difference",
+      "statement": "Given a positive integer limitCents for a month, the Reporter reports whether the month's total is within budget, equal to the limit, or over budget, plus the signed difference (total minus limit); a month exactly equal to its limit is within budget, not over.",
+      "area": "report",
+      "type": "product_behavior",
+      "maturity": "mvp",
+      "sourceRefs": [
+        ".vivicy/canonical/04-reporting.md:21",
+        ".vivicy/canonical/04-reporting.md:23"
+      ],
+      "dependsOn": [],
+      "blocks": [],
+      "disposition": "must_implement",
+      "coveredByIssues": [
+        "ISS-0006"
+      ],
+      "coveredByTests": [],
+      "coveredByCode": [],
+      "verificationLevel": "unit",
+      "notes": []
+    },
+    {
+      "baselineId": "baseline-v1.0.0",
+      "baselineVersion": "1.0.0",
+      "baselineManifestPath": ".vivicy/baselines/baseline-v1.0.0.json",
+      "manifestHash": "d546deaa4b893d1ddc9dfb9a3150c5a7159a98439df9569839f3bcd6cebd9b59",
+      "documentSetHash": "3acb63c617f40a55ea7624447f9609fba9a10599d3a659e3a70deaaf89e0670b",
+      "id": "REQ-EXPORT-001",
+      "title": "CSV export has a fixed header and column order",
+      "statement": "The Exporter serializes Ledger expenses to a deterministic CSV string as a pure read; the CSV has a fixed header row with columns in exactly the order id,date,description,category,amountCents, and every data row follows the same column order.",
+      "area": "export",
+      "type": "tool_contract",
+      "maturity": "mvp",
+      "sourceRefs": [
+        ".vivicy/canonical/05-csv-export.md:7",
+        ".vivicy/canonical/05-csv-export.md:11"
+      ],
+      "dependsOn": [],
+      "blocks": [],
+      "disposition": "must_implement",
+      "coveredByIssues": [
+        "ISS-0007"
+      ],
+      "coveredByTests": [],
+      "coveredByCode": [],
+      "verificationLevel": "unit",
+      "notes": []
+    },
+    {
+      "baselineId": "baseline-v1.0.0",
+      "baselineVersion": "1.0.0",
+      "baselineManifestPath": ".vivicy/baselines/baseline-v1.0.0.json",
+      "manifestHash": "d546deaa4b893d1ddc9dfb9a3150c5a7159a98439df9569839f3bcd6cebd9b59",
+      "documentSetHash": "3acb63c617f40a55ea7624447f9609fba9a10599d3a659e3a70deaaf89e0670b",
+      "id": "REQ-EXPORT-002",
+      "title": "CSV rows follow Ledger insertion order",
+      "statement": "Data rows are emitted in Ledger insertion order, matching the order in which expenses were added.",
+      "area": "export",
+      "type": "tool_contract",
+      "maturity": "mvp",
+      "sourceRefs": [
+        ".vivicy/canonical/05-csv-export.md:15"
+      ],
+      "dependsOn": [],
+      "blocks": [],
+      "disposition": "must_implement",
+      "coveredByIssues": [
+        "ISS-0007"
+      ],
+      "coveredByTests": [],
+      "coveredByCode": [],
+      "verificationLevel": "unit",
+      "notes": []
+    },
+    {
+      "baselineId": "baseline-v1.0.0",
+      "baselineVersion": "1.0.0",
+      "baselineManifestPath": ".vivicy/baselines/baseline-v1.0.0.json",
+      "manifestHash": "d546deaa4b893d1ddc9dfb9a3150c5a7159a98439df9569839f3bcd6cebd9b59",
+      "documentSetHash": "3acb63c617f40a55ea7624447f9609fba9a10599d3a659e3a70deaaf89e0670b",
+      "id": "REQ-EXPORT-003",
+      "title": "CSV quotes special characters and escapes inner quotes",
+      "statement": "A field containing a comma, double quote, or newline must be wrapped in double quotes; a double quote inside a quoted field is escaped by doubling it; fields without those characters are emitted unquoted.",
+      "area": "export",
+      "type": "tool_contract",
+      "maturity": "mvp",
+      "sourceRefs": [
+        ".vivicy/canonical/05-csv-export.md:19"
+      ],
+      "dependsOn": [],
+      "blocks": [],
+      "disposition": "must_implement",
+      "coveredByIssues": [
+        "ISS-0007"
+      ],
+      "coveredByTests": [],
+      "coveredByCode": [],
+      "verificationLevel": "unit",
+      "notes": []
+    },
+    {
+      "baselineId": "baseline-v1.0.0",
+      "baselineVersion": "1.0.0",
+      "baselineManifestPath": ".vivicy/baselines/baseline-v1.0.0.json",
+      "manifestHash": "d546deaa4b893d1ddc9dfb9a3150c5a7159a98439df9569839f3bcd6cebd9b59",
+      "documentSetHash": "3acb63c617f40a55ea7624447f9609fba9a10599d3a659e3a70deaaf89e0670b",
+      "id": "REQ-EXPORT-004",
+      "title": "CSV uses LF separators, plain-integer amounts, header-only when empty",
+      "statement": "Rows are separated by a single line feed; amountCents is emitted as a plain integer with no currency symbol, thousands separator, or decimal point; an empty Ledger exports just the header row.",
+      "area": "export",
+      "type": "tool_contract",
+      "maturity": "mvp",
+      "sourceRefs": [
+        ".vivicy/canonical/05-csv-export.md:23"
+      ],
+      "dependsOn": [],
+      "blocks": [],
+      "disposition": "must_implement",
+      "coveredByIssues": [
+        "ISS-0007"
+      ],
+      "coveredByTests": [],
+      "coveredByCode": [],
+      "verificationLevel": "unit",
+      "notes": []
+    },
+    {
+      "baselineId": "baseline-v1.0.0",
+      "baselineVersion": "1.0.0",
+      "baselineManifestPath": ".vivicy/baselines/baseline-v1.0.0.json",
+      "manifestHash": "d546deaa4b893d1ddc9dfb9a3150c5a7159a98439df9569839f3bcd6cebd9b59",
+      "documentSetHash": "3acb63c617f40a55ea7624447f9609fba9a10599d3a659e3a70deaaf89e0670b",
+      "id": "REQ-CLI-001",
+      "title": "CLI dispatches add, list, report, and export commands",
+      "statement": "The CLI is the single command-line entry point wiring the modules together and supports: add <amountCents> <date> <description> (adds a categorized expense and prints its id), list (prints all expenses in insertion order), report <month> (prints the monthly total and category breakdown for a YYYY-MM month), and export (prints the full Ledger as CSV).",
+      "area": "cli",
+      "type": "product_behavior",
+      "maturity": "mvp",
+      "sourceRefs": [
+        ".vivicy/canonical/06-cli.md:7",
+        ".vivicy/canonical/06-cli.md:11",
+        ".vivicy/canonical/06-cli.md:13-16"
+      ],
+      "dependsOn": [],
+      "blocks": [],
+      "disposition": "must_implement",
+      "coveredByIssues": [
+        "ISS-0008"
+      ],
+      "coveredByTests": [],
+      "coveredByCode": [],
+      "verificationLevel": "unit",
+      "notes": []
+    },
+    {
+      "baselineId": "baseline-v1.0.0",
+      "baselineVersion": "1.0.0",
+      "baselineManifestPath": ".vivicy/baselines/baseline-v1.0.0.json",
+      "manifestHash": "d546deaa4b893d1ddc9dfb9a3150c5a7159a98439df9569839f3bcd6cebd9b59",
+      "documentSetHash": "3acb63c617f40a55ea7624447f9609fba9a10599d3a659e3a70deaaf89e0670b",
+      "id": "REQ-CLI-002",
+      "title": "CLI reads only process arguments and fails non-zero on bad invocation",
+      "statement": "The CLI reads its command and arguments from process arguments only; an unknown command, or a command with the wrong number of arguments, exits with a non-zero status and a single error line on standard error.",
+      "area": "cli",
+      "type": "product_behavior",
+      "maturity": "mvp",
+      "sourceRefs": [
+        ".vivicy/canonical/06-cli.md:20"
+      ],
+      "dependsOn": [],
+      "blocks": [],
+      "disposition": "must_implement",
+      "coveredByIssues": [
+        "ISS-0008"
+      ],
+      "coveredByTests": [],
+      "coveredByCode": [],
+      "verificationLevel": "unit",
+      "notes": []
+    },
+    {
+      "baselineId": "baseline-v1.0.0",
+      "baselineVersion": "1.0.0",
+      "baselineManifestPath": ".vivicy/baselines/baseline-v1.0.0.json",
+      "manifestHash": "d546deaa4b893d1ddc9dfb9a3150c5a7159a98439df9569839f3bcd6cebd9b59",
+      "documentSetHash": "3acb63c617f40a55ea7624447f9609fba9a10599d3a659e3a70deaaf89e0670b",
+      "id": "REQ-CLI-003",
+      "title": "CLI separates stdout and stderr and emits no partial output on error",
+      "statement": "Normal command output goes to standard output and error messages go to standard error; the CLI never prints partial output before an argument-validation error and holds no state across invocations beyond what the Ledger persists.",
+      "area": "cli",
+      "type": "product_behavior",
+      "maturity": "mvp",
+      "sourceRefs": [
+        ".vivicy/canonical/06-cli.md:24"
+      ],
+      "dependsOn": [],
+      "blocks": [],
+      "disposition": "must_implement",
+      "coveredByIssues": [
+        "ISS-0008"
+      ],
+      "coveredByTests": [],
+      "coveredByCode": [],
+      "verificationLevel": "unit",
+      "notes": []
+    }
+  ]
+}

@@ -1,6 +1,6 @@
 import { expect, test, type ConsoleMessage } from "@playwright/test"
 
-import { ensurePanelOpen, isMobileProject } from "./helpers"
+import { clickPastOverlap, ensurePanelOpen, isMobileProject } from "./helpers"
 
 /**
  * Covers the four owner-requested changes on the populated demo target:
@@ -154,8 +154,10 @@ test.describe("legend lives in the sidebar (collapsed by default)", () => {
     // The floating legend overlay was REMOVED from the map.
     await expect(page.locator(".map-legend")).toHaveCount(0)
 
-    // Expand it: the content (a swatch row) appears.
-    await trigger.click()
+    // Expand it: the content (a swatch row) appears. On the mobile Sheet the
+    // scrollable panel content (issue cards) can overlap this footer trigger at
+    // rest; click past that overlap.
+    await clickPastOverlap(trigger)
     await expect(trigger).toHaveAttribute("data-state", "open")
     const content = sidebar.locator('[data-slot="collapsible-content"]')
     await expect(content).toBeVisible()

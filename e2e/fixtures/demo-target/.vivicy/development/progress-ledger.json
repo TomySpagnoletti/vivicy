@@ -1,0 +1,92 @@
+{
+  "schema_version": 1,
+  "revision": 5,
+  "baseline_id": "baseline-v1.0.0",
+  "baseline_version": "1.0.0",
+  "manifest_hash": "d546deaa4b893d1ddc9dfb9a3150c5a7159a98439df9569839f3bcd6cebd9b59",
+  "document_set_hash": "3acb63c617f40a55ea7624447f9609fba9a10599d3a659e3a70deaaf89e0670b",
+  "updated_at": "2026-06-27T14:20:00Z",
+  "graph_item_states": [
+    {
+      "graph_ref": "node:ledger",
+      "status": "verified",
+      "issue_ids": [
+        "ISS-0001",
+        "ISS-0002",
+        "ISS-0003"
+      ],
+      "evidence_refs": [
+        ".vivicy/development/gates/gate-test-ledger-add-expense.json",
+        ".vivicy/development/gates/gate-test-ledger-retrieval.json",
+        ".vivicy/development/gates/gate-test-ledger-total.json"
+      ]
+    },
+    {
+      "graph_ref": "node:exporter",
+      "status": "verified",
+      "issue_ids": [
+        "ISS-0007"
+      ],
+      "evidence_refs": [
+        ".vivicy/development/gates/gate-test-csv-export.json"
+      ]
+    },
+    {
+      "graph_ref": "node:categorizer",
+      "status": "in_progress",
+      "issue_ids": [
+        "ISS-0004"
+      ],
+      "evidence_refs": [
+        ".vivicy/development/reports/ISS-0004-progress.md"
+      ]
+    },
+    {
+      "graph_ref": "node:cli",
+      "status": "in_progress",
+      "issue_ids": [
+        "ISS-0008"
+      ],
+      "evidence_refs": [
+        ".vivicy/development/reports/ISS-0008-progress.md"
+      ]
+    },
+    {
+      "graph_ref": "node:reporter",
+      "status": "implemented",
+      "issue_ids": [
+        "ISS-0005",
+        "ISS-0006"
+      ],
+      "evidence_refs": [
+        ".vivicy/development/reports/ISS-0005-implementation.md"
+      ]
+    }
+  ],
+  "active_items": [
+    {
+      "id": "active-ISS-0004",
+      "actor": "claude-code",
+      "issue_id": "ISS-0004",
+      "graph_refs": [
+        "node:categorizer"
+      ],
+      "state": "working",
+      "role": "implementer",
+      "started_at": "2026-06-27T14:05:00Z",
+      "heartbeat_at": "2026-06-27T14:19:30Z"
+    },
+    {
+      "id": "active-ISS-0008",
+      "actor": "codex-cli",
+      "issue_id": "ISS-0008",
+      "graph_refs": [
+        "node:cli"
+      ],
+      "state": "reviewing",
+      "role": "reviewer",
+      "started_at": "2026-06-27T14:10:00Z",
+      "heartbeat_at": "2026-06-27T14:19:45Z"
+    }
+  ]
+}
