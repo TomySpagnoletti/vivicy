@@ -94,8 +94,11 @@ export function nextCrId(crs = readChangeRequests()) {
 // needs to stay silent for an idea) + the template's narrative sections, writes the file,
 // and returns its refs. `now` is a seam (tests pin it); `sourceEvidence` is the machine
 // evidence (report paths, transcript refs) captured verbatim so the CR never rests on an
-// agent's unverified assertion. Throws if the rendered CR would not pass the checker.
-export function createChangeRequest({ repoRoot, title, classification = "minor_product_change", source = "agent", sourceEvidence = [], body = null, now } = {}) {
+// agent's unverified assertion. `affectedVerificationGates` records the spike gate_id(s)
+// this CR resolves at the intention level, so cr-apply can retire them on the fold (a
+// disproven spike drafts its own gate here — the link the apply chain follows to unblock
+// re-extraction). Throws if the rendered CR would not pass the checker.
+export function createChangeRequest({ repoRoot, title, classification = "minor_product_change", source = "agent", sourceEvidence = [], affectedVerificationGates = [], body = null, now } = {}) {
   if (!repoRoot) throw new Error("createChangeRequest: repoRoot is required");
   if (!isNonEmptyString(title)) throw new Error("createChangeRequest: a non-empty title is required");
   if (!CR_CLASSIFICATIONS.includes(classification)) {
@@ -107,7 +110,7 @@ export function createChangeRequest({ repoRoot, title, classification = "minor_p
   const nowIso = typeof now === "function" ? now() : new Date().toISOString();
   const date = nowIso.slice(0, 10);
   const file = `${CHANGE_REQUESTS_DIR}/${id}-${slugify(title)}.md`;
-  const content = renderNewChangeRequest({ id, title, classification, source, sourceEvidence, body, date });
+  const content = renderNewChangeRequest({ id, title, classification, source, sourceEvidence, affectedVerificationGates, body, date });
   writeFileSync(resolve(repoRoot, file), content);
 
   // Validation of record: the written file must pass the deterministic gate, or the
@@ -421,7 +424,7 @@ function slugify(title) {
 // after the frontmatter) for a richer narrative; otherwise the template sections are
 // emitted with the machine evidence folded into the Audit Trail so the CR never rests on
 // an unverified assertion.
-function renderNewChangeRequest({ id, title, classification, source, sourceEvidence, body, date }) {
+function renderNewChangeRequest({ id, title, classification, source, sourceEvidence, affectedVerificationGates = [], body, date }) {
   const fm = [
     "---",
     `id: ${id}`,
@@ -449,7 +452,7 @@ function renderNewChangeRequest({ id, title, classification, source, sourceEvide
     "affected_docs: []",
     "affected_issues: []",
     "affected_requirements: []",
-    "affected_verification_gates: []",
+    `affected_verification_gates: ${serializeFmValue(toList(affectedVerificationGates))}`,
     "issue_generation_required: false",
     "catalog_delta_required: false",
     "matrix_rows_pending: false",

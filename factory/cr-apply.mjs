@@ -38,6 +38,8 @@ import { runClaudeLeg, runCodexLeg } from "./agent-spawn.mjs";
 import { agentCliArgs, CLI_DEFAULTS, composePrompt, DEFAULT_CONFIG, resolveAgentLegs } from "./dev-loop.mjs";
 import { readChangeRequest, stampChangeRequestApplied } from "./change-control.mjs";
 import { runReferenceCheck as runReferenceCheckImpl } from "./reference-check.mjs";
+import { readSpikes } from "./spike-check.mjs";
+import { flipSpikeStatus } from "./spike-prover.mjs";
 import { FACTORY_DIR, FACTORY_PROMPTS_DIR, resolveTargetRoot } from "./target-root.mjs";
 
 const BASELINE_DIR = ".vivicy/baselines";
@@ -179,6 +181,26 @@ export async function applyChangeRequest(args = {}) {
     return terminal(recordReport, "blocked", "stamp", id, { baseline, summary: `cr-apply: could not stamp ${id} docs_applied: ${error instanceof Error ? error.message : String(error)}` });
   }
   recordReport({ phase: "stamped", cr: id, baseline, updated_at: now() });
+
+  // (c.1) RETIRE the now-moot spike(s). A CR that folds a DISPROVEN spike's correction into
+  // the canonical carries that spike's gate_id on affected_verification_gates. Once the fold
+  // is applied, the disproven assumption is gone from the intention — there is nothing left
+  // to prove — so the failed spike must stop gating, or G13 (transitivelyVerifiedGates in
+  // extract-issues) would block re-extraction forever with blocked_on_unverified_spikes. We
+  // RETIRE (failed -> deferred), never auto-RE-AUTHOR: a fresh spike is a new intention the
+  // owner drives, not something this mechanical fold invents. `deferred` is the enum value
+  // meaning "no longer blocking" — G13 explicitly skips deferred spikes. This runs BEFORE the
+  // child extraction spawns so that gate already reads as deferred, and its file edit is
+  // committed here (same commit-before-freeze discipline: the child may freeze, and doc-baseline
+  // refuses a dirty tree). Only spikes named on THIS CR and currently `failed` are touched.
+  const retired = retireAffectedSpikes({ repoRoot, cr });
+  if (retired.length > 0) {
+    recordReport({ phase: "retire_spikes", cr: id, retired, updated_at: now() });
+    const committedRetire = commitApplied({ repoRoot, id });
+    if (!committedRetire.committed) {
+      return terminal(recordReport, "blocked", "retire_spikes", id, { baseline, retired, summary: `cr-apply: could not commit the retired spike(s) ${retired.join(", ")} for ${id} before re-extraction (git add/commit failed)` });
+    }
+  }
 
   // (d) RE-EXTRACT (+ RE-DRIVE, intrinsic): spawn extract-issues.mjs. It captures the prior
   // source-map and, on green, reopens exactly the impacted done issues via re-drive
@@ -361,6 +383,37 @@ function defaultRecordReport(repoRoot, id, report) {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+// Retire every spike this CR resolves at the intention level: for each gate_id on the CR's
+// affected_verification_gates that maps to a spike currently `status: failed`, flip it to
+// `deferred` in place (the same byte-preserving Traceability rewrite the prover uses). A
+// disproven spike whose correction is now folded into the canonical has nothing left to
+// prove, and a `deferred` spike does not gate G13 — so this is what actually unblocks
+// re-extraction. Returns the gate_ids retired (empty when the CR names none, or none of the
+// named spikes is failed). A gate that resolves to no spike, or to a non-failed spike, is a
+// deliberate no-op — never a re-authoring and never a downgrade of a verified spike.
+function retireAffectedSpikes({ repoRoot, cr }) {
+  const gates = toGateList(cr.fm?.affected_verification_gates);
+  if (gates.length === 0) return [];
+  const spikeByGate = new Map(readSpikes(repoRoot).map((spike) => [spike.gate_id, spike]));
+  const retired = [];
+  for (const gate of gates) {
+    const spike = spikeByGate.get(gate);
+    if (!spike || spike.status !== "failed") continue;
+    flipSpikeStatus(repoRoot, spike, "deferred");
+    retired.push(gate);
+  }
+  return retired;
+}
+
+// affected_verification_gates parses to an array (parseFrontmatter's [a, b] form), but a
+// single value may arrive as a bare string; normalize both to a string[] so a lone gate is
+// still honoured.
+function toGateList(value) {
+  if (Array.isArray(value)) return value.map(String).filter(Boolean);
+  if (typeof value === "string" && value.trim()) return [value.trim()];
+  return [];
+}
 
 function patchBump(version) {
   const [M, m, p] = version.split(".").map(Number);
