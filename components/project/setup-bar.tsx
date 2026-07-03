@@ -47,7 +47,10 @@ export function SetupBar({
   }, [loadProject, reloadSignal])
 
   return (
-    <div className="pointer-events-auto absolute top-2 left-2 z-10 flex items-center gap-1.5">
+    <div className="pointer-events-auto absolute top-2 left-2 z-20 flex items-center gap-1.5">
+      {/* z-20 keeps these controls (project switcher, agents, notification bell)
+          clickable ABOVE the pipeline widget (z-10), whose wide centered strip
+          would otherwise intercept clicks over the top-left corner. */}
       {/* The project picker lives here only once a project is selected — changing
           projects, with no duplicate selector. Before any project exists the
           onboarding chooser is the sole entry point, so this affordance is absent. */}
