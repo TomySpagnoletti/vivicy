@@ -11,21 +11,71 @@ import { readTranscript, runViviTurn, type ViviTurn } from "@/lib/vivi"
  * A recording fake spawner whose `run` DELEGATES to a per-test `onRun` so a test
  * can simulate exactly what the Vivi leg does to the target (write .md files, write
  * the --reply-file, or misbehave by writing outside the allowlist). Records every
- * run's args + env so tests assert the settings plumb-through.
+ * run's args + env so tests assert the settings plumb-through. `onRun` may return a
+ * partial {@link RunResult} to override the default success — the post-freeze CR
+ * validation spawns change-control.mjs and a test simulates its verdict this way.
  */
-function makeFakeSpawner(onRun: (options: RunOptions) => void = () => {}) {
+function makeFakeSpawner(onRun: (options: RunOptions) => Partial<RunResult> | void = () => {}) {
   const calls = { run: [] as Array<{ args: string[]; env: NodeJS.ProcessEnv; cwd: string }> }
   const spawner: Spawner = {
     spawnDetached: () => ({ pid: 1 }),
     run: async (options): Promise<RunResult> => {
       calls.run.push({ args: options.args, env: options.env, cwd: options.cwd })
-      onRun(options)
-      return { code: 0, lastLine: "vivi turn: fake", stdout: "vivi turn: fake\n", stderr: "" }
+      const override = onRun(options) ?? {}
+      return { code: 0, lastLine: "vivi turn: fake", stdout: "vivi turn: fake\n", stderr: "", ...override }
     },
     killGroup: () => true,
     isAlive: () => false,
   }
   return { spawner, calls }
+}
+
+/** Does a recorded run drive change-control.mjs (the post-freeze CR validator)? */
+function isChangeControlRun(args: string[]): boolean {
+  return args.some((a) => a.endsWith("change-control.mjs"))
+}
+
+/** Seed an active frozen baseline manifest so the target is in the post-freeze phase. */
+function seedFrozenBaseline(root: string): void {
+  const dir = path.join(root, ".vivicy", "baselines")
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(
+    path.join(dir, "baseline-v1.0.0.json"),
+    JSON.stringify({ baseline_id: "baseline-v1.0.0", version: "1.0.0", status: "frozen" })
+  )
+}
+
+/** A minimally well-formed CR body the change-control checker would accept. */
+function wellFormedCr(id: string): string {
+  return [
+    "---",
+    `id: ${id}`,
+    "title: Add CSV export",
+    "status: idea",
+    "classification: minor_product_change",
+    "created_at: 2026-07-03",
+    "updated_at: 2026-07-03",
+    "source: user",
+    "owner_decision: pending",
+    "owner_decision_by: null",
+    "owner_decision_at: null",
+    "owner_decision_evidence: null",
+    "previous_baseline_id: null",
+    "previous_baseline_version: null",
+    "previous_baseline_manifest_path: null",
+    "previous_document_set_hash: null",
+    "previous_manifest_hash: null",
+    "supersedes: []",
+    "superseded_by: null",
+    "---",
+    "",
+    `# ${id} - Add CSV export`,
+    "",
+    "## Idea",
+    "",
+    "The user asked to add CSV export.",
+    "",
+  ].join("\n")
 }
 
 /** Pull the `--reply-file` path out of a recorded run's args. */
@@ -54,10 +104,13 @@ let targetRoot: string
 let runtimeDir: string
 let prevCwd: string
 
-/** Build a fake factory dir with the vivi-turn script the control plane resolves. */
+/** Build a fake factory dir with the scripts the control plane resolves. The
+ *  change-control stub only needs to EXIST — the fake spawner supplies its verdict, so a
+ *  turn never launches a real Node validator. */
 function scaffoldFactory(root: string) {
   mkdirSync(path.join(root, "prompts"), { recursive: true })
   writeFileSync(path.join(root, "vivi-turn.mjs"), "// stub\n")
+  writeFileSync(path.join(root, "change-control.mjs"), "// stub\n")
   writeFileSync(path.join(root, "prompts", "vivi.md"), "# Vivi persona (test stub)\n")
 }
 
@@ -90,6 +143,7 @@ afterEach(() => {
 
 const CANONICAL = path.join(".vivicy", "canonical")
 const SPIKES = path.join(".vivicy", "development", "spikes")
+const CHANGE_REQUESTS = path.join(".vivicy", "change-requests")
 
 describe("runViviTurn — transcript", () => {
   it("appends the user turn then the vivi reply, and replays across turns", async () => {
@@ -265,6 +319,127 @@ describe("runViviTurn — allowlist enforcement", () => {
     // Both the forbidden baseline write and the good doc are gone.
     expect(existsSync(path.join(targetRoot, ".vivicy", "baselines", "forged.md"))).toBe(false)
     expect(existsSync(path.join(targetRoot, CANONICAL, "02-good.md"))).toBe(false)
+  })
+})
+
+describe("runViviTurn — post-freeze (Change Requests, B8.1)", () => {
+  it("accepts a well-formed CR under change-requests/ and reports it in `wrote`", async () => {
+    seedFrozenBaseline(targetRoot)
+    // The leg writes a valid CR; the change-control validator (second spawn) passes.
+    const { spawner, calls } = makeFakeSpawner((o) => {
+      if (isChangeControlRun(o.args)) return { code: 0, stdout: "change-control: OK\n" }
+      writeInTarget(targetRoot, path.join(CHANGE_REQUESTS, "CR-0001-add-csv-export.md"), wellFormedCr("CR-0001"))
+      writeReply(o, "I drafted CR-0001 for CSV export.")
+    })
+    const result = await runViviTurn(spawner, { message: "Add CSV export to the reports." })
+
+    expect(result.rejected).toBeUndefined()
+    expect(result.wrote).toEqual([path.join(CHANGE_REQUESTS, "CR-0001-add-csv-export.md")])
+    // The CR survives (a valid turn is never rolled back)...
+    expect(existsSync(path.join(targetRoot, CHANGE_REQUESTS, "CR-0001-add-csv-export.md"))).toBe(true)
+    // ...and change-control WAS consulted (the validator ran as its own spawn).
+    expect(calls.run.some((c) => isChangeControlRun(c.args))).toBe(true)
+  })
+
+  it("REJECTS a canonical/spike write in the frozen phase and rolls it back", async () => {
+    seedFrozenBaseline(targetRoot)
+    writeInTarget(targetRoot, path.join(CANONICAL, "01-product.md"), "frozen original\n")
+    // Post-freeze the canonical is locked: editing it (or writing a spike) is a violation.
+    const { spawner, calls } = makeFakeSpawner((o) => {
+      writeInTarget(targetRoot, path.join(CANONICAL, "01-product.md"), "TAMPERED after freeze\n")
+      writeInTarget(targetRoot, path.join(SPIKES, "01-late-spike.md"), "# too late\n")
+      writeReply(o, "I tried to edit the frozen spec.")
+    })
+    const result = await runViviTurn(spawner, { message: "Change the product doc." })
+
+    expect(result.rejected).toMatch(/outside its allowlist/)
+    expect(result.wrote).toEqual([])
+    // The canonical is restored byte-for-byte and the spike is gone.
+    expect(readFileSync(path.join(targetRoot, CANONICAL, "01-product.md"), "utf8")).toBe("frozen original\n")
+    expect(existsSync(path.join(targetRoot, SPIKES, "01-late-spike.md"))).toBe(false)
+    // A pure allowlist violation never even reaches the CR validator.
+    expect(calls.run.some((c) => isChangeControlRun(c.args))).toBe(false)
+  })
+
+  it("REJECTS a malformed CR (change-control fails) and rolls the turn back", async () => {
+    seedFrozenBaseline(targetRoot)
+    // The leg writes a CR into the allowed dir, but its shape is bad: the validator's
+    // second spawn returns non-zero, so the whole turn is rejected + rolled back.
+    const { spawner } = makeFakeSpawner((o) => {
+      if (isChangeControlRun(o.args)) {
+        return { code: 1, stderr: "error:\nRule: cr_id_filename_match\n", lastLine: "change-control: FAILED with 1 error(s)" }
+      }
+      writeInTarget(targetRoot, path.join(CHANGE_REQUESTS, "CR-0001-broken.md"), "---\nid: CR-9999\n---\n# broken\n")
+      writeReply(o, "Here is a change request.")
+    })
+    const result = await runViviTurn(spawner, { message: "Add a broken change." })
+
+    expect(result.rejected).toMatch(/did not pass change-control/)
+    expect(result.wrote).toEqual([])
+    // The malformed CR is removed by the rollback.
+    expect(existsSync(path.join(targetRoot, CHANGE_REQUESTS, "CR-0001-broken.md"))).toBe(false)
+    expect((readTranscript(result.sessionId).at(-1) as ViviTurn).rejected).toBeTruthy()
+  })
+
+  it("fail-closed: a CR write is REJECTED when the change-control spawn throws", async () => {
+    seedFrozenBaseline(targetRoot)
+    // The validator spawn itself errors (not just a non-zero exit). Fail-closed: the turn
+    // is rejected + rolled back rather than keeping an unproven CR.
+    const spawner: Spawner = {
+      spawnDetached: () => ({ pid: 1 }),
+      run: async (options) => {
+        if (isChangeControlRun(options.args)) throw new Error("boom: validator crashed")
+        writeInTarget(targetRoot, path.join(CHANGE_REQUESTS, "CR-0001-x.md"), wellFormedCr("CR-0001"))
+        writeReply(options, "drafted a CR")
+        return { code: 0, lastLine: "", stdout: "", stderr: "" }
+      },
+      killGroup: () => true,
+      isAlive: () => false,
+    }
+    const result = await runViviTurn(spawner, { message: "change something" })
+
+    expect(result.rejected).toMatch(/did not pass change-control/)
+    expect(result.wrote).toEqual([])
+    expect(existsSync(path.join(targetRoot, CHANGE_REQUESTS, "CR-0001-x.md"))).toBe(false)
+  })
+
+  it("threads spec_frozen + the next CR id into the leg's env and prompt", async () => {
+    seedFrozenBaseline(targetRoot)
+    // Seed one existing CR so the next id is CR-0002 (proves lib computes it, not the agent).
+    writeInTarget(targetRoot, path.join(CHANGE_REQUESTS, "CR-0001-first.md"), wellFormedCr("CR-0001"))
+    let seenPrompt = ""
+    const { spawner, calls } = makeFakeSpawner((o) => {
+      if (isChangeControlRun(o.args)) return { code: 0 }
+      seenPrompt = readFileSync(promptFileFrom(o.args), "utf8")
+      writeReply(o, "ack")
+    })
+    await runViviTurn(spawner, { message: "hello" })
+
+    const legRun = calls.run.find((c) => c.args.some((a) => a.endsWith("vivi-turn.mjs")))
+    expect(legRun?.env.VIVICY_SPEC_FROZEN).toBe("true")
+    // The composed prompt announces the phase and the exact next id for the CR filename.
+    expect(seenPrompt).toContain("spec_frozen: true")
+    expect(seenPrompt).toContain("CR-0002")
+  })
+
+  it("pre-freeze threads spec_frozen: false (no baseline) and writes canonical as before", async () => {
+    // No frozen baseline seeded: the phase is pre-freeze, so the flag is false and the
+    // canonical write path is unchanged (requirement 1, made explicit for the flag).
+    let seenPrompt = ""
+    const { spawner, calls } = makeFakeSpawner((o) => {
+      seenPrompt = readFileSync(promptFileFrom(o.args), "utf8")
+      writeInTarget(targetRoot, path.join(CANONICAL, "01-product.md"), "# Product\n")
+      writeReply(o, "wrote the product doc")
+    })
+    const result = await runViviTurn(spawner, { message: "start" })
+
+    expect(result.rejected).toBeUndefined()
+    expect(result.wrote).toEqual([path.join(CANONICAL, "01-product.md")])
+    expect(seenPrompt).toContain("spec_frozen: false")
+    const legRun = calls.run.find((c) => c.args.some((a) => a.endsWith("vivi-turn.mjs")))
+    expect(legRun?.env.VIVICY_SPEC_FROZEN).toBe("false")
+    // Pre-freeze never consults change-control (that gate is post-freeze only).
+    expect(calls.run.some((c) => isChangeControlRun(c.args))).toBe(false)
   })
 })
 

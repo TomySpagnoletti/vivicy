@@ -1,10 +1,11 @@
 "use client"
 
 import { useCallback, useEffect, useState } from "react"
-import { ChevronsUpDown, FolderGit2 } from "lucide-react"
+import { ChevronsUpDown, FolderGit2, Sparkles } from "lucide-react"
 
 import type { CurrentProject } from "@/lib/project-types"
 import { AgentsHealthDialog } from "@/components/agents/agents-health-dialog"
+import { ViviChat } from "@/components/chat/vivi-chat"
 import { NotificationBell } from "@/components/notifications/notification-bell"
 import { Button } from "@/components/ui/button"
 import {
@@ -27,6 +28,7 @@ export function SetupBar({
 }) {
   const [project, setProject] = useState<CurrentProject | null>(null)
   const [pickerOpen, setPickerOpen] = useState(false)
+  const [viviOpen, setViviOpen] = useState(false)
 
   const loadProject = useCallback(async () => {
     try {
@@ -76,6 +78,27 @@ export function SetupBar({
             </TooltipContent>
           </Tooltip>
 
+          {/* Reach Vivi anytime a project is active — not only during onboarding. This
+              bar is always mounted (even while the dev-loop runs), so the chat is the
+              standing channel for mid-run intention changes (B8.1): post-freeze a turn
+              drafts a Change Request instead of editing the locked canonical. */}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="outline"
+                size="sm"
+                aria-label="Talk to Vivi"
+                onClick={() => setViviOpen(true)}
+              >
+                <Sparkles />
+                <span>Talk to Vivi</span>
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent className="max-w-xs">
+              Talk to Vivi about the spec — a change after the freeze becomes a Change Request.
+            </TooltipContent>
+          </Tooltip>
+
           <OpenProjectDialog
             open={pickerOpen}
             onOpenChange={setPickerOpen}
@@ -84,6 +107,12 @@ export function SetupBar({
               onProjectChanged()
             }}
           />
+
+          {/* Same ViviChat panel the onboarding chooser uses; here it stays available
+              for the whole life of the project. A turn that wrote (a canonical doc, or a
+              CR post-freeze) bubbles up so the map re-fetches and a drafted CR surfaces
+              in the notification center's review section. */}
+          <ViviChat open={viviOpen} onOpenChange={setViviOpen} onWrote={() => onProjectChanged()} />
         </>
       ) : null}
 
