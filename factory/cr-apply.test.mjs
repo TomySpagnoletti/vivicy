@@ -165,6 +165,7 @@ describe("applyChangeRequest — happy path (green)", () => {
     const result = await applyChangeRequest({
       repoRoot: temp, id: "CR-0001",
       spawnApplier, runFreeze, runExtraction, recordReport: sink.recordReport,
+      commitApplied: () => ({ committed: true }),
       now: () => "2026-07-02T00:00:00.000Z",
     });
 
@@ -204,6 +205,59 @@ describe("applyChangeRequest — happy path (green)", () => {
     // The report file was written to disk by the default recorder path only when used; here
     // we injected a sink, so assert the terminal object rather than the file.
     assert.match(result.summary, /re-drive reopened 1 impacted issue/);
+  });
+
+  it("commits the applied canonical edit BEFORE freezing (else doc-baseline refuses a dirty tree)", async () => {
+    seedPreviousBaseline();
+    seedCanonical();
+    seedApprovedCr();
+
+    // Shared order log: the commit MUST land before the freeze, or the real freeze
+    // fails with "working tree clean: false" (the torture-run bug this locks).
+    const order = [];
+    const { spawnApplier } = fakeApplier();
+    const { runExtraction } = fakeExtraction();
+    const runFreeze = async ({ version }) => {
+      order.push("freeze");
+      const baselineId = `baseline-v${version}`;
+      write(`.vivicy/baselines/${baselineId}.json`, JSON.stringify({
+        schema_version: 1, baseline_id: baselineId, version, status: "frozen",
+        document_set_hash: `doc-${version}`, manifest_hash: `manifest-${version}`,
+        files: [{ path: ".vivicy/canonical/01-x.md", bytes: 1, sha256: "z2" }],
+      }, null, 2));
+      return { manifestPath: `.vivicy/baselines/${baselineId}.json`, baselineId, version, documentSetHash: `doc-${version}`, manifestHash: `manifest-${version}` };
+    };
+
+    const result = await applyChangeRequest({
+      repoRoot: temp, id: "CR-0001",
+      spawnApplier, runFreeze, runExtraction,
+      commitApplied: () => { order.push("commit"); return { committed: true }; },
+      recordReport: () => {},
+    });
+
+    assert.equal(result.status, "green");
+    assert.deepEqual(order, ["commit", "freeze"], "commit must run before freeze");
+  });
+
+  it("blocks honestly when the applied edit cannot be committed", async () => {
+    seedPreviousBaseline();
+    seedCanonical();
+    seedApprovedCr();
+    const { spawnApplier } = fakeApplier();
+    const { runFreeze } = fakeFreeze();
+    const { runExtraction } = fakeExtraction();
+
+    const result = await applyChangeRequest({
+      repoRoot: temp, id: "CR-0001",
+      spawnApplier, runFreeze, runExtraction,
+      commitApplied: () => ({ committed: false }),
+      recordReport: () => {},
+    });
+
+    assert.equal(result.status, "blocked");
+    assert.equal(result.phase, "commit");
+    // The CR stays accepted_current_build — NOT docs_applied — since the freeze never ran.
+    assert.equal(readChangeRequest(temp, "CR-0001").fm.status, "accepted_current_build");
   });
 });
 
@@ -254,7 +308,7 @@ describe("applyChangeRequest — blocked when extraction does not reach green", 
     const { runExtraction, calls: extractCalls } = fakeExtraction({ status: "extraction_blocked" });
     const sink = reportSink();
 
-    const result = await applyChangeRequest({ repoRoot: temp, id: "CR-0001", spawnApplier, runFreeze, runExtraction, recordReport: sink.recordReport });
+    const result = await applyChangeRequest({ repoRoot: temp, id: "CR-0001", spawnApplier, runFreeze, runExtraction, recordReport: sink.recordReport, commitApplied: () => ({ committed: true }) });
 
     assert.equal(result.status, "blocked");
     assert.equal(result.phase, "extract");
@@ -303,7 +357,7 @@ describe("applyChangeRequest — refuses a CR that is not approved into the buil
     const { runExtraction } = fakeExtraction();
     const sink = reportSink();
 
-    const result = await applyChangeRequest({ repoRoot: temp, id: "CR-0001", spawnApplier, runFreeze, runExtraction, recordReport: sink.recordReport });
+    const result = await applyChangeRequest({ repoRoot: temp, id: "CR-0001", spawnApplier, runFreeze, runExtraction, recordReport: sink.recordReport, commitApplied: () => ({ committed: true }) });
 
     assert.equal(result.status, "blocked");
     assert.equal(result.phase, "resolve");
@@ -333,7 +387,7 @@ describe("applyChangeRequest — default report recorder writes cr-apply-<id>.js
     const { runFreeze } = fakeFreeze();
     const { runExtraction } = fakeExtraction();
 
-    const result = await applyChangeRequest({ repoRoot: temp, id: "CR-0001", spawnApplier, runFreeze, runExtraction });
+    const result = await applyChangeRequest({ repoRoot: temp, id: "CR-0001", spawnApplier, runFreeze, runExtraction, commitApplied: () => ({ committed: true }) });
 
     assert.equal(result.status, "green");
     const reportRel = ".vivicy/development/reports/cr-apply-CR-0001.json";
