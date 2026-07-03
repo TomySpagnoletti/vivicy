@@ -225,7 +225,7 @@ const UPLOAD_VERIFY_SCRIPT = "verify-upload.mjs"
 // The Change-Request registry validator, which also carries the `decide` subcommand
 // that records an owner decision deterministically (no agent) — see decideCr.
 const CHANGE_CONTROL_SCRIPT = "change-control.mjs"
-// The CR APPLICATION chain (G7): apply -> re-freeze -> re-extract -> re-drive for an
+// The CR APPLICATION chain (G7): apply -> re-freeze -> re-extract -> reopen impacted issues for an
 // approved CR. A standalone factory script; the agent APPLY leg lives inside it and the
 // control plane only launches it (same pattern as EXTRACT_SCRIPT) — see decideCr.
 const CR_APPLY_SCRIPT = "cr-apply.mjs"
@@ -773,7 +773,7 @@ export function listChangeRequests(): { crs: ChangeRequestSummary[] } {
  *      (approved -> accepted_current_build with previous_* from the frozen baseline;
  *      rejected -> rejected). It prints a JSON line the control plane reads.
  *   2. APPLY (approvals only) — `cr-apply.mjs --cr <id>` runs apply -> re-freeze ->
- *      re-extract -> re-drive; the agent APPLY leg lives inside the script. Its terminal
+ *      re-extract -> reopen impacted issues; the agent APPLY leg lives inside the script. Its terminal
  *      state is read back from the cr-apply-<id>.json report (blocked vs green surfaced
  *      honestly, exactly as {@link runExtract} does for extraction).
  *

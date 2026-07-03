@@ -34,7 +34,7 @@ import { readSpikes, runSpikeCheck as runSpikeCheckImpl, transitivelyVerifiedGat
 import { runSpikeProving } from "./spike-prover.mjs";
 import { runReferenceCheck as runReferenceCheckImpl } from "./reference-check.mjs";
 import { runChangeControlCheck as runChangeControlCheckImpl } from "./change-control.mjs";
-import { runReDrive } from "./re-drive.mjs";
+import { runReopen } from "./reopen.mjs";
 import { formatMapReviewFix, mapReviewLensContext, mapReviewReportRel, runMapReview } from "./map-review.mjs";
 import { FACTORY_DIR, FACTORY_PROMPTS_DIR, resolveTargetRoot } from "./target-root.mjs";
 
@@ -221,11 +221,11 @@ export async function extractIssues(options = {}) {
   // in INTEGRATE mode — the extractor treats them as the authority and only back-fills /
   // corrects what is stale, never re-mints. No spikes -> EXTRACT mode (mint from the
   // canonical). readSpikes indexes only WELL-FORMED spikes, so a byte-compatible imported
-  // corpus (the Naight case: 21 valid spikes) selects integrate deterministically.
+  // corpus (an existing project's 21 valid spikes) selects integrate deterministically.
   const spikeMode = readSpikes(repoRoot).length > 0 ? "integrate" : "extract";
   // Snapshot the PRIOR source-map before re-authoring overwrites it, so a Change-Control
   // re-extraction can deterministically reopen exactly the issues whose requirement excerpts
-  // changed (see runReDrive). Null on a first extraction (no prior, nothing to reopen).
+  // changed (see runReopen). Null on a first extraction (no prior, nothing to reopen).
   const sourceMapAbs = resolve(repoRoot, ".vivicy/requirements/source-map.json");
   const priorSourceMap = readJsonOrNull(sourceMapAbs);
 
@@ -374,14 +374,14 @@ export async function extractIssues(options = {}) {
       continue;
     }
 
-    // Deterministic Change-Control re-drive: if this extraction re-ran over a CHANGED
+    // Deterministic Change-Control reopening: if this extraction re-ran over a CHANGED
     // baseline (a prior source-map existed), reopen exactly the issues whose requirement
     // excerpts changed or were removed — the orchestrator does this mechanically, never an
     // agent's recollection. A first extraction or an unchanged corpus reopens nothing.
     let reopened = [];
     if (priorSourceMap) {
       const currentSourceMap = readJsonOrNull(sourceMapAbs);
-      if (currentSourceMap) reopened = runReDrive({ repoRoot, priorSourceMap, currentSourceMap }).reopened;
+      if (currentSourceMap) reopened = runReopen({ repoRoot, priorSourceMap, currentSourceMap }).reopened;
     }
 
     const status = {
@@ -398,7 +398,7 @@ export async function extractIssues(options = {}) {
       map,
       transcripts,
       ...(reopened.length ? { reopened } : {}),
-      summary: `extraction green after ${attempt} attempt(s): ${countIssues(repoRoot)} issue(s); deterministic checks pass; map regenerated; verifier faithful:true; map review clean${reopened.length ? `; re-drive reopened ${reopened.length} impacted issue(s)` : ""}; corpus committed`,
+      summary: `extraction green after ${attempt} attempt(s): ${countIssues(repoRoot)} issue(s); deterministic checks pass; map regenerated; verifier faithful:true; map review clean${reopened.length ? `; reopened ${reopened.length} impacted issue(s)` : ""}; corpus committed`,
     };
     // Emit the final green status FIRST, then commit MECHANICALLY — so the single
     // commit captures the whole corpus (frozen baseline + authored issues +

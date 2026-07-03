@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:
 import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
 
-import { impactedIssues, runReDrive } from "./re-drive.mjs";
+import { impactedIssues, runReopen } from "./reopen.mjs";
 
 const sm = (excerpts) => ({ requirement_excerpts: excerpts });
 
@@ -20,8 +20,8 @@ test("impactedIssues returns issues referencing a changed or removed requirement
   assert.deepEqual(impactedIssues(drift, index), ["ISS-0002", "ISS-0003"]);
 });
 
-test("runReDrive reopens exactly the impacted done issues and leaves unchanged ones done", () => {
-  const root = mkdtempSync(resolve(tmpdir(), "re-drive-"));
+test("runReopen reopens exactly the impacted done issues and leaves unchanged ones done", () => {
+  const root = mkdtempSync(resolve(tmpdir(), "reopen-"));
   try {
     const write = (rel, content) => {
       const abs = resolve(root, rel);
@@ -49,7 +49,7 @@ test("runReDrive reopens exactly the impacted done issues and leaves unchanged o
       { id: "REQ-A-002", source_excerpt_sha256: "h2-NEW" }, // a doc edit changed REQ-A-002
     ]);
     const events = [];
-    const res = runReDrive({
+    const res = runReopen({
       repoRoot: root,
       priorSourceMap: prior,
       currentSourceMap: next,
@@ -72,11 +72,11 @@ test("runReDrive reopens exactly the impacted done issues and leaves unchanged o
   }
 });
 
-test("runReDrive does nothing when no requirement changed", () => {
-  const root = mkdtempSync(resolve(tmpdir(), "re-drive-"));
+test("runReopen does nothing when no requirement changed", () => {
+  const root = mkdtempSync(resolve(tmpdir(), "reopen-"));
   try {
     const same = sm([{ id: "REQ-A-001", source_excerpt_sha256: "h1" }]);
-    const res = runReDrive({ repoRoot: root, priorSourceMap: same, currentSourceMap: same, recordEvent: () => {} });
+    const res = runReopen({ repoRoot: root, priorSourceMap: same, currentSourceMap: same, recordEvent: () => {} });
     assert.deepEqual(res.reopened, []);
   } finally {
     rmSync(root, { force: true, recursive: true });

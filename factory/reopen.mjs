@@ -1,4 +1,4 @@
-// Deterministic Change-Control re-drive.
+// Deterministic Change-Control issue reopening.
 //
 // After an accepted CR patches canonical, re-freezes, and re-extracts, this reopens EXACTLY
 // the issues whose requirements changed or were removed — computed mechanically from the C1'
@@ -38,7 +38,7 @@ function readJsonSafe(abs) {
 }
 
 // Reopen the impacted, currently-done issues. Returns { drift, impacted, reopened }.
-export function runReDrive({
+export function runReopen({
   repoRoot = resolveTargetRoot(),
   priorSourceMap,
   currentSourceMap,
@@ -82,7 +82,7 @@ if (cliEntry === fileURLToPath(import.meta.url)) {
   const priorIdx = args.indexOf("--prior");
   const priorPath = priorIdx !== -1 ? args[priorIdx + 1] : null;
   if (!priorPath) {
-    console.error("usage: re-drive.mjs --prior <prior baseline source-map.json> [--cr CR-####]");
+    console.error("usage: reopen.mjs --prior <prior baseline source-map.json> [--cr CR-####]");
     process.exit(2);
   }
   const crIdx = args.indexOf("--cr");
@@ -93,6 +93,6 @@ if (cliEntry === fileURLToPath(import.meta.url)) {
     console.error(`error: missing source-map (prior=${Boolean(priorSourceMap)}, current=${Boolean(currentSourceMap)})`);
     process.exit(1);
   }
-  const result = runReDrive({ repoRoot, priorSourceMap, currentSourceMap, crRef });
-  console.log(`re-drive: reopened ${result.reopened.length} impacted issue(s): ${result.reopened.join(", ") || "none"}`);
+  const result = runReopen({ repoRoot, priorSourceMap, currentSourceMap, crRef });
+  console.log(`reopen: reopened ${result.reopened.length} impacted issue(s): ${result.reopened.join(", ") || "none"}`);
 }

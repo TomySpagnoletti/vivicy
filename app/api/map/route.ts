@@ -85,7 +85,7 @@ export async function GET() {
 
 /**
  * Read and parse the live progress ledger, or `undefined` when it is absent or
- * unparseable. The overlay derivation treats `undefined` as "no live progress",
+ * cannot be parsed. The overlay derivation treats `undefined` as "no live progress",
  * so a target mid-extraction (no ledger yet) renders the static graph cleanly.
  */
 async function readLedger(): Promise<unknown> {
