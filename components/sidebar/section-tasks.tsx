@@ -33,7 +33,7 @@ export function SectionTasks({
       <div className="grid grid-cols-3 gap-2">
         <Metric label="Issues" value={String(issues.length)} />
         <Metric label="Active" value={String(activeItems.length)} />
-        <Metric label="Lines → issues" value={formatLineCoverage(coverage)} />
+        <Metric label="Lines mapped to issues" value={formatLineCoverage(coverage)} />
       </div>
 
       {issues.length === 0 ? (

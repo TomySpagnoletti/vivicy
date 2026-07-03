@@ -1,10 +1,11 @@
 import { expect, test } from "@playwright/test"
 
 /**
- * Points the app at a target that has docs/ but no architecture-data.json (the
- * `empty` project + no-map server, wired in playwright.config). Asserts the
- * onboarding state renders cleanly: no crash, no raw 404 / error text, and the
- * "No issues extracted yet" guidance + Extract affordance are present.
+ * Points the app at a target that has a `.vivicy/canonical/` but no generated
+ * architecture-data.json (the `empty` project + no-map server, wired in
+ * playwright.config). Asserts the onboarding state renders cleanly: no crash, no
+ * raw 404 / error text, and the "No issues extracted yet" guidance + Extract
+ * affordance are present.
  */
 test.describe("Vivicy onboarding (no architecture map)", () => {
   test("renders the no-map onboarding state without a raw error", async ({

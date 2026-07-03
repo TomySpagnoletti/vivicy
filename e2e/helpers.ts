@@ -1,4 +1,4 @@
-import { expect, type Page, type TestInfo } from "@playwright/test"
+import { expect, type Locator, type Page, type TestInfo } from "@playwright/test"
 
 /**
  * Cross-browser e2e helpers. The four-browser matrix (see playwright.config)
@@ -59,6 +59,25 @@ export async function ensurePanelOpen(page: Page, testInfo: TestInfo): Promise<v
 export async function openSettingsDialog(page: Page, testInfo: TestInfo): Promise<void> {
   await expect(page.locator(".react-flow__node").first()).toBeVisible({ timeout: 30_000 })
   await ensurePanelOpen(page, testInfo)
-  await page.getByRole("button", { name: "Settings" }).click()
+  // On mobile the gear sits in the off-canvas Sheet, which SSE-driven map refreshes
+  // can keep re-animating — a plain click can miss Playwright's stability gate. Open
+  // past that with the shared overlap-safe click.
+  await clickPastOverlap(page.getByRole("button", { name: "Settings" }))
   await expect(page.getByRole("dialog").getByText("Agent settings")).toBeVisible()
+}
+
+/**
+ * Click a control that a scrollable container can visually overlap.
+ *
+ * On the Pixel 7 (mobile) project the right panel is an off-canvas Sheet and the
+ * settings dialog is a `max-h-svh` scroller — both taller than the viewport with
+ * the rich demo fixture. A target inside them is the correct element (the locator
+ * resolves) but a sibling row can sit over it at its resting position, so a plain
+ * click never satisfies Playwright's "receives pointer events" gate and times out.
+ * Scrolling the target into view and forcing the click dispatches to that exact
+ * element past the overlap. On desktop this is a normal scroll-then-click.
+ */
+export async function clickPastOverlap(target: Locator): Promise<void> {
+  await target.scrollIntoViewIfNeeded()
+  await target.click({ force: true })
 }

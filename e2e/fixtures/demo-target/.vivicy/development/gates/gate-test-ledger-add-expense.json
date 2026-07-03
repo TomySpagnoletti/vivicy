@@ -1,0 +1,10 @@
+{
+  "gate_id": "gate:test:ledger-add-expense",
+  "issue_id": "ISS-0001",
+  "graph_ref": "node:ledger",
+  "kind": "test",
+  "status": "passed",
+  "command": "node --test ledger.add-expense.test.mjs",
+  "checked_at": "2026-06-27T14:18:00Z",
+  "summary": "Ledger add validates every field, rejects duplicate ids and malformed values, and stores accepted records in insertion order."
+}

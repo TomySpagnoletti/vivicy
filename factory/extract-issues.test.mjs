@@ -18,6 +18,7 @@ import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, it } from "node:test";
 
 import { extractIssues, findFrozenManifest, formatCheckOutput, formatFixContext, formatMapError } from "./extract-issues.mjs";
+import { readSpikes } from "./spike-check.mjs";
 
 const FACTORY_DIR = dirname(fileURLToPath(import.meta.url));
 const FIXTURE = resolve(FACTORY_DIR, "rehearsal/pocket-ledger");
@@ -75,6 +76,77 @@ function writeInvalidCorpus(root) {
   const index = JSON.parse(readFileSync(indexPath, "utf8"));
   index.manifest_hash = "deadbeef".repeat(8); // pin mismatch vs the frozen manifest
   writeFileSync(indexPath, `${JSON.stringify(index, null, 2)}\n`);
+}
+
+/**
+ * Write a well-formed spike whose gate-id slug equals its filename stem (so
+ * spike-check passes) and whose requirement_ids resolve to a real fixture catalog
+ * requirement (so traceability-check's back-fill rule passes). It is written `verified`
+ * with the six completion fields by default — the state a spike is in by S6 after the
+ * S3 proving stage (G3) has run — so the G13 spike-verification gate lets extraction
+ * proceed. Pass `status: "pending"` to model a not-yet-proved spike. This is exactly the
+ * byte-compatible shape an owner-provided (or Vivi-written) spike carries once proved.
+ */
+function writeSpike(root, filename, reqId = "REQ-ARCH-001", status = "verified") {
+  const slug = filename.replace(/\.md$/, "");
+  const content = [
+    `# S - ${slug}`,
+    "",
+    "Document status: Phase 0 spike.",
+    "",
+    "## Traceability",
+    "",
+    "```text",
+    `requirement_ids: ${reqId}`,
+    `gate_id: gate:phase0:s${slug}`,
+    `status: ${status}`,
+    "```",
+    "",
+    "## Question",
+    "",
+    "Does the provider behave as assumed?",
+    "",
+    "## Must Verify",
+    "",
+    "- [Live test required: ...] the assumption",
+    "",
+    "## Evidence Required",
+    "",
+    "```text",
+    "environment: date, runtime, versions",
+    "commands or API calls: the exact calls",
+    "observed output: the observed result",
+    "decision: the locked decision",
+    "documentation updates: none",
+    "unresolved risks: none",
+    "```",
+    "",
+  ].join("\n");
+  const p = resolve(root, ".vivicy/development/spikes", filename);
+  mkdirSync(dirname(p), { recursive: true });
+  writeFileSync(p, content);
+  return { path: p, content, file: `.vivicy/development/spikes/${filename}`, gate_id: `gate:phase0:s${slug}` };
+}
+
+/**
+ * An inert spike-proving seam for the extraction tests that do not exercise S3: it runs
+ * no legs and mutates nothing, reporting the already-verified seeded spikes as proved.
+ * Extraction tests inject this so the DEFAULT (real-leg) proving never spawns a CLI, and
+ * so the seeded `verified` spikes pass the G13 gate unchanged. G3 itself is proven in
+ * spike-prover.test.mjs; the proof that S3 runs BEFORE the freeze lives below.
+ */
+function noopSpikeProving(root) {
+  const proved = readSpikes(root)
+    .filter((s) => s.status === "verified")
+    .map((s) => ({ file: s.file, gate_id: s.gate_id, verdict: "verified" }));
+  return async () => ({ proved, failed: [], skipped: [], changeRequests: [] });
+}
+
+/** Seed a minimal architecture-map.yml so the map pre-exists pre-run (map_mode reused). */
+function seedArchitectureMap(root) {
+  const p = resolve(root, ".vivicy/architecture-map/architecture-map.yml");
+  mkdirSync(dirname(p), { recursive: true });
+  writeFileSync(p, 'version: 1\nname: "Owner Map"\n');
 }
 
 /** A fake EXTRACTOR that runs a per-attempt scripted action and records the calls. */
@@ -150,6 +222,17 @@ function stubSeams(extra = {}) {
     // The per-lens map review defaults to CLEAN (no findings) so happy paths green; a
     // test overrides it via `extra` to exercise the find -> fix-pass feedback.
     mapReview: async () => ({ findings: [], actionable: [], legs: [] }),
+    // The S3 spike-proving stage (G3) defaults to INERT here: it runs no real legs and
+    // mutates nothing, reporting the already-`verified` seeded spikes as proved. This
+    // keeps the DEFAULT prover/verifier CLIs from ever spawning in an extraction test,
+    // and lets the seeded verified spikes pass the G13 gate. G3 is proven on its own in
+    // spike-prover.test.mjs. A test overrides it via `extra` to exercise the ordering.
+    runSpikeProving: async ({ repoRoot }) => ({
+      proved: readSpikes(repoRoot).filter((s) => s.status === "verified").map((s) => ({ file: s.file, gate_id: s.gate_id, verdict: "verified" })),
+      failed: [],
+      skipped: [],
+      changeRequests: [],
+    }),
     _calls: { mapCalls, freezeCalls, statusEvents, commitCalls },
     ...extra,
   };
@@ -267,6 +350,185 @@ describe("extractIssues — two-agent happy path", () => {
 
     assert.equal(result.status, "green");
     assert.equal(calls.length, 1, "the spawnAgent alias drove the extractor leg");
+  });
+});
+
+describe("extractIssues — S2 spike mode (G12) + S5 map mode (G4)", () => {
+  it("INTEGRATE mode: pre-existing spikes pass through byte-for-byte, status says spike_mode integrate", async () => {
+    seedInputs(temp);
+    // Two owner-provided spikes on disk BEFORE the run: S2 must integrate, not extract.
+    const s1 = writeSpike(temp, "01-provider-auth.md");
+    const s2 = writeSpike(temp, "02-runtime-limits.md", "REQ-ARCH-002");
+    const before1 = readFileSync(s1.path, "utf8");
+    const before2 = readFileSync(s2.path, "utf8");
+
+    const { spawnExtractor, calls } = fakeAgent([(ctx) => writeValidCorpus(ctx.repoRoot)]);
+    const { spawnVerifier } = alwaysFaithfulVerifier();
+    const seams = stubSeams();
+
+    const result = await extractIssues({ repoRoot: temp, spawnExtractor, spawnVerifier, ...seams });
+
+    assert.equal(result.status, "green");
+    // The mode is resolved from the pre-run corpus and handed to the extractor leg.
+    assert.equal(result.spike_mode, "integrate");
+    assert.equal(calls[0].spikeMode, "integrate", "the extractor leg is told to INTEGRATE");
+    // The persisted extraction-status.json (the exact object emitStatus writes) records it.
+    const greenStatus = seams._calls.statusEvents.find((e) => e.phase === "green");
+    assert.equal(greenStatus.spike_mode, "integrate", "extraction-status.json says spike_mode integrate");
+    // The provided spikes are untouched BYTE-FOR-BYTE — integrate never rewrites them.
+    assert.equal(readFileSync(s1.path, "utf8"), before1, "spike 1 is byte-identical");
+    assert.equal(readFileSync(s2.path, "utf8"), before2, "spike 2 is byte-identical");
+  });
+
+  it("EXTRACT mode: no spikes on disk -> status says spike_mode extract", async () => {
+    seedInputs(temp); // fixture has no spikes/ directory
+    const { spawnExtractor, calls } = fakeAgent([(ctx) => writeValidCorpus(ctx.repoRoot)]);
+    const { spawnVerifier } = alwaysFaithfulVerifier();
+    const seams = stubSeams();
+
+    const result = await extractIssues({ repoRoot: temp, spawnExtractor, spawnVerifier, ...seams });
+
+    assert.equal(result.status, "green");
+    assert.equal(result.spike_mode, "extract");
+    assert.equal(calls[0].spikeMode, "extract", "the extractor leg is told to EXTRACT");
+    const greenStatus = seams._calls.statusEvents.find((e) => e.phase === "green");
+    assert.equal(greenStatus.spike_mode, "extract", "extraction-status.json says spike_mode extract");
+  });
+
+  it("REUSED map mode: a pre-existing architecture-map.yml -> status says map_mode reused", async () => {
+    seedInputs(temp);
+    seedArchitectureMap(temp); // the owner brought his own map
+
+    const { spawnExtractor, calls } = fakeAgent([(ctx) => writeValidCorpus(ctx.repoRoot)]);
+    const { spawnVerifier } = alwaysFaithfulVerifier();
+    const seams = stubSeams();
+
+    const result = await extractIssues({ repoRoot: temp, spawnExtractor, spawnVerifier, ...seams });
+
+    assert.equal(result.status, "green");
+    assert.equal(result.map_mode, "reused", "a map existing pre-run is reused, not authored");
+    assert.equal(calls[0].mapMode, "reused", "the extractor leg is told to REUSE the map");
+    const greenStatus = seams._calls.statusEvents.find((e) => e.phase === "green");
+    assert.equal(greenStatus.map_mode, "reused", "extraction-status.json says map_mode reused");
+  });
+
+  it("AUTHORED map mode: no map on disk -> status says map_mode authored", async () => {
+    seedInputs(temp); // fixture has no architecture-map.yml
+    const { spawnExtractor, calls } = fakeAgent([(ctx) => writeValidCorpus(ctx.repoRoot)]);
+    const { spawnVerifier } = alwaysFaithfulVerifier();
+    const seams = stubSeams();
+
+    const result = await extractIssues({ repoRoot: temp, spawnExtractor, spawnVerifier, ...seams });
+
+    assert.equal(result.status, "green");
+    assert.equal(result.map_mode, "authored");
+    assert.equal(calls[0].mapMode, "authored", "the extractor leg is told to AUTHOR a map");
+  });
+
+  it("records both modes on the BLOCKED path too (a red run still reports which path S2/S5 took)", async () => {
+    seedInputs(temp);
+    writeSpike(temp, "01-provider-auth.md"); // integrate
+    const { spawnExtractor } = fakeAgent([(ctx) => writeInvalidCorpus(ctx.repoRoot)]); // pin mismatch -> never green
+    const { spawnVerifier } = alwaysFaithfulVerifier();
+    const seams = stubSeams();
+
+    const result = await extractIssues({ repoRoot: temp, spawnExtractor, spawnVerifier, maxRetries: 0, ...seams });
+
+    assert.equal(result.status, "extraction_blocked");
+    assert.equal(result.spike_mode, "integrate");
+    assert.equal(result.map_mode, "authored");
+    const blockedStatus = seams._calls.statusEvents.find((e) => e.phase === "extraction_blocked");
+    assert.equal(blockedStatus.spike_mode, "integrate", "the blocked extraction-status.json carries spike_mode");
+    assert.equal(blockedStatus.map_mode, "authored", "the blocked extraction-status.json carries map_mode");
+  });
+});
+
+describe("extractIssues — S3 proving before freeze (order) + G13 spike-verification gate", () => {
+  it("runs the S3 proving stage BEFORE the freeze (S3 precedes S4)", async () => {
+    // A from-scratch target so the freeze seam MUST run; record the interleaving of the
+    // proving stage and the freeze. Proving (which may correct the canonical pre-baseline)
+    // must be the FIRST observable side effect, strictly before the freeze — proving after
+    // the freeze would force a re-freeze loop on every correction.
+    cpSync(resolve(FIXTURE, ".vivicy/canonical"), resolve(temp, ".vivicy/canonical"), { recursive: true });
+    cpSync(resolve(FIXTURE, "README.md"), resolve(temp, "README.md"));
+
+    const order = [];
+    const { spawnExtractor } = fakeAgent([(ctx) => writeValidCorpus(ctx.repoRoot)]);
+    const { spawnVerifier } = alwaysFaithfulVerifier();
+    const base = stubSeams();
+    const result = await extractIssues({
+      repoRoot: temp,
+      spawnExtractor,
+      spawnVerifier,
+      ...base,
+      // Order-recording wrappers around the two seams whose ordering is the contract.
+      runSpikeProving: async () => {
+        order.push("prove");
+        return { proved: [], failed: [], skipped: [], changeRequests: [] };
+      },
+      runFreeze: async (args) => {
+        order.push("freeze");
+        return base.runFreeze(args);
+      },
+    });
+
+    assert.equal(result.status, "green");
+    assert.ok(order.length >= 2, "both the proving stage and the freeze ran");
+    assert.equal(order[0], "prove", "spike proving is the first side effect");
+    assert.ok(order.indexOf("prove") < order.indexOf("freeze"), "S3 proving runs strictly before the S4 freeze");
+  });
+
+  it("BLOCKS extraction when a non-deferred spike is not verified (loud, with the offending gate_ids)", async () => {
+    seedInputs(temp);
+    // A PENDING spike on disk that proving did NOT verify (the injected stage leaves it
+    // pending). G13 must refuse to author issues while it is unverified.
+    const s = writeSpike(temp, "01-provider-auth.md", "REQ-ARCH-001", "pending");
+    const { spawnExtractor, calls } = fakeAgent([(ctx) => writeValidCorpus(ctx.repoRoot)]);
+    const { spawnVerifier } = alwaysFaithfulVerifier();
+    // Proving that proves NOTHING (models a spike still pending after S3, e.g. gated_by_external).
+    const seams = stubSeams({ runSpikeProving: async () => ({ proved: [], failed: [], skipped: [], changeRequests: [] }) });
+
+    const result = await extractIssues({ repoRoot: temp, spawnExtractor, spawnVerifier, ...seams });
+
+    assert.equal(result.status, "blocked_on_unverified_spikes", "extraction refuses on an unverified required spike");
+    assert.deepEqual(result.unverified_spike_gate_ids, [s.gate_id], "the offending gate id is named");
+    assert.equal(calls.length, 0, "the extractor leg never ran — extraction did not proceed");
+    // The block is loud on the status surface with the gate id.
+    const blocked = seams._calls.statusEvents.find((e) => e.phase === "blocked_on_unverified_spikes");
+    assert.ok(blocked, "a blocked_on_unverified_spikes status was emitted");
+    assert.deepEqual(blocked.unverified_spike_gate_ids, [s.gate_id]);
+    assert.match(result.summary, /blocked_on_unverified_spikes/);
+    assert.match(result.summary, new RegExp(s.gate_id.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  });
+
+  it("PROCEEDS to green when every required spike is verified", async () => {
+    seedInputs(temp);
+    // A verified spike (writeSpike defaults to verified + full evidence) passes G13.
+    writeSpike(temp, "01-provider-auth.md");
+    const { spawnExtractor, calls } = fakeAgent([(ctx) => writeValidCorpus(ctx.repoRoot)]);
+    const { spawnVerifier } = alwaysFaithfulVerifier();
+    const seams = stubSeams();
+
+    const result = await extractIssues({ repoRoot: temp, spawnExtractor, spawnVerifier, ...seams });
+
+    assert.equal(result.status, "green", "a fully-verified spike corpus lets extraction proceed");
+    assert.equal(calls.length, 1, "the extractor ran once");
+    assert.deepEqual(result.spike_proving, { proved: 1, failed: 0, skipped: 0 }, "the proving summary rides on the status");
+  });
+
+  it("a DEFERRED spike does NOT block extraction (its dependents are gated in the dev loop)", async () => {
+    seedInputs(temp);
+    // A deferred spike is an accepted, tracked deferral — not an open question — so it must
+    // not block issue extraction even though it is not verified.
+    writeSpike(temp, "01-provider-auth.md", "REQ-ARCH-001", "deferred");
+    const { spawnExtractor, calls } = fakeAgent([(ctx) => writeValidCorpus(ctx.repoRoot)]);
+    const { spawnVerifier } = alwaysFaithfulVerifier();
+    const seams = stubSeams({ runSpikeProving: async () => ({ proved: [], failed: [], skipped: [], changeRequests: [] }) });
+
+    const result = await extractIssues({ repoRoot: temp, spawnExtractor, spawnVerifier, ...seams });
+
+    assert.equal(result.status, "green", "a deferred spike does not block extraction");
+    assert.equal(calls.length, 1);
   });
 });
 

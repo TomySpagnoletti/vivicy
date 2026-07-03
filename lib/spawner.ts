@@ -28,6 +28,23 @@ function scriptName(args: string[]): string {
   return scriptArg.split("/").pop() ?? scriptArg
 }
 
+/** Write a benign reply to the vivi-turn `--reply-file`, so the dry/E2E chat shows
+ *  a response without spawning a real agent (and writes nothing under `.vivicy`). */
+function writeFakeViviReply(args: string[]): void {
+  const flag = args.indexOf("--reply-file")
+  const replyFile = flag >= 0 ? args[flag + 1] : undefined
+  if (!replyFile) return
+  try {
+    mkdirSync(path.dirname(replyFile), { recursive: true })
+    writeFileSync(
+      replyFile,
+      "Vivi is running in dry mode — no agent was spawned this turn. Connect an agent CLI to grill your spec for real."
+    )
+  } catch {
+    // Best-effort: the fake path must never throw and break the demo flow.
+  }
+}
+
 /** Mirror the green terminal status the extraction orchestrator writes, so the
  *  dry/E2E `runExtract` reads back success without spawning a real agent. */
 function writeFakeExtractionStatus(targetRoot: string): void {
@@ -51,19 +68,29 @@ export const fakeSpawner: Spawner = {
 
   async run({ args }: RunOptions): Promise<RunResult> {
     const name = scriptName(args)
-    if (name === "dev-status.mjs") {
+    // The control plane only reaches a run after resolveContext() has asserted a
+    // target, so a null here would be a caller bug; the fake stays inert either way.
+    const targetRoot = getTargetRoot()
+    if (name === "dev-status.mjs" && targetRoot !== null) {
       // Read the real demo ledger from disk; overlay liveness from the fake.
-      const status = readDevStatusFromDisk(getTargetRoot())
+      const status = readDevStatusFromDisk(targetRoot)
       const withLive = { ...status, process_alive: fakeAlive }
       const json = JSON.stringify(withLive, null, 2)
       return { code: 0, lastLine: json.split("\n").at(-1) ?? "", stdout: json, stderr: "" }
     }
-    if (name === "extract-issues.mjs") {
+    if (name === "extract-issues.mjs" && targetRoot !== null) {
       // Never launch a real agent in the dry/E2E path: write the green terminal
       // status the orchestrator would emit so runExtract reports success without
       // authoring anything (the demo target is already extracted).
-      writeFakeExtractionStatus(getTargetRoot())
+      writeFakeExtractionStatus(targetRoot)
       return { code: 0, lastLine: "extraction green (fake spawn)", stdout: "extraction green (fake spawn)\n", stderr: "" }
+    }
+    if (name === "vivi-turn.mjs") {
+      // Never launch a real agent in the dry/E2E path: write a benign reply to the
+      // --reply-file the control plane reads, and touch nothing under .vivicy (a
+      // fake turn writes no docs, so the allowlist diff stays clean).
+      writeFakeViviReply(args)
+      return { code: 0, lastLine: "vivi turn: fake", stdout: "vivi turn: fake\n", stderr: "" }
     }
     // Other generation steps: report a benign success line.
     return {

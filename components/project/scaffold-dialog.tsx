@@ -1,16 +1,10 @@
 "use client"
 
 import { useCallback, useEffect, useState } from "react"
-import {
-  ChevronRight,
-  CornerLeftUp,
-  Folder,
-  FolderPlus,
-  Loader2,
-} from "lucide-react"
+import { FolderPlus } from "lucide-react"
 import { toast } from "sonner"
 
-import type { CurrentProject, DirEntry, DirListing } from "@/lib/project-types"
+import type { CurrentProject, DirListing } from "@/lib/project-types"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -23,7 +17,7 @@ import {
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { ScrollArea } from "@/components/ui/scroll-area"
+import { FolderBrowser } from "@/components/project/folder-browser"
 
 /**
  * "Start from scratch / add Vivicy" (R9). A shadcn Dialog that scaffolds Vivicy
@@ -34,10 +28,10 @@ import { ScrollArea } from "@/components/ui/scroll-area"
  * or non-existent folder gets the full lean skeleton; a populated folder gets only
  * the MISSING Vivicy files, never clobbering existing ones (add-to-existing-repo).
  *
- * The folder is chosen by browsing a PARENT directory (reusing the same
- * `GET /api/fs/list` browser as the picker) and typing the new folder's name; the
- * target is the parent path joined with that name. A direct absolute-path Input is
- * the fallback. Pure shadcn, light-only, no arbitrary values.
+ * The folder is chosen by browsing a PARENT directory (the shared
+ * {@link FolderBrowser}, same as the open-project picker) and typing the new
+ * folder's name; the target is the parent path joined with that name. A direct
+ * absolute-path Input is the fallback. Pure shadcn, light-only, no arbitrary values.
  */
 export function ScaffoldDialog({
   open,
@@ -49,47 +43,24 @@ export function ScaffoldDialog({
   onScaffolded: (project: CurrentProject) => void
 }) {
   const [listing, setListing] = useState<DirListing | null>(null)
-  const [loading, setLoading] = useState(false)
+  const [browserBusy, setBrowserBusy] = useState(false)
   const [scaffolding, setScaffolding] = useState(false)
   const [projectName, setProjectName] = useState("")
   const [folderName, setFolderName] = useState("")
   const [absoluteOverride, setAbsoluteOverride] = useState("")
 
-  // Browse a parent directory to place the new project under (null => home).
-  const browse = useCallback(async (path: string | null) => {
-    setLoading(true)
-    try {
-      const url = path ? `/api/fs/list?path=${encodeURIComponent(path)}` : "/api/fs/list"
-      const res = await fetch(url, { cache: "no-store" })
-      const body = (await res.json().catch(() => ({}))) as
-        | (DirListing & { ok: true })
-        | { ok: false; error?: string }
-      if (!res.ok || body.ok === false) {
-        toast.error("Cannot open folder", {
-          description: ("error" in body && body.error) || `HTTP ${res.status}`,
-        })
-        return
-      }
-      setListing(body)
-    } catch (error) {
-      toast.error("Cannot open folder", {
-        description: error instanceof Error ? error.message : "network error",
-      })
-    } finally {
-      setLoading(false)
-    }
-  }, [])
-
-  // Reset and browse the default root each time the dialog opens.
+  // Reset the scaffold-specific fields each time the dialog opens; the browser
+  // resets and re-browses itself from its own `open` prop. The state writes live
+  // inside the async closure (not the effect body) so they don't fire
+  // synchronously during the render commit.
   useEffect(() => {
     if (!open) return
     void (async () => {
       setProjectName("")
       setFolderName("")
       setAbsoluteOverride("")
-      await browse(null)
     })()
-  }, [open, browse])
+  }, [open])
 
   // The resolved target directory: an explicit absolute override wins; otherwise
   // the browsed parent joined with the new folder name.
@@ -102,7 +73,7 @@ export function ScaffoldDialog({
   })()
 
   const name = projectName.trim()
-  const canScaffold = name.length > 0 && targetDir.length > 0 && !scaffolding && !loading
+  const canScaffold = name.length > 0 && targetDir.length > 0 && !scaffolding && !browserBusy
 
   const scaffold = useCallback(async () => {
     if (!canScaffold) return
@@ -136,8 +107,7 @@ export function ScaffoldDialog({
     }
   }, [canScaffold, targetDir, name, onScaffolded, onOpenChange])
 
-  const busy = loading || scaffolding
-  const crumbs = listing ? toCrumbs(listing.path) : []
+  const busy = browserBusy || scaffolding
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -172,56 +142,12 @@ export function ScaffoldDialog({
 
           <div className="flex flex-col gap-1.5">
             <Label>Location</Label>
-            {/* Breadcrumb of the chosen PARENT directory. */}
-            <nav aria-label="Parent directory" className="min-w-0">
-              <ol className="flex flex-wrap items-center gap-0.5 text-xs text-muted-foreground">
-                {crumbs.map((crumb, i) => (
-                  <li key={crumb.path} className="flex items-center gap-0.5">
-                    {i > 0 ? <ChevronRight aria-hidden className="size-3" /> : null}
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="xs"
-                      disabled={busy}
-                      onClick={() => void browse(crumb.path)}
-                      className="font-normal text-muted-foreground hover:text-foreground"
-                    >
-                      {crumb.label}
-                    </Button>
-                  </li>
-                ))}
-              </ol>
-            </nav>
-
-            <ScrollArea className="h-40 border border-border">
-              <div className="flex flex-col p-1" role="group" aria-label="Folders" aria-busy={loading}>
-                {listing?.parent ? (
-                  <FolderRow
-                    icon={<CornerLeftUp className="size-4" />}
-                    label=".."
-                    disabled={busy}
-                    onClick={() => void browse(listing.parent)}
-                  />
-                ) : null}
-                {loading && !listing ? (
-                  <div className="flex items-center gap-2 px-2 py-4 text-xs text-muted-foreground">
-                    <Loader2 className="size-4 animate-spin" /> Loading…
-                  </div>
-                ) : null}
-                {listing && listing.entries.length === 0 && !loading ? (
-                  <p className="px-2 py-4 text-xs text-muted-foreground">No subfolders here.</p>
-                ) : null}
-                {listing?.entries.map((entry: DirEntry) => (
-                  <FolderRow
-                    key={entry.path}
-                    icon={<Folder className="size-4" />}
-                    label={entry.name}
-                    disabled={busy}
-                    onClick={() => void browse(entry.path)}
-                  />
-                ))}
-              </div>
-            </ScrollArea>
+            <FolderBrowser
+              open={open}
+              disabled={scaffolding}
+              onListingChange={setListing}
+              onBusyChange={setBrowserBusy}
+            />
           </div>
 
           <div className="flex flex-col gap-1.5">
@@ -271,43 +197,4 @@ export function ScaffoldDialog({
       </DialogContent>
     </Dialog>
   )
-}
-
-/** One navigable row in the folder list. */
-function FolderRow({
-  icon,
-  label,
-  onClick,
-  disabled,
-}: {
-  icon: React.ReactNode
-  label: string
-  onClick: () => void
-  disabled: boolean
-}) {
-  return (
-    <button
-      type="button"
-      disabled={disabled}
-      onClick={onClick}
-      className="flex items-center gap-2 px-2 py-1.5 text-left text-sm text-foreground outline-none hover:bg-muted focus-visible:bg-muted disabled:pointer-events-none disabled:opacity-50"
-    >
-      <span aria-hidden className="text-muted-foreground">
-        {icon}
-      </span>
-      <span className="truncate">{label}</span>
-    </button>
-  )
-}
-
-/** Split an absolute path into navigable breadcrumb segments (root first). */
-function toCrumbs(absolute: string): Array<{ label: string; path: string }> {
-  const parts = absolute.split("/").filter((p) => p.length > 0)
-  const crumbs: Array<{ label: string; path: string }> = [{ label: "/", path: "/" }]
-  let acc = ""
-  for (const part of parts) {
-    acc += `/${part}`
-    crumbs.push({ label: part, path: acc })
-  }
-  return crumbs
 }

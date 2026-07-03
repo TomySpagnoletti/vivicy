@@ -277,7 +277,7 @@ function StopControl({
       </Tooltip>
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogTitle>Stop the dev-loop?</AlertDialogTitle>
+          <AlertDialogTitle>Stop the development loop?</AlertDialogTitle>
           <AlertDialogDescription>
             This terminates the running supervisor. Completed issues are kept; you can resume later.
           </AlertDialogDescription>

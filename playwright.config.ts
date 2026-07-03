@@ -1,9 +1,9 @@
 import { defineConfig, devices, type Project } from "@playwright/test"
 
 // Vivicy's e2e suite covers three app SHAPES — a populated demo target, a target
-// with docs/ but no generated map (no-map onboarding), and a target with no docs/
-// (the R9 two-mode chooser) — across a FOUR-browser matrix (the bar the owner
-// asked for, matching the reference project):
+// with a `.vivicy/canonical/` but no generated map (no-map onboarding), and a
+// target with no `.vivicy/` at all (the G10 chooser) — across a FOUR-browser
+// matrix (the bar the owner asked for, matching the reference project):
 //
 //   chromium-desktop  — Desktop Chrome (the default desktop browser)
 //   chromium-mobile   — Pixel 7 (the mobile layout must not break)
@@ -31,8 +31,8 @@ export const DEMO_TARGET_ROOT = process.env.VIVICY_TARGET_ROOT ?? "/tmp/vivicy-d
 // Resolved + created in global-setup; exported as a constant so the spec and the
 // webServer env agree on one path.
 export const EMPTY_TARGET_ROOT = "/tmp/vivicy-no-map"
-// The onboarding server points at a target with NO docs/, so /api/map returns the
-// `no_target` state and the R9 two-mode chooser renders. Materialized empty in
+// The onboarding server points at a target with NO `.vivicy/`, so /api/map returns
+// the `no_target` state and the G10 chooser renders. Materialized empty in
 // global-setup.
 export const ONBOARD_TARGET_ROOT = "/tmp/vivicy-onboard-target"
 
@@ -68,8 +68,9 @@ const BROWSERS: BrowserShape[] = [
 // reference its scaffold parent. Indexed by browser key.
 export const RUNTIME_DIR = (shape: string, browserKey: string) =>
   `/tmp/vivicy-rt-${shape}-${browserKey}`
-// Where the R9 Mode-B spec scaffolds a fresh project, per browser (the parent dir;
-// cleaned each run so the scaffolded child dir is always new/empty).
+// Where the G10 scaffold (start-from-scratch) spec scaffolds a fresh project, per
+// browser (the parent dir; cleaned each run so the scaffolded child dir is always
+// new/empty).
 export const onboardScaffoldParent = (browserKey: string) =>
   `/tmp/vivicy-onboard-scaffold-${browserKey}`
 

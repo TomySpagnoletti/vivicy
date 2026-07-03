@@ -36,6 +36,11 @@ export async function GET(
   }
 
   const targetRoot = getTargetRoot()
+  // No project selected — there is nothing to serve, so the transcript is simply
+  // not found (same signal a genuinely absent file yields below).
+  if (targetRoot === null) {
+    return new Response("transcript not found", { status: 404 })
+  }
   const absolute = path.resolve(targetRoot, rel)
   // Defense in depth: the resolved path must still live under the target root's
   // transcript directory after normalization.
