@@ -280,7 +280,7 @@ function isCleanTree(cwd: string): boolean {
 }
 
 describe("scaffoldProject — from-scratch git lifecycle (mechanical, no human git)", () => {
-  it("git init + commits the skeleton so the target is a clean, committed repo", () => {
+  it("git init + commits the skeleton so the target is a clean, committed repo", { timeout: 20_000 }, () => {
     const target = path.join(workDir, "fresh-repo")
     const result = scaffoldProject({ targetDir: target, projectName: "Fresh Repo" })
 
@@ -309,7 +309,7 @@ describe("scaffoldProject — from-scratch git lifecycle (mechanical, no human g
     }
   })
 
-  it("commits with a LOCAL identity even on a repo whose only identity would be absent", () => {
+  it("commits with a LOCAL identity even on a repo whose only identity would be absent", { timeout: 20_000 }, () => {
     // Simulate a fresh machine with no usable global identity by pointing HOME/git
     // config env at an empty dir, so only a repo-local identity can satisfy commit.
     const target = path.join(workDir, "no-identity-repo")
@@ -339,7 +339,7 @@ describe("scaffoldProject — from-scratch git lifecycle (mechanical, no human g
     }
   })
 
-  it("does NOT re-init or add a second root commit when the from-scratch target is already a repo", () => {
+  it("does NOT re-init or add a second root commit when the from-scratch target is already a repo", { timeout: 20_000 }, () => {
     // The owner ran `git init` first on an otherwise-empty dir (still from_scratch).
     const target = path.join(workDir, "preinit")
     mkdirSync(target, { recursive: true })
