@@ -140,16 +140,19 @@ export async function applyChangeRequest(args = {}) {
   const newVersion = patchBump(previousVersion);
   const approvedBy = String(cr.fm?.owner_decision_by ?? "owner:cr-apply");
 
-  // COMMIT the applied canonical edit BEFORE freezing: doc-baseline refuses to cut a
-  // frozen baseline on a dirty tree, so the applier's edit must land as a commit first
-  // (the same commit-before-freeze extraction does). Without this the freeze fails with
-  // "working tree clean: false" and the whole chain blocks — caught in the torture run.
+  // Record the freeze phase BEFORE committing, so the commit sweeps up this status
+  // write too. The order matters: doc-baseline refuses to freeze a dirty tree, and the
+  // cr-apply report file is tracked — writing it AFTER the commit would re-dirty the
+  // tree and the freeze would fail with "working tree clean: false" (caught in the
+  // torture run). Same discipline extraction uses: freeze precedes no un-committed write.
+  recordReport({ phase: "freeze", cr: id, from_version: previousVersion, to_version: newVersion, updated_at: now() });
+
+  // COMMIT the applied canonical edit (and this status write) so the tree is clean for
+  // the freeze — the same commit-before-freeze extraction does.
   const committed = commitApplied({ repoRoot, id });
   if (!committed.committed) {
     return terminal(recordReport, "blocked", "commit", id, { summary: `cr-apply: could not commit the applied canonical edit for ${id} before freezing (git add/commit failed)` });
   }
-
-  recordReport({ phase: "freeze", cr: id, from_version: previousVersion, to_version: newVersion, updated_at: now() });
   let baseline;
   try {
     baseline = await runFreeze({ repoRoot, version: newVersion, previousVersion, approvedBy, approvalRef: id });
