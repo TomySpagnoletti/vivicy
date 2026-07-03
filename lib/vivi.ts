@@ -15,13 +15,24 @@
  * CLI as Vivi's engine, with `cwd` = the target root), captures the reply, and
  * returns `{ sessionId, reply, wrote }`.
  *
- * File writing is enforced structurally, never by trust: Vivi may write ONLY `.md`
- * files under `.vivicy/canonical/` and `.vivicy/development/spikes/` in the target.
- * Before the spawn we snapshot the bytes of every file under those two dirs; after
- * it, we diff the whole `.vivicy` tree — any write outside the allowlist, or any
- * non-`.md` write into the allowed dirs, REJECTS the turn: the offending files are
- * removed, the snapshotted files are restored, and the turn is recorded as rejected
- * with an honest reason. Legit canonical/spike writes are reported in `wrote`.
+ * File writing is enforced structurally, never by trust, and the allowlist DEPENDS on
+ * whether the target's canonical spec has been FROZEN (a `.vivicy/baselines/*.json` with
+ * status "frozen" and no `superseded` stamp — the same definition the factory uses):
+ *
+ *   - PRE-freeze (no frozen baseline): Vivi may write ONLY `.md` files under
+ *     `.vivicy/canonical/` and `.vivicy/development/spikes/` — she is authoring the spec.
+ *   - POST-freeze (a frozen baseline exists): the canonical is LOCKED (change-control
+ *     forbids direct edits), so an intention change becomes a Change Request. The ONLY
+ *     permitted write target is `.vivicy/change-requests/**.md`; a canonical/spike write
+ *     in this state is a violation. Every new/changed CR is additionally VALIDATED with
+ *     the change-control checker (the validator of record, run through the same injected
+ *     Spawner) — a malformed CR rejects the turn too.
+ *
+ * Before the spawn we snapshot the bytes of every file under the phase's allowed dirs;
+ * after it, we diff the whole `.vivicy` tree — any write outside the allowlist, any
+ * non-`.md` write into the allowed dirs, or (post-freeze) a malformed CR REJECTS the
+ * turn: the offending files are removed, the snapshotted files are restored, and the turn
+ * is recorded as rejected with an honest reason. Legit writes are reported in `wrote`.
  */
 
 import {
@@ -47,11 +58,27 @@ import { getTargetRoot } from "@/lib/target"
 /** The factory script that runs one Vivi turn (drives the implementer CLI leg). */
 const VIVI_TURN_SCRIPT = "vivi-turn.mjs"
 
-/** Repo-relative dirs Vivi may write into (the ONLY allowed write destinations). */
-const ALLOWED_DIRS = [
+/** The factory validator of record for the Change-Request registry (post-freeze). */
+const CHANGE_CONTROL_SCRIPT = "change-control.mjs"
+
+/**
+ * PRE-freeze allowlist: Vivi authors the spec, so she may write canonical docs + spikes.
+ * These are also the dirs {@link summarizeVivicyState} lists back to her each turn.
+ */
+const CANONICAL_DIRS = [
   path.join(".vivicy", "canonical"),
   path.join(".vivicy", "development", "spikes"),
 ] as const
+
+/**
+ * POST-freeze allowlist: the canonical is locked, so the ONLY place Vivi may write is a
+ * Change Request under the registry. Its shape is validated by change-control after.
+ */
+const CHANGE_REQUESTS_DIR = path.join(".vivicy", "change-requests")
+const POST_FREEZE_DIRS = [CHANGE_REQUESTS_DIR] as const
+
+/** Repo-relative dir holding the frozen-baseline manifests we probe for the phase. */
+const BASELINES_DIR = path.join(".vivicy", "baselines")
 
 /** The `.vivicy` subtree we snapshot/diff to enforce the allowlist. */
 const VIVICY_DIR = ".vivicy"
@@ -161,10 +188,12 @@ function firstLine(text: string, max: number): string {
 /**
  * Summarize the target's current `.vivicy` spec state as a FILE LIST (never the
  * contents — that would blow the prompt budget), so Vivi knows what already exists
- * and can update rather than duplicate. Lists the canonical docs and the spikes.
+ * and can update rather than duplicate. Lists the canonical docs and the spikes;
+ * post-freeze it also lists the Change Requests already on file (so she does not
+ * duplicate one) — the same registry she now writes into.
  */
-function summarizeVivicyState(targetRoot: string): string {
-  const sections = ALLOWED_DIRS.map((rel) => {
+function summarizeVivicyState(targetRoot: string, frozen: boolean): string {
+  const sections = CANONICAL_DIRS.map((rel) => {
     const files = listMarkdown(path.join(targetRoot, rel)).map((abs) =>
       path.relative(targetRoot, abs)
     )
@@ -172,6 +201,14 @@ function summarizeVivicyState(targetRoot: string): string {
     if (files.length === 0) return `${label}: (none yet)`
     return `${label}:\n${files.map((f) => `  - ${f}`).join("\n")}`
   })
+  if (frozen) {
+    const crs = listChangeRequestFiles(targetRoot)
+    sections.push(
+      crs.length === 0
+        ? "Change Requests: (none yet)"
+        : `Change Requests:\n${crs.map((f) => `  - ${f}`).join("\n")}`
+    )
+  }
   return sections.join("\n\n")
 }
 
@@ -191,25 +228,126 @@ function listMarkdown(dir: string): string[] {
   return out.sort()
 }
 
-/** Compose the full turn prompt: persona + transcript + `.vivicy` state + task. */
+/**
+ * Does the target carry an ACTIVE FROZEN baseline? The single source of truth for the
+ * phase Vivi is in: a `.vivicy/baselines/*.json` whose `status` is "frozen" and that
+ * carries no `superseded` marker — the exact definition the factory uses
+ * ({@link file://../factory/extract-issues#findFrozenManifest} /
+ * change-control's `readFrozenBaselineIdentity`). Read-only, dependency-free, and
+ * deliberately NOT a spawn: it decides which allowlist this turn enforces, so it must be
+ * cheap and synchronous. A malformed/unreadable manifest is simply not a freeze.
+ */
+function hasFrozenBaseline(targetRoot: string): boolean {
+  const dir = path.join(targetRoot, BASELINES_DIR)
+  if (!existsSync(dir)) return false
+  for (const entry of readdirSync(dir)) {
+    if (!entry.toLowerCase().endsWith(".json")) continue
+    let manifest: { status?: unknown; superseded?: unknown; baseline_id?: unknown }
+    try {
+      manifest = JSON.parse(readFileSync(path.join(dir, entry), "utf8"))
+    } catch {
+      continue
+    }
+    if (
+      manifest &&
+      manifest.status === "frozen" &&
+      !manifest.superseded &&
+      typeof manifest.baseline_id === "string" &&
+      manifest.baseline_id.length > 0
+    ) {
+      return true
+    }
+  }
+  return false
+}
+
+/** CR filename grammar the registry enforces (mirrors change-control's CR_FILENAME). */
+const CR_FILENAME = /^CR-(\d{4})-[a-z0-9-]+\.md$/
+/** Files under change-requests/ that are NOT change requests (skipped everywhere). */
+const NON_CR_FILES = new Set(["cr-template.md", "readme.md"])
+
+/** The real CR files on disk (repo-relative), template/readme excluded, sorted. */
+function listChangeRequestFiles(targetRoot: string): string[] {
+  const dirAbs = path.join(targetRoot, CHANGE_REQUESTS_DIR)
+  if (!existsSync(dirAbs)) return []
+  return readdirSync(dirAbs)
+    .filter((f) => f.toLowerCase().endsWith(".md") && !NON_CR_FILES.has(f.toLowerCase()))
+    .sort()
+    .map((f) => path.join(CHANGE_REQUESTS_DIR, f))
+}
+
+/**
+ * The next sequential CR id (`CR-####`) the target should use — the highest existing CR
+ * number plus one, `CR-0001` when none exist. Computed here (not by the agent) so lib
+ * hands Vivi the exact id to name her file, and change-control's sequential-numbering gate
+ * stays satisfied. Reads both the frontmatter `id:` and the filename number so a partly
+ * written registry still yields a gap-free next id.
+ */
+function nextCrId(targetRoot: string): string {
+  const dirAbs = path.join(targetRoot, CHANGE_REQUESTS_DIR)
+  let max = 0
+  if (existsSync(dirAbs)) {
+    for (const file of readdirSync(dirAbs)) {
+      if (!file.toLowerCase().endsWith(".md") || NON_CR_FILES.has(file.toLowerCase())) continue
+      const fromName = file.match(CR_FILENAME)
+      const fromFm = readCrIdFromFrontmatter(path.join(dirAbs, file))
+      max = Math.max(max, fromName ? Number(fromName[1]) : 0, fromFm ?? 0)
+    }
+  }
+  return `CR-${String(max + 1).padStart(4, "0")}`
+}
+
+/** The numeric part of a CR file's frontmatter `id: CR-####`, or null. */
+function readCrIdFromFrontmatter(abs: string): number | null {
+  try {
+    const m = readFileSync(abs, "utf8").match(/^---\r?\n([\s\S]*?)\r?\n---/)
+    if (!m) return null
+    const id = m[1].split(/\r?\n/).find((l) => /^id:\s*CR-\d{4}\s*$/.test(l))
+    return id ? Number(id.replace(/^id:\s*CR-/, "").trim()) : null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Compose the full turn prompt: persona + transcript + `.vivicy` state + task. The task
+ * section (and the `spec_frozen` flag it announces) DEPENDS on the phase:
+ *   - PRE-freeze: author canonical docs + spikes, as before.
+ *   - POST-freeze: the canonical is locked — draft ONE Change Request under the registry
+ *     with the exact next id `nextCrId`; never touch canonical/spikes. The persona's
+ *     frozen-baseline section (keyed on this same `spec_frozen: true`) governs the CR shape.
+ */
 function composePrompt(
   factoryRoot: string,
   targetRoot: string,
-  turns: ViviTurn[]
+  turns: ViviTurn[],
+  frozen: boolean,
+  crId: string
 ): string {
   const persona = readPersona(factoryRoot)
   const transcript = renderTranscript(turns)
-  const state = summarizeVivicyState(targetRoot)
+  const state = summarizeVivicyState(targetRoot, frozen)
+  const task = frozen
+    ? `spec_frozen: true — the target already has a FROZEN canonical baseline, so the ` +
+      `canonical spec is LOCKED. Respond to the user's latest message above. If it asks ` +
+      `for a change to what the product does, do NOT edit any canonical doc or spike — ` +
+      `instead draft ONE Change Request capturing that change, written as the single ` +
+      `Markdown file \`.vivicy/change-requests/${crId}-<slug>.md\` (use exactly the id ` +
+      `\`${crId}\`; pick a short lowercase kebab-case <slug> from the title), following ` +
+      `the CR-TEMPLATE shape (status: idea, classification: the closest enum, source: ` +
+      `user, owner_decision: pending, all previous_baseline_*/resulting_* left null). ` +
+      `If the message needs no product change, just answer it and write nothing. Then ` +
+      `tell the user exactly what you did.\n`
+    : `spec_frozen: false — Respond to the user's latest message above. Ask your next ` +
+      `focused batch of questions and, when an area is settled, write or update the ` +
+      `canonical docs and/or spikes (Markdown only, under \`.vivicy/canonical/\` or ` +
+      `\`.vivicy/development/spikes/\`, in the target repo you are running inside). ` +
+      `Then tell the user exactly which files you wrote.\n`
   return (
     `${persona}\n\n` +
     `---\n\n## Conversation so far\n\n${transcript}\n\n` +
     `---\n\n## Current \`.vivicy\` state (file list only)\n\n${state}\n\n` +
-    `---\n\n## This turn\n\n` +
-    `Respond to the user's latest message above. Ask your next focused batch of ` +
-    `questions and, when an area is settled, write or update the canonical docs ` +
-    `and/or spikes (Markdown only, under \`.vivicy/canonical/\` or ` +
-    `\`.vivicy/development/spikes/\`, in the target repo you are running inside). ` +
-    `Then tell the user exactly which files you wrote.\n`
+    `---\n\n## This turn\n\n${task}`
   )
 }
 
@@ -242,19 +380,25 @@ function hashFile(abs: string): string {
   return createHash("sha256").update(readFileSync(abs)).digest("hex")
 }
 
-/** Is a repo-relative path a `.md` file inside one of the allowed write dirs? */
-function isAllowedWrite(rel: string): boolean {
+/** Is a repo-relative path a `.md` file inside one of this phase's allowed write dirs? */
+function isAllowedWrite(rel: string, allowedDirs: readonly string[]): boolean {
   if (!rel.endsWith(".md")) return false
-  return ALLOWED_DIRS.some((dir) => rel === dir || rel.startsWith(`${dir}${path.sep}`))
+  return allowedDirs.some((dir) => rel === dir || rel.startsWith(`${dir}${path.sep}`))
 }
 
-/** Snapshot the two allowed dirs' bytes so a rejected turn can restore them exactly. */
-function snapshotAllowedBytes(targetRoot: string): Map<string, Buffer> {
+/**
+ * Snapshot the pre-spawn bytes of the WHOLE `.vivicy` tree (excluding the leg's own
+ * ignored transcript subtree) so a rejected turn restores every touched file exactly —
+ * whatever the phase. Snapshotting only the allowlist would leave a pre-existing file
+ * OUTSIDE it (e.g. a frozen canonical doc Vivi illegally edited post-freeze) removed by
+ * the rollback but never restored; a whole-tree byte snapshot closes that gap.
+ */
+function snapshotVivicyBytes(targetRoot: string): Map<string, Buffer> {
   const bytes = new Map<string, Buffer>()
-  for (const rel of ALLOWED_DIRS) {
-    for (const abs of walkFiles(path.join(targetRoot, rel))) {
-      bytes.set(path.relative(targetRoot, abs), readFileSync(abs))
-    }
+  for (const abs of walkFiles(path.join(targetRoot, VIVICY_DIR))) {
+    const rel = path.relative(targetRoot, abs)
+    if (rel === IGNORED_SUBTREE || rel.startsWith(`${IGNORED_SUBTREE}${path.sep}`)) continue
+    bytes.set(rel, readFileSync(abs))
   }
   return bytes
 }
@@ -269,11 +413,11 @@ interface DiffResult {
 
 /**
  * Diff the `.vivicy` tree against the pre-spawn snapshot: any path that is new or
- * whose hash changed is a WRITE. Classify each write as allowed (a `.md` under the
- * allowed dirs) or a violation. Deletions inside `.vivicy` are not our concern here
- * (Vivi's contract is about what it may WRITE); a violation is a forbidden write.
+ * whose hash changed is a WRITE. Classify each write as allowed (a `.md` under this
+ * phase's allowed dirs) or a violation. Deletions inside `.vivicy` are not our concern
+ * here (Vivi's contract is about what it may WRITE); a violation is a forbidden write.
  */
-function diffVivicy(targetRoot: string, before: Snapshot): DiffResult {
+function diffVivicy(targetRoot: string, before: Snapshot, allowedDirs: readonly string[]): DiffResult {
   const allowedWrites: string[] = []
   const violations: string[] = []
   for (const abs of walkFiles(path.join(targetRoot, VIVICY_DIR))) {
@@ -282,7 +426,7 @@ function diffVivicy(targetRoot: string, before: Snapshot): DiffResult {
     const priorHash = before.get(rel)
     const changed = priorHash === undefined || priorHash !== hashFile(abs)
     if (!changed) continue
-    if (isAllowedWrite(rel)) allowedWrites.push(rel)
+    if (isAllowedWrite(rel, allowedDirs)) allowedWrites.push(rel)
     else violations.push(rel)
   }
   return { allowedWrites: allowedWrites.sort(), violations: violations.sort() }
@@ -291,22 +435,24 @@ function diffVivicy(targetRoot: string, before: Snapshot): DiffResult {
 /**
  * Roll a rejected turn back to the pre-spawn state (copy-on-detect restore): remove
  * every file the diff flagged as a write (allowed OR violating — the whole turn is
- * discarded, not just the illegal part), then restore the exact bytes of every file
- * that existed under the allowed dirs before the spawn. After this the two allowed
- * dirs are byte-identical to before; the violating paths are gone.
+ * discarded, not just the illegal part), then restore the exact bytes of every file that
+ * existed anywhere under `.vivicy` before the spawn. After this the tree is byte-identical
+ * to before for every path the turn touched; net-new paths are gone.
  */
 function restoreSnapshot(
   targetRoot: string,
   diff: DiffResult,
-  allowedBytesBefore: Map<string, Buffer>
+  bytesBefore: Map<string, Buffer>
 ): void {
   for (const rel of [...diff.allowedWrites, ...diff.violations]) {
-    rmSync(path.join(targetRoot, rel), { force: true })
-  }
-  for (const [rel, bytes] of allowedBytesBefore) {
+    const prior = bytesBefore.get(rel)
     const abs = path.join(targetRoot, rel)
-    mkdirSync(path.dirname(abs), { recursive: true })
-    writeFileSync(abs, bytes)
+    if (prior === undefined) {
+      rmSync(abs, { force: true }) // net-new this turn — discard it
+    } else {
+      mkdirSync(path.dirname(abs), { recursive: true })
+      writeFileSync(abs, prior) // pre-existing — restore its exact bytes
+    }
   }
 }
 
@@ -326,19 +472,25 @@ function resolveTarget(): string {
 }
 
 /**
- * Run ONE Vivi turn. Appends the user turn, composes the bounded prompt, snapshots
- * the allowlist, drives `vivi-turn.mjs` through the injected {@link Spawner} with the
- * configured agent settings in the env and `cwd` = the target root, then enforces the
- * allowlist by diffing the target's `.vivicy` tree: on a violation the turn is
- * REJECTED and rolled back (recorded as rejected, the `.vivicy` allowed dirs restored
- * byte-for-byte, the violating paths removed); otherwise the reply + the legit writes
- * are recorded and returned. A missing `sessionId` mints a new one.
+ * Run ONE Vivi turn. Appends the user turn, detects the PHASE (is the canonical frozen?),
+ * composes the phase-appropriate bounded prompt, snapshots the phase's allowlist, drives
+ * `vivi-turn.mjs` through the injected {@link Spawner} with the configured agent settings
+ * in the env and `cwd` = the target root, then enforces the allowlist by diffing the
+ * target's `.vivicy` tree: on a violation the turn is REJECTED and rolled back (recorded
+ * as rejected, the allowed dirs restored byte-for-byte, the violating paths removed);
+ * otherwise the reply + the legit writes are recorded and returned. A missing `sessionId`
+ * mints a new one.
  *
- * Enforcement scope is the `.vivicy` tree — the tree Vivi's two allowed dirs live in
- * and where any misdirected `.vivicy` write lands. This is structural, not trust: it
- * holds regardless of what the agent's prompt says. (Writes elsewhere in the target
- * are outside this guard's scope; Vivi's persona forbids them, and the pre-freeze,
- * non-loop nature of the chat keeps the blast radius to the spec dirs.)
+ * The allowlist is phase-dependent (this is B8.1 — mid-run intention changes become CRs):
+ *   - PRE-freeze: canonical docs + spikes (Vivi authors the spec).
+ *   - POST-freeze: the canonical is LOCKED, so the ONLY allowed write is a Change Request
+ *     under `.vivicy/change-requests/`. Every written CR is then validated by the
+ *     change-control checker (the validator of record, run through the SAME spawner) — a
+ *     malformed CR is rejected + rolled back exactly like an allowlist violation. Nothing
+ *     is trusted: the shape is proven, not asserted.
+ *
+ * Enforcement scope is the `.vivicy` tree — where every allowed write and any misdirected
+ * `.vivicy` write lands. This is structural, not trust: it holds regardless of the prompt.
  */
 export async function runViviTurn(spawner: Spawner, input: {
   sessionId?: string
@@ -355,12 +507,18 @@ export async function runViviTurn(spawner: Spawner, input: {
   const sessionId = input.sessionId ?? randomUUID()
   if (input.sessionId) assertSessionId(input.sessionId)
 
+  // The phase decides the whole turn: which allowlist to enforce, what the prompt tells
+  // Vivi to do, and whether written CRs get validated afterwards.
+  const frozen = hasFrozenBaseline(targetRoot)
+  const allowedDirs = frozen ? POST_FREEZE_DIRS : CANONICAL_DIRS
+  const crId = nextCrId(targetRoot)
+
   // Record the user's turn BEFORE the spawn, so the transcript is durable even if
   // the agent leg dies — the conversation is never silently lost.
   appendTurn(sessionId, { role: "user", text: message, ts: new Date().toISOString() })
 
   const turns = readTranscript(sessionId)
-  const prompt = composePrompt(factoryRoot, targetRoot, turns)
+  const prompt = composePrompt(factoryRoot, targetRoot, turns, frozen, crId)
 
   // Hand the composed prompt to the leg via a file (it can be large; an argv string
   // is fragile). The factory script reads --prompt-file and writes its reply to
@@ -376,8 +534,9 @@ export async function runViviTurn(spawner: Spawner, input: {
 
   const command = resolveViviTurnScript(factoryRoot)
 
-  // Snapshot the allowlist bytes + the whole `.vivicy` hash set BEFORE the spawn.
-  const allowedBytesBefore = snapshotAllowedBytes(targetRoot)
+  // Snapshot the whole `.vivicy` tree's bytes + hash set BEFORE the spawn — the bytes so a
+  // rejected turn restores any touched file, the hashes so the diff detects writes.
+  const bytesBefore = snapshotVivicyBytes(targetRoot)
   const before = snapshotVivicy(targetRoot)
 
   let result
@@ -388,7 +547,14 @@ export async function runViviTurn(spawner: Spawner, input: {
       cwd: targetRoot,
       // The agent settings the user picked drive which CLI is Vivi's engine (the
       // implementer role) and its model/effort/fast — Vivi never defines its own.
-      env: { ...process.env, VIVICY_TARGET_ROOT: targetRoot, ...settingsToEnv(readSettings()) },
+      // VIVICY_SPEC_FROZEN threads the phase to the leg -> the composed prompt, so the
+      // persona's frozen-baseline section keys on the same flag the allowlist enforces.
+      env: {
+        ...process.env,
+        VIVICY_TARGET_ROOT: targetRoot,
+        VIVICY_SPEC_FROZEN: frozen ? "true" : "false",
+        ...settingsToEnv(readSettings()),
+      },
     })
   } finally {
     // The prompt scratch is throwaway once the leg has consumed it.
@@ -401,13 +567,25 @@ export async function runViviTurn(spawner: Spawner, input: {
   rmSync(replyFile, { force: true })
 
   // Enforce the allowlist structurally: diff `.vivicy` against the snapshot.
-  const diff = diffVivicy(targetRoot, before)
+  const diff = diffVivicy(targetRoot, before, allowedDirs)
 
   if (diff.violations.length > 0) {
-    restoreSnapshot(targetRoot, diff, allowedBytesBefore)
-    const rejected = `rejected: Vivi wrote outside its allowlist (${diff.violations.join(", ")}) — the whole turn was rolled back`
-    appendTurn(sessionId, { role: "vivi", text: reply, ts: new Date().toISOString(), rejected })
-    return { sessionId, reply, wrote: [], rejected }
+    return rejectTurn(sessionId, reply, targetRoot, diff, bytesBefore,
+      `rejected: Vivi wrote outside its allowlist (${diff.violations.join(", ")}) — the whole turn was rolled back`)
+  }
+
+  // POST-freeze: a written CR must PASS the change-control checker (the validator of
+  // record) before it is kept. A malformed CR is rolled back like any other violation —
+  // trust nothing the agent wrote, prove the registry stays well-formed. Re-detect the
+  // phase AFTER the spawn (not just the pre-spawn `frozen`) so a baseline that froze
+  // mid-turn still forces validation — the check is fail-closed: any error running the
+  // checker rejects the turn rather than letting an unproven CR through.
+  if ((frozen || hasFrozenBaseline(targetRoot)) && diff.allowedWrites.length > 0) {
+    const invalid = await validateChangeControlSafely(spawner, factoryRoot, targetRoot)
+    if (invalid) {
+      return rejectTurn(sessionId, reply, targetRoot, diff, bytesBefore,
+        `rejected: Vivi's Change Request did not pass change-control (${invalid}) — the whole turn was rolled back`)
+    }
   }
 
   appendTurn(sessionId, {
@@ -417,6 +595,53 @@ export async function runViviTurn(spawner: Spawner, input: {
     wrote: diff.allowedWrites,
   })
   return { sessionId, reply, wrote: diff.allowedWrites }
+}
+
+/** Record a rejected turn (restore the snapshot, stamp the transcript, return the reply). */
+function rejectTurn(
+  sessionId: string,
+  reply: string,
+  targetRoot: string,
+  diff: DiffResult,
+  bytesBefore: Map<string, Buffer>,
+  rejected: string
+): ViviReply {
+  restoreSnapshot(targetRoot, diff, bytesBefore)
+  appendTurn(sessionId, { role: "vivi", text: reply, ts: new Date().toISOString(), rejected })
+  return { sessionId, reply, wrote: [], rejected }
+}
+
+/**
+ * Run the change-control checker on the target through the SAME injected Spawner used for
+ * the turn (never importing the factory's excluded module graph — every lib caller drives
+ * factory validators as subprocesses, e.g. {@link file://./control#decideCr}). Returns a
+ * short reason string when the CR registry is not proven well-formed, or null when it is.
+ *
+ * FAIL-CLOSED: a missing script, a non-zero exit, OR a spawn that throws all return a
+ * reason (never null), so a broken/erroring checker can never let an unproven CR through —
+ * the turn is rolled back instead. This mirrors the allowlist's zero-trust discipline: the
+ * CR's validity is proven before it is kept, or the turn is rejected.
+ */
+async function validateChangeControlSafely(
+  spawner: Spawner,
+  factoryRoot: string,
+  targetRoot: string
+): Promise<string | null> {
+  const script = path.join(factoryRoot, CHANGE_CONTROL_SCRIPT)
+  if (!existsSync(script)) return `${CHANGE_CONTROL_SCRIPT} not found under the factory`
+  try {
+    const run = await spawner.run({
+      command: process.execPath,
+      args: [script],
+      cwd: factoryRoot,
+      env: { ...process.env, VIVICY_TARGET_ROOT: targetRoot },
+    })
+    if (run.code === 0) return null
+    const detail = (run.stderr || run.stdout || run.lastLine || "").trim().split("\n").filter(Boolean).slice(-1)[0]
+    return detail || "change-control reported errors"
+  } catch (error) {
+    return `change-control could not run: ${error instanceof Error ? error.message : String(error)}`
+  }
 }
 
 /** Resolve the vivi-turn script inside the factory and verify it exists. */

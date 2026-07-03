@@ -16,6 +16,10 @@
 // Usage: node vivi-turn.mjs --prompt-file <abs> --reply-file <abs> --target <abs>
 //   env VIVICY_IMPLEMENTER_CLI / VIVICY_CLAUDE_* / VIVICY_CODEX_* (from settings) —
 //       which CLI is Vivi's engine and its model/thinking level/fast flag.
+//   env VIVICY_SPEC_FROZEN ("true"/"false") — the phase the control plane detected.
+//       It also rides inside the composed --prompt-file (as `spec_frozen: <bool>`), which
+//       is what the persona reads; the env var carries the same fact to the leg so the
+//       phase is observable here, and travels intact to the agent's process environment.
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
