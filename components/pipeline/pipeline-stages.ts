@@ -29,7 +29,7 @@ export const PIPELINE_STAGES: PipelineStage[] = [
   { id: "S0", label: "Onboarding", marker: "user", side: "non_loop" },
   { id: "S1", label: "Spec + spikes", marker: "mixed", side: "non_loop" },
   { id: "S2", label: "Extract/Integrate spikes", marker: "agent", side: "dev_loop" },
-  { id: "S3", label: "Proof spikes", marker: "agent", side: "dev_loop" },
+  { id: "S3", label: "Prove spikes", marker: "agent", side: "dev_loop" },
   { id: "S4", label: "Freeze", marker: "user", side: "dev_loop" },
   { id: "S5", label: "Map", marker: "mixed", side: "dev_loop" },
   { id: "S6", label: "Extract issues", marker: "agent", side: "dev_loop", retryStage: "extract" },
@@ -128,7 +128,7 @@ function applyExtractionStates(
     return
   }
   if (phase === "blocked_on_unverified_spikes") {
-    // G13: S6 refuses to start while S3 (spike proofing) has an unverified
+    // G13: S6 refuses to start while S3 (spike proving) has an unverified
     // required gate — S2 ran (spikes were extracted/integrated), S3 is the
     // stage actually blocking, S4–S6 never got a chance to run.
     states.S2 = "green"

@@ -83,9 +83,9 @@ function writeInvalidCorpus(root) {
  * spike-check passes) and whose requirement_ids resolve to a real fixture catalog
  * requirement (so traceability-check's back-fill rule passes). It is written `verified`
  * with the six completion fields by default — the state a spike is in by S6 after the
- * S3 proofing stage (G3) has run — so the G13 spike-verification gate lets extraction
- * proceed. Pass `status: "pending"` to model a not-yet-proofed spike. This is exactly the
- * byte-compatible shape an owner-provided (or Vivi-written) spike carries once proofed.
+ * S3 proving stage (G3) has run — so the G13 spike-verification gate lets extraction
+ * proceed. Pass `status: "pending"` to model a not-yet-proved spike. This is exactly the
+ * byte-compatible shape an owner-provided (or Vivi-written) spike carries once proved.
  */
 function writeSpike(root, filename, reqId = "REQ-ARCH-001", status = "verified") {
   const slug = filename.replace(/\.md$/, "");
@@ -129,17 +129,17 @@ function writeSpike(root, filename, reqId = "REQ-ARCH-001", status = "verified")
 }
 
 /**
- * An inert spike-proofing seam for the extraction tests that do not exercise S3: it runs
- * no legs and mutates nothing, reporting the already-verified seeded spikes as proofed.
- * Extraction tests inject this so the DEFAULT (real-leg) proofing never spawns a CLI, and
+ * An inert spike-proving seam for the extraction tests that do not exercise S3: it runs
+ * no legs and mutates nothing, reporting the already-verified seeded spikes as proved.
+ * Extraction tests inject this so the DEFAULT (real-leg) proving never spawns a CLI, and
  * so the seeded `verified` spikes pass the G13 gate unchanged. G3 itself is proven in
- * spike-proofier.test.mjs; the proof that S3 runs BEFORE the freeze lives below.
+ * spike-prover.test.mjs; the proof that S3 runs BEFORE the freeze lives below.
  */
-function noopSpikeProofing(root) {
-  const proofed = readSpikes(root)
+function noopSpikeProving(root) {
+  const proved = readSpikes(root)
     .filter((s) => s.status === "verified")
     .map((s) => ({ file: s.file, gate_id: s.gate_id, verdict: "verified" }));
-  return async () => ({ proofed, failed: [], skipped: [], changeRequests: [] });
+  return async () => ({ proved, failed: [], skipped: [], changeRequests: [] });
 }
 
 /** Seed a minimal architecture-map.yml so the map pre-exists pre-run (map_mode reused). */
@@ -222,13 +222,13 @@ function stubSeams(extra = {}) {
     // The per-lens map review defaults to CLEAN (no findings) so happy paths green; a
     // test overrides it via `extra` to exercise the find -> fix-pass feedback.
     mapReview: async () => ({ findings: [], actionable: [], legs: [] }),
-    // The S3 spike-proofing stage (G3) defaults to INERT here: it runs no real legs and
-    // mutates nothing, reporting the already-`verified` seeded spikes as proofed. This
-    // keeps the DEFAULT proofier/verifier CLIs from ever spawning in an extraction test,
+    // The S3 spike-proving stage (G3) defaults to INERT here: it runs no real legs and
+    // mutates nothing, reporting the already-`verified` seeded spikes as proved. This
+    // keeps the DEFAULT prover/verifier CLIs from ever spawning in an extraction test,
     // and lets the seeded verified spikes pass the G13 gate. G3 is proven on its own in
-    // spike-proofier.test.mjs. A test overrides it via `extra` to exercise the ordering.
-    runSpikeProofing: async ({ repoRoot }) => ({
-      proofed: readSpikes(repoRoot).filter((s) => s.status === "verified").map((s) => ({ file: s.file, gate_id: s.gate_id, verdict: "verified" })),
+    // spike-prover.test.mjs. A test overrides it via `extra` to exercise the ordering.
+    runSpikeProving: async ({ repoRoot }) => ({
+      proved: readSpikes(repoRoot).filter((s) => s.status === "verified").map((s) => ({ file: s.file, gate_id: s.gate_id, verdict: "verified" })),
       failed: [],
       skipped: [],
       changeRequests: [],
@@ -443,11 +443,11 @@ describe("extractIssues — S2 spike mode (G12) + S5 map mode (G4)", () => {
   });
 });
 
-describe("extractIssues — S3 proofing before freeze (order) + G13 spike-verification gate", () => {
-  it("runs the S3 proofing stage BEFORE the freeze (S3 precedes S4)", async () => {
+describe("extractIssues — S3 proving before freeze (order) + G13 spike-verification gate", () => {
+  it("runs the S3 proving stage BEFORE the freeze (S3 precedes S4)", async () => {
     // A from-scratch target so the freeze seam MUST run; record the interleaving of the
-    // proofing stage and the freeze. Proofing (which may correct the canonical pre-baseline)
-    // must be the FIRST observable side effect, strictly before the freeze — proofing after
+    // proving stage and the freeze. Proving (which may correct the canonical pre-baseline)
+    // must be the FIRST observable side effect, strictly before the freeze — proving after
     // the freeze would force a re-freeze loop on every correction.
     cpSync(resolve(FIXTURE, ".vivicy/canonical"), resolve(temp, ".vivicy/canonical"), { recursive: true });
     cpSync(resolve(FIXTURE, "README.md"), resolve(temp, "README.md"));
@@ -462,9 +462,9 @@ describe("extractIssues — S3 proofing before freeze (order) + G13 spike-verifi
       spawnVerifier,
       ...base,
       // Order-recording wrappers around the two seams whose ordering is the contract.
-      runSpikeProofing: async () => {
-        order.push("proof");
-        return { proofed: [], failed: [], skipped: [], changeRequests: [] };
+      runSpikeProving: async () => {
+        order.push("prove");
+        return { proved: [], failed: [], skipped: [], changeRequests: [] };
       },
       runFreeze: async (args) => {
         order.push("freeze");
@@ -473,20 +473,20 @@ describe("extractIssues — S3 proofing before freeze (order) + G13 spike-verifi
     });
 
     assert.equal(result.status, "green");
-    assert.ok(order.length >= 2, "both the proofing stage and the freeze ran");
-    assert.equal(order[0], "proof", "spike proofing is the first side effect");
-    assert.ok(order.indexOf("proof") < order.indexOf("freeze"), "S3 proofing runs strictly before the S4 freeze");
+    assert.ok(order.length >= 2, "both the proving stage and the freeze ran");
+    assert.equal(order[0], "prove", "spike proving is the first side effect");
+    assert.ok(order.indexOf("prove") < order.indexOf("freeze"), "S3 proving runs strictly before the S4 freeze");
   });
 
   it("BLOCKS extraction when a non-deferred spike is not verified (loud, with the offending gate_ids)", async () => {
     seedInputs(temp);
-    // A PENDING spike on disk that proofing did NOT verify (the injected stage leaves it
+    // A PENDING spike on disk that proving did NOT verify (the injected stage leaves it
     // pending). G13 must refuse to author issues while it is unverified.
     const s = writeSpike(temp, "01-provider-auth.md", "REQ-ARCH-001", "pending");
     const { spawnExtractor, calls } = fakeAgent([(ctx) => writeValidCorpus(ctx.repoRoot)]);
     const { spawnVerifier } = alwaysFaithfulVerifier();
-    // Proofing that proves NOTHING (models a spike still pending after S3, e.g. gated_by_external).
-    const seams = stubSeams({ runSpikeProofing: async () => ({ proofed: [], failed: [], skipped: [], changeRequests: [] }) });
+    // Proving that proves NOTHING (models a spike still pending after S3, e.g. gated_by_external).
+    const seams = stubSeams({ runSpikeProving: async () => ({ proved: [], failed: [], skipped: [], changeRequests: [] }) });
 
     const result = await extractIssues({ repoRoot: temp, spawnExtractor, spawnVerifier, ...seams });
 
@@ -513,7 +513,7 @@ describe("extractIssues — S3 proofing before freeze (order) + G13 spike-verifi
 
     assert.equal(result.status, "green", "a fully-verified spike corpus lets extraction proceed");
     assert.equal(calls.length, 1, "the extractor ran once");
-    assert.deepEqual(result.spike_proofing, { proofed: 1, failed: 0, skipped: 0 }, "the proofing summary rides on the status");
+    assert.deepEqual(result.spike_proving, { proved: 1, failed: 0, skipped: 0 }, "the proving summary rides on the status");
   });
 
   it("a DEFERRED spike does NOT block extraction (its dependents are gated in the dev loop)", async () => {
@@ -523,7 +523,7 @@ describe("extractIssues — S3 proofing before freeze (order) + G13 spike-verifi
     writeSpike(temp, "01-provider-auth.md", "REQ-ARCH-001", "deferred");
     const { spawnExtractor, calls } = fakeAgent([(ctx) => writeValidCorpus(ctx.repoRoot)]);
     const { spawnVerifier } = alwaysFaithfulVerifier();
-    const seams = stubSeams({ runSpikeProofing: async () => ({ proofed: [], failed: [], skipped: [], changeRequests: [] }) });
+    const seams = stubSeams({ runSpikeProving: async () => ({ proved: [], failed: [], skipped: [], changeRequests: [] }) });
 
     const result = await extractIssues({ repoRoot: temp, spawnExtractor, spawnVerifier, ...seams });
 

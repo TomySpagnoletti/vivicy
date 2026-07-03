@@ -375,7 +375,7 @@ function passthrough(command, args, { cwd, env } = {}) {
 // ── verb: status ─────────────────────────────────────────────────────────────
 // Merged, read-only view over the SAME files the app reads: the run-state lock
 // (liveness), dev-status.mjs --json (issues/gates/active/quota), the extraction
-// status file (phase + spike_mode/map_mode + spike_proofing), the latest
+// status file (phase + spike_mode/map_mode + spike_proving), the latest
 // cr-apply report, and the pending-CR count. Exit 0 always on a successful read;
 // a missing target is a usage error (2).
 async function cmdStatus(argv, opts) {
@@ -424,7 +424,7 @@ async function cmdStatus(argv, opts) {
     devStatus = null;
   }
 
-  // 3. extraction-status.json (phase + spike/map modes + proofing summary).
+  // 3. extraction-status.json (phase + spike/map modes + proving summary).
   const extraction = readJsonFile(join(target, EXTRACTION_STATUS_REL));
 
   // 4. latest cr-apply report (most recently updated), if any.
@@ -455,7 +455,7 @@ async function cmdStatus(argv, opts) {
           phase: extraction.phase ?? null,
           spike_mode: extraction.spike_mode ?? null,
           map_mode: extraction.map_mode ?? null,
-          ...(extraction.spike_proofing ? { spike_proofing: extraction.spike_proofing } : {}),
+          ...(extraction.spike_proving ? { spike_proving: extraction.spike_proving } : {}),
           summary: extraction.summary ?? null,
         }
       : null,
@@ -552,7 +552,7 @@ async function cmdExtract(argv, opts) {
     phase,
     ...(status?.spike_mode ? { spike_mode: status.spike_mode } : {}),
     ...(status?.map_mode ? { map_mode: status.map_mode } : {}),
-    ...(status?.spike_proofing ? { spike_proofing: status.spike_proofing } : {}),
+    ...(status?.spike_proving ? { spike_proving: status.spike_proving } : {}),
     summary,
   });
   process.exit(ok ? EXIT_OK : EXIT_REFUSAL);

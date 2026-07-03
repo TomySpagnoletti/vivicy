@@ -147,7 +147,7 @@ export function ViviChat({
             Build the spec with Vivi
           </SheetTitle>
           <SheetDescription>
-            Vivi grills your idea into a rigorous canonical spec, writing Markdown into{" "}
+            Vivi grills you until your idea is a rigorous canonical spec, writing Markdown into{" "}
             <code className="text-foreground">.vivicy/</code> as areas settle.
           </SheetDescription>
           {engine ? (

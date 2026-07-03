@@ -9,7 +9,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { FACTORY_PROMPTS_DIR } from "./target-root.mjs";
 
-const PROMPTS = ["implementer.md", "reviewer.md", "extractor.md", "extraction-verifier.md", "map-review.md", "change-request.md", "spike-proofier.md", "proof-verifier.md", "cr-applier.md"];
+const PROMPTS = ["implementer.md", "reviewer.md", "extractor.md", "extraction-verifier.md", "map-review.md", "change-request.md", "spike-prover.md", "proof-verifier.md", "cr-applier.md"];
 
 function readPrompt(name) {
   return readFileSync(join(FACTORY_PROMPTS_DIR, name), "utf8");
@@ -93,16 +93,16 @@ test("change-request.md carries the post-freeze Change-Control discipline", () =
   assert.match(text, /CR-TEMPLATE\.md/);
 });
 
-test("spike-proofier.md carries the run-it-in-the-target-repo proofing discipline", () => {
-  const text = readPrompt("spike-proofier.md");
-  assert.match(text, /SELF-CONTAINED/, "spike-proofier.md must declare it is self-contained");
-  assert.match(text, /Spike Proofier/i);
+test("spike-prover.md carries the run-it-in-the-target-repo proving discipline", () => {
+  const text = readPrompt("spike-prover.md");
+  assert.match(text, /SELF-CONTAINED/, "spike-prover.md must declare it is self-contained");
+  assert.match(text, /Spike Prover/i);
   // It proves substance by RUNNING experiments in the target repo, never by reasoning.
   assert.match(text, /IN THIS TARGET REPO/i);
   assert.match(text, /never fabricate|never claim a proof/i);
   // The six evidence fields it must record.
   for (const field of ["environment", "commands", "observed output", "decision", "documentation updates", "unresolved risks"]) {
-    assert.match(text, new RegExp(field, "i"), `spike-proofier must record the "${field}" evidence field`);
+    assert.match(text, new RegExp(field, "i"), `spike-prover must record the "${field}" evidence field`);
   }
   // The machine verdict contract.
   assert.match(text, /spike-proof-<stem>\.json/);
@@ -126,7 +126,7 @@ test("proof-verifier.md carries the independent counter-verification discipline"
 test("vivi.md pins the strict spike filename/gate_id grammar", () => {
   const text = readPrompt("vivi.md");
   // Vivi writes spikes the rest of the pipeline consumes; a filename that does not
-  // match the gate_id slug is silently skipped by the proofing stage (real bug found
+  // match the gate_id slug is silently skipped by the proving stage (real bug found
   // in the torture run — Vivi wrote `S01-...md` with `gate:phase0:s01-...`).
   assert.match(text, /NO leading `S`\/`s`/i, "vivi.md must forbid the leading-S filename");
   assert.match(text, /gate:phase0:s<nn>-<slug>/, "vivi.md must show the gate_id grammar");

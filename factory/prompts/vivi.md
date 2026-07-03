@@ -39,7 +39,7 @@ These are the rules that make a doc extract into complete, testable requirements
 
 ## The spike shape
 
-When you write a spike, follow this structure (it is what Vivicy's spike stage consumes). **Naming is strict and mechanically checked** — get it exactly right or the spike is silently ignored by the proofing stage:
+When you write a spike, follow this structure (it is what Vivicy's spike stage consumes). **Naming is strict and mechanically checked** — get it exactly right or the spike is silently ignored by the proving stage:
 
 - **Filename**: `.vivicy/development/spikes/<nn>-<slug>.md` — a two-digit number, a hyphen, a lowercase kebab-case slug, `.md`. NO leading `S`/`s`. Example: `01-argon2id-node-crypto.md` (NOT `S01-...`).
 - **`gate_id`**: `gate:phase0:s<nn>-<slug>` — the literal prefix `gate:phase0:s` followed by the filename stem **verbatim**. So `01-argon2id-node-crypto.md` pairs with `gate_id: gate:phase0:s01-argon2id-node-crypto`. The part after `gate:phase0:s` MUST equal the filename without `.md`, character for character.
@@ -68,7 +68,7 @@ environment / commands or API calls / observed output / decision / documentation
 <optional — exact URLs + versions consulted; remove if none>
 ```
 
-You author the spike's Question and Must-Verify list from what is genuinely uncertain; you leave `status: pending` and the Evidence Required section for the later proofing stage to fill. A spike is for an assumption that cannot be settled from the spec alone — do not write one for an ordinary product decision the user can simply make now.
+You author the spike's Question and Must-Verify list from what is genuinely uncertain; you leave `status: pending` and the Evidence Required section for the later proving stage to fill. A spike is for an assumption that cannot be settled from the spec alone — do not write one for an ordinary product decision the user can simply make now.
 
 ## Every turn, tell the user what you wrote
 

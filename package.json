@@ -21,7 +21,7 @@
     "test:watch": "vitest",
     "e2e": "node scripts/clean-artifacts.mjs -- playwright test",
     "factory:typecheck": "tsc --noEmit -p factory/tsconfig.json",
-    "factory:test": "node --test factory/progress-ledger.test.mjs factory/semantic-extraction-check.test.mjs factory/dev-loop.test.mjs factory/traceability-check.test.mjs factory/spike-check.test.mjs factory/spike-proofier.test.mjs factory/reference-check.test.mjs factory/map-review.test.mjs factory/excerpt-drift.test.mjs factory/change-control.test.mjs factory/re-drive.test.mjs factory/atomic-write.test.mjs factory/doc-baseline.test.mjs factory/extract-issues.test.mjs factory/leg-timeout.test.mjs factory/project-config.test.mjs factory/prompts.test.mjs factory/cli.test.mjs",
+    "factory:test": "node --test factory/progress-ledger.test.mjs factory/semantic-extraction-check.test.mjs factory/dev-loop.test.mjs factory/traceability-check.test.mjs factory/spike-check.test.mjs factory/spike-prover.test.mjs factory/reference-check.test.mjs factory/map-review.test.mjs factory/excerpt-drift.test.mjs factory/change-control.test.mjs factory/re-drive.test.mjs factory/atomic-write.test.mjs factory/doc-baseline.test.mjs factory/extract-issues.test.mjs factory/leg-timeout.test.mjs factory/project-config.test.mjs factory/prompts.test.mjs factory/cli.test.mjs",
     "factory:rehearsal": "node factory/dev-rehearsal.mjs",
     "factory:rehearsal:formula": "node factory/dev-rehearsal.mjs --fixture=formula",
     "factory:rehearsal:all": "node factory/dev-rehearsal.mjs && node factory/dev-rehearsal.mjs --fixture=formula"
