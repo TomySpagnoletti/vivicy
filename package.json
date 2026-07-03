@@ -1,7 +1,7 @@
 {
   "name": "vivicy",
   "version": "0.5.0",
-  "description": "A visual autonomous dev factory: write the canonical spec, Vivicy extracts issues, the two-agent loop implements + reviews + verifies, all driven from the architecture map. Language- and project-agnostic.",
+  "description": "A visual autonomous dev factory: bring a canonical spec — import it, or build it by getting grilled by Vivi — then Vivicy proves the spikes, extracts traceable issues, and a two-agent loop implements, reviews, and verifies them, governed by change requests and readiness/merge-integrity checks, with every step live on the architecture map. Language- and project-agnostic.",
   "license": "MIT",
   "author": "Tomy Spagnoletti Duval",
   "type": "module",
