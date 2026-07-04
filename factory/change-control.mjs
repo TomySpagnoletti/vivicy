@@ -88,8 +88,8 @@ export function nextCrId(crs = readChangeRequests()) {
 
 // The single writer of a new Change Request (G7 emission). Every CR source — the spike
 // prover, a readiness/dev leg, Vivi mid-run — routes through here so the frontmatter
-// shape stays consistent with CR-TEMPLATE.md and the written file passes
-// runChangeControlCheck. Computes the next sequential id, renders the full frontmatter
+// shape stays consistent — this module renders it, the single source of truth — and the
+// written file passes runChangeControlCheck. Computes the next sequential id, renders the full frontmatter
 // (status: idea, owner_decision: pending, the null baseline-identity scaffold the checker
 // needs to stay silent for an idea) + the template's narrative sections, writes the file,
 // and returns its refs. `now` is a seam (tests pin it); `sourceEvidence` is the machine
@@ -248,7 +248,7 @@ export function runChangeControlCheck(options = {}) {
   for (const { file, fileNumber, fm } of crs) {
     const label = `${CHANGE_REQUESTS_DIR}/${file}`;
     if (!fm) {
-      fail("cr_frontmatter", label, "no YAML frontmatter block", "every CR opens with a --- frontmatter block", `add the frontmatter from CR-TEMPLATE.md to ${label}`);
+      fail("cr_frontmatter", label, "no YAML frontmatter block", "every CR opens with a --- frontmatter block", `add the CR frontmatter block to ${label}`);
       continue;
     }
 
@@ -406,19 +406,23 @@ function toList(value) {
 }
 
 // A filename-safe slug from a CR title: lowercase, non-alphanumerics to single hyphens,
-// trimmed and capped so the CR-####-slug.md filename stays readable and matches the
-// CR_FILENAME grammar ([a-z0-9-]+).
+// trimmed, and capped at a whole-word boundary (never mid-word, so no "…-dispro" stumps)
+// to keep the CR-####-slug.md filename short and readable while matching the CR_FILENAME
+// grammar ([a-z0-9-]+).
+const SLUG_MAX_LENGTH = 48;
 function slugify(title) {
-  const slug = String(title)
+  const base = String(title)
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 60)
-    .replace(/-+$/g, "");
-  return slug || "change";
+    .replace(/^-+|-+$/g, "");
+  if (base.length <= SLUG_MAX_LENGTH) return base || "change";
+  const capped = base.slice(0, SLUG_MAX_LENGTH);
+  const lastHyphen = capped.lastIndexOf("-");
+  const cut = (lastHyphen > 0 ? capped.slice(0, lastHyphen) : capped).replace(/-+$/g, "");
+  return cut || "change";
 }
 
-// Render a fresh CR file: the FULL CR-TEMPLATE frontmatter (valid enums + the null
+// Render a fresh CR file: the FULL CR frontmatter (valid enums + the null
 // baseline-identity scaffold an `idea` needs to pass the checker) followed by the
 // template's narrative sections. A caller may pass a `body` (already-formatted markdown
 // after the frontmatter) for a richer narrative; otherwise the template sections are

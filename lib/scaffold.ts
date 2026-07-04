@@ -108,17 +108,22 @@ export function resolveTargetDir(candidate: unknown): { target: string; mode: Sc
 /**
  * The directory skeleton every Vivicy-managed project needs: the `.vivicy/` layout
  * the factory reads + writes (so the empty-map onboarding resolves cleanly) and the
- * always-present output dirs. Empty dirs are tracked with a `.gitkeep` so they
- * survive a commit. `.vivicy/canonical/` is intentionally NOT here — its placeholder
- * README ships from the templates (from-scratch) and is never overwritten.
+ * always-present output dirs. Empty dirs are tracked with a `.gitkeep` so they survive
+ * a commit. The target repo stays LEAN — it carries NO method/doc templates; the issue,
+ * spike, and change-request shapes travel in Vivicy's bundled agent prompts, not here.
+ * `.vivicy/canonical/` (where the owner writes product truth) and `.vivicy/change-requests/`
+ * ship as empty `.gitkeep`-tracked dirs — the onboarding UI, not a scaffolded README,
+ * tells the owner what to put in them.
  */
 const SKELETON_DIRS = [
+  ".vivicy/canonical",
   ".vivicy/baselines",
   ".vivicy/architecture-map",
   ".vivicy/development/issues",
   ".vivicy/development/spikes",
   ".vivicy/development/reports",
   ".vivicy/requirements",
+  ".vivicy/change-requests",
 ] as const
 
 /**
@@ -322,8 +327,10 @@ export function scaffoldProject(input: { targetDir: unknown; projectName: unknow
     if (written1) written.push(written1)
   }
 
-  // 2. The lean entrypoint + spec template + canonical placeholder. Each is written
-  //    ONLY if missing, so an existing repo's own AGENTS.md / README are preserved.
+  // 2. The lean root entrypoints only. Each is written ONLY if missing, so an existing
+  //    repo's own AGENTS.md / README are preserved. NO `.vivicy/**` method-doc templates
+  //    are scaffolded — the issue, spike, and change-request shapes live in Vivicy's
+  //    bundled agent prompts, so the target repo never carries method docs it won't read.
   const templateFiles: Array<[string, string]> = [
     ["AGENTS.md", renderTemplate("AGENTS.md", { [PROJECT_NAME_TOKEN]: projectName })],
     ["CLAUDE.md", renderTemplate("CLAUDE.md", { [PROJECT_NAME_TOKEN]: projectName })],
@@ -331,11 +338,6 @@ export function scaffoldProject(input: { targetDir: unknown; projectName: unknow
       "README.md",
       renderTemplate("README.md", { [PROJECT_NAME_TOKEN]: projectName, [GATE_COMMAND_TOKEN]: gateCommand }),
     ],
-    [".vivicy/canonical/README.md", renderTemplate(".vivicy/canonical/README.md", { [PROJECT_NAME_TOKEN]: projectName })],
-    [".vivicy/development/ISSUE-TEMPLATE.md", renderTemplate(".vivicy/development/ISSUE-TEMPLATE.md", { [PROJECT_NAME_TOKEN]: projectName })],
-    [".vivicy/development/SPIKE-TEMPLATE.md", renderTemplate(".vivicy/development/SPIKE-TEMPLATE.md", {})],
-    [".vivicy/change-requests/CR-TEMPLATE.md", renderTemplate(".vivicy/change-requests/CR-TEMPLATE.md", {})],
-    [".vivicy/change-requests/README.md", renderTemplate(".vivicy/change-requests/README.md", {})],
   ]
   for (const [rel, contents] of templateFiles) {
     const w = writeIfMissing(at(rel), contents)

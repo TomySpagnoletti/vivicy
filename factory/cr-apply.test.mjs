@@ -517,7 +517,7 @@ describe("applyChangeRequest — refuses a CR that is not approved into the buil
   });
 });
 
-describe("applyChangeRequest — default report recorder writes cr-apply-<id>.json", () => {
+describe("applyChangeRequest — default report recorder writes apply-<id>.json", () => {
   it("persists the terminal report to the reports dir when no sink is injected", async () => {
     seedPreviousBaseline();
     seedCanonical();
@@ -529,7 +529,7 @@ describe("applyChangeRequest — default report recorder writes cr-apply-<id>.js
     const result = await applyChangeRequest({ repoRoot: temp, id: "CR-0001", spawnApplier, runFreeze, runExtraction, commitApplied: () => ({ committed: true }) });
 
     assert.equal(result.status, "green");
-    const reportRel = ".vivicy/development/reports/cr-apply-CR-0001.json";
+    const reportRel = ".vivicy/development/reports/apply-CR-0001.json";
     assert.ok(existsSync(resolve(temp, reportRel)), "the cr-apply report file exists");
     const report = JSON.parse(read(reportRel));
     assert.equal(report.status, "green");

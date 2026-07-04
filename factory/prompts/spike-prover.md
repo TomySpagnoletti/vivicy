@@ -45,7 +45,7 @@ unresolved risks: remaining uncertainty or follow-up
 
 ## Output — the machine verdict (write this last)
 
-After recording the evidence, write your machine verdict — and nothing else — to the reports path named in your context (`.vivicy/development/reports/spike-proof-<stem>.json`) as JSON:
+After recording the evidence, write your machine verdict — and nothing else — to the reports path named in your context (`.vivicy/development/reports/spike-<stem>-proof.json`) as JSON:
 
 ```json
 { "verdict": "verified", "reason": "One precise sentence: the assumption held, citing the observed evidence." }

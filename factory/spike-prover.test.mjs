@@ -2,9 +2,9 @@
 //
 // BOTH agent legs are ALWAYS faked here — no real CLI is launched:
 //   - the PROVER leg (spawnProver) records the six evidence fields into the spike
-//     file and writes the machine verdict spike-proof-<stem>.json, and
+//     file and writes the machine verdict spike-<stem>-proof.json, and
 //   - the independent SPIKE-VERIFIER leg (spawnSpikeVerifier) writes its agree verdict
-//     spike-proof-<stem>-verdict.json.
+//     spike-<stem>-verdict.json.
 // The orchestrator's DECISION logic is real: it reads both JSONs, flips the spike's
 // traceability status IN the file (single source of truth, no folder move), and — on a
 // disproven or unresolved proof — drafts a Change Request whose frontmatter is proven to
@@ -81,10 +81,10 @@ function spikeStem(file) {
   return (file.split("/").pop() ?? file).replace(/\.md$/, "");
 }
 function proofRel(file) {
-  return `${REPORTS_DIR}/spike-proof-${spikeStem(file)}.json`;
+  return `${REPORTS_DIR}/spike-${spikeStem(file)}-proof.json`;
 }
 function verdictRel(file) {
-  return `${REPORTS_DIR}/spike-proof-${spikeStem(file)}-verdict.json`;
+  return `${REPORTS_DIR}/spike-${spikeStem(file)}-verdict.json`;
 }
 function writeJson(rel, value) {
   const abs = resolve(temp, rel);

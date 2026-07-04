@@ -12,7 +12,7 @@ The spike file, the prover's verdict, and where to write your own verdict are na
 
 1. `AGENTS.md` (or `README.md`) at the target root — the project's operating context.
 2. The spike file named in your context — its `## Question` (what was to be settled), its `## Must Verify` bullets, and the `## Evidence Required` section the prover filled (environment, commands, observed output, decision, documentation updates, unresolved risks).
-3. The prover's machine verdict at `.vivicy/development/reports/spike-proof-<stem>.json` — `{ verdict, reason }`.
+3. The prover's machine verdict at `.vivicy/development/reports/spike-<stem>-proof.json` — `{ verdict, reason }`.
 4. The repo reality the proof is about — the code, config, dependency, or tool the Question concerns.
 
 ## What you verify (re-derive independently)
@@ -26,7 +26,7 @@ You are strict but fair: agree when the proof is genuinely sound, even if you wo
 
 ## Output — the structured agree verdict (the ONLY thing you write)
 
-Write your verdict, and nothing else, to the reports path named in your context (`.vivicy/development/reports/spike-proof-<stem>-verdict.json`) as JSON:
+Write your verdict, and nothing else, to the reports path named in your context (`.vivicy/development/reports/spike-<stem>-verdict.json`) as JSON:
 
 ```json
 { "agree": true, "problems": [] }

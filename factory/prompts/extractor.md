@@ -9,10 +9,9 @@ This is the heart of Vivicy's promise — *the owner writes the canonical spec, 
 1. `AGENTS.md` (or `README.md`) at the target root — the project's own operating context.
 2. The frozen baseline manifest under `.vivicy/baselines/<baseline-id>.json` — it pins the exact files + hashes you must extract from. **Treat its `files[]` as the authoritative corpus and use its `baseline_id`, `version`, `manifest_hash`, `document_set_hash` verbatim** in every artifact's pin fields. Do not invent or recompute these values.
 3. Every canonical document under `.vivicy/canonical/**/*.md` that the manifest lists — these are the ONLY source of product truth. Read them completely, with line numbers.
-4. `.vivicy/development/ISSUE-TEMPLATE.md` — the exact issue shape you must follow.
-5. `.vivicy/development/SPIKE-TEMPLATE.md` (the spike shape) and any spike files already under `.vivicy/development/spikes/` — owner-provided evidence gates you REUSE, never recreate (see "Phase 0 spikes" below).
+4. Any spike files already under `.vivicy/development/spikes/` — owner-provided evidence gates you REUSE, never recreate (see "Phase 0 spikes" below).
 
-This prompt is SELF-CONTAINED: it carries every artifact schema, the requirement/issue discipline, the coverage policy, and the Task Type rules you need. The target repo is intentionally LEAN — it does NOT contain the development-method docs. Do not look for or depend on any method document inside the target; follow this prompt and the deterministic checks the orchestrator re-runs.
+This prompt is SELF-CONTAINED: it carries every artifact schema — including the **issue and spike file shapes** you author (see "## File shapes"), the requirement/issue discipline, the coverage policy, and the Task Type rules you need. The target repo is intentionally LEAN — it does NOT contain the development-method docs. Do not look for or depend on any method document inside the target; follow this prompt and the deterministic checks the orchestrator re-runs.
 
 ## What you author (the corpus)
 
@@ -24,7 +23,7 @@ Author every file below into the **target repo**, all pinned to the frozen basel
 
 3. **Line exclusions** — `.vivicy/requirements/exclusions.json`, schema `{ "schema_version": 1, "exclusions": [...] }`. Every canonical doc line that is NOT carried into an issue's `source_line_refs` and is NOT mechanically auto-excluded (blank lines, code-fence delimiters, horizontal rules, the single H1 title) MUST be listed here with a `file`, a `start`/`end` line range inside that file, a `reason_class` (one of: `heading`, `narrative_context`, `example_illustration`, `cross_reference_pointer`, `rationale_encoded_elsewhere`, `toc_or_index`), and a one-line `note`. **The coverage gate is full-line: every single line of every corpus doc must end up covered, excluded, or auto-excluded — zero UNCOVERED.** Be honest: exclude a line because it genuinely carries no implementable obligation, never to silence the gate.
 
-4. **Vertical issues** — `.vivicy/development/issues/ISS-00NN.md`, one file per issue, each following `ISSUE-TEMPLATE.md` exactly (keep the section headings verbatim; the checker finds the Traceability block by its heading). Each issue is a thin vertical slice that delivers real, testable behavior. The `## Traceability` block's lists (`issue_id`, `graph_refs`, `requirement_ids`, `source_line_refs`, `depends_on`, `spike_gates`, `verification_gate_ids`) MUST match the index entry exactly. `source_line_refs` use the `.vivicy/canonical/<file>.md:<start>[-<end>]` grammar and point only into the pinned corpus. Write deterministic Scope/Out-of-Scope/Verification prose — no "if needed", "simplify where appropriate", or vague wording.
+4. **Vertical issues** — `.vivicy/development/issues/ISS-00NN.md`, one file per issue, each following the **Issue file shape** (see "## File shapes") exactly (keep the section headings verbatim; the checker finds the Traceability block by its heading). Each issue is a thin vertical slice that delivers real, testable behavior. The `## Traceability` block's lists (`issue_id`, `graph_refs`, `requirement_ids`, `source_line_refs`, `depends_on`, `spike_gates`, `verification_gate_ids`) MUST match the index entry exactly. `source_line_refs` use the `.vivicy/canonical/<file>.md:<start>[-<end>]` grammar and point only into the pinned corpus. Write deterministic Scope/Out-of-Scope/Verification prose — no "if needed", "simplify where appropriate", or vague wording.
 
 5. **Issue index** — `.vivicy/development/issue-index.json`. Schema (`schema_version: 1`):
    - Pins copied verbatim from the manifest: `baseline_id`, `baseline_version`, `manifest_path`, `manifest_hash`, `document_set_hash`.
@@ -148,9 +147,57 @@ Author every file below into the **target repo**, all pinned to the frozen basel
 
    **INTEGRATE mode (existing spikes are the authority).** When `.vivicy/development/spikes/` already holds spike files (the owner uploaded them or Vivi wrote them), they are the authority on what needs external proof. Check each against the frozen canonical and update its CONTENTS **only where needed** — stale source refs, and the `requirement_ids` back-fill described next. **NEVER rewrite, renumber, recreate, split, or merge a provided spike, and NEVER re-mint one that already exists.** Preserve each spike's identity verbatim: its `gate_id` MUST stay equal to the filename stem (`gate:phase0:s<filename-stem>` — `spike-check` fails the corpus otherwise), its `status` is left as the owner set it, and its inter-spike `gated_by`/`blocks` graph is carried through unchanged. The only mandated edit is to LINK each spike into the corpus: back-fill its `requirement_ids` to the catalog id(s) of the `phase_0_spike` requirement(s) it covers (replacing any `pending-extraction` placeholder), record those obligations in the catalog as `phase_0_spike` maturity + `must_verify_with_spike` disposition, and set the `spike_gates` of every issue that depends on that behaviour to the spike's `gate_id`. When nothing in a provided spike is stale and its `requirement_ids` are already back-filled, pass it through untouched — a byte-compatible imported spike corpus must survive INTEGRATE mode unchanged.
 
-   **EXTRACT mode (no spikes on disk).** When the spec implies an external dependency that no spike covers, author a new spike from `SPIKE-TEMPLATE.md` with `status: pending`, `gate_id: gate:phase0:s<nn>-<slug>` (the slug equal to the filename stem), its `requirement_ids` set to the catalog id(s) it gates, and a single falsifiable Question; then wire the dependent issues' `spike_gates` to it. (INTEGRATE mode may also reach here for a genuinely missing dependency no provided spike covers — mint that one, but still never touch the provided ones.)
+   **EXTRACT mode (no spikes on disk).** When the spec implies an external dependency that no spike covers, author a new spike following the **Spike file shape** (see "## File shapes") with `status: pending`, `gate_id: gate:phase0:s<nn>-<slug>` (the slug equal to the filename stem), its `requirement_ids` set to the catalog id(s) it gates, and a single falsifiable Question; then wire the dependent issues' `spike_gates` to it. (INTEGRATE mode may also reach here for a genuinely missing dependency no provided spike covers — mint that one, but still never touch the provided ones.)
 
    The spike is an evidence gate: the loop will not start a spike-gated issue until the spike's `status` is `verified`. Gate **per dependency** — an issue waits only on the spikes whose behaviour it actually uses. When nothing depends on unproven external behaviour and the owner provided no spikes, author none and leave every `spike_gates` list empty.
+
+## File shapes
+
+You author these shapes; they live in this prompt, not the target repo. Reproduce the `##` headings verbatim — the deterministic checkers locate blocks by heading.
+
+### Issue file — `.vivicy/development/issues/ISS-00NN.md`
+
+Title line `# <issue_id> - <Title>`, then these sections in order:
+
+- **`## Summary`** — 2–4 plain sentences on the outcome delivered. Map-visible; write for a reader who has not opened the canonical docs.
+- **`## Task Type`** — one of `implementation | diagnosis | cleanup | rewrite | review_fix`. For cleanup/rewrite, name the single authority that remains, the complexity removed, and the behavior/contracts preserved.
+- **`## Traceability`** — a `text` code block carrying exactly (every list matching the index entry verbatim):
+
+```text
+issue_id: <issue_id>
+graph_refs:
+  - <node:architecture_map_item>
+requirement_ids:
+  - <REQ-AREA-NNN>
+source_line_refs:
+  - .vivicy/canonical/<file>.md:<start>-<end>
+depends_on: []      # issue_ids of prerequisites; empty when none
+spike_gates: []     # evidence spike gate_ids; empty when none
+verification_gate_ids:
+  - gate:test:<issue-slug>
+```
+
+- **`## Scope`** — faithful spec restated from the referenced canonical lines. Deterministic wording only (no "if needed", "simplify where appropriate").
+- **`## Out Of Scope`** — what this issue deliberately excludes, especially adjacent behavior a reader might assume is included.
+- **`## Verification`** — the tests and gates that PROVE the Scope before completion is claimed: real-behavior coverage (happy + negative/edge/failure), integration with the components the anti-cheating rules forbid faking, and each `verification_gate_ids` gate resolving to a real green gate-run record. Never lower the bar.
+
+### Spike file — `.vivicy/development/spikes/<nn>-<slug>.md`
+
+One naming convention only: the filename stem is `<nn>-<slug>` — a zero-padded number then a short kebab slug (e.g. `01-provider-auth`), **no `S` prefix** — and `gate_id` is `gate:phase0:s<nn>-<slug>` (the part after `s` equals the stem). Never author two spikes for the same dependency. Title line `# <nn>-<slug> — <Title>`, then:
+
+- **`## Traceability`** — a `text` code block:
+
+```text
+requirement_ids: <REQ ids this gates, or pending-extraction>
+gate_id: gate:phase0:s<nn>-<slug>
+status: pending | verified | deferred | blocked | failed
+gated_by: <optional — gate_ids that must verify BEFORE this one>
+blocks: <optional — gate_ids this one gates; inverse of their gated_by>
+```
+
+- **`## Question`** — one falsifiable question: the exact assumption verified.
+- **`## Must Verify`** — one bullet per check, tagged `[Resolved from official docs: ...]` or `[Live test required: ...]`.
+- **`## Evidence Required`** — what a complete run records (verified only once all present): environment (date, runtime, versions); exact commands/API calls (never secrets); observed output; the decision locked; documentation updates if an assumption moves; unresolved risks.
 
 ## Architecture-map authoring craft
 

@@ -334,7 +334,7 @@ function composePrompt(
       `instead draft ONE Change Request capturing that change, written as the single ` +
       `Markdown file \`.vivicy/change-requests/${crId}-<slug>.md\` (use exactly the id ` +
       `\`${crId}\`; pick a short lowercase kebab-case <slug> from the title), following ` +
-      `the CR-TEMPLATE shape (status: idea, classification: the closest enum, source: ` +
+      `the CR shape in your prompt (status: idea, classification: the closest enum, source: ` +
       `user, owner_decision: pending, all previous_baseline_*/resulting_* left null). ` +
       `If the message needs no product change, just answer it and write nothing. Then ` +
       `tell the user exactly what you did.\n`

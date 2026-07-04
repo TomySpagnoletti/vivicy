@@ -558,7 +558,7 @@ function extractorContext({ manifestPath, baselineId, attempt, checkOutput, isFi
     `- Spike mode (S2): **${spikeMode}** — ` +
     (spikeMode === "integrate"
       ? `existing spikes are the authority; LINK them (back-fill requirement_ids, fix stale refs), NEVER rewrite/renumber/recreate them (see "Phase 0 spikes").\n`
-      : `no spikes on disk; MINT any the spec requires from SPIKE-TEMPLATE.md (see "Phase 0 spikes").\n`) +
+      : `no spikes on disk; MINT any the spec requires following the Spike file shape (see "Phase 0 spikes").\n`) +
     `- Map mode (S5): **${mapMode}** — ` +
     (mapMode === "reused"
       ? `an architecture-map.yml already exists; UPDATE it in place, preserving every layout_* field verbatim, NEVER re-author from scratch (see "Architecture map").\n`

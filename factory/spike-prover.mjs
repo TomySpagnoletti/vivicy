@@ -52,9 +52,9 @@ const SPIKE_GRAPH_REF = "node:spike-proof";
  * Injectable seams (all default to the real tooling):
  *   spawnProver({ repoRoot, spike, cfg, attempt, disagreement })
  *       -> leg result; the PROVER runs the spike's experiments in-repo, writes the
- *          six evidence fields into the spike file, and writes spike-proof-<stem>.json.
+ *          six evidence fields into the spike file, and writes spike-<stem>-proof.json.
  *   spawnSpikeVerifier({ repoRoot, spike, cfg, attempt })
- *       -> leg result; the VERIFIER writes spike-proof-<stem>-verdict.json.
+ *       -> leg result; the VERIFIER writes spike-<stem>-verdict.json.
  *   writeChangeRequest({ repoRoot, spike, proof, verdict, reason })
  *       -> { file } ; drafts a `status: idea` CR capturing both reports as evidence.
  *   now()  -> ISO timestamp (tests pin it).
@@ -137,8 +137,8 @@ export async function runSpikeProving(args = {}) {
 async function proveOneSpike(ctx) {
   const { repoRoot, spike, cfg, spawnProver, spawnSpikeVerifier, writeChangeRequest, recordEvent, now } = ctx;
   const stem = spikeStem(spike.file);
-  const proofRel = `${REPORTS_DIR}/spike-proof-${stem}.json`;
-  const verdictRel = `${REPORTS_DIR}/spike-proof-${stem}-verdict.json`;
+  const proofRel = `${REPORTS_DIR}/spike-${stem}-proof.json`;
+  const verdictRel = `${REPORTS_DIR}/spike-${stem}-verdict.json`;
 
   emit(recordEvent, {
     event_type: "spike_proof_started",
@@ -295,7 +295,8 @@ export function flipSpikeStatus(repoRoot, spike, status) {
 // spike (failed -> deferred) once the CR is folded, so the disproven assumption no longer
 // blocks re-extraction at G13. Signature preserved so the prover's injectable seam is unchanged.
 export function defaultWriteChangeRequest({ repoRoot, spike, proof, verdict, reason, kind, now }) {
-  const title = kind === "disagreement" ? `Spike ${spike.gate_id} proof unresolved` : `Spike ${spike.gate_id} hypothesis disproven`;
+  const handle = spike.gate_id.replace(/^gate:phase0:/, "");
+  const title = kind === "disagreement" ? `Spike ${handle} proof unresolved` : `Spike ${handle} hypothesis disproven`;
   const body = renderChangeRequest({ title, spike, proof, verdict, reason, kind });
   const { id, path } = createChangeRequest({
     repoRoot,
@@ -444,7 +445,7 @@ function proverContext({ spike, attempt, disagreement }) {
     `- Run its **Must Verify** experiments IN THIS TARGET REPO and record the six evidence fields ` +
     `(environment, commands, observed output, decision, documentation updates, unresolved risks) INTO the spike file's ` +
     `\`## Evidence Required\` section. Never fabricate output.\n` +
-    `- Write your machine verdict — and nothing else — to \`${REPORTS_DIR}/spike-proof-${stem}.json\` as JSON ` +
+    `- Write your machine verdict — and nothing else — to \`${REPORTS_DIR}/spike-${stem}-proof.json\` as JSON ` +
     `\`{ "verdict": "verified" | "failed", "reason": string }\`. \`verified\` only if the hypothesis held; \`failed\` if reality differed.\n` +
     `- Attempt: ${attempt}.\n` +
     (disagreement
@@ -463,10 +464,10 @@ function verifierContext({ spike, attempt }) {
   return (
     `\n\n---\n\n## Proof verification context for this run\n\n` +
     `- Spike under review: \`${spike.file}\` (gate_id \`${spike.gate_id}\`), including the evidence the prover recorded ` +
-    `in its \`## Evidence Required\` section, and the prover's verdict at \`${REPORTS_DIR}/spike-proof-${stem}.json\`.\n` +
+    `in its \`## Evidence Required\` section, and the prover's verdict at \`${REPORTS_DIR}/spike-${stem}-proof.json\`.\n` +
     `- Re-derive INDEPENDENTLY in this repo: does the recorded evidence actually support the verdict? Are the commands plausible ` +
     `against the repo's reality? Do NOT edit the spike or any other file.\n` +
-    `- Write your verdict — and nothing else — to \`${REPORTS_DIR}/spike-proof-${stem}-verdict.json\` as JSON ` +
+    `- Write your verdict — and nothing else — to \`${REPORTS_DIR}/spike-${stem}-verdict.json\` as JSON ` +
     `\`{ "agree": boolean, "problems": [string] }\`. \`agree\` true only when the evidence genuinely supports the prover's verdict.\n` +
     `- Attempt under review: ${attempt}.\n`
   );
