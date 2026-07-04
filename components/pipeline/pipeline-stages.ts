@@ -1,8 +1,8 @@
 /**
  * G8 pipeline widget — stage metadata + pure state derivation.
  *
- * Stage list is §3 of PIPELINE-EVOLUTION.md verbatim (13 stages, S0–S12), typed
- * per P8 (🖥️ deterministic / 🤖 agent / 🖥️🤖 mixed) and split across the P7
+ * Stage list is the v0.5.0 pipeline contract verbatim (13 stages, S0–S12), each
+ * typed 🖥️ deterministic / 🤖 agent / 🖥️🤖 mixed, and split across the autonomy
  * boundary: S0–S1 are "Non-loop" (user ↔ Vivi, no automatism), S2–S12 are
  * "Dev-loop (autonomous)". This module owns no React — it is the derivation
  * logic the widget and its tests both consume, kept separate so state mapping
