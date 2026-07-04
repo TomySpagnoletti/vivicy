@@ -4,7 +4,7 @@ This repository is built with the **Vivicy development factory**: you write the 
 
 ## Where things live
 
-- `.vivicy/canonical/**` — **the product truth you write.** Start here. Until at least one canonical doc exists and a baseline is frozen, there is nothing to extract and the architecture map is empty. See `.vivicy/canonical/README.md`.
+- `.vivicy/canonical/**` — **the product truth you write.** Start here: one Markdown file per coherent product/architecture decision area, one source of truth per fact. Until at least one canonical doc exists and a baseline is frozen, there is nothing to extract and the architecture map is empty.
 - `.vivicy/development/` — the extracted issue set, progress ledger, and reports (development OUTPUT; created/updated by the factory).
 - `vivicy.json` — the project gate config. `gateCommand` is the test command Vivicy runs as the per-issue verification gate; set it to YOUR runner (currently: `{{GATE_COMMAND}}`).
 - `AGENTS.md` — the lean development operating guide and entrypoint for any development agent. `CLAUDE.md` includes it.

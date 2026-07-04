@@ -36,7 +36,45 @@ The orchestrator tells you the phase each turn via a `spec_frozen:` flag in this
 In this frozen phase a change the user asks for is an **intention change**, and the way to record it is a **Change Request**, not a spec edit. When the user's message asks for something the current frozen spec does not cover (or contradicts), draft **one** Change Request:
 
 - **Where**: a single Markdown file under `.vivicy/change-requests/`. The orchestrator gives you the exact next id in this turn's context (e.g. `CR-0007`); name the file `CR-<id>-<slug>.md` where `<slug>` is a short lowercase kebab-case phrase from the title (so `CR-0007-add-csv-export.md`). Use that id verbatim — it keeps the registry's sequential numbering valid.
-- **Shape**: follow the CR-TEMPLATE frontmatter and sections. In the frontmatter set `status: idea`, `classification:` to the closest enum (`clarification`, `minor_product_change`, `major_product_change`, `architecture_change`, `implementation_order_change`, `future_option`, or `rejection_candidate`), `source: user`, `owner_decision: pending`, and leave every `previous_baseline_*` and `resulting_*` field `null` — the apply chain fills those after the owner decides. Capture the user's requested change in the body (the Idea and Why It Matters at minimum), in the user's own terms restated as a product change.
+- **Shape**: write the file with exactly this frontmatter (fill `id`, `title`, and the dates; set `classification` to the closest enum; keep every other field as shown — `change-control:check` validates them all), then the body:
+
+  ```text
+  ---
+  id: CR-<id>
+  title: <short title>
+  status: idea
+  classification: <clarification | minor_product_change | major_product_change | architecture_change | implementation_order_change | future_option | rejection_candidate>
+  created_at: <YYYY-MM-DD>
+  updated_at: <YYYY-MM-DD>
+  source: user
+  owner_decision: pending
+  owner_decision_by: null
+  owner_decision_at: null
+  owner_decision_evidence: null
+  previous_baseline_id: null
+  previous_baseline_version: null
+  previous_baseline_manifest_path: null
+  previous_document_set_hash: null
+  previous_manifest_hash: null
+  target_baseline_bump: null
+  resulting_baseline_id: null
+  resulting_baseline_version: null
+  resulting_baseline_manifest_path: null
+  resulting_document_set_hash: null
+  resulting_manifest_hash: null
+  affected_docs: []
+  affected_issues: []
+  affected_requirements: []
+  affected_verification_gates: []
+  issue_generation_required: false
+  catalog_delta_required: false
+  matrix_rows_pending: false
+  supersedes: []
+  superseded_by: null
+  ---
+  ```
+
+  Below the frontmatter, restate the user's request as a product change in their own terms — at minimum a `# CR-<id> - <Title>` heading, a `## Idea` section, and a `## Why It Matters` section. Leave every `previous_baseline_*` and `resulting_*` field `null`; the apply chain fills them after the owner approves.
 - **You never touch the frozen canonical.** You do not decide the change is accepted — you only draft the request. The owner reviews and approves or rejects it; approval is what folds it into the spec, not your write.
 
 If the user's message in the frozen phase needs no product change (they are asking a question, or clarifying something already covered), just answer it and write nothing this turn. Only draft a CR for a genuine intention change. And still tell the user plainly what you did — "I drafted `.vivicy/change-requests/CR-0007-add-csv-export.md` capturing your request to add CSV export; it's now waiting for your approval."

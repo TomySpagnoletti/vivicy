@@ -127,8 +127,6 @@ describe("scaffoldProject — from scratch (lean, language-agnostic)", () => {
       "README.md",
       "vivicy.json",
       ".gitignore",
-      ".vivicy/canonical/README.md",
-      ".vivicy/development/ISSUE-TEMPLATE.md",
     ]
     for (const rel of expectedFiles) {
       expect(existsSync(path.join(target, rel)), `missing ${rel}`).toBe(true)
@@ -145,24 +143,33 @@ describe("scaffoldProject — from scratch (lean, language-agnostic)", () => {
     )
     expect(existsSync(path.join(target, "test/scaffold.test.js")), "no node:test placeholder").toBe(false)
 
-    // Empty skeleton dirs are kept alive with .gitkeep.
+    // Empty skeleton dirs — including canonical/ (the owner fills it) and change-requests/
+    // — are kept alive with .gitkeep.
     for (const dir of [
+      ".vivicy/canonical",
       ".vivicy/baselines",
       ".vivicy/architecture-map",
       ".vivicy/development/issues",
       ".vivicy/development/spikes",
       ".vivicy/development/reports",
       ".vivicy/requirements",
+      ".vivicy/change-requests",
     ]) {
       expect(existsSync(path.join(target, dir, ".gitkeep")), `missing ${dir}/.gitkeep`).toBe(true)
     }
 
-    // The spike evidence-gate template ships alongside the issue template.
-    expect(existsSync(path.join(target, ".vivicy/development/SPIKE-TEMPLATE.md")), "SPIKE-TEMPLATE shipped").toBe(true)
-
-    // The post-freeze Change-Request registry ships its template + readme.
-    expect(existsSync(path.join(target, ".vivicy/change-requests/CR-TEMPLATE.md")), "CR-TEMPLATE shipped").toBe(true)
-    expect(existsSync(path.join(target, ".vivicy/change-requests/README.md")), "change-requests README shipped").toBe(true)
+    // LEAN: the target carries NO method-doc templates or READMEs. The issue, spike, and
+    // change-request shapes travel in Vivicy's bundled agent prompts, so the owner's repo
+    // never accumulates method docs it does not read.
+    for (const rel of [
+      ".vivicy/canonical/README.md",
+      ".vivicy/development/ISSUE-TEMPLATE.md",
+      ".vivicy/development/SPIKE-TEMPLATE.md",
+      ".vivicy/change-requests/CR-TEMPLATE.md",
+      ".vivicy/change-requests/README.md",
+    ]) {
+      expect(existsSync(path.join(target, rel)), `${rel} must NOT be scaffolded into the lean target`).toBe(false)
+    }
 
     // Name substitution: AGENTS.md carries the real name, never the raw token.
     const agents = readFileSync(path.join(target, "AGENTS.md"), "utf8")
@@ -243,8 +250,8 @@ describe("scaffoldProject — existing project (add Vivicy, never clobber)", () 
     for (const rel of [
       "CLAUDE.md",
       "vivicy.json",
-      ".vivicy/canonical/README.md",
-      ".vivicy/development/ISSUE-TEMPLATE.md",
+      ".vivicy/canonical/.gitkeep",
+      ".vivicy/change-requests/.gitkeep",
       ".vivicy/baselines/.gitkeep",
       ".vivicy/development/issues/.gitkeep",
     ]) {
@@ -296,13 +303,13 @@ describe("scaffoldProject — from-scratch git lifecycle (mechanical, no human g
     // The tree is CLEAN: the skeleton was committed, nothing left dirty/uncommitted.
     expect(isCleanTree(target), git(target, ["status", "--porcelain"]).stdout).toBe(true)
 
-    // The committed snapshot actually contains the skeleton (the spec placeholder +
-    // gate config), and respects .gitignore (no .vivicy-runtime committed).
+    // The committed snapshot actually contains the skeleton (the empty canonical dir the
+    // owner fills + gate config), and respects .gitignore (no .vivicy-runtime committed).
     const tracked = new Set(
       git(target, ["ls-files"]).stdout.split("\n").map((s) => s.trim()).filter(Boolean)
     )
     expect(tracked.has("vivicy.json")).toBe(true)
-    expect(tracked.has(".vivicy/canonical/README.md")).toBe(true)
+    expect(tracked.has(".vivicy/canonical/.gitkeep")).toBe(true)
     expect(tracked.has(".gitignore")).toBe(true)
     for (const t of tracked) {
       expect(t.startsWith(".vivicy-runtime/"), `runtime must not be committed: ${t}`).toBe(false)

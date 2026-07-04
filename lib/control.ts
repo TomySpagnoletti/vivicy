@@ -774,7 +774,7 @@ export function listChangeRequests(): { crs: ChangeRequestSummary[] } {
  *      rejected -> rejected). It prints a JSON line the control plane reads.
  *   2. APPLY (approvals only) — `cr-apply.mjs --cr <id>` runs apply -> re-freeze ->
  *      re-extract -> reopen impacted issues; the agent APPLY leg lives inside the script. Its terminal
- *      state is read back from the cr-apply-<id>.json report (blocked vs green surfaced
+ *      state is read back from the apply-<id>.json report (blocked vs green surfaced
  *      honestly, exactly as {@link runExtract} does for extraction).
  *
  * `decidedBy` is the actor recorded as owner_decision_by (the route passes "owner:ui";
@@ -853,7 +853,7 @@ function classifyDecisionError(id: string, message: string): ControlError {
 
 /** Read the cr-apply chain's terminal report for a CR (best-effort). */
 function readCrApplyReport(targetRoot: string, id: string): { status?: string; summary?: string } | null {
-  const file = path.join(targetRoot, REPORTS_DIR, `cr-apply-${id}.json`)
+  const file = path.join(targetRoot, REPORTS_DIR, `apply-${id}.json`)
   if (!existsSync(file)) return null
   try {
     return JSON.parse(readFileSync(file, "utf8")) as { status?: string; summary?: string }

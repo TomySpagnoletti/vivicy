@@ -132,6 +132,24 @@ test("a PENDING spike with incomplete evidence passes (completion enforced only 
   assert.equal(result.exitCode, 0, result.errors.join("\n"));
 });
 
+test("a duplicate spike for the same dependency (an S-prefixed rename left beside the original) fails", () => {
+  const result = run({
+    "01-provider-auth.md": spk("01-provider-auth"),
+    "s01-provider-auth.md": spike({ slug: "s01-provider-auth" }),
+  });
+  assert.equal(result.exitCode, 1);
+  assert.match(result.errors.join("\n"), /spike_duplicate/);
+});
+
+test("the same-dependency guard does not false-positive on genuinely distinct spikes", () => {
+  const result = run({
+    "01-provider-auth.md": spk("01-provider-auth"),
+    "02-provider-refresh.md": spk("02-provider-refresh"),
+  });
+  assert.deepEqual(result.errors, []);
+  assert.equal(result.exitCode, 0);
+});
+
 test("readSpikes indexes only well-formed spikes (skips a gate-id/filename mismatch)", () => {
   const root = mkdtempSync(join(tmpdir(), "vivicy-spike-"));
   try {

@@ -305,10 +305,10 @@ test("createChangeRequest folds a caller-supplied narrative body and captures ma
   try {
     const { id } = createChangeRequest({
       repoRoot: root, title: "Spike disproven", classification: "major_product_change", source: "agent",
-      sourceEvidence: [".vivicy/development/reports/spike-proof-01.json"],
+      sourceEvidence: [".vivicy/development/reports/spike-01-proof.json"],
     });
     const text = readFileSync(resolve(root, `.vivicy/change-requests/${id}-spike-disproven.md`), "utf8");
-    assert.match(text, /spike-proof-01\.json/, "the machine evidence is cited in the body");
+    assert.match(text, /spike-01-proof\.json/, "the machine evidence is cited in the body");
     assert.equal(runChangeControlCheck({ repoRoot: root }).exitCode, 0);
   } finally {
     cleanup();

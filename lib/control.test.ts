@@ -445,7 +445,7 @@ function writeCr(name: string, fields: Record<string, string>) {
 
 /** Write the terminal cr-apply report the chain would leave for a CR. */
 function writeCrApplyReport(id: string, report: { status: string; summary: string }) {
-  const file = path.join(targetRoot, ".vivicy", "development", "reports", `cr-apply-${id}.json`)
+  const file = path.join(targetRoot, ".vivicy", "development", "reports", `apply-${id}.json`)
   mkdirSync(path.dirname(file), { recursive: true })
   writeFileSync(file, JSON.stringify({ cr: id, ...report }, null, 2))
 }

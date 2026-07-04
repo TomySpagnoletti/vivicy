@@ -470,7 +470,7 @@ function readLatestCrApply(target) {
   if (!existsSync(dir)) return null;
   let newest = null;
   for (const file of readdirSync(dir)) {
-    if (!/^cr-apply-CR-\d{4}\.json$/.test(file)) continue;
+    if (!/^apply-CR-\d{4}\.json$/.test(file)) continue;
     const report = readJsonFile(join(dir, file));
     if (!report) continue;
     const when = Date.parse(report.updated_at ?? "") || 0;
@@ -774,7 +774,7 @@ async function cmdCr(argv, opts) {
     cwd: factoryDir,
     env: childEnv(target),
   });
-  const report = readJsonFile(join(target, REPORTS_DIR, `cr-apply-${id}.json`));
+  const report = readJsonFile(join(target, REPORTS_DIR, `apply-${id}.json`));
   const applyStatus = report?.status ?? (applyRes.code === 0 ? "green" : "blocked");
   const applied = {
     ok: applyRes.code === 0 && applyStatus === "green",

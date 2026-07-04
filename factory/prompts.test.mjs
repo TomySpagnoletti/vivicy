@@ -52,7 +52,9 @@ test("extractor.md is self-contained: carries the corpus schemas without a targe
 
 test("extractor.md carries the spike evidence-gate and the normative-detection floor", () => {
   const text = readPrompt("extractor.md");
-  assert.match(text, /SPIKE-TEMPLATE\.md/, "extractor must point at the spike template");
+  assert.match(text, /### Spike file/, "extractor must carry the inlined spike file shape (not a target-repo template)");
+  assert.match(text, /### Issue file/, "extractor must carry the inlined issue file shape");
+  assert.match(text, /no `S` prefix/, "the spike shape pins one filename convention: <nn>-<slug>, no S prefix");
   assert.match(text, /must_verify_with_spike/, "extractor must mint spike obligations");
   assert.match(text, /gate:phase0:s/, "extractor must wire the spike gate id");
   assert.match(text, /INTEGRATE mode \(existing spikes are the authority\)/i, "extractor must integrate owner-provided spikes, not just mint");
@@ -90,7 +92,7 @@ test("change-request.md carries the post-freeze Change-Control discipline", () =
   assert.match(text, /accepted_current_build/);
   assert.match(text, /owner_decision_evidence/);
   assert.match(text, /never silently edit/i, "the agent must not silently patch the frozen canonical");
-  assert.match(text, /CR-TEMPLATE\.md/);
+  assert.match(text, /full CR frontmatter/, "change-request.md carries the CR frontmatter shape inline, not a target-repo template");
 });
 
 test("spike-prover.md carries the run-it-in-the-target-repo proving discipline", () => {
@@ -105,7 +107,7 @@ test("spike-prover.md carries the run-it-in-the-target-repo proving discipline",
     assert.match(text, new RegExp(field, "i"), `spike-prover must record the "${field}" evidence field`);
   }
   // The machine verdict contract.
-  assert.match(text, /spike-proof-<stem>\.json/);
+  assert.match(text, /spike-<stem>-proof\.json/);
   assert.match(text, /"verdict":\s*"verified"/);
   // It stays in scope and only corrects canonical when reality forces it (rule 1).
   assert.match(text, /truth-model rule 1|pre-freeze correction/i);
@@ -118,7 +120,7 @@ test("spike-verifier.md carries the independent counter-verification discipline"
   assert.match(text, /independent Spike Verifier/i);
   assert.match(text, /did \*\*NOT\*\* establish this proof|You did .*NOT.* establish/i);
   // It writes the agree verdict and edits nothing.
-  assert.match(text, /spike-proof-<stem>-verdict\.json/);
+  assert.match(text, /spike-<stem>-verdict\.json/);
   assert.match(text, /"agree":\s*(true|boolean)/i);
   assert.match(text, /Report, never edit|edit no file|You edit nothing/i);
 });

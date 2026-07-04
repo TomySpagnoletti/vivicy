@@ -7,7 +7,7 @@
 //
 // It is a STANDALONE factory script (like extract-issues.mjs), so both the CLI (G14) and
 // the app route drive it identically through the control plane. Sequence, each step
-// recorded to .vivicy/development/reports/cr-apply-<id>.json as it progresses (a `phase`
+// recorded to .vivicy/development/reports/apply-<id>.json as it progresses (a `phase`
 // field, honest failures — a blocked step leaves the CR accepted_current_build, never a
 // half-applied docs_applied):
 //
@@ -258,7 +258,8 @@ function makeDefaultSpawnApplier(baseCfg, legs) {
 // keyed by the CR id so its transcript lands under a per-CR dir. path points at the CR file
 // so the leg's identity references the artifact it is folding.
 function applierIssue(cr) {
-  return { id: `CR-APPLY-${crStem(cr)}`, graph_refs: [APPLIER_GRAPH_REF], path: cr.file };
+  const number = (cr.fm?.id ?? "").replace(/^CR-/, "");
+  return { id: `CR-APPLY-${number}`, graph_refs: [APPLIER_GRAPH_REF], path: cr.file };
 }
 
 // Extra prompt context for the APPLIER leg: which CR to fold, into which canonical, and —
@@ -371,11 +372,11 @@ function readExtractionStatus(repoRoot) {
   }
 }
 
-// Persist the progressing report to .vivicy/development/reports/cr-apply-<id>.json. Each
+// Persist the progressing report to .vivicy/development/reports/apply-<id>.json. Each
 // call overwrites with the latest snapshot (a `phase` field + an `updated_at`), so a reader
 // (UI/CLI) always sees where the chain is; the terminal call leaves the final status.
 function defaultRecordReport(repoRoot, id, report) {
-  const abs = resolve(repoRoot, `${REPORTS_DIR}/cr-apply-${id}.json`);
+  const abs = resolve(repoRoot, `${REPORTS_DIR}/apply-${id}.json`);
   mkdirSync(dirname(abs), { recursive: true });
   writeFileSync(abs, `${JSON.stringify({ ...report, updated_at: report.updated_at ?? new Date().toISOString() }, null, 2)}\n`);
 }
@@ -418,11 +419,6 @@ function toGateList(value) {
 function patchBump(version) {
   const [M, m, p] = version.split(".").map(Number);
   return `${M}.${m}.${p + 1}`;
-}
-
-function crStem(cr) {
-  const base = (cr.file.split("/").pop() ?? cr.file).replace(/\.md$/i, "");
-  return base;
 }
 
 function formatReferenceFailure(reference) {

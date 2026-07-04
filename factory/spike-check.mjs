@@ -129,6 +129,29 @@ export function runSpikeCheck(options = {}) {
     }
   }
 
+  // No two spikes may describe the SAME dependency. A stale or renamed duplicate — e.g.
+  // `01-provider-auth.md` left beside `s01-provider-auth.md` — means the folder was not
+  // kept clean. Compare each file's DESCRIPTIVE slug (the stem minus its leading
+  // `s?<digits>-` id prefix) and fail on any collision so duplicates surface here instead
+  // of silently accumulating.
+  const byDescriptive = new Map();
+  for (const file of files) {
+    const key = file.slice(0, -3).toLowerCase().replace(/^s?\d+-?/, "");
+    if (!key) continue; // a bare-number stem has no descriptive part to collide on
+    const firstSeen = byDescriptive.get(key);
+    if (firstSeen) {
+      fail(
+        "spike_duplicate",
+        `${SPIKES_DIR}/${file}`,
+        `describes the same dependency "${key}" as ${SPIKES_DIR}/${firstSeen}`,
+        "one spike file per dependency — no stale or renamed duplicate left in the folder",
+        `remove the stale duplicate; keep a single <nn>-<slug>.md for "${key}"`,
+      );
+    } else {
+      byDescriptive.set(key, file);
+    }
+  }
+
   // E2 — inter-spike gating: validate the gated_by/blocks graph across the well-formed spikes.
   validateSpikeGatingGraph(readSpikes(root), fail);
 
