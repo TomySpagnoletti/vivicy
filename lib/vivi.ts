@@ -11,7 +11,7 @@
  * turn to the session transcript, composes ONE prompt (the vivi.md persona + the
  * running transcript + a SUMMARY of the target's `.vivicy` state — the file LIST,
  * not the contents, so the prompt stays bounded — plus the latest message), spawns
- * ONE agent exec (`factory/vivi-turn.mjs`, which drives the configured implementer
+ * ONE agent exec (`factory/vivi-turn.ts`, which drives the configured implementer
  * CLI as Vivi's engine, with `cwd` = the target root), captures the reply, and
  * returns `{ sessionId, reply, wrote }`.
  *
@@ -56,10 +56,10 @@ import { readSettings } from "@/lib/settings-store"
 import { getTargetRoot } from "@/lib/target"
 
 /** The factory script that runs one Vivi turn (drives the implementer CLI leg). */
-const VIVI_TURN_SCRIPT = "vivi-turn.mjs"
+const VIVI_TURN_SCRIPT = "vivi-turn.ts"
 
 /** The factory validator of record for the Change-Request registry (post-freeze). */
-const CHANGE_CONTROL_SCRIPT = "change-control.mjs"
+const CHANGE_CONTROL_SCRIPT = "change-control.ts"
 
 /**
  * PRE-freeze allowlist: Vivi authors the spec, so she may write canonical docs + spikes.
@@ -474,7 +474,7 @@ function resolveTarget(): string {
 /**
  * Run ONE Vivi turn. Appends the user turn, detects the PHASE (is the canonical frozen?),
  * composes the phase-appropriate bounded prompt, snapshots the phase's allowlist, drives
- * `vivi-turn.mjs` through the injected {@link Spawner} with the configured agent settings
+ * `vivi-turn.ts` through the injected {@link Spawner} with the configured agent settings
  * in the env and `cwd` = the target root, then enforces the allowlist by diffing the
  * target's `.vivicy` tree: on a violation the turn is REJECTED and rolled back (recorded
  * as rejected, the allowed dirs restored byte-for-byte, the violating paths removed);

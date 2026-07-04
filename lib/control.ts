@@ -6,17 +6,17 @@
  * an injectable {@link Spawner}. Real routes use {@link nodeSpawner}; tests
  * inject a fake so `start` never launches real claude/codex.
  *
- * ── G14: CLI + API parity (why this file and factory/cli.mjs do NOT share code) ──
+ * ── G14: CLI + API parity (why this file and factory/cli.ts do NOT share code) ──
  * This module is the UI's client (behind the Next API routes). The agents' client
- * is the `vivicy` CLI (factory/cli.mjs), a plain Node ESM executable. The two MUST
+ * is the `vivicy` CLI (factory/cli.ts), a plain Node ESM executable. The two MUST
  * NOT import each other: this is Next-bundled server-only TS (the `@/` alias, the
- * injectable Spawner), while cli.mjs is resolved by the package `bin` and cannot
+ * injectable Spawner), while cli.ts is resolved by the package `bin` and cannot
  * pull in Next internals. PARITY is NOT shared code — it is both clients (a) spawning
  * the SAME factory scripts (SUPERVISOR/STATUS/EXTRACT/CHANGE_CONTROL/CR_APPLY) with the
  * same args + env, and (b) reading the SAME state files with the same schema (the
  * run-state lock below, extraction-status.json, the CR registry, cr-apply reports).
  * The lock lives at getRuntimeDir()/run-state.json under the APP's cwd (the package
- * root); cli.mjs reproduces that exact path from resolve(<factory>, "..") so a
+ * root); cli.ts reproduces that exact path from resolve(<factory>, "..") so a
  * CLI-started run is visible to the UI and vice versa. Any script/schema change moves
  * both clients together; neither owns a verb the other lacks (retry-stage dispatches
  * {extract -> runExtract, dev -> startSupervisor("resume")} identically on both sides).
@@ -212,23 +212,23 @@ export class ControlError extends Error {
 const RUN_STATE_FILE = "run-state.json"
 const LOG_FILE = "supervisor.log"
 
-const SUPERVISOR_SCRIPT = "dev-loop-supervised.mjs"
-const STATUS_SCRIPT = "dev-status.mjs"
+const SUPERVISOR_SCRIPT = "dev-loop-supervised.ts"
+const STATUS_SCRIPT = "dev-status.ts"
 // The single orchestrator that AUTHORS the issues from the frozen spec, then
 // validates and regenerates the map (freeze -> author -> verify -> map). The
 // agent leg lives inside this script; the control plane only launches it.
-const EXTRACT_SCRIPT = "extract-issues.mjs"
+const EXTRACT_SCRIPT = "extract-issues.ts"
 // The S1-import CHECK: one agent leg reads a normalized upload corpus and writes
 // its verdict report. The agent leg lives inside this script; the control plane
 // only launches it (same pattern as EXTRACT_SCRIPT) — see runUploadVerify.
-const UPLOAD_VERIFY_SCRIPT = "verify-upload.mjs"
+const UPLOAD_VERIFY_SCRIPT = "verify-upload.ts"
 // The Change-Request registry validator, which also carries the `decide` subcommand
 // that records an owner decision deterministically (no agent) — see decideCr.
-const CHANGE_CONTROL_SCRIPT = "change-control.mjs"
+const CHANGE_CONTROL_SCRIPT = "change-control.ts"
 // The CR APPLICATION chain (G7): apply -> re-freeze -> re-extract -> reopen impacted issues for an
 // approved CR. A standalone factory script; the agent APPLY leg lives inside it and the
 // control plane only launches it (same pattern as EXTRACT_SCRIPT) — see decideCr.
-const CR_APPLY_SCRIPT = "cr-apply.mjs"
+const CR_APPLY_SCRIPT = "cr-apply.ts"
 
 /** Resolve the in-package factory root (vivicy/factory by default). */
 export function getFactoryRoot(): string {
@@ -434,7 +434,7 @@ export function stopSupervisor(spawner: Spawner): { pid: number } {
 }
 
 /**
- * Read dev-status as JSON by running `dev-status.mjs --dir <target> --json`.
+ * Read dev-status as JSON by running `dev-status.ts --dir <target> --json`.
  * Layers in whether a supervised run is active per the lock.
  */
 export async function readDevStatus(
@@ -469,7 +469,7 @@ export async function readDevStatus(
 const EXTRACTION_STATUS_FILE = ".vivicy/development/reports/extraction-status.json"
 
 /**
- * The orchestrator's terminal/in-flight status file (extract-issues.mjs
+ * The orchestrator's terminal/in-flight status file (extract-issues.ts
  * `defaultEmitStatus`), read back for display. Every field beyond `phase`/
  * `summary` is optional because a report can be a mid-run snapshot (`phase`
  * one of "authoring" | "fixing" | "refreezing" | "validating" | "mapping" |
@@ -490,7 +490,7 @@ export interface ExtractionStatus {
 
 /**
  * AUTHOR the issues from the frozen canonical spec, then validate and regenerate
- * the map. This drives the single `extract-issues.mjs` orchestrator, which:
+ * the map. This drives the single `extract-issues.ts` orchestrator, which:
  *   1. freezes .vivicy/canonical/** if no frozen baseline exists (else reuses it),
  *   2. spawns a real agent to author the full corpus (catalog, matrix, exclusions,
  *      vertical issues, issue index, architecture map),
@@ -620,7 +620,7 @@ export interface UploadVerifyResult {
  *   1. deterministic NORMALIZATION (lib/upload normalizeStaging) into
  *      <staging>/normalized/ — .txt/.doc/.docx -> MD, map verbatim; a per-file
  *      conversion problem excludes that file and continues.
- *   2. the agent CHECK — drives `verify-upload.mjs` through the injected
+ *   2. the agent CHECK — drives `verify-upload.ts` through the injected
  *      {@link Spawner} (identical control-plane pattern to {@link runExtract}); the
  *      script spawns ONE claude leg (role upload-verifier) that reads the normalized
  *      corpus and writes <staging>/report.json { verdict, problems, summary }.
@@ -734,7 +734,7 @@ export interface DecideCrResult {
 /**
  * List the change requests as read-only display data for the UI/CLI. Deterministic
  * disk read (no agent, no spawn): the registry frontmatter is parsed directly here —
- * change-control.mjs stays the VALIDATOR of record (the `decide`/apply paths and the
+ * change-control.ts stays the VALIDATOR of record (the `decide`/apply paths and the
  * extraction gate enforce well-formedness); this is a lightweight projection for
  * display, mirroring how {@link readDevStatus} reads status files rather than owning
  * their schema. Malformed/ template files are skipped, never surfaced.
@@ -769,10 +769,10 @@ export function listChangeRequests(): { crs: ChangeRequestSummary[] } {
  * Record the owner decision on a CR (G7 — P2's single human touchpoint), and, for an
  * APPROVAL, run the application chain. Two factory steps, both launched through the
  * injected {@link Spawner} (so tests never spawn agents):
- *   1. DECIDE — `change-control.mjs decide` records the decision deterministically
+ *   1. DECIDE — `change-control.ts decide` records the decision deterministically
  *      (approved -> accepted_current_build with previous_* from the frozen baseline;
  *      rejected -> rejected). It prints a JSON line the control plane reads.
- *   2. APPLY (approvals only) — `cr-apply.mjs --cr <id>` runs apply -> re-freeze ->
+ *   2. APPLY (approvals only) — `cr-apply.ts --cr <id>` runs apply -> re-freeze ->
  *      re-extract -> reopen impacted issues; the agent APPLY leg lives inside the script. Its terminal
  *      state is read back from the apply-<id>.json report (blocked vs green surfaced
  *      honestly, exactly as {@link runExtract} does for extraction).
@@ -815,7 +815,7 @@ export async function decideCr(
     return { ok: true, id, decision, status, summary: `CR ${id} rejected` }
   }
 
-  // 2. APPLY chain (approvals) — spawn cr-apply.mjs; read its terminal report back.
+  // 2. APPLY chain (approvals) — spawn cr-apply.ts; read its terminal report back.
   const applyScript = resolveScript(factoryRoot, CR_APPLY_SCRIPT)
   const applyRun = await spawner.run({
     command: process.execPath,
@@ -878,8 +878,8 @@ function parseJsonLine(text: string): Record<string, unknown> | null {
 
 /**
  * Minimal, dependency-free frontmatter reader for the CR list (read-only display).
- * Mirrors change-control.mjs's parser: the `--- ... ---` block's `key: value` lines,
- * unquoted. This is display projection only; change-control.mjs stays the validator.
+ * Mirrors change-control.ts's parser: the `--- ... ---` block's `key: value` lines,
+ * unquoted. This is display projection only; change-control.ts stays the validator.
  */
 function parseFrontmatter(text: string): Record<string, string> {
   const m = text.match(/^---\r?\n([\s\S]*?)\r?\n---/)

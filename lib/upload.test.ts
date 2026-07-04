@@ -36,7 +36,7 @@ import {
 /**
  * A recording fake spawner (mirrors lib/control.test.ts) so runUploadVerify
  * exercises the real control flow without launching a claude leg. The fake `run`
- * writes the report the way verify-upload.mjs's leg would, so the verdict merge
+ * writes the report the way verify-upload.ts's leg would, so the verdict merge
  * is tested end-to-end.
  */
 function makeFakeSpawner(overrides: Partial<Spawner> = {}) {
@@ -73,7 +73,7 @@ let prevCwd: string
 /** Build a fake factory dir holding the scripts the control plane resolves. */
 function scaffoldFactory(root: string) {
   mkdirSync(root, { recursive: true })
-  for (const rel of ["verify-upload.mjs"]) {
+  for (const rel of ["verify-upload.ts"]) {
     writeFileSync(path.join(root, rel), "// stub\n")
   }
 }
@@ -378,7 +378,7 @@ describe("applyUpload", () => {
 })
 
 describe("runUploadVerify (control plane)", () => {
-  it("normalizes, drives verify-upload.mjs with --staging, and reports green", async () => {
+  it("normalizes, drives verify-upload.ts with --staging, and reports green", async () => {
     const { stagingId } = stageUpload([
       entry("01-product.md", "# Product\n"),
       entry("note.txt", "a plain note"),
@@ -390,7 +390,7 @@ describe("runUploadVerify (control plane)", () => {
     const { spawner } = makeFakeSpawner({
       run: async ({ args, env }) => {
         runCount += 1
-        seenScript = path.basename(args.find((a) => a.endsWith(".mjs")) ?? "")
+        seenScript = path.basename(args.find((a) => a.endsWith(".ts")) ?? "")
         seenStaging = args[args.indexOf("--staging") + 1] ?? ""
         expect(env.VIVICY_TARGET_ROOT).toBe(targetRoot)
         // The leg would write the report; the fake does it here.
@@ -401,7 +401,7 @@ describe("runUploadVerify (control plane)", () => {
 
     const result = await runUploadVerify(spawner, stagingId)
 
-    expect(seenScript).toBe("verify-upload.mjs")
+    expect(seenScript).toBe("verify-upload.ts")
     expect(seenStaging).toBe(getStagingDir(stagingId))
     expect(runCount).toBe(1)
     expect(result.ok).toBe(true)

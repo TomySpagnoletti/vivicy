@@ -9,8 +9,8 @@ The fixture ships the frozen spec and the authored corpus (`.vivicy/canonical/**
 Run it with:
 
 ```bash
-node factory/dev-rehearsal.mjs --fixture=formula        # real two-agent loop
-node factory/dev-rehearsal.mjs --fixture=formula --dry  # harness validation with fake agents
+node factory/dev-rehearsal.ts --fixture=formula        # real two-agent loop
+node factory/dev-rehearsal.ts --fixture=formula --dry  # harness validation with fake agents
 ```
 
 Omitting `--fixture` runs the default `pocket-ledger` fixture.

@@ -41,10 +41,10 @@ npm run dev            # → http://localhost:3000
 VIVICY_TARGET_ROOT=/abs/path/to/your/project npm run dev
 
 # …or drive the factory headless via the CLI:
-node factory/cli.mjs app     --target /abs/path/to/your/project
-node factory/cli.mjs extract --target /abs/path/to/your/project
-node factory/cli.mjs start   --target /abs/path/to/your/project   # resumable supervisor
-node factory/cli.mjs status  --target /abs/path/to/your/project --json
+node factory/cli.ts app     --target /abs/path/to/your/project
+node factory/cli.ts extract --target /abs/path/to/your/project
+node factory/cli.ts start   --target /abs/path/to/your/project   # resumable supervisor
+node factory/cli.ts status  --target /abs/path/to/your/project --json
 ```
 
 **Requirements:** Node 20+, git. Real runs need the two agent CLIs installed and authenticated: [Claude Code](https://claude.com/claude-code) (implementer) and Codex (reviewer). No agents installed? See the rehearsal below.
@@ -52,7 +52,7 @@ node factory/cli.mjs status  --target /abs/path/to/your/project --json
 ### Try it end to end — no agents, no target needed
 
 ```sh
-node factory/cli.mjs rehearsal --dry
+node factory/cli.ts rehearsal --dry
 # → REHEARSAL PASSED (18/18 stages)
 ```
 

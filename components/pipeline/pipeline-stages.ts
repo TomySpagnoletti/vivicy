@@ -48,7 +48,7 @@ export const MARKER_GLYPH: Record<StageMarker, string> = {
   mixed: "🖥️🤖",
 }
 
-/** Extraction phases (extract-issues.mjs `record()` calls) that are IN FLIGHT —
+/** Extraction phases (extract-issues.ts `record()` calls) that are IN FLIGHT —
  *  i.e. S2–S6 are actively running, as opposed to terminal green/blocked. */
 const EXTRACTION_RUNNING_PHASES = new Set([
   "authoring",

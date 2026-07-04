@@ -17,6 +17,6 @@ export default defineConfig({
     // default opaque origin); the panel-state hook and quota footer persist there.
     setupFiles: ["./vitest.setup.ts"],
     include: ["**/*.test.ts", "**/*.test.tsx"],
-    exclude: ["node_modules", ".next", "e2e"],
+    exclude: ["node_modules", ".next", "e2e", "factory/!(generate-viewer-data).test.ts"],
   },
 })
