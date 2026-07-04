@@ -1,95 +1,83 @@
 # Vivicy
 
-A **visual autonomous dev factory**. You write the canonical spec; Vivicy extracts the work, runs a two-agent loop that implements, independently reviews, and verifies each slice, and shows the whole thing moving on an architecture map.
+> **visual vibe coding** — describe the product you want, let an autonomous dev factory build it, and watch it happen live on the architecture map.
 
-Vivicy is project- and language-agnostic. It operates **on** a target project — it reads that project's docs, architecture map, issues, and progress ledger, and drives agents over them. The repository Vivicy ships inside is simply its first user.
+Vibe coding usually means prompt-and-pray. Vivicy keeps the vibe but adds an engineering spine: your intention is captured as a canonical spec, everything downstream is derived from it through deterministic gates, and the whole build stays visible, traceable, and provable — live, on a map.
 
-## What it does
+Vivicy is project- and language-agnostic. It operates **on** a target project (yours), reading and writing a single `.vivicy/` folder at its root — like `.git`, but for autonomous development.
 
-1. **You write the spec.** A frozen canonical documentation baseline plus an architecture map describe the system you want — the single source of truth.
-2. **Vivicy extracts the work.** Deterministic gates turn the frozen spec into a traceable issue set: every requirement maps to an issue, every issue maps to architecture-map nodes and verification gates.
-3. **A two-agent loop builds it.** A deterministic orchestrator sequences ready issues. For each one it runs an **implementer** agent and then a separate, independent **reviewer** agent (the reviewer never authored the issue), then **re-runs the gate itself** as the authoritative verdict — it never trusts an agent's "done". Green checkpoints are committed and the issue is retired.
-4. **You watch it on the map.** The Next.js control plane renders the architecture map with live status (not started / in progress / reviewing / implemented / verified / blocked), the issue list, per-agent quota, and Run / Stop / Resume / Extract controls.
+## The truth model
 
-The method is generic; the spec is whatever project you point it at.
+Four rules keep an autonomous build honest:
 
-## Layout
+1. **The canonical spec + change requests are the intention.** Nothing else defines the product.
+2. **Extracted issues are a projection** of that intention — regenerable, never hand-curated.
+3. **Code is the result** — never the reference.
+4. **Gates + traceability are the proof.** The orchestrator re-runs every verification gate itself; it never trusts an agent's "done".
 
-- `factory/` — the standalone Node ESM tooling (the "factory"): the issue extractor (`extract-issues.mjs`), the dev-loop orchestrator and resumable supervisor, the status probe, the rehearsal harness, the per-issue progress ledger, the project gate config (`project-config.mjs`, reading `vivicy.json`), the agent-leg spawn + per-leg timeout infra, the documentation-baseline lock, the semantic-extraction and traceability gates, the four agent prompts (`prompts/`), and the architecture-map viewer-data generator. No framework coupling — plain `node`.
-- `app/`, `components/`, `lib/` — the Next.js App Router control plane that drives and visualizes the factory.
+The reviewer never authored the code it reviews: the loop runs two distinct agent CLIs (implementer = Claude Code, reviewer = Codex), each invoked per issue as a fresh conversation.
 
-## Run / Build
+## How a build runs
 
-Vivicy is a **web app**: one Next server that hosts the control plane and the API routes that drive the factory. There is one way to run it.
+1. **Bring a spec.** Four ways in: open an existing Vivicy project, start from scratch, import the docs you already have, or **build the spec with Vivi** — a chat agent that grills you until your idea is a canonical spec.
+2. **Risky assumptions get proved first.** Each external unknown (a provider API, a runtime capability) becomes a *spike*: a prover agent runs real experiments in the repo, an independent verifier counter-checks the evidence, and the orchestrator decides. A disproven assumption becomes a change request — never silent drift.
+3. **The spec freezes.** The canonical docs are hashed into an immutable baseline; from here on, no idea touches the spec directly.
+4. **Issues are extracted.** Deterministic gates turn the frozen baseline into a requirement catalog, traceable vertical issues, and the architecture map — with full line coverage: every spec line is covered by an issue, explicitly excluded, or the gate fails.
+5. **The two-agent loop builds it.** For each ready issue: implement (gate-first), independently review and fix, then the orchestrator re-runs the gate as the authoritative verdict, commits the green checkpoint, and retires the issue.
+6. **Changes go through change requests.** Mid-run, you talk to Vivi; post-freeze your asks are drafted as CRs. Approving or rejecting a CR is the **single human touchpoint** — an approved CR folds into the spec, re-freezes the baseline, re-extracts, and reopens exactly the impacted issues.
+7. **You watch all of it.** The control plane shows the 13-stage pipeline, the architecture map with live per-node status, notifications with in-app CR review, per-agent quota, and Run / Stop / Resume controls.
 
-| Develop                               | Build & run                      |
-| ------------------------------------- | -------------------------------- |
-| `npm run dev` → http://localhost:3000 | `npm run build && npm run start` |
-
-It needs nothing but `npm ci`.
-
-## Quickstart
-
-Point Vivicy at any project via `VIVICY_TARGET_ROOT` (absolute path). Everything the factory reads and writes lives under a single `.vivicy/` folder at the target root — like `.git`, it holds all the autonomous dev factory needs and nothing cosmetic: `.vivicy/canonical/**` (the spec you write), `.vivicy/architecture-map/architecture-map.yml`, `.vivicy/baselines/*.json`, `.vivicy/requirements/`, and `.vivicy/development/` (issue index, progress ledger, reports, transcripts). Only `AGENTS.md`, `CLAUDE.md`, and `README.md` sit at the root.
+## Quick start
 
 ```sh
+git clone https://github.com/TomySpagnoletti/vivicy.git
 cd vivicy
 npm ci
 
-# Run the visual control plane against a target project.
-VIVICY_TARGET_ROOT=/abs/path/to/your/project npm run dev
-# open http://localhost:3000
+# Run the visual control plane, then pick or create a project in the onboarding.
+npm run dev            # → http://localhost:3000
 
-# …or use the CLI (also available as the `vivicy` bin once installed):
-node factory/cli.mjs app    --target /abs/path/to/your/project
-node factory/cli.mjs loop   --target /abs/path/to/your/project   # one loop pass
-node factory/cli.mjs status --target /abs/path/to/your/project --json
+# …or point it at a target project directly:
+VIVICY_TARGET_ROOT=/abs/path/to/your/project npm run dev
+
+# …or drive the factory headless via the CLI:
+node factory/cli.mjs app     --target /abs/path/to/your/project
+node factory/cli.mjs extract --target /abs/path/to/your/project
+node factory/cli.mjs start   --target /abs/path/to/your/project   # resumable supervisor
+node factory/cli.mjs status  --target /abs/path/to/your/project --json
 ```
 
-If `--target` / `VIVICY_TARGET_ROOT` is omitted, the app resolves the target in order: the project you picked in the UI (persisted in the runtime dir), then `VIVICY_TARGET_ROOT`, then the parent of the process working directory.
+**Requirements:** Node 20+, git. Real runs need the two agent CLIs installed and authenticated: [Claude Code](https://claude.com/claude-code) (implementer) and Codex (reviewer). No agents installed? See the rehearsal below.
 
-### Two ways to start a project
-
-The app's onboarding offers two modes:
-
-- **Start from scratch** — give an empty folder and a name. Vivicy scaffolds a **lean** skeleton: a lean `AGENTS.md`/`CLAUDE.md`/`README.md` at the root, a `.vivicy/` folder holding a `.vivicy/canonical/` placeholder (you write the real spec) and the skeleton dirs the factory reads/writes, a complete `.gitignore`, and `vivicy.json` (the gate config). It does NOT bake in a language: no `package.json`, no test placeholder — the agents create the real project files per your spec.
-- **Add Vivicy to an existing repo** — point at a populated folder. Vivicy writes ONLY the files that are missing and **never clobbers** an existing one; it prefills `gateCommand` from the repo's own test wiring when it can detect it.
-
-Either way the target stays **lean by design**: Vivicy does NOT copy its governance/method docs into the target. The agents' full discipline travels in the Vivicy-bundled prompts (`factory/prompts/*.md`), and the rest is enforced by the deterministic checks — so the method machinery lives in the Vivicy repo, not duplicated into every project it builds.
-
-### Try it end to end (no agents, no target needed)
-
-The rehearsal exercises the **whole** chain against an isolated throwaway fixture with the real tooling and fake agents — a fast proof the factory is wired correctly:
+### Try it end to end — no agents, no target needed
 
 ```sh
 node factory/cli.mjs rehearsal --dry
-# -> REHEARSAL PASSED (18/18 stages)   # every stage green, 0 UNCOVERED lines
+# → REHEARSAL PASSED (18/18 stages)
 ```
 
-It proves the honest model end to end: the static map is generated once and stays byte-unchanged across the loop (no per-issue regeneration), the read-time overlay projects the live ledger onto it, and transcripts are produced but never committed.
+The rehearsal exercises the whole chain (freeze → extract → gates → loop → ledger → map) against an isolated throwaway fixture with real tooling and fake agents — a fast proof the factory is wired correctly on your machine.
 
-## The two agents
+## What lands in your repo
 
-The MVP loop runs two **distinct** agents so the reviewer never authored the code it reviews:
+Everything Vivicy reads and writes lives under `.vivicy/` at the target root: `canonical/` (the spec — the only part you write), `baselines/`, `requirements/`, `architecture-map/`, `change-requests/`, and `development/` (issues, spikes, progress ledger, reports). The scaffold adds only three root files (`AGENTS.md`, `CLAUDE.md`, `README.md`) plus `vivicy.json` and a complete `.gitignore` — and **never clobbers** an existing file when added to a populated repo.
 
-- **Implementer** — Claude Code (gate-first implementer).
-- **Reviewer & fix** — Codex (independent review, runs its own review sub-agents).
+The target stays lean by design: no method docs, no templates, no framework assumptions. The agents' full discipline travels in Vivicy's bundled prompts, and the shape of every artifact is enforced by deterministic checks on Vivicy's side.
 
-The orchestrator (`factory/dev-loop.mjs`) invokes each agent CLI per issue as a **fresh conversation** (one issue = no carryover), re-runs the gate itself, commits green checkpoints, and moves done issues aside; on a gate still red after bounded retries it records a block and stops for a human. Each agent does EXACTLY one of four actions — extract issues, verify issue fidelity, implement an issue's code, review/fix that code — and NOTHING else: no git, no ledger, no map, no traceability, coverage, or progress action.
+## Any language, any stack
 
-Everything else is **mechanical**, owned by the orchestrator: freeze the baseline, run the deterministic checks (doc-baseline hash, semantic-extraction, traceability), write the full per-issue progress ledger as it sequences and gates each issue (the single source of truth for progress — there is no agent self-report seam, no progress MCP, no lifecycle hooks), and commit each checkpoint with a `git add -A` made safe by a complete `.gitignore` (transcripts are NEVER committed; everything else Vivicy produces is). The architecture-map data is a **static graph generated once at extraction**; the dev-loop never regenerates it. The `/api/map` read path overlays the live ledger onto that static graph at request time, so the map always shows current progress with zero per-issue regeneration. An issue is "done" mechanically when its authoritative gate passes.
+Nothing in the factory assumes a stack for the target. The per-issue verification gate is the target's own command (`gateCommand` in `vivicy.json`): `go test ./...`, `cargo test`, `pytest -q`, `phpunit`, `swift test`, `npm test` — whatever your runner is. No hidden default: if no gate command is supplied, the loop fails loudly rather than assuming one. Point Vivicy at a Rust crate, a Python service, a Go binary, or a monorepo — the loop, the map, and the gates are the same.
 
-## Models, quota, and settings
+## Under the hood
 
-Policy: always run the latest model; the **thinking/effort level** is the tunable knob. Per-agent model and effort are chosen in the app's Settings dialog and flow to a run as `VIVICY_CLAUDE_*` / `VIVICY_CODEX_*` environment variables. Defaults pin the latest known ids/levels (implementer = Claude Opus at `xhigh`, reviewer = Codex at `high`).
+- `factory/` — the standalone Node ESM factory: the deterministic orchestrator and resumable supervisor, the spike prover, the issue extractor, the documentation-baseline lock, the semantic-extraction / traceability / spike / change-control gates, the per-issue progress ledger, the agent-leg spawn + timeout infra, the agent prompts (`prompts/`), and the CLI.
+- `app/`, `components/`, `lib/` — the Next.js control plane that drives and visualizes it.
 
-When an agent hits a provider rate limit, the loop detects it from the failure itself (no usage API exists), waits out the quota window with bounded backoff, and surfaces per-agent quota state in the control plane's footer — never fabricated numbers.
+Design choices worth knowing: the orchestrator owns all state transitions (agents only ever do one of a few bounded actions — there is no agent self-reporting seam); the architecture map is generated once at extraction and the live status is a read-time overlay (no per-issue regeneration); transcripts of every agent leg are kept on disk but never committed; every green checkpoint is a real git commit made safe by the scaffolded `.gitignore`.
 
-Both agent CLIs run with isolated config (project config only, never the operator's personal global plugins) — and no progress MCP, because agents never report progress; the orchestrator owns the ledger.
+## Status
 
-## Language-agnostic
-
-Nothing in the factory assumes a language or stack for the **target** project. The per-issue gate command comes from the target's own `vivicy.json` (`gateCommand`) — `go test ./...`, `cargo test`, `pytest -q`, `phpunit`, `npm test`, `swift test`, or whatever the project's runner is. There is no hidden Node default: if neither the issue nor `vivicy.json` supplies a gate command, the loop fails loudly rather than assuming `npm test`. The spec, issues, and architecture map are plain docs + JSON. Point Vivicy at a Rust crate, a Python service, a Go binary, or a monorepo — the loop, the map, and the gates are the same.
+v0.5.0 — young and moving fast. The pipeline is torture-tested (it survived a deliberately hostile, contradiction-riddled spec and turned the wreckage into evidence-backed change requests), but interfaces may still change without notice.
 
 ## License
 
