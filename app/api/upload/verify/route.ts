@@ -11,7 +11,7 @@ export const dynamic = "force-dynamic"
 /**
  * VERIFY a staged upload (G1's check-then-place gate). The body is `{ stagingId }`.
  * Runs the deterministic normalization pass into `<staging>/normalized/`, then the
- * agent CHECK (verify-upload.mjs via the control plane) which writes the report.
+ * agent CHECK (verify-upload.ts via the control plane) which writes the report.
  * The response is `{ ok, verdict, problems, summary, normalized }`; a red verdict
  * (drift/contradiction/rewrite, a conversion that could not run, or a dead leg) is
  * surfaced honestly — nothing is placed until /apply sees a green report.

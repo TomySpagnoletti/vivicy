@@ -15,13 +15,12 @@ import { beforeAll, describe, expect, it } from "vitest"
 // if VIVICY_TARGET_ROOT is unset. We only need the PURE parser, so we point the env
 // at a throwaway dir and import the module dynamically AFTER setting it. The parser
 // itself reads no files — it just parses the YAML string we pass.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-let parseArchitectureMap: (source: string) => any
-let reconcileLayout: (reference: string, current: string) => { source: string; restored: string[] }
+let parseArchitectureMap: typeof import("./generate-viewer-data.ts").parseArchitectureMap
+let reconcileLayout: typeof import("./generate-viewer-data.ts").reconcileLayout
 
 beforeAll(async () => {
   process.env.VIVICY_TARGET_ROOT = tmpdir()
-  ;({ parseArchitectureMap, reconcileLayout } = await import("./generate-viewer-data"))
+  ;({ parseArchitectureMap, reconcileLayout } = await import("./generate-viewer-data.ts"))
 })
 
 // A minimal but complete map in the supported style: clusters live on each node
@@ -132,7 +131,7 @@ describe("parseArchitectureMap — supported shape", () => {
     expect(map.edges).toHaveLength(1)
     expect(map.edges[0]).toMatchObject({ from: "user", to: "service" })
     // A top-level `clusters` property is never produced.
-    expect(map.clusters).toBeUndefined()
+    expect("clusters" in map).toBe(false)
   })
 })
 
@@ -168,11 +167,11 @@ describe("reconcileLayout — self-heal owner placements", () => {
     expect(restored.some((entry) => entry.startsWith("node user"))).toBe(true)
     const healed = parseArchitectureMap(source)
     const user = healed.nodes.find((n: { id: string }) => n.id === "user")
-    expect(user.layout_x).toBe(-160)
-    expect(user.layout_cluster).toBe("entry")
+    expect(user?.layout_x).toBe(-160)
+    expect(user?.layout_cluster).toBe("entry")
     // The untouched node keeps its position.
     const service = healed.nodes.find((n: { id: string }) => n.id === "service")
-    expect(service.layout_x).toBe(200)
+    expect(service?.layout_x).toBe(200)
   })
 
   it("is a no-op when the layout already matches (no restoration, source unchanged)", () => {

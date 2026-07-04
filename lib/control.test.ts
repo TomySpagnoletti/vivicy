@@ -62,11 +62,11 @@ let prevCwd: string
 function scaffoldFactory(root: string) {
   mkdirSync(root, { recursive: true })
   for (const rel of [
-    "dev-loop-supervised.mjs",
-    "dev-status.mjs",
-    "extract-issues.mjs",
-    "change-control.mjs",
-    "cr-apply.mjs",
+    "dev-loop-supervised.ts",
+    "dev-status.ts",
+    "extract-issues.ts",
+    "change-control.ts",
+    "cr-apply.ts",
   ]) {
     writeFileSync(path.join(root, rel), "// stub\n")
   }
@@ -104,7 +104,7 @@ describe("startSupervisor", () => {
 
     expect(calls.spawnDetached).toHaveLength(1)
     const call = calls.spawnDetached[0]
-    expect(call.args.some((a) => a.endsWith("dev-loop-supervised.mjs"))).toBe(true)
+    expect(call.args.some((a) => a.endsWith("dev-loop-supervised.ts"))).toBe(true)
     expect(call.cwd).toBe(factoryRoot)
     expect(call.env.VIVICY_TARGET_ROOT).toBe(targetRoot)
 
@@ -141,7 +141,7 @@ describe("startSupervisor", () => {
   })
 
   it("fails clearly when the supervisor script is missing", () => {
-    rmSync(path.join(factoryRoot, "dev-loop-supervised.mjs"))
+    rmSync(path.join(factoryRoot, "dev-loop-supervised.ts"))
     const { spawner } = makeFakeSpawner()
     expect(() => startSupervisor(spawner)).toThrow(/not found/)
     try {
@@ -352,7 +352,7 @@ describe("runExtract", () => {
     let seenScript = ""
     const { spawner } = makeFakeSpawner({
       run: async ({ args, env }) => {
-        seenScript = path.basename(args.find((a) => a.endsWith(".mjs")) ?? "")
+        seenScript = path.basename(args.find((a) => a.endsWith(".ts")) ?? "")
         expect(env.VIVICY_TARGET_ROOT).toBe(targetRoot)
         // The orchestrator writes its terminal status, then exits 0 on green.
         writeExtractionStatus("green", "extraction green after 1 attempt(s): 8 issue(s)")
@@ -362,7 +362,7 @@ describe("runExtract", () => {
 
     const result = await runExtract(spawner)
 
-    expect(seenScript).toBe("extract-issues.mjs")
+    expect(seenScript).toBe("extract-issues.ts")
     expect(result.ok).toBe(true)
     expect(result.blocked).toBe(false)
     expect(result.status).toBe("green")
@@ -397,7 +397,7 @@ describe("runExtract", () => {
   })
 
   it("fails clearly when the orchestrator script is missing", async () => {
-    rmSync(path.join(factoryRoot, "extract-issues.mjs"))
+    rmSync(path.join(factoryRoot, "extract-issues.ts"))
     const { spawner } = makeFakeSpawner()
     await expect(runExtract(spawner)).rejects.toThrow(ControlError)
   })
@@ -476,7 +476,7 @@ describe("decideCr", () => {
     const { spawner } = makeFakeSpawner({
       run: async ({ args }) => {
         seen.push(args)
-        if (args.some((a) => a.endsWith("change-control.mjs"))) {
+        if (args.some((a) => a.endsWith("change-control.ts"))) {
           // The decide subcommand prints its JSON result line.
           return { code: 0, lastLine: "{}", stdout: JSON.stringify({ ok: true, id: "CR-0001", status: "accepted_current_build" }), stderr: "" }
         }
@@ -495,8 +495,8 @@ describe("decideCr", () => {
     expect(result.applied?.blocked).toBe(false)
     expect(result.summary).toMatch(/re-extracted green/)
     // Both steps ran: the decision, then the apply chain, both with --cr CR-0001.
-    const decideCall = seen.find((a) => a.some((x) => x.endsWith("change-control.mjs")))
-    const applyCall = seen.find((a) => a.some((x) => x.endsWith("cr-apply.mjs")))
+    const decideCall = seen.find((a) => a.some((x) => x.endsWith("change-control.ts")))
+    const applyCall = seen.find((a) => a.some((x) => x.endsWith("cr-apply.ts")))
     expect(decideCall).toContain("decide")
     expect(decideCall).toContain("CR-0001")
     expect(decideCall).toContain("owner:ui")
@@ -508,7 +508,7 @@ describe("decideCr", () => {
     writeCr("CR-0001-x.md", { id: "CR-0001", title: "x", status: "idea", classification: "minor_product_change", created_at: "2026-07-01", source: "agent" })
     const { spawner } = makeFakeSpawner({
       run: async ({ args }) => {
-        if (args.some((a) => a.endsWith("change-control.mjs"))) {
+        if (args.some((a) => a.endsWith("change-control.ts"))) {
           return { code: 0, lastLine: "{}", stdout: JSON.stringify({ ok: true, id: "CR-0001", status: "accepted_current_build" }), stderr: "" }
         }
         writeCrApplyReport("CR-0001", { status: "blocked", summary: "cr-apply: reference-check stayed red — CR left accepted_current_build" })
@@ -529,7 +529,7 @@ describe("decideCr", () => {
     const scripts: string[] = []
     const { spawner } = makeFakeSpawner({
       run: async ({ args }) => {
-        scripts.push(path.basename(args.find((a) => a.endsWith(".mjs")) ?? ""))
+        scripts.push(path.basename(args.find((a) => a.endsWith(".ts")) ?? ""))
         return { code: 0, lastLine: "{}", stdout: JSON.stringify({ ok: true, id: "CR-0001", status: "rejected" }), stderr: "" }
       },
     })
@@ -539,8 +539,8 @@ describe("decideCr", () => {
     expect(result.ok).toBe(true)
     expect(result.status).toBe("rejected")
     expect(result.applied).toBeUndefined()
-    // Only the decision script ran — no cr-apply.mjs on a rejection.
-    expect(scripts).toEqual(["change-control.mjs"])
+    // Only the decision script ran — no cr-apply.ts on a rejection.
+    expect(scripts).toEqual(["change-control.ts"])
   })
 
   it("maps an unknown CR id to an unknown_cr ControlError", async () => {

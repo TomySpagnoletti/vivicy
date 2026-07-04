@@ -13,7 +13,7 @@ import { readTranscript, runViviTurn, type ViviTurn } from "@/lib/vivi"
  * the --reply-file, or misbehave by writing outside the allowlist). Records every
  * run's args + env so tests assert the settings plumb-through. `onRun` may return a
  * partial {@link RunResult} to override the default success — the post-freeze CR
- * validation spawns change-control.mjs and a test simulates its verdict this way.
+ * validation spawns change-control.ts and a test simulates its verdict this way.
  */
 function makeFakeSpawner(onRun: (options: RunOptions) => Partial<RunResult> | void = () => {}) {
   const calls = { run: [] as Array<{ args: string[]; env: NodeJS.ProcessEnv; cwd: string }> }
@@ -30,9 +30,9 @@ function makeFakeSpawner(onRun: (options: RunOptions) => Partial<RunResult> | vo
   return { spawner, calls }
 }
 
-/** Does a recorded run drive change-control.mjs (the post-freeze CR validator)? */
+/** Does a recorded run drive change-control.ts (the post-freeze CR validator)? */
 function isChangeControlRun(args: string[]): boolean {
-  return args.some((a) => a.endsWith("change-control.mjs"))
+  return args.some((a) => a.endsWith("change-control.ts"))
 }
 
 /** Seed an active frozen baseline manifest so the target is in the post-freeze phase. */
@@ -109,8 +109,8 @@ let prevCwd: string
  *  turn never launches a real Node validator. */
 function scaffoldFactory(root: string) {
   mkdirSync(path.join(root, "prompts"), { recursive: true })
-  writeFileSync(path.join(root, "vivi-turn.mjs"), "// stub\n")
-  writeFileSync(path.join(root, "change-control.mjs"), "// stub\n")
+  writeFileSync(path.join(root, "vivi-turn.ts"), "// stub\n")
+  writeFileSync(path.join(root, "change-control.ts"), "// stub\n")
   writeFileSync(path.join(root, "prompts", "vivi.md"), "# Vivi persona (test stub)\n")
 }
 
@@ -415,7 +415,7 @@ describe("runViviTurn — post-freeze (Change Requests, B8.1)", () => {
     })
     await runViviTurn(spawner, { message: "hello" })
 
-    const legRun = calls.run.find((c) => c.args.some((a) => a.endsWith("vivi-turn.mjs")))
+    const legRun = calls.run.find((c) => c.args.some((a) => a.endsWith("vivi-turn.ts")))
     expect(legRun?.env.VIVICY_SPEC_FROZEN).toBe("true")
     // The composed prompt announces the phase and the exact next id for the CR filename.
     expect(seenPrompt).toContain("spec_frozen: true")
@@ -436,7 +436,7 @@ describe("runViviTurn — post-freeze (Change Requests, B8.1)", () => {
     expect(result.rejected).toBeUndefined()
     expect(result.wrote).toEqual([path.join(CANONICAL, "01-product.md")])
     expect(seenPrompt).toContain("spec_frozen: false")
-    const legRun = calls.run.find((c) => c.args.some((a) => a.endsWith("vivi-turn.mjs")))
+    const legRun = calls.run.find((c) => c.args.some((a) => a.endsWith("vivi-turn.ts")))
     expect(legRun?.env.VIVICY_SPEC_FROZEN).toBe("false")
     // Pre-freeze never consults change-control (that gate is post-freeze only).
     expect(calls.run.some((c) => isChangeControlRun(c.args))).toBe(false)
@@ -464,11 +464,11 @@ describe("runViviTurn — settings plumb-through", () => {
     // The implementer CLI is Vivi's engine; its model rides the CLI-keyed env.
     expect(call.env.VIVICY_IMPLEMENTER_CLI).toBe("codex")
     expect(call.env.VIVICY_CODEX_MODEL).toBe("gpt-5.5")
-    expect(call.args.some((a) => a.endsWith("vivi-turn.mjs"))).toBe(true)
+    expect(call.args.some((a) => a.endsWith("vivi-turn.ts"))).toBe(true)
   })
 
   it("fails clearly when the vivi-turn script is missing", async () => {
-    rmSync(path.join(factoryRoot, "vivi-turn.mjs"))
+    rmSync(path.join(factoryRoot, "vivi-turn.ts"))
     const { spawner } = makeFakeSpawner((o) => writeReply(o, "ok"))
     await expect(runViviTurn(spawner, { message: "hi" })).rejects.toThrow(/not found/)
   })

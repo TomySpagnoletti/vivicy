@@ -21,7 +21,7 @@
  * existing `dismissed` field in place via a full rewrite of the file. This is
  * the simplest option consistent with the ALREADY-FIXED reader contract above
  * (both this reader and the CLI's `cmdNotifications` treat `dismissed` as a
- * boolean on the notification object itself — see factory/cli.mjs and
+ * boolean on the notification object itself — see factory/cli.ts and
  * lib/notifications.test.ts, both written before this writer landed) — a
  * sidecar dismissed-set or an appended `{event:"dismissed"}` marker line would
  * require both readers to learn a second shape for no benefit. The log is

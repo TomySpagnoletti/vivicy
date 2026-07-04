@@ -24,7 +24,7 @@ const FAKE_PID = 424242
 let fakeAlive = false
 
 function scriptName(args: string[]): string {
-  const scriptArg = args.find((a) => a.endsWith(".mjs") || a.endsWith(".ts")) ?? ""
+  const scriptArg = args.find((a) => a.endsWith(".ts")) ?? ""
   return scriptArg.split("/").pop() ?? scriptArg
 }
 
@@ -71,21 +71,21 @@ export const fakeSpawner: Spawner = {
     // The control plane only reaches a run after resolveContext() has asserted a
     // target, so a null here would be a caller bug; the fake stays inert either way.
     const targetRoot = getTargetRoot()
-    if (name === "dev-status.mjs" && targetRoot !== null) {
+    if (name === "dev-status.ts" && targetRoot !== null) {
       // Read the real demo ledger from disk; overlay liveness from the fake.
       const status = readDevStatusFromDisk(targetRoot)
       const withLive = { ...status, process_alive: fakeAlive }
       const json = JSON.stringify(withLive, null, 2)
       return { code: 0, lastLine: json.split("\n").at(-1) ?? "", stdout: json, stderr: "" }
     }
-    if (name === "extract-issues.mjs" && targetRoot !== null) {
+    if (name === "extract-issues.ts" && targetRoot !== null) {
       // Never launch a real agent in the dry/E2E path: write the green terminal
       // status the orchestrator would emit so runExtract reports success without
       // authoring anything (the demo target is already extracted).
       writeFakeExtractionStatus(targetRoot)
       return { code: 0, lastLine: "extraction green (fake spawn)", stdout: "extraction green (fake spawn)\n", stderr: "" }
     }
-    if (name === "vivi-turn.mjs") {
+    if (name === "vivi-turn.ts") {
       // Never launch a real agent in the dry/E2E path: write a benign reply to the
       // --reply-file the control plane reads, and touch nothing under .vivicy (a
       // fake turn writes no docs, so the allowlist diff stays clean).

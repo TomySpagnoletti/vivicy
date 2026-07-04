@@ -6,8 +6,11 @@
   "author": "Tomy Spagnoletti Duval",
   "type": "module",
   "private": true,
+  "engines": {
+    "node": ">=24"
+  },
   "bin": {
-    "vivicy": "factory/cli.mjs"
+    "vivicy": "factory/cli.ts"
   },
   "scripts": {
     "dev": "next dev",
@@ -16,15 +19,15 @@
     "lint": "eslint",
     "format": "prettier --write \"**/*.{ts,tsx}\"",
     "typecheck": "tsc --noEmit",
-    "clean": "node scripts/clean-artifacts.mjs",
-    "test": "node scripts/clean-artifacts.mjs -- vitest run",
+    "clean": "node scripts/clean-artifacts.ts",
+    "test": "node scripts/clean-artifacts.ts -- vitest run",
     "test:watch": "vitest",
-    "e2e": "node scripts/clean-artifacts.mjs -- playwright test",
+    "e2e": "node scripts/clean-artifacts.ts -- playwright test",
     "factory:typecheck": "tsc --noEmit -p factory/tsconfig.json",
-    "factory:test": "node --test factory/progress-ledger.test.mjs factory/semantic-extraction-check.test.mjs factory/dev-loop.test.mjs factory/traceability-check.test.mjs factory/spike-check.test.mjs factory/spike-prover.test.mjs factory/reference-check.test.mjs factory/map-review.test.mjs factory/excerpt-drift.test.mjs factory/change-control.test.mjs factory/reopen.test.mjs factory/atomic-write.test.mjs factory/doc-baseline.test.mjs factory/extract-issues.test.mjs factory/leg-timeout.test.mjs factory/project-config.test.mjs factory/prompts.test.mjs factory/cli.test.mjs",
-    "factory:rehearsal": "node factory/dev-rehearsal.mjs",
-    "factory:rehearsal:formula": "node factory/dev-rehearsal.mjs --fixture=formula",
-    "factory:rehearsal:all": "node factory/dev-rehearsal.mjs && node factory/dev-rehearsal.mjs --fixture=formula"
+    "factory:test": "node --test factory/progress-ledger.test.ts factory/semantic-extraction-check.test.ts factory/dev-loop.test.ts factory/traceability-check.test.ts factory/spike-check.test.ts factory/spike-prover.test.ts factory/reference-check.test.ts factory/map-review.test.ts factory/excerpt-drift.test.ts factory/change-control.test.ts factory/reopen.test.ts factory/atomic-write.test.ts factory/doc-baseline.test.ts factory/extract-issues.test.ts factory/leg-timeout.test.ts factory/project-config.test.ts factory/prompts.test.ts factory/cli.test.ts",
+    "factory:rehearsal": "node factory/dev-rehearsal.ts",
+    "factory:rehearsal:formula": "node factory/dev-rehearsal.ts --fixture=formula",
+    "factory:rehearsal:all": "node factory/dev-rehearsal.ts && node factory/dev-rehearsal.ts --fixture=formula"
   },
   "dependencies": {
     "@shadcn/react": "^0.2.0",

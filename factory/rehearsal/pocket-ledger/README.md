@@ -65,12 +65,12 @@ cd "$RV"
 git init -q && git add -A && git commit -qm fixture
 
 # 1. Verify the frozen documentation baseline.
-VIVICY_TARGET_ROOT="$RV" node <vivicy>/factory/doc-baseline.mjs \
+VIVICY_TARGET_ROOT="$RV" node <vivicy>/factory/doc-baseline.ts \
   verify --manifest .vivicy/baselines/baseline-v1.0.0.json \
   --require-status frozen --require-baseline-id baseline-v1.0.0
 
 # 2. Run the semantic extraction gate (full-line coverage over the 6 canonical docs).
-VIVICY_TARGET_ROOT="$RV" node <vivicy>/factory/semantic-extraction-check.mjs
+VIVICY_TARGET_ROOT="$RV" node <vivicy>/factory/semantic-extraction-check.ts
 
 # 3. Generate the architecture viewer data.
 VIVICY_TARGET_ROOT="$RV" node <vivicy>/factory/generate-viewer-data.ts
@@ -79,7 +79,7 @@ VIVICY_TARGET_ROOT="$RV" node <vivicy>/factory/generate-viewer-data.ts
 npm test
 ```
 
-To regenerate the frozen manifest (the hashes are deterministic from the docs), run `doc-baseline.mjs generate --version 1.0.0 --status frozen` against a clean git copy with `--approved-by` and `--approval-ref`, then re-pin the printed `manifest_hash` and `document_set_hash` into `architecture-map.yml`, `issue-index.json`, and `progress-ledger.json`.
+To regenerate the frozen manifest (the hashes are deterministic from the docs), run `doc-baseline.ts generate --version 1.0.0 --status frozen` against a clean git copy with `--approved-by` and `--approval-ref`, then re-pin the printed `manifest_hash` and `document_set_hash` into `architecture-map.yml`, `issue-index.json`, and `progress-ledger.json`.
 
 ## What it is not
 

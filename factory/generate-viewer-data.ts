@@ -803,7 +803,7 @@ function readIssues(input: unknown, graphRefs: Set<string>, verificationGateRefG
     throw new Error("Development issue index must define an issues array");
   }
   // The architecture map's verification_gate_ref_grammar is canonical; the issue
-  // index must match it even while issues is empty, because progress-ledger.mjs
+  // index must match it even while issues is empty, because progress-ledger.ts
   // reads the grammar from the issue index.
   const issueIndexGrammar = requiredString(
     input.verification_evidence_ref_grammar,
