@@ -59,6 +59,8 @@ import {
   runCodexLeg as sharedRunCodexLeg,
   runCodexLegAsync as sharedRunCodexLegAsync,
 } from "./agent-spawn.ts";
+import type { AgentLeg } from "./agent-spawn.ts";
+import type { LegResult as TimeoutLegResult } from "./leg-timeout.ts";
 
 // --------------------------------------------------------------------------
 // Shared type shapes (narrower shapes are named next to their function below)
@@ -92,26 +94,14 @@ type FootprintInput = Pick<Issue, "claims" | "claimed_files" | "graph_refs" | "s
 
 // One agent leg: which CLI runs it (provider/actor), the fixed role, and the
 // resolved model/effort/fast plan. Readiness/merge legs are built by spreading an
-// existing leg and overriding `role`, so every field beyond actor/role is optional.
-export interface Leg {
-  actor: string;
-  role: string;
-  provider?: string;
-  model?: string;
-  effort?: string;
-  fast?: boolean;
-}
+// existing leg and overriding `role`. The contract itself lives in agent-spawn.ts
+// (the leg runners' home) — this alias keeps the loop's established `Leg` name.
+export type Leg = AgentLeg;
 
-// A spawnSync-style leg process result, enriched by leg-timeout.ts with the
-// timeout fields on a killed leg. `status` is the exit code (null when it never
-// ran or was signalled).
-export interface LegProcessResult {
-  status?: number | null;
-  stdout?: string;
-  stderr?: string;
-  timedOut?: boolean;
-  timeoutReason?: string;
-  signal?: NodeJS.Signals | null;
+// A spawnSync-style leg process result: leg-timeout.ts's LegResult with every
+// field optional (test fakes pass partial shapes) and `error` widened to unknown
+// (fakes throw arbitrary values; the loop only ever reads it defensively).
+export interface LegProcessResult extends Partial<Omit<TimeoutLegResult, "error">> {
   error?: unknown;
 }
 

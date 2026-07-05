@@ -26,7 +26,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { runClaudeLeg, runCodexLeg } from "./agent-spawn.ts";
-import type { AgentIssue, AgentLeg, LegConfig, LegDeps, LegRunResult } from "./agent-spawn.ts";
+import type { AgentIssue, LegConfig, LegDeps, LegRunResult } from "./agent-spawn.ts";
 import { notify } from "./notify.ts";
 import { agentCliArgs, CLI_DEFAULTS, composePrompt, DEFAULT_CONFIG, resolveAgentLegs } from "./dev-loop.ts";
 import type { Leg, LegResult } from "./dev-loop.ts";
@@ -337,7 +337,7 @@ export async function extractIssues(options: ExtractIssuesOptions = {}): Promise
   // Injectable so tests fake the legs; the default wires the real prover/verifier legs.
   // The real runSpikeProving accepts a superset of args (all optional) and returns a
   // richer result; cast it to this orchestrator's narrower proving contract. The only
-  // divergence is nominal (dev-loop's Leg vs agent-spawn's AgentLeg provider widening).
+  // divergence is nominal (the proving contract narrows the richer real signature).
   const runSpikeProvingStage: (args: SpikeProvingArgs) => Promise<SpikeProvingResult> =
     options.runSpikeProving ?? (runSpikeProving as unknown as (args: SpikeProvingArgs) => Promise<SpikeProvingResult>);
 
@@ -692,13 +692,11 @@ function makeDefaultSpawnVerifier(options: ExtractIssuesOptions, baseCfg: Record
 // path, the verifier through the Codex/reviewer path — so neither the flags, the
 // MCP wiring, nor the transcript capture are duplicated here.
 function runLegForProvider(leg: Leg, issue: ExtractionIssue, legCfg: Record<string, unknown>, deps: LegDeps): LegRunResult {
-  // dev-loop's Leg types provider as `string | undefined`, but a resolved leg here
-  // always carries "claude"/"codex" and legCfg always carries the two paths the
-  // runners read — cast to the runners' AgentLeg/LegConfig at this seam.
-  const agentLeg = leg as AgentLeg;
+  // legCfg always carries the two paths the runners read — cast to the runners'
+  // LegConfig at this seam (Leg itself IS the runners' AgentLeg).
   const cfg = legCfg as unknown as LegConfig;
-  if (leg.provider === "codex") return runCodexLeg(agentLeg, issue, cfg, deps);
-  return runClaudeLeg(agentLeg, issue, cfg, deps);
+  if (leg.provider === "codex") return runCodexLeg(leg, issue, cfg, deps);
+  return runClaudeLeg(leg, issue, cfg, deps);
 }
 
 // Build the real per-lens MAP-REVIEW seam: one REVIEWER-CLI leg per lens, each reading
