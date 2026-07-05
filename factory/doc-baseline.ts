@@ -22,10 +22,12 @@ const repoRoot =
   targetOverride && targetOverride.trim().length > 0
     ? resolve(targetOverride)
     : resolve(scriptDir, "../..");
-// Manifest provenance string. This is recorded inside (and verified against)
-// frozen manifests, so it is stable manifest DATA and intentionally NOT the
-// script's filesystem location — moving the script must not change it.
-const generatedBy = ".vivicy/baselines/doc-baseline.mjs";
+// Manifest provenance string, recorded inside newly generated manifests. Verification
+// accepts the KNOWN set below (not just the current value), so manifests frozen by the
+// pre-TypeScript tool keep verifying byte-unchanged forever; the value is stable
+// manifest DATA, not the script's filesystem location.
+const generatedBy = ".vivicy/baselines/doc-baseline.ts";
+const knownGeneratedBy = [generatedBy, ".vivicy/baselines/doc-baseline.mjs"];
 const schemaVersion = 1;
 // Neutral fallback when the target project does not name itself in package.json.
 // Vivicy is project-agnostic, so the product name is DERIVED from the target
@@ -99,6 +101,9 @@ const defaultExclude = [
   "dist/**",
   "**/.DS_Store",
   ".vivicy/baselines/*.json",
+  ".vivicy/baselines/doc-baseline.ts",
+  // Legacy path-guard kept so manifests frozen by the pre-TypeScript tool still pass
+  // the subset check (exclude[] may gain entries over time, never lose them).
   ".vivicy/baselines/doc-baseline.mjs",
   "docs/change-requests/CR-[0-9][0-9][0-9][0-9]-*.md",
   ".vivicy/architecture-map/viewer/**",
@@ -632,8 +637,8 @@ function assertManifestShape(manifest: ParsedManifest): void {
   if (manifest.schema_version !== schemaVersion) {
     fail(`Manifest schema_version mismatch: expected ${schemaVersion}, got ${manifest.schema_version}`);
   }
-  if (manifest.generated_by !== generatedBy) {
-    fail(`Manifest generated_by mismatch: expected ${generatedBy}, got ${manifest.generated_by}`);
+  if (!knownGeneratedBy.includes(manifest.generated_by)) {
+    fail(`Manifest generated_by mismatch: expected one of ${knownGeneratedBy.join(", ")}, got ${manifest.generated_by}`);
   }
   if (typeof manifest.baseline_id !== "string" || !manifest.baseline_id.trim()) {
     fail("Manifest is missing a non-empty baseline_id");
@@ -692,7 +697,7 @@ function supersedePriorFrozenManifests(newBaselineId: string, newManifestAbsolut
     if (
       !manifest ||
       typeof manifest !== "object" ||
-      manifest.generated_by !== generatedBy ||
+      !knownGeneratedBy.includes(manifest.generated_by as string) ||
       manifest.status !== "frozen" ||
       manifest.superseded
     ) {

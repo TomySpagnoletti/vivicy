@@ -37,7 +37,7 @@ import { fileURLToPath } from "node:url";
 import { runClaudeLeg, runCodexLeg } from "./agent-spawn.ts";
 import type { AgentIssue, AgentLeg, LegConfig, LegDeps } from "./agent-spawn.ts";
 import { agentCliArgs, CLI_DEFAULTS, composePrompt, DEFAULT_CONFIG, resolveAgentLegs } from "./dev-loop.ts";
-import type { Config, Leg } from "./dev-loop.ts";
+import type { Config } from "./dev-loop.ts";
 import { readChangeRequest, stampChangeRequestApplied } from "./change-control.ts";
 import type { ChangeRequestRecord, CrFrontmatterValue } from "./change-control.ts";
 import { runReferenceCheck as runReferenceCheckImpl } from "./reference-check.ts";
@@ -54,9 +54,8 @@ const CHANGE_REQUESTS_DIR = ".vivicy/change-requests";
 const APPLIER_GRAPH_REF = "node:cr-apply";
 const DEFAULT_APPLY_ATTEMPTS = 2; // the initial apply + one bounded retry on a red gate
 
-// The two agent legs the applier chooses from. `resolveAgentLegs` (dev-loop) builds these
-// as its own `Leg`; the leg runners (agent-spawn) consume the stricter `AgentLeg`
-// (provider narrowed to "claude"|"codex"). The applier seam surfaces the runner shape.
+// The two agent legs the applier chooses from — `resolveAgentLegs` (dev-loop) builds
+// them; `Leg` is an alias of the runners' `AgentLeg`, one contract end to end.
 interface AgentLegs {
   implementer: AgentLeg;
   reviewer: AgentLeg;
@@ -166,7 +165,7 @@ export async function applyChangeRequest(args: ApplyChangeRequestArgs = {}): Pro
   const cfg: Config = { ...DEFAULT_CONFIG, ...(args.cfg ?? {}) };
   // resolveAgentLegs yields dev-loop's Leg (provider: string); the applier feeds the runner's
   // AgentLeg (provider: "claude"|"codex"). The provider IS one of the two at runtime.
-  const legs: AgentLegs = args.legs ?? (resolveAgentLegs(process.env) as unknown as AgentLegs);
+  const legs: AgentLegs = args.legs ?? resolveAgentLegs(process.env);
   const now = args.now ?? (() => new Date().toISOString());
   const spawnApplier = args.spawnApplier ?? makeDefaultSpawnApplier(cfg, legs);
   const runReferenceCheck = args.runReferenceCheck ?? ((a: { repoRoot: string }) => runReferenceCheckImpl(a) as ReferenceResult);
@@ -334,7 +333,7 @@ function makeDefaultSpawnApplier(baseCfg: Config, legs: AgentLegs): (ctx: Applie
   const implementer = legs?.implementer ?? { actor: "claude", provider: "claude", model: CLI_DEFAULTS.claude.model, effort: CLI_DEFAULTS.claude.effort, fast: false };
   // provider is "claude"|"codex" at runtime (resolveAgentLegs or the literal above); the
   // cast narrows dev-loop's looser Leg.provider to the runner's AgentLeg at this boundary.
-  const leg = { ...implementer, role: "cr-applier" } as AgentLeg;
+  const leg: AgentLeg = { ...implementer, role: "cr-applier" };
   return async ({ repoRoot, cr, cfg, attempt, feedback }) => {
     const legCfg = { ...cfg, promptsDir: cfg?.promptsDir ?? FACTORY_PROMPTS_DIR, execRoot: repoRoot } as LegConfig;
     const issue = applierIssue(cr);
