@@ -40,6 +40,7 @@ import { runReopen } from "./reopen.ts";
 import { formatMapReviewFix, mapReviewLensContext, mapReviewReportRel, runMapReview } from "./map-review.ts";
 import type { MapReviewLens, MapReviewResult as LensFindings, TaggedFinding } from "./map-review.ts";
 import { FACTORY_DIR, FACTORY_PROMPTS_DIR, resolveTargetRoot } from "./target-root.ts";
+import { pruneGitkeeps } from "../lib/skeleton.ts";
 
 const BASELINE_DIR = ".vivicy/baselines";
 const ISSUE_INDEX_REL = ".vivicy/development/issue-index.json";
@@ -947,6 +948,7 @@ function defaultEmitStatus(status: StatusEvent, repoRoot: string): void {
   mkdirSync(dirname(abs), { recursive: true });
   const payload = { ...status, updated_at: new Date().toISOString() };
   writeFileSync(abs, `${JSON.stringify(payload, null, 2)}\n`);
+  pruneGitkeeps(repoRoot);
   const mapped = NOTIFY_BY_PHASE[status?.phase];
   if (mapped) notify({ ...mapped, event: `extraction_${status.phase}` });
 }
@@ -963,6 +965,7 @@ function defaultEmitStatus(status: StatusEvent, repoRoot: string): void {
 function defaultCommitCorpus({ repoRoot, baselineId }: { repoRoot: string; baselineId: string }): { committed: boolean } {
   ensureGitRepo(repoRoot);
   ensureLocalGitIdentity(repoRoot);
+  pruneGitkeeps(repoRoot);
   const add = spawnSync("git", ["add", "-A"], { cwd: repoRoot, encoding: "utf8" });
   if ((add.status ?? 1) !== 0) {
     process.stderr.write(`extract-issues: git add -A failed: ${add.stderr || add.stdout}\n`);

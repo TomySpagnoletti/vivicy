@@ -1,7 +1,8 @@
 /**
  * G8 pipeline widget — stage metadata + pure state derivation.
  *
- * Stage list is the v0.5.0 pipeline contract verbatim (13 stages, S0–S12), each
+ * Stage list is the v0.5.0 pipeline contract (S0–S12) plus the SK project-skills
+ * stage between S7 and S8 — 14 stages total, each
  * typed 🖥️ deterministic / 🤖 agent / 🖥️🤖 mixed, and split across the autonomy
  * boundary: S0–S1 are "Non-loop" (user ↔ Vivi, no automatism), S2–S12 are
  * "Dev-loop (autonomous)". This module owns no React — it is the derivation
@@ -10,6 +11,7 @@
  */
 
 import type { RunStatus } from "@/lib/run-status"
+import type { SkillsReport } from "@/lib/skills-report"
 
 export type StageMarker = "user" | "agent" | "mixed"
 export type StageSide = "non_loop" | "dev_loop"
@@ -17,28 +19,31 @@ export type StageState = "pending" | "running" | "green" | "red"
 
 export interface PipelineStage {
   id: string
-  label: string
   marker: StageMarker
   side: StageSide
-  /** Stages the honest G14 retry set actually supports (extract, dev). */
-  retryStage?: "extract" | "dev"
+  /** Stages the honest G14 retry set actually supports (extract, skills, dev). */
+  retryStage?: "extract" | "skills" | "dev"
 }
 
-/** The 13 stages, §3 order, with the dotted P7 boundary between S1 and S2. */
+/** The 14 stages, §3 order (SK — project skills — sits between S7 and S8), with
+ *  the dotted P7 boundary between S1 and S2. Display labels live in the
+ *  `pipeline` message catalog (messages/en/pipeline.json, keyed by these same
+ *  stage ids) — this module stays pure data/derivation, no React, no i18n. */
 export const PIPELINE_STAGES: PipelineStage[] = [
-  { id: "S0", label: "Onboarding", marker: "user", side: "non_loop" },
-  { id: "S1", label: "Spec + spikes", marker: "mixed", side: "non_loop" },
-  { id: "S2", label: "Extract/Integrate spikes", marker: "agent", side: "dev_loop" },
-  { id: "S3", label: "Prove spikes", marker: "agent", side: "dev_loop" },
-  { id: "S4", label: "Freeze", marker: "user", side: "dev_loop" },
-  { id: "S5", label: "Map", marker: "mixed", side: "dev_loop" },
-  { id: "S6", label: "Extract issues", marker: "agent", side: "dev_loop", retryStage: "extract" },
-  { id: "S7", label: "Verify issues", marker: "mixed", side: "dev_loop" },
-  { id: "S8", label: "Readiness", marker: "agent", side: "dev_loop" },
-  { id: "S9", label: "Implement + Review", marker: "agent", side: "dev_loop", retryStage: "dev" },
-  { id: "S10", label: "Merge", marker: "mixed", side: "dev_loop" },
-  { id: "S11", label: "CRs", marker: "mixed", side: "dev_loop" },
-  { id: "S12", label: "Done", marker: "user", side: "dev_loop" },
+  { id: "S0", marker: "user", side: "non_loop" },
+  { id: "S1", marker: "mixed", side: "non_loop" },
+  { id: "S2", marker: "agent", side: "dev_loop" },
+  { id: "S3", marker: "agent", side: "dev_loop" },
+  { id: "S4", marker: "user", side: "dev_loop" },
+  { id: "S5", marker: "mixed", side: "dev_loop" },
+  { id: "S6", marker: "agent", side: "dev_loop", retryStage: "extract" },
+  { id: "S7", marker: "mixed", side: "dev_loop" },
+  { id: "SK", marker: "mixed", side: "dev_loop", retryStage: "skills" },
+  { id: "S8", marker: "agent", side: "dev_loop" },
+  { id: "S9", marker: "agent", side: "dev_loop", retryStage: "dev" },
+  { id: "S10", marker: "mixed", side: "dev_loop" },
+  { id: "S11", marker: "mixed", side: "dev_loop" },
+  { id: "S12", marker: "user", side: "dev_loop" },
 ]
 
 /** The glyph the widget renders for each stage type (P8). */
@@ -87,7 +92,8 @@ export interface ExtractionStatusLike {
  */
 export function deriveStageStates(
   status: RunStatus | null,
-  extraction: ExtractionStatusLike | null
+  extraction: ExtractionStatusLike | null,
+  skills: SkillsReport | null = null
 ): Record<string, StageState> {
   const states: Record<string, StageState> = {}
   for (const stage of PIPELINE_STAGES) states[stage.id] = "pending"
@@ -101,6 +107,7 @@ export function deriveStageStates(
   }
 
   applyExtractionStates(states, extraction)
+  applySkillsStates(states, skills)
   applyDevStates(states, status)
 
   return states
@@ -147,6 +154,23 @@ function applyExtractionStates(
       if (states[id] === "pending" && id !== runningStage) states[id] = "green"
     }
   }
+}
+
+/** Skills-report phases (install-skills.ts) meaning SK is actively running. */
+const SKILLS_RUNNING_PHASES = new Set(["selecting", "auditing", "installing"])
+
+// SK reads the skills report the same way S2–S6 read the extraction status:
+// in-flight phases pulse, green AND skipped are quietly done (skipped is the
+// honest "nothing to install" outcome, not a failure), failed is red, and an
+// absent report stays pending — never a fabricated state.
+function applySkillsStates(
+  states: Record<string, StageState>,
+  skills: SkillsReport | null
+): void {
+  if (!skills?.phase) return
+  if (SKILLS_RUNNING_PHASES.has(skills.phase)) states.SK = "running"
+  else if (skills.phase === "green" || skills.phase === "skipped") states.SK = "green"
+  else if (skills.phase === "failed") states.SK = "red"
 }
 
 function phaseToRunningStage(phase: string): string | null {

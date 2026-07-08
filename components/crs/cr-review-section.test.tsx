@@ -1,8 +1,9 @@
-import { render, screen, waitFor, within } from "@testing-library/react"
+import { screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest"
 
 import { CrReviewSection } from "@/components/crs/cr-review-section"
+import { renderWithIntl } from "@/test/render"
 
 const PENDING_CR = {
   id: "CR-0001",
@@ -31,7 +32,7 @@ afterEach(() => {
 
 describe("CrReviewSection", () => {
   test("renders a pending CR with Approve and Reject", async () => {
-    render(<CrReviewSection />)
+    renderWithIntl(<CrReviewSection />)
     expect(await screen.findByText(/awaiting your decision/i)).toBeInTheDocument()
     expect(screen.getByText("CR-0001")).toBeInTheDocument()
     expect(screen.getByText(/hypothesis disproven/i)).toBeInTheDocument()
@@ -41,7 +42,7 @@ describe("CrReviewSection", () => {
 
   test("renders nothing when there is no pending CR", async () => {
     vi.stubGlobal("fetch", mockFetch({ "/api/control/crs": { ok: true, crs: [] } }))
-    const { container } = render(<CrReviewSection />)
+    const { container } = renderWithIntl(<CrReviewSection />)
     await waitFor(() => expect(container).toBeEmptyDOMElement())
   })
 
@@ -52,7 +53,7 @@ describe("CrReviewSection", () => {
     })
     vi.stubGlobal("fetch", fetchSpy)
     const user = userEvent.setup()
-    render(<CrReviewSection />)
+    renderWithIntl(<CrReviewSection />)
 
     await user.click(await screen.findByRole("button", { name: /^Approve$/ }))
     // The decision must NOT fire until the confirm dialog is accepted (sensitive action).

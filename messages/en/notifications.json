@@ -1,0 +1,96 @@
+{
+  "bellAriaLabel": "Notifications",
+  "unreadAriaLabel": "{count, plural, one {# unread notification} other {# unread notifications}}",
+  "unreadOverflow": "99+",
+  "sheetTitle": "Notifications",
+  "sheetDescription": "Every pipeline transition: stages starting, passing, blocking, and retrying.",
+  "empty": "No notifications.",
+  "dismissAriaLabel": "Dismiss notification",
+  "clearAll": "Clear all",
+  "clearing": "Clearing…",
+  "clearAllDialogTitle": "Clear all notifications?",
+  "clearAllDialogDescription": "Dismisses every notification currently listed. This cannot be undone.",
+  "cancel": "Cancel",
+  "relativeTime": {
+    "unknown": "—",
+    "justNow": "just now",
+    "minutesAgo": "{minutes}m ago",
+    "hoursAgo": "{hours}h ago",
+    "daysAgo": "{days}d ago"
+  },
+  "events": {
+    "S9": {
+      "gate_passed": "{id}: gate green",
+      "gate_failed": "{id}: gate red",
+      "issue_blocked": "{id}: issue blocked"
+    },
+    "S8": {
+      "issue_parked_on_cr": "{id}: parked on CR",
+      "readiness_update_applied": "{id}: issue updated by readiness"
+    },
+    "S11": {
+      "issue_reopened": "{id}: issue reopened"
+    },
+    "S10": {
+      "merge_conflict_resolved": "{id}: merge conflict resolved",
+      "merge_conflict_unresolved": "{id}: merge conflict unresolved",
+      "post_merge_gate_failed": "{id}: post-merge gate red — merge reverted"
+    },
+    "S3": {
+      "extraction_spike_proving": "proving spikes in the target repo",
+      "extraction_blocked_on_unverified_spikes": "extraction refused: unverified spikes"
+    },
+    "S6": {
+      "extraction_authoring": "extracting issues from the frozen canonical",
+      "extraction_fixing": "re-prompting the extractor after red checks",
+      "extraction_extraction_blocked": "extraction blocked after bounded retries"
+    },
+    "S7": {
+      "extraction_green": "extraction green — corpus committed"
+    },
+    "SK": {
+      "skills_selecting": "selecting project skills from the frozen canonical",
+      "skills_green": "project skills stage green",
+      "skills_failed": "project skills stage failed"
+    },
+    "extract": {
+      "started": "extraction started: freeze -> author -> validate -> verify",
+      "green": "extraction green",
+      "blocked": "extraction blocked",
+      "blocked_on_unverified_spikes": "extraction refused: unverified spikes",
+      "refused_empty_canonical": "extraction refused: the canonical spec is empty",
+      "error": "stage error"
+    },
+    "dev": {
+      "started": "dev-loop started",
+      "resumed": "dev-loop resumed",
+      "stopped": "dev-loop stopped"
+    },
+    "skills": {
+      "started": "skills install requested",
+      "failed": "skills install failed"
+    },
+    "retry": {
+      "retry_extract_started": "manual retry requested for stage \"extract\"",
+      "retry_skills_started": "manual retry requested for stage \"skills\"",
+      "retry_dev_started": "manual retry requested for stage \"dev\"",
+      "retry_extract_green": "extraction retried and green",
+      "retry_extract_blocked": "extraction retried and blocked",
+      "retry_extract_error": "extract retry failed",
+      "retry_skills_error": "skills retry failed",
+      "retry_dev_error": "dev-loop retry failed"
+    },
+    "upload": {
+      "placed": "upload placed",
+      "refused": "upload refused",
+      "verify_green": "upload verified — green",
+      "verify_red": "upload verification found problems"
+    },
+    "crs": {
+      "rejected": "{id} rejected",
+      "approved_applied": "{id} approved and applied",
+      "approved_apply_blocked": "{id} approved but the apply chain is blocked",
+      "decide_error": "decision failed"
+    }
+  }
+}

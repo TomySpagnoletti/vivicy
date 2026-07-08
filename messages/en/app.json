@@ -1,0 +1,17 @@
+{
+  "loading": "Loading architecture map…",
+  "loadError": {
+    "requestFailed": "Request failed ({status}).",
+    "genericFailure": "Failed to load the architecture map."
+  },
+  "extract": {
+    "emptyCanonical": "canonical is empty",
+    "blockedTitle": "Extraction blocked",
+    "blockedDefaultDescription": "The deterministic checks stayed red after the retries. A human needs to look.",
+    "failedTitle": "Extract failed",
+    "failedHttpDescription": "HTTP {status}",
+    "failedNetworkDescription": "network error",
+    "completeTitle": "Extraction complete"
+  },
+  "agentsWarningTitle": "Agent setup incomplete"
+}

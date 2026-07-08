@@ -2,16 +2,20 @@
 
 import { useCallback, useEffect, useRef, useState } from "react"
 import { Download, Pause, Play, RotateCcw } from "lucide-react"
+import { useTranslations } from "next-intl"
+import { createTranslator } from "next-intl"
 import { toast } from "sonner"
 
 import {
   isResumable,
-  PHASE_LABELS,
   resolveRunPhase,
   type RunPhase,
   type StatusResponse,
 } from "@/lib/run-status"
 import type { DevelopmentBlock } from "@/lib/types"
+import { LOCALE } from "@/lib/i18n"
+import { errorText } from "@/lib/i18n-errors"
+import sidebarMessages from "@/messages/en/sidebar.json"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -35,9 +39,11 @@ import {
 type Action = "start" | "stop" | "resume" | "extract"
 
 // Exported and pure so the tooltip copy is unit-tested without portal rendering.
+// A standalone translator (not the useTranslations hook) since this runs outside
+// component render — it reads the same sidebar.json ICU message the component uses.
+const t = createTranslator({ locale: LOCALE, messages: sidebarMessages, namespace: "processControl" })
 export function extractedGateMessage(issueCount: number): string {
-  const noun = issueCount === 1 ? "issue" : "issues"
-  return `Already extracted — ${issueCount} ${noun}. Re-extraction isn't available yet.`
+  return t("extractedGateMessage", { count: issueCount })
 }
 
 const PHASE_DOT: Record<RunPhase, string> = {
@@ -90,6 +96,16 @@ export function ProcessControlBar({
     return () => source.close()
   }, [])
 
+  const t = useTranslations("sidebar.processControl")
+  const tErrors = useTranslations("errors")
+  const PHASE_LABEL: Record<RunPhase, string> = {
+    idle: t("phaseIdle"),
+    running: t("phaseRunning"),
+    done: t("phaseDone"),
+    blocked: t("phaseBlocked"),
+    stalled: t("phaseStalled"),
+  }
+
   const phase: RunPhase = status ? resolveRunPhase(status) : "idle"
   const running = phase === "running" || phase === "stalled"
   // Resume is offered only when stopped part-way; a completed run shows Run so
@@ -112,44 +128,48 @@ export function ProcessControlBar({
         const body = (await res.json().catch(() => ({}))) as {
           ok?: boolean
           error?: string
+          code?: string
           steps?: Array<{ name: string; code: number | null; lastLine: string }>
         }
         if (!res.ok || body.ok === false) {
-          toast.error(`${label} failed`, { description: body.error ?? `HTTP ${res.status}` })
+          const fallback = body.error ?? t("toastFailedHttpDescription", { status: res.status })
+          toast.error(t("toastFailedTitle", { label }), {
+            description: body.code ? errorText(tErrors, `control.${body.code}`, fallback) : fallback,
+          })
           return
         }
         if (action === "extract" && body.steps) {
           const failed = body.steps.filter((s) => s.code !== 0)
           if (failed.length > 0) {
-            toast.warning("Extraction finished with issues", {
+            toast.warning(t("toastExtractionIssuesTitle"), {
               description: failed.map((s) => `${s.name}: exit ${s.code}`).join(", "),
             })
           } else {
-            toast.success("Extraction complete", {
+            toast.success(t("toastExtractionSuccessTitle"), {
               description: body.steps.map((s) => s.name).join(" -> "),
             })
           }
           onMapRefreshRef.current?.()
         } else {
-          toast.success(`${label} ok`)
+          toast.success(t("toastOkTitle", { label }))
         }
       } catch (error) {
-        toast.error(`${label} failed`, {
-          description: error instanceof Error ? error.message : "network error",
+        toast.error(t("toastFailedTitle", { label }), {
+          description: error instanceof Error ? error.message : t("networkError"),
         })
       } finally {
         setPending(null)
       }
     },
-    []
+    [t, tErrors]
   )
 
   return (
     <div className="flex flex-col gap-1.5 px-3 py-2">
       <div className="flex items-center justify-between gap-2">
-        <Badge variant="outline" className="gap-1.5" aria-label={`status: ${PHASE_LABELS[phase]}`}>
+        <Badge variant="outline" className="gap-1.5" aria-label={t("statusAriaLabel", { phase: PHASE_LABEL[phase] })}>
           <span aria-hidden className={`size-1.5 rounded-full ${PHASE_DOT[phase]}`} />
-          {streamError ? "offline" : PHASE_LABELS[phase]}
+          {streamError ? t("offline") : PHASE_LABEL[phase]}
         </Badge>
 
         <div className="flex items-center gap-1">
@@ -157,23 +177,23 @@ export function ProcessControlBar({
             <StopControl
               pending={pending === "stop"}
               disabled={pending !== null}
-              onConfirm={() => act("stop", "/api/control/stop", "Stop")}
+              onConfirm={() => act("stop", "/api/control/stop", t("stop"))}
             />
           ) : resumable ? (
             <IconControl
-              label="Resume"
+              label={t("resume")}
               icon={<RotateCcw />}
               pending={pending === "resume"}
               disabled={pending !== null}
-              onClick={() => act("resume", "/api/control/resume", "Resume")}
+              onClick={() => act("resume", "/api/control/resume", t("resume"))}
             />
           ) : (
             <IconControl
-              label="Run"
+              label={t("run")}
               icon={<Play />}
               pending={pending === "start"}
               disabled={pending !== null}
-              onClick={() => act("start", "/api/control/start", "Run")}
+              onClick={() => act("start", "/api/control/start", t("run"))}
             />
           )}
 
@@ -187,13 +207,13 @@ export function ProcessControlBar({
                 <Button
                   variant="ghost"
                   size="sm"
-                  aria-label="Extract"
+                  aria-label={t("extract")}
                   aria-disabled
                   className="opacity-50"
                   onClick={(event) => event.preventDefault()}
                 >
                   <Download />
-                  Extract
+                  {t("extract")}
                 </Button>
               </TooltipTrigger>
               <TooltipContent>{extractedGateMessage(issueCount)}</TooltipContent>
@@ -203,19 +223,19 @@ export function ProcessControlBar({
               variant="ghost"
               size="sm"
               disabled={pending !== null}
-              aria-label="Extract"
-              onClick={() => act("extract", "/api/control/extract", "Extract")}
+              aria-label={t("extract")}
+              onClick={() => act("extract", "/api/control/extract", t("extract"))}
             >
               <Download />
-              Extract
+              {t("extract")}
             </Button>
           )}
         </div>
       </div>
 
       <div className="flex items-center gap-2">
-        <Progress value={percent} className="flex-1" aria-label="issues verified" />
-        <span className="text-xs tabular-nums text-muted-foreground" aria-label="progress">
+        <Progress value={percent} className="flex-1" aria-label={t("issuesVerifiedAriaLabel")} />
+        <span className="text-xs tabular-nums text-muted-foreground" aria-label={t("progressAriaLabel")}>
           {done}/{total || "?"}
         </span>
       </div>
@@ -236,6 +256,7 @@ function IconControl({
   pending: boolean
   disabled: boolean
 }) {
+  const t = useTranslations("sidebar.processControl")
   return (
     <Tooltip>
       <TooltipTrigger asChild>
@@ -249,7 +270,7 @@ function IconControl({
           {icon}
         </Button>
       </TooltipTrigger>
-      <TooltipContent>{pending ? `${label}…` : label}</TooltipContent>
+      <TooltipContent>{pending ? t("pendingLabel", { label }) : label}</TooltipContent>
     </Tooltip>
   )
 }
@@ -263,29 +284,28 @@ function StopControl({
   pending: boolean
   disabled: boolean
 }) {
+  const t = useTranslations("sidebar.processControl")
   return (
     <AlertDialog>
       <Tooltip>
         <TooltipTrigger asChild>
           <AlertDialogTrigger asChild>
-            <Button variant="ghost" size="icon-sm" aria-label="Stop" disabled={disabled}>
+            <Button variant="ghost" size="icon-sm" aria-label={t("stop")} disabled={disabled}>
               <Pause />
             </Button>
           </AlertDialogTrigger>
         </TooltipTrigger>
-        <TooltipContent>{pending ? "Stopping…" : "Stop"}</TooltipContent>
+        <TooltipContent>{pending ? t("stopping") : t("stop")}</TooltipContent>
       </Tooltip>
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogTitle>Stop the development loop?</AlertDialogTitle>
-          <AlertDialogDescription>
-            This terminates the running supervisor. Completed issues are kept; you can resume later.
-          </AlertDialogDescription>
+          <AlertDialogTitle>{t("stopConfirmTitle")}</AlertDialogTitle>
+          <AlertDialogDescription>{t("stopConfirmDescription")}</AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
-          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <AlertDialogCancel>{t("stopConfirmCancel")}</AlertDialogCancel>
           <AlertDialogAction variant="destructive" onClick={onConfirm}>
-            Stop
+            {t("stopConfirmConfirm")}
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>

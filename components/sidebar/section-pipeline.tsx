@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
+import { useTranslations } from "next-intl"
 
 import {
   deriveStageStates,
@@ -11,6 +12,7 @@ import {
 } from "@/components/pipeline/pipeline-stages"
 import { Badge } from "@/components/ui/badge"
 import type { RunStatus } from "@/lib/run-status"
+import type { SkillsReport } from "@/lib/skills-report"
 import { cn } from "@/lib/utils"
 
 const STATE_BADGE_VARIANT: Record<StageState, "outline" | "secondary" | "default" | "destructive"> = {
@@ -20,16 +22,21 @@ const STATE_BADGE_VARIANT: Record<StageState, "outline" | "secondary" | "default
   red: "destructive",
 }
 
-const STATE_LABEL: Record<StageState, string> = {
-  pending: "pending",
-  running: "running",
-  green: "done",
-  red: "blocked",
+const STATE_LABEL_KEY: Record<StageState, "statePending" | "stateRunning" | "stateDone" | "stateBlocked"> = {
+  pending: "statePending",
+  running: "stateRunning",
+  green: "stateDone",
+  red: "stateBlocked",
 }
 
 interface ExtractStatusResponse {
   ok?: boolean
   status?: ExtractionStatusLike | null
+}
+
+interface SkillsReportResponse {
+  ok?: boolean
+  report?: SkillsReport | null
 }
 
 /**
@@ -44,10 +51,11 @@ interface ExtractStatusResponse {
 export function SectionPipeline() {
   const [status, setStatus] = useState<RunStatus | null>(null)
   const [extraction, setExtraction] = useState<ExtractionStatusLike | null>(null)
+  const [skills, setSkills] = useState<SkillsReport | null>(null)
 
   useEffect(() => {
     let cancelled = false
-    const loadExtraction = async () => {
+    const loadReports = async () => {
       try {
         const res = await fetch("/api/control/extract", { cache: "no-store" })
         const body = (await res.json().catch(() => ({}))) as ExtractStatusResponse
@@ -55,9 +63,16 @@ export function SectionPipeline() {
       } catch {
         // Best-effort: leave the last known extraction status in place.
       }
+      try {
+        const res = await fetch("/api/control/skills", { cache: "no-store" })
+        const body = (await res.json().catch(() => ({}))) as SkillsReportResponse
+        if (!cancelled && res.ok && body.ok !== false) setSkills(body.report ?? null)
+      } catch {
+        // Best-effort: leave the last known skills report in place.
+      }
     }
     void (async () => {
-      await loadExtraction()
+      await loadReports()
     })()
 
     const source = new EventSource("/api/status/stream")
@@ -66,7 +81,7 @@ export function SectionPipeline() {
         const next = JSON.parse(event.data) as RunStatus & { error?: string }
         if (next.error) return
         setStatus(next)
-        void loadExtraction()
+        void loadReports()
       } catch {
         // A malformed frame just keeps the last known status.
       }
@@ -77,7 +92,9 @@ export function SectionPipeline() {
     }
   }, [])
 
-  const states = deriveStageStates(status, extraction)
+  const t = useTranslations("sidebar.pipeline")
+  const tPipeline = useTranslations("pipeline")
+  const states = deriveStageStates(status, extraction, skills)
 
   return (
     <ul className="flex flex-col gap-2 text-xs">
@@ -90,15 +107,17 @@ export function SectionPipeline() {
           <div className="flex items-center gap-1.5">
             <span className="font-mono font-semibold text-foreground">{stage.id}</span>
             <span aria-hidden>{MARKER_GLYPH[stage.marker]}</span>
-            <span className="min-w-0 flex-1 truncate text-foreground">{stage.label}</span>
+            <span className="min-w-0 flex-1 truncate text-foreground">
+              {tPipeline(`stages.${stage.id}`)}
+            </span>
             <Badge
               variant={STATE_BADGE_VARIANT[states[stage.id]]}
               className={cn(states[stage.id] === "green" && "bg-status-verified text-white")}
             >
-              {STATE_LABEL[states[stage.id]]}
+              {t(STATE_LABEL_KEY[states[stage.id]])}
             </Badge>
           </div>
-          <StageEvidence stageId={stage.id} extraction={extraction} status={status} />
+          <StageEvidence stageId={stage.id} extraction={extraction} skills={skills} status={status} />
         </li>
       ))}
     </ul>
@@ -107,27 +126,37 @@ export function SectionPipeline() {
 
 /** Evidence pointers as plain text — only what actually exists on the read
  *  models, never a placeholder. S2–S6 read from the extraction status file
- *  (phase/summary/updated_at); S7–S12 read from the dev-status gate counts. */
+ *  (phase/summary/updated_at); SK reads the skills report the same way;
+ *  S7–S12 read from the dev-status gate counts. */
 function StageEvidence({
   stageId,
   extraction,
+  skills,
   status,
 }: {
   stageId: string
   extraction: ExtractionStatusLike | null
+  skills: SkillsReport | null
   status: RunStatus | null
 }) {
+  const t = useTranslations("sidebar.pipeline")
   const lines: string[] = []
 
   if (["S2", "S3", "S4", "S5", "S6"].includes(stageId) && extraction) {
-    if (extraction.phase) lines.push(`phase: ${extraction.phase}`)
+    if (extraction.phase) lines.push(t("phaseEvidence", { phase: extraction.phase }))
     if (typeof extraction.summary === "string" && extraction.summary) lines.push(extraction.summary)
     if (typeof extraction.updated_at === "string") lines.push(extraction.updated_at)
   }
 
+  if (stageId === "SK" && skills) {
+    if (skills.phase) lines.push(t("phaseEvidence", { phase: skills.phase }))
+    if (typeof skills.summary === "string" && skills.summary) lines.push(skills.summary)
+    if (typeof skills.updated_at === "string") lines.push(skills.updated_at)
+  }
+
   if (stageId === "S9" && status) {
-    lines.push(`${status.issues_done}/${status.issues_total || "?"} issues verified`)
-    if (status.gates.fail > 0) lines.push(`${status.gates.fail} gate(s) failing`)
+    lines.push(t("issuesVerified", { done: status.issues_done, total: status.issues_total || "?" }))
+    if (status.gates.fail > 0) lines.push(t("gatesFailing", { count: status.gates.fail }))
   }
 
   if (lines.length === 0) return null

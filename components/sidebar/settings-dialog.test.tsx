@@ -1,9 +1,10 @@
-import { render, screen, waitFor, within } from "@testing-library/react"
+import { screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest"
 
 import { SettingsDialog } from "@/components/sidebar/settings-dialog"
 import { DEFAULT_SETTINGS, MODEL_IDS, type AgentsSettings } from "@/lib/settings"
+import { renderWithIntl } from "@/test/render"
 
 // Mock toast so a save path never logs noise into the test output.
 vi.mock("sonner", () => ({
@@ -46,7 +47,7 @@ async function openDialog(user: ReturnType<typeof userEvent.setup>) {
 describe("model picker", () => {
   test("lists the curated 4 models for the assigned CLI", async () => {
     const user = userEvent.setup()
-    render(<SettingsDialog />)
+    renderWithIntl(<SettingsDialog />)
     await openDialog(user)
 
     // Open the implementer (claude) model Select.
@@ -65,7 +66,7 @@ describe("model picker", () => {
       implementer: { provider: "claude", model: "claude-internal-x", effort: "max", fast: false },
     })
     const user = userEvent.setup()
-    render(<SettingsDialog />)
+    renderWithIntl(<SettingsDialog />)
     await openDialog(user)
 
     // The trigger shows the custom model and it survives as an option.
@@ -82,7 +83,7 @@ describe("fast toggle compatibility", () => {
   test("fast switch is ENABLED for a fast-capable model", async () => {
     // Default implementer is Opus 4.8 (fast-capable).
     const user = userEvent.setup()
-    render(<SettingsDialog />)
+    renderWithIntl(<SettingsDialog />)
     await openDialog(user)
     const fast = screen.getByLabelText("Implementer fast mode")
     expect(fast).not.toBeDisabled()
@@ -95,7 +96,7 @@ describe("fast toggle compatibility", () => {
       implementer: { provider: "claude", model: "claude-opus-4-5", effort: "high", fast: false },
     })
     const user = userEvent.setup()
-    render(<SettingsDialog />)
+    renderWithIntl(<SettingsDialog />)
     await openDialog(user)
 
     const fast = screen.getByLabelText("Implementer fast mode")
@@ -118,7 +119,7 @@ describe("fast toggle compatibility", () => {
       reviewer: { provider: "codex", model: "gpt-5.3-codex-spark", effort: "", fast: false },
     })
     const user = userEvent.setup()
-    render(<SettingsDialog />)
+    renderWithIntl(<SettingsDialog />)
     await openDialog(user)
 
     // No thinking-level control for the reviewer (Spark has none).
@@ -132,7 +133,7 @@ describe("fast toggle compatibility", () => {
 describe("thinking level filter", () => {
   test("offers exactly the levels the selected model supports", async () => {
     const user = userEvent.setup()
-    render(<SettingsDialog />)
+    renderWithIntl(<SettingsDialog />)
     await openDialog(user)
 
     // Implementer = claude opus: claude levels.
@@ -159,7 +160,7 @@ describe("concurrency stepper (range 1–12)", () => {
   test("renders the persisted value with stepper arrows and reaches 12", async () => {
     stubSettings({ ...DEFAULT_SETTINGS, maxParallel: 8 })
     const user = userEvent.setup()
-    render(<SettingsDialog />)
+    renderWithIntl(<SettingsDialog />)
     await openDialog(user)
 
     const input = screen.getByLabelText("Max parallel issues") as HTMLInputElement
@@ -182,7 +183,7 @@ describe("concurrency stepper (range 1–12)", () => {
   test("down arrow floors at 1 and then disables (never below 1)", async () => {
     stubSettings({ ...DEFAULT_SETTINGS, maxParallel: 2 })
     const user = userEvent.setup()
-    render(<SettingsDialog />)
+    renderWithIntl(<SettingsDialog />)
     await openDialog(user)
 
     const input = screen.getByLabelText("Max parallel issues") as HTMLInputElement
@@ -196,7 +197,7 @@ describe("concurrency stepper (range 1–12)", () => {
 
   test("a typed out-of-range value is clamped into [1, 12]", async () => {
     const user = userEvent.setup()
-    render(<SettingsDialog />)
+    renderWithIntl(<SettingsDialog />)
     await openDialog(user)
 
     const input = screen.getByLabelText("Max parallel issues") as HTMLInputElement
@@ -207,10 +208,35 @@ describe("concurrency stepper (range 1–12)", () => {
   })
 })
 
+describe("allow risky skills switch", () => {
+  test("renders off by default with the explicit security warning", async () => {
+    const user = userEvent.setup()
+    renderWithIntl(<SettingsDialog />)
+    await openDialog(user)
+
+    const toggle = screen.getByLabelText("Allow risky skills")
+    expect(toggle).not.toBeDisabled()
+    expect(toggle).toHaveAttribute("data-state", "unchecked")
+    expect(screen.getByText(/no longer guarantees the project's security/i)).toBeInTheDocument()
+  })
+
+  test("reflects a persisted true value and toggles in the draft", async () => {
+    stubSettings({ ...DEFAULT_SETTINGS, allowUnsafeSkills: true })
+    const user = userEvent.setup()
+    renderWithIntl(<SettingsDialog />)
+    await openDialog(user)
+
+    const toggle = screen.getByLabelText("Allow risky skills")
+    expect(toggle).toHaveAttribute("data-state", "checked")
+    await user.click(toggle)
+    expect(toggle).toHaveAttribute("data-state", "unchecked")
+  })
+})
+
 describe("save guard", () => {
   test("Save is enabled for a valid default document", async () => {
     const user = userEvent.setup()
-    render(<SettingsDialog />)
+    renderWithIntl(<SettingsDialog />)
     await openDialog(user)
     expect(screen.getByRole("button", { name: "Save" })).not.toBeDisabled()
   })
@@ -222,9 +248,10 @@ describe("save guard", () => {
       implementer: { provider: "claude", model: "claude-opus-4-8", effort: "xhigh", fast: false },
       reviewer: { provider: "claude", model: "claude-opus-4-7", effort: "high", fast: false },
       maxParallel: 1,
+      allowUnsafeSkills: false,
     })
     const user = userEvent.setup()
-    render(<SettingsDialog />)
+    renderWithIntl(<SettingsDialog />)
     await openDialog(user)
     expect(screen.getByRole("button", { name: "Save" })).toBeDisabled()
     expect(screen.getByText(/must run different agents/i)).toBeInTheDocument()

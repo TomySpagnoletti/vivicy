@@ -1,7 +1,7 @@
 import { rmSync } from "node:fs"
 import path from "node:path"
 
-import { expect, test } from "@playwright/test"
+import { expect, test } from "./browser-issues"
 
 import { onboardScaffoldParent, RUNTIME_DIR } from "../playwright.config"
 

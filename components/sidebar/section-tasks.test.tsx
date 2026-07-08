@@ -1,13 +1,14 @@
-import { render, screen, within } from "@testing-library/react"
+import { screen, within } from "@testing-library/react"
 import { describe, expect, test } from "vitest"
 
 import { SectionTasks } from "@/components/sidebar/section-tasks"
 import { TranscriptProvider } from "@/components/transcript/transcript-modal"
 import type { DevelopmentBlock } from "@/lib/types"
+import { renderWithIntl } from "@/test/render"
 
 /** SectionTasks renders TranscriptRefs, which needs the transcript context. */
 function renderTasks(development: DevelopmentBlock | undefined) {
-  return render(
+  return renderWithIntl(
     <TranscriptProvider>
       <SectionTasks development={development} />
     </TranscriptProvider>

@@ -1,9 +1,10 @@
-import { render, screen } from "@testing-library/react"
+import { screen } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest"
 
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { SetupBar } from "@/components/project/setup-bar"
+import { renderWithIntl } from "@/test/render"
 
 /**
  * The persistent "Talk to Vivi" affordance (B8.1): once a project is resolved, SetupBar
@@ -50,7 +51,7 @@ describe("SetupBar — Talk to Vivi", () => {
     const user = userEvent.setup()
     // app/layout.tsx wraps the tree in TooltipProvider; mirror that so SetupBar's
     // tooltip triggers have their required provider ancestor.
-    render(
+    renderWithIntl(
       <TooltipProvider>
         <SetupBar onProjectChanged={vi.fn()} />
       </TooltipProvider>

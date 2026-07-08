@@ -1,9 +1,10 @@
-import { act, render, screen, waitFor, within } from "@testing-library/react"
+import { act, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest"
 
 import { NotificationBell } from "@/components/notifications/notification-bell"
 import type { Notification } from "@/lib/notifications"
+import { renderWithIntl } from "@/test/render"
 
 // Minimal EventSource fake so the bell can subscribe to the SSE status stream
 // in jsdom, mirroring components/sidebar/process-control-bar.test.tsx.
@@ -31,13 +32,17 @@ const IDLE_STATUS = {
   gates: { pass: 0, fail: 0 },
 }
 
+// stage/event have no messages/en/notifications.json entry on purpose: these
+// fixtures assert on arbitrary opaque `message` text (dismiss/list mechanics),
+// which only stays honest when notificationText has nothing to translate and
+// falls back to the raw stored message, exactly like a real unmapped event.
 function rows(...overrides: Array<Partial<Notification>>): Notification[] {
   return overrides.map((o, i) => ({
     id: `test-id-${i}`,
     ts: `2026-07-02T10:0${i}:00Z`,
     level: "info",
-    stage: "extract",
-    event: "green",
+    stage: "test",
+    event: "custom",
     message: `notification ${i}`,
     ...o,
   }))
@@ -78,7 +83,7 @@ afterEach(() => {
 describe("NotificationBell — unread count", () => {
   test("shows no badge when there are no notifications", async () => {
     vi.stubGlobal("fetch", stubFetch([]))
-    render(<NotificationBell />)
+    renderWithIntl(<NotificationBell />)
     await waitFor(() => expect(screen.getByRole("button", { name: "Notifications" })).toBeInTheDocument())
     expect(screen.queryByLabelText(/unread notification/)).toBeNull()
   })
@@ -88,13 +93,13 @@ describe("NotificationBell — unread count", () => {
       "fetch",
       stubFetch(rows({}, { dismissed: true }, {}))
     )
-    render(<NotificationBell />)
+    renderWithIntl(<NotificationBell />)
     await waitFor(() => expect(screen.getByLabelText("2 unread notifications")).toBeInTheDocument())
   })
 
   test("singular wording for exactly one unread", async () => {
     vi.stubGlobal("fetch", stubFetch(rows({})))
-    render(<NotificationBell />)
+    renderWithIntl(<NotificationBell />)
     await waitFor(() => expect(screen.getByLabelText("1 unread notification")).toBeInTheDocument())
   })
 })
@@ -103,7 +108,7 @@ describe("NotificationBell — SSE reactivity", () => {
   test("a status-signature change on the stream triggers an immediate refetch", async () => {
     const fetchMock = stubFetch([])
     vi.stubGlobal("fetch", fetchMock)
-    render(<NotificationBell />)
+    renderWithIntl(<NotificationBell />)
     await waitFor(() => expect(screen.getByRole("button", { name: "Notifications" })).toBeInTheDocument())
 
     const countGets = () =>
@@ -125,7 +130,7 @@ describe("NotificationBell — SSE reactivity", () => {
   test("an identical signature does not refetch (no churn on every poll tick)", async () => {
     const fetchMock = stubFetch([])
     vi.stubGlobal("fetch", fetchMock)
-    render(<NotificationBell />)
+    renderWithIntl(<NotificationBell />)
     await waitFor(() => expect(screen.getByRole("button", { name: "Notifications" })).toBeInTheDocument())
 
     const countGets = () =>
@@ -145,7 +150,7 @@ describe("NotificationBell — opening the center + dismiss flow", () => {
   test("clicking the bell opens the sheet listing newest-first", async () => {
     const user = userEvent.setup()
     vi.stubGlobal("fetch", stubFetch(rows({ message: "first" }, { message: "second" })))
-    render(<NotificationBell />)
+    renderWithIntl(<NotificationBell />)
     await waitFor(() => expect(screen.getByLabelText("2 unread notifications")).toBeInTheDocument())
 
     await user.click(screen.getByRole("button", { name: "Notifications" }))
@@ -161,7 +166,7 @@ describe("NotificationBell — opening the center + dismiss flow", () => {
       rows({ id: "keep-1", message: "keep me" }, { id: "bye-2", message: "dismiss me" })
     )
     vi.stubGlobal("fetch", fetchMock)
-    render(<NotificationBell />)
+    renderWithIntl(<NotificationBell />)
     await waitFor(() => expect(screen.getByLabelText("2 unread notifications")).toBeInTheDocument())
 
     await user.click(screen.getByRole("button", { name: "Notifications" }))
@@ -185,7 +190,7 @@ describe("NotificationBell — opening the center + dismiss flow", () => {
     const user = userEvent.setup()
     const fetchMock = stubFetch(rows({}, {}, {}))
     vi.stubGlobal("fetch", fetchMock)
-    render(<NotificationBell />)
+    renderWithIntl(<NotificationBell />)
     await waitFor(() => expect(screen.getByLabelText("3 unread notifications")).toBeInTheDocument())
 
     await user.click(screen.getByRole("button", { name: "Notifications" }))

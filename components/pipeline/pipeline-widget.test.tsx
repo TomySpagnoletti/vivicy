@@ -1,9 +1,11 @@
 import { act, render, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
+import { NextIntlClientProvider } from "next-intl"
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest"
 
 import { PipelineWidget } from "@/components/pipeline/pipeline-widget"
 import { TooltipProvider } from "@/components/ui/tooltip"
+import pipeline from "@/messages/en/pipeline.json"
 
 // Minimal EventSource fake so the widget can subscribe to the SSE status stream
 // in jsdom, mirroring components/sidebar/process-control-bar.test.tsx.
@@ -31,11 +33,14 @@ const IDLE_STATUS = {
   gates: { pass: 0, fail: 0 },
 }
 
-function stubFetch(extractionStatus: unknown = null) {
+function stubFetch(extractionStatus: unknown = null, skillsReport: unknown = null) {
   return vi.fn<typeof fetch>(async (input) => {
     const url = String(input)
     if (url.includes("/api/control/extract") && !url.includes("retry-stage")) {
       return new Response(JSON.stringify({ ok: true, status: extractionStatus }), { status: 200 })
+    }
+    if (url.includes("/api/control/skills")) {
+      return new Response(JSON.stringify({ ok: true, report: skillsReport }), { status: 200 })
     }
     if (url.includes("/api/control/retry-stage")) {
       return new Response(JSON.stringify({ ok: true, summary: "green" }), { status: 200 })
@@ -57,18 +62,20 @@ afterEach(() => {
 
 function renderWidget() {
   return render(
-    <TooltipProvider>
-      <PipelineWidget />
-    </TooltipProvider>
+    <NextIntlClientProvider locale="en" messages={{ pipeline }}>
+      <TooltipProvider>
+        <PipelineWidget />
+      </TooltipProvider>
+    </NextIntlClientProvider>
   )
 }
 
 describe("PipelineWidget — renders the full §3 stage strip", () => {
-  test("renders all 13 stages, expanded while active", async () => {
+  test("renders all 14 stages (incl. SK), expanded while active", async () => {
     renderWidget()
     await act(() => FakeEventSource.last?.emit({ ...IDLE_STATUS, run_active: true, issues_total: 8, issues_done: 2 }))
 
-    for (const id of ["S0", "S1", "S2", "S3", "S4", "S5", "S6", "S7", "S8", "S9", "S10", "S11", "S12"]) {
+    for (const id of ["S0", "S1", "S2", "S3", "S4", "S5", "S6", "S7", "SK", "S8", "S9", "S10", "S11", "S12"]) {
       await waitFor(() => expect(document.querySelector(`[data-stage="${id}"]`)).toBeTruthy())
     }
   })
@@ -120,6 +127,21 @@ describe("PipelineWidget — state classes reflect the derived truth", () => {
     )
   })
 
+  test("SK reflects the skills report: running while auditing, red on failed", async () => {
+    vi.stubGlobal("fetch", stubFetch({ phase: "green" }, { phase: "auditing" }))
+    renderWidget()
+    await act(() => FakeEventSource.last?.emit({ ...IDLE_STATUS, run_active: true }))
+    await waitFor(() =>
+      expect(document.querySelector('[data-stage="SK"]')).toHaveAttribute("data-stage-state", "running")
+    )
+
+    vi.stubGlobal("fetch", stubFetch({ phase: "green" }, { phase: "failed" }))
+    await act(() => FakeEventSource.last?.emit({ ...IDLE_STATUS, run_active: true }))
+    await waitFor(() =>
+      expect(document.querySelector('[data-stage="SK"]')).toHaveAttribute("data-stage-state", "red")
+    )
+  })
+
   test("a failing gate mid-run carries data-stage-state=red on S9", async () => {
     vi.stubGlobal("fetch", stubFetch({ phase: "green" }))
     renderWidget()
@@ -161,6 +183,26 @@ describe("PipelineWidget — retry confirm flow", () => {
     const retryCall = fetchMock.mock.calls.find((c) => String(c[0]).includes("/api/control/retry-stage"))
     expect(retryCall?.[1]).toMatchObject({ method: "POST" })
     expect(JSON.parse((retryCall?.[1] as RequestInit).body as string)).toEqual({ stage: "extract" })
+  })
+
+  test("confirming Retry on SK POSTs retry-stage with stage=skills", async () => {
+    const user = userEvent.setup()
+    const fetchMock = stubFetch(null, { phase: "failed", summary: "1 audit failed" })
+    vi.stubGlobal("fetch", fetchMock)
+    renderWidget()
+    await act(() => FakeEventSource.last?.emit({ ...IDLE_STATUS, run_active: true }))
+    await waitFor(() => expect(screen.getByRole("button", { name: "Retry SK" })).toBeInTheDocument())
+
+    await user.click(screen.getByRole("button", { name: "Retry SK" }))
+    const dialog = await screen.findByRole("alertdialog")
+    expect(within(dialog).getByText(/Retry Skills\?/)).toBeInTheDocument()
+    await user.click(within(dialog).getByRole("button", { name: "Retry" }))
+
+    await waitFor(() => {
+      const retryCall = fetchMock.mock.calls.find((c) => String(c[0]).includes("/api/control/retry-stage"))
+      expect(retryCall).toBeTruthy()
+      expect(JSON.parse((retryCall?.[1] as RequestInit).body as string)).toEqual({ stage: "skills" })
+    })
   })
 
   test("cancelling the confirm dialog fires no fetch to retry-stage", async () => {

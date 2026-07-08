@@ -95,6 +95,7 @@ describe("help + unknown verb", () => {
     assert.equal(r.code, 0);
     assert.match(r.out, /vivicy status/);
     assert.match(r.out, /vivicy retry-stage/);
+    assert.match(r.out, /vivicy skills/);
   });
 
   test("no args exits 2 (usage) and prints help", () => {
@@ -268,13 +269,13 @@ describe("retry-stage", () => {
     assert.equal(r.code, 2);
     assert.equal(r.json.ok, false);
     assert.equal(r.json.code, "unsupported_stage");
-    assert.deepEqual(r.json.supported, ["extract", "dev"]);
+    assert.deepEqual(r.json.supported, ["extract", "skills", "dev"]);
   });
 
   test("no stage given exits 2 with the supported list", () => {
     const r = runCli(["retry-stage", "--json"]);
     assert.equal(r.code, 2);
-    assert.deepEqual(r.json.supported, ["extract", "dev"]);
+    assert.deepEqual(r.json.supported, ["extract", "skills", "dev"]);
   });
 });
 
@@ -301,6 +302,129 @@ describe("notifications --json", () => {
     assert.equal(r.json.notifications.length, 2);
     assert.equal(r.json.notifications[0].event, "green");
     assert.equal(r.json.notifications[1].stage, "dev");
+  });
+});
+
+// ── skills report read + install via a STUB FACTORY ─────────────────────────
+describe("skills verbs", () => {
+  function writeSkillsReport(dir: string, report: Record<string, unknown>): void {
+    writeFileSync(
+      join(dir, ".vivicy/development/reports/skills-report.json"),
+      JSON.stringify({ updated_at: "2026-07-04T09:00:00Z", ...report })
+    );
+  }
+
+  test("skills --json prints the report verbatim, exit 0 on green", () => {
+    writeSkillsReport(target, {
+      phase: "green",
+      baseline_id: "baseline-v1.0.0",
+      mode: "auto",
+      installed: [{ id: "acme/tools@lint", source: "skills.sh", skill: "lint", name: "Lint", official: true, security_waived: false, audits: [{ provider: "socket", status: "pass" }], reason: "spec requires linting" }],
+      rejected: [{ id: "acme/tools@risky", reason: "audit failed" }],
+      summary: "1 skill installed, 1 rejected",
+    });
+    const r = runCli(["skills", "--dir", target, "--json"]);
+    assert.equal(r.code, 0);
+    assert.equal(r.json.ok, true);
+    assert.equal(r.json.report.phase, "green");
+    assert.equal(r.json.report.mode, "auto");
+    assert.equal(r.json.report.installed[0].id, "acme/tools@lint");
+    assert.equal(r.json.report.rejected[0].reason, "audit failed");
+  });
+
+  test("skills --json exits 1 (refusal) when the last install failed", () => {
+    writeSkillsReport(target, { phase: "failed", mode: "auto", installed: [], rejected: [], summary: "installer died" });
+    const r = runCli(["skills", "--dir", target, "--json"]);
+    assert.equal(r.code, 1);
+    assert.equal(r.json.ok, false);
+    assert.equal(r.json.report.phase, "failed");
+  });
+
+  test("skills --json with no report is an honest null, exit 0", () => {
+    const r = runCli(["skills", "--dir", target, "--json"]);
+    assert.equal(r.code, 0);
+    assert.deepEqual(r.json, { ok: true, report: null });
+  });
+
+  test("skills with no target is a usage error (exit 2)", () => {
+    const r = runCli(["skills", "--json"], { env: { VIVICY_TARGET_ROOT: "" } });
+    assert.equal(r.code, 2);
+    assert.equal(r.json.code, "missing_target");
+  });
+
+  describe("skills install against a stub factory", () => {
+    let stubFactory: string;
+    before(() => {
+      stubFactory = mkdtempSync(join(tmpdir(), "vivicy-stub-skills-"));
+      // install-skills.ts stub: reproduces the real script's OBSERVABLE contract —
+      // reads --ids (explicit mode) or none (auto), writes skills-report.json with
+      // the phase named by STUB_SKILLS_PHASE, exit 0 on green/skipped else 1.
+      writeFileSync(
+        join(stubFactory, "install-skills.ts"),
+        [
+          "import { mkdirSync, writeFileSync } from 'node:fs';",
+          "import { join } from 'node:path';",
+          "const root = process.env.VIVICY_TARGET_ROOT;",
+          "const phase = process.env.STUB_SKILLS_PHASE || 'green';",
+          "const idsFlag = process.argv.indexOf('--ids');",
+          "const ids = idsFlag >= 0 ? process.argv[idsFlag + 1].split(',') : [];",
+          "const mode = ids.length > 0 ? 'explicit' : 'auto';",
+          "const dir = join(root, '.vivicy/development/reports');",
+          "mkdirSync(dir, { recursive: true });",
+          "const installed = ids.map((id) => ({ id, source: 'skills.sh', skill: id, name: id, official: false, security_waived: false, audits: [{ provider: 'stub', status: 'pass' }], reason: 'requested' }));",
+          "writeFileSync(join(dir, 'skills-report.json'), JSON.stringify({ phase, baseline_id: 'baseline-v1.0.0', mode, installed, rejected: [], summary: `${phase}: ${installed.length} skill(s)`, updated_at: new Date().toISOString() }));",
+          "console.log(`skills ${phase}`);",
+          "process.exit(phase === 'green' || phase === 'skipped' ? 0 : 1);",
+        ].join("\n")
+      );
+    });
+    after(() => rmSync(stubFactory, { recursive: true, force: true }));
+
+    test("auto mode green: exit 0, mode auto", () => {
+      const r = runCli(["skills", "install", "--dir", target, "--json"], {
+        env: { VIVICY_FACTORY_ROOT: stubFactory, STUB_SKILLS_PHASE: "green" },
+      });
+      assert.equal(r.code, 0);
+      assert.equal(r.json.ok, true);
+      assert.equal(r.json.phase, "green");
+      assert.equal(r.json.mode, "auto");
+    });
+
+    test("explicit ids ride --ids and surface mode explicit", () => {
+      const r = runCli(["skills", "install", "acme/a@x", "acme/b@y", "--dir", target, "--json"], {
+        env: { VIVICY_FACTORY_ROOT: stubFactory, STUB_SKILLS_PHASE: "green" },
+      });
+      assert.equal(r.code, 0);
+      assert.equal(r.json.mode, "explicit");
+      assert.deepEqual(r.json.installed.map((s: { id: string }) => s.id), ["acme/a@x", "acme/b@y"]);
+    });
+
+    test("skipped is a clean success (exit 0)", () => {
+      const r = runCli(["skills", "install", "--dir", target, "--json"], {
+        env: { VIVICY_FACTORY_ROOT: stubFactory, STUB_SKILLS_PHASE: "skipped" },
+      });
+      assert.equal(r.code, 0);
+      assert.equal(r.json.ok, true);
+      assert.equal(r.json.phase, "skipped");
+    });
+
+    test("failed install is a refusal (exit 1)", () => {
+      const r = runCli(["skills", "install", "--dir", target, "--json"], {
+        env: { VIVICY_FACTORY_ROOT: stubFactory, STUB_SKILLS_PHASE: "failed" },
+      });
+      assert.equal(r.code, 1);
+      assert.equal(r.json.ok, false);
+      assert.equal(r.json.phase, "failed");
+    });
+
+    test("retry-stage skills dispatches to the installer (parity with the API)", () => {
+      const r = runCli(["retry-stage", "skills", "--dir", target, "--json"], {
+        env: { VIVICY_FACTORY_ROOT: stubFactory, STUB_SKILLS_PHASE: "green" },
+      });
+      assert.equal(r.code, 0);
+      assert.equal(r.json.phase, "green");
+      assert.equal(r.json.mode, "auto");
+    });
   });
 });
 

@@ -1,6 +1,7 @@
 "use client"
 
 import { Search } from "lucide-react"
+import { useTranslations } from "next-intl"
 
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -15,11 +16,11 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import type { ArchitectureMapData, ViewMode } from "@/lib/types"
 
 const SCOPES = [
-  { value: "all", label: "All" },
-  { value: "mvp", label: "MVP" },
-  { value: "present", label: "Present" },
-  { value: "future", label: "Future" },
-]
+  { value: "all", labelKey: "scopeAll" },
+  { value: "mvp", labelKey: "scopeMvp" },
+  { value: "present", labelKey: "scopePresent" },
+  { value: "future", labelKey: "scopeFuture" },
+] as const
 
 /**
  * Filters section: the Target/Progress view toggle, a search input, and the
@@ -51,13 +52,14 @@ export function SectionFilters({
   scopeFilter: string
   onScopeFilterChange: (scope: string) => void
 }) {
+  const t = useTranslations("sidebar.filters")
   const lanes = data.lanes ?? []
   const statuses = Object.keys(data.statusLegend ?? {})
 
   return (
     <div className="flex flex-col gap-3 text-xs">
       <div className="flex flex-col gap-1.5">
-        <p className="text-xs font-medium text-muted-foreground">View</p>
+        <p className="text-xs font-medium text-muted-foreground">{t("viewLabel")}</p>
         <ToggleGroup
           type="single"
           value={view}
@@ -67,14 +69,14 @@ export function SectionFilters({
           variant="outline"
           size="sm"
           spacing={0}
-          aria-label="Map view"
+          aria-label={t("viewAriaLabel")}
           className="w-full"
         >
           <ToggleGroupItem value="target" className="flex-1">
-            Target
+            {t("viewTarget")}
           </ToggleGroupItem>
           <ToggleGroupItem value="progress" className="flex-1">
-            Progress
+            {t("viewProgress")}
           </ToggleGroupItem>
         </ToggleGroup>
       </div>
@@ -84,7 +86,7 @@ export function SectionFilters({
           htmlFor="map-search"
           className="text-xs font-medium text-muted-foreground"
         >
-          Search
+          {t("searchLabel")}
         </Label>
         <div className="relative">
           <Search
@@ -96,7 +98,7 @@ export function SectionFilters({
             type="search"
             value={query}
             onChange={(e) => onQueryChange(e.target.value)}
-            placeholder="node, tech, protocol, source…"
+            placeholder={t("searchPlaceholder")}
             className="pr-2 pl-7"
           />
         </div>
@@ -107,14 +109,14 @@ export function SectionFilters({
           htmlFor="filter-lane"
           className="text-xs font-medium text-muted-foreground"
         >
-          Lane
+          {t("laneLabel")}
         </Label>
         <Select value={laneFilter} onValueChange={onLaneFilterChange}>
           <SelectTrigger id="filter-lane" size="sm" className="w-full">
-            <SelectValue placeholder="All" />
+            <SelectValue placeholder={t("laneAll")} />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">All</SelectItem>
+            <SelectItem value="all">{t("laneAll")}</SelectItem>
             {lanes.map((lane) => (
               <SelectItem key={lane.id} value={lane.id}>
                 {lane.label}
@@ -129,14 +131,14 @@ export function SectionFilters({
           htmlFor="filter-status"
           className="text-xs font-medium text-muted-foreground"
         >
-          Status
+          {t("statusLabel")}
         </Label>
         <Select value={statusFilter} onValueChange={onStatusFilterChange}>
           <SelectTrigger id="filter-status" size="sm" className="w-full">
-            <SelectValue placeholder="All" />
+            <SelectValue placeholder={t("statusAll")} />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">All</SelectItem>
+            <SelectItem value="all">{t("statusAll")}</SelectItem>
             {statuses.map((status) => (
               <SelectItem key={status} value={status}>
                 {status.replace(/_/g, " ")}
@@ -151,16 +153,16 @@ export function SectionFilters({
           htmlFor="filter-scope"
           className="text-xs font-medium text-muted-foreground"
         >
-          Scope
+          {t("scopeLabel")}
         </Label>
         <Select value={scopeFilter} onValueChange={onScopeFilterChange}>
           <SelectTrigger id="filter-scope" size="sm" className="w-full">
-            <SelectValue placeholder="All" />
+            <SelectValue placeholder={t("scopeAll")} />
           </SelectTrigger>
           <SelectContent>
             {SCOPES.map((scope) => (
               <SelectItem key={scope.value} value={scope.value}>
-                {scope.label}
+                {t(scope.labelKey)}
               </SelectItem>
             ))}
           </SelectContent>

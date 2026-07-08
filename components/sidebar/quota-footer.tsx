@@ -2,14 +2,17 @@
 
 import { useEffect, useState } from "react"
 import { ChevronDown, ChevronUp } from "lucide-react"
+import { createTranslator, useTranslations } from "next-intl"
 
 import type { AgentQuota, QuotaWindow } from "@/lib/control"
+import { LOCALE } from "@/lib/i18n"
 import { DEFAULT_SETTINGS, type AgentSettings, type AgentsSettings, type Role } from "@/lib/settings"
 import { cn } from "@/lib/utils"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Progress } from "@/components/ui/progress"
 import { Separator } from "@/components/ui/separator"
+import sidebarMessages from "@/messages/en/sidebar.json"
 
 // Maps each dev-loop agent actor to the settings role that configures it; the
 // label + thinking level are derived from those live settings, never hardcoded.
@@ -18,9 +21,13 @@ const AGENT_ROLE: Record<string, Role> = {
   codex: "reviewer",
 }
 
-const WINDOWS: Array<{ key: "5h" | "weekly"; short: string; long: string }> = [
-  { key: "5h", short: "5h", long: "5-hour" },
-  { key: "weekly", short: "wk", long: "Weekly" },
+const WINDOW_KEYS: Array<{
+  key: "5h" | "weekly"
+  shortKey: "windowShort5h" | "windowShortWeekly"
+  longKey: "windowLong5h" | "windowLongWeekly"
+}> = [
+  { key: "5h", shortKey: "windowShort5h", longKey: "windowLong5h" },
+  { key: "weekly", shortKey: "windowShortWeekly", longKey: "windowLongWeekly" },
 ]
 
 // Unknown ids fall back to the raw model string — honest, never fabricated.
@@ -56,6 +63,7 @@ export function QuotaFooter({
 }: {
   settings?: AgentsSettings
 }) {
+  const t = useTranslations("sidebar.quotaFooter")
   const [quota, setQuota] = useState<QuotaState | null>(null)
   const [collapsed, setCollapsed] = useState(readCollapsed)
 
@@ -99,13 +107,13 @@ export function QuotaFooter({
     <div className="flex flex-col gap-2 px-3 py-3">
       <Separator />
       <div className="flex items-center justify-between gap-2">
-        <p className="text-xs font-medium text-muted-foreground">Quota</p>
+        <p className="text-xs font-medium text-muted-foreground">{t("title")}</p>
         {hasAgents ? (
           <Button
             type="button"
             variant="ghost"
             size="icon-sm"
-            aria-label={collapsed ? "Expand quota details" : "Collapse quota details"}
+            aria-label={collapsed ? t("expandAriaLabel") : t("collapseAriaLabel")}
             aria-expanded={!collapsed}
             onClick={toggleCollapsed}
           >
@@ -115,9 +123,7 @@ export function QuotaFooter({
       </div>
 
       {!hasAgents ? (
-        <p className="text-xs text-muted-foreground">
-          Agent quota status appears here once a run is active.
-        </p>
+        <p className="text-xs text-muted-foreground">{t("emptyState")}</p>
       ) : collapsed ? (
         <div className="flex flex-col gap-1">
           {names.map((name) => (
@@ -151,8 +157,8 @@ function agentLabel(config: AgentSettings | undefined, agent: AgentQuota, fallba
 }
 
 /** A window's percentage as "38%" or "—" when the provider exposes no number. */
-function pctText(win: QuotaWindow | undefined): string {
-  return win && typeof win.used_pct === "number" ? `${Math.round(win.used_pct)}%` : "—"
+function pctText(t: ReturnType<typeof useTranslations<"sidebar.quotaFooter">>, win: QuotaWindow | undefined): string {
+  return win && typeof win.used_pct === "number" ? `${Math.round(win.used_pct)}%` : t("unknownPct")
 }
 
 function CollapsedRow({
@@ -164,6 +170,7 @@ function CollapsedRow({
   config?: AgentSettings
   fallbackName: string
 }) {
+  const t = useTranslations("sidebar.quotaFooter")
   const label = agentLabel(config, agent, fallbackName)
   const windows = agent.windows ?? {}
   const throttled = agent.status === "throttled"
@@ -176,10 +183,10 @@ function CollapsedRow({
           throttled ? "font-medium text-destructive" : "text-muted-foreground"
         )}
       >
-        {WINDOWS.map((w, i) => (
+        {WINDOW_KEYS.map((w, i) => (
           <span key={w.key}>
             {i > 0 ? " · " : ""}
-            {w.short} {pctText(windows[w.key])}
+            {t("collapsedWindow", { short: t(w.shortKey), pct: pctText(t, windows[w.key]) })}
           </span>
         ))}
       </span>
@@ -196,6 +203,7 @@ function ExpandedAgent({
   config?: AgentSettings
   fallbackName: string
 }) {
+  const t = useTranslations("sidebar.quotaFooter")
   const label = agentLabel(config, agent, fallbackName)
   const thinking = config?.effort
   const throttled = agent.status === "throttled"
@@ -209,12 +217,12 @@ function ExpandedAgent({
           {thinking ? <span className="text-muted-foreground"> · {thinking}</span> : null}
         </span>
         <Badge variant={throttled ? "destructive" : "secondary"}>
-          {throttled ? "throttled" : "available"}
+          {throttled ? t("throttled") : t("available")}
         </Badge>
       </div>
       <div className="flex flex-col gap-1.5">
-        {WINDOWS.map((w) => (
-          <WindowBar key={w.key} label={w.long} win={windows[w.key]} throttled={throttled} />
+        {WINDOW_KEYS.map((w) => (
+          <WindowBar key={w.key} label={t(w.longKey)} win={windows[w.key]} throttled={throttled} />
         ))}
       </div>
     </div>
@@ -232,6 +240,7 @@ function WindowBar({
   win: QuotaWindow | undefined
   throttled: boolean
 }) {
+  const t = useTranslations("sidebar.quotaFooter")
   const hasPct = win && typeof win.used_pct === "number"
   return (
     <div className="flex flex-col gap-1">
@@ -245,7 +254,7 @@ function WindowBar({
               throttled ? "font-medium text-destructive" : "text-foreground"
             )}
           >
-            {pctText(win)}
+            {pctText(t, win)}
           </span>
         </div>
       </div>
@@ -269,6 +278,10 @@ function ResetCountdown({ resetAt }: { resetAt: string | null }) {
   return <span className="tabular-nums text-muted-foreground">{label}</span>
 }
 
+// A standalone translator (not the useTranslations hook) since formatReset is a
+// pure function unit-tested outside any component render.
+const formatResetT = createTranslator({ locale: LOCALE, messages: sidebarMessages, namespace: "quotaFooter" })
+
 /** ISO reset time -> "resets in 2h14" / "resets in 45m"; null when past/unknown. */
 export function formatReset(resetAt: string | null, nowMs: number): string | null {
   if (!resetAt) return null
@@ -278,7 +291,7 @@ export function formatReset(resetAt: string | null, nowMs: number): string | nul
   const hours = Math.floor(totalMinutes / 60)
   const minutes = totalMinutes % 60
   if (hours > 0) {
-    return `resets in ${hours}h${String(minutes).padStart(2, "0")}`
+    return formatResetT("resetInHours", { hours, minutes: String(minutes).padStart(2, "0") })
   }
-  return `resets in ${minutes}m`
+  return formatResetT("resetInMinutes", { minutes })
 }

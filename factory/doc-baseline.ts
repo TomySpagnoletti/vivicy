@@ -10,6 +10,7 @@ import {
 } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { pruneGitkeeps } from "../lib/skeleton.ts";
 
 const scriptPath = fileURLToPath(import.meta.url);
 const scriptDir = dirname(scriptPath);
@@ -207,6 +208,7 @@ function generate(args: ParsedArgs): void {
 
   mkdirSync(dirname(absoluteOutPath), { recursive: true });
   writeFileSync(absoluteOutPath, `${stableJson(manifest)}\n`);
+  pruneGitkeeps(repoRoot);
 
   // At most one active frozen baseline may exist at any time.
   if (status === "frozen") {

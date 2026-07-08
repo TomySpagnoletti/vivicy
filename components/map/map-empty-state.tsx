@@ -2,6 +2,7 @@
 
 import { useState } from "react"
 import { FileUp, FolderSearch, MapPin, TriangleAlert, Workflow } from "lucide-react"
+import { useTranslations } from "next-intl"
 
 import { Button } from "@/components/ui/button"
 import {
@@ -51,6 +52,7 @@ export function MapEmptyState({
   /** The last extract failure, if any — highlights Import when it's empty-canonical. */
   extractError?: { message: string; code?: string } | null
 }) {
+  const t = useTranslations("map")
   const copy = COPY[reason]
   const Icon = copy.icon
   // Extract and Import both only make sense once a target is resolved.
@@ -70,8 +72,8 @@ export function MapEmptyState({
           >
             <Icon className="size-5" />
           </span>
-          <CardTitle>{copy.title}</CardTitle>
-          <CardDescription className="text-balance">{copy.body}</CardDescription>
+          <CardTitle>{t(copy.titleKey)}</CardTitle>
+          <CardDescription className="text-balance">{t(copy.bodyKey)}</CardDescription>
         </CardHeader>
         {showExtract || showImport ? (
           <CardContent className="flex flex-col items-center gap-3">
@@ -84,7 +86,7 @@ export function MapEmptyState({
             <div className="flex flex-wrap items-center justify-center gap-2">
               {showExtract ? (
                 <Button variant="outline" size="sm" onClick={onExtract} disabled={extracting}>
-                  {extracting ? "Extracting…" : "Extract from docs"}
+                  {extracting ? t("emptyState.extractButtonPending") : t("emptyState.extractButton")}
                 </Button>
               ) : null}
               {showImport ? (
@@ -94,7 +96,7 @@ export function MapEmptyState({
                   onClick={() => setImportOpen(true)}
                 >
                   <FileUp />
-                  Import docs
+                  {t("emptyState.importButton")}
                 </Button>
               ) : null}
             </div>
@@ -113,21 +115,21 @@ export function MapEmptyState({
 
 const COPY: Record<
   MapEmptyReason,
-  { icon: typeof FolderSearch; title: string; body: string }
+  { icon: typeof FolderSearch; titleKey: string; bodyKey: string }
 > = {
   no_target: {
     icon: FolderSearch,
-    title: "No project selected",
-    body: "Vivicy needs a project whose .vivicy/canonical/ holds the canonical spec. Use “Open project” in the top-left to choose the local repository to develop.",
+    titleKey: "emptyState.noTarget.title",
+    bodyKey: "emptyState.noTarget.body",
   },
   no_map: {
     icon: Workflow,
-    title: "No issues extracted yet",
-    body: "Extract reads the frozen canonical spec in .vivicy/canonical/ and authors the full plan — requirements, vertical issues, and the architecture map. Import docs first if the canonical is still empty, or run Extract to generate the graph.",
+    titleKey: "emptyState.noMap.title",
+    bodyKey: "emptyState.noMap.body",
   },
   empty_map: {
     icon: MapPin,
-    title: "Architecture map is empty",
-    body: "A map was generated but it has no nodes yet. Import docs that describe at least one component, then re-run Extract.",
+    titleKey: "emptyState.emptyMap.title",
+    bodyKey: "emptyState.emptyMap.body",
   },
 }

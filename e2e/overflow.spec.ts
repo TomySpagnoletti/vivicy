@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test"
+import { expect, test, type Page } from "./browser-issues"
 
 import { LONG_TARGET_ROOT } from "../playwright.config"
 

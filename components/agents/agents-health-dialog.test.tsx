@@ -1,9 +1,10 @@
-import { render, screen, waitFor, within } from "@testing-library/react"
+import { screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest"
 
 import { AgentsHealthDialog } from "@/components/agents/agents-health-dialog"
 import type { AgentHealth, AgentsHealth } from "@/lib/agents-health-types"
+import { renderWithIntl } from "@/test/render"
 
 /** Build a health snapshot, defaulting both agents to authed subscriptions. */
 function health(overrides?: {
@@ -62,7 +63,7 @@ afterEach(() => {
 
 async function openDialog() {
   const user = userEvent.setup()
-  render(<AgentsHealthDialog />)
+  renderWithIntl(<AgentsHealthDialog />)
   // Wait for the initial health load to settle, then open the modal.
   const trigger = await screen.findByRole("button", { name: "Agent CLI status" })
   await user.click(trigger)

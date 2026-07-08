@@ -1,6 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useTranslations } from "next-intl"
 import {
   Background,
   BackgroundVariant,
@@ -45,6 +46,7 @@ import {
   UNKNOWN_KIND_COLOR,
   type ColorToken,
 } from "@/lib/map-palette"
+import { errorText } from "@/lib/i18n-errors"
 import type {
   ArchitectureMapData,
   MapEdge,
@@ -119,6 +121,8 @@ function ArchitectureMapInner({
   selected,
   onSelect,
 }: ArchitectureMapProps) {
+  const t = useTranslations("map")
+  const tErrors = useTranslations("errors")
   const edgeCounts = useMemo(() => buildEdgeCounts(data.edges), [data.edges])
   const statesByRef = useMemo(
     () => buildGraphStatesByRef(data.development?.graph_item_states),
@@ -482,13 +486,13 @@ function ArchitectureMapInner({
       const payload = {
         nodes: nodeIds.map((id) => {
           const node = nodesById.get(id)
-          if (!node) throw new Error(`Cannot save layout for unknown node ${id}`)
+          if (!node) throw new Error(t("editToolbar.saveFailedUnknownNode", { id }))
           const pos = nodePositions[id] ?? { x: node.layout_x, y: node.layout_y }
           return { id, layout_x: round2(pos.x), layout_y: round2(pos.y) }
         }),
         edgeLabels: labelIds.map((id) => {
           const entry = edgesById.get(id)
-          if (!entry) throw new Error(`Cannot save label layout for unknown edge ${id}`)
+          if (!entry) throw new Error(t("editToolbar.saveFailedUnknownEdge", { id }))
           const { edge, index } = entry
           return {
             index,
@@ -508,7 +512,13 @@ function ArchitectureMapInner({
         body: JSON.stringify(payload),
       })
       if (!response.ok) {
-        throw new Error(await readErrorMessage(response))
+        throw new Error(
+          await readErrorMessage(
+            response,
+            t("editToolbar.saveFailedHttpStatus", { status: response.status }),
+            tErrors
+          )
+        )
       }
       dirtyNodeIdsRef.current.clear()
       dirtyEdgeLabelIdsRef.current.clear()
@@ -517,9 +527,9 @@ function ArchitectureMapInner({
     } catch (error) {
       setLayoutDirty(true)
       setSaveStatus("error")
-      setSaveError(error instanceof Error ? error.message : "Layout save failed.")
+      setSaveError(error instanceof Error ? error.message : t("editToolbar.saveFailedFallback"))
     }
-  }, [edgeLabelRatios, edgesById, nodePositions, nodesById])
+  }, [edgeLabelRatios, edgesById, nodePositions, nodesById, t, tErrors])
 
   // Selection is resolved from the immutable data prop so it survives background
   // refreshes that replace the node/edge objects.
@@ -606,13 +616,9 @@ function ArchitectureMapInner({
             className={`map-edit-toggle${editMode ? " active" : ""}`}
             aria-pressed={editMode}
             onClick={() => setEditMode((on) => !on)}
-            title={
-              editMode
-                ? "Exit layout editing (read-only)"
-                : "Edit layout: drag nodes, cluster titles, and edge labels"
-            }
+            title={editMode ? t("editToolbar.editingTitle") : t("editToolbar.editTitle")}
           >
-            {editMode ? "Editing layout" : "Edit layout"}
+            {editMode ? t("editToolbar.editingLabel") : t("editToolbar.editLabel")}
           </button>
           {showSave ? (
             <button
@@ -622,14 +628,14 @@ function ArchitectureMapInner({
               disabled={saveStatus === "saving" || !layoutDirty}
             >
               {saveStatus === "saving"
-                ? "Saving…"
+                ? t("editToolbar.savingButton")
                 : saveStatus === "error"
-                  ? "Save failed — retry"
-                  : "Save layout"}
+                  ? t("editToolbar.saveFailedButton")
+                  : t("editToolbar.saveButton")}
             </button>
           ) : null}
           {editMode && saveStatus === "saved" ? (
-            <span className="map-save-status">Saved</span>
+            <span className="map-save-status">{t("editToolbar.savedStatus")}</span>
           ) : null}
           {saveStatus === "error" && saveError ? (
             <p className="map-save-error">{saveError}</p>
@@ -663,6 +669,7 @@ function ArchitectureEdge({
   style,
   data,
 }: EdgeProps) {
+  const t = useTranslations("map")
   const { screenToFlowPosition } = useReactFlow()
   const edgeData = data as EdgeData | undefined
   const protocol = edgeData?.protocol ?? ""
@@ -740,7 +747,7 @@ function ArchitectureEdge({
   }
 
   const labelClassSuffix = editable ? " editable nodrag nopan" : " nodrag nopan"
-  const labelTitle = editable ? "Drag to move label · double-click to reset" : "Select edge"
+  const labelTitle = editable ? t("edgeLabel.editableTitle") : t("edgeLabel.selectTitle")
 
   return (
     <>
@@ -817,6 +824,7 @@ function ClusterBackdrops({
   editMode: boolean
   onClusterMove: (clusterId: string, delta: XY, commit: boolean) => void
 }) {
+  const t = useTranslations("map")
   const { zoom } = useViewport()
   const [draggingClusterId, setDraggingClusterId] = useState<string | null>(null)
 
@@ -917,7 +925,7 @@ function ClusterBackdrops({
                   draggingClusterId === group.id ? " dragging" : ""
                 }`}
                 onPointerDown={(event) => startClusterDrag(event, group.id)}
-                title={`Move ${group.label}`}
+                title={t("editToolbar.moveClusterTitle", { clusterLabel: group.label })}
               >
                 {group.label}
               </button>
@@ -974,13 +982,19 @@ function round4(value: number): number {
   return Number(clampRatio(value).toFixed(4))
 }
 
-async function readErrorMessage(response: Response): Promise<string> {
+async function readErrorMessage(
+  response: Response,
+  httpStatusFallback: string,
+  tErrors: ReturnType<typeof useTranslations<"errors">>
+): Promise<string> {
   const text = await response.text()
   try {
-    const parsed = JSON.parse(text) as { error?: string }
-    if (parsed && typeof parsed.error === "string") return parsed.error
+    const parsed = JSON.parse(text) as { error?: string; code?: string }
+    if (parsed && typeof parsed.error === "string") {
+      return parsed.code ? errorText(tErrors, `layoutSave.${parsed.code}`, parsed.error) : parsed.error
+    }
   } catch {
     // Not JSON — fall through to the raw text.
   }
-  return text || `Save failed with HTTP ${response.status}`
+  return text || httpStatusFallback
 }

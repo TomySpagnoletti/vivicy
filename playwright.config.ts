@@ -173,8 +173,14 @@ export default defineConfig({
   retries: 1,
   // A little more headroom than the 30s default for the on-demand-compile first hit.
   timeout: 60_000,
-  reporter: process.env.CI ? "github" : "list",
+  // The browser-issues reporter aggregates the per-test issue attachments from
+  // e2e/browser-issues.ts and fails the run on any non-allowlisted browser error.
+  reporter: [
+    [process.env.CI ? "github" : "list"],
+    ["./e2e/reporters/browser-issues-reporter.ts"],
+  ],
   globalSetup: "./e2e/global-setup.ts",
+  globalTeardown: "./e2e/global-teardown.ts",
   use: {
     // Keep a trace + screenshot on failure across every browser so a cross-browser
     // regression is debuggable from the artifact alone (matches the reference bar).

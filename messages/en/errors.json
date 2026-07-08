@@ -1,0 +1,60 @@
+{
+  "control": {
+    "already_running": "a supervised run is already active",
+    "not_running": "no supervised run is recorded",
+    "missing_script": "path escapes the factory root",
+    "missing_target": "no project selected — choose a target project first",
+    "empty_canonical": "the canonical spec is empty",
+    "spawn_failed": "the script failed to run",
+    "unknown_cr": "unknown change request",
+    "cr_not_decidable": "this change request cannot be decided right now"
+  },
+  "upload": {
+    "no_files": "no files were uploaded",
+    "unsupported_type": "unsupported file type",
+    "zip_unsupported": "could not expand zip",
+    "bad_staging": "unknown staging id",
+    "not_verified": "this upload has not been verified yet",
+    "would_overwrite": "placing these files would overwrite existing ones"
+  },
+  "scaffold": {
+    "not_absolute": "target path must be absolute",
+    "not_a_directory": "target path is not a directory",
+    "invalid_name": "invalid project name",
+    "templates_missing": "Vivicy templates are missing"
+  },
+  "fsBrowse": {
+    "not_absolute": "browse path must be absolute",
+    "not_found": "path does not exist",
+    "not_a_directory": "path is not a directory",
+    "unsafe": "folder name does not resolve to a direct child",
+    "invalid_name": "invalid folder name",
+    "exists": "a file or folder with that name already exists here"
+  },
+  "project": {
+    "not_absolute": "project path must be absolute",
+    "not_found": "path does not exist",
+    "not_a_directory": "path is not a directory"
+  },
+  "layoutSave": {
+    "read_only": "the architecture map is read-only",
+    "no_target": "no project selected — choose a target project first",
+    "no_map": "no architecture map found",
+    "invalid_payload": "the layout save request is malformed",
+    "patch_failed": "could not apply the layout patch",
+    "regen_failed": "the map could not be regenerated"
+  },
+  "route": {
+    "invalid_json_body": "invalid JSON body",
+    "settings_body_not_object": "settings body must be a JSON object",
+    "project_path_required": "a project path is required",
+    "update_agent_body_invalid": "Body must be '{' agent: 'claude' | 'codex' '}'.",
+    "skills_ids_invalid": "ids must be an array of skill id strings",
+    "retry_stage_invalid": "stage is not retryable; supported: {supported}",
+    "notifications_body_invalid": "body must be '{' id: string '}' or '{' all: true '}'",
+    "crs_decide_body_invalid": "body must be '{' id: 'CR-####', decision: 'approved' | 'rejected' '}'",
+    "map_layout_invalid_json": "Request body must be valid JSON.",
+    "map_not_json": "architecture map is not valid JSON",
+    "map_bad_shape": "architecture map has an unexpected shape"
+  }
+}

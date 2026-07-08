@@ -2,8 +2,11 @@
 
 import { useCallback, useEffect, useState } from "react"
 import { FolderPlus } from "lucide-react"
+import { useTranslations } from "next-intl"
 import { toast } from "sonner"
 
+import { BRAND } from "@/lib/brand"
+import { errorText } from "@/lib/i18n-errors"
 import type { CurrentProject, DirListing } from "@/lib/project-types"
 import { Button } from "@/components/ui/button"
 import {
@@ -42,6 +45,8 @@ export function ScaffoldDialog({
   onOpenChange: (open: boolean) => void
   onScaffolded: (project: CurrentProject) => void
 }) {
+  const t = useTranslations("project.scaffoldDialog")
+  const tErrors = useTranslations("errors")
   const [listing, setListing] = useState<DirListing | null>(null)
   const [browserBusy, setBrowserBusy] = useState(false)
   const [scaffolding, setScaffolding] = useState(false)
@@ -87,25 +92,29 @@ export function ScaffoldDialog({
       const body = (await res.json().catch(() => ({}))) as {
         ok?: boolean
         error?: string
+        code?: string
         project?: CurrentProject
       }
       if (!res.ok || body.ok === false || !body.project) {
-        toast.error("Cannot scaffold project", { description: body.error ?? `HTTP ${res.status}` })
+        const fallback = body.error ?? t("toast.httpError", { status: res.status })
+        toast.error(t("toast.errorTitle"), {
+          description: body.code ? errorText(tErrors, `scaffold.${body.code}`, fallback) : fallback,
+        })
         return
       }
-      toast.success("Project scaffolded", {
-        description: `${body.project.root} — write your canonical docs, then extract.`,
+      toast.success(t("toast.successTitle"), {
+        description: t("toast.successDescription", { root: body.project.root }),
       })
       onScaffolded(body.project)
       onOpenChange(false)
     } catch (error) {
-      toast.error("Cannot scaffold project", {
-        description: error instanceof Error ? error.message : "network error",
+      toast.error(t("toast.errorTitle"), {
+        description: error instanceof Error ? error.message : t("toast.networkError"),
       })
     } finally {
       setScaffolding(false)
     }
-  }, [canScaffold, targetDir, name, onScaffolded, onOpenChange])
+  }, [canScaffold, targetDir, name, onScaffolded, onOpenChange, t, tErrors])
 
   const busy = browserBusy || scaffolding
 
@@ -113,11 +122,8 @@ export function ScaffoldDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>Start from scratch</DialogTitle>
-          <DialogDescription>
-            Vivicy scaffolds a new project with the full development method — you
-            write the canonical product spec afterwards.
-          </DialogDescription>
+          <DialogTitle>{t("title")}</DialogTitle>
+          <DialogDescription>{t("description", { brandName: BRAND.name })}</DialogDescription>
         </DialogHeader>
 
         <form
@@ -128,20 +134,20 @@ export function ScaffoldDialog({
           }}
         >
           <div className="flex flex-col gap-1.5">
-            <Label htmlFor="scaffold-name">Project name</Label>
+            <Label htmlFor="scaffold-name">{t("nameLabel")}</Label>
             <Input
               id="scaffold-name"
               value={projectName}
               spellCheck={false}
               autoComplete="off"
-              placeholder="Acme App"
+              placeholder={t("namePlaceholder")}
               disabled={busy}
               onChange={(event) => setProjectName(event.target.value)}
             />
           </div>
 
           <div className="flex flex-col gap-1.5">
-            <Label>Location</Label>
+            <Label>{t("locationLabel")}</Label>
             <FolderBrowser
               open={open}
               disabled={scaffolding}
@@ -151,26 +157,26 @@ export function ScaffoldDialog({
           </div>
 
           <div className="flex flex-col gap-1.5">
-            <Label htmlFor="scaffold-folder">New folder name</Label>
+            <Label htmlFor="scaffold-folder">{t("folderLabel")}</Label>
             <Input
               id="scaffold-folder"
               value={folderName}
               spellCheck={false}
               autoComplete="off"
-              placeholder="acme-app"
+              placeholder={t("folderPlaceholder")}
               disabled={busy || absoluteOverride.trim().length > 0}
               onChange={(event) => setFolderName(event.target.value)}
             />
           </div>
 
           <div className="flex flex-col gap-1.5">
-            <Label htmlFor="scaffold-abs">Or an absolute target path</Label>
+            <Label htmlFor="scaffold-abs">{t("absoluteLabel")}</Label>
             <Input
               id="scaffold-abs"
               value={absoluteOverride}
               spellCheck={false}
               autoComplete="off"
-              placeholder="/Users/you/code/acme-app"
+              placeholder={t("absolutePlaceholder")}
               disabled={busy}
               onChange={(event) => setAbsoluteOverride(event.target.value)}
             />
@@ -178,19 +184,22 @@ export function ScaffoldDialog({
 
           {targetDir.length > 0 ? (
             <p className="text-xs break-all text-muted-foreground">
-              Scaffolds into <span className="text-foreground">{targetDir}</span>
+              {t.rich("targetPreview", {
+                target: (chunks) => <span className="text-foreground">{chunks}</span>,
+                targetDir,
+              })}
             </p>
           ) : null}
 
           <DialogFooter>
             <DialogClose asChild>
               <Button type="button" variant="ghost" size="sm" disabled={scaffolding}>
-                Cancel
+                {t("cancel")}
               </Button>
             </DialogClose>
             <Button type="submit" size="sm" disabled={!canScaffold}>
               <FolderPlus />
-              {scaffolding ? "Scaffolding…" : "Scaffold project"}
+              {scaffolding ? t("submit.scaffolding") : t("submit.idle")}
             </Button>
           </DialogFooter>
         </form>

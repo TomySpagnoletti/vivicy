@@ -52,7 +52,11 @@ export async function GET() {
     parsed = JSON.parse(contents)
   } catch {
     return Response.json(
-      { error: "architecture map is not valid JSON", detail: `Failed to parse ${filePath}.` },
+      {
+        error: "architecture map is not valid JSON",
+        code: "map_not_json",
+        detail: `Failed to parse ${filePath}.`,
+      },
       { status: 422 }
     )
   }
@@ -62,6 +66,7 @@ export async function GET() {
     return Response.json(
       {
         error: "architecture map has an unexpected shape",
+        code: "map_bad_shape",
         detail: `The JSON at ${filePath} is missing a "name" or a "nodes" array.`,
       },
       { status: 422 }

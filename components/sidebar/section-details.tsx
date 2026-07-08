@@ -1,5 +1,7 @@
 "use client"
 
+import { useTranslations } from "next-intl"
+
 import { StatusDot } from "@/components/map/status-dot"
 import { useTranscript } from "@/components/transcript/transcript-modal"
 import { Badge } from "@/components/ui/badge"
@@ -27,12 +29,11 @@ export function SectionDetails({
   selected: SelectedItem
   data: ArchitectureMapData
 }) {
+  const t = useTranslations("sidebar.details")
+
   if (!selected) {
     return (
-      <p className="text-xs text-muted-foreground">
-        Select a node or an edge to inspect protocol, source references, data
-        ownership, and evidence.
-      </p>
+      <p className="text-xs text-muted-foreground">{t("emptyState")}</p>
     )
   }
 
@@ -50,6 +51,7 @@ function NodeDetails({
   node: MapNode
   data: ArchitectureMapData
 }) {
+  const t = useTranslations("sidebar.details")
   const graphRef = node.graph_ref ?? `node:${node.id}`
   const statesByRef = buildGraphStatesByRef(data.development?.graph_item_states)
   const issuesByRef = buildIssuesByGraphRef(data.development?.issues)
@@ -58,6 +60,7 @@ function NodeDetails({
   const status = state?.status ?? node.status ?? "not_started"
   const issues = issuesByRef.get(graphRef) ?? []
   const transcripts = state?.transcript_refs ?? []
+  const unknown = t("unknownValue")
 
   return (
     <div className="flex flex-col gap-3 text-xs">
@@ -69,22 +72,22 @@ function NodeDetails({
       </div>
 
       <dl className="flex flex-col gap-1.5">
-        <Field label="ID" value={node.id} mono />
-        <Field label="Graph ref" value={graphRef} mono />
+        <Field label={t("idLabel")} value={node.id} mono />
+        <Field label={t("graphRefLabel")} value={graphRef} mono />
         <Field
-          label="Edges"
-          value={`${edgeCount} ${edgeCount === 1 ? "edge" : "edges"}`}
+          label={t("edgesLabel")}
+          value={t("edgesValue", { count: edgeCount })}
         />
-        <Field label="Kind" value={node.kind} />
-        <Field label="Lane" value={node.lane || "—"} />
-        <Field label="Scope" value={node.scope ?? "—"} />
-        <Field label="Status" value={status.replace(/_/g, " ")} />
-        <Field label="Tech" value={node.tech ?? "—"} />
-        <Field label="Owns data" value={(node.owns_data ?? []).join(", ") || "—"} />
+        <Field label={t("kindLabel")} value={node.kind} />
+        <Field label={t("laneLabel")} value={node.lane || unknown} />
+        <Field label={t("scopeLabel")} value={node.scope ?? unknown} />
+        <Field label={t("statusLabel")} value={status.replace(/_/g, " ")} />
+        <Field label={t("techLabel")} value={node.tech ?? unknown} />
+        <Field label={t("ownsDataLabel")} value={(node.owns_data ?? []).join(", ") || unknown} />
       </dl>
 
-      <RefBadges label="Source refs" refs={node.source_refs} />
-      <RefBadges label="Evidence refs" refs={node.evidence_refs} />
+      <RefBadges label={t("sourceRefsLabel")} refs={node.source_refs} />
+      <RefBadges label={t("evidenceRefsLabel")} refs={node.evidence_refs} />
       <CoveredBy issues={issues.map((i) => i.id)} />
       <TranscriptRefs refs={transcripts} />
     </div>
@@ -98,6 +101,7 @@ function EdgeDetails({
   edge: MapEdge
   data: ArchitectureMapData
 }) {
+  const t = useTranslations("sidebar.details")
   const graphRef = edgeGraphRef(edge)
   const statesByRef = buildGraphStatesByRef(data.development?.graph_item_states)
   const issuesByRef = buildIssuesByGraphRef(data.development?.issues)
@@ -105,6 +109,7 @@ function EdgeDetails({
   const status = state?.status ?? "not_started"
   const issues = issuesByRef.get(graphRef) ?? []
   const transcripts = state?.transcript_refs ?? []
+  const unknown = t("unknownValue")
 
   return (
     <div className="flex flex-col gap-3 text-xs">
@@ -113,14 +118,14 @@ function EdgeDetails({
       </p>
 
       <dl className="flex flex-col gap-1.5">
-        <Field label="Graph ref" value={graphRef} mono />
-        <Field label="Progress" value={status.replace(/_/g, " ")} />
-        <Field label="Protocol" value={edge.protocol ?? "—"} />
-        <Field label="Relation" value={edge.relation ?? "—"} />
-        <Field label="Data" value={(edge.data ?? []).join(", ") || "—"} />
+        <Field label={t("graphRefLabel")} value={graphRef} mono />
+        <Field label={t("progressLabel")} value={status.replace(/_/g, " ")} />
+        <Field label={t("protocolLabel")} value={edge.protocol ?? unknown} />
+        <Field label={t("relationLabel")} value={edge.relation ?? unknown} />
+        <Field label={t("dataLabel")} value={(edge.data ?? []).join(", ") || unknown} />
       </dl>
 
-      <RefBadges label="Source refs" refs={edge.source_refs} />
+      <RefBadges label={t("sourceRefsLabel")} refs={edge.source_refs} />
       <CoveredBy issues={issues.map((i) => i.id)} />
       <TranscriptRefs refs={transcripts} />
     </div>
@@ -128,11 +133,12 @@ function EdgeDetails({
 }
 
 function CoveredBy({ issues }: { issues: string[] }) {
+  const t = useTranslations("sidebar.details")
   return (
     <div className="flex flex-col gap-1.5">
-      <p className="text-xs font-medium text-muted-foreground">Covered by</p>
+      <p className="text-xs font-medium text-muted-foreground">{t("coveredByLabel")}</p>
       {issues.length === 0 ? (
-        <p className="text-muted-foreground">None yet</p>
+        <p className="text-muted-foreground">{t("noneYet")}</p>
       ) : (
         <ul className="flex flex-wrap gap-1">
           {issues.map((id) => (
@@ -174,11 +180,12 @@ function RefBadges({
 
 /** Clickable transcript refs; each opens the shared transcript modal. */
 export function TranscriptRefs({ refs }: { refs: string[] }) {
+  const t = useTranslations("sidebar.details")
   const { open } = useTranscript()
   if (!refs.length) return null
   return (
     <div className="flex flex-col gap-1.5">
-      <p className="text-xs font-medium text-muted-foreground">Transcripts</p>
+      <p className="text-xs font-medium text-muted-foreground">{t("transcriptsLabel")}</p>
       <div className="flex flex-wrap gap-1">
         {refs.map((ref) => (
           <Button

@@ -21,6 +21,8 @@ import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { findFrozenManifest } from "./extract-issues.ts";
+import { SKILLS_REPORT_REL } from "./install-skills.ts";
 import { resolveTargetRoot } from "./target-root.ts";
 
 const STALL_LIMIT = Number(process.env.DEV_LOOP_STALL_LIMIT ?? "3");
@@ -54,6 +56,20 @@ export function nextSupervisorAction(
   if (attempt >= maxRelaunches) return { action: "max_relaunches" };
   if (stall >= stallLimit) return { action: "stalled" };
   return { action: "relaunch" };
+}
+
+// Pure decision: does the project-skills stage (install-skills.ts, AUTO mode) need to
+// run before issue cycles start? Yes when a frozen baseline exists and the skills
+// report is missing, unsettled, or was produced for a DIFFERENT baseline. No baseline
+// means extraction has not run yet — the stage has nothing to select from.
+export function skillsStageNeeded(
+  baseline: { baselineId: string } | null,
+  report: { phase?: unknown; baseline_id?: unknown } | null,
+): boolean {
+  if (!baseline) return false;
+  if (!report) return true;
+  const settled = report.phase === "green" || report.phase === "skipped";
+  return !settled || report.baseline_id !== baseline.baselineId;
 }
 
 function main() {
@@ -97,6 +113,23 @@ function main() {
     mkdirSync(dirname(statePath), { recursive: true });
     writeFileSync(statePath, `${JSON.stringify({ pid: process.pid, target, progress_root: progressRoot, updated_at: new Date().toISOString(), ...extra }, null, 2)}\n`);
   };
+
+  // Project-skills stage (S-K), before issue cycles: bounded synchronous run of
+  // install-skills.ts in AUTO mode when the report is missing or stale for the active
+  // baseline. NON-FATAL by design: a red skills stage is loud (its own report +
+  // notifications) but never blocks the dev loop — zero skills is legal, and the stage
+  // stays retryable on the next supervised start. Skipped in rehearsal (the fixture
+  // exercises the loop, not the registry).
+  if (!rehearsal) {
+    const skillsReport = readJson(join(repoRoot, SKILLS_REPORT_REL), null) as { phase?: unknown; baseline_id?: unknown } | null;
+    if (skillsStageNeeded(findFrozenManifest(repoRoot), skillsReport)) {
+      process.stdout.write("supervisor: running the project-skills stage (install-skills.ts, auto mode)\n");
+      const skills = spawnSync("node", [join(scriptDir, "install-skills.ts")], { cwd: repoRoot, stdio: "inherit", env: process.env });
+      if ((skills.status ?? 1) !== 0) {
+        process.stdout.write("supervisor: skills stage did not go green (non-fatal, retryable on next start); the dev loop proceeds\n");
+      }
+    }
+  }
 
   const total = totalIssues();
   let attempt = 0;

@@ -1,9 +1,11 @@
 "use client"
 
 import { useCallback, useEffect, useState } from "react"
-import { Settings, Zap } from "lucide-react"
+import { Settings, ShieldAlert, Zap } from "lucide-react"
+import { useTranslations } from "next-intl"
 import { toast } from "sonner"
 
+import { BRAND } from "@/lib/brand"
 import {
   agentDefaultsFor,
   clampMaxParallel,
@@ -51,17 +53,13 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 
-/** Human label for each agent role shown in the dialog. */
-const ROLE_LABEL: Record<Role, string> = {
-  implementer: "Implementer",
-  reviewer: "Reviewer",
-}
-
 /** The opposite role — used to keep the two-CLI assignment distinct. */
 const OTHER_ROLE: Record<Role, Role> = {
   implementer: "reviewer",
   reviewer: "implementer",
 }
+
+const ROLES: Role[] = ["implementer", "reviewer"]
 
 // Agent settings dialog. The schema validators in @/lib/settings are the source
 // of truth; the form mirrors them so an impossible model+CLI+effort+fast combo
@@ -71,6 +69,7 @@ export function SettingsDialog({
 }: {
   onSaved?: (settings: AgentsSettings) => void
 }) {
+  const t = useTranslations("sidebar.settings")
   const [open, setOpen] = useState(false)
   const [draft, setDraft] = useState<AgentsSettings>(DEFAULT_SETTINGS)
   const [loading, setLoading] = useState(false)
@@ -138,24 +137,26 @@ export function SettingsDialog({
         settings?: AgentsSettings
       }
       if (!res.ok || body.ok === false || !body.settings) {
-        toast.error("Save failed", { description: body.error ?? `HTTP ${res.status}` })
+        toast.error(t("toastSaveFailedTitle"), {
+          description: body.error ?? t("toastSaveFailedHttpDescription", { status: res.status }),
+        })
         return
       }
       // Echo the validated document the server actually wrote.
       setDraft(body.settings)
       onSaved?.(body.settings)
-      toast.success("Settings saved", {
-        description: "New runs use the updated agents, models, thinking levels, and fast mode.",
+      toast.success(t("toastSaveSuccessTitle"), {
+        description: t("toastSaveSuccessDescription"),
       })
       setOpen(false)
     } catch (error) {
-      toast.error("Save failed", {
-        description: error instanceof Error ? error.message : "network error",
+      toast.error(t("toastSaveFailedTitle"), {
+        description: error instanceof Error ? error.message : t("networkError"),
       })
     } finally {
       setSaving(false)
     }
-  }, [draft, onSaved])
+  }, [draft, onSaved, t])
 
   const valid = isSettingsValid(draft)
   const distinct = draft.implementer.provider !== draft.reviewer.provider
@@ -163,23 +164,19 @@ export function SettingsDialog({
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button variant="ghost" size="icon-sm" aria-label="Settings">
+        <Button variant="ghost" size="icon-sm" aria-label={t("trigger")}>
           <Settings />
         </Button>
       </DialogTrigger>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Agent settings</DialogTitle>
-          <DialogDescription>
-            Assign each role to an agent CLI, pick its model and thinking level, and
-            optionally turn on fast inference. The implementer and reviewer must be
-            different agents — the reviewer never authored the code.
-          </DialogDescription>
+          <DialogTitle>{t("dialogTitle")}</DialogTitle>
+          <DialogDescription>{t("dialogDescription")}</DialogDescription>
         </DialogHeader>
 
         <TooltipProvider>
           <div className="flex flex-col gap-4">
-            {(Object.keys(ROLE_LABEL) as Role[]).map((role) => (
+            {ROLES.map((role) => (
               <AgentFields
                 key={role}
                 role={role}
@@ -195,9 +192,11 @@ export function SettingsDialog({
               className="flex flex-col gap-2 border border-border p-3"
               disabled={loading || saving}
             >
-              <legend className="px-1 text-xs font-medium text-foreground">Concurrency</legend>
+              <legend className="px-1 text-xs font-medium text-foreground">
+                {t("concurrencyLegend")}
+              </legend>
               <div className="flex flex-col gap-1.5">
-                <Label htmlFor="settings-max-parallel">Max parallel issues</Label>
+                <Label htmlFor="settings-max-parallel">{t("maxParallelLabel")}</Label>
                 <NumberStepper
                   id="settings-max-parallel"
                   min={MIN_PARALLEL}
@@ -206,34 +205,58 @@ export function SettingsDialog({
                   value={draft.maxParallel}
                   onValueChange={setMaxParallel}
                   aria-describedby="settings-max-parallel-help"
-                  aria-label="Max parallel issues"
+                  aria-label={t("maxParallelLabel")}
                   className="w-28"
                 />
                 <p id="settings-max-parallel-help" className="text-xs text-muted-foreground">
-                  Independent issues run at once (1–{MAX_PARALLEL}), each in its own
-                  git worktree (1 = sequential). The batch is spread across different
-                  parts of the map to minimize merge conflicts. Dependent issues
-                  always wait their turn.
+                  {t("maxParallelHelp", { max: MAX_PARALLEL })}
                 </p>
+              </div>
+            </fieldset>
+
+            <fieldset
+              className="flex flex-col gap-2 border border-border p-3"
+              disabled={loading || saving}
+            >
+              <legend className="px-1 text-xs font-medium text-foreground">
+                {t("skillsLegend")}
+              </legend>
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex flex-col gap-0.5">
+                  <Label htmlFor="settings-allow-unsafe-skills" className="flex items-center gap-1.5">
+                    <ShieldAlert className="size-3.5" aria-hidden="true" />
+                    {t("allowRiskySkillsLabel")}
+                  </Label>
+                  <p id="settings-allow-unsafe-skills-help" className="text-xs text-muted-foreground">
+                    {t("allowRiskySkillsHelp", { brandName: BRAND.name })}
+                  </p>
+                </div>
+                <Switch
+                  id="settings-allow-unsafe-skills"
+                  checked={draft.allowUnsafeSkills}
+                  onCheckedChange={(checked) =>
+                    setDraft((prev) => ({ ...prev, allowUnsafeSkills: checked === true }))
+                  }
+                  aria-describedby="settings-allow-unsafe-skills-help"
+                  aria-label={t("allowRiskySkillsLabel")}
+                />
               </div>
             </fieldset>
           </div>
         </TooltipProvider>
 
         {!distinct ? (
-          <p className="text-xs text-destructive">
-            The implementer and reviewer must run different agents.
-          </p>
+          <p className="text-xs text-destructive">{t("distinctError")}</p>
         ) : null}
 
         <DialogFooter>
           <DialogClose asChild>
             <Button variant="outline" disabled={saving}>
-              Cancel
+              {t("cancel")}
             </Button>
           </DialogClose>
           <Button onClick={save} disabled={loading || saving || !valid}>
-            {saving ? "Saving…" : "Save"}
+            {saving ? t("saving") : t("save")}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -256,6 +279,8 @@ function AgentFields({
   onModel: (model: string) => void
   onChange: (patch: Partial<AgentSettings>) => void
 }) {
+  const t = useTranslations("sidebar.settings")
+  const roleLabel = role === "implementer" ? t("roleImplementer") : t("roleReviewer")
   const provider: Provider = agent.provider
   const cliId = `settings-${role}-cli`
   const modelId = `settings-${role}-model`
@@ -271,16 +296,16 @@ function AgentFields({
   const levels = effortsForModel(provider, agent.model)
   const hasEffort = levels.length > 0
   const fastOk = modelSupportsFast(provider, agent.model)
-  const fastDisabledReason = fastReason(provider, agent.model, fastOk)
+  const fastDisabledReason = fastReason(t, provider, agent.model, fastOk)
 
   return (
     <fieldset className="flex flex-col gap-2 border border-border p-3" disabled={disabled}>
-      <legend className="px-1 text-xs font-medium text-foreground">{ROLE_LABEL[role]}</legend>
+      <legend className="px-1 text-xs font-medium text-foreground">{roleLabel}</legend>
 
       <div className="flex flex-col gap-1.5">
-        <Label htmlFor={cliId}>Agent</Label>
+        <Label htmlFor={cliId}>{t("agentLabel")}</Label>
         <Select value={provider} onValueChange={(value) => onAssignCli(value as Provider)}>
-          <SelectTrigger id={cliId} aria-label={`${ROLE_LABEL[role]} agent`}>
+          <SelectTrigger id={cliId} aria-label={t("agentFieldsAriaLabel", { role: roleLabel })}>
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -294,16 +319,16 @@ function AgentFields({
       </div>
 
       <div className="flex flex-col gap-1.5">
-        <Label htmlFor={modelId}>Model</Label>
+        <Label htmlFor={modelId}>{t("modelLabel")}</Label>
         <Select value={agent.model} onValueChange={(value) => onModel(value)}>
-          <SelectTrigger id={modelId} aria-label={`${ROLE_LABEL[role]} model`}>
+          <SelectTrigger id={modelId} aria-label={t("modelFieldsAriaLabel", { role: roleLabel })}>
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
             {modelOptions.map((id) => (
               <SelectItem key={id} value={id}>
                 {id}
-                {!listed.includes(id) ? " (custom)" : ""}
+                {!listed.includes(id) ? t("modelCustomSuffix") : ""}
               </SelectItem>
             ))}
           </SelectContent>
@@ -312,9 +337,9 @@ function AgentFields({
 
       {hasEffort ? (
         <div className="flex flex-col gap-1.5">
-          <Label htmlFor={effortId}>Thinking level</Label>
+          <Label htmlFor={effortId}>{t("thinkingLevelLabel")}</Label>
           <Select value={agent.effort} onValueChange={(value) => onChange({ effort: value })}>
-            <SelectTrigger id={effortId} aria-label={`${ROLE_LABEL[role]} thinking level`}>
+            <SelectTrigger id={effortId} aria-label={t("effortFieldsAriaLabel", { role: roleLabel })}>
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -328,8 +353,7 @@ function AgentFields({
         </div>
       ) : (
         <p className="text-xs text-muted-foreground">
-          {agent.model} has no separate thinking level — it runs at a fixed,
-          low-latency reasoning setting.
+          {t("noEffortLevel", { model: agent.model })}
         </p>
       )}
 
@@ -337,30 +361,32 @@ function AgentFields({
         <div className="flex flex-col gap-0.5">
           <Label htmlFor={fastId} className="flex items-center gap-1.5">
             <Zap className="size-3.5" aria-hidden="true" />
-            Fast mode
+            {t("fastModeLabel")}
           </Label>
-          <p className="text-xs text-muted-foreground">
-            Faster inference — consumes the quota much faster.
-          </p>
+          <p className="text-xs text-muted-foreground">{t("fastModeHelp")}</p>
         </div>
         {fastOk ? (
           <Switch
             id={fastId}
             checked={agent.fast}
             onCheckedChange={(checked) => onChange({ fast: checked === true })}
-            aria-label={`${ROLE_LABEL[role]} fast mode`}
+            aria-label={t("fastModeAriaLabel", { role: roleLabel })}
           />
         ) : (
           <Tooltip>
             <TooltipTrigger asChild>
               {/* A disabled switch swallows pointer events, so wrap it to keep the
                   tooltip reachable on hover/focus. */}
-              <span tabIndex={0} className="inline-flex" aria-label={`${ROLE_LABEL[role]} fast mode unavailable`}>
+              <span
+                tabIndex={0}
+                className="inline-flex"
+                aria-label={t("fastModeUnavailableAriaLabel", { role: roleLabel })}
+              >
                 <Switch
                   id={fastId}
                   checked={false}
                   disabled
-                  aria-label={`${ROLE_LABEL[role]} fast mode`}
+                  aria-label={t("fastModeAriaLabel", { role: roleLabel })}
                 />
               </span>
             </TooltipTrigger>
@@ -373,13 +399,18 @@ function AgentFields({
 }
 
 /** Honest, specific reason a model+CLI cannot offer fast mode. */
-function fastReason(provider: Provider, model: string, fastOk: boolean): string {
+function fastReason(
+  t: ReturnType<typeof useTranslations<"sidebar.settings">>,
+  provider: Provider,
+  model: string,
+  fastOk: boolean
+): string {
   if (fastOk) return ""
   if (provider === "codex" && model === "gpt-5.3-codex-spark") {
-    return "Spark is already a low-latency model — fast mode does not apply."
+    return t("fastReasonSpark")
   }
   if (provider === "claude") {
-    return `Fast mode is only available on Opus 4.6–4.8. ${model} does not support it.`
+    return t("fastReasonClaude", { model })
   }
-  return `${model} does not support fast mode.`
+  return t("fastReasonDefault", { model })
 }

@@ -20,6 +20,7 @@ const NORMALIZED: AgentsSettings = {
   implementer: { provider: "claude", model: "claude-opus-4-8", effort: "xhigh", fast: false },
   reviewer: { provider: "codex", model: "gpt-5.5", effort: "high", fast: false },
   maxParallel: 1,
+  allowUnsafeSkills: false,
 }
 
 function putJson(body: unknown): Request {

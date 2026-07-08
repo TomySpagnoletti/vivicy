@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test"
+import { expect, test } from "./browser-issues"
 
 /**
  * Capture the "Agent CLIs" modal at a fixed 1320x820 so the cleaned version

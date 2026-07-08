@@ -1,10 +1,13 @@
 import type { Metadata } from "next"
 import localFont from "next/font/local"
+import { NextIntlClientProvider } from "next-intl"
+import { getMessages, getTranslations } from "next-intl/server"
 
 import "./globals.css"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { Toaster } from "@/components/ui/sonner"
 import { BRAND } from "@/lib/brand"
+import { LOCALE } from "@/lib/i18n"
 import { cn } from "@/lib/utils"
 
 // Self-hosted Geist (the same fonts shadcn ships with). Loading them locally
@@ -25,19 +28,24 @@ const fontMono = localFont({
   display: "swap",
 })
 
-export const metadata: Metadata = {
-  title: `${BRAND.name} — ${BRAND.tagline}`,
-  description: "Visual architecture map viewer.",
+export async function generateMetadata(): Promise<Metadata> {
+  const t = await getTranslations("common")
+  return {
+    title: t("appTitle", { brandName: BRAND.name, brandTagline: BRAND.tagline }),
+    description: t("appDescription"),
+  }
 }
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode
 }>) {
+  const messages = await getMessages()
+
   return (
     <html
-      lang="en"
+      lang={LOCALE}
       className={cn("antialiased", fontMono.variable, "font-sans", geist.variable)}
       // Browser extensions (LanguageTool's data-lt-installed, Grammarly, etc.)
       // mutate <html>/<body> before React hydrates. suppressHydrationWarning
@@ -46,8 +54,10 @@ export default function RootLayout({
       suppressHydrationWarning
     >
       <body suppressHydrationWarning>
-        <TooltipProvider>{children}</TooltipProvider>
-        <Toaster />
+        <NextIntlClientProvider messages={messages}>
+          <TooltipProvider>{children}</TooltipProvider>
+          <Toaster />
+        </NextIntlClientProvider>
       </body>
     </html>
   )

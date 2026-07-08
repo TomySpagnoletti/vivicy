@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react"
 import { Bell } from "lucide-react"
+import { useTranslations } from "next-intl"
 
 import type { Notification } from "@/lib/notifications"
 import { Badge } from "@/components/ui/badge"
@@ -27,6 +28,7 @@ interface NotificationsResponse {
  * control bar / pipeline widget pattern: each surface subscribes independently.
  */
 export function NotificationBell() {
+  const t = useTranslations("notifications")
   const [notifications, setNotifications] = useState<Notification[]>([])
   const [open, setOpen] = useState(false)
   const mountedRef = useRef(true)
@@ -88,7 +90,7 @@ export function NotificationBell() {
       <Button
         variant="outline"
         size="icon-sm"
-        aria-label="Notifications"
+        aria-label={t("bellAriaLabel")}
         className="relative"
         onClick={() => setOpen(true)}
       >
@@ -97,9 +99,9 @@ export function NotificationBell() {
           <Badge
             variant="destructive"
             className="absolute -top-1.5 -right-1.5 h-4 min-w-4 justify-center px-1 text-[10px]"
-            aria-label={`${unread} unread notification${unread === 1 ? "" : "s"}`}
+            aria-label={t("unreadAriaLabel", { count: unread })}
           >
-            {unread > 99 ? "99+" : unread}
+            {unread > 99 ? t("unreadOverflow") : unread}
           </Badge>
         ) : null}
       </Button>

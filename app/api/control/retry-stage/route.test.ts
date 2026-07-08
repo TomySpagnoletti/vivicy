@@ -5,16 +5,18 @@ import path from "node:path"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 // Mock the control plane so the route never spawns a factory script. `runExtract`
-// backs the `extract` stage; `startSupervisor` backs the `dev` (resume) stage.
-// `ControlError` stays real so the route's `instanceof` check holds.
-const { runExtract, startSupervisor } = vi.hoisted(() => ({
+// backs the `extract` stage; `startSkillsInstall` backs the `skills` stage;
+// `startSupervisor` backs the `dev` (resume) stage. `ControlError` stays real so
+// the route's `instanceof` check holds.
+const { runExtract, startSkillsInstall, startSupervisor } = vi.hoisted(() => ({
   runExtract: vi.fn(),
+  startSkillsInstall: vi.fn(),
   startSupervisor: vi.fn(),
 }))
 
 vi.mock("@/lib/control", async () => {
   const actual = await vi.importActual<typeof import("@/lib/control")>("@/lib/control")
-  return { ...actual, runExtract, startSupervisor }
+  return { ...actual, runExtract, startSkillsInstall, startSupervisor }
 })
 
 vi.mock("@/lib/spawner", () => ({ getSpawner: () => ({}) }))
@@ -90,14 +92,39 @@ describe("POST /api/control/retry-stage", () => {
     expect(runExtract).not.toHaveBeenCalled()
   })
 
+  it("dispatches stage=skills to a detached auto-mode skills install", async () => {
+    startSkillsInstall.mockReturnValue({ pid: 777, mode: "auto", ids: [] })
+
+    const res = await POST(postJson({ stage: "skills" }))
+    expect(res.status).toBe(200)
+    const body = await res.json()
+
+    expect(body).toEqual({ ok: true, stage: "skills", run: { pid: 777, mode: "auto", ids: [] } })
+    expect(startSkillsInstall).toHaveBeenCalledOnce()
+    expect(runExtract).not.toHaveBeenCalled()
+    expect(startSupervisor).not.toHaveBeenCalled()
+  })
+
+  it("maps an already_running skills install to 409", async () => {
+    startSkillsInstall.mockImplementation(() => {
+      throw new ControlError("a skills install is already in flight", "already_running")
+    })
+
+    const res = await POST(postJson({ stage: "skills" }))
+    expect(res.status).toBe(409)
+    const body = await res.json()
+    expect(body.code).toBe("already_running")
+  })
+
   it("rejects an unsupported stage with 400 and the supported list (no fake generality)", async () => {
     const res = await POST(postJson({ stage: "S6" }))
     expect(res.status).toBe(400)
     const body = await res.json()
 
     expect(body.ok).toBe(false)
-    expect(body.supported).toEqual(["extract", "dev"])
+    expect(body.supported).toEqual(["extract", "skills", "dev"])
     expect(runExtract).not.toHaveBeenCalled()
+    expect(startSkillsInstall).not.toHaveBeenCalled()
     expect(startSupervisor).not.toHaveBeenCalled()
   })
 

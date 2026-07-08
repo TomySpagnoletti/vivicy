@@ -1,8 +1,9 @@
-import { act, render, screen, waitFor } from "@testing-library/react"
+import { act, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest"
 
 import { QuotaFooter, formatReset } from "@/components/sidebar/quota-footer"
+import { renderWithIntl } from "@/test/render"
 
 // Minimal EventSource fake so the footer can subscribe in jsdom. We capture the
 // instance to push frames into onmessage as the SSE stream would.
@@ -49,7 +50,7 @@ describe("formatReset", () => {
 
 describe("QuotaFooter — real % where available, honest — where not", () => {
   test("collapsed: REAL Codex percentages, honest — for the unknown weekly", async () => {
-    render(<QuotaFooter />)
+    renderWithIntl(<QuotaFooter />)
     act(() => {
       FakeEventSource.last?.emit({
         quota: {
@@ -91,7 +92,7 @@ describe("QuotaFooter — real % where available, honest — where not", () => {
 
   test("expand/collapse toggles detail and persists the choice", async () => {
     const user = userEvent.setup()
-    render(<QuotaFooter />)
+    renderWithIntl(<QuotaFooter />)
     act(() => {
       FakeEventSource.last?.emit({
         quota: {
@@ -133,7 +134,7 @@ describe("QuotaFooter — real % where available, honest — where not", () => {
 
   test("expanded: a window with a null percentage shows — and NO Progress bar", async () => {
     const user = userEvent.setup()
-    render(<QuotaFooter />)
+    renderWithIntl(<QuotaFooter />)
     act(() => {
       FakeEventSource.last?.emit({
         quota: {
@@ -164,7 +165,7 @@ describe("QuotaFooter — real % where available, honest — where not", () => {
 
   test("throttled agent is highlighted with a destructive badge", async () => {
     const user = userEvent.setup()
-    render(<QuotaFooter />)
+    renderWithIntl(<QuotaFooter />)
     act(() => {
       FakeEventSource.last?.emit({
         quota: {
@@ -191,7 +192,7 @@ describe("QuotaFooter — real % where available, honest — where not", () => {
   })
 
   test("renders a neutral placeholder when no quota is known yet", () => {
-    render(<QuotaFooter />)
+    renderWithIntl(<QuotaFooter />)
     expect(screen.getByText(/Agent quota status appears here/i)).toBeInTheDocument()
     // No toggle button until there is at least one agent.
     expect(screen.queryByRole("button", { name: /quota details/i })).toBeNull()
@@ -199,12 +200,13 @@ describe("QuotaFooter — real % where available, honest — where not", () => {
 
   test("derives each row's model + thinking label from the passed settings", async () => {
     const user = userEvent.setup()
-    render(
+    renderWithIntl(
       <QuotaFooter
         settings={{
           implementer: { provider: "claude", model: "claude-opus-4-8", effort: "max", fast: false },
           reviewer: { provider: "codex", model: "custom-codex-x", effort: "low", fast: false },
           maxParallel: 1,
+          allowUnsafeSkills: false,
         }}
       />
     )

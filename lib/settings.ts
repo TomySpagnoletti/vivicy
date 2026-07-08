@@ -134,6 +134,12 @@ export interface AgentsSettings {
    * back to 1 and a value above 12 is capped at 12.
    */
   maxParallel: number
+  /**
+   * Permit installing a project skill whose security audits show any failure (or
+   * more than one warning), or that has no audit at all. Off by default: with it
+   * on, Vivicy no longer guarantees the project's security.
+   */
+  allowUnsafeSkills: boolean
 }
 
 /** Lower/upper bounds for the concurrency knob (UI + validation share these). */
@@ -149,6 +155,7 @@ export const DEFAULT_SETTINGS: AgentsSettings = {
   implementer: { provider: "claude", model: "claude-opus-4-8", effort: "xhigh", fast: false },
   reviewer: { provider: "codex", model: "gpt-5.5", effort: "high", fast: false },
   maxParallel: 1,
+  allowUnsafeSkills: false,
 } as const
 
 // --------------------------------------------------------------------------
@@ -280,6 +287,8 @@ export function normalizeSettings(input: unknown): AgentsSettings {
     implementer: coerceAgent(raw.implementer, assignment.implementer),
     reviewer: coerceAgent(raw.reviewer, assignment.reviewer),
     maxParallel: clampMaxParallel(raw.maxParallel),
+    // Strict boolean: anything but `true` is the safe default (audits enforced).
+    allowUnsafeSkills: raw.allowUnsafeSkills === true,
   }
 }
 
@@ -360,5 +369,8 @@ export function settingsToEnv(settings: AgentsSettings): Record<string, string> 
     // Max independent issues to run concurrently (1 = sequential default). The
     // dev-loop reads this via DEFAULT_CONFIG.maxParallel and clamps it again.
     VIVICY_MAX_PARALLEL: String(clampMaxParallel(settings.maxParallel)),
+    // Skills audit-gate waiver, "1"/"0" like the fast flags — install-skills.ts
+    // only waives failed/missing security audits when this is "1".
+    VIVICY_ALLOW_UNSAFE_SKILLS: settings.allowUnsafeSkills === true ? "1" : "0",
   }
 }

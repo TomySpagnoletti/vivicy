@@ -23,10 +23,10 @@ function status(overrides: Partial<RunStatus> = {}): RunStatus {
   }
 }
 
-describe("PIPELINE_STAGES — §3 stage list", () => {
-  it("has exactly the 13 stages S0..S12, in order", () => {
+describe("PIPELINE_STAGES — §3 stage list + SK", () => {
+  it("has exactly the 14 stages S0..S12 with SK between S7 and S8, in order", () => {
     expect(PIPELINE_STAGES.map((s) => s.id)).toEqual([
-      "S0", "S1", "S2", "S3", "S4", "S5", "S6", "S7", "S8", "S9", "S10", "S11", "S12",
+      "S0", "S1", "S2", "S3", "S4", "S5", "S6", "S7", "SK", "S8", "S9", "S10", "S11", "S12",
     ])
   })
 
@@ -38,9 +38,14 @@ describe("PIPELINE_STAGES — §3 stage list", () => {
     expect(sides.S12).toBe("dev_loop")
   })
 
-  it("assigns the honest G14 retry set (S6 extract, S9 dev) and nothing else", () => {
+  it("assigns the honest G14 retry set (S6 extract, SK skills, S9 dev) and nothing else", () => {
     const retryable = PIPELINE_STAGES.filter((s) => s.retryStage).map((s) => s.id)
-    expect(retryable).toEqual(["S6", "S9"])
+    expect(retryable).toEqual(["S6", "SK", "S9"])
+    expect(PIPELINE_STAGES.find((s) => s.id === "SK")?.retryStage).toBe("skills")
+  })
+
+  it("carries no display label — those live in the pipeline message catalog", () => {
+    expect(PIPELINE_STAGES.every((s) => !("label" in s))).toBe(true)
   })
 
   it("maps P8 stage typing per §3", () => {
@@ -54,6 +59,7 @@ describe("PIPELINE_STAGES — §3 stage list", () => {
       S5: "mixed",
       S6: "agent",
       S7: "mixed",
+      SK: "mixed",
       S8: "agent",
       S9: "agent",
       S10: "mixed",
@@ -161,6 +167,30 @@ describe("deriveStageStates — honest state truth, no fake progress", () => {
       { phase: "green" }
     )
     expect(states.S11).not.toBe("green")
+  })
+
+  it("SK stays pending when no skills report exists (absent third arg included)", () => {
+    expect(deriveStageStates(null, { phase: "green" }).SK).toBe("pending")
+    expect(deriveStageStates(null, { phase: "green" }, null).SK).toBe("pending")
+  })
+
+  it("SK pulses running for every in-flight skills phase", () => {
+    for (const phase of ["selecting", "auditing", "installing"]) {
+      expect(deriveStageStates(null, { phase: "green" }, { phase }).SK).toBe("running")
+    }
+  })
+
+  it("SK is green on a green install AND on skipped (honest 'nothing to install')", () => {
+    expect(deriveStageStates(null, { phase: "green" }, { phase: "green" }).SK).toBe("green")
+    expect(deriveStageStates(null, { phase: "green" }, { phase: "skipped" }).SK).toBe("green")
+  })
+
+  it("SK is red on a failed install", () => {
+    expect(deriveStageStates(null, { phase: "green" }, { phase: "failed" }).SK).toBe("red")
+  })
+
+  it("an unknown skills phase leaves SK pending rather than guessing", () => {
+    expect(deriveStageStates(null, null, { phase: "someday-phase" }).SK).toBe("pending")
   })
 
   it("a paused mid-way run (0 < done < total, not running, no failing gate) leaves S8-S10 pending — never a fabricated green (P1; resolveRunPhase calls this exact condition 'idle')", () => {

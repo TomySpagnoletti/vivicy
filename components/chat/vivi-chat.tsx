@@ -2,8 +2,10 @@
 
 import { useCallback, useEffect, useState } from "react"
 import { Loader2, SendHorizontal, Sparkles } from "lucide-react"
+import { useTranslations } from "next-intl"
 import { toast } from "sonner"
 
+import { errorText } from "@/lib/i18n-errors"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Marker, MarkerContent, MarkerIcon } from "@/components/ui/marker"
@@ -56,6 +58,8 @@ export function ViviChat({
   /** Fires after a turn wrote at least one file, so the caller can refresh state. */
   onWrote?: (files: string[]) => void
 }) {
+  const t = useTranslations("chat")
+  const tErrors = useTranslations("errors")
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [sessionId, setSessionId] = useState<string | undefined>(undefined)
   const [draft, setDraft] = useState("")
@@ -100,9 +104,13 @@ export function ViviChat({
         wrote?: string[]
         rejected?: string
         error?: string
+        code?: string
       }
       if (!res.ok || body.ok === false || typeof body.reply !== "string") {
-        toast.error("Vivi could not respond", { description: body.error ?? `HTTP ${res.status}` })
+        const fallback = body.error ?? `HTTP ${res.status}`
+        toast.error(t("errorTitle"), {
+          description: body.code ? errorText(tErrors, `control.${body.code}`, fallback) : fallback,
+        })
         // Drop the optimistic user bubble's turn state back to idle; the message
         // stays visible so the user can retry with the same text.
         return
@@ -114,18 +122,18 @@ export function ViviChat({
         { role: "vivi", text: body.reply as string, wrote, rejected: body.rejected },
       ])
       if (body.rejected) {
-        toast.error("Vivi's writes were rejected", { description: body.rejected })
+        toast.error(t("rejectedTitle"), { description: body.rejected })
       } else if (wrote.length > 0) {
         onWrote?.(wrote)
       }
     } catch (error) {
-      toast.error("Vivi could not respond", {
-        description: error instanceof Error ? error.message : "network error",
+      toast.error(t("errorTitle"), {
+        description: error instanceof Error ? error.message : t("networkError"),
       })
     } finally {
       setSending(false)
     }
-  }, [draft, sending, sessionId, onWrote])
+  }, [draft, sending, sessionId, onWrote, t, tErrors])
 
   const onKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -144,16 +152,17 @@ export function ViviChat({
         <SheetHeader className="border-b border-border">
           <SheetTitle className="flex items-center gap-1.5">
             <Sparkles className="size-4" aria-hidden />
-            Build the spec with Vivi
+            {t("panelTitle")}
           </SheetTitle>
           <SheetDescription>
-            Vivi grills you until your idea is a rigorous canonical spec, writing Markdown into{" "}
-            <code className="text-foreground">.vivicy/</code> as areas settle.
+            {t.rich("panelDescription", {
+              code: (chunks) => <code className="text-foreground">{chunks}</code>,
+            })}
           </SheetDescription>
           {engine ? (
             <div className="flex items-center gap-1.5 pt-1">
-              <span className="text-xs text-muted-foreground">Engine</span>
-              <Badge variant="outline" title="Set in Agent settings — not editable here">
+              <span className="text-xs text-muted-foreground">{t("engineLabel")}</span>
+              <Badge variant="outline" title={t("engineBadgeTitle")}>
                 {engine.providerLabel} · {engine.model}
               </Badge>
             </div>
@@ -165,10 +174,7 @@ export function ViviChat({
             <MessageScrollerViewport>
               <MessageScrollerContent className="gap-3 p-4">
                 {messages.length === 0 && !sending ? (
-                  <p className="text-xs text-muted-foreground">
-                    Tell Vivi what you want to build — a sentence is enough to start. Vivi
-                    will ask the questions that turn it into a complete spec.
-                  </p>
+                  <p className="text-xs text-muted-foreground">{t("emptyState")}</p>
                 ) : null}
                 {messages.map((message, i) => (
                   <MessageScrollerItem key={i}>
@@ -191,10 +197,10 @@ export function ViviChat({
             value={draft}
             onChange={(event) => setDraft(event.target.value)}
             onKeyDown={onKeyDown}
-            placeholder="Message Vivi…  (Enter to send, Shift+Enter for a new line)"
+            placeholder={t("inputPlaceholder")}
             disabled={sending}
             rows={2}
-            aria-label="Message Vivi"
+            aria-label={t("inputAriaLabel")}
             className="max-h-40 flex-1 resize-none"
           />
           <Button
@@ -202,7 +208,7 @@ export function ViviChat({
             size="icon-sm"
             onClick={() => void send()}
             disabled={sending || draft.trim().length === 0}
-            aria-label="Send message"
+            aria-label={t("sendAriaLabel")}
           >
             <SendHorizontal />
           </Button>
@@ -214,12 +220,13 @@ export function ViviChat({
 
 /** The turn-based pending state — a shadcn Marker with a spinner while the exec runs. */
 function PendingMarker() {
+  const t = useTranslations("chat")
   return (
     <Marker>
       <MarkerIcon>
         <Loader2 className="animate-spin" />
       </MarkerIcon>
-      <MarkerContent>Vivi is thinking…</MarkerContent>
+      <MarkerContent>{t("pending")}</MarkerContent>
     </Marker>
   )
 }

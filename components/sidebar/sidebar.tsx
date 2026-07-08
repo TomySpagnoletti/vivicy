@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
+import { useTranslations } from "next-intl"
 
 import { BRAND } from "@/lib/brand"
 import { DEFAULT_SETTINGS, type AgentsSettings } from "@/lib/settings"
@@ -26,6 +27,7 @@ import { SectionFilters } from "@/components/sidebar/section-filters"
 import { SectionInformation } from "@/components/sidebar/section-information"
 import { SectionLegend } from "@/components/sidebar/section-legend"
 import { SectionPipeline } from "@/components/sidebar/section-pipeline"
+import { SectionSkills } from "@/components/sidebar/section-skills"
 import { SectionTasks } from "@/components/sidebar/section-tasks"
 import { SettingsDialog } from "@/components/sidebar/settings-dialog"
 
@@ -58,6 +60,7 @@ export function VivicySidebar({
   selected: SelectedItem
   onMapRefresh?: () => void
 }) {
+  const t = useTranslations("sidebar")
   // Shared by the Settings dialog and the quota footer, so settings are owned
   // here: loaded once on mount and updated in place when the dialog saves.
   const [settings, setSettings] = useState<AgentsSettings>(DEFAULT_SETTINGS)
@@ -82,7 +85,7 @@ export function VivicySidebar({
       side="right"
       collapsible="offcanvas"
       role="complementary"
-      aria-label="Vivicy panel"
+      aria-label={t("panel.ariaLabel", { brandName: BRAND.name })}
     >
       <SidebarHeader className="flex-row items-start justify-between gap-2">
         <div className="flex flex-col gap-0.5">
@@ -101,7 +104,7 @@ export function VivicySidebar({
       <SidebarContent>
         <Accordion type="multiple" defaultValue={["tasks"]} className="px-3">
           <AccordionItem value="information">
-            <AccordionTrigger>Information</AccordionTrigger>
+            <AccordionTrigger>{t("sections.information")}</AccordionTrigger>
             <AccordionContent>
               <SectionInformation
                 data={data}
@@ -117,7 +120,7 @@ export function VivicySidebar({
           </AccordionItem>
 
           <AccordionItem value="filters">
-            <AccordionTrigger>Filters</AccordionTrigger>
+            <AccordionTrigger>{t("sections.filters")}</AccordionTrigger>
             <AccordionContent>
               <SectionFilters
                 data={data}
@@ -136,23 +139,30 @@ export function VivicySidebar({
           </AccordionItem>
 
           <AccordionItem value="details">
-            <AccordionTrigger>Details</AccordionTrigger>
+            <AccordionTrigger>{t("sections.details")}</AccordionTrigger>
             <AccordionContent>
               <SectionDetails selected={selected} data={data} />
             </AccordionContent>
           </AccordionItem>
 
           <AccordionItem value="tasks">
-            <AccordionTrigger>Tasks</AccordionTrigger>
+            <AccordionTrigger>{t("sections.tasks")}</AccordionTrigger>
             <AccordionContent>
               <SectionTasks development={data.development} />
             </AccordionContent>
           </AccordionItem>
 
           <AccordionItem value="pipeline">
-            <AccordionTrigger>Pipeline</AccordionTrigger>
+            <AccordionTrigger>{t("sections.pipeline")}</AccordionTrigger>
             <AccordionContent>
               <SectionPipeline />
+            </AccordionContent>
+          </AccordionItem>
+
+          <AccordionItem value="skills">
+            <AccordionTrigger>{t("sections.skills")}</AccordionTrigger>
+            <AccordionContent>
+              <SectionSkills />
             </AccordionContent>
           </AccordionItem>
         </Accordion>

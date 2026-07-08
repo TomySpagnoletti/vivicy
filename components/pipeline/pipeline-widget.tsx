@@ -2,9 +2,12 @@
 
 import { useCallback, useEffect, useRef, useState } from "react"
 import { ChevronDown, ChevronRight, RotateCcw } from "lucide-react"
+import { useTranslations } from "next-intl"
 import { toast } from "sonner"
 
 import type { RunStatus } from "@/lib/run-status"
+import type { SkillsReport } from "@/lib/skills-report"
+import { errorText } from "@/lib/i18n-errors"
 import { cn } from "@/lib/utils"
 import {
   AlertDialog,
@@ -50,25 +53,39 @@ interface ExtractStatusResponse {
   status?: ExtractionStatusLike | null
 }
 
+interface SkillsReportResponse {
+  ok?: boolean
+  report?: SkillsReport | null
+}
+
+type RetryableStage = NonNullable<(typeof PIPELINE_STAGES)[number]["retryStage"]>
+
 /**
- * G8's mini-pipeline overlay: a compact horizontal strip of the 13 §3 stages,
- * top-center OVER the map canvas. Derives stage state from the SAME SSE status
- * stream the control bar already subscribes to, plus a lightweight poll of the
- * new GET /api/control/extract for the extraction phase (S2–S6) — no second
- * source of truth, only a second read of already-existing state files.
+ * G8's mini-pipeline overlay: a compact horizontal strip of the 14 pipeline
+ * stages, top-center OVER the map canvas. Derives stage state from the SAME SSE
+ * status stream the control bar already subscribes to, plus a lightweight poll
+ * of GET /api/control/extract (extraction phase, S2–S6) and GET
+ * /api/control/skills (skills report, SK) — no second source of truth, only a
+ * second read of already-existing state files.
  *
  * Collapsible: default expanded while a run/extraction is active, collapsed at
  * idle (persisted per the same localStorage pattern as the legend section), so
  * the strip never fights the map when nothing is happening.
  */
 export function PipelineWidget() {
+  const t = useTranslations("pipeline")
+  const tErrors = useTranslations("errors")
   const [status, setStatus] = useState<RunStatus | null>(null)
   const [extraction, setExtraction] = useState<ExtractionStatusLike | null>(null)
+  const [skills, setSkills] = useState<SkillsReport | null>(null)
   const [open, setOpen] = useState<boolean | null>(null) // null = not yet decided
-  const [retryPending, setRetryPending] = useState<"extract" | "dev" | null>(null)
+  const [retryPending, setRetryPending] = useState<RetryableStage | null>(null)
   const userToggledRef = useRef(false)
 
-  const fetchExtraction = useCallback(async () => {
+  // One combined poll of both report files (extraction for S2–S6, skills for SK)
+  // — still only a second read of already-existing state, never a new source of
+  // truth. Each fetch is best-effort: a failure keeps the last known value.
+  const fetchReports = useCallback(async () => {
     try {
       const res = await fetch("/api/control/extract", { cache: "no-store" })
       const body = (await res.json().catch(() => ({}))) as ExtractStatusResponse
@@ -76,15 +93,22 @@ export function PipelineWidget() {
     } catch {
       // Best-effort: leave the last known extraction status in place.
     }
+    try {
+      const res = await fetch("/api/control/skills", { cache: "no-store" })
+      const body = (await res.json().catch(() => ({}))) as SkillsReportResponse
+      if (res.ok && body.ok !== false) setSkills(body.report ?? null)
+    } catch {
+      // Best-effort: leave the last known skills report in place.
+    }
   }, [])
 
   useEffect(() => {
     void (async () => {
-      await fetchExtraction()
+      await fetchReports()
     })()
-    const timer = setInterval(() => void fetchExtraction(), POLL_INTERVAL_MS)
+    const timer = setInterval(() => void fetchReports(), POLL_INTERVAL_MS)
     return () => clearInterval(timer)
-  }, [fetchExtraction])
+  }, [fetchReports])
 
   useEffect(() => {
     const source = new EventSource("/api/status/stream")
@@ -93,15 +117,15 @@ export function PipelineWidget() {
         const next = JSON.parse(event.data) as RunStatus & { error?: string }
         if (next.error) return
         setStatus(next)
-        void fetchExtraction()
+        void fetchReports()
       } catch {
         // A malformed frame just keeps the last known status.
       }
     }
     return () => source.close()
-  }, [fetchExtraction])
+  }, [fetchReports])
 
-  const states = deriveStageStates(status, extraction)
+  const states = deriveStageStates(status, extraction, skills)
   // "Active" for the default-expanded heuristic means "worth looking at": a live
   // run, a currently-pulsing stage, OR a blocked one — a red stage needs the
   // strip visible exactly as much as a running one does, never less.
@@ -116,7 +140,7 @@ export function PipelineWidget() {
     setOpen(active)
   }, [active])
 
-  const runRetry = useCallback(async (stage: "extract" | "dev") => {
+  const runRetry = useCallback(async (stage: RetryableStage) => {
     setRetryPending(stage)
     try {
       const res = await fetch("/api/control/retry-stage", {
@@ -124,20 +148,28 @@ export function PipelineWidget() {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ stage }),
       })
-      const body = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string; summary?: string }
+      const body = (await res.json().catch(() => ({}))) as {
+        ok?: boolean
+        error?: string
+        code?: string
+        summary?: string
+      }
       if (!res.ok || body.ok === false) {
-        toast.error(`Retry ${stage} failed`, { description: body.error ?? body.summary ?? `HTTP ${res.status}` })
+        const fallback = body.error ?? body.summary ?? `HTTP ${res.status}`
+        toast.error(t("widget.retryFailedToastTitle", { stageId: stage }), {
+          description: body.code ? errorText(tErrors, `control.${body.code}`, fallback) : fallback,
+        })
         return
       }
-      toast.success(`Retry ${stage} ok`, { description: body.summary })
+      toast.success(t("widget.retrySucceededToastTitle", { stageId: stage }), { description: body.summary })
     } catch (error) {
-      toast.error(`Retry ${stage} failed`, {
-        description: error instanceof Error ? error.message : "network error",
+      toast.error(t("widget.retryFailedToastTitle", { stageId: stage }), {
+        description: error instanceof Error ? error.message : t("widget.networkErrorDescription"),
       })
     } finally {
       setRetryPending(null)
     }
-  }, [])
+  }, [t, tErrors])
 
   const isOpen = open ?? active
 
@@ -158,10 +190,10 @@ export function PipelineWidget() {
           <button
             type="button"
             className="flex w-full items-center justify-center gap-1 text-xs font-medium text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
-            aria-label={isOpen ? "Collapse pipeline" : "Expand pipeline"}
+            aria-label={isOpen ? t("widget.collapseLabel") : t("widget.expandLabel")}
           >
             {isOpen ? <ChevronDown className="size-3.5" /> : <ChevronRight className="size-3.5" />}
-            Pipeline
+            {t("widget.title")}
           </button>
         </CollapsibleTrigger>
         <CollapsibleContent>
@@ -183,7 +215,7 @@ export function PipelineWidget() {
                   ) : null}
                   <StageNode
                     stageId={stage.id}
-                    label={stage.label}
+                    label={t(`stages.${stage.id}`)}
                     marker={stage.marker}
                     state={states[stage.id]}
                     retryStage={stage.retryStage}
@@ -195,8 +227,8 @@ export function PipelineWidget() {
             })}
           </div>
           <div className="flex items-center justify-between gap-3 px-1 text-[10px] text-muted-foreground">
-            <span>Non-loop</span>
-            <span>Development loop (autonomous)</span>
+            <span>{t("sides.nonLoop")}</span>
+            <span>{t("sides.devLoop")}</span>
           </div>
         </CollapsibleContent>
       </Collapsible>
@@ -217,10 +249,11 @@ function StageNode({
   label: string
   marker: keyof typeof MARKER_GLYPH
   state: StageState
-  retryStage?: "extract" | "dev"
+  retryStage?: RetryableStage
   retryPending: boolean
   onRetry?: () => void
 }) {
+  const t = useTranslations("pipeline")
   const node = (
     <div
       data-stage={stageId}
@@ -243,9 +276,7 @@ function StageNode({
     return (
       <Tooltip>
         <TooltipTrigger asChild>{node}</TooltipTrigger>
-        <TooltipContent>
-          {label} — driven automatically
-        </TooltipContent>
+        <TooltipContent>{t("widget.drivenAutomatically", { label })}</TooltipContent>
       </Tooltip>
     )
   }
@@ -260,7 +291,7 @@ function StageNode({
               <Button
                 variant="ghost"
                 size="icon-sm"
-                aria-label={`Retry ${stageId}`}
+                aria-label={t("widget.retryButtonLabel", { stageId })}
                 disabled={retryPending}
                 className="size-4"
               >
@@ -268,20 +299,20 @@ function StageNode({
               </Button>
             </AlertDialogTrigger>
           </TooltipTrigger>
-          <TooltipContent>{retryPending ? "Retrying…" : `Retry ${label}`}</TooltipContent>
+          <TooltipContent>
+            {retryPending ? t("widget.retryPendingTooltip") : t("widget.retryTooltip", { label })}
+          </TooltipContent>
         </Tooltip>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Retry {label}?</AlertDialogTitle>
+            <AlertDialogTitle>{t("widget.retryDialogTitle", { label })}</AlertDialogTitle>
             <AlertDialogDescription>
-              {retryStage === "extract"
-                ? "Re-runs freeze -> author -> validate -> verify from the frozen canonical."
-                : "Resumes the development-loop supervisor from done/ and the progress ledger."}
+              {t(`widget.retryDialogDescription.${retryStage}`)}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={onRetry}>Retry</AlertDialogAction>
+            <AlertDialogCancel>{t("widget.cancelButton")}</AlertDialogCancel>
+            <AlertDialogAction onClick={onRetry}>{t("widget.confirmRetryButton")}</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

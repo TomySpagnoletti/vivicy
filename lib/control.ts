@@ -19,7 +19,8 @@
  * root); cli.ts reproduces that exact path from resolve(<factory>, "..") so a
  * CLI-started run is visible to the UI and vice versa. Any script/schema change moves
  * both clients together; neither owns a verb the other lacks (retry-stage dispatches
- * {extract -> runExtract, dev -> startSupervisor("resume")} identically on both sides).
+ * {extract -> runExtract, dev -> startSupervisor("resume"), skills -> startSkillsInstall}
+ * identically on both sides).
  *
  * Roots:
  *   factoryRoot = VIVICY_FACTORY_ROOT ?? <cwd>/factory   (the in-package factory)
@@ -41,6 +42,11 @@ import path from "node:path"
 import { getRuntimeDir } from "@/lib/runtime-dir"
 import { settingsToEnv } from "@/lib/settings"
 import { readSettings } from "@/lib/settings-store"
+import {
+  SKILLS_IN_FLIGHT_PHASES,
+  SKILLS_REPORT_FILE,
+  type SkillsReport,
+} from "@/lib/skills-report"
 import { getTargetRoot } from "@/lib/target"
 import {
   getStagingDir,
@@ -229,6 +235,11 @@ const CHANGE_CONTROL_SCRIPT = "change-control.ts"
 // approved CR. A standalone factory script; the agent APPLY leg lives inside it and the
 // control plane only launches it (same pattern as EXTRACT_SCRIPT) — see decideCr.
 const CR_APPLY_SCRIPT = "cr-apply.ts"
+// The project-skills stage (SK): select from the frozen spec (or take explicit ids),
+// security-audit, and install skills. The agent legs live inside the script; the
+// control plane only launches it DETACHED — see startSkillsInstall.
+const SKILLS_SCRIPT = "install-skills.ts"
+const SKILLS_LOG_FILE = "skills-install.log"
 
 /** Resolve the in-package factory root (vivicy/factory by default). */
 export function getFactoryRoot(): string {
@@ -598,6 +609,180 @@ export function getExtractionStatus(): ExtractionStatus | null {
     throw new ControlError(`target root does not exist: ${targetRoot}`, "missing_target")
   }
   return readExtractionStatus(targetRoot)
+}
+
+// ---------------------------------------------------------------------------
+// Project skills (the SK stage — select, audit, install)
+// ---------------------------------------------------------------------------
+
+/**
+ * Liveness window for the report-based in-flight guard below. install-skills.ts
+ * rewrites the report at every phase, so an in-flight phase whose `updated_at`
+ * is older than this is treated as a DEAD run (a crashed installer) and never
+ * blocks a fresh start. Deliberately generous: an audit/install leg can be slow,
+ * and a false "stale" would double-spawn — the worse failure.
+ */
+const SKILLS_STALE_MS = 15 * 60 * 1000
+
+const SKILLS_IN_FLIGHT = new Set<string>(SKILLS_IN_FLIGHT_PHASES)
+
+/** Read the skills report for a resolved target root (best-effort: a missing or
+ *  unparseable file is `null`, never a throw — same pattern as the extraction
+ *  status reader). */
+function readSkillsReportFrom(targetRoot: string): SkillsReport | null {
+  const file = path.join(targetRoot, SKILLS_REPORT_FILE)
+  if (!existsSync(file)) return null
+  try {
+    return JSON.parse(readFileSync(file, "utf8")) as SkillsReport
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Read the skills report for display (the SK stage + the sidebar Skills section),
+ * resolving the current target itself — mirroring {@link getExtractionStatus}.
+ * `null` when no install has ever run: an honest "no data", never a fabricated
+ * pending state.
+ */
+export function readSkillsReport(): SkillsReport | null {
+  const { targetRoot } = resolveContext()
+  if (!existsSync(targetRoot)) {
+    throw new ControlError(`target root does not exist: ${targetRoot}`, "missing_target")
+  }
+  return readSkillsReportFrom(targetRoot)
+}
+
+/**
+ * Is a skills install currently in flight for this target? The report file the
+ * installer rewrites at every phase IS the liveness signal (there is no pid lock
+ * for this detached one-shot, unlike the long-lived supervisor): an in-flight
+ * phase (selecting/auditing/installing) with a fresh `updated_at` means live; an
+ * in-flight phase gone silent past {@link SKILLS_STALE_MS} means the installer
+ * died and a restart is allowed. An in-flight report with NO parseable timestamp
+ * counts as live — failing toward refusal beats double-spawning agent legs.
+ */
+function isSkillsInstallInFlight(targetRoot: string): boolean {
+  const report = readSkillsReportFrom(targetRoot)
+  if (!report?.phase || !SKILLS_IN_FLIGHT.has(report.phase)) return false
+  const updated = Date.parse(report.updated_at ?? "")
+  if (!Number.isFinite(updated)) return true
+  return Date.now() - updated < SKILLS_STALE_MS
+}
+
+/**
+ * The skills-install single-run lock, mirroring the supervisor's run lock: the
+ * report file alone cannot close the check-then-spawn TOCTOU window (two callers
+ * can both read a settled report and double-spawn agent legs). The lock is claimed
+ * with `wx` BEFORE the spawn and patched with the child pid after; a lock whose
+ * pid is dead is stale and cleared on the next claim (the installer is a one-shot
+ * detached process — its exit is what releases the lock, via pid liveness).
+ */
+const SKILLS_LOCK_FILE = "skills-install.lock"
+
+interface SkillsLock {
+  pid: number
+  started_at: string
+}
+
+function skillsLockPath(): string {
+  return path.join(getRuntimeDir(), SKILLS_LOCK_FILE)
+}
+
+function readSkillsLock(): SkillsLock | null {
+  try {
+    const raw = JSON.parse(readFileSync(skillsLockPath(), "utf8")) as SkillsLock
+    return typeof raw?.pid === "number" ? raw : null
+  } catch {
+    return null
+  }
+}
+
+function clearSkillsLock(): void {
+  rmSync(skillsLockPath(), { force: true })
+}
+
+function isSkillsLockLive(spawner: Spawner): boolean {
+  const lock = readSkillsLock()
+  if (!lock) return false
+  if (spawner.isAlive(lock.pid)) return true
+  clearSkillsLock()
+  return false
+}
+
+function claimSkillsLock(spawner: Spawner): void {
+  mkdirSync(getRuntimeDir(), { recursive: true })
+  const body = `${JSON.stringify({ pid: process.pid, started_at: new Date().toISOString() }, null, 2)}\n`
+  try {
+    writeFileSync(skillsLockPath(), body, { flag: "wx" })
+    return
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error
+  }
+  if (isSkillsLockLive(spawner)) {
+    throw new ControlError("a skills install is already in flight", "already_running")
+  }
+  try {
+    writeFileSync(skillsLockPath(), body, { flag: "wx" })
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "EEXIST") {
+      throw new ControlError("a skills install is already in flight", "already_running")
+    }
+    throw error
+  }
+}
+
+/** What {@link startSkillsInstall} launched: the detached pid + honest mode. */
+export interface SkillsInstallStart {
+  pid: number
+  mode: "auto" | "explicit"
+  ids: string[]
+}
+
+/**
+ * Start the project-skills install DETACHED (it runs agent legs and can be slow;
+ * the report file is the progress surface, like the supervisor's status files).
+ * Auto mode (no ids): install-skills.ts selects skills from the frozen spec.
+ * Explicit mode: the given ids ride `--ids <id1,id2,...>`. Env wiring matches the
+ * other factory spawns exactly — VIVICY_TARGET_ROOT + VIVICY_RUNTIME_DIR via
+ * {@link devEnv} plus {@link settingsToEnv} (which carries
+ * VIVICY_ALLOW_UNSAFE_SKILLS). Refuses while an install is already in flight per
+ * {@link isSkillsInstallInFlight}.
+ */
+export function startSkillsInstall(
+  spawner: Spawner,
+  opts: { ids?: string[] } = {}
+): SkillsInstallStart {
+  const { factoryRoot, targetRoot } = resolveContext()
+  if (!existsSync(targetRoot)) {
+    throw new ControlError(`target root does not exist: ${targetRoot}`, "missing_target")
+  }
+  const ids = (opts.ids ?? []).map((id) => id.trim()).filter((id) => id.length > 0)
+  if (isSkillsInstallInFlight(targetRoot)) {
+    throw new ControlError("a skills install is already in flight", "already_running")
+  }
+  claimSkillsLock(spawner)
+  const command = resolveScript(factoryRoot, SKILLS_SCRIPT)
+  const logFile = path.join(getRuntimeDir(), SKILLS_LOG_FILE)
+
+  let handle: DetachedHandle
+  try {
+    handle = spawner.spawnDetached({
+      command: process.execPath,
+      args: [command, ...(ids.length > 0 ? ["--ids", ids.join(",")] : [])],
+      cwd: factoryRoot,
+      env: { ...devEnv(targetRoot), ...settingsToEnv(readSettings()) },
+      logFile,
+    })
+  } catch (error) {
+    clearSkillsLock()
+    throw new ControlError(
+      `failed to spawn skills install: ${error instanceof Error ? error.message : String(error)}`,
+      "spawn_failed"
+    )
+  }
+  writeFileSync(skillsLockPath(), `${JSON.stringify({ pid: handle.pid, started_at: new Date().toISOString() }, null, 2)}\n`)
+  return { pid: handle.pid, mode: ids.length > 0 ? "explicit" : "auto", ids }
 }
 
 /**

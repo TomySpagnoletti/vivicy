@@ -1,9 +1,10 @@
-import { render, screen, within } from "@testing-library/react"
+import { screen, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { describe, expect, test, vi } from "vitest"
 
 import { SectionFilters } from "@/components/sidebar/section-filters"
 import type { ArchitectureMapData } from "@/lib/types"
+import { renderWithIntl } from "@/test/render"
 
 /** A small but realistic map with two lanes and a status legend. */
 const DATA: ArchitectureMapData = {
@@ -37,7 +38,7 @@ function setup(overrides?: Partial<Parameters<typeof SectionFilters>[0]>) {
     onScopeFilterChange: vi.fn(),
     ...overrides,
   }
-  render(<SectionFilters {...props} />)
+  renderWithIntl(<SectionFilters {...props} />)
   return props
 }
 
