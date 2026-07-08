@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor } from "@testing-library/react"
+import { act, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest"
 
@@ -8,6 +8,7 @@ import {
 } from "@/components/sidebar/process-control-bar"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import type { DevelopmentBlock, DevelopmentIssue } from "@/lib/types"
+import { renderWithIntl } from "@/test/render"
 
 // Minimal EventSource fake so the control bar can subscribe to the SSE status
 // stream in jsdom. We capture the instance to push a frame into onmessage.
@@ -51,7 +52,7 @@ const IDLE_STATUS = {
 }
 
 function renderBar(development?: DevelopmentBlock) {
-  return render(
+  return renderWithIntl(
     <TooltipProvider>
       <ProcessControlBar development={development} />
     </TooltipProvider>

@@ -1,8 +1,9 @@
-import { render, screen, waitFor } from "@testing-library/react"
+import { screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest"
 
 import { ViviChat } from "@/components/chat/vivi-chat"
+import { renderWithIntl } from "@/test/render"
 
 /**
  * Happy-path render + one round-trip. `fetch` is stubbed: GET returns the read-only
@@ -35,7 +36,7 @@ describe("ViviChat", () => {
   })
 
   test("renders the panel with the read-only engine badge", async () => {
-    render(<ViviChat open onOpenChange={vi.fn()} />)
+    renderWithIntl(<ViviChat open onOpenChange={vi.fn()} />)
     expect(screen.getByText("Build the spec with Vivi")).toBeInTheDocument()
     await waitFor(() =>
       expect(screen.getByText(/Claude Code · claude-opus-4-8/)).toBeInTheDocument()
@@ -45,7 +46,7 @@ describe("ViviChat", () => {
   test("sending a message shows the user bubble, Vivi's reply, and the wrote chip", async () => {
     const user = userEvent.setup()
     const onWrote = vi.fn()
-    render(<ViviChat open onOpenChange={vi.fn()} onWrote={onWrote} />)
+    renderWithIntl(<ViviChat open onOpenChange={vi.fn()} onWrote={onWrote} />)
 
     await user.type(screen.getByLabelText("Message Vivi"), "I want a todo app.")
     await user.click(screen.getByRole("button", { name: "Send message" }))

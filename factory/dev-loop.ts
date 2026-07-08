@@ -44,6 +44,7 @@ import { sleepSync } from "./sleep-sync.ts";
 import { recordProgressEvent } from "./progress-ledger.ts";
 import type { ProgressEvent } from "./progress-ledger.ts";
 import { checkSkills } from "./dev-preflight.ts";
+import { pruneGitkeeps } from "../lib/skeleton.ts";
 import { runTraceabilityCheck } from "./traceability-check.ts";
 import { runSpikeCheck, transitivelyVerifiedGates } from "./spike-check.ts";
 import { runReferenceCheck } from "./reference-check.ts";
@@ -1893,6 +1894,7 @@ function defaultCommit(issue: Issue, cfg: Config) {
   // transcripts stay out of history (gitignored). No Vivicy output is ever left
   // untracked-and-unignored.
   const root = execRootOf(cfg);
+  pruneGitkeeps(root);
   spawnSync("git", ["add", "-A"], { cwd: root, encoding: "utf8" });
   const message = `${issue.id}: ${issue.title ?? "implement vertical slice"}\n\nGate green; reviewed by ${cfg.reviewer.actor}.`;
   return spawnSync("git", ["commit", "-m", message], { cwd: root, encoding: "utf8" });
@@ -2195,6 +2197,7 @@ function commitDoneMove(issue: Issue, cfg: Config) {
     cfg.gatesDir,
     cfg.reportsDir,
   ].filter((p): p is string => Boolean(p));
+  pruneGitkeeps(root);
   spawnSync("git", ["add", "--", ...paths], { cwd: root, encoding: "utf8" });
   return spawnSync("git", ["commit", "-m", `${issue.id}: move to done/ (integrated; live progress in ledger)`], { cwd: root, encoding: "utf8" });
 }
@@ -3581,7 +3584,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   }
   if (!skills.ok) {
     process.stderr.write(
-      `dev-loop preflight: ${skills.reason}\n  missing required skills: ${(skills.missingRequired ?? []).join(", ")}\n  declare or remove them in the target project's package.json "vivicy.requiredSkills"\n`,
+      `dev-loop preflight: ${skills.reason}\n  missing required skills: ${(skills.missingRequired ?? []).join(", ")}\n  declare or remove them in the target project's vivicy.json "requiredSkills" (or package.json "vivicy.requiredSkills")\n`,
     );
     process.exit(1);
   }

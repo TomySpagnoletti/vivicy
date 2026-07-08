@@ -5,7 +5,7 @@ import path from "node:path"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 
 import { ControlError, type RunOptions, type RunResult, type Spawner } from "@/lib/control"
-import { readTranscript, runViviTurn, type ViviTurn } from "@/lib/vivi"
+import { parseSkillsDirective, readTranscript, runViviTurn, type ViviTurn } from "@/lib/vivi"
 
 /**
  * A recording fake spawner whose `run` DELEGATES to a per-test `onRun` so a test
@@ -16,9 +16,15 @@ import { readTranscript, runViviTurn, type ViviTurn } from "@/lib/vivi"
  * validation spawns change-control.ts and a test simulates its verdict this way.
  */
 function makeFakeSpawner(onRun: (options: RunOptions) => Partial<RunResult> | void = () => {}) {
-  const calls = { run: [] as Array<{ args: string[]; env: NodeJS.ProcessEnv; cwd: string }> }
+  const calls = {
+    run: [] as Array<{ args: string[]; env: NodeJS.ProcessEnv; cwd: string }>,
+    spawnDetached: [] as Array<{ args: string[]; env: NodeJS.ProcessEnv; cwd: string }>,
+  }
   const spawner: Spawner = {
-    spawnDetached: () => ({ pid: 1 }),
+    spawnDetached: (options) => {
+      calls.spawnDetached.push({ args: options.args, env: options.env, cwd: options.cwd })
+      return { pid: 1 }
+    },
     run: async (options): Promise<RunResult> => {
       calls.run.push({ args: options.args, env: options.env, cwd: options.cwd })
       const override = onRun(options) ?? {}
@@ -111,6 +117,7 @@ function scaffoldFactory(root: string) {
   mkdirSync(path.join(root, "prompts"), { recursive: true })
   writeFileSync(path.join(root, "vivi-turn.ts"), "// stub\n")
   writeFileSync(path.join(root, "change-control.ts"), "// stub\n")
+  writeFileSync(path.join(root, "install-skills.ts"), "// stub\n")
   writeFileSync(path.join(root, "prompts", "vivi.md"), "# Vivi persona (test stub)\n")
 }
 
@@ -479,3 +486,104 @@ function promptFileFrom(args: string[]): string {
   const i = args.indexOf("--prompt-file")
   return args[i + 1]
 }
+
+/** A reply text ending with the persona's skills-install fenced block. */
+function replyWithDirective(json: string): string {
+  return `Sure, I will ask the control plane to install those.\n\n\`\`\`vivicy-skills\n${json}\n\`\`\``
+}
+
+describe("parseSkillsDirective — pure parser", () => {
+  it("returns null when the reply carries no vivicy-skills block", () => {
+    expect(parseSkillsDirective("just a normal reply")).toBeNull()
+    expect(parseSkillsDirective("```json\n{\"install\": [\"a\"]}\n```")).toBeNull()
+  })
+
+  it("parses a strict install list, trimming ids", () => {
+    const directive = parseSkillsDirective(
+      replyWithDirective('{"install": ["anthropic/skills@pdf", " https://skills.sh/acme/repo/scraper "]}')
+    )
+    expect(directive).toEqual({ ids: ["anthropic/skills@pdf", "https://skills.sh/acme/repo/scraper"] })
+  })
+
+  it("flags invalid JSON as malformed instead of throwing", () => {
+    const directive = parseSkillsDirective(replyWithDirective('{"install": ["a",]}'))
+    expect(directive).toEqual({ malformed: "the vivicy-skills block is not valid JSON" })
+  })
+
+  it("flags a wrong shape (no install array / empty list) as malformed", () => {
+    expect(parseSkillsDirective(replyWithDirective('{"skills": ["a"]}'))).toMatchObject({
+      malformed: expect.stringContaining('{"install":'),
+    })
+    expect(parseSkillsDirective(replyWithDirective('{"install": []}'))).toMatchObject({
+      malformed: expect.stringContaining("at least one id"),
+    })
+  })
+
+  it("flags non-string or empty entries as malformed (never a partial install)", () => {
+    expect(parseSkillsDirective(replyWithDirective('{"install": ["ok", 5]}'))).toEqual({
+      malformed: "the vivicy-skills block must list only non-empty string ids",
+    })
+    expect(parseSkillsDirective(replyWithDirective('{"install": ["ok", "  "]}'))).toEqual({
+      malformed: "the vivicy-skills block must list only non-empty string ids",
+    })
+  })
+})
+
+describe("runViviTurn — skills directive (explicit installs via chat)", () => {
+  it("starts an explicit skills install and appends the status line to the reply", async () => {
+    const { spawner, calls } = makeFakeSpawner((o) =>
+      writeReply(o, replyWithDirective('{"install": ["anthropic/skills@pdf"]}'))
+    )
+    const result = await runViviTurn(spawner, { message: "install the pdf skill please" })
+
+    expect(result.rejected).toBeUndefined()
+    expect(result.reply).toContain("skills install started (explicit mode)")
+    // The control plane spawned install-skills.ts DETACHED with the exact ids.
+    expect(calls.spawnDetached).toHaveLength(1)
+    const spawn = calls.spawnDetached[0]
+    expect(spawn.args.some((a) => a.endsWith("install-skills.ts"))).toBe(true)
+    expect(spawn.args).toContain("--ids")
+    expect(spawn.args[spawn.args.indexOf("--ids") + 1]).toBe("anthropic/skills@pdf")
+    expect(spawn.env.VIVICY_TARGET_ROOT).toBe(targetRoot)
+    // The augmented reply (with the status line) is what the transcript records.
+    expect((readTranscript(result.sessionId).at(-1) as ViviTurn).text).toContain("skills install started")
+  })
+
+  it("appends an honest note on a malformed block without rejecting the turn", async () => {
+    const { spawner, calls } = makeFakeSpawner((o) => {
+      writeInTarget(targetRoot, path.join(CANONICAL, "01-product.md"), "# Product\n")
+      writeReply(o, replyWithDirective("not json at all"))
+    })
+    const result = await runViviTurn(spawner, { message: "install something" })
+
+    expect(result.rejected).toBeUndefined()
+    expect(result.wrote).toEqual([path.join(CANONICAL, "01-product.md")]) // the turn's writes survive
+    expect(result.reply).toContain("skills install NOT started: the vivicy-skills block is not valid JSON")
+    expect(calls.spawnDetached).toHaveLength(0)
+  })
+
+  it("surfaces a control refusal instead of the started line (missing installer script)", async () => {
+    rmSync(path.join(factoryRoot, "install-skills.ts"))
+    const { spawner, calls } = makeFakeSpawner((o) =>
+      writeReply(o, replyWithDirective('{"install": ["acme/repo@x"]}'))
+    )
+    const result = await runViviTurn(spawner, { message: "install acme/repo@x" })
+
+    expect(result.rejected).toBeUndefined()
+    expect(result.reply).toContain("skills install NOT started:")
+    expect(result.reply).toContain("install-skills.ts")
+    expect(calls.spawnDetached).toHaveLength(0)
+  })
+
+  it("never acts on a directive carried by a REJECTED turn", async () => {
+    const { spawner, calls } = makeFakeSpawner((o) => {
+      writeInTarget(targetRoot, path.join(".vivicy", "development", "issues", "sneaky.md"), "no\n")
+      writeReply(o, replyWithDirective('{"install": ["acme/repo@x"]}'))
+    })
+    const result = await runViviTurn(spawner, { message: "go" })
+
+    expect(result.rejected).toMatch(/outside its allowlist/)
+    expect(result.reply).not.toContain("skills install started")
+    expect(calls.spawnDetached).toHaveLength(0)
+  })
+})

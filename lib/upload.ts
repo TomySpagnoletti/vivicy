@@ -33,6 +33,7 @@ import {
 import path from "node:path"
 
 import { getRuntimeDir } from "@/lib/runtime-dir"
+import { pruneGitkeeps } from "@/lib/skeleton"
 
 /** Typed reasons an upload request is rejected (so routes never invent prose). */
 export class UploadError extends Error {
@@ -506,5 +507,6 @@ export function applyUpload(stagingId: string, targetRoot: string): { placed: Pl
     copyFileSync(item.fromAbs, destAbs)
     placed.push({ to: item.toRel, kind: item.kind })
   }
+  pruneGitkeeps(targetRoot)
   return { placed: placed.sort((a, b) => a.to.localeCompare(b.to)) }
 }

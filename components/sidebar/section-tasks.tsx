@@ -1,5 +1,7 @@
 "use client"
 
+import { useTranslations } from "next-intl"
+
 import { StatusDot } from "@/components/map/status-dot"
 import { TranscriptRefs } from "@/components/sidebar/section-details"
 import { Badge } from "@/components/ui/badge"
@@ -23,6 +25,7 @@ export function SectionTasks({
 }: {
   development: DevelopmentBlock | undefined
 }) {
+  const t = useTranslations("sidebar.tasks")
   const issues = development?.issues ?? []
   const activeItems = development?.active_items ?? []
   const activeIssueIds = new Set(activeItems.map((item) => item.issue_id))
@@ -31,16 +34,13 @@ export function SectionTasks({
   return (
     <div className="flex flex-col gap-3 text-xs">
       <div className="grid grid-cols-3 gap-2">
-        <Metric label="Issues" value={String(issues.length)} />
-        <Metric label="Active" value={String(activeItems.length)} />
-        <Metric label="Lines mapped to issues" value={formatLineCoverage(coverage)} />
+        <Metric label={t("metricIssues")} value={String(issues.length)} />
+        <Metric label={t("metricActive")} value={String(activeItems.length)} />
+        <Metric label={t("metricLinesMapped")} value={formatLineCoverage(coverage)} />
       </div>
 
       {issues.length === 0 ? (
-        <p className="text-muted-foreground">
-          No generated issues yet. After issue generation, the semantic
-          extraction pipeline fills this from the issue index.
-        </p>
+        <p className="text-muted-foreground">{t("emptyState")}</p>
       ) : (
         <ul className="flex flex-col gap-2">
           {issues.map((issue) => (
@@ -58,19 +58,19 @@ export function SectionTasks({
         <div className="flex flex-col gap-2 text-xs text-muted-foreground">
           <Separator />
           <div className="flex flex-col gap-1">
-            <CoverageRow label="Doc lines" value={coverage.total_doc_lines} />
+            <CoverageRow label={t("coverageDocLines")} value={coverage.total_doc_lines} />
             <CoverageRow
-              label="Classified"
+              label={t("coverageClassified")}
               value={coverage.classified_doc_lines}
               of={coverage.total_doc_lines}
             />
             <CoverageRow
-              label="Requirement-linked"
+              label={t("coverageRequirementLinked")}
               value={coverage.requirement_linked_doc_lines}
               of={coverage.total_doc_lines}
             />
             <CoverageRow
-              label="Issue-linked"
+              label={t("coverageIssueLinked")}
               value={coverage.issue_linked_doc_lines}
               of={coverage.total_doc_lines}
             />
@@ -90,6 +90,7 @@ function IssueCard({
   development: DevelopmentBlock | undefined
   active: boolean
 }) {
+  const t = useTranslations("sidebar.tasks")
   const status = issueDisplayStatus(issue, development)
   const transcripts = issueTranscriptRefs(issue, development)
 
@@ -108,7 +109,7 @@ function IssueCard({
         </Badge>
       </div>
       <p className="font-medium break-words text-foreground">
-        {issue.title ?? "Untitled issue"}
+        {issue.title ?? t("untitledIssue")}
       </p>
       {issue.issue_path ? (
         <p className="font-mono break-all text-muted-foreground">
@@ -117,10 +118,10 @@ function IssueCard({
       ) : null}
 
       <dl className="flex flex-col gap-1">
-        <RefRow label="Requirements" refs={issue.requirement_ids} />
-        <RefRow label="Graph" refs={issue.graph_refs} />
-        <RefRow label="Gates" refs={issue.verification_gate_ids} />
-        <RefRow label="Sources" refs={issue.source_line_refs} />
+        <RefRow label={t("requirementsLabel")} refs={issue.requirement_ids} />
+        <RefRow label={t("graphLabel")} refs={issue.graph_refs} />
+        <RefRow label={t("gatesLabel")} refs={issue.verification_gate_ids} />
+        <RefRow label={t("sourcesLabel")} refs={issue.source_line_refs} />
       </dl>
 
       <TranscriptRefs refs={transcripts} />
@@ -135,11 +136,12 @@ function RefRow({
   label: string
   refs: string[] | undefined
 }) {
+  const t = useTranslations("sidebar.tasks")
   return (
     <div className="flex flex-col gap-0.5">
       <dt className="text-xs font-medium text-muted-foreground">{label}</dt>
       <dd className="font-mono break-words text-foreground">
-        {refs && refs.length > 0 ? refs.join(", ") : "None"}
+        {refs && refs.length > 0 ? refs.join(", ") : t("refsNone")}
       </dd>
     </div>
   )

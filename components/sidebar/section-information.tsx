@@ -1,3 +1,7 @@
+"use client"
+
+import { useTranslations } from "next-intl"
+
 import { StatusDot } from "@/components/map/status-dot"
 import {
   asNodeStatus,
@@ -19,6 +23,7 @@ export function SectionInformation({
   data: ArchitectureMapData
   filters: MapFilters
 }) {
+  const t = useTranslations("sidebar.information")
   const legendEntries = Object.entries(data.statusLegend ?? {})
   const subtitle = data.views?.[filters.view]?.subtitle
   const visible = computeVisibleCounts(data, filters)
@@ -30,31 +35,31 @@ export function SectionInformation({
       {subtitle ? <p className="text-muted-foreground">{subtitle}</p> : null}
 
       <dl className="flex flex-col gap-1.5">
-        <Field label="Name" value={data.name} />
+        <Field label={t("nameLabel")} value={data.name} />
         {data.version != null ? (
-          <Field label="Version" value={String(data.version)} />
+          <Field label={t("versionLabel")} value={String(data.version)} />
         ) : null}
-        <Field label="Updated" value={data.updated ?? "—"} />
+        <Field label={t("updatedLabel")} value={data.updated ?? t("updatedUnknown")} />
         <Field
-          label="Nodes / edges"
-          value={`${data.nodes.length} / ${data.edges.length}`}
+          label={t("nodesEdgesLabel")}
+          value={t("nodesEdgesValue", { nodes: data.nodes.length, edges: data.edges.length })}
         />
         <Field
-          label="Visible"
+          label={t("visibleLabel")}
           value={
             filtered
-              ? `${visible.nodes} / ${visible.edges}`
-              : "all nodes / edges"
+              ? t("visibleValue", { nodes: visible.nodes, edges: visible.edges })
+              : t("visibleAll")
           }
         />
         {data.lanes && data.lanes.length > 0 ? (
-          <Field label="Lanes" value={String(data.lanes.length)} />
+          <Field label={t("lanesLabel")} value={String(data.lanes.length)} />
         ) : null}
       </dl>
 
       {data.purpose ? (
         <div className="flex flex-col gap-1">
-          <p className="text-xs font-medium text-muted-foreground">Purpose</p>
+          <p className="text-xs font-medium text-muted-foreground">{t("purposeLabel")}</p>
           <p className="leading-relaxed text-foreground">{data.purpose}</p>
         </div>
       ) : null}
@@ -62,7 +67,7 @@ export function SectionInformation({
       {legendEntries.length > 0 ? (
         <div className="flex flex-col gap-1.5">
           <p className="text-xs font-medium text-muted-foreground">
-            Status legend
+            {t("statusLegendLabel")}
           </p>
           <ul className="flex flex-col gap-1.5">
             {legendEntries.map(([status, description]) => (

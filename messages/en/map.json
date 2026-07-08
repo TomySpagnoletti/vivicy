@@ -1,0 +1,43 @@
+{
+  "emptyState": {
+    "noTarget": {
+      "title": "No project selected",
+      "body": "Vivicy needs a project whose .vivicy/canonical/ holds the canonical spec. Use “Open project” in the top-left to choose the local repository to develop."
+    },
+    "noMap": {
+      "title": "No issues extracted yet",
+      "body": "Extract reads the frozen canonical spec in .vivicy/canonical/ and authors the full plan — requirements, vertical issues, and the architecture map. Import docs first if the canonical is still empty, or run Extract to generate the graph."
+    },
+    "emptyMap": {
+      "title": "Architecture map is empty",
+      "body": "A map was generated but it has no nodes yet. Import docs that describe at least one component, then re-run Extract."
+    },
+    "extractButton": "Extract from docs",
+    "extractButtonPending": "Extracting…",
+    "importButton": "Import docs"
+  },
+  "node": {
+    "edgeCount": "{count, plural, one {# edge} other {# edges}}",
+    "linkedIssueCount": "{count, plural, one {# task} other {# tasks}}",
+    "activeWorkTitle": "The development agent is working on this graph item"
+  },
+  "editToolbar": {
+    "editLabel": "Edit layout",
+    "editingLabel": "Editing layout",
+    "editTitle": "Edit layout: drag nodes, cluster titles, and edge labels",
+    "editingTitle": "Exit layout editing (read-only)",
+    "saveButton": "Save layout",
+    "savingButton": "Saving…",
+    "saveFailedButton": "Save failed — retry",
+    "savedStatus": "Saved",
+    "saveFailedFallback": "Layout save failed.",
+    "saveFailedUnknownNode": "Cannot save layout for unknown node {id}",
+    "saveFailedUnknownEdge": "Cannot save label layout for unknown edge {id}",
+    "saveFailedHttpStatus": "Save failed with HTTP {status}",
+    "moveClusterTitle": "Move {clusterLabel}"
+  },
+  "edgeLabel": {
+    "editableTitle": "Drag to move label · double-click to reset",
+    "selectTitle": "Select edge"
+  }
+}

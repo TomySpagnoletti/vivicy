@@ -1,7 +1,7 @@
 import { readFileSync, writeFileSync } from "node:fs"
 import path from "node:path"
 
-import { expect, test } from "@playwright/test"
+import { expect, test } from "./browser-issues"
 
 import { DEMO_TARGET_ROOT } from "../playwright.config"
 

@@ -12,7 +12,9 @@ import {
   listChangeRequests,
   readDevStatus,
   readRunState,
+  readSkillsReport,
   runExtract,
+  startSkillsInstall,
   startSupervisor,
   stopSupervisor,
   type RunResult,
@@ -67,6 +69,7 @@ function scaffoldFactory(root: string) {
     "extract-issues.ts",
     "change-control.ts",
     "cr-apply.ts",
+    "install-skills.ts",
   ]) {
     writeFileSync(path.join(root, rel), "// stub\n")
   }
@@ -418,6 +421,121 @@ describe("getExtractionStatus (G8 pipeline widget read)", () => {
   it("fails clearly when the target root does not exist", () => {
     rmSync(targetRoot, { recursive: true, force: true })
     expect(() => getExtractionStatus()).toThrow(ControlError)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Project skills (the SK stage control-plane verbs)
+// ---------------------------------------------------------------------------
+
+/** Write the skills report install-skills.ts would leave under the target. */
+function writeSkillsReport(report: Record<string, unknown>) {
+  const file = path.join(targetRoot, ".vivicy", "development", "reports", "skills-report.json")
+  mkdirSync(path.dirname(file), { recursive: true })
+  writeFileSync(file, JSON.stringify(report, null, 2))
+}
+
+describe("readSkillsReport", () => {
+  it("returns null when no install has ever run", () => {
+    expect(readSkillsReport()).toBeNull()
+  })
+
+  it("surfaces the installer's report verbatim", () => {
+    writeSkillsReport({
+      phase: "green",
+      mode: "explicit",
+      installed: [{ id: "acme/a@x", official: false, security_waived: true }],
+      rejected: [],
+      summary: "1 skill installed",
+      updated_at: "2026-07-04T09:00:00Z",
+    })
+    const report = readSkillsReport()
+    expect(report?.phase).toBe("green")
+    expect(report?.mode).toBe("explicit")
+    expect(report?.installed?.[0]?.security_waived).toBe(true)
+  })
+
+  it("treats an unparseable report as null (best-effort read)", () => {
+    const file = path.join(targetRoot, ".vivicy", "development", "reports", "skills-report.json")
+    mkdirSync(path.dirname(file), { recursive: true })
+    writeFileSync(file, "{ not json")
+    expect(readSkillsReport()).toBeNull()
+  })
+})
+
+describe("startSkillsInstall", () => {
+  it("spawns install-skills.ts detached with the target + runtime + settings env (auto mode)", () => {
+    const { spawner, calls } = makeFakeSpawner()
+
+    const started = startSkillsInstall(spawner)
+
+    expect(started.mode).toBe("auto")
+    expect(started.pid).toBeGreaterThan(0)
+    expect(calls.spawnDetached).toHaveLength(1)
+    const call = calls.spawnDetached[0]
+    expect(call.args.some((a) => a.endsWith("install-skills.ts"))).toBe(true)
+    expect(call.args).not.toContain("--ids")
+    expect(call.cwd).toBe(factoryRoot)
+    expect(call.env.VIVICY_TARGET_ROOT).toBe(targetRoot)
+    expect(call.env.VIVICY_RUNTIME_DIR).toBeTruthy()
+    // The settings env rides along, including the audit-gate waiver flag.
+    expect(call.env.VIVICY_ALLOW_UNSAFE_SKILLS).toBe("0")
+    expect(call.env.VIVICY_IMPLEMENTER_CLI).toBe("claude")
+  })
+
+  it("passes explicit ids as --ids <comma-list> and reports explicit mode", () => {
+    const { spawner, calls } = makeFakeSpawner()
+
+    const started = startSkillsInstall(spawner, { ids: [" acme/a@x ", "acme/b@y", "  "] })
+
+    expect(started.mode).toBe("explicit")
+    expect(started.ids).toEqual(["acme/a@x", "acme/b@y"])
+    const args = calls.spawnDetached[0].args
+    expect(args[args.indexOf("--ids") + 1]).toBe("acme/a@x,acme/b@y")
+  })
+
+  it("refuses while a fresh in-flight report says an install is running", () => {
+    writeSkillsReport({ phase: "auditing", updated_at: new Date().toISOString() })
+    const { spawner, calls } = makeFakeSpawner()
+
+    expect(() => startSkillsInstall(spawner)).toThrow(ControlError)
+    try {
+      startSkillsInstall(spawner)
+    } catch (error) {
+      expect((error as ControlError).code).toBe("already_running")
+    }
+    expect(calls.spawnDetached).toHaveLength(0)
+  })
+
+  it("treats an in-flight report with NO timestamp as live (fail toward refusal)", () => {
+    writeSkillsReport({ phase: "installing" })
+    const { spawner } = makeFakeSpawner()
+    expect(() => startSkillsInstall(spawner)).toThrow(/already in flight/)
+  })
+
+  it("allows a start over a STALE in-flight report (the installer died)", () => {
+    writeSkillsReport({
+      phase: "installing",
+      updated_at: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
+    })
+    const { spawner, calls } = makeFakeSpawner()
+    startSkillsInstall(spawner)
+    expect(calls.spawnDetached).toHaveLength(1)
+  })
+
+  it("allows a start over any terminal report (green/failed/skipped)", () => {
+    for (const phase of ["green", "failed", "skipped"]) {
+      writeSkillsReport({ phase, updated_at: new Date().toISOString() })
+      const { spawner, calls } = makeFakeSpawner()
+      startSkillsInstall(spawner)
+      expect(calls.spawnDetached).toHaveLength(1)
+    }
+  })
+
+  it("fails clearly when the installer script is missing from the factory", () => {
+    rmSync(path.join(factoryRoot, "install-skills.ts"))
+    const { spawner } = makeFakeSpawner()
+    expect(() => startSkillsInstall(spawner)).toThrow(/not found/)
   })
 })
 

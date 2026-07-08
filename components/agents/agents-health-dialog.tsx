@@ -11,6 +11,7 @@ import {
   RefreshCw,
   XCircle,
 } from "lucide-react"
+import { useTranslations } from "next-intl"
 import { toast } from "sonner"
 
 import {
@@ -60,6 +61,7 @@ export function AgentsHealthDialog({
   /** Called once per load with a human warning when an agent isn't ready. */
   onWarning?: (message: string) => void
 }) {
+  const t = useTranslations("agents")
   const [open, setOpen] = useState(false)
   const [health, setHealth] = useState<AgentsHealth | null>(null)
   const [loading, setLoading] = useState(false)
@@ -74,7 +76,7 @@ export function AgentsHealthDialog({
       }
       if (body.agents) {
         setHealth(body.agents)
-        const warning = warningFor(body.agents)
+        const warning = warningFor(body.agents, t)
         if (warning) onWarning?.(warning)
       }
     } catch {
@@ -82,7 +84,7 @@ export function AgentsHealthDialog({
     } finally {
       setLoading(false)
     }
-  }, [onWarning])
+  }, [onWarning, t])
 
   // Load once on mount (drives the chip + the one-time warning); reload on open
   // so the dialog reflects a CLI the user just installed/logged into. The state
@@ -107,7 +109,7 @@ export function AgentsHealthDialog({
         <Button
           variant="ghost"
           size="xs"
-          aria-label="Agent CLI status"
+          aria-label={t("statusButtonAriaLabel")}
           data-agents-state={state}
           className="gap-1.5"
         >
@@ -121,16 +123,13 @@ export function AgentsHealthDialog({
                   : "bg-destructive"
             }`}
           />
-          Agents
+          {t("statusButtonLabel")}
         </Button>
       </DialogTrigger>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Agent CLIs</DialogTitle>
-          <DialogDescription>
-            The development loop needs both the Claude Code and Codex CLIs installed and
-            signed in. Detection is read-only — it never runs the agents.
-          </DialogDescription>
+          <DialogTitle>{t("dialogTitle")}</DialogTitle>
+          <DialogDescription>{t("dialogDescription")}</DialogDescription>
         </DialogHeader>
 
         <div className="flex flex-col gap-4">
@@ -162,6 +161,7 @@ function AgentCard({
   /** Apply a fresh health snapshot (e.g. the one the update route re-detects). */
   onHealth: (health: AgentsHealth) => void
 }) {
+  const t = useTranslations("agents")
   const guidance = AGENT_GUIDANCE[agentKey]
   const present = health?.present ?? false
   const auth = health?.authenticated ?? null
@@ -179,30 +179,30 @@ function AgentCard({
 
       {loading ? (
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
-          <Loader2 className="size-4 animate-spin" /> Checking…
+          <Loader2 className="size-4 animate-spin" /> {t("checking")}
         </div>
       ) : (
         <>
           <div className="flex flex-wrap items-center gap-1.5">
             <StatusBadge
               ok={present}
-              okLabel="Installed"
-              badLabel="Not found"
+              okLabel={t("installed")}
+              badLabel={t("notInstalled")}
               unknown={false}
             />
             <StatusBadge
               ok={auth === true}
-              okLabel="Authenticated"
-              badLabel="Not signed in"
+              okLabel={t("authenticated")}
+              badLabel={t("notSignedIn")}
               unknown={auth === null}
-              unknownLabel="Auth unknown"
+              unknownLabel={t("authUnknown")}
             />
             {auth === true && authMethod ? (
               <MethodBadge authMethod={authMethod} plan={plan} />
             ) : null}
           </div>
           {auth === true && authMethod ? (
-            <p className="px-0.5 text-xs text-muted-foreground">{costNote(authMethod)}</p>
+            <p className="px-0.5 text-xs text-muted-foreground">{costNote(authMethod, t)}</p>
           ) : null}
           {/* Self-update: only meaningful once the CLI is installed. */}
           {present ? <UpdateAction agentKey={agentKey} onHealth={onHealth} /> : null}
@@ -216,17 +216,18 @@ function AgentCard({
         <Guidance
           hint={guidance.installHint}
           command={guidance.installCommand}
-          label={`Install ${guidance.label}`}
+          label={t("install", { label: guidance.label })}
         />
       ) : null}
       {!loading && present && auth === false ? (
-        <Guidance hint={guidance.authHint} command={guidance.authCommand} label="Sign in" />
+        <Guidance hint={guidance.authHint} command={guidance.authCommand} label={t("signIn")} />
       ) : null}
       {!loading && present && auth === null ? (
         <p className="text-xs text-muted-foreground">
-          No clean signal to confirm sign-in (e.g. credentials stored in the macOS
-          Keychain). If the development loop reports auth errors, run{" "}
-          <code className="break-all text-foreground">{guidance.authCommand}</code>.
+          {t.rich("authUnknownHint", {
+            authCommand: guidance.authCommand,
+            code: (chunks) => <code className="break-all text-foreground">{chunks}</code>,
+          })}
         </p>
       ) : null}
     </fieldset>
@@ -247,11 +248,12 @@ function StatusBadge({
   unknown: boolean
   unknownLabel?: string
 }) {
+  const t = useTranslations("agents")
   if (unknown) {
     return (
       <Badge variant="outline" className="gap-1 text-muted-foreground">
         <HelpCircle className="size-3" />
-        {unknownLabel ?? "Unknown"}
+        {unknownLabel ?? t("unknown")}
       </Badge>
     )
   }
@@ -273,16 +275,14 @@ function titleCase(value: string): string {
 }
 
 /** Badge label for the billing method, with the plan when known. */
-function methodLabel(authMethod: AuthMethod, plan: string | null): string {
-  if (authMethod === "api_key") return "API key"
-  return plan ? `Subscription · ${titleCase(plan)}` : "Subscription"
+function methodLabel(authMethod: AuthMethod, plan: string | null, t: ReturnType<typeof useTranslations<"agents">>): string {
+  if (authMethod === "api_key") return t("apiKey")
+  return plan ? t("subscriptionPlan", { plan: titleCase(plan) }) : t("subscription")
 }
 
 /** Sober, one-line cost note that differentiates the two billing methods. */
-function costNote(authMethod: AuthMethod): string {
-  return authMethod === "api_key"
-    ? "Billed pay-per-token against your provider API account."
-    : "Usage counts against your plan quota — no per-token charge."
+function costNote(authMethod: AuthMethod, t: ReturnType<typeof useTranslations<"agents">>): string {
+  return authMethod === "api_key" ? t("apiKeyCostNote") : t("subscriptionCostNote")
 }
 
 /**
@@ -297,11 +297,12 @@ function MethodBadge({
   authMethod: AuthMethod
   plan: string | null
 }) {
+  const t = useTranslations("agents")
   const Icon = authMethod === "api_key" ? CreditCard : Gauge
   return (
     <Badge variant="secondary" className="gap-1" data-auth-method={authMethod}>
       <Icon className="size-3" />
-      {methodLabel(authMethod, plan)}
+      {methodLabel(authMethod, plan, t)}
     </Badge>
   )
 }
@@ -319,14 +320,15 @@ function Guidance({
   command: string
   label: string
 }) {
+  const t = useTranslations("agents")
   const copy = useCallback(async () => {
     try {
       await navigator.clipboard.writeText(command)
-      toast.success("Copied", { description: command })
+      toast.success(t("copy"), { description: command })
     } catch {
-      toast.error("Copy failed", { description: "Select and copy the command manually." })
+      toast.error(t("copyFailedTitle"), { description: t("copyFailedDescription") })
     }
-  }, [command])
+  }, [command, t])
 
   return (
     <div className="flex flex-col gap-1.5">
@@ -339,7 +341,7 @@ function Guidance({
         <Button
           variant="outline"
           size="icon-sm"
-          aria-label={`Copy: ${label}`}
+          aria-label={t("copyAriaLabel", { label })}
           onClick={copy}
         >
           <Copy />
@@ -374,6 +376,7 @@ function UpdateAction({
   agentKey: AgentKey
   onHealth: (health: AgentsHealth) => void
 }) {
+  const t = useTranslations("agents")
   const guidance = AGENT_GUIDANCE[agentKey]
   const [running, setRunning] = useState(false)
   const [output, setOutput] = useState<string[]>([])
@@ -413,22 +416,22 @@ function UpdateAction({
       // so the version line refreshes without a second round-trip.
       if (body.agents) onHealth(body.agents)
       if (ok) {
-        toast.success("Update complete", { description: guidance.updateCommand })
+        toast.success(t("updateCompleteTitle"), { description: guidance.updateCommand })
       } else {
-        toast.error("Update failed", {
-          description: body.error ?? `Exited with code ${body.code ?? "?"}`,
+        toast.error(t("updateFailedTitle"), {
+          description: body.error ?? t("updateFailedFallback", { code: body.code ?? "?" }),
         })
       }
     } catch (error) {
       setResult("fail")
-      appendLine(error instanceof Error ? error.message : "unknown error")
-      toast.error("Update failed", {
-        description: error instanceof Error ? error.message : "unknown error",
+      appendLine(error instanceof Error ? error.message : t("unknownError"))
+      toast.error(t("updateFailedTitle"), {
+        description: error instanceof Error ? error.message : t("unknownError"),
       })
     } finally {
       setRunning(false)
     }
-  }, [agentKey, appendLine, guidance, onHealth])
+  }, [agentKey, appendLine, guidance, onHealth, t])
 
   return (
     <div className="flex flex-col gap-1.5">
@@ -436,12 +439,12 @@ function UpdateAction({
         variant="outline"
         size="sm"
         disabled={running}
-        aria-label={`Update ${guidance.label}`}
+        aria-label={t("updateAriaLabel", { label: guidance.label })}
         onClick={() => void run()}
         className="justify-start"
       >
         {running ? <Loader2 className="animate-spin" /> : <RefreshCw />}
-        {running ? "Updating…" : "Update"}
+        {running ? t("updating") : t("update")}
       </Button>
       {output.length > 0 ? (
         <pre
@@ -450,7 +453,7 @@ function UpdateAction({
           className="max-h-40 overflow-auto border border-border bg-muted px-2 py-1.5 font-mono text-xs whitespace-pre-wrap text-muted-foreground"
         >
           {output.join("\n")}
-          {result === "ok" ? "\n✓ done" : result === "fail" ? "\n✗ failed" : ""}
+          {result === "ok" ? `\n${t("done")}` : result === "fail" ? `\n${t("failed")}` : ""}
         </pre>
       ) : null}
     </div>
@@ -463,15 +466,15 @@ function UpdateAction({
  * auth (null) is surfaced honestly as "could not be verified", never as a false
  * "not signed in".
  */
-function warningFor(health: AgentsHealth): string | null {
+function warningFor(health: AgentsHealth, t: ReturnType<typeof useTranslations<"agents">>): string | null {
   const problems: string[] = []
   for (const key of ["claude", "codex"] as AgentKey[]) {
     const a = health[key]
     const label = AGENT_GUIDANCE[key].label
-    if (!a.present) problems.push(`${label} is not installed`)
-    else if (a.authenticated === false) problems.push(`${label} is not signed in`)
-    else if (a.authenticated === null) problems.push(`${label} sign-in could not be verified`)
+    if (!a.present) problems.push(t("warningNotInstalled", { label }))
+    else if (a.authenticated === false) problems.push(t("warningNotSignedIn", { label }))
+    else if (a.authenticated === null) problems.push(t("warningAuthUnknown", { label }))
   }
   if (problems.length === 0) return null
-  return `${problems.join("; ")}. The development loop needs both CLIs installed and signed in to run.`
+  return `${problems.join("; ")}. ${t("warningSuffix")}`
 }

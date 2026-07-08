@@ -2,7 +2,9 @@
 
 import { useCallback, useState } from "react"
 import { CircleAlert, Info, TriangleAlert, X } from "lucide-react"
+import { useTranslations } from "next-intl"
 
+import { notificationText } from "@/lib/i18n-errors"
 import type { Notification } from "@/lib/notifications"
 import { cn } from "@/lib/utils"
 import { CrReviewSection } from "@/components/crs/cr-review-section"
@@ -62,6 +64,7 @@ export function NotificationCenter({
   /** Called after a dismiss/clear-all round-trips, so the parent can re-fetch. */
   onDismissed: () => void
 }) {
+  const t = useTranslations("notifications")
   const [pending, setPending] = useState<string | "all" | null>(null)
   const visible = visibleNotifications(notifications)
 
@@ -98,12 +101,10 @@ export function NotificationCenter({
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="right" aria-label="Notifications">
+      <SheetContent side="right" aria-label={t("sheetTitle")}>
         <SheetHeader>
-          <SheetTitle>Notifications</SheetTitle>
-          <SheetDescription>
-            Every pipeline transition: stages starting, passing, blocking, and retrying.
-          </SheetDescription>
+          <SheetTitle>{t("sheetTitle")}</SheetTitle>
+          <SheetDescription>{t("sheetDescription")}</SheetDescription>
         </SheetHeader>
 
         {/* The owner's one human touchpoint (P2): agent-drafted CRs, decided right
@@ -112,9 +113,7 @@ export function NotificationCenter({
 
         <div className="flex-1 overflow-y-auto px-4">
           {visible.length === 0 ? (
-            <p className="py-6 text-center text-xs text-muted-foreground">
-              No notifications.
-            </p>
+            <p className="py-6 text-center text-xs text-muted-foreground">{t("empty")}</p>
           ) : (
             <ul className="flex flex-col gap-2 pb-4">
               {/* `id` is the writer-guaranteed unique key; the ts+index fallback
@@ -140,19 +139,17 @@ export function NotificationCenter({
             <AlertDialog>
               <AlertDialogTrigger asChild>
                 <Button variant="outline" size="sm" disabled={pending !== null}>
-                  {pending === "all" ? "Clearing…" : "Clear all"}
+                  {pending === "all" ? t("clearing") : t("clearAll")}
                 </Button>
               </AlertDialogTrigger>
               <AlertDialogContent>
                 <AlertDialogHeader>
-                  <AlertDialogTitle>Clear all notifications?</AlertDialogTitle>
-                  <AlertDialogDescription>
-                    Dismisses every notification currently listed. This cannot be undone.
-                  </AlertDialogDescription>
+                  <AlertDialogTitle>{t("clearAllDialogTitle")}</AlertDialogTitle>
+                  <AlertDialogDescription>{t("clearAllDialogDescription")}</AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
-                  <AlertDialogCancel>Cancel</AlertDialogCancel>
-                  <AlertDialogAction onClick={() => void clearAll()}>Clear all</AlertDialogAction>
+                  <AlertDialogCancel>{t("cancel")}</AlertDialogCancel>
+                  <AlertDialogAction onClick={() => void clearAll()}>{t("clearAll")}</AlertDialogAction>
                 </AlertDialogFooter>
               </AlertDialogContent>
             </AlertDialog>
@@ -174,6 +171,7 @@ function NotificationRow({
    *  a dismiss on, so the X is not rendered. */
   onDismiss?: () => void
 }) {
+  const t = useTranslations("notifications")
   return (
     <li
       className={cn(
@@ -189,13 +187,13 @@ function NotificationRow({
           </Badge>
         ) : null}
         <span className="ml-auto shrink-0 text-[10px] text-muted-foreground">
-          {relativeTime(notification.ts)}
+          {relativeTime(notification.ts, t)}
         </span>
         {onDismiss ? (
           <Button
             variant="ghost"
             size="icon-sm"
-            aria-label="Dismiss notification"
+            aria-label={t("dismissAriaLabel")}
             disabled={pending}
             onClick={onDismiss}
             className="size-5 shrink-0"
@@ -204,23 +202,25 @@ function NotificationRow({
           </Button>
         ) : null}
       </div>
-      <p className="break-words text-foreground">{notification.message}</p>
+      <p className="break-words text-foreground">
+        {notificationText(t, notification.stage, notification.event, notification.message)}
+      </p>
     </li>
   )
 }
 
 /** Coarse relative time ("just now", "5m ago", "3h ago", "2d ago"); falls back
  *  to the raw timestamp when it cannot be parsed — never a blank field. */
-export function relativeTime(ts: string | undefined): string {
-  if (!ts) return "—"
+export function relativeTime(ts: string | undefined, t: ReturnType<typeof useTranslations<"notifications">>): string {
+  if (!ts) return t("relativeTime.unknown")
   const then = Date.parse(ts)
   if (Number.isNaN(then)) return ts
   const deltaSeconds = Math.max(0, Math.floor((Date.now() - then) / 1000))
-  if (deltaSeconds < 45) return "just now"
+  if (deltaSeconds < 45) return t("relativeTime.justNow")
   const minutes = Math.floor(deltaSeconds / 60)
-  if (minutes < 60) return `${minutes}m ago`
+  if (minutes < 60) return t("relativeTime.minutesAgo", { minutes })
   const hours = Math.floor(minutes / 60)
-  if (hours < 24) return `${hours}h ago`
+  if (hours < 24) return t("relativeTime.hoursAgo", { hours })
   const days = Math.floor(hours / 24)
-  return `${days}d ago`
+  return t("relativeTime.daysAgo", { days })
 }

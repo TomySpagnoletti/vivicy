@@ -312,6 +312,23 @@ describe("role -> CLI assignment (R12)", () => {
   })
 })
 
+describe("allowUnsafeSkills (skills audit-gate waiver)", () => {
+  it("defaults to false and normalizes anything but true to false", () => {
+    expect(DEFAULT_SETTINGS.allowUnsafeSkills).toBe(false)
+    expect(normalizeSettings({}).allowUnsafeSkills).toBe(false)
+    expect(normalizeSettings({ allowUnsafeSkills: true }).allowUnsafeSkills).toBe(true)
+    expect(normalizeSettings({ allowUnsafeSkills: "1" }).allowUnsafeSkills).toBe(false)
+    expect(normalizeSettings({ allowUnsafeSkills: 1 }).allowUnsafeSkills).toBe(false)
+    expect(normalizeSettings({ allowUnsafeSkills: null }).allowUnsafeSkills).toBe(false)
+  })
+
+  it("persists through the settings store round-trip", () => {
+    const written = writeSettings({ ...DEFAULT_SETTINGS, allowUnsafeSkills: true })
+    expect(written.allowUnsafeSkills).toBe(true)
+    expect(readSettings().allowUnsafeSkills).toBe(true)
+  })
+})
+
 describe("persistence round-trip", () => {
   it("writeSettings normalizes, persists, and readSettings reads it back", () => {
     const written = writeSettings({
@@ -346,6 +363,7 @@ describe("settingsToEnv", () => {
       implementer: { provider: "claude", model: "claude-opus-4-8", effort: "xhigh", fast: false },
       reviewer: { provider: "codex", model: "gpt-5.5", effort: "high", fast: false },
       maxParallel: 1,
+      allowUnsafeSkills: false,
     })
     expect(env).toEqual({
       VIVICY_IMPLEMENTER_CLI: "claude",
@@ -357,6 +375,7 @@ describe("settingsToEnv", () => {
       VIVICY_CODEX_EFFORT: "high",
       VIVICY_CODEX_FAST: "0",
       VIVICY_MAX_PARALLEL: "1",
+      VIVICY_ALLOW_UNSAFE_SKILLS: "0",
     })
   })
 
@@ -365,6 +384,7 @@ describe("settingsToEnv", () => {
       implementer: { provider: "claude", model: "claude-opus-4-8", effort: "xhigh", fast: true },
       reviewer: { provider: "codex", model: "gpt-5.5", effort: "high", fast: true },
       maxParallel: 1,
+      allowUnsafeSkills: false,
     })
     expect(env.VIVICY_CLAUDE_FAST).toBe("1")
     expect(env.VIVICY_CODEX_FAST).toBe("1")
@@ -377,6 +397,7 @@ describe("settingsToEnv", () => {
       implementer: { provider: "claude", model: "claude-opus-4-5", effort: "high", fast: true },
       reviewer: { provider: "codex", model: "gpt-5.3-codex-spark", effort: "", fast: true },
       maxParallel: 1,
+      allowUnsafeSkills: false,
     })
     expect(env.VIVICY_CLAUDE_FAST).toBe("0")
     expect(env.VIVICY_CODEX_FAST).toBe("0")
@@ -386,6 +407,7 @@ describe("settingsToEnv", () => {
     const base = {
       implementer: { provider: "claude", model: "claude-opus-4-8", effort: "xhigh", fast: false },
       reviewer: { provider: "codex", model: "gpt-5.5", effort: "high", fast: false },
+      allowUnsafeSkills: false,
     } as const
     expect(settingsToEnv({ ...base, maxParallel: 3 }).VIVICY_MAX_PARALLEL).toBe("3")
     expect(settingsToEnv({ ...base, maxParallel: 12 }).VIVICY_MAX_PARALLEL).toBe("12")
@@ -398,6 +420,7 @@ describe("settingsToEnv", () => {
       implementer: { provider: "codex", model: "gpt-5.5", effort: "minimal", fast: true },
       reviewer: { provider: "claude", model: "claude-opus-4-8", effort: "max", fast: false },
       maxParallel: 2,
+      allowUnsafeSkills: false,
     })
     expect(env.VIVICY_IMPLEMENTER_CLI).toBe("codex")
     expect(env.VIVICY_REVIEWER_CLI).toBe("claude")

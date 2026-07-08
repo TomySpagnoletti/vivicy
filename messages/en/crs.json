@@ -1,0 +1,16 @@
+{
+  "sectionTitle": "Change requests awaiting your decision",
+  "via": "via {source}",
+  "approve": "Approve",
+  "reject": "Reject",
+  "approveDialogTitle": "Approve {id}?",
+  "approveDialogDescription": "Approving folds this change into the canonical: apply → re-freeze the baseline → re-extract the impacted issues. This runs autonomously and changes the frozen spec.",
+  "rejectDialogTitle": "Reject {id}?",
+  "rejectDialogDescription": "Rejecting closes this change request. The product intention is left unchanged.",
+  "cancel": "Cancel",
+  "approvedToastTitle": "{id} approved",
+  "approveBlockedToastTitle": "{id} approved but apply blocked",
+  "rejectedToastTitle": "{id} rejected",
+  "decisionFailedToastTitle": "{id} decision failed",
+  "networkError": "network error"
+}

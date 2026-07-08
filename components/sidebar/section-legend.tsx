@@ -1,6 +1,7 @@
 "use client"
 
 import { ChevronRight } from "lucide-react"
+import { useTranslations } from "next-intl"
 
 import { usePersistedBoolean } from "@/hooks/use-persisted-boolean"
 import { kindColor, progressStatusColor, STATUS_COLORS } from "@/lib/map-palette"
@@ -65,12 +66,13 @@ export function SectionLegend({
   nodes: MapNode[]
   statusLegend?: Record<string, string>
 }) {
+  const t = useTranslations("sidebar.legend")
   // Hydration-safe persisted open state: collapsed by default on the server and
   // the first client render; the stored choice is applied right after hydration.
   const [open, setOpen] = usePersistedBoolean(LEGEND_OPEN_KEY, false)
 
   const entries = legendEntries(view, nodes, statusLegend)
-  const title = view === "target" ? "Kind colors" : "Progress colors"
+  const title = view === "target" ? t("kindColorsTitle") : t("progressColorsTitle")
 
   return (
     <div className="flex flex-col gap-2 px-3 pt-3">
@@ -81,7 +83,7 @@ export function SectionLegend({
         className="flex flex-col gap-2"
       >
         <CollapsibleTrigger className="group flex w-full items-center justify-between gap-2 text-xs font-medium text-muted-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring">
-          <span>Legend · {title}</span>
+          <span>{t("triggerLabel", { title })}</span>
           <ChevronRight className="size-4 shrink-0 transition-transform group-data-[state=open]:rotate-90" />
         </CollapsibleTrigger>
         <CollapsibleContent>

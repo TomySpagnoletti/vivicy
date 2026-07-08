@@ -1,10 +1,11 @@
-import { render, screen } from "@testing-library/react"
+import { screen } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest"
 
 import { PanelToggle } from "@/components/sidebar/panel-toggle"
 import { SidebarProvider, useSidebar } from "@/components/ui/sidebar"
 import { TooltipProvider } from "@/components/ui/tooltip"
+import { renderWithIntl } from "@/test/render"
 
 /** The provider stack the toggle lives under in the app (tooltip + sidebar). */
 function Providers({ children }: { children: React.ReactNode }) {
@@ -57,7 +58,7 @@ describe("PanelToggle — desktop (width cycle)", () => {
 
   test("uses the NEXT-state label and fires onCycle, not the mobile Sheet", async () => {
     const onCycle = vi.fn()
-    render(
+    renderWithIntl(
       <Providers>
         <PanelToggle next="wide" open onCycle={onCycle} />
         <MobileStateProbe />
@@ -75,7 +76,7 @@ describe("PanelToggle — desktop (width cycle)", () => {
   })
 
   test("reflects a closed panel via the next='peek' open-panel label", () => {
-    render(
+    renderWithIntl(
       <Providers>
         <PanelToggle next="peek" open={false} onCycle={vi.fn()} />
       </Providers>
@@ -90,7 +91,7 @@ describe("PanelToggle — mobile (off-canvas Sheet)", () => {
 
   test("opens the Sheet on click instead of cycling the desktop width", async () => {
     const onCycle = vi.fn()
-    render(
+    renderWithIntl(
       <Providers>
         <PanelToggle next="wide" open onCycle={onCycle} />
         <MobileStateProbe />
@@ -113,7 +114,7 @@ describe("PanelToggle — mobile (off-canvas Sheet)", () => {
 
   test("a second click closes the Sheet (toggles), still ignoring onCycle", async () => {
     const onCycle = vi.fn()
-    render(
+    renderWithIntl(
       <Providers>
         <PanelToggle next="peek" open onCycle={onCycle} />
         <MobileStateProbe />

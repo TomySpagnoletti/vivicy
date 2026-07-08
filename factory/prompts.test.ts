@@ -9,7 +9,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { FACTORY_PROMPTS_DIR } from "./target-root.ts";
 
-const PROMPTS = ["implementer.md", "reviewer.md", "extractor.md", "extraction-verifier.md", "map-review.md", "change-request.md", "spike-prover.md", "spike-verifier.md", "cr-applier.md"];
+const PROMPTS = ["implementer.md", "reviewer.md", "extractor.md", "extraction-verifier.md", "map-review.md", "change-request.md", "spike-prover.md", "spike-verifier.md", "cr-applier.md", "skill-scout.md"];
 
 function readPrompt(name: string) {
   return readFileSync(join(FACTORY_PROMPTS_DIR, name), "utf8");
@@ -133,6 +133,23 @@ test("vivi.md pins the strict spike filename/gate_id grammar", () => {
   assert.match(text, /NO leading `S`\/`s`/i, "vivi.md must forbid the leading-S filename");
   assert.match(text, /gate:phase0:s<nn>-<slug>/, "vivi.md must show the gate_id grammar");
   assert.match(text, /filename stem \*\*verbatim\*\*|equal the filename without `\.md`/i, "vivi.md must require gate_id slug == filename stem");
+});
+
+test("skill-scout.md carries the propose-only skill-scouting discipline", () => {
+  const text = readPrompt("skill-scout.md");
+  assert.match(text, /SELF-CONTAINED/, "skill-scout.md must declare it is self-contained");
+  assert.match(text, /Skill Scout/i);
+  // It only proposes ids it actually saw in registry search output.
+  assert.match(text, /npx -y skills find/);
+  assert.match(text, /VERBATIM in `npx skills find` output/i, "the scout must never invent skill ids");
+  // Official vendors are preferred per technology; community only fills gaps.
+  assert.match(text, /Prefer OFFICIAL vendor skills/i);
+  // Selection bounds and the zero-selection legitimacy.
+  assert.match(text, /AT MOST 6/i);
+  assert.match(text, /"skills": \[\]/, "zero selection must be a legitimate result");
+  // It writes ONLY the JSON result file and never installs.
+  assert.match(text, /Do \*\*NOT\*\* install anything/i);
+  assert.match(text, /"id": "owner\/repo@skill"/);
 });
 
 test("map-review.md carries the independent per-lens review method", () => {

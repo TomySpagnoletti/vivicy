@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Loader2, TriangleAlert } from "lucide-react"
+import { useTranslations } from "next-intl"
 import { toast } from "sonner"
 
 import type {
@@ -11,6 +12,7 @@ import type {
   ViewMode,
 } from "@/lib/types"
 import { edgeIndexFromId } from "@/lib/map-data"
+import { errorText } from "@/lib/i18n-errors"
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
 import {
   ArchitectureMap,
@@ -32,6 +34,8 @@ type LoadState =
   | { kind: "ready"; data: ArchitectureMapData }
 
 export default function Page() {
+  const t = useTranslations("app")
+  const tErrors = useTranslations("errors")
   const [state, setState] = useState<LoadState>({ kind: "loading" })
   const [view, setView] = useState<ViewMode>("target")
   const [query, setQuery] = useState("")
@@ -57,9 +61,10 @@ export default function Page() {
       if (!mountedRef.current) return
       if (!res.ok) {
         if (foreground) {
+          const fallback = body?.detail ?? body?.error ?? t("loadError.requestFailed", { status: res.status })
           setState({
             kind: "error",
-            message: body?.detail ?? body?.error ?? `Request failed (${res.status}).`,
+            message: body?.code ? errorText(tErrors, `route.${body.code}`, fallback) : fallback,
           })
         }
         return
@@ -73,10 +78,10 @@ export default function Page() {
       if (!mountedRef.current || !foreground) return
       setState({
         kind: "error",
-        message: err instanceof Error ? err.message : "Failed to load the architecture map.",
+        message: err instanceof Error ? err.message : t("loadError.genericFailure"),
       })
     }
-  }, [])
+  }, [t, tErrors])
 
   // Extract from the onboarding state: runs the deterministic extraction +
   // map-regeneration chain, then reloads the map so a freshly generated graph
@@ -100,34 +105,35 @@ export default function Page() {
         // signals, not failures: surface them inline in the empty state, where
         // the Import button is the fix, instead of a transient toast.
         if (body.code === "empty_canonical") {
-          setExtractError({ message: body.error ?? "canonical is empty", code: body.code })
+          const fallback = body.error ?? t("extract.emptyCanonical")
+          setExtractError({ message: errorText(tErrors, `control.${body.code}`, fallback), code: body.code })
           return
         }
         // Distinguish "blocked for a human" (the deterministic checks stayed red
         // after the bounded retries) from a transient failure, so the operator
         // knows whether to look at the corpus or just retry.
         if (body.blocked) {
-          toast.error("Extraction blocked", {
-            description:
-              body.summary ?? "The deterministic checks stayed red after the retries. A human needs to look.",
+          toast.error(t("extract.blockedTitle"), {
+            description: body.summary ?? t("extract.blockedDefaultDescription"),
           })
         } else {
-          toast.error("Extract failed", {
-            description: body.summary ?? body.error ?? `HTTP ${res.status}`,
+          const fallback = body.summary ?? body.error ?? t("extract.failedHttpDescription", { status: res.status })
+          toast.error(t("extract.failedTitle"), {
+            description: body.code ? errorText(tErrors, `control.${body.code}`, fallback) : fallback,
           })
         }
         return
       }
-      toast.success("Extraction complete", { description: body.summary })
+      toast.success(t("extract.completeTitle"), { description: body.summary })
       await loadMap(true)
     } catch (err) {
-      toast.error("Extract failed", {
-        description: err instanceof Error ? err.message : "network error",
+      toast.error(t("extract.failedTitle"), {
+        description: err instanceof Error ? err.message : t("extract.failedNetworkDescription"),
       })
     } finally {
       if (mountedRef.current) setExtracting(false)
     }
-  }, [loadMap])
+  }, [loadMap, t, tErrors])
 
   useEffect(() => {
     async function initialLoad() {
@@ -140,8 +146,8 @@ export default function Page() {
   const onAgentsWarning = useCallback((message: string) => {
     if (lastAgentsWarningRef.current === message) return
     lastAgentsWarningRef.current = message
-    toast.warning("Agent setup incomplete", { description: message })
-  }, [])
+    toast.warning(t("agentsWarningTitle"), { description: message })
+  }, [t])
 
   const selected = useMemo<SelectedItem>(() => {
     if (state.kind !== "ready" || !selectedRef) return null
@@ -184,7 +190,7 @@ export default function Page() {
           {state.kind === "loading" ? (
             <CenteredMessage>
               <Loader2 className="size-4 animate-spin" />
-              Loading architecture map…
+              {t("loading")}
             </CenteredMessage>
           ) : null}
 

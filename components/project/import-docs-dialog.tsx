@@ -10,8 +10,11 @@ import {
   Loader2,
   Upload,
 } from "lucide-react"
+import { useTranslations } from "next-intl"
 import { toast } from "sonner"
 
+import { BRAND } from "@/lib/brand"
+import { errorText, errorTextAcrossFamilies } from "@/lib/i18n-errors"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -101,6 +104,8 @@ export function ImportDocsDialog({
   /** Fired after a successful Apply so the caller can refresh the map/project. */
   onProjectChanged: () => void
 }) {
+  const t = useTranslations("project.importDocsDialog")
+  const tErrors = useTranslations("errors")
   const [step, setStep] = useState<Step>({ phase: "idle" })
   const [dragActive, setDragActive] = useState(false)
 
@@ -141,16 +146,19 @@ export function ImportDocsDialog({
         code?: string
       }
       if (!res.ok || body.ok === false || !body.stagingId || !body.staged) {
-        toast.error("Cannot stage upload", { description: body.error ?? `HTTP ${res.status}` })
+        const fallback = body.error ?? t("toast.httpError", { status: res.status })
+        toast.error(t("toast.stageErrorTitle"), {
+          description: body.code ? errorText(tErrors, `upload.${body.code}`, fallback) : fallback,
+        })
         return
       }
       setStep({ phase: "staged", stagingId: body.stagingId, staged: body.staged })
     } catch (error) {
-      toast.error("Cannot stage upload", {
-        description: error instanceof Error ? error.message : "network error",
+      toast.error(t("toast.stageErrorTitle"), {
+        description: error instanceof Error ? error.message : t("toast.networkError"),
       })
     }
-  }, [])
+  }, [t, tErrors])
 
   // VERIFY: POST /api/upload/verify { stagingId }. Green enables Apply; red
   // surfaces the exact problems (including inline conversion_unavailable
@@ -179,7 +187,12 @@ export function ImportDocsDialog({
       // leg) produces a non-2xx AND omits `verdict` entirely. Both conditions
       // must hold to distinguish "verify ran and said red" from "verify never ran".
       if (!res.ok && !body.verdict) {
-        toast.error("Verify failed", { description: body.error ?? `HTTP ${res.status}` })
+        const fallback = body.error ?? t("toast.httpError", { status: res.status })
+        toast.error(t("toast.verifyErrorTitle"), {
+          description: body.code
+            ? errorTextAcrossFamilies(tErrors, ["control", "upload"], body.code, fallback)
+            : fallback,
+        })
         setStep({ phase: "staged", stagingId, staged })
         return
       }
@@ -194,17 +207,17 @@ export function ImportDocsDialog({
         normalized: body.normalized ?? [],
       })
       if (verdict === "red") {
-        toast.error("Verification found problems", {
-          description: body.summary ?? "See the problem list below.",
+        toast.error(t("toast.verifyProblemsTitle"), {
+          description: body.summary ?? t("toast.verifyProblemsFallback"),
         })
       }
     } catch (error) {
-      toast.error("Verify failed", {
-        description: error instanceof Error ? error.message : "network error",
+      toast.error(t("toast.verifyErrorTitle"), {
+        description: error instanceof Error ? error.message : t("toast.networkError"),
       })
       setStep({ phase: "staged", stagingId, staged })
     }
-  }, [step])
+  }, [step, t, tErrors])
 
   // APPLY: POST /api/upload/apply { stagingId }. `would_overwrite` carries the
   // exact colliding destinations in `collisions`, rendered as a list below (not
@@ -227,7 +240,12 @@ export function ImportDocsDialog({
         collisions?: string[]
       }
       if (!res.ok || body.ok === false || !body.placed) {
-        toast.error("Cannot place import", { description: body.error ?? `HTTP ${res.status}` })
+        const fallback = body.error ?? t("toast.httpError", { status: res.status })
+        toast.error(t("toast.applyErrorTitle"), {
+          description: body.code
+            ? errorTextAcrossFamilies(tErrors, ["control", "upload"], body.code, fallback)
+            : fallback,
+        })
         setStep({
           phase: "verified",
           stagingId,
@@ -240,31 +258,34 @@ export function ImportDocsDialog({
         })
         return
       }
-      toast.success("Docs imported", {
-        description: `${body.placed.length} file(s) placed into .vivicy/`,
+      toast.success(t("toast.importedTitle"), {
+        description: t("toast.importedDescription", { count: body.placed.length }),
       })
       setStep({ phase: "done", placed: body.placed })
       onProjectChanged()
     } catch (error) {
-      toast.error("Cannot place import", {
-        description: error instanceof Error ? error.message : "network error",
+      toast.error(t("toast.applyErrorTitle"), {
+        description: error instanceof Error ? error.message : t("toast.networkError"),
       })
       setStep({ phase: "verified", stagingId, staged, verdict, problems: [], summary: "", normalized: [] })
     }
-  }, [step, onProjectChanged])
+  }, [step, onProjectChanged, t, tErrors])
 
   const acceptSelection = useCallback(
     (entries: Array<{ file: File; rel: string }>) => {
       const rejected = entries.filter(({ file, rel }) => !isAcceptedFilename(rel || file.name))
       if (rejected.length > 0) {
-        toast.error("Unsupported file type", {
-          description: `${rejected.map(({ file, rel }) => rel || file.name).join(", ")} — accepted: ${ACCEPTED_EXTENSIONS.join(", ")}`,
+        toast.error(t("toast.unsupportedTitle"), {
+          description: t("toast.unsupportedDescription", {
+            files: rejected.map(({ file, rel }) => rel || file.name).join(", "),
+            extensions: ACCEPTED_EXTENSIONS.join(", "),
+          }),
         })
         return
       }
       void stageFiles(entries)
     },
-    [stageFiles]
+    [stageFiles, t]
   )
 
   const onFilesPicked = useCallback(
@@ -292,25 +313,26 @@ export function ImportDocsDialog({
         // dropped directory's contents, so the drop silently yields nothing.
         // Surface that honestly instead of leaving the user staring at an
         // unchanged drop zone.
-        toast.error("Could not read the dropped folder", {
-          description: "This browser can't read folder contents from a drop. Use “Choose folder” instead.",
+        toast.error(t("toast.folderReadErrorTitle"), {
+          description: t("toast.folderReadErrorDescription"),
         })
         return
       }
       acceptSelection(entries)
     },
-    [acceptSelection, busy]
+    [acceptSelection, busy, t]
   )
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-xl">
         <DialogHeader>
-          <DialogTitle>Import your docs</DialogTitle>
+          <DialogTitle>{t("title")}</DialogTitle>
           <DialogDescription>
-            Drop files, a folder, or a .zip. Vivicy checks the corpus for drift or
-            contradictions before placing anything — nothing lands in{" "}
-            <code className="text-foreground">.vivicy/</code> until the check is green.
+            {t.rich("description", {
+              brandName: BRAND.name,
+              code: (chunks) => <code className="text-foreground">{chunks}</code>,
+            })}
           </DialogDescription>
         </DialogHeader>
 
@@ -333,9 +355,9 @@ export function ImportDocsDialog({
             >
               <Upload className="size-5" />
             </span>
-            <p className="text-sm text-foreground">Drag files, a folder, or a .zip here</p>
+            <p className="text-sm text-foreground">{t("dropzone.prompt")}</p>
             <p className="text-xs text-muted-foreground">
-              Accepted: {ACCEPTED_EXTENSIONS.join(", ")}
+              {t("dropzone.accepted", { extensions: ACCEPTED_EXTENSIONS.join(", ") })}
             </p>
             <div className="flex flex-wrap items-center justify-center gap-2">
               <Button
@@ -345,7 +367,7 @@ export function ImportDocsDialog({
                 onClick={() => filesInputRef.current?.click()}
               >
                 <FileIcon />
-                Choose files
+                {t("dropzone.chooseFiles")}
               </Button>
               <Button
                 type="button"
@@ -354,7 +376,7 @@ export function ImportDocsDialog({
                 onClick={() => folderInputRef.current?.click()}
               >
                 <FolderInput />
-                Choose folder
+                {t("dropzone.chooseFolder")}
               </Button>
               <Button
                 type="button"
@@ -363,7 +385,7 @@ export function ImportDocsDialog({
                 onClick={() => zipInputRef.current?.click()}
               >
                 <FileArchive />
-                Choose .zip
+                {t("dropzone.chooseZip")}
               </Button>
             </div>
 
@@ -410,7 +432,7 @@ export function ImportDocsDialog({
         {step.phase === "verifying" ? (
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
             <Loader2 className="size-4 animate-spin" />
-            Checking for drift or contradictions…
+            {t("verifying")}
           </div>
         ) : null}
 
@@ -427,7 +449,7 @@ export function ImportDocsDialog({
         {step.phase === "applying" ? (
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
             <Loader2 className="size-4 animate-spin" />
-            Placing the verified corpus into .vivicy/…
+            {t("applying")}
           </div>
         ) : null}
 
@@ -442,27 +464,27 @@ export function ImportDocsDialog({
               disabled={busy}
               onClick={() => setStep({ phase: "idle" })}
             >
-              Start over
+              {t("footer.startOver")}
             </Button>
           ) : null}
           <DialogClose asChild>
             <Button type="button" variant="ghost" size="sm" disabled={busy}>
-              {step.phase === "done" ? "Close" : "Cancel"}
+              {step.phase === "done" ? t("footer.close") : t("footer.cancel")}
             </Button>
           </DialogClose>
           {step.phase === "staged" ? (
             <Button type="button" size="sm" onClick={() => void verify()}>
-              Verify
+              {t("footer.verify")}
             </Button>
           ) : null}
           {step.phase === "verified" && step.verdict === "red" ? (
             <Button type="button" size="sm" onClick={() => setStep({ phase: "idle" })}>
-              Retry
+              {t("footer.retry")}
             </Button>
           ) : null}
           {step.phase === "verified" && step.verdict === "green" ? (
             <Button type="button" size="sm" onClick={() => void apply()}>
-              Apply
+              {t("footer.apply")}
             </Button>
           ) : null}
         </DialogFooter>
@@ -472,10 +494,11 @@ export function ImportDocsDialog({
 }
 
 function StagedList({ staged }: { staged: StagedFile[] }) {
+  const t = useTranslations("project.importDocsDialog")
   return (
     <div className="flex flex-col gap-1.5">
       <p className="text-xs text-muted-foreground">
-        Staged {staged.length} file{staged.length === 1 ? "" : "s"}
+        {t("staged.count", { count: staged.length })}
       </p>
       <ScrollArea className="h-48 border border-border">
         <div className="flex flex-col p-1">
@@ -511,6 +534,7 @@ function VerifiedPanel({
   /** Destinations a prior Apply refused to overwrite (409 would_overwrite). */
   applyCollisions?: string[]
 }) {
+  const t = useTranslations("project.importDocsDialog")
   return (
     <div className="flex flex-col gap-2">
       <div className="flex items-center gap-2 text-sm">
@@ -520,7 +544,7 @@ function VerifiedPanel({
           <CircleX className="size-4 text-destructive" />
         )}
         <span className="font-medium text-foreground">
-          {verdict === "green" ? "Verified — ready to apply" : "Verification failed"}
+          {verdict === "green" ? t("verified.green") : t("verified.red")}
         </span>
       </div>
       {summary ? <p className="text-xs text-muted-foreground">{summary}</p> : null}
@@ -545,9 +569,7 @@ function VerifiedPanel({
 
       {verdict === "green" && applyCollisions && applyCollisions.length > 0 ? (
         <div className="flex flex-col gap-1.5">
-          <p className="text-xs text-destructive">
-            Apply refused — these destinations already exist and were not touched:
-          </p>
+          <p className="text-xs text-destructive">{t("verified.collisionsIntro")}</p>
           <ScrollArea className="h-32 border border-border">
             <div className="flex flex-col p-1">
               {applyCollisions.map((collision) => (
@@ -566,12 +588,13 @@ function VerifiedPanel({
 }
 
 function PlacedList({ placed }: { placed: PlacedFile[] }) {
+  const t = useTranslations("project.importDocsDialog")
   return (
     <div className="flex flex-col gap-1.5">
       <div className="flex items-center gap-2 text-sm">
         <CircleCheck className="size-4 text-foreground" />
         <span className="font-medium text-foreground">
-          Placed {placed.length} file{placed.length === 1 ? "" : "s"}
+          {t("placed.count", { count: placed.length })}
         </span>
       </div>
       <ScrollArea className="h-48 border border-border">

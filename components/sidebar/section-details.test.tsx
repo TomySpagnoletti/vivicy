@@ -1,10 +1,11 @@
-import { render, screen, within } from "@testing-library/react"
+import { screen, within } from "@testing-library/react"
 import { describe, expect, test } from "vitest"
 
 import type { SelectedItem } from "@/components/map/architecture-map"
 import { SectionDetails } from "@/components/sidebar/section-details"
 import { TranscriptProvider } from "@/components/transcript/transcript-modal"
 import type { ArchitectureMapData, MapEdge, MapNode } from "@/lib/types"
+import { renderWithIntl } from "@/test/render"
 
 const NODE: MapNode = {
   id: "telegram-channel",
@@ -57,7 +58,7 @@ const DATA: ArchitectureMapData = {
 }
 
 function renderDetails(selected: SelectedItem, data: ArchitectureMapData = DATA) {
-  return render(
+  return renderWithIntl(
     <TranscriptProvider>
       <SectionDetails selected={selected} data={data} />
     </TranscriptProvider>

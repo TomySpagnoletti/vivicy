@@ -50,8 +50,4 @@ pnpm-debug.log*
 next-env.d.ts
 
 # Local working docs — kept OUT of the public repo (internal method backlog)
-/METHOD-TRANSFER.md
 /TASKS.md
-/PREWIPE-ZERO-LOSS-AUDIT.md
-/PIPELINE-EVOLUTION.md
-/NIGHT-SUMMARY-v0.5.0.md

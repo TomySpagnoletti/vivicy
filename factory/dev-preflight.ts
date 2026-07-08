@@ -9,8 +9,14 @@
 // declares the skills its agents should use; a project that declares none (e.g.
 // a pure-JS library) preflights cleanly with nothing to check.
 //
-// Where skills are declared (read from the target root, first non-empty wins):
+// Where skills are declared (read from the target root; per field, a declared
+// vivicy.json array — even empty — wins over the package.json fallback):
+//   - vivicy.json   { "requiredSkills": [...], "recommendedSkills": [...] } — the
+//     canonical, language-neutral home (install-skills.ts maintains requiredSkills;
+//     entries are `owner/repo@skill` ids, matched against `skills list` output by
+//     their skill-name part).
 //   - package.json  "vivicy": { "requiredSkills": [...], "recommendedSkills": [...] }
+//     — Node-only fallback.
 //
 // Absent skills are reported as informational NOTES, never a hard failure — the
 // only thing that blocks the loop is an explicitly REQUIRED skill that is
@@ -38,28 +44,52 @@ interface SkillsCheck {
 }
 
 // Read the target project's declared skills. Returns { required, recommended }
-// arrays of skill names. Defaults to empty when the project declares none.
+// arrays of skill NAMES (the part `skills list` prints — a declared `owner/repo@skill`
+// id contributes its skill-name part). vivicy.json is the canonical, polyglot home;
+// package.json#vivicy is the Node-only fallback, per field.
 export function readDeclaredSkills(targetRoot = resolveTargetRoot()): DeclaredSkills {
   const empty: DeclaredSkills = { required: [], recommended: [] };
   if (!targetRoot) return empty;
 
-  const pkgPath = join(targetRoot, "package.json");
-  if (!existsSync(pkgPath)) return empty;
+  const fromVivicy = declaredIn(readJsonOrNull(join(targetRoot, "vivicy.json")));
+  const pkg = readJsonOrNull(join(targetRoot, "package.json"));
+  const fromPkg = declaredIn(pkg && typeof pkg === "object" ? (pkg as { vivicy?: unknown }).vivicy : null);
 
-  let pkg: unknown;
-  try {
-    pkg = JSON.parse(readFileSync(pkgPath, "utf8"));
-  } catch {
-    return empty;
-  }
-
-  const config = pkg && typeof pkg === "object" ? (pkg as { vivicy?: unknown }).vivicy : null;
-  if (!config || typeof config !== "object") return empty;
-
+  // A field vivicy.json DECLARES (even as an empty array — the owner emptied it) is
+  // authoritative; package.json only fills fields vivicy.json does not declare.
   return {
-    required: toStringList((config as { requiredSkills?: unknown }).requiredSkills),
-    recommended: toStringList((config as { recommendedSkills?: unknown }).recommendedSkills),
+    required: fromVivicy.required ?? fromPkg.required ?? [],
+    recommended: fromVivicy.recommended ?? fromPkg.recommended ?? [],
   };
+}
+
+// Each field is `null` when the config does not declare it as an array (absent config,
+// absent field, or a non-array value), so the caller can distinguish "undeclared" from
+// an authoritative empty list.
+function declaredIn(config: unknown): { required: string[] | null; recommended: string[] | null } {
+  if (!config || typeof config !== "object") return { required: null, recommended: null };
+  const field = (value: unknown): string[] | null => (Array.isArray(value) ? toStringList(value).map(skillName) : null);
+  return {
+    required: field((config as { requiredSkills?: unknown }).requiredSkills),
+    recommended: field((config as { recommendedSkills?: unknown }).recommendedSkills),
+  };
+}
+
+// A declared entry may be a bare skill name or an `owner/repo@skill` registry id; the
+// installed check greps `skills list` output, which prints skill names, so an id
+// matches by its part after the "@".
+function skillName(entry: string): string {
+  const at = entry.lastIndexOf("@");
+  return at > 0 ? entry.slice(at + 1) : entry;
+}
+
+function readJsonOrNull(abs: string): unknown {
+  if (!existsSync(abs)) return null;
+  try {
+    return JSON.parse(readFileSync(abs, "utf8"));
+  } catch {
+    return null;
+  }
 }
 
 function toStringList(value: unknown): string[] {
@@ -154,7 +184,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
       `dev-preflight: required development skills are missing.\n  missing: ${missingRequired.join(", ")}\n`,
     );
     process.stderr.write(
-      "Install the missing skills with the Vercel `skills` CLI (`npx skills add <skill>`), or remove them from this project's package.json \"vivicy.requiredSkills\".\n",
+      "Install the missing skills with the Vercel `skills` CLI (`npx skills add <skill>`), or remove them from this project's vivicy.json \"requiredSkills\" (or package.json \"vivicy.requiredSkills\").\n",
     );
     process.exit(1);
   }

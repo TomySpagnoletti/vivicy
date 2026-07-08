@@ -2,8 +2,11 @@
 
 import { useCallback, useEffect, useState } from "react"
 import { FolderOpen } from "lucide-react"
+import { useTranslations } from "next-intl"
 import { toast } from "sonner"
 
+import { BRAND } from "@/lib/brand"
+import { errorText } from "@/lib/i18n-errors"
 import type { CurrentProject, DirListing } from "@/lib/project-types"
 import { Button } from "@/components/ui/button"
 import {
@@ -41,6 +44,8 @@ export function OpenProjectDialog({
   onOpenChange: (open: boolean) => void
   onChanged: (project: CurrentProject) => void
 }) {
+  const t = useTranslations("project.openProjectDialog")
+  const tErrors = useTranslations("errors")
   const [listing, setListing] = useState<DirListing | null>(null)
   const [browserBusy, setBrowserBusy] = useState(false)
   const [selecting, setSelecting] = useState(false)
@@ -70,28 +75,32 @@ export function OpenProjectDialog({
         const body = (await res.json().catch(() => ({}))) as {
           ok?: boolean
           error?: string
+          code?: string
           project?: CurrentProject
         }
         if (!res.ok || body.ok === false || !body.project) {
-          toast.error("Cannot select project", { description: body.error ?? `HTTP ${res.status}` })
+          const fallback = body.error ?? t("toast.httpError", { status: res.status })
+          toast.error(t("toast.selectErrorTitle"), {
+            description: body.code ? errorText(tErrors, `project.${body.code}`, fallback) : fallback,
+          })
           return
         }
-        toast.success("Project selected", {
+        toast.success(t("toast.selectedTitle"), {
           description: body.project.hasCanonicalSpec
             ? body.project.root
-            : `${body.project.root} (no docs/ — extract has no spec to read yet)`,
+            : t("toast.selectedNoSpec", { root: body.project.root }),
         })
         onChanged(body.project)
         onOpenChange(false)
       } catch (error) {
-        toast.error("Cannot select project", {
-          description: error instanceof Error ? error.message : "network error",
+        toast.error(t("toast.selectErrorTitle"), {
+          description: error instanceof Error ? error.message : t("toast.networkError"),
         })
       } finally {
         setSelecting(false)
       }
     },
-    [onChanged, onOpenChange]
+    [onChanged, onOpenChange, t, tErrors]
   )
 
   const busy = browserBusy || selecting
@@ -100,11 +109,8 @@ export function OpenProjectDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>Open project</DialogTitle>
-          <DialogDescription>
-            Choose the local repository Vivicy should develop. Navigate to a folder
-            and select it, or paste an absolute path.
-          </DialogDescription>
+          <DialogTitle>{t("title")}</DialogTitle>
+          <DialogDescription>{t("description", { brandName: BRAND.name })}</DialogDescription>
         </DialogHeader>
 
         <FolderBrowser
@@ -129,7 +135,7 @@ export function OpenProjectDialog({
         >
           <FolderOpen />
           <span className="shrink-0">
-            {selecting ? "Selecting…" : "Select this folder"}
+            {selecting ? t("selectFolder.selecting") : t("selectFolder.idle")}
           </span>
           {listing ? (
             <span className="min-w-0 flex-1 truncate text-left text-muted-foreground">
@@ -147,14 +153,14 @@ export function OpenProjectDialog({
             if (path.length > 0) void select(path)
           }}
         >
-          <Label htmlFor="project-manual-path">Or paste an absolute path</Label>
+          <Label htmlFor="project-manual-path">{t("manualPath.label")}</Label>
           <div className="flex items-center gap-2">
             <Input
               id="project-manual-path"
               value={manualPath}
               spellCheck={false}
               autoComplete="off"
-              placeholder="/Users/you/code/your-project"
+              placeholder={t("manualPath.placeholder")}
               disabled={busy}
               onChange={(event) => setManualPath(event.target.value)}
             />
@@ -164,7 +170,7 @@ export function OpenProjectDialog({
               size="sm"
               disabled={busy || manualPath.trim().length === 0}
             >
-              Use
+              {t("manualPath.submit")}
             </Button>
           </div>
         </form>
@@ -172,7 +178,7 @@ export function OpenProjectDialog({
         <DialogFooter>
           <DialogClose asChild>
             <Button variant="ghost" size="sm" disabled={selecting}>
-              Cancel
+              {t("cancel")}
             </Button>
           </DialogClose>
         </DialogFooter>

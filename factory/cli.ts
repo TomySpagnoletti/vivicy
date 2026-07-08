@@ -62,7 +62,9 @@
 //   vivicy crs           [--json]                       list change requests
 //   vivicy cr approve <id> --by <actor>                 decide + apply an approved CR
 //   vivicy cr reject  <id> --by <actor>                 decide (reject) a CR
-//   vivicy retry-stage <stage>                          re-run a retryable stage (extract|dev)
+//   vivicy skills        [--dir <d>] [--json]           read the project-skills report
+//   vivicy skills install [ids...] [--dir <d>]          select/audit/install project skills
+//   vivicy retry-stage <stage>                          re-run a retryable stage (extract|skills|dev)
 //   vivicy notifications [--json]                       read the notification log
 //   vivicy app           [--target <d>] [--port <n>]    start the visual control plane (Next.js)
 //   vivicy loop          [--target <d>]                 run the two-agent dev loop once
@@ -114,9 +116,11 @@ const STATUS_SCRIPT = "dev-status.ts";
 const EXTRACT_SCRIPT = "extract-issues.ts";
 const CHANGE_CONTROL_SCRIPT = "change-control.ts";
 const CR_APPLY_SCRIPT = "cr-apply.ts";
+const SKILLS_SCRIPT = "install-skills.ts";
 
 // Repo-relative state files the app reads too — the CLI reads the SAME ones.
 const EXTRACTION_STATUS_REL = ".vivicy/development/reports/extraction-status.json";
+const SKILLS_REPORT_REL = ".vivicy/development/reports/skills-report.json";
 const CHANGE_REQUESTS_DIR = ".vivicy/change-requests";
 const REPORTS_DIR = ".vivicy/development/reports";
 // G9 (notifications) lands the WRITER after this CLI. The READ contract is fixed
@@ -137,7 +141,9 @@ Usage:
   vivicy crs           [--json]                    list change requests
   vivicy cr approve <id> --by <actor>              decide + apply an approved CR
   vivicy cr reject  <id> --by <actor>              decide (reject) a CR
-  vivicy retry-stage <stage>                       re-run a retryable stage (extract|dev)
+  vivicy skills        [--dir <d>] [--json]        read the project-skills report
+  vivicy skills install [ids...] [--dir <d>]       select/audit/install project skills (sync)
+  vivicy retry-stage <stage>                       re-run a retryable stage (extract|skills|dev)
   vivicy notifications [--json]                    read the notification log
   vivicy app           [--target <d>] [--port <n>] start the visual control plane
   vivicy loop          [--target <d>]              run the two-agent dev loop once
@@ -198,6 +204,18 @@ interface ExtractionStatus {
   map_mode?: string;
   spike_proving?: unknown;
   summary?: string;
+}
+
+/** skills-report.json fields the CLI surfaces (best-effort read; the schema of
+ *  record is install-skills.ts's writer — SAME file the app reads). */
+interface SkillsReport {
+  phase?: string;
+  baseline_id?: string | null;
+  mode?: string;
+  installed?: unknown[];
+  rejected?: unknown[];
+  summary?: string;
+  updated_at?: string;
 }
 
 /** apply-CR-####.json fields the CLI surfaces (best-effort read + null-normalized
@@ -888,14 +906,100 @@ function classifyDecisionCode(message: string): string {
   return "decision_failed";
 }
 
+// ── verb: skills [install] ───────────────────────────────────────────────────
+// `skills` reads the SAME skills-report.json the app reads (stable JSON on
+// stdout; exit 1 when the last install's phase is failed — a report an agent
+// must act on, not just display). `skills install [ids...]` drives
+// install-skills.ts synchronously like `extract` drives extract-issues.ts:
+// stream progress to stderr, read the terminal report back, exit 0 only on
+// green/skipped. No ids = auto mode (selection from the frozen spec); ids =
+// explicit mode (`--ids <id1,id2,...>`).
+function cmdSkillsReport(argv: string[]): void {
+  const json = takeBool(argv, "--json");
+  const target = resolveTarget(argv);
+  if (!target) {
+    return fail(json, EXIT_USAGE, "no target project — pass --dir <path> or set VIVICY_TARGET_ROOT", {
+      code: "missing_target",
+    });
+  }
+  if (!existsSync(target)) {
+    return fail(json, EXIT_USAGE, `target root does not exist: ${target}`, { code: "missing_target" });
+  }
+  const report = readJsonFile<SkillsReport>(join(target, SKILLS_REPORT_REL));
+  const failed = report?.phase === "failed";
+  if (json) {
+    emitJson({ ok: !failed, report: report ?? null });
+  } else if (!report) {
+    note("(no skills report — no install has run yet)");
+  } else {
+    note(`skills: ${report.phase ?? "?"} (${report.mode ?? "?"} mode) — ${report.summary ?? ""}`);
+    for (const entry of Array.isArray(report.installed) ? report.installed : []) {
+      const s = entry as { id?: string; name?: string; official?: boolean; security_waived?: boolean };
+      note(`  + ${s.id ?? "?"}  ${s.name ?? ""}  ${s.official ? "official" : "community"}${s.security_waived ? "  [audits waived]" : ""}`);
+    }
+    for (const entry of Array.isArray(report.rejected) ? report.rejected : []) {
+      const r = entry as { id?: string; reason?: string };
+      note(`  - ${r.id ?? "?"}  rejected: ${r.reason ?? ""}`);
+    }
+  }
+  process.exit(failed ? EXIT_REFUSAL : EXIT_OK);
+}
+
+async function cmdSkillsInstall(argv: string[]): Promise<void> {
+  const json = takeBool(argv, "--json");
+  const target = resolveTarget(argv);
+  if (!target) {
+    return fail(json, EXIT_USAGE, "no target project — pass --dir <path> or set VIVICY_TARGET_ROOT", {
+      code: "missing_target",
+    });
+  }
+  if (!existsSync(target)) {
+    return fail(json, EXIT_USAGE, `target root does not exist: ${target}`, { code: "missing_target" });
+  }
+  const ids = argv.filter((a) => !a.startsWith("--") && a.trim().length > 0);
+
+  note(
+    ids.length > 0
+      ? `vivicy: installing project skills (explicit: ${ids.join(", ")})…`
+      : "vivicy: installing project skills (auto selection from the frozen spec)…"
+  );
+  const res = await runScript(
+    process.execPath,
+    [scriptPath(SKILLS_SCRIPT), ...(ids.length > 0 ? ["--ids", ids.join(",")] : [])],
+    { cwd: factoryDir, env: childEnv(target) }
+  );
+
+  const report = readJsonFile<SkillsReport>(join(target, SKILLS_REPORT_REL));
+  const phase = report?.phase ?? "error";
+  const ok = res.code === 0 && (phase === "green" || phase === "skipped");
+  emitJsonOrHuman(json, {
+    ok,
+    phase,
+    mode: report?.mode ?? (ids.length > 0 ? "explicit" : "auto"),
+    installed: report?.installed ?? [],
+    rejected: report?.rejected ?? [],
+    summary: report?.summary ?? lastLine(res.stdout) ?? "skills install produced no report",
+  });
+  process.exit(ok ? EXIT_OK : EXIT_REFUSAL);
+}
+
+function cmdSkills(argv: string[]): Promise<void> | void {
+  if (argv[0] === "install") {
+    argv.shift();
+    return cmdSkillsInstall(argv);
+  }
+  return cmdSkillsReport(argv);
+}
+
 // ── verb: retry-stage <stage> ────────────────────────────────────────────────
-// Honest v0.5.0 scope: only two stages are actually retryable today — `extract`
-// (re-run extraction) and `dev` (relaunch the supervisor = resume). Map generation
-// lives INSIDE extraction, so there is no standalone map stage to retry. This is a
-// thin dispatcher; anything else is a code-2 usage error listing what IS supported
+// Honest scope: only three stages are actually retryable today — `extract`
+// (re-run extraction), `skills` (re-run the skills installer, auto mode), and
+// `dev` (relaunch the supervisor = resume). Map generation lives INSIDE
+// extraction, so there is no standalone map stage to retry. This is a thin
+// dispatcher; anything else is a code-2 usage error listing what IS supported
 // (no fake generality). G8's per-stage retry buttons call POST /api/control/retry-stage
 // with the same dispatch, so parity holds.
-const RETRYABLE_STAGES: Record<string, string> = { extract: "extract", dev: "resume" };
+const RETRYABLE_STAGES: Record<string, string> = { extract: "extract", skills: "skills", dev: "resume" };
 
 async function cmdRetryStage(argv: string[], opts: Opts): Promise<void> {
   const json = argv.includes("--json"); // peek; the sub-verb consumes it
@@ -910,6 +1014,7 @@ async function cmdRetryStage(argv: string[], opts: Opts): Promise<void> {
     );
   }
   if (action === "extract") return cmdExtract(argv, opts);
+  if (action === "skills") return cmdSkillsInstall(argv);
   return startSupervisor(argv, opts, "resume");
 }
 
@@ -999,6 +1104,8 @@ async function main(): Promise<void> {
       return cmdCrs(argv);
     case "cr":
       return cmdCr(argv, opts);
+    case "skills":
+      return cmdSkills(argv);
     case "retry-stage":
       return cmdRetryStage(argv, opts);
     case "notifications":

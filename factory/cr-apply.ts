@@ -34,6 +34,8 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { pruneGitkeeps } from "../lib/skeleton.ts";
+
 import { runClaudeLeg, runCodexLeg } from "./agent-spawn.ts";
 import type { AgentIssue, AgentLeg, LegConfig, LegDeps } from "./agent-spawn.ts";
 import { agentCliArgs, CLI_DEFAULTS, composePrompt, DEFAULT_CONFIG, resolveAgentLegs } from "./dev-loop.ts";
@@ -468,6 +470,7 @@ function defaultRecordReport(repoRoot: string, id: string, report: ReportSnapsho
   const abs = resolve(repoRoot, `${REPORTS_DIR}/apply-${id}.json`);
   mkdirSync(dirname(abs), { recursive: true });
   writeFileSync(abs, `${JSON.stringify({ ...report, updated_at: (report as Record<string, unknown>).updated_at ?? new Date().toISOString() }, null, 2)}\n`);
+  pruneGitkeeps(repoRoot);
 }
 
 // ---------------------------------------------------------------------------

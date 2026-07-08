@@ -1,6 +1,9 @@
 import path from "node:path"
 
 import type { NextConfig } from "next"
+import createNextIntlPlugin from "next-intl/plugin"
+
+const withNextIntl = createNextIntlPlugin("./i18n/request.ts")
 
 const nextConfig: NextConfig = {
   // Pin the Turbopack root to this app to avoid the multi-lockfile root warning
@@ -19,4 +22,4 @@ const nextConfig: NextConfig = {
   allowedDevOrigins: ["127.0.0.1", "localhost"],
 }
 
-export default nextConfig
+export default withNextIntl(nextConfig)

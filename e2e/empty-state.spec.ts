@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test"
+import { expect, test } from "./browser-issues"
 
 /**
  * Points the app at a target that has a `.vivicy/canonical/` but no generated

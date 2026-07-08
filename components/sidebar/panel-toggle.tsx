@@ -1,6 +1,7 @@
 "use client"
 
 import { ChevronsLeft, PanelRightClose, PanelRightOpen } from "lucide-react"
+import { useTranslations } from "next-intl"
 
 import type { PanelState } from "@/hooks/use-panel-state"
 import { cn } from "@/lib/utils"
@@ -13,16 +14,16 @@ import {
 } from "@/components/ui/tooltip"
 
 /**
- * The next state's icon + label. The toggle reflects what the NEXT click does,
- * so the user can see where the cycle is heading:
+ * The next state's icon + i18n label key. The toggle reflects what the NEXT
+ * click does, so the user can see where the cycle is heading:
  *   -> peek   (currently closed): open the panel  -> PanelRightOpen
  *   -> wide   (currently peek):   widen the panel -> ChevronsLeft
  *   -> closed (currently wide):   close the panel -> PanelRightClose
  */
-const NEXT: Record<PanelState, { Icon: typeof PanelRightOpen; label: string }> = {
-  peek: { Icon: PanelRightOpen, label: "Open panel" },
-  wide: { Icon: ChevronsLeft, label: "Widen panel" },
-  closed: { Icon: PanelRightClose, label: "Close panel" },
+const NEXT: Record<PanelState, { Icon: typeof PanelRightOpen; labelKey: "openPanel" | "widenPanel" | "closePanel" }> = {
+  peek: { Icon: PanelRightOpen, labelKey: "openPanel" },
+  wide: { Icon: ChevronsLeft, labelKey: "widenPanel" },
+  closed: { Icon: PanelRightClose, labelKey: "closePanel" },
 }
 
 /**
@@ -56,17 +57,19 @@ export function PanelToggle({
   onCycle: () => void
   className?: string
 }) {
+  const t = useTranslations("sidebar.panelToggle")
   const { isMobile, openMobile, toggleSidebar } = useSidebar()
 
   // On mobile the desktop width cycle is inert (the panel is a Sheet). Drive the
   // Sheet directly: open when closed, close when open. Labels/icons follow the
   // Sheet's open state rather than the desktop cycle.
-  const mobileLabel = openMobile ? "Close panel" : "Open panel"
+  const mobileLabelKey = openMobile ? "closePanel" : "openPanel"
   const MobileIcon = openMobile ? PanelRightClose : PanelRightOpen
 
-  const { Icon, label } = isMobile
-    ? { Icon: MobileIcon, label: mobileLabel }
+  const { Icon, labelKey } = isMobile
+    ? { Icon: MobileIcon, labelKey: mobileLabelKey }
     : NEXT[next]
+  const label = t(labelKey)
 
   return (
     <Tooltip>

@@ -1,4 +1,4 @@
-import { ControlError, runExtract, startSupervisor } from "@/lib/control"
+import { ControlError, runExtract, startSkillsInstall, startSupervisor } from "@/lib/control"
 import { appendNotification } from "@/lib/notifications"
 import { getSpawner } from "@/lib/spawner"
 
@@ -8,12 +8,13 @@ import { getSpawner } from "@/lib/spawner"
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 
-// Honest v0.5.0 scope: only two stages are actually retryable today. `extract`
-// re-runs extraction; `dev` relaunches the supervisor (a resume — it picks up from
-// done/ + the ledger). Map generation lives INSIDE extraction, so there is no
-// standalone map stage. Anything else is a 400 listing what IS supported — the same
-// dispatcher the CLI applies, so both clients steer the pipeline the same way.
-const RETRYABLE_STAGES = ["extract", "dev"] as const
+// Honest scope: only three stages are actually retryable today. `extract` re-runs
+// extraction; `skills` relaunches the detached skills installer (auto mode); `dev`
+// relaunches the supervisor (a resume — it picks up from done/ + the ledger). Map
+// generation lives INSIDE extraction, so there is no standalone map stage. Anything
+// else is a 400 listing what IS supported — the same dispatcher the CLI applies, so
+// both clients steer the pipeline the same way.
+const RETRYABLE_STAGES = ["extract", "skills", "dev"] as const
 type RetryableStage = (typeof RETRYABLE_STAGES)[number]
 
 function isRetryable(stage: unknown): stage is RetryableStage {
@@ -61,6 +62,17 @@ export async function POST(request: Request) {
         { ok: result.ok, stage, blocked: result.blocked, status: result.status, summary: result.summary },
         { status: result.ok ? 200 : 422 }
       )
+    }
+    if (stage === "skills") {
+      // Detached relaunch in auto mode; progress lands in the skills report file.
+      const run = startSkillsInstall(getSpawner())
+      appendNotification({
+        level: "info",
+        stage: "retry",
+        event: "retry_skills_started",
+        message: `skills install retried (pid ${run.pid}, ${run.mode} mode)`,
+      })
+      return Response.json({ ok: true, stage, run })
     }
     // stage === "dev": relaunch the supervisor as a resume.
     const run = startSupervisor(getSpawner(), "resume")

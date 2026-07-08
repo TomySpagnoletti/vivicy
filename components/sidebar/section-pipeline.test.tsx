@@ -1,7 +1,8 @@
-import { act, render, waitFor } from "@testing-library/react"
+import { act, waitFor } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest"
 
 import { SectionPipeline } from "@/components/sidebar/section-pipeline"
+import { renderWithIntl } from "@/test/render"
 
 class FakeEventSource {
   static last: FakeEventSource | null = null
@@ -27,11 +28,14 @@ const IDLE_STATUS = {
   gates: { pass: 0, fail: 0 },
 }
 
-function stubFetch(extractionStatus: unknown = null) {
+function stubFetch(extractionStatus: unknown = null, skillsReport: unknown = null) {
   return vi.fn<typeof fetch>(async (input) => {
     const url = String(input)
     if (url.includes("/api/control/extract")) {
       return new Response(JSON.stringify({ ok: true, status: extractionStatus }), { status: 200 })
+    }
+    if (url.includes("/api/control/skills")) {
+      return new Response(JSON.stringify({ ok: true, report: skillsReport }), { status: 200 })
     }
     return new Response(JSON.stringify({ ok: true }), { status: 200 })
   })
@@ -49,15 +53,29 @@ afterEach(() => {
 })
 
 describe("SectionPipeline — full process view", () => {
-  test("renders all 13 stages with a pending badge when nothing has run", async () => {
-    render(<SectionPipeline />)
+  test("renders all 14 stages (incl. SK) with a pending badge when nothing has run", async () => {
+    renderWithIntl(<SectionPipeline />)
     await act(() => FakeEventSource.last?.emit(IDLE_STATUS))
 
-    for (const id of ["S0", "S1", "S2", "S3", "S4", "S5", "S6", "S7", "S8", "S9", "S10", "S11", "S12"]) {
+    for (const id of ["S0", "S1", "S2", "S3", "S4", "S5", "S6", "S7", "SK", "S8", "S9", "S10", "S11", "S12"]) {
       await waitFor(() => expect(document.querySelector(`[data-stage="${id}"]`)).toBeTruthy())
     }
     const s2 = document.querySelector('[data-stage="S2"]') as HTMLElement
     expect(s2.textContent).toMatch(/pending/)
+  })
+
+  test("SK shows the skills report summary and timestamp as evidence when present", async () => {
+    vi.stubGlobal(
+      "fetch",
+      stubFetch(null, { phase: "green", summary: "2 skills installed, 1 rejected", updated_at: "2026-07-04T09:00:00Z" })
+    )
+    renderWithIntl(<SectionPipeline />)
+    await act(() => FakeEventSource.last?.emit(IDLE_STATUS))
+
+    const sk = await waitFor(() => document.querySelector('[data-stage="SK"]') as HTMLElement)
+    await waitFor(() => expect(sk.textContent).toMatch(/2 skills installed, 1 rejected/))
+    expect(sk.textContent).toMatch(/2026-07-04T09:00:00Z/)
+    expect(sk.textContent).toMatch(/done/)
   })
 
   test("shows the extraction phase and summary as evidence text for S6 when present", async () => {
@@ -65,7 +83,7 @@ describe("SectionPipeline — full process view", () => {
       "fetch",
       stubFetch({ phase: "green", summary: "extraction green: 8 issues", updated_at: "2026-07-02T10:00:00Z" })
     )
-    render(<SectionPipeline />)
+    renderWithIntl(<SectionPipeline />)
     await act(() => FakeEventSource.last?.emit(IDLE_STATUS))
 
     const s6 = await waitFor(() => document.querySelector('[data-stage="S6"]') as HTMLElement)
@@ -74,7 +92,7 @@ describe("SectionPipeline — full process view", () => {
   })
 
   test("never fabricates evidence text for a stage with no data (S0 stays evidence-free)", async () => {
-    render(<SectionPipeline />)
+    renderWithIntl(<SectionPipeline />)
     await act(() => FakeEventSource.last?.emit(IDLE_STATUS))
 
     const s0 = await waitFor(() => document.querySelector('[data-stage="S0"]') as HTMLElement)
@@ -83,7 +101,7 @@ describe("SectionPipeline — full process view", () => {
 
   test("S9 shows the issue-progress line once issues exist", async () => {
     vi.stubGlobal("fetch", stubFetch({ phase: "green" }))
-    render(<SectionPipeline />)
+    renderWithIntl(<SectionPipeline />)
     await act(() =>
       FakeEventSource.last?.emit({ ...IDLE_STATUS, issues_total: 8, issues_done: 3, gates: { pass: 3, fail: 1 } })
     )

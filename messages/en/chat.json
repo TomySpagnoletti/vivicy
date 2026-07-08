@@ -1,0 +1,14 @@
+{
+  "panelTitle": "Build the spec with Vivi",
+  "panelDescription": "Vivi grills you until your idea is a rigorous canonical spec, writing Markdown into <code>.vivicy/</code> as areas settle.",
+  "engineLabel": "Engine",
+  "engineBadgeTitle": "Set in Agent settings — not editable here",
+  "emptyState": "Tell Vivi what you want to build — a sentence is enough to start. Vivi will ask the questions that turn it into a complete spec.",
+  "pending": "Vivi is thinking…",
+  "inputPlaceholder": "Message Vivi…  (Enter to send, Shift+Enter for a new line)",
+  "inputAriaLabel": "Message Vivi",
+  "sendAriaLabel": "Send message",
+  "errorTitle": "Vivi could not respond",
+  "networkError": "network error",
+  "rejectedTitle": "Vivi's writes were rejected"
+}

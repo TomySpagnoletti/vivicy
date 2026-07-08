@@ -2,7 +2,9 @@
 
 import { useCallback, useState } from "react"
 import { FileUp, FolderOpen, MessagesSquare, Sparkles } from "lucide-react"
+import { useTranslations } from "next-intl"
 
+import { BRAND } from "@/lib/brand"
 import type { CurrentProject } from "@/lib/project-types"
 import { Button } from "@/components/ui/button"
 import {
@@ -32,6 +34,7 @@ export function OnboardingChooser({
 }: {
   onProjectChanged: (project: CurrentProject) => void
 }) {
+  const t = useTranslations("project.onboardingChooser")
   const [pickerOpen, setPickerOpen] = useState(false)
   const [scaffoldOpen, setScaffoldOpen] = useState(false)
 
@@ -79,11 +82,9 @@ export function OnboardingChooser({
     <div className="flex h-svh w-full items-center justify-center p-6">
       <div className="flex w-full max-w-5xl flex-col gap-4">
         <div className="flex flex-col items-center gap-1 text-center">
-          <h1 className="text-lg font-medium text-foreground">Start a project</h1>
+          <h1 className="text-lg font-medium text-foreground">{t("heading")}</h1>
           <p className="max-w-lg text-sm text-muted-foreground">
-            Vivicy develops a project from its canonical spec. Open an existing repo or
-            start from scratch, then bring the spec in — import docs you already have, or
-            build it from nothing by talking to Vivi.
+            {t("description", { brandName: BRAND.name })}
           </p>
         </div>
 
@@ -96,11 +97,12 @@ export function OnboardingChooser({
               >
                 <FolderOpen className="size-5" />
               </span>
-              <CardTitle>Open a project</CardTitle>
+              <CardTitle>{t("openProject.title")}</CardTitle>
               <CardDescription className="text-balance">
-                Pick a repository that already carries a{" "}
-                <code className="text-foreground">.vivicy/</code>. Vivicy runs the
-                method against it and adds only development output.
+                {t.rich("openProject.description", {
+                  brandName: BRAND.name,
+                  code: (chunks) => <code className="text-foreground">{chunks}</code>,
+                })}
               </CardDescription>
             </CardHeader>
             <CardFooter className="mt-auto">
@@ -111,7 +113,7 @@ export function OnboardingChooser({
                 onClick={() => setPickerOpen(true)}
               >
                 <FolderOpen />
-                Open existing folder
+                {t("openProject.action")}
               </Button>
             </CardFooter>
           </Card>
@@ -124,16 +126,15 @@ export function OnboardingChooser({
               >
                 <Sparkles className="size-5" />
               </span>
-              <CardTitle>Start from scratch</CardTitle>
+              <CardTitle>{t("scaffold.title")}</CardTitle>
               <CardDescription className="text-balance">
-                Give a new empty folder and a name. Vivicy scaffolds a lean
-                skeleton — you write the canonical spec afterwards.
+                {t("scaffold.description", { brandName: BRAND.name })}
               </CardDescription>
             </CardHeader>
             <CardFooter className="mt-auto">
               <Button size="sm" className="w-full" onClick={() => setScaffoldOpen(true)}>
                 <Sparkles />
-                Scaffold a new project
+                {t("scaffold.action")}
               </Button>
             </CardFooter>
           </Card>
@@ -146,10 +147,9 @@ export function OnboardingChooser({
               >
                 <FileUp className="size-5" />
               </span>
-              <CardTitle>Import your docs</CardTitle>
+              <CardTitle>{t("importDocs.title")}</CardTitle>
               <CardDescription className="text-balance">
-                Drop existing spec files, a folder, or a .zip. Vivicy checks them
-                for drift, then places the canonical, spikes, and map for you.
+                {t("importDocs.description", { brandName: BRAND.name })}
               </CardDescription>
             </CardHeader>
             <CardFooter className="mt-auto">
@@ -160,7 +160,7 @@ export function OnboardingChooser({
                 onClick={() => setImportAcquireOpen(true)}
               >
                 <FileUp />
-                Import docs
+                {t("importDocs.action")}
               </Button>
             </CardFooter>
           </Card>
@@ -173,11 +173,11 @@ export function OnboardingChooser({
               >
                 <MessagesSquare className="size-5" />
               </span>
-              <CardTitle>Build the spec with Vivi</CardTitle>
+              <CardTitle>{t("buildWithVivi.title")}</CardTitle>
               <CardDescription className="text-balance">
-                No docs yet? Talk to Vivi. She grills you until your idea is a
-                rigorous canonical spec and writes it into{" "}
-                <code className="text-foreground">.vivicy/</code> for you.
+                {t.rich("buildWithVivi.description", {
+                  code: (chunks) => <code className="text-foreground">{chunks}</code>,
+                })}
               </CardDescription>
             </CardHeader>
             <CardFooter className="mt-auto">
@@ -188,7 +188,7 @@ export function OnboardingChooser({
                 onClick={() => setViviAcquireOpen(true)}
               >
                 <MessagesSquare />
-                Talk to Vivi
+                {t("buildWithVivi.action")}
               </Button>
             </CardFooter>
           </Card>

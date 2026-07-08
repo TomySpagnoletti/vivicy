@@ -20,6 +20,7 @@ import path from "node:path"
 import { getFactoryRoot } from "@/lib/control"
 import { setCurrentProject } from "@/lib/project"
 import type { CurrentProject } from "@/lib/project-types"
+import { SKELETON_DIRS } from "@/lib/skeleton"
 
 /** The literal token replaced with the project name throughout the templates. */
 const PROJECT_NAME_TOKEN = "{{PROJECT_NAME}}"
@@ -105,26 +106,12 @@ export function resolveTargetDir(candidate: unknown): { target: string; mode: Sc
   return { target, mode: entries.length > 0 ? "existing_project" : "from_scratch" }
 }
 
-/**
- * The directory skeleton every Vivicy-managed project needs: the `.vivicy/` layout
- * the factory reads + writes (so the empty-map onboarding resolves cleanly) and the
- * always-present output dirs. Empty dirs are tracked with a `.gitkeep` so they survive
- * a commit. The target repo stays LEAN — it carries NO method/doc templates; the issue,
- * spike, and change-request shapes travel in Vivicy's bundled agent prompts, not here.
- * `.vivicy/canonical/` (where the owner writes product truth) and `.vivicy/change-requests/`
- * ship as empty `.gitkeep`-tracked dirs — the onboarding UI, not a scaffolded README,
- * tells the owner what to put in them.
- */
-const SKELETON_DIRS = [
-  ".vivicy/canonical",
-  ".vivicy/baselines",
-  ".vivicy/architecture-map",
-  ".vivicy/development/issues",
-  ".vivicy/development/spikes",
-  ".vivicy/development/reports",
-  ".vivicy/requirements",
-  ".vivicy/change-requests",
-] as const
+// The skeleton dir list lives in lib/skeleton.ts (shared with the factory's
+// pruneGitkeeps). The target repo stays LEAN — it carries NO method/doc templates;
+// the issue, spike, and change-request shapes travel in Vivicy's bundled agent
+// prompts, not here. `.vivicy/canonical/` (where the owner writes product truth)
+// and `.vivicy/change-requests/` ship as empty `.gitkeep`-tracked dirs — the
+// onboarding UI, not a scaffolded README, tells the owner what to put in them.
 
 /**
  * The Vivicy gate config (`vivicy.json`). Holds the POLYGLOT `gateCommand` the

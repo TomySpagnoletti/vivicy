@@ -1,12 +1,25 @@
 import { render, screen } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
+import { NextIntlClientProvider } from "next-intl"
 import { describe, expect, test, vi } from "vitest"
 
 import { MapEmptyState } from "@/components/map/map-empty-state"
+import map from "@/messages/en/map.json"
+import project from "@/messages/en/project.json"
+
+// MapEmptyState composes project/import-docs-dialog.tsx (owned by the project
+// area), so its own catalog namespace has to be present too, not just "map".
+function renderEmptyState(ui: React.ReactElement) {
+  return render(
+    <NextIntlClientProvider locale="en" messages={{ map, project }}>
+      {ui}
+    </NextIntlClientProvider>
+  )
+}
 
 describe("MapEmptyState — guidance per empty reason", () => {
   test("no_target shows the project-picker guidance and NO Extract button", () => {
-    render(<MapEmptyState reason="no_target" onExtract={vi.fn()} />)
+    renderEmptyState(<MapEmptyState reason="no_target" onExtract={vi.fn()} />)
     expect(screen.getByText("No project selected")).toBeInTheDocument()
     expect(screen.getByText(/Use “Open project” in the top-left/)).toBeInTheDocument()
     // Extract makes no sense before a target is resolved — even with onExtract.
@@ -16,7 +29,7 @@ describe("MapEmptyState — guidance per empty reason", () => {
   })
 
   test("no_map shows the run-Extract guidance and an enabled Extract button", () => {
-    render(<MapEmptyState reason="no_map" onExtract={vi.fn()} />)
+    renderEmptyState(<MapEmptyState reason="no_map" onExtract={vi.fn()} />)
     expect(screen.getByText("No issues extracted yet")).toBeInTheDocument()
     expect(screen.getByText(/authors the full plan/)).toBeInTheDocument()
     const extract = screen.getByRole("button", { name: "Extract from docs" })
@@ -24,7 +37,7 @@ describe("MapEmptyState — guidance per empty reason", () => {
   })
 
   test("empty_map shows the re-run guidance and an Extract button", () => {
-    render(<MapEmptyState reason="empty_map" onExtract={vi.fn()} />)
+    renderEmptyState(<MapEmptyState reason="empty_map" onExtract={vi.fn()} />)
     expect(screen.getByText("Architecture map is empty")).toBeInTheDocument()
     expect(screen.getByText(/re-run Extract/)).toBeInTheDocument()
     expect(screen.getByRole("button", { name: "Extract from docs" })).toBeInTheDocument()
@@ -35,7 +48,7 @@ describe("MapEmptyState — guidance per empty reason", () => {
   test("clicking Extract calls onExtract", async () => {
     const user = userEvent.setup()
     const onExtract = vi.fn()
-    render(<MapEmptyState reason="no_map" onExtract={onExtract} />)
+    renderEmptyState(<MapEmptyState reason="no_map" onExtract={onExtract} />)
     await user.click(screen.getByRole("button", { name: "Extract from docs" }))
     expect(onExtract).toHaveBeenCalledTimes(1)
   })
@@ -43,7 +56,7 @@ describe("MapEmptyState — guidance per empty reason", () => {
   test("extracting=true labels the button 'Extracting…' and disables it", async () => {
     const user = userEvent.setup()
     const onExtract = vi.fn()
-    render(<MapEmptyState reason="no_map" onExtract={onExtract} extracting />)
+    renderEmptyState(<MapEmptyState reason="no_map" onExtract={onExtract} extracting />)
     const extract = screen.getByRole("button", { name: "Extracting…" })
     expect(extract).toBeDisabled()
     // The idle label is gone, and a disabled button cannot fire onExtract.
@@ -53,7 +66,7 @@ describe("MapEmptyState — guidance per empty reason", () => {
   })
 
   test("no Extract button when onExtract is omitted, but Import docs still offered", () => {
-    render(<MapEmptyState reason="no_map" />)
+    renderEmptyState(<MapEmptyState reason="no_map" />)
     expect(screen.getByText("No issues extracted yet")).toBeInTheDocument()
     expect(screen.queryByRole("button", { name: /Extract from docs/ })).toBeNull()
     // A target already exists in no_map/empty_map, so Import docs (G1) is always
@@ -63,19 +76,19 @@ describe("MapEmptyState — guidance per empty reason", () => {
 
   test("Import docs button opens the import dialog", async () => {
     const user = userEvent.setup()
-    render(<MapEmptyState reason="no_map" onExtract={vi.fn()} />)
+    renderEmptyState(<MapEmptyState reason="no_map" onExtract={vi.fn()} />)
     await user.click(screen.getByRole("button", { name: /Import docs/ }))
     expect(screen.getByRole("dialog", { name: "Import your docs" })).toBeInTheDocument()
   })
 
   test("no_target shows neither Extract nor Import docs", () => {
-    render(<MapEmptyState reason="no_target" onExtract={vi.fn()} />)
+    renderEmptyState(<MapEmptyState reason="no_target" onExtract={vi.fn()} />)
     expect(screen.queryByRole("button", { name: /Extract from docs/ })).toBeNull()
     expect(screen.queryByRole("button", { name: /Import docs/ })).toBeNull()
   })
 
   test("empty-canonical extractError shows the guard message and highlights Import", () => {
-    render(
+    renderEmptyState(
       <MapEmptyState
         reason="no_map"
         onExtract={vi.fn()}
@@ -101,7 +114,7 @@ describe("MapEmptyState — guidance per empty reason", () => {
   })
 
   test("a non-empty-canonical extractError shows the message without highlighting Import", () => {
-    render(
+    renderEmptyState(
       <MapEmptyState
         reason="no_map"
         onExtract={vi.fn()}

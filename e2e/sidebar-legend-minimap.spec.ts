@@ -1,4 +1,4 @@
-import { expect, test, type ConsoleMessage } from "@playwright/test"
+import { expect, test, type ConsoleMessage } from "./browser-issues"
 
 import { clickPastOverlap, ensurePanelOpen, isMobileProject } from "./helpers"
 

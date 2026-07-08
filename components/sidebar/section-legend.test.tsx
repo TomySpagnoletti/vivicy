@@ -1,10 +1,11 @@
-import { render, screen } from "@testing-library/react"
+import { screen } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, describe, expect, test } from "vitest"
 
 import { SectionLegend } from "@/components/sidebar/section-legend"
 import { __resetPersistedBooleanStoresForTests } from "@/hooks/use-persisted-boolean"
 import type { MapNode } from "@/lib/types"
+import { renderWithIntl } from "@/test/render"
 
 /** Two nodes of distinct kinds so the target legend has >1 swatch. */
 function node(id: string, kind: string): MapNode {
@@ -35,7 +36,7 @@ afterEach(() => {
 describe("SectionLegend — collapsed by default", () => {
   test("swatch labels are hidden until the trigger is clicked", async () => {
     const user = userEvent.setup()
-    render(<SectionLegend view="target" nodes={NODES} />)
+    renderWithIntl(<SectionLegend view="target" nodes={NODES} />)
 
     // The Collapsible content is closed: Radix renders it hidden, so the swatch
     // labels are not visible to the accessibility tree / screen queries.
@@ -52,12 +53,12 @@ describe("SectionLegend — collapsed by default", () => {
 
 describe("SectionLegend — title reflects the current view", () => {
   test("target view labels the legend 'Kind colors'", () => {
-    render(<SectionLegend view="target" nodes={NODES} />)
+    renderWithIntl(<SectionLegend view="target" nodes={NODES} />)
     expect(screen.getByRole("button", { name: /Legend · Kind colors/ })).toBeInTheDocument()
   })
 
   test("progress view labels the legend 'Progress colors'", () => {
-    render(<SectionLegend view="progress" nodes={NODES} />)
+    renderWithIntl(<SectionLegend view="progress" nodes={NODES} />)
     expect(
       screen.getByRole("button", { name: /Legend · Progress colors/ })
     ).toBeInTheDocument()
@@ -65,7 +66,7 @@ describe("SectionLegend — title reflects the current view", () => {
 
   test("progress view, once opened, shows status swatches from the status legend", async () => {
     const user = userEvent.setup()
-    render(
+    renderWithIntl(
       <SectionLegend
         view="progress"
         nodes={NODES}

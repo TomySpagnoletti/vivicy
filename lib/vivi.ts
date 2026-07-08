@@ -49,9 +49,10 @@ import {
 } from "node:fs"
 import path from "node:path"
 
-import { ControlError, getFactoryRoot, type Spawner } from "@/lib/control"
+import { ControlError, getFactoryRoot, startSkillsInstall, type Spawner } from "@/lib/control"
 import { getRuntimeDir } from "@/lib/runtime-dir"
 import { settingsToEnv } from "@/lib/settings"
+import { pruneGitkeeps } from "@/lib/skeleton"
 import { readSettings } from "@/lib/settings-store"
 import { getTargetRoot } from "@/lib/target"
 
@@ -588,13 +589,79 @@ export async function runViviTurn(spawner: Spawner, input: {
     }
   }
 
+  if (diff.allowedWrites.length > 0) pruneGitkeeps(targetRoot)
+
+  // An ACCEPTED turn may carry a skills-install directive (the vivicy-skills
+  // fenced block the persona emits on an explicit user request). Acted on only
+  // here — a rejected turn's directive dies with the turn.
+  const finalReply = applySkillsDirective(spawner, reply)
+
   appendTurn(sessionId, {
     role: "vivi",
-    text: reply,
+    text: finalReply,
     ts: new Date().toISOString(),
     wrote: diff.allowedWrites,
   })
-  return { sessionId, reply, wrote: diff.allowedWrites }
+  return { sessionId, reply: finalReply, wrote: diff.allowedWrites }
+}
+
+/** Matches the persona's skills-install fenced block (see prompts/vivi.md). */
+const SKILLS_FENCE = /```vivicy-skills\s*\n([\s\S]*?)\n\s*```/
+
+/** Outcome of {@link parseSkillsDirective}: ids to install, an honest malformed
+ *  reason, or null when the reply carries no directive at all. */
+export type SkillsDirective = { ids: string[] } | { malformed: string } | null
+
+/**
+ * Parse the optional `vivicy-skills` fenced block out of a Vivi reply. STRICT:
+ * the block must be valid JSON of shape `{"install": [<non-empty strings>]}`.
+ * A present-but-broken block returns `{ malformed }` so the caller can append
+ * an honest note WITHOUT rejecting the turn; no block at all returns null.
+ * Pure, exported for unit tests.
+ */
+export function parseSkillsDirective(reply: string): SkillsDirective {
+  const match = reply.match(SKILLS_FENCE)
+  if (!match) return null
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(match[1])
+  } catch {
+    return { malformed: "the vivicy-skills block is not valid JSON" }
+  }
+  const install = (parsed as { install?: unknown } | null)?.install
+  if (!Array.isArray(install) || install.length === 0) {
+    return { malformed: 'the vivicy-skills block must be {"install": ["<id>", ...]} with at least one id' }
+  }
+  const ids: string[] = []
+  for (const entry of install) {
+    if (typeof entry !== "string" || entry.trim().length === 0) {
+      return { malformed: "the vivicy-skills block must list only non-empty string ids" }
+    }
+    ids.push(entry.trim())
+  }
+  return { ids }
+}
+
+/**
+ * Act on a skills directive in an accepted reply: start an EXPLICIT-mode install
+ * through the control plane (Vivi itself never installs anything) and append a
+ * short status line to the reply. A malformed block appends an honest note
+ * instead — never rejects the turn; a control refusal (install already running,
+ * missing script/target) surfaces its message the same way.
+ */
+function applySkillsDirective(spawner: Spawner, reply: string): string {
+  const directive = parseSkillsDirective(reply)
+  if (directive === null) return reply
+  if ("malformed" in directive) {
+    return `${reply}\n\n→ skills install NOT started: ${directive.malformed}.`
+  }
+  try {
+    startSkillsInstall(spawner, { ids: directive.ids })
+    return `${reply}\n\n→ skills install started (explicit mode); check the Skills section.`
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    return `${reply}\n\n→ skills install NOT started: ${message}.`
+  }
 }
 
 /** Record a rejected turn (restore the snapshot, stamp the transcript, return the reply). */

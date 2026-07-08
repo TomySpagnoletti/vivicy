@@ -1,0 +1,140 @@
+{
+  "onboardingChooser": {
+    "heading": "Start a project",
+    "description": "{brandName} develops a project from its canonical spec. Open an existing repo or start from scratch, then bring the spec in — import docs you already have, or build it from nothing by talking to Vivi.",
+    "openProject": {
+      "title": "Open a project",
+      "description": "Pick a repository that already carries a <code>.vivicy/</code>. {brandName} runs the method against it and adds only development output.",
+      "action": "Open existing folder"
+    },
+    "scaffold": {
+      "title": "Start from scratch",
+      "description": "Give a new empty folder and a name. {brandName} scaffolds a lean skeleton — you write the canonical spec afterwards.",
+      "action": "Scaffold a new project"
+    },
+    "importDocs": {
+      "title": "Import your docs",
+      "description": "Drop existing spec files, a folder, or a .zip. {brandName} checks them for drift, then places the canonical, spikes, and map for you.",
+      "action": "Import docs"
+    },
+    "buildWithVivi": {
+      "title": "Build the spec with Vivi",
+      "description": "No docs yet? Talk to Vivi. She grills you until your idea is a rigorous canonical spec and writes it into <code>.vivicy/</code> for you.",
+      "action": "Talk to Vivi"
+    }
+  },
+  "openProjectDialog": {
+    "title": "Open project",
+    "description": "Choose the local repository {brandName} should develop. Navigate to a folder and select it, or paste an absolute path.",
+    "selectFolder": {
+      "selecting": "Selecting…",
+      "idle": "Select this folder"
+    },
+    "manualPath": {
+      "label": "Or paste an absolute path",
+      "placeholder": "/Users/you/code/your-project",
+      "submit": "Use"
+    },
+    "cancel": "Cancel",
+    "toast": {
+      "selectErrorTitle": "Cannot select project",
+      "selectedTitle": "Project selected",
+      "selectedNoSpec": "{root} (no docs/ — extract has no spec to read yet)",
+      "networkError": "network error",
+      "httpError": "HTTP {status}"
+    }
+  },
+  "scaffoldDialog": {
+    "title": "Start from scratch",
+    "description": "{brandName} scaffolds a new project with the full development method — you write the canonical product spec afterwards.",
+    "nameLabel": "Project name",
+    "namePlaceholder": "Acme App",
+    "locationLabel": "Location",
+    "folderLabel": "New folder name",
+    "folderPlaceholder": "acme-app",
+    "absoluteLabel": "Or an absolute target path",
+    "absolutePlaceholder": "/Users/you/code/acme-app",
+    "targetPreview": "Scaffolds into <target>{targetDir}</target>",
+    "cancel": "Cancel",
+    "submit": {
+      "idle": "Scaffold project",
+      "scaffolding": "Scaffolding…"
+    },
+    "toast": {
+      "errorTitle": "Cannot scaffold project",
+      "successTitle": "Project scaffolded",
+      "successDescription": "{root} — write your canonical docs, then extract.",
+      "networkError": "network error",
+      "httpError": "HTTP {status}"
+    }
+  },
+  "importDocsDialog": {
+    "title": "Import your docs",
+    "description": "Drop files, a folder, or a .zip. {brandName} checks the corpus for drift or contradictions before placing anything — nothing lands in <code>.vivicy/</code> until the check is green.",
+    "dropzone": {
+      "prompt": "Drag files, a folder, or a .zip here",
+      "accepted": "Accepted: {extensions}",
+      "chooseFiles": "Choose files",
+      "chooseFolder": "Choose folder",
+      "chooseZip": "Choose .zip"
+    },
+    "staged": {
+      "count": "Staged {count, plural, one {# file} other {# files}}"
+    },
+    "verifying": "Checking for drift or contradictions…",
+    "verified": {
+      "green": "Verified — ready to apply",
+      "red": "Verification failed",
+      "collisionsIntro": "Apply refused — these destinations already exist and were not touched:"
+    },
+    "applying": "Placing the verified corpus into .vivicy/…",
+    "placed": {
+      "count": "Placed {count, plural, one {# file} other {# files}}"
+    },
+    "footer": {
+      "startOver": "Start over",
+      "cancel": "Cancel",
+      "close": "Close",
+      "verify": "Verify",
+      "retry": "Retry",
+      "apply": "Apply"
+    },
+    "toast": {
+      "unsupportedTitle": "Unsupported file type",
+      "unsupportedDescription": "{files} — accepted: {extensions}",
+      "stageErrorTitle": "Cannot stage upload",
+      "verifyErrorTitle": "Verify failed",
+      "verifyProblemsTitle": "Verification found problems",
+      "verifyProblemsFallback": "See the problem list below.",
+      "applyErrorTitle": "Cannot place import",
+      "importedTitle": "Docs imported",
+      "importedDescription": "{count} file(s) placed into .vivicy/",
+      "folderReadErrorTitle": "Could not read the dropped folder",
+      "folderReadErrorDescription": "This browser can't read folder contents from a drop. Use “Choose folder” instead.",
+      "networkError": "network error",
+      "httpError": "HTTP {status}"
+    }
+  },
+  "folderBrowser": {
+    "currentPathLabel": "Current path",
+    "newFolder": "New folder",
+    "newFolderNameLabel": "New folder name",
+    "newFolderPlaceholder": "new-folder-name",
+    "cancelNewFolder": "Cancel new folder",
+    "create": {
+      "idle": "Create",
+      "creating": "Creating…"
+    },
+    "loading": "Loading…",
+    "empty": "No subfolders here.",
+    "foldersGroupLabel": "Folders",
+    "parentDir": "..",
+    "toast": {
+      "openErrorTitle": "Cannot open folder",
+      "createErrorTitle": "Cannot create folder",
+      "createdTitle": "Folder created",
+      "networkError": "network error",
+      "httpError": "HTTP {status}"
+    }
+  }
+}

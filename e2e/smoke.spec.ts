@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test"
+import { expect, test } from "./browser-issues"
 
 import { clickPastOverlap, ensurePanelOpen, isMobileProject } from "./helpers"
 

@@ -1,5 +1,6 @@
 import { memo } from "react"
 import { Handle, Position, type NodeProps } from "@xyflow/react"
+import { useTranslations } from "next-intl"
 
 import type { ColorToken } from "@/lib/map-palette"
 
@@ -27,12 +28,13 @@ export interface MapNodeData {
 // The map surface is intentionally allowed a custom (non-shadcn) style; colors
 // come from the slate palette tokens rather than the design system.
 function MapNodeComponent({ data }: NodeProps) {
+  const t = useTranslations("map")
   const node = data as MapNodeData
   const { color } = node
   const dataLine =
     node.ownsData.slice(0, 3).join(", ") +
     (node.linkedIssueCount > 0
-      ? ` • ${node.linkedIssueCount} task${node.linkedIssueCount === 1 ? "" : "s"}`
+      ? ` • ${t("node.linkedIssueCount", { count: node.linkedIssueCount })}`
       : "")
 
   return (
@@ -51,13 +53,10 @@ function MapNodeComponent({ data }: NodeProps) {
       <Handle id="target" type="target" position={Position.Left} className="map-node-handle" />
       <div className="architecture-node-topline">
         <span className="architecture-node-id">
-          {node.id} • {node.edgeCount} {node.edgeCount === 1 ? "edge" : "edges"}
+          {node.id} • {t("node.edgeCount", { count: node.edgeCount })}
         </span>
         {node.isActive ? (
-          <span
-            className="map-work-pulse"
-            title="The development agent is working on this graph item"
-          />
+          <span className="map-work-pulse" title={t("node.activeWorkTitle")} />
         ) : null}
         <span
           className="architecture-node-pill"
