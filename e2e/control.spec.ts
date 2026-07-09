@@ -80,4 +80,35 @@ test.describe("Vivicy control plane", () => {
     await expect(sidebar.getByText("ISS-0001", { exact: true })).toBeVisible()
     await expect(nodes.first()).toBeVisible()
   })
+
+  // Regression: a run becoming active (here via the API, exactly like a sibling
+  // worker's run reaching this page over SSE) auto-expands the pipeline widget
+  // while NO overlay is open. The expanded strip once had an unconstrained
+  // min-content width, which made mobile Chromium enlarge the layout viewport
+  // (innerWidth 412 -> 768) — flipping useIsMobile() to desktop mid-test and
+  // breaking every panel interaction. The widget must expand WITHOUT disturbing
+  // the layout viewport, and the panel must stay reachable.
+  test("an auto-expanded pipeline widget keeps the layout viewport at device width", async ({
+    page,
+  }, testInfo) => {
+    await page.goto("/")
+    await expect(page.locator(".react-flow__node").first()).toBeVisible({ timeout: 30_000 })
+
+    const started = await page.request.post("/api/control/start")
+    expect(started.ok()).toBe(true)
+    try {
+      // SSE flips run_active; the widget auto-expands (stage nodes mount).
+      await expect(
+        page.locator('[data-pipeline-widget] [data-stage="S9"]')
+      ).toBeVisible({ timeout: 15_000 })
+
+      const innerWidth = await page.evaluate(() => window.innerWidth)
+      expect(innerWidth).toBe(page.viewportSize()!.width)
+
+      // The panel flow is intact with the widget expanded (Sheet on mobile).
+      await ensurePanelOpen(page, testInfo)
+    } finally {
+      await page.request.post("/api/control/stop")
+    }
+  })
 })

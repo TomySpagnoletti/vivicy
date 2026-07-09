@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "./browser-issues"
 
-import { LONG_TARGET_ROOT } from "../playwright.config"
+import { DEMO_TARGET_ROOT, LONG_TARGET_ROOT } from "../playwright.config"
 
 /**
  * Horizontal-overflow audit (the owner asked to "vérifier partout, sur toute
@@ -14,8 +14,11 @@ import { LONG_TARGET_ROOT } from "../playwright.config"
  *
  * A small tolerance absorbs sub-pixel rounding from devicePixelRatio.
  *
- * Serial: the picker persists the current project on disk (process-global), and
- * selecting the long target would otherwise race the other demo-server specs.
+ * Serial: the picker persists the current project on disk (process-global).
+ * Cross-FILE isolation is the config's job: this file runs as a dependency phase
+ * of each demo project (before every other spec on that server) because selecting
+ * the long target re-points the process-global current project — see
+ * playwright.config's OVERFLOW_SPEC note. The demo target is restored at the end.
  */
 test.describe.configure({ mode: "serial" })
 
@@ -73,6 +76,18 @@ async function expectContainedInParent(page: Page, selector: string, label: stri
 }
 
 test.describe("No horizontal overflow anywhere", () => {
+  // Restore the demo target after the WHOLE file: it runs as a dependency phase
+  // of the demo suite (see playwright.config's OVERFLOW_SPEC note), and the main
+  // phase must start from the canonical current project so setup.spec's demo
+  // re-selects stay no-ops instead of real project switches racing control.spec's
+  // run. An afterAll (not a test step) so no future test can bypass the restore.
+  test.afterAll(async ({ request }) => {
+    const restored = await request.post("/api/project", {
+      data: { root: DEMO_TARGET_ROOT },
+    })
+    expect(restored.ok()).toBe(true)
+  })
+
   test("demo target: map, Open-project modal, Details, and transcript modal all fit", async ({
     page,
   }) => {

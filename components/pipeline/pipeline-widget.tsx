@@ -196,7 +196,13 @@ export function PipelineWidget() {
             {t("widget.title")}
           </button>
         </CollapsibleTrigger>
-        <CollapsibleContent>
+        {/* max-w-full is load-bearing: the strip's shrink-0 chips give the content a
+        ~1100px min-content width that would otherwise size this flex item PAST the
+        card's own max-width (intrinsic sizing ignores descendants' max-width). On a
+        phone that overflow makes mobile Chromium expand the layout viewport
+        (innerWidth 412 -> 768), flipping useIsMobile()/`md:` into desktop mode.
+        Clamping the item keeps the overflow inside the overflow-x-auto scroller. */}
+        <CollapsibleContent className="max-w-full">
           <div className="flex items-center gap-0.5 overflow-x-auto py-1">
             {PIPELINE_STAGES.map((stage, index) => {
               const previousSide = PIPELINE_STAGES[index - 1]?.side

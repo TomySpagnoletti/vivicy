@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import path from "node:path"
 
@@ -33,9 +33,24 @@ afterEach(() => {
 })
 
 describe("getTargetRoot", () => {
-  it("resolves VIVICY_TARGET_ROOT when set", () => {
+  it("resolves VIVICY_TARGET_ROOT when set (verbatim spelling — env servers are single-spelling)", () => {
     process.env.VIVICY_TARGET_ROOT = tmp
     expect(getTargetRoot()).toBe(path.resolve(tmp))
+  })
+
+  it("returns a persisted (canonical-by-construction) root verbatim, winning over the env", () => {
+    const real = realpathSync(mkdtempSync(path.join(tmpdir(), "vivicy-target-persisted-")))
+    try {
+      mkdirSync(process.env.VIVICY_RUNTIME_DIR!, { recursive: true })
+      writeFileSync(
+        path.join(process.env.VIVICY_RUNTIME_DIR!, "current-project.json"),
+        JSON.stringify({ root: real })
+      )
+      process.env.VIVICY_TARGET_ROOT = tmp
+      expect(getTargetRoot()).toBe(real)
+    } finally {
+      rmSync(real, { recursive: true, force: true })
+    }
   })
 
   it("is null when neither a persisted project nor VIVICY_TARGET_ROOT is set", () => {

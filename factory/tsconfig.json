@@ -12,6 +12,6 @@
     "skipLibCheck": true,
     "noEmit": true
   },
-  "include": ["**/*.ts", "../scripts/**/*.ts", "../lib/development-overlay.ts", "../lib/skeleton.ts"],
+  "include": ["**/*.ts", "../scripts/**/*.ts", "../lib/development-overlay.ts", "../lib/project-runtime.ts", "../lib/skeleton.ts", "../lib/spec-cycle.ts", "../lib/spec-kind.ts"],
   "exclude": ["../scripts/test-matrix.test.ts"]
 }

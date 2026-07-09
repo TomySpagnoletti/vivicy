@@ -326,3 +326,45 @@ test("--product overrides the derived name", () => {
     rmSync(root, { force: true, recursive: true });
   }
 });
+
+test("generate stamps the mechanically detected spec_kind (W7a) and it rides the manifest hash", () => {
+  const root = makeTargetRoot();
+  try {
+    writeDoc(root, "01-a.md", "# Doc\n");
+    // A bare target (no tracked/product code) is a PROJECT spec.
+    const gen = runCli(root, ["generate", "--version", "1.0.0", "--status", "draft"]);
+    assert.equal(gen.status, 0, gen.stderr);
+    const project = readBaseline(root, BASELINE_ID);
+    assert.equal(project.spec_kind, "project");
+
+    // Product code present -> FEATURE spec, and the manifest hash CHANGES with the
+    // kind (it is contract, not metadata).
+    mkdirSync(resolve(root, "src"), { recursive: true });
+    writeFileSync(resolve(root, "src", "main.go"), "package main\n");
+    const gen2 = runCli(root, ["generate", "--version", "1.0.0", "--status", "draft"]);
+    assert.equal(gen2.status, 0, gen2.stderr);
+    const feature = readBaseline(root, BASELINE_ID);
+    assert.equal(feature.spec_kind, "feature");
+    assert.notEqual(feature.manifest_hash, project.manifest_hash);
+  } finally {
+    rmSync(root, { force: true, recursive: true });
+  }
+});
+
+test("a freshly generated manifest verifies with spec_kind present (shape stays legacy-tolerant)", () => {
+  const root = makeTargetRoot();
+  try {
+    writeDoc(root, "01-a.md", "# Doc\n");
+    const gen = runCli(root, ["generate", "--version", "1.0.0", "--status", "draft"]);
+    assert.equal(gen.status, 0, gen.stderr);
+    // spec_kind is emitted on every new manifest but stays OPTIONAL on read
+    // (assertManifestShape was deliberately not extended), so pre-v0.7.0 frozen
+    // manifests keep verifying; here we prove the emitted field round-trips verify.
+    const manifest = readBaseline(root, BASELINE_ID);
+    assert.ok(manifest.spec_kind === "project" || manifest.spec_kind === "feature");
+    const verify = runCli(root, ["verify", "--manifest", `.vivicy/baselines/${BASELINE_ID}.json`]);
+    assert.equal(verify.status, 0, verify.stderr);
+  } finally {
+    rmSync(root, { force: true, recursive: true });
+  }
+});

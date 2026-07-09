@@ -21,8 +21,14 @@ export const FINGERPRINT_RE = /^Reconciled fingerprint: `([0-9a-f]{64})` @ commi
 const BEHAVIOR_DIRS = ["app", "components", "lib", "factory", "hooks", "scripts", "e2e"]
 const BEHAVIOR_ROOT_FILES = ["playwright.config.ts", "vitest.config.ts", "vitest.setup.ts", "next.config.ts", "package.json"]
 
+// Regenerated, gitignored run ARTIFACTS are not behavior: hashing them would let
+// every rehearsal run invalidate a freshly-honest stamp (found live: the rehearsal
+// report re-reddened the guard minutes after a legitimate reconcile+stamp).
+const ARTIFACT_PATHS = ["factory/rehearsal/reports/"]
+
 function isBehaviorFile(rel: string): boolean {
   if (/\.(test|spec)\.(ts|tsx)$/.test(rel)) return false
+  if (ARTIFACT_PATHS.some((p) => rel.startsWith(p))) return false
   return /\.(ts|tsx|md|json)$/.test(rel)
 }
 

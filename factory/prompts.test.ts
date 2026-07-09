@@ -135,6 +135,66 @@ test("vivi.md pins the strict spike filename/gate_id grammar", () => {
   assert.match(text, /filename stem \*\*verbatim\*\*|equal the filename without `\.md`/i, "vivi.md must require gate_id slug == filename stem");
 });
 
+test("the spec-kind discipline (W7a) is pinned across vivi/implementer/reviewer prompts", () => {
+  const vivi = readPrompt("vivi.md");
+  assert.match(vivi, /spec_kind: project/, "vivi.md must document the project kind");
+  assert.match(vivi, /spec_kind: feature/, "vivi.md must document the feature kind");
+  assert.match(vivi, /grill the CHANGE, not the world/i, "vivi.md must scope the feature grill");
+  assert.match(vivi, /do NOT redefine the stack/i, "vivi.md must forbid re-specifying an existing product's stack");
+
+  const implementer = readPrompt("implementer.md");
+  assert.match(implementer, /spec_kind/, "implementer.md must read the manifest's spec_kind");
+  assert.match(implementer, /follow ITS structure, naming, and idioms/i, "implementer.md must bind feature work to existing conventions");
+
+  const reviewer = readPrompt("reviewer.md");
+  assert.match(reviewer, /spec_kind/, "reviewer.md must read the manifest's spec_kind");
+  assert.match(reviewer, /rewrites or restyles pre-existing code beyond the issue's needs is a fail/i, "reviewer.md must fail legacy-rewriting diffs");
+});
+
+test("vivi.md carries the governess charter (action protocol, no code, no CR decision)", () => {
+  const text = readPrompt("vivi.md");
+  // The action protocol: the ONE structured channel, mirrored by lib/vivi-actions.ts.
+  assert.match(text, /```vivicy-action/, "vivi.md must document the vivicy-action fence");
+  assert.match(text, /"actions": \[\{"tool":/, "vivi.md must show the envelope shape");
+  // The tool catalog must name the verbs the registry actually implements.
+  for (const tool of [
+    "status.read",
+    "pipeline.start",
+    "pipeline.resume",
+    "pipeline.stop",
+    "pipeline.extract",
+    "pipeline.retry",
+    "skills.install",
+    "skills.remove",
+    "map.move",
+    "crs.list",
+    "cycle.open",
+    "cycle.cancel",
+    "notifications.read",
+  ]) {
+    assert.match(text, new RegExp(tool.replace(".", "\\.")), `vivi.md must document the ${tool} tool`);
+  }
+  // The two hard prohibitions: never code, never decide a CR (P2's human touchpoint).
+  assert.match(text, /You never write code/i, "vivi.md must carry the no-code prohibition");
+  assert.match(text, /no `cr\.decide` tool/i, "vivi.md must state the CR decision is never hers");
+  assert.match(text, /never repeat a succeeded action/i, "vivi.md must forbid re-issuing succeeded actions");
+});
+
+test("vivi.md carries la Nonna's voice WITH the no-seasoning-in-files guard", () => {
+  const text = readPrompt("vivi.md");
+  // The voice: warm Italian-kitchen register for the conversation.
+  assert.match(text, /la Nonna's kitchen/i, "vivi.md must define the Nonna voice section");
+  assert.match(text, /la ricetta/, "vivi.md must map the spec to the recipe");
+  assert.match(text, /mise en place/, "vivi.md must map extracted issues to the mise en place");
+  // The guards that keep the brand out of the method artifacts (P1/W10):
+  assert.match(text, /Seasoning, never the dish/i, "vivi.md must bound the metaphor density");
+  assert.match(text, /The files never get seasoned/i, "vivi.md must forbid the metaphor in written files");
+  assert.match(text, /Sober when it burns/i, "vivi.md must require plain facts first on errors");
+  // The posture that keeps Vivicy a serious tool: the voice is an accent, never a costume.
+  assert.match(text, /Engineer first, Nonna second/i, "vivi.md must pin the engineer-first posture");
+  assert.match(text, /not a toy/i, "vivi.md must state Vivicy is not a toy");
+});
+
 test("skill-scout.md carries the propose-only skill-scouting discipline", () => {
   const text = readPrompt("skill-scout.md");
   assert.match(text, /SELF-CONTAINED/, "skill-scout.md must declare it is self-contained");

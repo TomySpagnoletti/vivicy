@@ -16,6 +16,7 @@ import {
   auditVerdict,
   buildSkillsBlock,
   installSkills,
+  removeSkills,
   MAX_PROJECT_SKILLS,
   normalizeSkillId,
   OFFICIAL_VENDOR_OWNERS,
@@ -500,5 +501,113 @@ describe("official vendor owners", () => {
       assert.ok(OFFICIAL_VENDOR_OWNERS.has(owner), `${owner} must be an official vendor owner`);
     }
     assert.ok(!OFFICIAL_VENDOR_OWNERS.has("somebody"));
+  });
+});
+
+describe("removeSkills (W6 — deterministic uninstall)", () => {
+  const PRIOR: SkillsReport = {
+    phase: "green",
+    baseline_id: BASELINE_ID,
+    mode: "explicit",
+    installed: [
+      { id: "anthropics/skills@pdf", source: "anthropics/skills", skill: "pdf", name: "pdf", official: true, security_waived: false, audits: [], reason: "" },
+      { id: "acme/repo@scraper", source: "acme/repo", skill: "scraper", name: "scraper", official: false, security_waived: false, audits: [], reason: "" },
+    ],
+    rejected: [],
+    summary: "",
+    updated_at: "t",
+  };
+
+  function seedInstalledState(): void {
+    writeJson(SKILLS_REPORT_REL, PRIOR);
+    writeJson("vivicy.json", { gateCommand: "npm test", requiredSkills: ["anthropics/skills@pdf", "acme/repo@scraper"] });
+    writeFileSync(resolve(repo, "AGENTS.md"), applySkillsBlock(null, [
+      { id: "anthropics/skills@pdf", name: "pdf", official: true, reason: "" },
+      { id: "acme/repo@scraper", name: "scraper", official: false, reason: "" },
+    ]));
+  }
+
+  function fakeRemover(calls: FakeInstallCall[], failFor: Set<string> = new Set()) {
+    return ({ source, skill }: { repoRoot: string; source: string; skill: string }) => {
+      calls.push({ source, skill });
+      return failFor.has(`${source}@${skill}`) ? { code: 1, output: "remove exploded" } : { code: 0, output: "removed" };
+    };
+  }
+
+  it("removes an installed skill: report, vivicy.json, and AGENTS.md all shrink together", async () => {
+    seedInstalledState();
+    const calls: FakeInstallCall[] = [];
+    const report = await removeSkills({ repoRoot: repo, ids: ["anthropics/skills@pdf"], runRemove: fakeRemover(calls) });
+
+    assert.equal(report.phase, "green");
+    assert.equal(report.mode, "remove");
+    assert.deepEqual(report.removed, [{ id: "anthropics/skills@pdf" }]);
+    assert.deepEqual(calls, [{ source: "anthropics/skills", skill: "pdf" }]);
+    // vivicy.json requiredSkills shrank (gateCommand preserved).
+    const config = readJson("vivicy.json") as { gateCommand: string; requiredSkills: string[] };
+    assert.equal(config.gateCommand, "npm test");
+    assert.deepEqual(config.requiredSkills, ["acme/repo@scraper"]);
+    // AGENTS.md managed block now lists only the survivor.
+    const agents = readFileSync(resolve(repo, "AGENTS.md"), "utf8");
+    assert.ok(agents.includes("acme/repo@scraper"));
+    assert.ok(!agents.includes("anthropics/skills@pdf"));
+    // The mirrored report survives on disk with the surviving installed set.
+    const onDisk = readJson(SKILLS_REPORT_REL) as SkillsReport;
+    assert.equal(onDisk.installed?.length, 1);
+    assert.equal(onDisk.installed?.[0]?.id, "acme/repo@scraper");
+  });
+
+  it("accepts a skills.sh URL and frees a cap slot", async () => {
+    seedInstalledState();
+    const report = await removeSkills({ repoRoot: repo, ids: ["https://skills.sh/acme/repo/scraper"], runRemove: fakeRemover([]) });
+    assert.deepEqual(report.removed, [{ id: "acme/repo@scraper" }]);
+    const config = readJson("vivicy.json") as { requiredSkills: string[] };
+    assert.deepEqual(config.requiredSkills, ["anthropics/skills@pdf"]);
+  });
+
+  it("refuses a not-installed id and an invalid id with machine reasons (never silent)", async () => {
+    seedInstalledState();
+    const calls: FakeInstallCall[] = [];
+    const report = await removeSkills({ repoRoot: repo, ids: ["ghost/repo@nope", "not-an-id"], runRemove: fakeRemover(calls) });
+
+    assert.equal(report.phase, "green");
+    assert.deepEqual(report.removed, []);
+    assert.equal(calls.length, 0, "nothing not-installed is ever passed to the remover");
+    const reasons = report.rejected.map((r) => r.reason).sort();
+    assert.deepEqual(reasons, ["invalid_id", "not_installed"]);
+    // Nothing shrank.
+    const config = readJson("vivicy.json") as { requiredSkills: string[] };
+    assert.equal(config.requiredSkills.length, 2);
+  });
+
+  it("records a remove_failed rejection and leaves the state intact for that skill", async () => {
+    seedInstalledState();
+    const report = await removeSkills({
+      repoRoot: repo,
+      ids: ["anthropics/skills@pdf", "acme/repo@scraper"],
+      runRemove: fakeRemover([], new Set(["anthropics/skills@pdf"])),
+    });
+
+    assert.deepEqual(report.removed, [{ id: "acme/repo@scraper" }]);
+    assert.deepEqual(report.rejected.map((r) => ({ id: r.id, reason: r.reason })), [
+      { id: "anthropics/skills@pdf", reason: "remove_failed" },
+    ]);
+    const config = readJson("vivicy.json") as { requiredSkills: string[] };
+    assert.deepEqual(config.requiredSkills, ["anthropics/skills@pdf"], "the failed removal keeps its slot");
+  });
+
+  it("renders the empty-set AGENTS.md block when the last skill is removed", async () => {
+    writeJson(SKILLS_REPORT_REL, { ...PRIOR, installed: [PRIOR.installed[0]] });
+    writeJson("vivicy.json", { gateCommand: "npm test", requiredSkills: ["anthropics/skills@pdf"] });
+    writeFileSync(resolve(repo, "AGENTS.md"), applySkillsBlock(null, [{ id: "anthropics/skills@pdf", name: "pdf", official: true, reason: "" }]));
+
+    await removeSkills({ repoRoot: repo, ids: ["anthropics/skills@pdf"], runRemove: fakeRemover([]) });
+    const agents = readFileSync(resolve(repo, "AGENTS.md"), "utf8");
+    assert.ok(agents.includes("No project skills are currently installed"));
+  });
+
+  it("throws SkillsConfigError without a target or without ids", async () => {
+    await assert.rejects(() => removeSkills({ ids: ["a/b@c"] }), SkillsConfigError);
+    await assert.rejects(() => removeSkills({ repoRoot: repo, ids: [] }), SkillsConfigError);
   });
 });

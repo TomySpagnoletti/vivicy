@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import path from "node:path"
 
@@ -21,7 +21,9 @@ let prevCwd: string
 
 beforeEach(() => {
   tmpCwd = mkdtempSync(path.join(tmpdir(), "vivicy-project-cwd-"))
-  projectDir = mkdtempSync(path.join(tmpdir(), "vivicy-project-target-"))
+  // Canonical (realpath) spelling: describeProject canonicalizes its result, so
+  // tests compare against the one true spelling (macOS tmpdir is symlinked).
+  projectDir = realpathSync(mkdtempSync(path.join(tmpdir(), "vivicy-project-target-")))
   prevCwd = process.cwd()
   process.chdir(tmpCwd)
 })
@@ -77,6 +79,14 @@ describe("describeProject (validation)", () => {
 
   it("trims surrounding whitespace before validating", () => {
     expect(describeProject(`  ${projectDir}  `).root).toBe(projectDir)
+  })
+
+  it("canonicalizes a symlink-spelled root to ONE spelling (the W8 runtime key hashes it)", () => {
+    const alias = path.join(tmpCwd, "alias-root")
+    symlinkSync(projectDir, alias)
+    const described = describeProject(alias)
+    expect(described.root).toBe(projectDir)
+    expect(described.name).toBe(path.basename(projectDir))
   })
 })
 

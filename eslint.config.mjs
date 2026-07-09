@@ -19,6 +19,15 @@ const eslintConfig = defineConfig([
     // has its own tsconfig + test suite and must not be linted as React/Next.
     "factory/**",
   ]),
+  {
+    // The E2E suite is Playwright, not React: its fixtures call Playwright's own
+    // `use()` (test-scoped provisioning), which the React hooks rule misreads as
+    // the React `use` hook.
+    files: ["e2e/**"],
+    rules: {
+      "react-hooks/rules-of-hooks": "off",
+    },
+  },
 ]);
 
 export default eslintConfig;

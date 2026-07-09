@@ -4,6 +4,7 @@ import { useState } from "react"
 import { FileUp, FolderSearch, MapPin, TriangleAlert, Workflow } from "lucide-react"
 import { useTranslations } from "next-intl"
 
+import { BRAND } from "@/lib/brand"
 import { Button } from "@/components/ui/button"
 import {
   Card,
@@ -12,7 +13,16 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
-import { ImportDocsDialog } from "@/components/project/import-docs-dialog"
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import { ImportDocsFlow } from "@/components/project/import-docs-flow"
 import type { MapEmptyReason } from "@/lib/types"
 
 /**
@@ -53,6 +63,7 @@ export function MapEmptyState({
   extractError?: { message: string; code?: string } | null
 }) {
   const t = useTranslations("map")
+  const t2 = useTranslations("project.importDocsDialog")
   const copy = COPY[reason]
   const Icon = copy.icon
   // Extract and Import both only make sense once a target is resolved.
@@ -104,11 +115,30 @@ export function MapEmptyState({
         ) : null}
       </Card>
 
-      <ImportDocsDialog
-        open={importOpen}
-        onOpenChange={setImportOpen}
-        onProjectChanged={() => onImported?.()}
-      />
+      {/* A target already exists in no_map/empty_map, so this hosts the shared
+          staged import flow directly in a dialog — first-time acquisition + import
+          live in the Vivi panel's onboarding view instead (W4b). */}
+      <Dialog open={importOpen} onOpenChange={setImportOpen}>
+        <DialogContent className="sm:max-w-xl">
+          <DialogHeader>
+            <DialogTitle>{t2("title")}</DialogTitle>
+            <DialogDescription>
+              {t2.rich("description", {
+                brandName: BRAND.name,
+                code: (chunks) => <code className="text-foreground">{chunks}</code>,
+              })}
+            </DialogDescription>
+          </DialogHeader>
+          <ImportDocsFlow active={importOpen} onApplied={() => onImported?.()} />
+          <DialogFooter>
+            <DialogClose asChild>
+              <Button type="button" variant="ghost" size="sm">
+                {t2("footer.close")}
+              </Button>
+            </DialogClose>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

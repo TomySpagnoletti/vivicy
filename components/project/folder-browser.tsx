@@ -16,10 +16,10 @@ import { ScrollArea } from "@/components/ui/scroll-area"
  * Shared local-filesystem browser (R10) behind `GET /api/fs/list` and
  * `POST /api/fs/mkdir`: breadcrumbs of the current path, a parent-up row, a
  * scrollable subdirectory list, and an optional inline "New folder" affordance.
- * Used by both {@link OpenProjectDialog} (browsing IS the selection) and
- * {@link ScaffoldDialog} (browsing picks the PARENT a new folder is named into) —
- * `onNavigate` reports every path the browser lands on so each dialog derives its
- * own meaning from it.
+ * Used by both the open-project form (browsing IS the selection) and the panel's
+ * scaffold form (browsing picks the PARENT a new folder is named into) — the
+ * listing callback reports every path the browser lands on so each caller derives
+ * its own meaning from it.
  *
  * Controlled: the parent owns `open` (when to (re)browse from the root) and
  * receives the live `DirListing` via `onListingChange` for its own "Select this

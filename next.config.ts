@@ -20,6 +20,10 @@ const nextConfig: NextConfig = {
   // Allow the local loopback hosts used by Playwright's dev server so dev
   // resources (HMR, RSC) are not cross-origin-blocked during E2E.
   allowedDevOrigins: ["127.0.0.1", "localhost"],
+  // The dev-mode "N" indicator docks bottom-left — exactly where Vivi's launcher
+  // bubble lives — hiding the product's primary affordance in every dev/E2E
+  // session. The full-screen error overlay is unaffected by this flag.
+  devIndicators: false,
 }
 
 export default withNextIntl(nextConfig)

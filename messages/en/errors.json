@@ -7,7 +7,9 @@
     "empty_canonical": "the canonical spec is empty",
     "spawn_failed": "the script failed to run",
     "unknown_cr": "unknown change request",
-    "cr_not_decidable": "this change request cannot be decided right now"
+    "cr_not_decidable": "this change request cannot be decided right now",
+    "unknown_staging": "this import staging session is unknown or expired — restage the documents",
+    "cycle_state": "the spec-cycle state does not allow this — check the cycle status (open/closed) and retry the matching action"
   },
   "upload": {
     "no_files": "no files were uploaded",

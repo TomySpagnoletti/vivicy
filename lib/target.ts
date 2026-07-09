@@ -12,7 +12,15 @@ import path from "node:path"
 
 import { readCurrentProjectRoot } from "@/lib/project"
 
-/** Absolute path to the resolved target project root, or null when none is set. */
+/**
+ * Absolute path to the resolved target project root, or null when none is set.
+ *
+ * Spelling contract: persisted roots are CANONICAL by construction (the project
+ * store realpaths on write — see {@link file://./project#describeProject}), so the
+ * W8 per-project runtime key (which hashes this string) never forks across
+ * symlinked spellings of one directory. The env fallback is used verbatim: an
+ * env-driven server has a single, consistent spelling for its whole lifetime.
+ */
 export function getTargetRoot(): string | null {
   const persisted = readCurrentProjectRoot()
   if (persisted) return path.resolve(persisted)

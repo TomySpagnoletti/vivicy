@@ -22,6 +22,7 @@
   "copyFailedTitle": "Copy failed",
   "copyFailedDescription": "Select and copy the command manually.",
   "copyAriaLabel": "Copy: {label}",
+  "commandScrollAriaLabel": "{label} command — scroll to read the full line",
   "update": "Update",
   "updating": "Updating…",
   "updateAriaLabel": "Update {label}",
@@ -34,5 +35,16 @@
   "warningNotInstalled": "{label} is not installed",
   "warningNotSignedIn": "{label} is not signed in",
   "warningAuthUnknown": "{label} sign-in could not be verified",
-  "warningSuffix": "The development loop needs both CLIs installed and signed in to run."
+  "warningSuffix": "The development loop needs both CLIs installed and signed in to run.",
+  "gate": {
+    "title": "Install the agent CLIs",
+    "description": "{brandName} runs on two agent CLIs — Claude Code implements, the Codex CLI reviews. Both must be installed on this machine before anything can run.",
+    "checkAgain": "Check again",
+    "checking": "Checking…"
+  },
+  "authBanner": {
+    "title": "Agent sign-in needed",
+    "agentLine": "{label} is installed but not signed in — run <code>{authCommand}</code> in your terminal.",
+    "dismissAriaLabel": "Dismiss the sign-in reminder"
+  }
 }

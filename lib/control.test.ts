@@ -5,14 +5,18 @@ import path from "node:path"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 
 import {
+  cancelSpecCycle,
   ControlError,
   decideCr,
   getExtractionStatus,
+  getSpecCycle,
   isRunActive,
   listChangeRequests,
+  openSpecCycle,
   readDevStatus,
   readRunState,
   readSkillsReport,
+  removeSkills,
   runExtract,
   startSkillsInstall,
   startSupervisor,
@@ -20,6 +24,8 @@ import {
   type RunResult,
   type Spawner,
 } from "@/lib/control"
+import { getProjectRuntimeDir } from "@/lib/project-runtime"
+import { getRuntimeDir } from "@/lib/runtime-dir"
 
 /**
  * A recording fake spawner so tests assert real control behavior without
@@ -70,6 +76,7 @@ function scaffoldFactory(root: string) {
     "change-control.ts",
     "cr-apply.ts",
     "install-skills.ts",
+    "doc-baseline.ts",
   ]) {
     writeFileSync(path.join(root, rel), "// stub\n")
   }
@@ -523,6 +530,37 @@ describe("startSkillsInstall", () => {
     expect(calls.spawnDetached).toHaveLength(1)
   })
 
+  it("removeSkills runs install-skills.ts --remove to completion and returns the final report (W6)", async () => {
+    const { spawner, calls } = makeFakeSpawner()
+    // The fake spawner's run() resolves immediately; the script "writes" the report.
+    spawner.run = async (options) => {
+      calls.run.push({ args: options.args, env: options.env })
+      writeSkillsReport({ phase: "green", mode: "remove", removed: [{ id: "acme/a@x" }], rejected: [] })
+      return { code: 0, lastLine: "ok", stdout: "ok\n", stderr: "" }
+    }
+
+    const report = await removeSkills(spawner, { ids: [" acme/a@x "] })
+
+    expect(report.phase).toBe("green")
+    expect(report.removed).toEqual([{ id: "acme/a@x" }])
+    const call = calls.run.at(-1)!
+    expect(call.args.some((a) => a.endsWith("install-skills.ts"))).toBe(true)
+    expect(call.args[call.args.indexOf("--remove") + 1]).toBe("acme/a@x")
+    expect(call.env.VIVICY_TARGET_ROOT).toBe(targetRoot)
+    // The lock was claimed then released: a follow-up install can start.
+    const again = makeFakeSpawner()
+    expect(() => startSkillsInstall(again.spawner)).not.toThrow()
+  })
+
+  it("removeSkills refuses while an install is in flight, and requires ids", async () => {
+    writeSkillsReport({ phase: "auditing", updated_at: new Date().toISOString() })
+    const { spawner } = makeFakeSpawner()
+    await expect(removeSkills(spawner, { ids: ["acme/a@x"] })).rejects.toThrow(/already in flight/)
+
+    writeSkillsReport({ phase: "green", updated_at: new Date().toISOString() })
+    await expect(removeSkills(spawner, { ids: [] })).rejects.toThrow(/at least one skill id/)
+  })
+
   it("allows a start over any terminal report (green/failed/skipped)", () => {
     for (const phase of ["green", "failed", "skipped"]) {
       writeSkillsReport({ phase, updated_at: new Date().toISOString() })
@@ -540,12 +578,24 @@ describe("startSkillsInstall", () => {
 })
 
 describe("path safety", () => {
-  it("keeps the runtime dir and lock inside the app cwd", () => {
+  it("keeps the lock inside the PROJECT's runtime namespace (W8)", () => {
     const { spawner } = makeFakeSpawner()
     startSupervisor(spawner)
-    const lock = path.join(process.cwd(), ".vivicy-runtime", "run-state.json")
+    // The lock lives under <runtime>/projects/<key>/ — the shared derivation both
+    // the app and the CLI import (lib/project-runtime.ts), so a CLI-started run on
+    // the same target reads the SAME file.
+    const lock = path.join(getProjectRuntimeDir(getRuntimeDir(), targetRoot), "run-state.json")
     expect(existsSync(lock)).toBe(true)
-    expect(lock.startsWith(process.cwd())).toBe(true)
+    expect(lock.startsWith(getRuntimeDir())).toBe(true)
+    // Two different targets never share a lock (per-project single-run rule).
+    const other = mkdtempSync(path.join(tmpdir(), "control-other-"))
+    try {
+      expect(getProjectRuntimeDir(getRuntimeDir(), other)).not.toBe(
+        getProjectRuntimeDir(getRuntimeDir(), targetRoot)
+      )
+    } finally {
+      rmSync(other, { recursive: true, force: true })
+    }
   })
 })
 
@@ -683,5 +733,66 @@ describe("decideCr", () => {
     } catch (error) {
       expect((error as ControlError).code).toBe("cr_not_decidable")
     }
+  })
+})
+
+describe("spec cycles (W7b — open/cancel guards)", () => {
+  function seedFrozenBaseline(): void {
+    const dir = path.join(targetRoot, ".vivicy", "baselines")
+    mkdirSync(dir, { recursive: true })
+    writeFileSync(
+      path.join(dir, "baseline-v1.0.0.json"),
+      JSON.stringify({ baseline_id: "baseline-v1.0.0", version: "1.0.0", status: "frozen" })
+    )
+  }
+
+  it("open requires a frozen baseline, refuses a double open, and start refuses while open", () => {
+    const { spawner } = makeFakeSpawner()
+    // No baseline: pre-freeze IS drafting — a cycle is meaningless.
+    expect(() => openSpecCycle(spawner, "owner:test")).toThrow(/no frozen baseline/)
+
+    seedFrozenBaseline()
+    const cycle = openSpecCycle(spawner, "owner:test")
+    expect(cycle.status).toBe("drafting")
+    expect(cycle.kind).toBe("feature")
+    expect(cycle.opened_by).toBe("owner:test")
+    expect(existsSync(path.join(targetRoot, ".vivicy", "development", "reports", "spec-cycle.json"))).toBe(true)
+
+    expect(() => openSpecCycle(spawner, "owner:test")).toThrow(/already open/)
+    // The build is gated while drafting (the canonical may drift legitimately).
+    expect(() => startSupervisor(spawner)).toThrow(/spec cycle is open/)
+  })
+
+  it("open refuses while a supervised run is active", () => {
+    seedFrozenBaseline()
+    const { spawner } = makeFakeSpawner()
+    startSupervisor(spawner)
+    expect(() => openSpecCycle(spawner, "owner:test")).toThrow(/supervised run is active/)
+  })
+
+  it("cancel is legal only while the canonical has NOT drifted (doc-baseline verify is the judge)", async () => {
+    seedFrozenBaseline()
+    const { spawner } = makeFakeSpawner()
+    openSpecCycle(spawner, "owner:test")
+
+    // Drifted: the verifier exits non-zero -> refuse, the cycle stays open.
+    const drifted = makeFakeSpawner({
+      run: async (options) => {
+        if (options.args.some((a) => a.endsWith("doc-baseline.ts"))) {
+          return { code: 1, lastLine: "changed: 01-a.md", stdout: "", stderr: "changed: 01-a.md" }
+        }
+        return { code: 0, lastLine: "", stdout: "", stderr: "" }
+      },
+    })
+    await expect(cancelSpecCycle(drifted.spawner)).rejects.toThrow(/drifted/)
+    expect(getSpecCycle()).not.toBeNull()
+
+    // Clean: verify green -> the cycle file is removed.
+    const clean = makeFakeSpawner()
+    const { id } = await cancelSpecCycle(clean.spawner)
+    expect(id).toMatch(/^cycle-/)
+    expect(getSpecCycle()).toBeNull()
+    // Cancelling again refuses honestly.
+    await expect(cancelSpecCycle(clean.spawner)).rejects.toThrow(/no drafting spec cycle/)
   })
 })

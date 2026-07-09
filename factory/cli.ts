@@ -20,22 +20,22 @@
 // and both clients move together; neither owns policy the other lacks.
 //
 // ── Lock-path compatibility (a CLI-started run is visible to the UI and back) ──
-// lib/control.ts keeps the single-run lock at
-//   getRuntimeDir()/run-state.json,  getRuntimeDir() = VIVICY_RUNTIME_DIR ?? <cwd>/.vivicy-runtime
-// That lock is NOT under the target — it is app-runtime state under the app's cwd.
-// In every supported launch path the app's cwd IS the package root: `vivicy app`
-// spawns `next dev` with cwd=<appDir>, and `npm run dev`/`start` run from the
-// package root. This file lives in factory/, and the package root is exactly
-// resolve(<factory>, ".."), so we reproduce the identical dir: VIVICY_RUNTIME_DIR
-// when set, else <appDir>/.vivicy-runtime (deliberately NOT process.cwd(), since
-// `vivicy` may be invoked from anywhere); `--runtime-dir` overrides for tests.
-// VIVICY_RUNTIME_DIR is also the escape hatch that GUARANTEES agreement if the app
-// is ever launched from some other cwd — set it on both sides and the lock (and the
-// rest of .vivicy-runtime) coincide. The RunState schema
-// { pid, started_at, target_root, factory_root, log_file, mode } and the
-// wx-exclusive claim + stale-lock liveness logic are byte-compatible with
+// lib/control.ts keeps the single-run lock PER PROJECT (W8) at
+//   <runtimeRoot>/projects/<key>/run-state.json
+// where runtimeRoot = VIVICY_RUNTIME_DIR ?? <cwd>/.vivicy-runtime and <key> is
+// derived from the target's absolute path by the ONE shared module both sides
+// import: lib/project-runtime.ts (the same pattern as lib/development-overlay.ts).
+// That shared derivation IS the agreement — neither side hardcodes the other's
+// layout. The runtime ROOT still resolves as before: in every supported launch
+// path the app's cwd IS the package root (`vivicy app` spawns `next dev` with
+// cwd=<appDir>; `npm run dev`/`start` run from the package root), and this file
+// lives in factory/, so the root is resolve(<factory>, "..")/.vivicy-runtime;
+// VIVICY_RUNTIME_DIR overrides on both sides, `--runtime-dir` overrides for tests.
+// The RunState schema { pid, started_at, target_root, factory_root, log_file, mode }
+// and the wx-exclusive claim + stale-lock liveness logic are byte-compatible with
 // lib/control.ts, so a `vivicy start` run appears in the UI and a UI-started run
-// is seen (and stoppable) here.
+// is seen (and stoppable) here. Per-project locks make CROSS-project concurrent
+// builds legal; within one project the single-run rule is unchanged.
 //
 // ── Why the CLI does NOT read the persisted current-project.json ──
 // The app's persisted project (.vivicy-runtime/current-project.json) is
@@ -58,13 +58,15 @@
 //   vivicy extract       [--dir <d>]                    author issues from canonical (sync)
 //   vivicy start         [--dir <d>]                    launch the resumable supervisor (detached)
 //   vivicy resume        [--dir <d>]                    relaunch the supervisor (resumes from done/)
-//   vivicy stop                                         stop the supervised run
+//   vivicy stop          [--dir <d>]                    stop the supervised run (per-project lock)
 //   vivicy crs           [--json]                       list change requests
 //   vivicy cr approve <id> --by <actor>                 decide + apply an approved CR
 //   vivicy cr reject  <id> --by <actor>                 decide (reject) a CR
 //   vivicy skills        [--dir <d>] [--json]           read the project-skills report
 //   vivicy skills install [ids...] [--dir <d>]          select/audit/install project skills
+//   vivicy skills remove <ids...> [--dir <d>]           uninstall project skills (deterministic)
 //   vivicy retry-stage <stage>                          re-run a retryable stage (extract|skills|dev)
+//   vivicy cycle <open|cancel|status> [--dir <d>]       spec-cycle transitions (W7b; extraction closes cycles)
 //   vivicy notifications [--json]                       read the notification log
 //   vivicy app           [--target <d>] [--port <n>]    start the visual control plane (Next.js)
 //   vivicy loop          [--target <d>]                 run the two-agent dev loop once
@@ -83,6 +85,9 @@ import {
 } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+
+import { getProjectRuntimeDir } from "../lib/project-runtime.ts";
+import { clearSpecCycle, hasActiveFrozenBaseline, isSpecCycleOpen, readSpecCycle, writeSpecCycle } from "../lib/spec-cycle.ts";
 
 // This CLI lives in factory/, so its own directory IS the default factory root —
 // the scripts it drives (dev-loop-supervised / dev-status / extract-issues /
@@ -137,14 +142,16 @@ Usage:
   vivicy extract       [--dir <d>]                 author issues from canonical (sync)
   vivicy start         [--dir <d>]                 launch the resumable supervisor (detached)
   vivicy resume        [--dir <d>]                 relaunch the supervisor (resumes)
-  vivicy stop                                      stop the supervised run
+  vivicy stop          [--dir <d>]                 stop the supervised run (per-project lock)
   vivicy crs           [--json]                    list change requests
   vivicy cr approve <id> --by <actor>              decide + apply an approved CR
   vivicy cr reject  <id> --by <actor>              decide (reject) a CR
   vivicy skills        [--dir <d>] [--json]        read the project-skills report
   vivicy skills install [ids...] [--dir <d>]       select/audit/install project skills (sync)
+  vivicy skills remove <ids...> [--dir <d>]        uninstall project skills (deterministic)
   vivicy retry-stage <stage>                       re-run a retryable stage (extract|skills|dev)
-  vivicy notifications [--json]                    read the notification log
+  vivicy cycle <open|cancel|status> [--dir <d>]    spec-cycle transitions (extraction closes cycles)
+  vivicy notifications [--dir <d>] [--json]        read the notification log (per-project)
   vivicy app           [--target <d>] [--port <n>] start the visual control plane
   vivicy loop          [--target <d>]              run the two-agent dev loop once
   vivicy supervise     [--target <d>]              run the resumable supervisor (attached)
@@ -300,16 +307,23 @@ function runtimeDir(opts: Opts = {}): string {
   return join(appDir, RUNTIME_DIR_NAME);
 }
 
-function runStatePath(opts: Opts): string {
-  return join(runtimeDir(opts), RUN_STATE_FILE);
+/** The per-project runtime namespace — SAME derivation as lib/control.ts, through
+ *  the one shared module (lib/project-runtime.ts). That shared derivation is the
+ *  CLI↔UI agreement on where the lock/log/notifications of a project live. */
+function projectDir(opts: Opts, target: string): string {
+  return getProjectRuntimeDir(runtimeDir(opts), target);
 }
 
-function logPath(opts: Opts): string {
-  return join(runtimeDir(opts), LOG_FILE);
+function runStatePath(opts: Opts, target: string): string {
+  return join(projectDir(opts, target), RUN_STATE_FILE);
 }
 
-function readRunState(opts: Opts): RunState | null {
-  const file = runStatePath(opts);
+function logPath(opts: Opts, target: string): string {
+  return join(projectDir(opts, target), LOG_FILE);
+}
+
+function readRunState(opts: Opts, target: string): RunState | null {
+  const file = runStatePath(opts, target);
   if (!existsSync(file)) return null;
   try {
     return JSON.parse(readFileSync(file, "utf8")) as RunState;
@@ -332,11 +346,11 @@ function isAlive(pid: unknown): boolean {
 /** A run is active when the lock exists AND its pid is alive; a stale lock
  *  (process gone) is cleared so a fresh start can claim it — same rule as
  *  lib/control.ts isRunActive. */
-function isRunActive(opts: Opts): boolean {
-  const state = readRunState(opts);
+function isRunActive(opts: Opts, target: string): boolean {
+  const state = readRunState(opts, target);
   if (!state) return false;
   if (isAlive(state.pid)) return true;
-  rmSync(runStatePath(opts), { force: true });
+  rmSync(runStatePath(opts, target), { force: true });
   return false;
 }
 
@@ -368,8 +382,11 @@ function scriptPath(name: string): string {
 /** Child env for a factory spawn: inherit + point at the target. Every script
  *  reads VIVICY_TARGET_ROOT; dev-status/cr-apply additionally accept --dir, which
  *  callers pass where the script documents it (matching lib/control.ts). */
-function childEnv(target: string): NodeJS.ProcessEnv {
-  return { ...process.env, VIVICY_TARGET_ROOT: target };
+function childEnv(target: string, opts: Opts = {}): NodeJS.ProcessEnv {
+  // VIVICY_RUNTIME_DIR points at the PROJECT namespace (W8) so spawned factory
+  // orchestrators emit their notifications into exactly this project's log — the
+  // same contract lib/control.ts devEnv passes.
+  return { ...process.env, VIVICY_TARGET_ROOT: target, VIVICY_RUNTIME_DIR: projectDir(opts, target) };
 }
 
 /** Run a factory script to completion, streaming its stdout+stderr to OUR stderr
@@ -500,8 +517,8 @@ async function cmdStatus(argv: string[], opts: Opts): Promise<void> {
   }
 
   // 1. run-state lock (liveness of the detached supervisor) — SAME lock the app uses.
-  const lock = readRunState(opts);
-  const runActive = isRunActive(opts);
+  const lock = readRunState(opts, target);
+  const runActive = isRunActive(opts, target);
   const run = lock
     ? {
         pid: lock.pid,
@@ -521,7 +538,7 @@ async function cmdStatus(argv: string[], opts: Opts): Promise<void> {
   try {
     const dev = await runScript(process.execPath, [scriptPath(STATUS_SCRIPT), "--dir", target, "--json"], {
       cwd: factoryDir,
-      env: childEnv(target),
+      env: childEnv(target, opts),
     });
     devStatus = parseJsonBlock(dev.stdout);
   } catch {
@@ -641,7 +658,7 @@ async function cmdExtract(argv: string[], opts: Opts): Promise<void> {
   note("vivicy: extracting issues from canonical (this spawns a real agent leg)…");
   const res = await runScript(process.execPath, [scriptPath(EXTRACT_SCRIPT)], {
     cwd: factoryDir,
-    env: childEnv(target),
+    env: childEnv(target, opts),
   });
 
   const status = readJsonFile<ExtractionStatus>(join(target, EXTRACTION_STATUS_REL));
@@ -679,10 +696,19 @@ function startSupervisor(argv: string[], opts: Opts, mode: string): void {
     return fail(json, EXIT_USAGE, `target root does not exist: ${target}`, { code: "missing_target" });
   }
 
+  // W7b: an open drafting cycle means the canonical may legitimately drift from the
+  // frozen baseline — refuse here with the actionable message (same guard as the app).
+  if (isSpecCycleOpen(target)) {
+    return fail(json, EXIT_REFUSAL, "a drafting spec cycle is open — run `vivicy extract` to freeze it (or `vivicy cycle cancel`) before building", {
+      code: "cycle_state",
+    });
+  }
+
   // Refuse a double start while a run is active (the single-run lock). isRunActive
-  // clears a stale lock, so a dead prior run does not block a fresh start.
-  if (isRunActive(opts)) {
-    const lock = readRunState(opts);
+  // clears a stale lock, so a dead prior run does not block a fresh start. The lock
+  // is PER PROJECT (W8): two different targets may build concurrently.
+  if (isRunActive(opts, target)) {
+    const lock = readRunState(opts, target);
     return fail(json, EXIT_REFUSAL, "a supervised run is already active", {
       code: "already_running",
       run: lock ? { pid: lock.pid, mode: lock.mode ?? null } : null,
@@ -690,9 +716,8 @@ function startSupervisor(argv: string[], opts: Opts, mode: string): void {
   }
 
   const command = scriptPath(SUPERVISOR_SCRIPT);
-  const dir = runtimeDir(opts);
-  mkdirSync(dir, { recursive: true });
-  const logFile = logPath(opts);
+  mkdirSync(projectDir(opts, target), { recursive: true });
+  const logFile = logPath(opts, target);
 
   // Atomically claim the lock BEFORE spawning (closes the check-then-spawn TOCTOU
   // window), exactly as lib/control.ts claimRunLock does: `wx` exclusive create,
@@ -707,7 +732,7 @@ function startSupervisor(argv: string[], opts: Opts, mode: string): void {
     mode,
   };
   try {
-    writeFileSync(runStatePath(opts), `${JSON.stringify(placeholder, null, 2)}\n`, { flag: "wx" });
+    writeFileSync(runStatePath(opts, target), `${JSON.stringify(placeholder, null, 2)}\n`, { flag: "wx" });
   } catch (error) {
     if (error && (error as NodeJS.ErrnoException).code === "EEXIST") {
       return fail(json, EXIT_REFUSAL, "a supervised run is already active", { code: "already_running" });
@@ -723,24 +748,24 @@ function startSupervisor(argv: string[], opts: Opts, mode: string): void {
   try {
     child = spawn(process.execPath, [command], {
       cwd: factoryDir,
-      env: childEnv(target),
+      env: childEnv(target, opts),
       detached: true,
       stdio: ["ignore", out, err],
     });
   } catch (error) {
-    rmSync(runStatePath(opts), { force: true }); // release the claim for a retry
+    rmSync(runStatePath(opts, target), { force: true }); // release the claim for a retry
     return fail(json, EXIT_UNEXPECTED, `failed to spawn supervisor: ${errText(error)}`, {
       code: "spawn_failed",
     });
   }
   if (typeof child.pid !== "number") {
-    rmSync(runStatePath(opts), { force: true });
+    rmSync(runStatePath(opts, target), { force: true });
     return fail(json, EXIT_UNEXPECTED, "supervisor did not start (no pid)", { code: "spawn_failed" });
   }
   child.unref();
 
   const state = { ...placeholder, pid: child.pid };
-  writeFileSync(runStatePath(opts), `${JSON.stringify(state, null, 2)}\n`);
+  writeFileSync(runStatePath(opts, target), `${JSON.stringify(state, null, 2)}\n`);
 
   note(`vivicy: supervisor ${mode} — pid ${child.pid}, log ${logFile}`);
   emitJsonOrHuman(json, { ok: true, run: state });
@@ -749,7 +774,13 @@ function startSupervisor(argv: string[], opts: Opts, mode: string): void {
 
 function cmdStop(argv: string[], opts: Opts): void {
   const json = takeBool(argv, "--json");
-  const state = readRunState(opts);
+  const target = resolveTarget(argv);
+  if (!target) {
+    return fail(json, EXIT_USAGE, "no target project — pass --dir <path> or set VIVICY_TARGET_ROOT (the run lock is per project)", {
+      code: "missing_target",
+    });
+  }
+  const state = readRunState(opts, target);
   if (!state) {
     return fail(json, EXIT_REFUSAL, "no supervised run is recorded", { code: "not_running" });
   }
@@ -757,7 +788,7 @@ function cmdStop(argv: string[], opts: Opts): void {
   // die with it; fall back to the single pid. Clear the lock regardless — SAME
   // teardown as lib/control.ts stopSupervisor.
   killGroup(state.pid);
-  rmSync(runStatePath(opts), { force: true });
+  rmSync(runStatePath(opts, target), { force: true });
   note(`vivicy: stopped supervised run pid ${state.pid}`);
   emitJsonOrHuman(json, { ok: true, stopped: { pid: state.pid } });
   process.exit(EXIT_OK);
@@ -845,7 +876,7 @@ async function cmdCr(argv: string[], opts: Opts): Promise<void> {
   const decideRes = await runScript(
     process.execPath,
     [scriptPath(CHANGE_CONTROL_SCRIPT), "decide", "--cr", id, "--decision", decisionWord, "--by", by],
-    { cwd: factoryDir, env: childEnv(target) }
+    { cwd: factoryDir, env: childEnv(target, opts) }
   );
   const decided = parseJsonLine(decideRes.stdout) ?? parseJsonLine(decideRes.stderr);
   if (decideRes.code !== 0 || !decided?.ok) {
@@ -876,7 +907,7 @@ async function cmdCr(argv: string[], opts: Opts): Promise<void> {
   note(`vivicy: applying ${id} (apply -> re-freeze -> re-extract -> reopen impacted issues)…`);
   const applyRes = await runScript(process.execPath, [scriptPath(CR_APPLY_SCRIPT), "--cr", id], {
     cwd: factoryDir,
-    env: childEnv(target),
+    env: childEnv(target, opts),
   });
   const report = readJsonFile<CrApplyReport>(join(target, REPORTS_DIR, `apply-${id}.json`));
   const applyStatus = report?.status ?? (applyRes.code === 0 ? "green" : "blocked");
@@ -945,7 +976,7 @@ function cmdSkillsReport(argv: string[]): void {
   process.exit(failed ? EXIT_REFUSAL : EXIT_OK);
 }
 
-async function cmdSkillsInstall(argv: string[]): Promise<void> {
+async function cmdSkillsInstall(argv: string[], opts: Opts = {}): Promise<void> {
   const json = takeBool(argv, "--json");
   const target = resolveTarget(argv);
   if (!target) {
@@ -958,16 +989,25 @@ async function cmdSkillsInstall(argv: string[]): Promise<void> {
   }
   const ids = argv.filter((a) => !a.startsWith("--") && a.trim().length > 0);
 
+  const release = claimCliSkillsLock(opts, target);
+  if (!release) {
+    return fail(json, EXIT_REFUSAL, "a skills install is already in flight", { code: "already_running" });
+  }
   note(
     ids.length > 0
       ? `vivicy: installing project skills (explicit: ${ids.join(", ")})…`
       : "vivicy: installing project skills (auto selection from the frozen spec)…"
   );
-  const res = await runScript(
-    process.execPath,
-    [scriptPath(SKILLS_SCRIPT), ...(ids.length > 0 ? ["--ids", ids.join(",")] : [])],
-    { cwd: factoryDir, env: childEnv(target) }
-  );
+  let res;
+  try {
+    res = await runScript(
+      process.execPath,
+      [scriptPath(SKILLS_SCRIPT), ...(ids.length > 0 ? ["--ids", ids.join(",")] : [])],
+      { cwd: factoryDir, env: childEnv(target, opts) }
+    );
+  } finally {
+    release();
+  }
 
   const report = readJsonFile<SkillsReport>(join(target, SKILLS_REPORT_REL));
   const phase = report?.phase ?? "error";
@@ -983,12 +1023,94 @@ async function cmdSkillsInstall(argv: string[]): Promise<void> {
   process.exit(ok ? EXIT_OK : EXIT_REFUSAL);
 }
 
-function cmdSkills(argv: string[]): Promise<void> | void {
+function cmdSkills(argv: string[], opts: Opts = {}): Promise<void> | void {
   if (argv[0] === "install") {
     argv.shift();
-    return cmdSkillsInstall(argv);
+    return cmdSkillsInstall(argv, opts);
+  }
+  if (argv[0] === "remove") {
+    argv.shift();
+    return cmdSkillsRemove(argv, opts);
   }
   return cmdSkillsReport(argv);
+}
+
+/** Claim the per-project skills lock (byte-compatible with lib/control.ts): the app
+ *  patches its detached installer's pid into this file, so a CLI claim while that
+ *  pid is alive is refused — no cross-client double-spawn. Returns a release fn, or
+ *  null when a live install holds the lock. */
+function claimCliSkillsLock(opts: Opts, target: string): (() => void) | null {
+  const file = join(projectDir(opts, target), "skills-install.lock");
+  mkdirSync(projectDir(opts, target), { recursive: true });
+  const body = `${JSON.stringify({ pid: process.pid, started_at: new Date().toISOString() }, null, 2)}\n`;
+  const tryClaim = (): boolean => {
+    try {
+      writeFileSync(file, body, { flag: "wx" });
+      return true;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      return false;
+    }
+  };
+  if (tryClaim()) return () => rmSync(file, { force: true });
+  let stale = true;
+  try {
+    const lock = JSON.parse(readFileSync(file, "utf8")) as { pid?: unknown };
+    stale = !(typeof lock.pid === "number" && isAlive(lock.pid));
+  } catch {
+    stale = true;
+  }
+  if (!stale) return null;
+  rmSync(file, { force: true });
+  return tryClaim() ? () => rmSync(file, { force: true }) : null;
+}
+
+// Deterministic uninstall (W6): runs install-skills.ts --remove to completion and
+// mirrors its final report — same dispatch the app's skills route applies.
+async function cmdSkillsRemove(argv: string[], opts: Opts = {}): Promise<void> {
+  const json = takeBool(argv, "--json");
+  const target = resolveTarget(argv);
+  if (!target) {
+    return fail(json, EXIT_USAGE, "no target project — pass --dir <path> or set VIVICY_TARGET_ROOT", {
+      code: "missing_target",
+    });
+  }
+  if (!existsSync(target)) {
+    return fail(json, EXIT_USAGE, `target root does not exist: ${target}`, { code: "missing_target" });
+  }
+  const ids = argv.filter((a) => !a.startsWith("--") && a.trim().length > 0);
+  if (ids.length === 0) {
+    return fail(json, EXIT_USAGE, "skills remove requires at least one skill id (owner/repo@skill or a skills.sh URL)", {
+      code: "missing_ids",
+    });
+  }
+
+  const release = claimCliSkillsLock(opts, target);
+  if (!release) {
+    return fail(json, EXIT_REFUSAL, "a skills install is already in flight", { code: "already_running" });
+  }
+  note(`vivicy: removing project skills: ${ids.join(", ")}…`);
+  let res;
+  try {
+    res = await runScript(
+      process.execPath,
+      [scriptPath(SKILLS_SCRIPT), "--remove", ids.join(",")],
+      { cwd: factoryDir, env: childEnv(target, opts) }
+    );
+  } finally {
+    release();
+  }
+
+  const report = readJsonFile<SkillsReport>(join(target, SKILLS_REPORT_REL));
+  const phase = report?.phase ?? "error";
+  const ok = res.code === 0 && phase === "green";
+  emitJsonOrHuman(json, {
+    ok,
+    phase,
+    summary: report?.summary ?? lastLine(res.stderr) ?? "skills remove produced no report",
+    report,
+  });
+  process.exit(ok ? EXIT_OK : EXIT_REFUSAL);
 }
 
 // ── verb: retry-stage <stage> ────────────────────────────────────────────────
@@ -1014,8 +1136,89 @@ async function cmdRetryStage(argv: string[], opts: Opts): Promise<void> {
     );
   }
   if (action === "extract") return cmdExtract(argv, opts);
-  if (action === "skills") return cmdSkillsInstall(argv);
+  if (action === "skills") return cmdSkillsInstall(argv, opts);
   return startSupervisor(argv, opts, "resume");
+}
+
+// ── verb: cycle <open|cancel|status> (W7b — spec cycles) ─────────────────────
+// Same guards as the app's /api/control/cycle: open requires a frozen baseline, no
+// active run, no cycle already open; cancel requires an undrifted canonical (the
+// doc-baseline verifier is the drift judge). Extraction closes cycles — never this.
+async function cmdCycle(argv: string[], opts: Opts): Promise<void> {
+  const action = argv.shift();
+  const json = takeBool(argv, "--json");
+  const target = resolveTarget(argv);
+  if (!target) {
+    return fail(json, EXIT_USAGE, "no target project — pass --dir <path> or set VIVICY_TARGET_ROOT", {
+      code: "missing_target",
+    });
+  }
+  if (action === "status" || action === undefined) {
+    const cycle = readSpecCycle(target);
+    if (json) emitJson({ ok: true, cycle });
+    else note(cycle ? `vivicy: drafting cycle ${cycle.id} open since ${cycle.opened_at}` : "vivicy: no spec cycle open");
+    process.exit(EXIT_OK);
+  }
+  if (action === "open") {
+    if (!hasActiveFrozenBaseline(target)) {
+      return fail(json, EXIT_REFUSAL, "no frozen baseline — before the first freeze the spec is already editable", { code: "cycle_state" });
+    }
+    if (readSpecCycle(target)) {
+      return fail(json, EXIT_REFUSAL, "a drafting spec cycle is already open", { code: "cycle_state" });
+    }
+    if (isRunActive(opts, target)) {
+      return fail(json, EXIT_REFUSAL, "a supervised run is active — stop it before opening a spec cycle", { code: "already_running" });
+    }
+    const cycle = {
+      status: "drafting" as const,
+      kind: "feature" as const,
+      id: `cycle-${new Date().toISOString().slice(0, 10)}-${Math.random().toString(36).slice(2, 8)}`,
+      opened_at: new Date().toISOString(),
+      opened_by: "owner:cli",
+    };
+    writeSpecCycle(target, cycle);
+    if (json) emitJson({ ok: true, cycle });
+    else note(`vivicy: drafting cycle ${cycle.id} opened — extract to freeze it when the spec evolution is written`);
+    process.exit(EXIT_OK);
+  }
+  if (action === "cancel") {
+    const cycle = readSpecCycle(target);
+    if (!cycle) {
+      return fail(json, EXIT_REFUSAL, "no drafting spec cycle is open", { code: "cycle_state" });
+    }
+    const manifest = activeFrozenManifestRel(target);
+    if (manifest) {
+      const verify = spawnSync(process.execPath, [scriptPath("doc-baseline.ts"), "verify", "--manifest", manifest, "--require-status", "frozen"], {
+        cwd: target,
+        encoding: "utf8",
+        env: childEnv(target, opts),
+      });
+      if ((verify.status ?? 1) !== 0) {
+        return fail(json, EXIT_REFUSAL, "the canonical has drifted from the frozen baseline — extract to freeze the evolution, or revert the edits first", { code: "cycle_state" });
+      }
+    }
+    clearSpecCycle(target);
+    if (json) emitJson({ ok: true, cancelled: cycle.id });
+    else note(`vivicy: drafting cycle ${cycle.id} cancelled`);
+    process.exit(EXIT_OK);
+  }
+  return fail(json, EXIT_USAGE, `unknown cycle action "${action}" (expected open|cancel|status)`, { code: "usage" });
+}
+
+/** Repo-relative path of the ACTIVE frozen manifest under a target, or null. */
+function activeFrozenManifestRel(target: string): string | null {
+  const dir = join(target, ".vivicy", "baselines");
+  if (!existsSync(dir)) return null;
+  for (const entry of readdirSync(dir)) {
+    if (!entry.toLowerCase().endsWith(".json")) continue;
+    try {
+      const manifest = JSON.parse(readFileSync(join(dir, entry), "utf8")) as { status?: unknown; superseded?: unknown };
+      if (manifest?.status === "frozen" && !manifest.superseded) return `.vivicy/baselines/${entry}`;
+    } catch {
+      continue;
+    }
+  }
+  return null;
 }
 
 // ── verb: notifications ──────────────────────────────────────────────────────
@@ -1026,9 +1229,17 @@ async function cmdRetryStage(argv: string[], opts: Opts): Promise<void> {
 // skipped so a partial write never breaks a read.
 function cmdNotifications(argv: string[], opts: Opts): void {
   const json = takeBool(argv, "--json");
-  const file = join(runtimeDir(opts), NOTIFICATIONS_REL);
+  // Per-project log when a target is given (W8). A still-unmigrated legacy root log
+  // is read FIRST (it is older by construction) so the CLI's view matches the app's
+  // — the app folds that same legacy log into the project on its first access; this
+  // reader stays read-only and never migrates.
+  const target = resolveTarget(argv);
+  const files = target
+    ? [join(runtimeDir(opts), NOTIFICATIONS_REL), join(projectDir(opts, target), NOTIFICATIONS_REL)]
+    : [join(runtimeDir(opts), NOTIFICATIONS_REL)];
   const notifications: Notification[] = [];
-  if (existsSync(file)) {
+  for (const file of files) {
+    if (!existsSync(file)) continue;
     for (const line of readFileSync(file, "utf8").split("\n")) {
       const trimmed = line.trim();
       if (!trimmed) continue;
@@ -1105,9 +1316,11 @@ async function main(): Promise<void> {
     case "cr":
       return cmdCr(argv, opts);
     case "skills":
-      return cmdSkills(argv);
+      return cmdSkills(argv, opts);
     case "retry-stage":
       return cmdRetryStage(argv, opts);
+    case "cycle":
+      return cmdCycle(argv, opts);
     case "notifications":
       return cmdNotifications(argv, opts);
 
@@ -1124,13 +1337,19 @@ async function main(): Promise<void> {
     }
     case "loop": {
       const target = takeFlag(argv, "--target");
-      const env = target ? { VIVICY_TARGET_ROOT: resolve(target) } : {};
+      // The project runtime dir rides along (W8) so the orchestrator's notify()
+      // lands in the same per-project log the app and `vivicy notifications` read.
+      const env = target
+        ? { VIVICY_TARGET_ROOT: resolve(target), VIVICY_RUNTIME_DIR: projectDir(opts, resolve(target)) }
+        : {};
       passthrough(process.execPath, [scriptPath("dev-loop.ts"), ...argv], { env });
       return;
     }
     case "supervise": {
       const target = takeFlag(argv, "--target");
-      const env = target ? { VIVICY_TARGET_ROOT: resolve(target) } : {};
+      const env = target
+        ? { VIVICY_TARGET_ROOT: resolve(target), VIVICY_RUNTIME_DIR: projectDir(opts, resolve(target)) }
+        : {};
       passthrough(process.execPath, [scriptPath(SUPERVISOR_SCRIPT), ...argv], { env });
       return;
     }

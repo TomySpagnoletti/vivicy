@@ -1,26 +1,26 @@
 {
-  "onboardingChooser": {
+  "onboardingEmptyState": {
+    "description": "No project yet — Vivi sets one up with you: open a repository, start fresh, or import the docs you already have.",
+    "openVivi": "Open Vivi"
+  },
+  "viviOnboarding": {
     "heading": "Start a project",
-    "description": "{brandName} develops a project from its canonical spec. Open an existing repo or start from scratch, then bring the spec in — import docs you already have, or build it from nothing by talking to Vivi.",
-    "openProject": {
-      "title": "Open a project",
-      "description": "Pick a repository that already carries a <code>.vivicy/</code>. {brandName} runs the method against it and adds only development output.",
-      "action": "Open existing folder"
-    },
-    "scaffold": {
-      "title": "Start from scratch",
-      "description": "Give a new empty folder and a name. {brandName} scaffolds a lean skeleton — you write the canonical spec afterwards.",
-      "action": "Scaffold a new project"
-    },
-    "importDocs": {
-      "title": "Import your docs",
-      "description": "Drop existing spec files, a folder, or a .zip. {brandName} checks them for drift, then places the canonical, spikes, and map for you.",
-      "action": "Import docs"
-    },
-    "buildWithVivi": {
-      "title": "Build the spec with Vivi",
-      "description": "No docs yet? Talk to Vivi. She grills you until your idea is a rigorous canonical spec and writes it into <code>.vivicy/</code> for you.",
-      "action": "Talk to Vivi"
+    "description": "{brandName} develops one project from its canonical spec. Choose how to begin — Vivi takes it from there.",
+    "back": "Back",
+    "importPickTargetHint": "Docs are imported into a project's .vivicy/ — choose the folder they belong to first.",
+    "choices": {
+      "open": {
+        "title": "Open an existing project",
+        "description": "Point {brandName} at a repository already on disk."
+      },
+      "scaffold": {
+        "title": "Start a new project",
+        "description": "Name it and {brandName} scaffolds a lean method skeleton."
+      },
+      "import": {
+        "title": "Import documents",
+        "description": "Bring spec docs you already have — verified before anything is placed."
+      }
     }
   },
   "openProjectDialog": {
@@ -44,9 +44,7 @@
       "httpError": "HTTP {status}"
     }
   },
-  "scaffoldDialog": {
-    "title": "Start from scratch",
-    "description": "{brandName} scaffolds a new project with the full development method — you write the canonical product spec afterwards.",
+  "scaffoldForm": {
     "nameLabel": "Project name",
     "namePlaceholder": "Acme App",
     "locationLabel": "Location",
@@ -55,7 +53,6 @@
     "absoluteLabel": "Or an absolute target path",
     "absolutePlaceholder": "/Users/you/code/acme-app",
     "targetPreview": "Scaffolds into <target>{targetDir}</target>",
-    "cancel": "Cancel",
     "submit": {
       "idle": "Scaffold project",
       "scaffolding": "Scaffolding…"
