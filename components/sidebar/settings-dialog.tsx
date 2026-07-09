@@ -5,7 +5,9 @@ import { Settings, ShieldAlert, Zap } from "lucide-react"
 import { useTranslations } from "next-intl"
 import { toast } from "sonner"
 
-import { BRAND } from "@/lib/brand"
+import { BRAND, DUO } from "@/lib/brand"
+import { NonnaIcon } from "@/components/chat/nonna-icon"
+import { NonnoIcon } from "@/components/chat/nonno-icon"
 import {
   agentDefaultsFor,
   clampMaxParallel,
@@ -298,9 +300,17 @@ function AgentFields({
   const fastOk = modelSupportsFast(provider, agent.model)
   const fastDisabledReason = fastReason(t, provider, agent.model, fastOk)
 
+  // The duo's faces (W10, chrome-only): the implementer role wears la Nonna, the
+  // reviewer il Nonno — role-based, never CLI-branded (roles are reassignable).
+  const RoleFace = role === "implementer" ? NonnaIcon : NonnoIcon
+  const roleBlurb = role === "implementer" ? DUO.nonna.blurb : DUO.nonno.blurb
+
   return (
     <fieldset className="flex flex-col gap-2 border border-border p-3" disabled={disabled}>
-      <legend className="px-1 text-xs font-medium text-foreground">{roleLabel}</legend>
+      <legend className="flex items-center gap-1.5 px-1 text-xs font-medium text-foreground">
+        <RoleFace className="size-4 text-muted-foreground" aria-hidden />
+        <span title={roleBlurb}>{roleLabel}</span>
+      </legend>
 
       <div className="flex flex-col gap-1.5">
         <Label htmlFor={cliId}>{t("agentLabel")}</Label>

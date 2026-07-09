@@ -7,8 +7,8 @@ import { MapEmptyState } from "@/components/map/map-empty-state"
 import map from "@/messages/en/map.json"
 import project from "@/messages/en/project.json"
 
-// MapEmptyState composes project/import-docs-dialog.tsx (owned by the project
-// area), so its own catalog namespace has to be present too, not just "map".
+// MapEmptyState hosts project/import-docs-flow.tsx in its inline dialog (owned by
+// the project area), so its catalog namespace has to be present too, not just "map".
 function renderEmptyState(ui: React.ReactElement) {
   return render(
     <NextIntlClientProvider locale="en" messages={{ map, project }}>
@@ -18,10 +18,10 @@ function renderEmptyState(ui: React.ReactElement) {
 }
 
 describe("MapEmptyState — guidance per empty reason", () => {
-  test("no_target shows the project-picker guidance and NO Extract button", () => {
+  test("no_target shows the open-Vivi guidance and NO Extract button", () => {
     renderEmptyState(<MapEmptyState reason="no_target" onExtract={vi.fn()} />)
     expect(screen.getByText("No project selected")).toBeInTheDocument()
-    expect(screen.getByText(/Use “Open project” in the top-left/)).toBeInTheDocument()
+    expect(screen.getByText(/Open Vivi \(bottom-left\) to set one up/)).toBeInTheDocument()
     // Extract makes no sense before a target is resolved — even with onExtract.
     expect(
       screen.queryByRole("button", { name: /Extract from docs/ })

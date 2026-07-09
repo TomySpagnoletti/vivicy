@@ -15,9 +15,10 @@
  * the SAME factory scripts (SUPERVISOR/STATUS/EXTRACT/CHANGE_CONTROL/CR_APPLY) with the
  * same args + env, and (b) reading the SAME state files with the same schema (the
  * run-state lock below, extraction-status.json, the CR registry, cr-apply reports).
- * The lock lives at getRuntimeDir()/run-state.json under the APP's cwd (the package
- * root); cli.ts reproduces that exact path from resolve(<factory>, "..") so a
- * CLI-started run is visible to the UI and vice versa. Any script/schema change moves
+ * The lock lives at <runtime>/projects/<key>/run-state.json — the per-project
+ * namespace derived by the SHARED lib/project-runtime.ts module, which cli.ts imports
+ * too, so a CLI-started run is visible to the UI and vice versa. Any script/schema
+ * change moves
  * both clients together; neither owns a verb the other lacks (retry-stage dispatches
  * {extract -> runExtract, dev -> startSupervisor("resume"), skills -> startSkillsInstall}
  * identically on both sides).
@@ -39,7 +40,16 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs"
 import path from "node:path"
 
+import { getProjectRuntimeDir } from "@/lib/project-runtime"
 import { getRuntimeDir } from "@/lib/runtime-dir"
+import {
+  clearSpecCycle,
+  hasActiveFrozenBaseline,
+  isSpecCycleOpen,
+  readSpecCycle,
+  writeSpecCycle,
+  type SpecCycle,
+} from "@/lib/spec-cycle"
 import { settingsToEnv } from "@/lib/settings"
 import { readSettings } from "@/lib/settings-store"
 import {
@@ -208,7 +218,9 @@ export class ControlError extends Error {
       | "empty_canonical"
       | "spawn_failed"
       | "unknown_cr"
+      | "unknown_staging"
       | "cr_not_decidable"
+      | "cycle_state"
   ) {
     super(message)
     this.name = "ControlError"
@@ -248,12 +260,23 @@ export function getFactoryRoot(): string {
   return path.resolve(process.cwd(), "factory")
 }
 
-function getRunStatePath(): string {
-  return path.join(getRuntimeDir(), RUN_STATE_FILE)
+/**
+ * Per-project runtime namespace (W8): every project-scoped runtime file — the run
+ * lock, supervisor log, skills lock/log, notifications, Vivi sessions, upload
+ * staging — lives under `<runtime>/projects/<key>/` so two governed projects never
+ * see each other's state. The CLI derives the SAME path from the same shared module
+ * (`lib/project-runtime.ts`) — that shared derivation is the CLI↔UI agreement.
+ */
+function projectRuntimeDir(targetRoot: string): string {
+  return getProjectRuntimeDir(getRuntimeDir(), targetRoot)
 }
 
-function getLogPath(): string {
-  return path.join(getRuntimeDir(), LOG_FILE)
+function getRunStatePath(targetRoot: string): string {
+  return path.join(projectRuntimeDir(targetRoot), RUN_STATE_FILE)
+}
+
+function getLogPath(targetRoot: string): string {
+  return path.join(projectRuntimeDir(targetRoot), LOG_FILE)
 }
 
 /** Assert `child` resolves inside `root`; throws otherwise. Path-safety guard. */
@@ -282,13 +305,18 @@ function devEnv(targetRoot: string): NodeJS.ProcessEnv {
   // VIVICY_RUNTIME_DIR is passed explicitly so factory orchestrators (dev-loop,
   // extract-issues, cr-apply) append their notifications to the SAME log the app
   // reads; factory-side notify is a no-op without it (explicit contract, no
-  // guessed paths from a detached process).
-  return { ...process.env, VIVICY_TARGET_ROOT: targetRoot, VIVICY_RUNTIME_DIR: getRuntimeDir() }
+  // guessed paths from a detached process). Since W8 it points at the PROJECT's
+  // runtime namespace, so a detached orchestrator writes into exactly the project
+  // it builds — never a shared global log.
+  return { ...process.env, VIVICY_TARGET_ROOT: targetRoot, VIVICY_RUNTIME_DIR: projectRuntimeDir(targetRoot) }
 }
 
-/** Read the persisted run-state lock, or null when no run is recorded. */
+/** Read the persisted run-state lock for the CURRENT project, or null when no run is
+ *  recorded (or no project is selected — no project means no visible run). */
 export function readRunState(): RunState | null {
-  const file = getRunStatePath()
+  const targetRoot = getTargetRoot()
+  if (targetRoot === null) return null
+  const file = getRunStatePath(targetRoot)
   if (!existsSync(file)) return null
   try {
     return JSON.parse(readFileSync(file, "utf8")) as RunState
@@ -298,8 +326,8 @@ export function readRunState(): RunState | null {
 }
 
 /** Overwrite the lock in place (used to patch the real pid after spawn). */
-function updateRunState(state: RunState): void {
-  writeFileSync(getRunStatePath(), `${JSON.stringify(state, null, 2)}\n`)
+function updateRunState(targetRoot: string, state: RunState): void {
+  writeFileSync(getRunStatePath(targetRoot), `${JSON.stringify(state, null, 2)}\n`)
 }
 
 /**
@@ -310,9 +338,9 @@ function updateRunState(state: RunState): void {
  * retried once; a live lock is refused. Returns the placeholder state written;
  * callers patch the real pid in via {@link updateRunState} after spawn.
  */
-function claimRunLock(spawner: Spawner, placeholder: RunState): void {
-  mkdirSync(getRuntimeDir(), { recursive: true })
-  const file = getRunStatePath()
+function claimRunLock(spawner: Spawner, targetRoot: string, placeholder: RunState): void {
+  mkdirSync(projectRuntimeDir(targetRoot), { recursive: true })
+  const file = getRunStatePath(targetRoot)
   const body = `${JSON.stringify(placeholder, null, 2)}\n`
   try {
     writeFileSync(file, body, { flag: "wx" })
@@ -336,7 +364,9 @@ function claimRunLock(spawner: Spawner, placeholder: RunState): void {
 }
 
 function clearRunState(): void {
-  const file = getRunStatePath()
+  const targetRoot = getTargetRoot()
+  if (targetRoot === null) return
+  const file = getRunStatePath(targetRoot)
   if (existsSync(file)) rmSync(file)
 }
 
@@ -382,8 +412,17 @@ export function startSupervisor(
   if (!existsSync(targetRoot)) {
     throw new ControlError(`target root does not exist: ${targetRoot}`, "missing_target")
   }
+  // W7b: while a drafting cycle is open the canonical may legitimately drift from
+  // the frozen baseline — building against it would fail verifyBaseline anyway, so
+  // refuse HERE with the actionable message instead of a downstream red gate.
+  if (isSpecCycleOpen(targetRoot)) {
+    throw new ControlError(
+      "a drafting spec cycle is open — run the extraction to freeze it (or cancel the cycle) before building",
+      "cycle_state"
+    )
+  }
   const command = resolveScript(factoryRoot, SUPERVISOR_SCRIPT)
-  const logFile = getLogPath()
+  const logFile = getLogPath(targetRoot)
 
   // The placeholder pid (this server's pid) keeps the lock "live" per isAlive
   // between the atomic claim and patching in the real child pid, so a
@@ -398,7 +437,7 @@ export function startSupervisor(
   }
 
   // Atomically claim the lock BEFORE spawning (closes the TOCTOU window).
-  claimRunLock(spawner, state)
+  claimRunLock(spawner, targetRoot, state)
 
   // Per-agent model + thinking level chosen in Settings, surfaced to the dev-loop
   // as VIVICY_CLAUDE_*/VIVICY_CODEX_* env vars so a run uses exactly the user's
@@ -426,8 +465,112 @@ export function startSupervisor(
 
   // Patch in the real child pid now that the process exists.
   state.pid = handle.pid
-  updateRunState(state)
+  updateRunState(targetRoot, state)
   return state
+}
+
+// ---------------------------------------------------------------------------
+// Spec cycles (W7b — sequential canonical evolution between builds)
+// ---------------------------------------------------------------------------
+
+/**
+ * OPEN a drafting spec cycle on top of the frozen baseline (W7b): the official
+ * mechanism for evolving the canonical between two builds. Reopens Vivi's
+ * pre-freeze allowlist; extraction's next freeze (minor bump) closes it.
+ * Deterministic guards, all loud:
+ *   - a frozen baseline must exist (before one, drafting IS the default regime);
+ *   - no supervised run may be active (stop or finish the build first);
+ *   - at most one open cycle.
+ */
+export function openSpecCycle(spawner: Spawner, openedBy: string): SpecCycle {
+  const { targetRoot } = resolveContext()
+  if (!existsSync(targetRoot)) {
+    throw new ControlError(`target root does not exist: ${targetRoot}`, "missing_target")
+  }
+  if (!hasActiveFrozenBaseline(targetRoot)) {
+    throw new ControlError(
+      "no frozen baseline — before the first freeze the spec is already editable; a cycle is only needed to reopen a FROZEN spec",
+      "cycle_state"
+    )
+  }
+  if (isSpecCycleOpen(targetRoot)) {
+    throw new ControlError("a drafting spec cycle is already open", "cycle_state")
+  }
+  if (isRunActive(spawner)) {
+    throw new ControlError(
+      "a supervised run is active — stop it (or let it finish) before opening a spec cycle",
+      "already_running"
+    )
+  }
+  const cycle: SpecCycle = {
+    status: "drafting",
+    kind: "feature",
+    id: `cycle-${new Date().toISOString().slice(0, 10)}-${Math.random().toString(36).slice(2, 8)}`,
+    opened_at: new Date().toISOString(),
+    opened_by: openedBy,
+  }
+  writeSpecCycle(targetRoot, cycle)
+  return cycle
+}
+
+/**
+ * CANCEL an open drafting cycle — legal ONLY while the canonical still matches the
+ * frozen baseline (nothing drafted yet). Once the spec drifted, cancelling would
+ * leave canonical ≠ manifest and every downstream gate red; the honest paths out
+ * are extracting (freeze the evolution) or manually reverting the canonical edits.
+ * The drift check is doc-baseline `verify` itself — the owner of that question.
+ */
+export async function cancelSpecCycle(spawner: Spawner): Promise<{ id: string }> {
+  const { factoryRoot, targetRoot } = resolveContext()
+  const cycle = readSpecCycle(targetRoot)
+  if (!cycle) {
+    throw new ControlError("no drafting spec cycle is open", "cycle_state")
+  }
+  const manifest = findActiveFrozenManifestRel(targetRoot)
+  if (manifest) {
+    const tool = resolveScript(factoryRoot, "doc-baseline.ts")
+    const verify = await spawner.run({
+      command: process.execPath,
+      args: [tool, "verify", "--manifest", manifest, "--require-status", "frozen"],
+      cwd: targetRoot,
+      env: devEnv(targetRoot),
+    })
+    if (verify.code !== 0) {
+      throw new ControlError(
+        "the canonical has already drifted from the frozen baseline — cancelling would strand the spec; extract to freeze the evolution, or revert the canonical edits first",
+        "cycle_state"
+      )
+    }
+  }
+  clearSpecCycle(targetRoot)
+  return { id: cycle.id }
+}
+
+/** The repo-relative path of the ACTIVE frozen manifest, or null. */
+function findActiveFrozenManifestRel(targetRoot: string): string | null {
+  const dir = path.join(targetRoot, ".vivicy", "baselines")
+  if (!existsSync(dir)) return null
+  for (const entry of readdirSync(dir)) {
+    if (!entry.toLowerCase().endsWith(".json")) continue
+    try {
+      const manifest = JSON.parse(readFileSync(path.join(dir, entry), "utf8")) as {
+        status?: unknown
+        superseded?: unknown
+      }
+      if (manifest?.status === "frozen" && !manifest.superseded) {
+        return `.vivicy/baselines/${entry}`
+      }
+    } catch {
+      continue
+    }
+  }
+  return null
+}
+
+/** The current cycle state for display (null = no open cycle). */
+export function getSpecCycle(): SpecCycle | null {
+  const { targetRoot } = resolveContext()
+  return readSpecCycle(targetRoot)
 }
 
 /**
@@ -685,45 +828,48 @@ interface SkillsLock {
   started_at: string
 }
 
-function skillsLockPath(): string {
-  return path.join(getRuntimeDir(), SKILLS_LOCK_FILE)
+/** The lock path is CAPTURED once per operation (threaded targetRoot): re-resolving
+ *  the current project on every call would let a mid-operation project switch clear
+ *  or patch the WRONG project's lock. */
+function skillsLockPath(targetRoot: string): string {
+  return path.join(projectRuntimeDir(targetRoot), SKILLS_LOCK_FILE)
 }
 
-function readSkillsLock(): SkillsLock | null {
+function readSkillsLock(targetRoot: string): SkillsLock | null {
   try {
-    const raw = JSON.parse(readFileSync(skillsLockPath(), "utf8")) as SkillsLock
+    const raw = JSON.parse(readFileSync(skillsLockPath(targetRoot), "utf8")) as SkillsLock
     return typeof raw?.pid === "number" ? raw : null
   } catch {
     return null
   }
 }
 
-function clearSkillsLock(): void {
-  rmSync(skillsLockPath(), { force: true })
+function clearSkillsLock(targetRoot: string): void {
+  rmSync(skillsLockPath(targetRoot), { force: true })
 }
 
-function isSkillsLockLive(spawner: Spawner): boolean {
-  const lock = readSkillsLock()
+function isSkillsLockLive(spawner: Spawner, targetRoot: string): boolean {
+  const lock = readSkillsLock(targetRoot)
   if (!lock) return false
   if (spawner.isAlive(lock.pid)) return true
-  clearSkillsLock()
+  clearSkillsLock(targetRoot)
   return false
 }
 
-function claimSkillsLock(spawner: Spawner): void {
-  mkdirSync(getRuntimeDir(), { recursive: true })
+function claimSkillsLock(spawner: Spawner, targetRoot: string): void {
+  mkdirSync(path.dirname(skillsLockPath(targetRoot)), { recursive: true })
   const body = `${JSON.stringify({ pid: process.pid, started_at: new Date().toISOString() }, null, 2)}\n`
   try {
-    writeFileSync(skillsLockPath(), body, { flag: "wx" })
+    writeFileSync(skillsLockPath(targetRoot), body, { flag: "wx" })
     return
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error
   }
-  if (isSkillsLockLive(spawner)) {
+  if (isSkillsLockLive(spawner, targetRoot)) {
     throw new ControlError("a skills install is already in flight", "already_running")
   }
   try {
-    writeFileSync(skillsLockPath(), body, { flag: "wx" })
+    writeFileSync(skillsLockPath(targetRoot), body, { flag: "wx" })
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "EEXIST") {
       throw new ControlError("a skills install is already in flight", "already_running")
@@ -761,9 +907,9 @@ export function startSkillsInstall(
   if (isSkillsInstallInFlight(targetRoot)) {
     throw new ControlError("a skills install is already in flight", "already_running")
   }
-  claimSkillsLock(spawner)
+  claimSkillsLock(spawner, targetRoot)
   const command = resolveScript(factoryRoot, SKILLS_SCRIPT)
-  const logFile = path.join(getRuntimeDir(), SKILLS_LOG_FILE)
+  const logFile = path.join(projectRuntimeDir(targetRoot), SKILLS_LOG_FILE)
 
   let handle: DetachedHandle
   try {
@@ -775,14 +921,58 @@ export function startSkillsInstall(
       logFile,
     })
   } catch (error) {
-    clearSkillsLock()
+    clearSkillsLock(targetRoot)
     throw new ControlError(
       `failed to spawn skills install: ${error instanceof Error ? error.message : String(error)}`,
       "spawn_failed"
     )
   }
-  writeFileSync(skillsLockPath(), `${JSON.stringify({ pid: handle.pid, started_at: new Date().toISOString() }, null, 2)}\n`)
+  writeFileSync(skillsLockPath(targetRoot), `${JSON.stringify({ pid: handle.pid, started_at: new Date().toISOString() }, null, 2)}\n`)
   return { pid: handle.pid, mode: ids.length > 0 ? "explicit" : "auto", ids }
+}
+
+/**
+ * REMOVE explicitly named project skills (W6). Deterministic and synchronous — no
+ * agent leg lives in this path, so unlike {@link startSkillsInstall} the script runs
+ * to completion through the injected {@link Spawner} and the final report is read
+ * back as the verdict. The single skills lock still guards it: a remove never races
+ * an in-flight install.
+ */
+export async function removeSkills(
+  spawner: Spawner,
+  opts: { ids: string[] }
+): Promise<SkillsReport> {
+  const { factoryRoot, targetRoot } = resolveContext()
+  if (!existsSync(targetRoot)) {
+    throw new ControlError(`target root does not exist: ${targetRoot}`, "missing_target")
+  }
+  const ids = (opts.ids ?? []).map((id) => id.trim()).filter((id) => id.length > 0)
+  if (ids.length === 0) {
+    throw new ControlError("skills remove requires at least one skill id", "missing_target")
+  }
+  if (isSkillsInstallInFlight(targetRoot)) {
+    throw new ControlError("a skills install is already in flight", "already_running")
+  }
+  claimSkillsLock(spawner, targetRoot)
+  try {
+    const command = resolveScript(factoryRoot, SKILLS_SCRIPT)
+    const result = await spawner.run({
+      command: process.execPath,
+      args: [command, "--remove", ids.join(","), "--json"],
+      cwd: factoryRoot,
+      env: { ...devEnv(targetRoot), ...settingsToEnv(readSettings()) },
+    })
+    const report = readSkillsReportFrom(targetRoot)
+    if (result.code !== 0 || report === null) {
+      throw new ControlError(
+        `skills remove failed (exit ${result.code}): ${result.stderr.trim() || result.lastLine || "no report written"}`,
+        "spawn_failed"
+      )
+    }
+    return report
+  } finally {
+    clearSkillsLock(targetRoot)
+  }
 }
 
 /**
@@ -826,7 +1016,7 @@ export async function runUploadVerify(
   }
   const stagingDir = getStagingDir(stagingId)
   if (!existsSync(stagingDir)) {
-    throw new ControlError(`unknown staging id: ${stagingId}`, "missing_target")
+    throw new ControlError(`unknown staging id: ${stagingId}`, "unknown_staging")
   }
   const command = resolveScript(factoryRoot, UPLOAD_VERIFY_SCRIPT)
 

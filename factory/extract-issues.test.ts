@@ -17,7 +17,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, it } from "node:test";
 
-import { extractIssues, findFrozenManifest, formatCheckOutput, formatFixContext, formatMapError } from "./extract-issues.ts";
+import { extractIssues, findFrozenManifest, formatCheckOutput, formatFixContext, formatMapError, resolveFreezeVersion } from "./extract-issues.ts";
 import { readSpikes } from "./spike-check.ts";
 
 const FACTORY_DIR = dirname(fileURLToPath(import.meta.url));
@@ -1257,6 +1257,34 @@ describe("findFrozenManifest", () => {
       JSON.stringify({ baseline_id: "baseline-v1.0.0-draft", status: "draft" }),
     );
     assert.equal(findFrozenManifest(temp), null);
+  });
+});
+
+describe("resolveFreezeVersion", () => {
+  it("returns 1.0.0 on a virgin target (no baselines dir)", () => {
+    assert.equal(resolveFreezeVersion(temp), "1.0.0");
+  });
+
+  it("minor-bumps the HIGHEST baseline version ever cut, whatever the statuses (superseded/draft included)", () => {
+    mkdirSync(resolve(temp, ".vivicy/baselines"), { recursive: true });
+    writeFileSync(
+      resolve(temp, ".vivicy/baselines/baseline-v1.0.0.json"),
+      JSON.stringify({ baseline_id: "baseline-v1.0.0", version: "1.0.0", status: "frozen", superseded: { by_baseline_id: "baseline-v1.2.0" } }),
+    );
+    writeFileSync(
+      resolve(temp, ".vivicy/baselines/baseline-v1.2.0-draft.json"),
+      JSON.stringify({ baseline_id: "baseline-v1.2.0-draft", version: "1.2.0", status: "draft" }),
+    );
+    assert.equal(resolveFreezeVersion(temp), "1.3.0");
+  });
+
+  it("skips malformed manifest files (unparseable JSON, non-semver versions)", () => {
+    mkdirSync(resolve(temp, ".vivicy/baselines"), { recursive: true });
+    writeFileSync(resolve(temp, ".vivicy/baselines/broken.json"), "{ not json");
+    writeFileSync(resolve(temp, ".vivicy/baselines/odd.json"), JSON.stringify({ version: "not-semver" }));
+    assert.equal(resolveFreezeVersion(temp), "1.0.0", "all-malformed still yields the virgin default");
+    writeFileSync(resolve(temp, ".vivicy/baselines/baseline-v1.1.0.json"), JSON.stringify({ version: "1.1.0", status: "frozen" }));
+    assert.equal(resolveFreezeVersion(temp), "1.2.0", "the one well-formed version drives the bump");
   });
 });
 

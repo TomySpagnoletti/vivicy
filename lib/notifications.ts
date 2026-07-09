@@ -2,8 +2,9 @@
  * Read/write the Vivicy notification log — the app-side half of the G14
  * notifications verb, sharing its contract with the `vivicy notifications` CLI.
  *
- * Server-only. The log is newline-delimited JSON at
- * getRuntimeDir()/notifications.jsonl, one object per line:
+ * Server-only. The log is newline-delimited JSON, PER PROJECT since W8, at
+ * <runtime>/projects/<key>/notifications.jsonl (root-level legacy fallback when no
+ * project is selected), one object per line:
  *   { ts, level, stage, event, message, dismissed?, id? }
  * A missing or empty file is an empty list (never an error); a malformed/partial
  * line is skipped so a concurrent write never breaks a read.
@@ -29,10 +30,12 @@
  * dismiss is cheap.
  */
 
-import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
+import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs"
 import path from "node:path"
 
+import { getProjectRuntimeDir } from "@/lib/project-runtime"
 import { getRuntimeDir } from "@/lib/runtime-dir"
+import { getTargetRoot } from "@/lib/target"
 
 const NOTIFICATIONS_FILE = "notifications.jsonl"
 
@@ -59,9 +62,54 @@ export interface NotificationInput {
   message: string
 }
 
-/** Absolute path to the notification log (created on demand by the writer). */
+/**
+ * Absolute path to the notification log (created on demand by the writer). Since W8
+ * the log is PER PROJECT — `<runtime>/projects/<key>/notifications.jsonl` — so one
+ * governed project never shows another's notifications. With no project selected the
+ * legacy root log is the honest fallback (pre-project events, e.g. onboarding).
+ *
+ * Lazy one-time migration: the first per-project access moves a still-present legacy
+ * root log into the current project's namespace (the pre-W8 log was one mixed global
+ * stream; attributing it to the first project touched loses nothing that was not
+ * already mixed) and appends a loud migration marker — never a silent move.
+ */
 export function getNotificationsPath(): string {
-  return path.join(getRuntimeDir(), NOTIFICATIONS_FILE)
+  const targetRoot = getTargetRoot()
+  if (targetRoot === null) return path.join(getRuntimeDir(), NOTIFICATIONS_FILE)
+  const projectFile = path.join(getProjectRuntimeDir(getRuntimeDir(), targetRoot), NOTIFICATIONS_FILE)
+  migrateLegacyLog(projectFile)
+  return projectFile
+}
+
+/** Fold the legacy root log into the project namespace, once, loudly, best-effort.
+ *  A project log that already exists (a factory spawn can write it first) gets the
+ *  legacy lines PREPENDED — the pre-W8 history is older by construction; without the
+ *  merge it would stay invisible forever. */
+function migrateLegacyLog(projectFile: string): void {
+  const legacyFile = path.join(getRuntimeDir(), NOTIFICATIONS_FILE)
+  if (!existsSync(legacyFile)) return
+  try {
+    mkdirSync(path.dirname(projectFile), { recursive: true })
+    if (!existsSync(projectFile)) {
+      renameSync(legacyFile, projectFile)
+    } else {
+      const merged = readFileSync(legacyFile, "utf8") + readFileSync(projectFile, "utf8")
+      writeFileSync(projectFile, merged)
+      rmSync(legacyFile, { force: true })
+    }
+    const marker: Notification = {
+      id: nextId(),
+      ts: new Date().toISOString(),
+      level: "info",
+      stage: "runtime",
+      event: "notifications_migrated",
+      message: "notification log migrated to this project's runtime namespace (W8 per-project isolation)",
+    }
+    appendFileSync(projectFile, `${JSON.stringify(marker)}\n`)
+  } catch {
+    // Best-effort: a failed migration leaves the legacy log in place; the project
+    // log simply starts fresh on the next append.
+  }
 }
 
 /** Read all notifications, oldest first. Missing/empty file => []; malformed lines
@@ -106,8 +154,9 @@ function nextId(): string {
  */
 export function appendNotification(input: NotificationInput): Notification {
   const notification: Notification = { id: nextId(), ts: new Date().toISOString(), ...input }
-  mkdirSync(getRuntimeDir(), { recursive: true })
-  appendFileSync(getNotificationsPath(), `${JSON.stringify(notification)}\n`)
+  const file = getNotificationsPath()
+  mkdirSync(path.dirname(file), { recursive: true })
+  appendFileSync(file, `${JSON.stringify(notification)}\n`)
   return notification
 }
 

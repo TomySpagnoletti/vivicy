@@ -32,8 +32,10 @@ import {
 } from "node:fs"
 import path from "node:path"
 
+import { getProjectRuntimeDir } from "@/lib/project-runtime"
 import { getRuntimeDir } from "@/lib/runtime-dir"
 import { pruneGitkeeps } from "@/lib/skeleton"
+import { getTargetRoot } from "@/lib/target"
 
 /** Typed reasons an upload request is rejected (so routes never invent prose). */
 export class UploadError extends Error {
@@ -144,9 +146,13 @@ export type ZipExpander = (zipPath: string, destDir: string) => boolean
  */
 export type DocConverter = (docPath: string) => string | null
 
-/** The absolute staging root for a staging id: `<runtimeDir>/uploads/<id>`. */
+/** The absolute staging root for a staging id — per-project since W8 (an import
+ *  staging belongs to the target it will be placed into; the verify leg cross-checks
+ *  that target's existing canonical). Root-level fallback when no project is selected. */
 export function getStagingDir(stagingId: string): string {
-  return path.join(getRuntimeDir(), "uploads", stagingId)
+  const targetRoot = getTargetRoot()
+  const base = targetRoot === null ? getRuntimeDir() : getProjectRuntimeDir(getRuntimeDir(), targetRoot)
+  return path.join(base, "uploads", stagingId)
 }
 
 /** `<staging>/raw` — where the uploaded (and zip-expanded) files land verbatim. */

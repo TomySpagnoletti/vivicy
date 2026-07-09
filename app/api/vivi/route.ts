@@ -31,7 +31,9 @@ export async function GET() {
  * appends the user turn, composes the bounded prompt (persona + transcript + `.vivicy`
  * state summary), spawns the configured agent CLI in the target repo, enforces the
  * `.md`-under-two-dirs allowlist structurally, and returns `{ sessionId, reply, wrote }`
- * — plus `rejected` when the turn's writes broke the allowlist and were rolled back.
+ * — plus `rejected` when the turn's writes broke the allowlist and were rolled back,
+ * and `actions` when the governess loop executed a `vivicy-action` batch this turn
+ * (the panel refreshes the map/project state off it).
  */
 export async function POST(request: Request) {
   try {
@@ -49,6 +51,7 @@ export async function POST(request: Request) {
       reply: result.reply,
       wrote: result.wrote,
       ...(result.rejected ? { rejected: result.rejected } : {}),
+      ...(result.actions?.length ? { actions: result.actions } : {}),
     })
   } catch (error) {
     if (error instanceof ControlError) {

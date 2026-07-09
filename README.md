@@ -6,6 +6,10 @@ Vibe coding usually means prompt-and-pray. Vivicy keeps the vibe but adds an eng
 
 Vivicy is project- and language-agnostic. It operates **on** a target project (yours), reading and writing a single `.vivicy/` folder at its root — like `.git`, but for autonomous development.
 
+## Meet the kitchen
+
+Every project is a pizza, and two hands cook it to perfection. **Vivi** is _la Nonna_ — the governess who runs the whole kitchen: she grills your idea into a spec, drives the pipeline, tidies the map, and manages change requests. She directs everything and never cooks the code herself. The **reviewer** is _il Nonno_ — the chef of finished dishes, who checks every issue the implementer plates up before it leaves the pass. You talk to Vivi from the bubble in the corner; she does the rest.
+
 ## The truth model
 
 Four rules keep an autonomous build honest:
@@ -77,7 +81,7 @@ Design choices worth knowing: the orchestrator owns all state transitions (agent
 
 ## Status
 
-v0.5.0 — young and moving fast. The pipeline is torture-tested (it survived a deliberately hostile, contradiction-riddled spec and turned the wreckage into evidence-backed change requests), but interfaces may still change without notice.
+v0.7.0 — young and moving fast. Vivi is now the governess: reach her from the bubble in the corner and she drives the whole factory (spec, pipeline, skills, map, change requests) without ever writing code herself; a project's life is a chain of spec cycles (one project spec, then feature specs), and its runtime state is isolated per project. The pipeline is torture-tested (it survived a deliberately hostile, contradiction-riddled spec and turned the wreckage into evidence-backed change requests), but interfaces may still change without notice.
 
 ## License
 

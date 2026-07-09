@@ -11,7 +11,7 @@
 // command fails, but the command's non-zero exit code is preserved so CI/gates
 // still see the failure.
 import { spawnSync } from "node:child_process"
-import { readdirSync, rmSync } from "node:fs"
+import { existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { dirname, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
@@ -41,6 +41,35 @@ function cleanArtifacts(): void {
     if (name.startsWith(".next-e2e-")) {
       rmSync(resolve(REPO_ROOT, name), { recursive: true, force: true })
     }
+  }
+  pruneTsconfigIncludes()
+}
+
+// The Next plugin auto-appends every dist dir it ever serves (`VIVICY_DIST_DIR`
+// one-offs included) to tsconfig.json's `include` — and never removes them, so
+// dead `.next-*` entries accrete forever. Prune the entries whose dir no longer
+// exists, KEEPING `.next` and the official e2e matrix dirs (Next would re-add
+// those on the next run; keeping them avoids a noisy tsconfig diff every time).
+// Byte-preserving no-op when nothing is dead; a best-effort step (a malformed
+// tsconfig is left untouched — the typecheck gate owns that failure, not clean).
+const MATRIX_DIST_RE = /^\.next-e2e-(demo|empty|onboarding)-(chromium|firefox|webkit)-(desktop|mobile)$/
+
+function pruneTsconfigIncludes(): void {
+  const file = resolve(REPO_ROOT, "tsconfig.json")
+  try {
+    const raw = readFileSync(file, "utf8")
+    const config = JSON.parse(raw) as { include?: string[] }
+    if (!Array.isArray(config.include)) return
+    const keep = config.include.filter((entry) => {
+      const dist = /^(\.next[^/]*)\//.exec(entry)?.[1]
+      if (!dist || dist === ".next" || MATRIX_DIST_RE.test(dist)) return true
+      return existsSync(resolve(REPO_ROOT, dist))
+    })
+    if (keep.length === config.include.length) return
+    config.include = keep
+    writeFileSync(file, `${JSON.stringify(config, null, 2)}\n`)
+  } catch {
+    // Never let cleanup break the wrapped command's exit semantics.
   }
 }
 

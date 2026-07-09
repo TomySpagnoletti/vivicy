@@ -13,7 +13,7 @@ import { ensurePanelOpen, isMobileProject } from "./helpers"
  *
  * These are non-mutating captures of the rich demo app: they open dialogs and the
  * panel but never SAVE, so they leave the shared on-disk state untouched and are
- * matrix-parallel-safe. The onboarding-chooser capture lives in onboarding.spec's
+ * matrix-parallel-safe. The panel-onboarding capture lives in onboarding.spec's
  * first (serial) test instead, so it runs against the pristine `no_target` state
  * before that file's scaffold test mutates the shared onboarding runtime.
  */

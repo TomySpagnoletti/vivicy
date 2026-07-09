@@ -51,3 +51,7 @@ next-env.d.ts
 
 # Local working docs — kept OUT of the public repo (internal method backlog)
 /TASKS.md
+/PLAN-0.7.0.md
+
+# Claude Code local config (preview launch profile, per-machine permissions)
+/.claude/

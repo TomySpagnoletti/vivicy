@@ -1,4 +1,4 @@
-import { ControlError, readSkillsReport, startSkillsInstall } from "@/lib/control"
+import { ControlError, readSkillsReport, removeSkills, startSkillsInstall } from "@/lib/control"
 import { appendNotification } from "@/lib/notifications"
 import { getSpawner } from "@/lib/spawner"
 
@@ -28,12 +28,41 @@ export async function GET() {
 }
 
 /**
- * Start a skills install DETACHED. Body `{ ids?: string[] }`: absent/empty ids =
- * auto mode (selection from the frozen spec); present = explicit mode. Progress
- * lands in the report file the GET above serves — this route only launches.
+ * Start a skills install DETACHED, or run a REMOVE synchronously (W6). Body:
+ *   { ids?: string[] }    — install: absent/empty = auto mode, present = explicit
+ *   { remove: string[] }  — uninstall exactly these ids (deterministic, no agent)
+ * Install progress lands in the report file the GET above serves; a remove returns
+ * its final report directly (it is fast — no agent leg).
  */
 export async function POST(request: Request) {
-  const body = (await request.json().catch(() => ({}))) as { ids?: unknown }
+  const body = (await request.json().catch(() => ({}))) as { ids?: unknown; remove?: unknown }
+  if (body.remove !== undefined) {
+    if (!isStringArray(body.remove) || body.remove.length === 0) {
+      return Response.json(
+        { ok: false, error: "remove must be a non-empty array of skill id strings" },
+        { status: 400 }
+      )
+    }
+    appendNotification({
+      level: "info",
+      stage: "skills",
+      event: "remove_started",
+      message: `skills remove requested: ${body.remove.join(", ")}`,
+    })
+    try {
+      const report = await removeSkills(getSpawner(), { ids: body.remove })
+      return Response.json({ ok: report.phase === "green", report })
+    } catch (error) {
+      if (error instanceof ControlError) {
+        appendNotification({ level: "error", stage: "skills", event: "remove_failed", message: error.message })
+        const status = error.code === "already_running" ? 409 : 422
+        return Response.json({ ok: false, error: error.message, code: error.code }, { status })
+      }
+      const message = error instanceof Error ? error.message : "skills remove failed"
+      appendNotification({ level: "error", stage: "skills", event: "remove_failed", message })
+      return Response.json({ ok: false, error: message }, { status: 500 })
+    }
+  }
   if (body.ids !== undefined && !isStringArray(body.ids)) {
     return Response.json(
       { ok: false, error: "ids must be an array of skill id strings" },

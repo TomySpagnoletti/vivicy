@@ -68,8 +68,11 @@ export function notificationText(
   if (!t.has(key)) return fallback
   // Every id-prefixed message starts with a bare id token (an issue id or a
   // `CR-####`) followed by either ": " (dev-loop's "<id>: <label>") or a verb
-  // (crs's "<id> rejected: ...", "<id> approved and applied: ...").
-  const idMatch = /^(\S+)[: ]/.exec(fallback)
+  // (crs's "<id> rejected: ...", "<id> approved and applied: ..."). The
+  // quantifier must be LAZY so the id stops BEFORE the delimiter — a greedy
+  // `\S+` would swallow the colon itself ("ISS-0004:") and the interpolated
+  // catalog string would render a double colon.
+  const idMatch = /^(\S+?)[: ]/.exec(fallback)
   const id = idMatch?.[1]
   return t(key, id ? { id } : undefined)
 }

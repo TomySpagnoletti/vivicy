@@ -1,13 +1,12 @@
 {
-  "bellAriaLabel": "Notifications",
   "unreadAriaLabel": "{count, plural, one {# unread notification} other {# unread notifications}}",
   "unreadOverflow": "99+",
-  "sheetTitle": "Notifications",
-  "sheetDescription": "Every pipeline transition: stages starting, passing, blocking, and retrying.",
   "empty": "No notifications.",
+  "askVivi": "Ask Vivi",
   "dismissAriaLabel": "Dismiss notification",
   "clearAll": "Clear all",
   "clearing": "Clearing…",
+  "updateFailed": "Could not update notifications. Please try again.",
   "clearAllDialogTitle": "Clear all notifications?",
   "clearAllDialogDescription": "Dismisses every notification currently listed. This cannot be undone.",
   "cancel": "Cancel",
@@ -68,7 +67,9 @@
     },
     "skills": {
       "started": "skills install requested",
-      "failed": "skills install failed"
+      "failed": "skills install failed",
+      "remove_started": "skills remove requested",
+      "remove_failed": "skills remove failed"
     },
     "retry": {
       "retry_extract_started": "manual retry requested for stage \"extract\"",
@@ -91,6 +92,43 @@
       "approved_applied": "{id} approved and applied",
       "approved_apply_blocked": "{id} approved but the apply chain is blocked",
       "decide_error": "decision failed"
+    },
+    "vivi": {
+      "action_status_read": "Vivi checked the pipeline status",
+      "action_pipeline_start": "Vivi started the build",
+      "action_pipeline_resume": "Vivi resumed the build",
+      "action_pipeline_stop": "Vivi stopped the build",
+      "action_pipeline_extract": "Vivi ran the extraction",
+      "action_pipeline_retry": "Vivi retried a stage",
+      "action_skills_install": "Vivi requested a skills install",
+      "action_skills_remove": "Vivi removed project skills",
+      "action_map_move": "Vivi tidied the architecture map",
+      "action_crs_list": "Vivi listed the change requests",
+      "action_cycle_open": "Vivi opened a spec cycle",
+      "action_cycle_cancel": "Vivi cancelled the spec cycle",
+      "action_notifications_read": "Vivi read the notifications",
+      "action_status_read_error": "Vivi could not read the status",
+      "action_pipeline_start_error": "Vivi could not start the build",
+      "action_pipeline_resume_error": "Vivi could not resume the build",
+      "action_pipeline_stop_error": "Vivi could not stop the build",
+      "action_pipeline_extract_error": "Vivi's extraction did not reach green",
+      "action_pipeline_retry_error": "Vivi's stage retry failed",
+      "action_skills_install_error": "Vivi's skills install was refused",
+      "action_skills_remove_error": "Vivi's skills remove was refused",
+      "action_map_move_error": "Vivi's map move was refused",
+      "action_crs_list_error": "Vivi could not list the change requests",
+      "action_cycle_open_error": "Vivi could not open a spec cycle",
+      "action_cycle_cancel_error": "Vivi could not cancel the spec cycle",
+      "action_notifications_read_error": "Vivi could not read the notifications",
+      "action_cr_decide_error": "Vivi was refused a CR decision (owner-only)"
+    },
+    "cycle": {
+      "cycle_opened": "spec cycle opened — the canonical is editable again",
+      "cycle_cancelled": "spec cycle cancelled",
+      "cycle_error": "spec-cycle transition refused"
+    },
+    "runtime": {
+      "notifications_migrated": "notification log migrated to this project's runtime namespace"
     }
   }
 }

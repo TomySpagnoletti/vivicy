@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process"
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import path from "node:path"
 
@@ -23,7 +23,10 @@ beforeEach(() => {
   // Isolate the runtime store (current-project.json) per test, and pin the
   // factory root to the real repo's factory/ so templates resolve regardless of
   // the temp cwd. The scaffolder reads factory/templates/** from there.
-  workDir = mkdtempSync(path.join(tmpdir(), "vivicy-scaffold-"))
+  // Canonical (realpath) spelling: describeProject canonicalizes the roots it
+  // returns/persists, so assertions compare against the one true spelling
+  // (macOS tmpdir is symlinked).
+  workDir = realpathSync(mkdtempSync(path.join(tmpdir(), "vivicy-scaffold-")))
   prevCwd = process.cwd()
   prevRuntime = process.env.VIVICY_RUNTIME_DIR
   prevFactoryRoot = process.env.VIVICY_FACTORY_ROOT

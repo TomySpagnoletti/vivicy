@@ -1,16 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useRef, useState } from "react"
-import {
-  CheckCircle2,
-  Copy,
-  CreditCard,
-  Gauge,
-  HelpCircle,
-  Loader2,
-  RefreshCw,
-  XCircle,
-} from "lucide-react"
+import { CreditCard, Gauge, Loader2, RefreshCw } from "lucide-react"
 import { useTranslations } from "next-intl"
 import { toast } from "sonner"
 
@@ -31,7 +22,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog"
-import { Separator } from "@/components/ui/separator"
+import { AgentStatusBadge, CopyableCommand } from "@/components/agents/agent-status"
 
 type ChipState = "ok" | "warn" | "loading"
 
@@ -66,29 +57,35 @@ export function AgentsHealthDialog({
   const [health, setHealth] = useState<AgentsHealth | null>(null)
   const [loading, setLoading] = useState(false)
 
-  const load = useCallback(async () => {
-    setLoading(true)
-    try {
-      const res = await fetch("/api/agents/health", { cache: "no-store" })
-      const body = (await res.json().catch(() => ({}))) as {
-        ok?: boolean
-        agents?: AgentsHealth
+  const load = useCallback(
+    async (fresh = false) => {
+      setLoading(true)
+      try {
+        const res = await fetch(fresh ? "/api/agents/health?fresh=1" : "/api/agents/health", {
+          cache: "no-store",
+        })
+        const body = (await res.json().catch(() => ({}))) as {
+          ok?: boolean
+          agents?: AgentsHealth
+        }
+        if (body.agents) {
+          setHealth(body.agents)
+          const warning = warningFor(body.agents, t)
+          if (warning) onWarning?.(warning)
+        }
+      } catch {
+        // Leave the chip in its loading-amber state; the dialog can be retried.
+      } finally {
+        setLoading(false)
       }
-      if (body.agents) {
-        setHealth(body.agents)
-        const warning = warningFor(body.agents, t)
-        if (warning) onWarning?.(warning)
-      }
-    } catch {
-      // Leave the chip in its loading-amber state; the dialog can be retried.
-    } finally {
-      setLoading(false)
-    }
-  }, [onWarning, t])
+    },
+    [onWarning, t]
+  )
 
-  // Load once on mount (drives the chip + the one-time warning); reload on open
-  // so the dialog reflects a CLI the user just installed/logged into. The state
-  // writes live inside `load`'s async body, not the effect body.
+  // Load once on mount (drives the chip + the one-time warning; the route memo
+  // makes this cheap); RE-PROBE (`fresh=1`) on open so the dialog reflects a CLI
+  // the user just installed/logged into instead of the memoized snapshot. The
+  // state writes live inside `load`'s async body, not the effect body.
   useEffect(() => {
     void (async () => {
       await load()
@@ -97,7 +94,7 @@ export function AgentsHealthDialog({
   useEffect(() => {
     if (!open) return
     void (async () => {
-      await load()
+      await load(true)
     })()
   }, [open, load])
 
@@ -184,13 +181,13 @@ function AgentCard({
       ) : (
         <>
           <div className="flex flex-wrap items-center gap-1.5">
-            <StatusBadge
+            <AgentStatusBadge
               ok={present}
               okLabel={t("installed")}
               badLabel={t("notInstalled")}
               unknown={false}
             />
-            <StatusBadge
+            <AgentStatusBadge
               ok={auth === true}
               okLabel={t("authenticated")}
               badLabel={t("notSignedIn")}
@@ -213,14 +210,14 @@ function AgentCard({
           Both stay copy-only — install and auth are interactive and run in the
           user's terminal. */}
       {!loading && !present ? (
-        <Guidance
+        <CopyableCommand
           hint={guidance.installHint}
           command={guidance.installCommand}
           label={t("install", { label: guidance.label })}
         />
       ) : null}
       {!loading && present && auth === false ? (
-        <Guidance hint={guidance.authHint} command={guidance.authCommand} label={t("signIn")} />
+        <CopyableCommand hint={guidance.authHint} command={guidance.authCommand} label={t("signIn")} />
       ) : null}
       {!loading && present && auth === null ? (
         <p className="text-xs text-muted-foreground">
@@ -231,41 +228,6 @@ function AgentCard({
         </p>
       ) : null}
     </fieldset>
-  )
-}
-
-/** A present/authenticated badge with an honest "unknown" variant. */
-function StatusBadge({
-  ok,
-  okLabel,
-  badLabel,
-  unknown,
-  unknownLabel,
-}: {
-  ok: boolean
-  okLabel: string
-  badLabel: string
-  unknown: boolean
-  unknownLabel?: string
-}) {
-  const t = useTranslations("agents")
-  if (unknown) {
-    return (
-      <Badge variant="outline" className="gap-1 text-muted-foreground">
-        <HelpCircle className="size-3" />
-        {unknownLabel ?? t("unknown")}
-      </Badge>
-    )
-  }
-  return (
-    <Badge variant="outline" className="gap-1">
-      {ok ? (
-        <CheckCircle2 className="size-3 text-primary" />
-      ) : (
-        <XCircle className="size-3 text-destructive" />
-      )}
-      {ok ? okLabel : badLabel}
-    </Badge>
   )
 }
 
@@ -304,50 +266,6 @@ function MethodBadge({
       <Icon className="size-3" />
       {methodLabel(authMethod, plan, t)}
     </Badge>
-  )
-}
-
-/**
- * A copyable command block with a one-line hint. Copy-only: it never runs
- * anything — install and auth are interactive and run in the user's terminal.
- */
-function Guidance({
-  hint,
-  command,
-  label,
-}: {
-  hint: string
-  command: string
-  label: string
-}) {
-  const t = useTranslations("agents")
-  const copy = useCallback(async () => {
-    try {
-      await navigator.clipboard.writeText(command)
-      toast.success(t("copy"), { description: command })
-    } catch {
-      toast.error(t("copyFailedTitle"), { description: t("copyFailedDescription") })
-    }
-  }, [command, t])
-
-  return (
-    <div className="flex flex-col gap-1.5">
-      <Separator />
-      <p className="text-xs text-muted-foreground">{hint}</p>
-      <div className="flex items-stretch gap-2">
-        <code className="flex-1 overflow-x-auto border border-border bg-muted px-2 py-1.5 font-mono text-xs text-foreground">
-          {command}
-        </code>
-        <Button
-          variant="outline"
-          size="icon-sm"
-          aria-label={t("copyAriaLabel", { label })}
-          onClick={copy}
-        >
-          <Copy />
-        </Button>
-      </div>
-    </div>
   )
 }
 

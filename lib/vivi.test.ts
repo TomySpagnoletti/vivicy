@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process"
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import path from "node:path"
@@ -5,7 +6,7 @@ import path from "node:path"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 
 import { ControlError, type RunOptions, type RunResult, type Spawner } from "@/lib/control"
-import { parseSkillsDirective, readTranscript, runViviTurn, type ViviTurn } from "@/lib/vivi"
+import { appendCardTurn, decideCardAction, listViviSessions, parseSkillsDirective, readTranscript, runViviTurn, type ViviTurn } from "@/lib/vivi"
 
 /**
  * A recording fake spawner whose `run` DELEGATES to a per-test `onRun` so a test
@@ -118,7 +119,25 @@ function scaffoldFactory(root: string) {
   writeFileSync(path.join(root, "vivi-turn.ts"), "// stub\n")
   writeFileSync(path.join(root, "change-control.ts"), "// stub\n")
   writeFileSync(path.join(root, "install-skills.ts"), "// stub\n")
+  writeFileSync(path.join(root, "dev-loop-supervised.ts"), "// stub\n")
   writeFileSync(path.join(root, "prompts", "vivi.md"), "# Vivi persona (test stub)\n")
+}
+
+/** Turn a dir into a committed git repo (the scaffold guarantees every real target
+ *  is one — the W2 no-code witness depends on it). */
+function gitInit(root: string): void {
+  const git = (...args: string[]) => execFileSync("git", args, { cwd: root, stdio: "ignore" })
+  git("init", "-q")
+  git("config", "user.email", "test@vivicy.local")
+  git("config", "user.name", "Vivicy Test")
+  git("commit", "--allow-empty", "-q", "-m", "init")
+}
+
+/** Write + commit a file so it is tracked in HEAD (a "product" file of the target). */
+function gitCommitFile(root: string, rel: string, body: string): void {
+  writeInTarget(root, rel, body)
+  execFileSync("git", ["add", "--", rel], { cwd: root, stdio: "ignore" })
+  execFileSync("git", ["commit", "-q", "-m", `add ${rel}`], { cwd: root, stdio: "ignore" })
 }
 
 beforeEach(() => {
@@ -126,9 +145,11 @@ beforeEach(() => {
   targetRoot = mkdtempSync(path.join(tmpdir(), "vivi-target-"))
   runtimeDir = mkdtempSync(path.join(tmpdir(), "vivi-runtime-"))
   scaffoldFactory(factoryRoot)
-  // The target must have a .vivicy so the allowlist dirs resolve.
+  // The target must have a .vivicy so the allowlist dirs resolve, and a git repo so
+  // the W2 no-code witness is active (the scaffold guarantees both on real targets).
   mkdirSync(path.join(targetRoot, ".vivicy", "canonical"), { recursive: true })
   mkdirSync(path.join(targetRoot, ".vivicy", "development", "spikes"), { recursive: true })
+  gitInit(targetRoot)
 
   process.env.VIVICY_FACTORY_ROOT = factoryRoot
   process.env.VIVICY_TARGET_ROOT = targetRoot
@@ -529,6 +550,258 @@ describe("parseSkillsDirective — pure parser", () => {
   })
 })
 
+/** A reply text ending with a vivicy-action fenced block. */
+function replyWithActions(json: string, lead = "On it."): string {
+  return `${lead}\n\n\`\`\`vivicy-action\n${json}\n\`\`\``
+}
+
+/** Recorded leg runs only (vivi-turn.ts spawns), excluding validators/status probes. */
+function legRuns(calls: { run: Array<{ args: string[] }> }): Array<{ args: string[] }> {
+  return calls.run.filter((c) => c.args.some((a) => a.endsWith("vivi-turn.ts")))
+}
+
+describe("runViviTurn — action protocol (the governess loop)", () => {
+  afterEach(() => {
+    delete process.env.VIVICY_VIVI_MAX_ROUNDS
+  })
+
+  it("executes a batch, feeds the results back, and closes on the follow-up round", async () => {
+    let leg = 0
+    let continuationPrompt = ""
+    const { spawner } = makeFakeSpawner((o) => {
+      if (!o.args.some((a) => a.endsWith("vivi-turn.ts"))) return
+      leg += 1
+      if (leg === 1) {
+        writeReply(o, replyWithActions('{"actions": [{"tool": "crs.list"}]}'))
+      } else {
+        continuationPrompt = readFileSync(promptFileFrom(o.args), "utf8")
+        writeReply(o, "No change requests are on file yet — nothing waits on you.")
+      }
+    })
+    const result = await runViviTurn(spawner, { message: "où en sont les CRs ?" })
+
+    expect(result.rejected).toBeUndefined()
+    expect(result.reply).toBe("No change requests are on file yet — nothing waits on you.")
+    expect(result.actions).toHaveLength(1)
+    expect(result.actions?.[0]).toMatchObject({ tool: "crs.list", ok: true })
+    expect(leg).toBe(2)
+
+    // The continuation prompt carries the tool results and the close-the-loop task.
+    expect(continuationPrompt).toContain("Tool results")
+    expect(continuationPrompt).toContain("✓ crs.list")
+    expect(continuationPrompt).toContain("close the loop")
+
+    // Transcript: user → vivi (fence stripped) → action (structured) → vivi (final).
+    const turns = readTranscript(result.sessionId)
+    expect(turns.map((t) => t.role)).toEqual(["user", "vivi", "action", "vivi"])
+    expect(turns[1].text).toBe("On it.")
+    expect(turns[1].text).not.toContain("vivicy-action")
+    expect(turns[2].actions?.[0]).toMatchObject({ tool: "crs.list", ok: true })
+  })
+
+  it("executes a real control side effect through the SAME spawner (pipeline.start)", async () => {
+    let leg = 0
+    const { spawner, calls } = makeFakeSpawner((o) => {
+      if (!o.args.some((a) => a.endsWith("vivi-turn.ts"))) return
+      leg += 1
+      writeReply(o, leg === 1 ? replyWithActions('{"actions": [{"tool": "pipeline.start"}]}') : "The build is running.")
+    })
+    const result = await runViviTurn(spawner, { message: "lance le build" })
+
+    expect(result.actions?.[0]).toMatchObject({ tool: "pipeline.start", ok: true })
+    // The supervisor was spawned DETACHED via the injected spawner. (The run lock was
+    // written too, then honestly cleared by the round-2 status probe: the fake's pid is
+    // never alive, so the lock reads as stale — exactly the dead-run cleanup contract.)
+    expect(calls.spawnDetached.some((c) => c.args.some((a) => a.endsWith("dev-loop-supervised.ts")))).toBe(true)
+  })
+
+  it("appends an honest note on a malformed action block without executing or rejecting", async () => {
+    const { spawner, calls } = makeFakeSpawner((o) => {
+      writeReply(o, replyWithActions("not json"))
+    })
+    const result = await runViviTurn(spawner, { message: "go" })
+
+    expect(result.rejected).toBeUndefined()
+    expect(result.actions).toBeUndefined()
+    expect(result.reply).toContain("no action executed: the vivicy-action block is not valid JSON")
+    expect(legRuns(calls)).toHaveLength(1)
+  })
+
+  it("stops at the bounded round limit and reports the results honestly", async () => {
+    process.env.VIVICY_VIVI_MAX_ROUNDS = "2"
+    const { spawner, calls } = makeFakeSpawner((o) => {
+      if (!o.args.some((a) => a.endsWith("vivi-turn.ts"))) return
+      // Every round asks for another action — the loop must cut at 2.
+      writeReply(o, replyWithActions('{"actions": [{"tool": "crs.list"}]}'))
+    })
+    const result = await runViviTurn(spawner, { message: "spin" })
+
+    expect(legRuns(calls)).toHaveLength(2)
+    expect(result.actions).toHaveLength(2)
+    expect(result.reply).toContain("action round limit (2) reached")
+    expect(result.reply).toContain("✓ crs.list")
+  })
+
+  it("clamps an invalid VIVICY_VIVI_MAX_ROUNDS to the default", async () => {
+    process.env.VIVICY_VIVI_MAX_ROUNDS = "banana"
+    let leg = 0
+    const { spawner } = makeFakeSpawner((o) => {
+      if (!o.args.some((a) => a.endsWith("vivi-turn.ts"))) return
+      leg += 1
+      writeReply(o, leg === 1 ? replyWithActions('{"actions": [{"tool": "crs.list"}]}') : "done")
+    })
+    const result = await runViviTurn(spawner, { message: "go" })
+    expect(result.reply).toBe("done")
+    expect(leg).toBe(2)
+  })
+
+  it("a violation on the follow-up round rejects the WHOLE turn's writes but keeps executed actions honest", async () => {
+    writeInTarget(targetRoot, path.join(CANONICAL, "01-product.md"), "original\n")
+    let leg = 0
+    const { spawner } = makeFakeSpawner((o) => {
+      if (!o.args.some((a) => a.endsWith("vivi-turn.ts"))) return
+      leg += 1
+      if (leg === 1) {
+        // Round 1: a legit canonical write + an action batch.
+        writeInTarget(targetRoot, path.join(CANONICAL, "01-product.md"), "round-one edit\n")
+        writeReply(o, replyWithActions('{"actions": [{"tool": "crs.list"}]}'))
+      } else {
+        // Round 2: a violation — the whole turn's writes roll back.
+        writeInTarget(targetRoot, path.join(".vivicy", "baselines", "forged.md"), "no\n")
+        writeReply(o, "oops")
+      }
+    })
+    const result = await runViviTurn(spawner, { message: "go" })
+
+    expect(result.rejected).toMatch(/outside its allowlist/)
+    expect(result.rejected).toMatch(/1 action\(s\) already executed this turn remain in effect/)
+    expect(result.wrote).toEqual([])
+    expect(result.actions).toHaveLength(1)
+    // Round 1's legit write is rolled back WITH the turn; the violation is gone.
+    expect(readFileSync(path.join(targetRoot, CANONICAL, "01-product.md"), "utf8")).toBe("original\n")
+    expect(existsSync(path.join(targetRoot, ".vivicy", "baselines", "forged.md"))).toBe(false)
+  })
+
+  it("accumulates writes across rounds in `wrote` and per-round on the transcript", async () => {
+    let leg = 0
+    const { spawner } = makeFakeSpawner((o) => {
+      if (!o.args.some((a) => a.endsWith("vivi-turn.ts"))) return
+      leg += 1
+      if (leg === 1) {
+        writeInTarget(targetRoot, path.join(CANONICAL, "01-a.md"), "# A\n")
+        writeReply(o, replyWithActions('{"actions": [{"tool": "crs.list"}]}'))
+      } else {
+        writeInTarget(targetRoot, path.join(CANONICAL, "02-b.md"), "# B\n")
+        writeReply(o, "wrote the second area")
+      }
+    })
+    const result = await runViviTurn(spawner, { message: "go" })
+
+    expect(result.rejected).toBeUndefined()
+    expect(result.wrote).toEqual([path.join(CANONICAL, "01-a.md"), path.join(CANONICAL, "02-b.md")])
+    const turns = readTranscript(result.sessionId)
+    expect(turns[1].wrote).toEqual([path.join(CANONICAL, "01-a.md")])
+    expect((turns.at(-1) as ViviTurn).wrote).toEqual([path.join(CANONICAL, "02-b.md")])
+  })
+
+  it("the prompt carries the deterministic pipeline snapshot line", async () => {
+    let seenPrompt = ""
+    const { spawner } = makeFakeSpawner((o) => {
+      seenPrompt = readFileSync(promptFileFrom(o.args), "utf8")
+      writeReply(o, "ok")
+    })
+    await runViviTurn(spawner, { message: "hello" })
+    expect(seenPrompt).toContain("Pipeline snapshot: run_active=false; extraction=never; skills=never; spec_frozen=false; spec_kind=project.")
+  })
+})
+
+describe("runViviTurn — whole-target no-code enforcement (W2)", () => {
+  it("rejects a net-new code file outside .vivicy, removes it, and rolls the turn back", async () => {
+    const { spawner } = makeFakeSpawner((o) => {
+      writeInTarget(targetRoot, path.join("src", "index.ts"), "console.log('sneaky')\n")
+      writeInTarget(targetRoot, path.join(CANONICAL, "01-a.md"), "# A\n")
+      writeReply(o, "I implemented it for you.")
+    })
+    const result = await runViviTurn(spawner, { message: "build it" })
+
+    expect(result.rejected).toMatch(/code writes are forbidden \(src\/index\.ts\)/)
+    expect(result.wrote).toEqual([])
+    // The code file is gone AND the .vivicy write rolled back with the turn.
+    expect(existsSync(path.join(targetRoot, "src", "index.ts"))).toBe(false)
+    expect(existsSync(path.join(targetRoot, CANONICAL, "01-a.md"))).toBe(false)
+  })
+
+  it("rejects an edit to a committed product file and restores its committed bytes", async () => {
+    gitCommitFile(targetRoot, "README.md", "# The product\n")
+    const { spawner } = makeFakeSpawner((o) => {
+      writeInTarget(targetRoot, "README.md", "# Vandalized\n")
+      writeReply(o, "I improved the README.")
+    })
+    const result = await runViviTurn(spawner, { message: "touch the readme" })
+
+    expect(result.rejected).toMatch(/code writes are forbidden \(README\.md\)/)
+    expect(readFileSync(path.join(targetRoot, "README.md"), "utf8")).toBe("# The product\n")
+  })
+
+  it("never touches the owner's OWN pre-turn dirty files (not Vivi's writes)", async () => {
+    gitCommitFile(targetRoot, path.join("src", "wip.ts"), "export const a = 1\n")
+    // The OWNER has uncommitted work in progress before the turn.
+    writeInTarget(targetRoot, path.join("src", "wip.ts"), "export const a = 2 // wip\n")
+
+    const { spawner } = makeFakeSpawner((o) => {
+      writeInTarget(targetRoot, path.join(CANONICAL, "01-a.md"), "# A\n")
+      writeReply(o, "Wrote the first area.")
+    })
+    const result = await runViviTurn(spawner, { message: "go" })
+
+    expect(result.rejected).toBeUndefined()
+    expect(result.reply).toBe("Wrote the first area.")
+    expect(result.wrote).toEqual([path.join(CANONICAL, "01-a.md")])
+    // The owner's WIP is untouched — not restored, not flagged.
+    expect(readFileSync(path.join(targetRoot, "src", "wip.ts"), "utf8")).toBe("export const a = 2 // wip\n")
+  })
+
+  it("appends a LOUD note (and still enforces .vivicy) when the target has no git", async () => {
+    // A fresh target without a git repository: the witness is unavailable.
+    const bareTarget = mkdtempSync(path.join(tmpdir(), "vivi-bare-"))
+    mkdirSync(path.join(bareTarget, ".vivicy", "canonical"), { recursive: true })
+    process.env.VIVICY_TARGET_ROOT = bareTarget
+    try {
+      const { spawner } = makeFakeSpawner((o) => {
+        writeInTarget(bareTarget, path.join(CANONICAL, "01-a.md"), "# A\n")
+        writeReply(o, "Wrote the first area.")
+      })
+      const result = await runViviTurn(spawner, { message: "go" })
+
+      expect(result.rejected).toBeUndefined()
+      expect(result.reply).toContain("Wrote the first area.")
+      expect(result.reply).toContain("no usable git repository")
+      expect(result.wrote).toEqual([path.join(CANONICAL, "01-a.md")])
+    } finally {
+      process.env.VIVICY_TARGET_ROOT = targetRoot
+      rmSync(bareTarget, { recursive: true, force: true })
+    }
+  })
+
+  it("catches a code write on a FOLLOW-UP action round too", async () => {
+    let leg = 0
+    const { spawner } = makeFakeSpawner((o) => {
+      if (!o.args.some((a) => a.endsWith("vivi-turn.ts"))) return
+      leg += 1
+      if (leg === 1) {
+        writeReply(o, replyWithActions('{"actions": [{"tool": "crs.list"}]}'))
+      } else {
+        writeInTarget(targetRoot, path.join("app", "hack.tsx"), "export default null\n")
+        writeReply(o, "also wrote a component")
+      }
+    })
+    const result = await runViviTurn(spawner, { message: "go" })
+
+    expect(result.rejected).toMatch(/code writes are forbidden \(app\/hack\.tsx\)/)
+    expect(existsSync(path.join(targetRoot, "app", "hack.tsx"))).toBe(false)
+  })
+})
+
 describe("runViviTurn — skills directive (explicit installs via chat)", () => {
   it("starts an explicit skills install and appends the status line to the reply", async () => {
     const { spawner, calls } = makeFakeSpawner((o) =>
@@ -585,5 +858,229 @@ describe("runViviTurn — skills directive (explicit installs via chat)", () => 
     expect(result.rejected).toMatch(/outside its allowlist/)
     expect(result.reply).not.toContain("skills install started")
     expect(calls.spawnDetached).toHaveLength(0)
+  })
+})
+
+describe("decision cards (W3/D6 — server contracts)", () => {
+  it("appendCardTurn mints a session; decideCardAction executes a control action, stamps, and refuses a second decide", async () => {
+    const sessionId = appendCardTurn({
+      id: "card-1",
+      title: "Où en est le build ?",
+      actions: [{ id: "list", label: "List the CRs", action: { kind: "control", tool: "crs.list" } }],
+    })
+    expect(readTranscript(sessionId).map((t) => t.role)).toEqual(["card"])
+
+    const { spawner } = makeFakeSpawner()
+    const result = await decideCardAction(spawner, { sessionId, cardId: "card-1", actionId: "list" })
+
+    expect(result.ok).toBe(true)
+    const turns = readTranscript(sessionId)
+    expect(turns.map((t) => t.role)).toEqual(["card", "action"])
+    expect(turns[0].decided?.actionId).toBe("list")
+    expect(turns[0].decided?.summary).toContain("change request")
+    expect(turns[1].actions?.[0]).toMatchObject({ tool: "crs.list", ok: true })
+
+    // A decided card can NEVER be decided again.
+    const again = await decideCardAction(spawner, { sessionId, cardId: "card-1", actionId: "list" })
+    expect(again.ok).toBe(false)
+    expect(again.summary).toContain("already decided")
+  })
+
+  it("refuses an unknown card or action id loudly", async () => {
+    const sessionId = appendCardTurn({
+      id: "card-2",
+      title: "T",
+      actions: [{ id: "a", label: "A", action: { kind: "dismiss" } }],
+    })
+    const { spawner } = makeFakeSpawner()
+    await expect(decideCardAction(spawner, { sessionId, cardId: "ghost", actionId: "a" })).rejects.toThrow(/unknown card/)
+    await expect(decideCardAction(spawner, { sessionId, cardId: "card-2", actionId: "ghost" })).rejects.toThrow(/unknown action/)
+  })
+
+  it("dismiss records the choice and does nothing else", async () => {
+    const sessionId = appendCardTurn({
+      id: "card-3",
+      title: "T",
+      actions: [{ id: "no", label: "Not now", variant: "outline", action: { kind: "dismiss" } }],
+    })
+    const { spawner, calls } = makeFakeSpawner()
+    const result = await decideCardAction(spawner, { sessionId, cardId: "card-3", actionId: "no" })
+    expect(result).toMatchObject({ ok: true, summary: "dismissed" })
+    expect(calls.run).toHaveLength(0)
+    expect(calls.spawnDetached).toHaveLength(0)
+    expect(readTranscript(sessionId)).toHaveLength(1)
+  })
+
+  it("vivi_message sends the prepared message as a REAL turn on the same session", async () => {
+    const sessionId = appendCardTurn({
+      id: "card-4",
+      title: "Start a new project?",
+      actions: [{ id: "go", label: "Start from scratch", action: { kind: "vivi_message", message: "I want to start a new project from scratch." } }],
+    })
+    const { spawner } = makeFakeSpawner((o) => {
+      if (o.args.some((a) => a.endsWith("vivi-turn.ts"))) writeReply(o, "Great — let's define the product. First questions: …")
+    })
+    const result = await decideCardAction(spawner, { sessionId, cardId: "card-4", actionId: "go" })
+
+    expect(result.ok).toBe(true)
+    expect(result.reply?.reply).toContain("let's define the product")
+    const turns = readTranscript(sessionId)
+    expect(turns.map((t) => t.role)).toEqual(["card", "user", "vivi"])
+    expect(turns[0].decided?.actionId).toBe("go")
+    expect(turns[1].text).toBe("I want to start a new project from scratch.")
+  })
+
+  it("cr_decide records the owner decision as owner:vivi-ui (P2 — the click is the human touchpoint)", async () => {
+    const sessionId = appendCardTurn({
+      id: "card-5",
+      title: "CR-0007 — add CSV export",
+      body: "Approve or reject this change request.",
+      actions: [
+        { id: "approve", label: "Approve", action: { kind: "cr_decide", crId: "CR-0007", decision: "approved" } },
+        { id: "reject", label: "Reject", variant: "destructive", action: { kind: "cr_decide", crId: "CR-0007", decision: "rejected" } },
+      ],
+    })
+    let decideArgs: string[] = []
+    const { spawner } = makeFakeSpawner((o) => {
+      if (o.args.some((a) => a.endsWith("change-control.ts"))) {
+        decideArgs = o.args
+        return { code: 0, stdout: '{"ok":true,"status":"rejected"}\n' }
+      }
+    })
+    const result = await decideCardAction(spawner, { sessionId, cardId: "card-5", actionId: "reject" })
+
+    expect(result.ok).toBe(true)
+    expect(decideArgs).toContain("decide")
+    expect(decideArgs[decideArgs.indexOf("--by") + 1]).toBe("owner:vivi-ui")
+    const turns = readTranscript(sessionId)
+    expect(turns[0].decided?.actionId).toBe("reject")
+    expect(turns.at(-1)?.text).toContain("cr.decide")
+  })
+})
+
+describe("listViviSessions (W3 rehydration index)", () => {
+  it("lists sessions newest-first with a human preview", async () => {
+    const a = makeFakeSpawner((o) => writeReply(o, "reply A"))
+    const first = await runViviTurn(a.spawner, { message: "First project conversation" })
+    // Ensure a strictly later timestamp for the second session.
+    await new Promise((r) => setTimeout(r, 5))
+    const b = makeFakeSpawner((o) => writeReply(o, "reply B"))
+    const second = await runViviTurn(b.spawner, { message: "Second conversation about billing" })
+
+    const sessions = listViviSessions()
+    expect(sessions.map((s) => s.sessionId)).toEqual([second.sessionId, first.sessionId])
+    expect(sessions[0].preview).toContain("Second conversation")
+    expect(sessions[0].turns).toBe(2)
+    expect(sessions[0].updated_at).toBeTruthy()
+  })
+})
+
+describe("runViviTurn — drafting spec cycle (W7b)", () => {
+  it("an OPEN cycle reopens the pre-freeze allowlist on a frozen target", async () => {
+    seedFrozenBaseline(targetRoot)
+    // The cycle-state file is the orchestrator-owned reopen switch.
+    writeInTarget(
+      targetRoot,
+      path.join(".vivicy", "development", "reports", "spec-cycle.json"),
+      JSON.stringify({ status: "drafting", kind: "feature", id: "cycle-x", opened_at: "t", opened_by: "owner:test" })
+    )
+    let seenPrompt = ""
+    const { spawner, calls } = makeFakeSpawner((o) => {
+      if (!o.args.some((a) => a.endsWith("vivi-turn.ts"))) return
+      seenPrompt = readFileSync(promptFileFrom(o.args), "utf8")
+      // A canonical write — a VIOLATION post-freeze, but LEGAL while the cycle is open.
+      writeInTarget(targetRoot, path.join(CANONICAL, "07-new-feature.md"), "# New feature\n")
+      writeReply(o, "Captured the new feature area.")
+    })
+    const result = await runViviTurn(spawner, { message: "add the export feature to the spec" })
+
+    expect(result.rejected).toBeUndefined()
+    expect(result.wrote).toEqual([path.join(CANONICAL, "07-new-feature.md")])
+    expect(seenPrompt).toContain("spec_frozen: false")
+    // Canonical writes during a cycle are NOT change requests: no CR validator spawn.
+    expect(calls.run.some((c) => isChangeControlRun(c.args))).toBe(false)
+  })
+})
+
+describe("runViviTurn — action side effects are orchestrator state, never Vivi's writes", () => {
+  it("cycle.open's state file SURVIVES the follow-up round (no false rejection, no rollback)", async () => {
+    seedFrozenBaseline(targetRoot)
+    let leg = 0
+    const { spawner } = makeFakeSpawner((o) => {
+      if (!o.args.some((a) => a.endsWith("vivi-turn.ts"))) return
+      leg += 1
+      if (leg === 1) writeReply(o, replyWithActions('{"actions": [{"tool": "cycle.open"}]}'))
+      else writeReply(o, "The drafting cycle is open — tell me what the feature should do.")
+    })
+    const result = await runViviTurn(spawner, { message: "open a feature cycle" })
+
+    expect(result.rejected).toBeUndefined()
+    expect(result.actions?.[0]).toMatchObject({ tool: "cycle.open", ok: true })
+    expect(leg).toBe(2)
+    // The REAL openSpecCycle wrote the state file (non-.md, inside .vivicy); the
+    // round-2 diff must NOT attribute it to Vivi — it survives.
+    expect(existsSync(path.join(targetRoot, ".vivicy", "development", "reports", "spec-cycle.json"))).toBe(true)
+  })
+
+  it("detects Vivi tampering with the OWNER's pre-turn dirty file and restores the owner's bytes", async () => {
+    gitCommitFile(targetRoot, path.join("src", "wip.ts"), "export const a = 1\n")
+    // The owner's uncommitted WIP before the turn.
+    writeInTarget(targetRoot, path.join("src", "wip.ts"), "export const a = 2 // owner wip\n")
+
+    const { spawner } = makeFakeSpawner((o) => {
+      // Vivi hides a code write INSIDE the already-dirty file.
+      writeInTarget(targetRoot, path.join("src", "wip.ts"), "export const a = 666 // vivi was here\n")
+      writeReply(o, "tweaked your file")
+    })
+    const result = await runViviTurn(spawner, { message: "go" })
+
+    expect(result.rejected).toMatch(/modified your uncommitted work in progress \(src\/wip\.ts\)/)
+    // Restored to the OWNER's pre-turn bytes — not to HEAD.
+    expect(readFileSync(path.join(targetRoot, "src", "wip.ts"), "utf8")).toBe("export const a = 2 // owner wip\n")
+  })
+
+  it("a .gitignore self-hiding write is cleaned up in the second pass", async () => {
+    gitCommitFile(targetRoot, ".gitignore", "node_modules\n")
+    const { spawner } = makeFakeSpawner((o) => {
+      // Hide the payload from git status by ignoring it FIRST.
+      writeInTarget(targetRoot, ".gitignore", "node_modules\nsrc/evil.ts\n")
+      writeInTarget(targetRoot, path.join("src", "evil.ts"), "export const pwned = true\n")
+      writeReply(o, "nothing to see")
+    })
+    const result = await runViviTurn(spawner, { message: "go" })
+
+    expect(result.rejected).toBeTruthy()
+    // Restoring .gitignore unmasks the payload; the deep cleanup removes it too.
+    expect(readFileSync(path.join(targetRoot, ".gitignore"), "utf8")).toBe("node_modules\n")
+    expect(existsSync(path.join(targetRoot, "src", "evil.ts"))).toBe(false)
+  })
+})
+
+describe("runViviTurn — pending CRs become in-chat decision cards (D6 producer)", () => {
+  it("appends one card per pending CR after a crs.list action, idempotently", async () => {
+    seedFrozenBaseline(targetRoot)
+    writeInTarget(targetRoot, path.join(CHANGE_REQUESTS, "CR-0001-add-csv.md"), wellFormedCr("CR-0001"))
+    let leg = 0
+    const onRun = (o: RunOptions) => {
+      if (!o.args.some((a) => a.endsWith("vivi-turn.ts"))) return
+      leg += 1
+      writeReply(o, leg % 2 === 1 ? replyWithActions('{"actions": [{"tool": "crs.list"}]}') : "Here are your pending CRs.")
+    }
+    const first = makeFakeSpawner(onRun)
+    const result = await runViviTurn(first.spawner, { message: "des CRs en attente ?" })
+
+    const turns = readTranscript(result.sessionId)
+    const cards = turns.filter((t) => t.role === "card")
+    expect(cards).toHaveLength(1)
+    expect(cards[0].card).toMatchObject({ id: "cr-CR-0001", title: expect.stringContaining("CR-0001") })
+    expect(cards[0].card?.actions.map((a) => a.id)).toEqual(["approve", "reject", "later"])
+    // The decision kinds route to the owner-click paths (P2), never auto-decide.
+    expect(cards[0].card?.actions[0].action).toEqual({ kind: "cr_decide", crId: "CR-0001", decision: "approved" })
+
+    // Idempotent: a second crs.list on the SAME session never re-cards CR-0001.
+    const second = makeFakeSpawner(onRun)
+    await runViviTurn(second.spawner, { sessionId: result.sessionId, message: "re-liste" })
+    const after = readTranscript(result.sessionId).filter((t) => t.role === "card")
+    expect(after).toHaveLength(1)
   })
 })

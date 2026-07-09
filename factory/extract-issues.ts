@@ -41,6 +41,8 @@ import { formatMapReviewFix, mapReviewLensContext, mapReviewReportRel, runMapRev
 import type { MapReviewLens, MapReviewResult as LensFindings, TaggedFinding } from "./map-review.ts";
 import { FACTORY_DIR, FACTORY_PROMPTS_DIR, resolveTargetRoot } from "./target-root.ts";
 import { pruneGitkeeps } from "../lib/skeleton.ts";
+import { clearSpecCycle, readSpecCycle } from "../lib/spec-cycle.ts";
+import { detectSpecKind, type SpecKind } from "../lib/spec-kind.ts";
 
 const BASELINE_DIR = ".vivicy/baselines";
 const ISSUE_INDEX_REL = ".vivicy/development/issue-index.json";
@@ -50,6 +52,32 @@ const EXTRACTION_STATUS_REL = ".vivicy/development/reports/extraction-status.jso
 // decide green vs. feed-back-to-extractor, and that a human/the UI can inspect.
 const VERDICT_REL = ".vivicy/development/reports/extraction-fidelity-verdict.json";
 const DEFAULT_FREEZE_VERSION = "1.0.0";
+
+/** The next freeze version: 1.0.0 on a virgin target; a MINOR bump over the highest
+ *  baseline version ever cut otherwise (superseded ones included — ids never get
+ *  overwritten). cr-apply keeps its own PATCH-bump path; this governs extraction. */
+export function resolveFreezeVersion(repoRoot: string): string {
+  const dir = resolve(repoRoot, BASELINE_DIR);
+  if (!existsSync(dir)) return DEFAULT_FREEZE_VERSION;
+  let best: [number, number, number] | null = null;
+  for (const entry of readdirSync(dir)) {
+    if (!entry.endsWith(".json")) continue;
+    let version: unknown;
+    try {
+      version = (JSON.parse(readFileSync(resolve(dir, entry), "utf8")) as { version?: unknown }).version;
+    } catch {
+      continue;
+    }
+    const m = typeof version === "string" ? version.match(/^(\d+)\.(\d+)\.(\d+)$/) : null;
+    if (!m) continue;
+    const parsed: [number, number, number] = [Number(m[1]), Number(m[2]), Number(m[3])];
+    if (!best || parsed[0] > best[0] || (parsed[0] === best[0] && (parsed[1] > best[1] || (parsed[1] === best[1] && parsed[2] > best[2])))) {
+      best = parsed;
+    }
+  }
+  if (!best) return DEFAULT_FREEZE_VERSION;
+  return `${best[0]}.${best[1] + 1}.0`;
+}
 const DEFAULT_MAX_RETRIES = 3;
 
 // The synthetic "issue" the agent legs run against. It is NOT a product issue
@@ -156,7 +184,7 @@ interface ExtractIssuesOptions {
   spawnExtractor?: (args: SpawnExtractorArgs) => Promise<LegResult>;
   spawnAgent?: (args: SpawnExtractorArgs) => Promise<LegResult>;
   spawnVerifier?: (args: SpawnVerifierArgs) => Promise<LegResult>;
-  runFreeze?: (args: { repoRoot: string; version: string }) => FrozenBaseline | Promise<FrozenBaseline>;
+  runFreeze?: (args: { repoRoot: string; version: string; approvalRef?: string }) => FrozenBaseline | Promise<FrozenBaseline>;
   verifyFrozenManifest?: (args: { repoRoot: string; manifestPath: string; baselineId: string }) => boolean;
   runSemanticCheck?: (args: { repoRoot: string }) => CheckResult;
   runTraceability?: (args: { repoRoot: string }) => CheckResult;
@@ -296,7 +324,13 @@ export async function extractIssues(options: ExtractIssuesOptions = {}): Promise
     );
   }
   const maxRetries = Number.isInteger(options.maxRetries) ? (options.maxRetries as number) : DEFAULT_MAX_RETRIES;
-  const version = options.version ?? DEFAULT_FREEZE_VERSION;
+  // A FIRST freeze is 1.0.0; any later freeze (an open spec cycle, or a spec edited
+  // since the frozen baseline) is a MINOR bump over the highest baseline ever cut —
+  // an intention evolution, never an overwrite of a prior baseline id (W7b).
+  const version = options.version ?? resolveFreezeVersion(repoRoot);
+  // The open drafting cycle, if any: its id becomes the freeze's approval_ref (honest
+  // provenance), and the successful freeze CLOSES it mechanically.
+  const openCycle = readSpecCycle(repoRoot);
   const cfg: Record<string, unknown> = { ...DEFAULT_CONFIG, ...(options.cfg ?? {}) };
   // The two legs are assigned to distinct CLIs (R12): implementer CLI = extractor,
   // reviewer CLI = verifier. resolveAgentLegs enforces the distinct-CLI invariant
@@ -374,6 +408,14 @@ export async function extractIssues(options: ExtractIssuesOptions = {}): Promise
   if (frozen && !verifyFrozenManifest({ repoRoot, manifestPath: frozen.manifestPath, baselineId: frozen.baselineId })) {
     frozen = null;
   }
+  // An open drafting cycle whose canonical has NOT changed yet: extraction would
+  // neither freeze (nothing drafted) nor legitimately close the cycle — refuse with
+  // the actionable exits instead of leaving a half-state (P3).
+  if (openCycle && frozen) {
+    throw new Error(
+      `extract-issues: drafting cycle ${openCycle.id} is open but the canonical has not changed — write the spec evolution (via Vivi) before extracting, or cancel the cycle`,
+    );
+  }
   if (!frozen) {
     // Snapshot the owner's just-written spec BEFORE freezing: ensure the target is a
     // git repo (defensive `git init` — the scaffold normally already did it) and
@@ -384,8 +426,20 @@ export async function extractIssues(options: ExtractIssuesOptions = {}): Promise
     // runtime / worktrees / node_modules are never committed); nothing-to-commit is a
     // no-op, never an error; no remote is touched.
     commitSpecSnapshot({ repoRoot });
-    frozen = await runFreeze({ repoRoot, version });
+    frozen = await runFreeze({ repoRoot, version, approvalRef: openCycle?.id });
     froze = true;
+  }
+  // ONLY a FREEZE closes an open drafting cycle (the doctrine's mechanical exit —
+  // never a reuse: a still-valid baseline means nothing was drafted yet, so the
+  // owner's drafting window stays open and the closure would be untraceable).
+  if (froze && openCycle) {
+    clearSpecCycle(repoRoot);
+    notify({
+      level: "info",
+      stage: "cycle",
+      event: "cycle_closed_by_freeze",
+      message: `drafting cycle ${openCycle.id} closed by the freeze (${frozen.baselineId})`,
+    });
   }
   let { manifestPath, baselineId } = frozen;
 
@@ -484,7 +538,16 @@ export async function extractIssues(options: ExtractIssuesOptions = {}): Promise
     if (!verifyFrozenManifest({ repoRoot, manifestPath, baselineId })) {
       record({ phase: "refreezing", attempt });
       commitSpecSnapshot({ repoRoot });
-      const refrozen = await runFreeze({ repoRoot, version });
+      const refrozen = await runFreeze({ repoRoot, version: resolveFreezeVersion(repoRoot), approvalRef: openCycle?.id });
+      if (openCycle && readSpecCycle(repoRoot)) {
+        clearSpecCycle(repoRoot);
+        notify({
+          level: "info",
+          stage: "cycle",
+          event: "cycle_closed_by_freeze",
+          message: `drafting cycle ${openCycle.id} closed by the freeze (${refrozen.baselineId})`,
+        });
+      }
       manifestPath = refrozen.manifestPath;
       baselineId = refrozen.baselineId;
       lastChecks = null;
@@ -663,10 +726,23 @@ function makeDefaultSpawnExtractor(options: ExtractIssuesOptions, baseCfg: Recor
     // resolve against the target so the agent runs inside the project it extracts.
     const legCfg = { ...cfg, promptsDir, execRoot: repoRoot };
     const issue = extractionIssue();
-    const context = extractorContext({ manifestPath, baselineId, attempt, checkOutput, isFix, spikeMode, mapMode });
+    const specKind = readManifestSpecKind(repoRoot, manifestPath);
+    const context = extractorContext({ manifestPath, baselineId, attempt, checkOutput, isFix, spikeMode, mapMode, specKind });
     const deps = legDepsForTarget(legCfg, issue, repoRoot, context);
     return runLegForProvider(leg, issue, legCfg, deps);
   };
+}
+
+/** The frozen manifest's spec_kind — falling back to a live detection for pre-v0.7.0
+ *  manifests that predate the field (same shared derivation, so the two agree). */
+function readManifestSpecKind(repoRoot: string, manifestPath: string): SpecKind {
+  try {
+    const manifest = JSON.parse(readFileSync(resolve(repoRoot, manifestPath), "utf8")) as { spec_kind?: unknown };
+    if (manifest.spec_kind === "project" || manifest.spec_kind === "feature") return manifest.spec_kind;
+  } catch {
+    // fall through to live detection
+  }
+  return detectSpecKind(repoRoot);
 }
 
 // Build the real VERIFIER seam: drive the REVIEWER CLI (Codex by default) with
@@ -751,11 +827,17 @@ function makeDefaultMapReview(options: ExtractIssuesOptions, cfg: Record<string,
 // Extra prompt context for the EXTRACTOR leg: the frozen baseline, the resolved S2
 // spike mode (G12) and S5 map mode (G4), + (on a fix pass) the exact
 // deterministic-check output and/or fidelity-verdict problems.
-function extractorContext({ manifestPath, baselineId, attempt, checkOutput, isFix, spikeMode, mapMode }: { manifestPath: string; baselineId: string; attempt: number; checkOutput: string | null; isFix: boolean; spikeMode: string; mapMode: string }): string {
+function extractorContext({ manifestPath, baselineId, attempt, checkOutput, isFix, spikeMode, mapMode, specKind }: { manifestPath: string; baselineId: string; attempt: number; checkOutput: string | null; isFix: boolean; spikeMode: string; mapMode: string; specKind?: SpecKind }): string {
   return (
     `\n\n---\n\n## Extraction context for this run\n\n` +
     `- Frozen baseline manifest: \`${manifestPath}\` (baseline_id \`${baselineId}\`). ` +
     `Read it for the exact corpus files + hashes to pin.\n` +
+    (specKind
+      ? `- Spec kind (W7a): **${specKind}** — ` +
+        (specKind === "feature"
+          ? `this repository already carries product code; the spec is an EVOLUTION of it. Scope issues to what the spec changes, respect the existing codebase's structure/conventions in issue plans, and never generate issues that re-specify what already exists outside the frozen canonical.\n`
+          : `this repository carries no product code; the spec defines the whole product from scratch.\n`)
+      : "") +
     `- Attempt: ${attempt}${isFix ? " (FIX pass)" : " (initial author)"}.\n` +
     `- Spike mode (S2): **${spikeMode}** — ` +
     (spikeMode === "integrate"
@@ -826,7 +908,7 @@ function defaultVerifyFrozenManifest({ repoRoot, manifestPath, baselineId }: { r
   return (r.status ?? 1) === 0;
 }
 
-function defaultRunFreeze({ repoRoot, version }: { repoRoot: string; version: string }): FrozenBaseline {
+function defaultRunFreeze({ repoRoot, version, approvalRef }: { repoRoot: string; version: string; approvalRef?: string }): FrozenBaseline {
   const tool = resolve(FACTORY_DIR, "doc-baseline.ts");
   const baselineId = `baseline-v${version}`;
   const args = [
@@ -839,7 +921,7 @@ function defaultRunFreeze({ repoRoot, version }: { repoRoot: string; version: st
     "--approved-by",
     "vivicy:extraction-orchestrator",
     "--approval-ref",
-    `vivicy-extract-${new Date().toISOString()}`,
+    approvalRef ?? `vivicy-extract-${new Date().toISOString()}`,
   ];
   const result = spawnSync("node", args, {
     cwd: repoRoot,

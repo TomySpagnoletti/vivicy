@@ -11,6 +11,7 @@ import {
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { pruneGitkeeps } from "../lib/skeleton.ts";
+import { detectSpecKind, type SpecKind } from "../lib/spec-kind.ts";
 
 const scriptPath = fileURLToPath(import.meta.url);
 const scriptDir = dirname(scriptPath);
@@ -72,6 +73,11 @@ export interface BaselineManifest {
   version: string;
   status: BaselineStatus;
   product: string;
+  /** W7a (D1): "project" (greenfield — no product code at freeze time) or "feature"
+   *  (evolution of an existing codebase). Detected MECHANICALLY at generation by the
+   *  shared lib/spec-kind.ts derivation; optional so pre-v0.7.0 manifests still
+   *  verify. Part of the manifest hash — the kind is contract, not metadata. */
+  spec_kind?: SpecKind;
   generated_at: string;
   generated_by: string;
   git: BaselineGitEvidence;
@@ -186,6 +192,7 @@ function generate(args: ParsedArgs): void {
     version,
     status,
     product,
+    spec_kind: detectSpecKind(repoRoot),
     generated_at: new Date().toISOString(),
     generated_by: generatedBy,
     git,

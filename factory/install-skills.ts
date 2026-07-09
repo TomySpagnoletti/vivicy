@@ -14,7 +14,7 @@
 // `npx skills add` install itself. Every rejection lands in the report with a machine
 // reason — never silent.
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -48,8 +48,8 @@ export const OFFICIAL_VENDOR_OWNERS: ReadonlySet<string> = new Set([
   "django", "spring-projects", "nestjs", "tanstack", "apollographql", "netlify", "twilio", "clerk",
 ]);
 
-export type SkillRejectReason = "red_audit" | "too_many_warnings" | "unaudited" | "cap_exceeded" | "invalid_id" | "install_failed";
-export type SkillsPhase = "selecting" | "auditing" | "installing" | "green" | "failed" | "skipped";
+export type SkillRejectReason = "red_audit" | "too_many_warnings" | "unaudited" | "cap_exceeded" | "invalid_id" | "install_failed" | "not_installed" | "remove_failed";
+export type SkillsPhase = "selecting" | "auditing" | "installing" | "removing" | "green" | "failed" | "skipped";
 
 interface SkillRef {
   id: string;
@@ -93,12 +93,19 @@ export interface RejectedSkillEntry {
   detail?: string;
 }
 
+export interface RemovedSkillEntry {
+  id: string;
+  detail?: string;
+}
+
 export interface SkillsReport {
   phase: SkillsPhase;
   baseline_id: string | null;
-  mode: "auto" | "explicit";
+  mode: "auto" | "explicit" | "remove";
   installed: InstalledSkillEntry[];
   rejected: RejectedSkillEntry[];
+  /** Skills a REMOVE run uninstalled this run (absent on install runs). */
+  removed?: RemovedSkillEntry[];
   summary: string;
   updated_at: string;
 }
@@ -309,6 +316,158 @@ export async function installSkills(options: InstallSkillsOptions = {}): Promise
 }
 
 // ---------------------------------------------------------------------------
+// Remove (W6, v0.7.0) — uninstall project skills deterministically
+// ---------------------------------------------------------------------------
+
+/** The impure edges of a remove run (all default to the real tooling). */
+export interface RemoveSkillsOptions {
+  repoRoot?: string;
+  ids?: string[];
+  env?: NodeJS.ProcessEnv;
+  runRemove?: (args: { repoRoot: string; source: string; skill: string }) => { code: number; output?: string };
+  emitReport?: (report: SkillsReport, repoRoot: string) => void;
+  now?: () => Date;
+}
+
+/**
+ * REMOVE explicitly named skills from the target project. Fully deterministic — no
+ * agent leg, ever. For each id: refuse an unknown/not-installed id with a machine
+ * reason; otherwise uninstall it (the skills CLI first, a direct `.agents/skills/`
+ * removal as fallback), drop it from `vivicy.json` requiredSkills, and rebuild the
+ * AGENTS.md managed block from the remaining set. Removal frees slots under the
+ * {@link MAX_PROJECT_SKILLS} cap. Every outcome lands in the report (mode "remove"),
+ * never silent.
+ */
+export async function removeSkills(options: RemoveSkillsOptions = {}): Promise<SkillsReport> {
+  const repoRoot = options.repoRoot;
+  if (!repoRoot) {
+    throw new SkillsConfigError("No target project configured. Set VIVICY_TARGET_ROOT to the absolute path of the target project, or pass options.repoRoot.");
+  }
+  const ids = (options.ids ?? []).map((s) => s.trim()).filter((s) => s.length > 0);
+  if (ids.length === 0) {
+    throw new SkillsConfigError("remove requires at least one skill id (owner/repo@skill or a skills.sh URL)");
+  }
+  const now = options.now ?? (() => new Date());
+  const emitReport = options.emitReport ?? defaultEmitReport;
+  const runRemove = options.runRemove ?? defaultRunRemove;
+
+  const priorReport = readJsonOrNull(resolve(repoRoot, SKILLS_REPORT_REL)) as Partial<SkillsReport> | null;
+  const installedIds = installedSkillIds(repoRoot, priorReport);
+
+  const report: SkillsReport = {
+    phase: "removing",
+    baseline_id: typeof priorReport?.baseline_id === "string" ? priorReport.baseline_id : null,
+    mode: "remove",
+    // The report documents the project's whole surviving installed set at the end;
+    // during the run it starts from the prior installed entries.
+    installed: Array.isArray(priorReport?.installed) ? [...priorReport.installed] : [],
+    rejected: [],
+    removed: [],
+    summary: `removing ${ids.length} skill(s)`,
+    updated_at: "",
+  };
+  const emit = (): void => {
+    report.updated_at = now().toISOString();
+    emitReport(report, repoRoot);
+  };
+  emit();
+
+  const toDrop = new Set<string>();
+  for (const raw of ids) {
+    const ref = normalizeSkillId(raw);
+    if (!ref) {
+      report.rejected.push({ id: raw, reason: "invalid_id", detail: "expected owner/repo@skill or https://skills.sh/owner/repo/skill" });
+      continue;
+    }
+    if (toDrop.has(ref.id)) continue;
+    if (!installedIds.has(ref.id)) {
+      report.rejected.push({ id: ref.id, reason: "not_installed", detail: "this skill is not part of the project's installed set (vivicy.json requiredSkills / skills report)" });
+      continue;
+    }
+    const r = runRemove({ repoRoot, source: ref.source, skill: ref.skill });
+    if ((r.code ?? 1) !== 0) {
+      report.rejected.push({ id: ref.id, reason: "remove_failed", detail: tail(r.output) });
+      continue;
+    }
+    toDrop.add(ref.id);
+    report.removed!.push({ id: ref.id });
+  }
+
+  if (toDrop.size > 0) {
+    const remaining = dropRequiredSkills(repoRoot, toDrop);
+    report.installed = report.installed.filter((e) => !toDrop.has(e.id));
+    updateAgentsMd(repoRoot, skillBlockEntries(remaining, priorReport, []));
+  }
+
+  report.phase = "green";
+  const total = installedSkillIds(repoRoot, report).size;
+  report.summary = `skills remove green: ${report.removed!.length} removed, ${report.rejected.length} refused; project total ${total}/${MAX_PROJECT_SKILLS}`;
+  emit();
+  return report;
+}
+
+/**
+ * Default uninstall seam: try the skills CLI's own `remove` first (it owns the
+ * per-agent symlinks it created); when the CLI refuses or lacks the verb, fall back
+ * to removing the skill directory under `.agents/skills/` plus any now-dangling
+ * per-agent symlinks — the same layout `npx skills add` produces.
+ */
+function defaultRunRemove({ repoRoot, source, skill }: { repoRoot: string; source: string; skill: string }): { code: number; output?: string } {
+  const viaCli = spawnSync("npx", ["-y", "skills", "remove", skill, "-y"], { cwd: repoRoot, encoding: "utf8", env: process.env });
+  if ((viaCli.status ?? 1) === 0) {
+    return { code: 0, output: `${viaCli.stdout ?? ""}\n${viaCli.stderr ?? ""}`.trim() };
+  }
+  // Fallback: direct removal of the installed layout.
+  const skillDir = resolve(repoRoot, ".agents", "skills", skill);
+  if (!existsSync(skillDir)) {
+    return { code: 1, output: `skills CLI could not remove "${skill}" (${source}) and ${skillDir} does not exist` };
+  }
+  try {
+    rmSync(skillDir, { recursive: true, force: true });
+    pruneDanglingSkillLinks(repoRoot);
+    return { code: 0, output: `removed ${skillDir} directly (skills CLI remove unavailable)` };
+  } catch (error) {
+    return { code: 1, output: `failed to remove ${skillDir}: ${error instanceof Error ? error.message : String(error)}` };
+  }
+}
+
+/** Remove now-dangling symlinks in the per-agent skill dirs (.claude/skills, .codex/skills). */
+function pruneDanglingSkillLinks(repoRoot: string): void {
+  for (const rel of [".claude/skills", ".codex/skills"]) {
+    const dir = resolve(repoRoot, rel);
+    if (!existsSync(dir)) continue;
+    let entries: string[];
+    try {
+      entries = readdirSync(dir);
+    } catch {
+      continue;
+    }
+    for (const entry of entries) {
+      const abs = resolve(dir, entry);
+      try {
+        const stat = lstatSync(abs);
+        if (stat.isSymbolicLink() && !existsSync(abs)) rmSync(abs, { force: true });
+      } catch {
+        // Best-effort pruning; a leftover link is cosmetic, never state.
+      }
+    }
+  }
+}
+
+/** Drop ids from vivicy.json requiredSkills (preserving every other field); returns the remaining list. */
+function dropRequiredSkills(repoRoot: string, drop: Set<string>): string[] {
+  const abs = resolve(repoRoot, "vivicy.json");
+  if (!existsSync(abs)) return [];
+  const parsed = readJsonOrNull(abs);
+  if (parsed === null || typeof parsed !== "object") return [];
+  const config = parsed as Record<string, unknown>;
+  const remaining = toStringList(config.requiredSkills).filter((id) => !drop.has(id));
+  config.requiredSkills = remaining;
+  writeFileSync(abs, `${JSON.stringify(config, null, 2)}\n`);
+  return remaining;
+}
+
+// ---------------------------------------------------------------------------
 // Scout leg (AUTO mode)
 // ---------------------------------------------------------------------------
 
@@ -445,6 +604,7 @@ function defaultRunInstall({ repoRoot, source, skill }: { repoRoot: string; sour
 
 const NOTIFY_BY_PHASE: Record<string, { level: "info" | "success" | "warning" | "error"; stage: string; message: string }> = {
   selecting: { level: "info", stage: "SK", message: "selecting project skills from the frozen canonical" },
+  removing: { level: "info", stage: "SK", message: "removing project skills" },
   green: { level: "success", stage: "SK", message: "project skills stage green" },
   failed: { level: "error", stage: "SK", message: "project skills stage failed" },
 };
@@ -474,7 +634,9 @@ export interface SkillBlockEntry {
 
 /** Render the managed AGENTS.md skills block. Pure and deterministic: same entries -> byte-identical block. */
 export function buildSkillsBlock(entries: SkillBlockEntry[]): string {
-  const bullets = entries.map((e) => `- **${e.name}** (\`${e.id}\`, ${e.official ? "official" : "community"})${e.reason ? ` — ${e.reason}` : ""}`);
+  const bullets = entries.length > 0
+    ? entries.map((e) => `- **${e.name}** (\`${e.id}\`, ${e.official ? "official" : "community"})${e.reason ? ` — ${e.reason}` : ""}`)
+    : ["_No project skills are currently installed._"];
   return [
     SKILLS_BLOCK_BEGIN,
     "## Project skills",
@@ -604,6 +766,7 @@ const cliEntry = process.argv[1] ? resolve(process.argv[1]) : null;
 if (cliEntry === fileURLToPath(import.meta.url)) {
   const argv = process.argv.slice(2);
   let ids: string[] = [];
+  let removeIds: string[] = [];
   let json = false;
   let usageError: string | null = null;
   for (let i = 0; i < argv.length; i += 1) {
@@ -620,13 +783,26 @@ if (cliEntry === fileURLToPath(import.meta.url)) {
       i += 1;
     } else if (arg.startsWith("--ids=")) {
       ids = arg.slice("--ids=".length).split(",");
+    } else if (arg === "--remove") {
+      const value = argv[i + 1];
+      if (!value) {
+        usageError = "--remove requires a comma-separated list of skill ids/URLs";
+        break;
+      }
+      removeIds = value.split(",");
+      i += 1;
+    } else if (arg.startsWith("--remove=")) {
+      removeIds = arg.slice("--remove=".length).split(",");
     } else {
       usageError = `unknown argument: ${arg}`;
       break;
     }
   }
+  if (!usageError && ids.length > 0 && removeIds.length > 0) {
+    usageError = "--ids and --remove are mutually exclusive (one run installs OR removes)";
+  }
   if (usageError) {
-    console.error(`error: ${usageError}\nusage: node factory/install-skills.ts [--ids <id1,id2,...>] [--json]`);
+    console.error(`error: ${usageError}\nusage: node factory/install-skills.ts [--ids <id1,id2,...>] [--remove <id1,id2,...>] [--json]`);
     process.exit(2);
   }
   const repoRoot = resolveTargetRoot();
@@ -634,7 +810,8 @@ if (cliEntry === fileURLToPath(import.meta.url)) {
     console.error("error: no target project configured. Set VIVICY_TARGET_ROOT to the absolute path of the target project.");
     process.exit(2);
   }
-  installSkills({ repoRoot, ids })
+  const run = removeIds.length > 0 ? removeSkills({ repoRoot, ids: removeIds }) : installSkills({ repoRoot, ids });
+  run
     .then((report) => {
       if (json) console.log(JSON.stringify(report, null, 2));
       else console.log(report.summary);

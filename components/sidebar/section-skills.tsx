@@ -59,6 +59,10 @@ export function SectionSkills() {
   }, [])
 
   useEffect(() => {
+    // False positive of react-hooks/set-state-in-effect: `load` only calls setState
+    // AFTER an awaited fetch resolves (an external-system sync), never synchronously
+    // in the effect body.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void load()
     const timer = setInterval(() => void load(), POLL_INTERVAL_MS)
     return () => clearInterval(timer)

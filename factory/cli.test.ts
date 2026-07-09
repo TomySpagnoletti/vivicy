@@ -18,7 +18,16 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { after, afterEach, before, beforeEach, describe, test } from "node:test";
 
+import { getProjectRuntimeDir } from "../lib/project-runtime.ts";
+
 const CLI = join(dirname(fileURLToPath(import.meta.url)), "cli.ts");
+
+// EVERY runCli gets an isolated runtime dir by default: without it, any verb that
+// locks/spawns (start, skills install, cr approve — and the notify() of the factory
+// children they spawn) writes projects/<key>/ into the REPO's own .vivicy-runtime.
+// The `--runtime-dir` flag some tests pass still wins (flag > env in the CLI).
+const isolatedRuntimeRoot = mkdtempSync(join(tmpdir(), "vivicy-cli-rt-"));
+after(() => rmSync(isolatedRuntimeRoot, { recursive: true, force: true }));
 
 /** Run the CLI as a child. Returns { code, out, err, json } where json is the
  *  parsed stdout (the contract: exactly one JSON object on stdout).
@@ -30,7 +39,7 @@ function runCli(
 ): { code: number | null; out: string; err: string; json: any } {
   const res = spawnSync(process.execPath, [CLI, ...args], {
     encoding: "utf8",
-    env: { ...process.env, ...env },
+    env: { ...process.env, VIVICY_RUNTIME_DIR: isolatedRuntimeRoot, ...env },
   });
   let json = null;
   const stdout = res.stdout ?? "";
@@ -519,8 +528,10 @@ describe("start/stop lock lifecycle (byte-compatible run-state)", () => {
     assert.equal(start.json.ok, true);
     assert.ok(start.json.run.pid > 0);
     assert.equal(start.json.run.mode, "start");
-    // The lock lives at <runtimeDir>/run-state.json — the SAME schema/path the app reads.
-    const lockRaw = JSON.parse(readFileSync(join(runtimeDir, "run-state.json"), "utf8"));
+    // The lock lives in the PROJECT namespace (W8): <runtimeDir>/projects/<key>/run-state.json,
+    // the SAME derivation the app uses (shared lib/project-runtime.ts module).
+    const lockFile = join(getProjectRuntimeDir(runtimeDir, target), "run-state.json");
+    const lockRaw = JSON.parse(readFileSync(lockFile, "utf8"));
     assert.equal(lockRaw.pid, start.json.run.pid);
     assert.equal(lockRaw.target_root, target);
     assert.equal(lockRaw.mode, "start");
@@ -530,16 +541,96 @@ describe("start/stop lock lifecycle (byte-compatible run-state)", () => {
     assert.equal(again.code, 1);
     assert.equal(again.json.code, "already_running");
 
-    // Stop kills the pid and clears the lock.
-    const stop = runCli(["stop", "--runtime-dir", runtimeDir, "--json"]);
+    // Stop kills the pid and clears the lock (target-scoped: the lock is per project).
+    const stop = runCli(["stop", "--dir", target, "--runtime-dir", runtimeDir, "--json"]);
     assert.equal(stop.code, 0);
     assert.equal(stop.json.stopped.pid, start.json.run.pid);
-    assert.equal(existsSync(join(runtimeDir, "run-state.json")), false);
+    assert.equal(existsSync(lockFile), false);
   });
 
   test("stop with no recorded run is an actionable refusal (exit 1, not_running)", () => {
-    const r = runCli(["stop", "--runtime-dir", runtimeDir, "--json"]);
+    const r = runCli(["stop", "--dir", target, "--runtime-dir", runtimeDir, "--json"]);
     assert.equal(r.code, 1);
     assert.equal(r.json.code, "not_running");
+  });
+
+  test("stop without a target is a usage error (the lock is per project, W8)", () => {
+    const r = runCli(["stop", "--runtime-dir", runtimeDir, "--json"], { env: { VIVICY_TARGET_ROOT: "" } });
+    assert.equal(r.code, 2);
+    assert.equal(r.json.code, "missing_target");
+  });
+});
+
+describe("cycle verbs (W7b — open/cancel/status, guards mirrored from the app)", () => {
+  let stubFactory: string;
+  before(() => {
+    stubFactory = mkdtempSync(join(tmpdir(), "vivicy-stub-cycle-"));
+    // The drift judge for `cycle cancel`: a doc-baseline stub that always verifies.
+    writeFileSync(join(stubFactory, "doc-baseline.ts"), "process.exit(0);\n");
+    // A sleeping supervisor so `start` can hold a live lock for the guard test.
+    writeFileSync(join(stubFactory, "dev-loop-supervised.ts"), "setTimeout(() => {}, 60000);\n");
+  });
+  after(() => rmSync(stubFactory, { recursive: true, force: true }));
+
+  function seedFrozenBaseline(): void {
+    mkdirSync(join(target, ".vivicy/baselines"), { recursive: true });
+    writeFileSync(
+      join(target, ".vivicy/baselines/baseline-v1.0.0.json"),
+      JSON.stringify({ baseline_id: "baseline-v1.0.0", version: "1.0.0", status: "frozen" })
+    );
+  }
+
+  test("open refuses without a frozen baseline (pre-freeze IS drafting)", () => {
+    const r = runCli(["cycle", "open", "--dir", target, "--runtime-dir", runtimeDir, "--json"]);
+    assert.equal(r.code, 1);
+    assert.equal(r.json.code, "cycle_state");
+  });
+
+  test("open → status → start refused → cancel round-trip", () => {
+    seedFrozenBaseline();
+    const env = { VIVICY_FACTORY_ROOT: stubFactory };
+
+    const open = runCli(["cycle", "open", "--dir", target, "--runtime-dir", runtimeDir, "--json"], { env });
+    assert.equal(open.code, 0, open.err);
+    assert.equal(open.json.cycle.status, "drafting");
+    assert.equal(open.json.cycle.opened_by, "owner:cli");
+    assert.ok(existsSync(join(target, ".vivicy/development/reports/spec-cycle.json")));
+
+    const again = runCli(["cycle", "open", "--dir", target, "--runtime-dir", runtimeDir, "--json"], { env });
+    assert.equal(again.code, 1);
+    assert.equal(again.json.code, "cycle_state");
+
+    const status = runCli(["cycle", "status", "--dir", target, "--runtime-dir", runtimeDir, "--json"]);
+    assert.equal(status.code, 0);
+    assert.equal(status.json.cycle.id, open.json.cycle.id);
+
+    // The build is gated while the cycle is open (the canonical may drift).
+    writeCanonical(target);
+    const start = runCli(["start", "--dir", target, "--runtime-dir", runtimeDir, "--json"], { env });
+    assert.equal(start.code, 1);
+    assert.equal(start.json.code, "cycle_state");
+
+    // Cancel is legal while nothing drifted (the stub verifier says clean).
+    const cancel = runCli(["cycle", "cancel", "--dir", target, "--runtime-dir", runtimeDir, "--json"], { env });
+    assert.equal(cancel.code, 0, cancel.err);
+    assert.equal(cancel.json.cancelled, open.json.cycle.id);
+    assert.equal(existsSync(join(target, ".vivicy/development/reports/spec-cycle.json")), false);
+  });
+
+  test("cancel refuses when the canonical has drifted (verifier red)", () => {
+    seedFrozenBaseline();
+    const driftedStub = mkdtempSync(join(tmpdir(), "vivicy-stub-drift-"));
+    try {
+      writeFileSync(join(driftedStub, "doc-baseline.ts"), "console.error('changed: 01-a.md'); process.exit(1);\n");
+      const env = { VIVICY_FACTORY_ROOT: driftedStub };
+      const open = runCli(["cycle", "open", "--dir", target, "--runtime-dir", runtimeDir, "--json"], { env });
+      assert.equal(open.code, 0, open.err);
+      const cancel = runCli(["cycle", "cancel", "--dir", target, "--runtime-dir", runtimeDir, "--json"], { env });
+      assert.equal(cancel.code, 1);
+      assert.equal(cancel.json.code, "cycle_state");
+      assert.ok(existsSync(join(target, ".vivicy/development/reports/spec-cycle.json")), "the cycle stays open");
+    } finally {
+      rmSync(driftedStub, { recursive: true, force: true });
+    }
   });
 });

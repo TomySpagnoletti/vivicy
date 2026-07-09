@@ -13,19 +13,9 @@ import {
 import { useTranslations } from "next-intl"
 import { toast } from "sonner"
 
-import { BRAND } from "@/lib/brand"
 import { errorText, errorTextAcrossFamilies } from "@/lib/i18n-errors"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import {
-  Dialog,
-  DialogClose,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { cn } from "@/lib/utils"
 
@@ -82,11 +72,14 @@ type Step =
   | { phase: "done"; placed: PlacedFile[] }
 
 /**
- * G1 import dialog (S1-import): drop zone + file/folder/zip pickers, then a
- * visible three-step check-then-place flow — Stage (`POST /api/upload`), Verify
- * (`POST /api/upload/verify`), Apply (`POST /api/upload/apply`). Nothing is
- * placed into `.vivicy/` until the agent CHECK comes back green; a red verdict
- * lists the exact problems and lets the user re-stage.
+ * G1's staged import flow (S1-import), dialog-free so two surfaces host it: the
+ * map empty state's import dialog and the Vivi panel's onboarding view (W4b/W5).
+ * Drop zone + file/folder/zip pickers, then a visible three-step check-then-place
+ * flow — Stage (`POST /api/upload`), Verify (`POST /api/upload/verify`), Apply
+ * (`POST /api/upload/apply`). Nothing is placed into `.vivicy/` until the agent
+ * CHECK comes back green; a red verdict lists the exact problems and lets the
+ * user re-stage. The step actions (Start over / Verify / Retry / Apply) render
+ * inline at the bottom; a wrapping dialog adds only its own Close.
  *
  * Accepted: .md/.markdown/.txt/.doc/.docx/.yml/.yaml/.zip, as individual files,
  * a folder (webkitdirectory, native HTML5 — no dependency), or a single .zip.
@@ -94,15 +87,14 @@ type Step =
  * dropped folder's relative paths, falling back to a flat file list when the
  * browser has no entry API.
  */
-export function ImportDocsDialog({
-  open,
-  onOpenChange,
-  onProjectChanged,
+export function ImportDocsFlow({
+  active,
+  onApplied,
 }: {
-  open: boolean
-  onOpenChange: (open: boolean) => void
+  /** Resets the step machine to idle whenever this flips true (surface (re)opened). */
+  active: boolean
   /** Fired after a successful Apply so the caller can refresh the map/project. */
-  onProjectChanged: () => void
+  onApplied: () => void
 }) {
   const t = useTranslations("project.importDocsDialog")
   const tErrors = useTranslations("errors")
@@ -113,16 +105,16 @@ export function ImportDocsDialog({
   const folderInputRef = useRef<HTMLInputElement>(null)
   const zipInputRef = useRef<HTMLInputElement>(null)
 
-  // Reset to idle each time the dialog opens. The state writes live inside the
-  // async closure (not the effect body) so they don't fire synchronously during
-  // the render commit.
+  // Reset to idle each time the hosting surface re-activates. The state writes
+  // live inside the async closure (not the effect body) so they don't fire
+  // synchronously during the render commit.
   useEffect(() => {
-    if (!open) return
+    if (!active) return
     void (async () => {
       setStep({ phase: "idle" })
       setDragActive(false)
     })()
-  }, [open])
+  }, [active])
 
   const busy = step.phase === "verifying" || step.phase === "applying"
 
@@ -262,14 +254,14 @@ export function ImportDocsDialog({
         description: t("toast.importedDescription", { count: body.placed.length }),
       })
       setStep({ phase: "done", placed: body.placed })
-      onProjectChanged()
+      onApplied()
     } catch (error) {
       toast.error(t("toast.applyErrorTitle"), {
         description: error instanceof Error ? error.message : t("toast.networkError"),
       })
       setStep({ phase: "verified", stagingId, staged, verdict, problems: [], summary: "", normalized: [] })
     }
-  }, [step, onProjectChanged, t, tErrors])
+  }, [step, onApplied, t, tErrors])
 
   const acceptSelection = useCallback(
     (entries: Array<{ file: File; rel: string }>) => {
@@ -324,154 +316,137 @@ export function ImportDocsDialog({
   )
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-xl">
-        <DialogHeader>
-          <DialogTitle>{t("title")}</DialogTitle>
-          <DialogDescription>
-            {t.rich("description", {
-              brandName: BRAND.name,
-              code: (chunks) => <code className="text-foreground">{chunks}</code>,
-            })}
-          </DialogDescription>
-        </DialogHeader>
-
-        {step.phase === "idle" || step.phase === "staged" ? (
-          <div
-            onDragOver={(event) => {
-              event.preventDefault()
-              if (!busy) setDragActive(true)
-            }}
-            onDragLeave={() => setDragActive(false)}
-            onDrop={(event) => void onDrop(event)}
-            className={cn(
-              "flex flex-col items-center gap-3 border border-dashed border-border p-6 text-center transition-colors",
-              dragActive && "border-foreground/40 bg-muted"
-            )}
+    <div className="flex flex-col gap-3">
+      {step.phase === "idle" || step.phase === "staged" ? (
+        <div
+          onDragOver={(event) => {
+            event.preventDefault()
+            if (!busy) setDragActive(true)
+          }}
+          onDragLeave={() => setDragActive(false)}
+          onDrop={(event) => void onDrop(event)}
+          className={cn(
+            "flex flex-col items-center gap-3 border border-dashed border-border p-6 text-center transition-colors",
+            dragActive && "border-foreground/40 bg-muted"
+          )}
+        >
+          <span
+            aria-hidden
+            className="flex size-9 items-center justify-center rounded-full bg-muted text-muted-foreground"
           >
-            <span
-              aria-hidden
-              className="flex size-9 items-center justify-center rounded-full bg-muted text-muted-foreground"
-            >
-              <Upload className="size-5" />
-            </span>
-            <p className="text-sm text-foreground">{t("dropzone.prompt")}</p>
-            <p className="text-xs text-muted-foreground">
-              {t("dropzone.accepted", { extensions: ACCEPTED_EXTENSIONS.join(", ") })}
-            </p>
-            <div className="flex flex-wrap items-center justify-center gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => filesInputRef.current?.click()}
-              >
-                <FileIcon />
-                {t("dropzone.chooseFiles")}
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => folderInputRef.current?.click()}
-              >
-                <FolderInput />
-                {t("dropzone.chooseFolder")}
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => zipInputRef.current?.click()}
-              >
-                <FileArchive />
-                {t("dropzone.chooseZip")}
-              </Button>
-            </div>
-
-            <input
-              ref={filesInputRef}
-              type="file"
-              multiple
-              accept={ACCEPT_ATTR}
-              className="hidden"
-              onChange={(event) => {
-                onFilesPicked(event.target.files)
-                event.target.value = ""
-              }}
-            />
-            <input
-              ref={folderInputRef}
-              type="file"
-              multiple
-              // @ts-expect-error -- webkitdirectory is a real, widely-supported attribute with no React/DOM typing
-              webkitdirectory=""
-              className="hidden"
-              onChange={(event) => {
-                onFilesPicked(event.target.files)
-                event.target.value = ""
-              }}
-            />
-            <input
-              ref={zipInputRef}
-              type="file"
-              accept=".zip"
-              className="hidden"
-              onChange={(event) => {
-                onFilesPicked(event.target.files)
-                event.target.value = ""
-              }}
-            />
-          </div>
-        ) : null}
-
-        {step.phase === "staged" || step.phase === "verifying" ? (
-          <StagedList staged={step.staged} />
-        ) : null}
-
-        {step.phase === "verifying" ? (
-          <div className="flex items-center gap-2 text-xs text-muted-foreground">
-            <Loader2 className="size-4 animate-spin" />
-            {t("verifying")}
-          </div>
-        ) : null}
-
-        {step.phase === "verified" ? (
-          <VerifiedPanel
-            verdict={step.verdict}
-            summary={step.summary}
-            problems={step.problems}
-            staged={step.staged}
-            applyCollisions={step.applyCollisions}
-          />
-        ) : null}
-
-        {step.phase === "applying" ? (
-          <div className="flex items-center gap-2 text-xs text-muted-foreground">
-            <Loader2 className="size-4 animate-spin" />
-            {t("applying")}
-          </div>
-        ) : null}
-
-        {step.phase === "done" ? <PlacedList placed={step.placed} /> : null}
-
-        <DialogFooter>
-          {step.phase === "staged" || step.phase === "verified" ? (
+            <Upload className="size-5" />
+          </span>
+          <p className="text-sm text-foreground">{t("dropzone.prompt")}</p>
+          <p className="text-xs text-muted-foreground">
+            {t("dropzone.accepted", { extensions: ACCEPTED_EXTENSIONS.join(", ") })}
+          </p>
+          <div className="flex flex-wrap items-center justify-center gap-2">
             <Button
               type="button"
-              variant="ghost"
+              variant="outline"
               size="sm"
-              disabled={busy}
-              onClick={() => setStep({ phase: "idle" })}
+              onClick={() => filesInputRef.current?.click()}
             >
-              {t("footer.startOver")}
+              <FileIcon />
+              {t("dropzone.chooseFiles")}
             </Button>
-          ) : null}
-          <DialogClose asChild>
-            <Button type="button" variant="ghost" size="sm" disabled={busy}>
-              {step.phase === "done" ? t("footer.close") : t("footer.cancel")}
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => folderInputRef.current?.click()}
+            >
+              <FolderInput />
+              {t("dropzone.chooseFolder")}
             </Button>
-          </DialogClose>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => zipInputRef.current?.click()}
+            >
+              <FileArchive />
+              {t("dropzone.chooseZip")}
+            </Button>
+          </div>
+
+          <input
+            ref={filesInputRef}
+            type="file"
+            multiple
+            accept={ACCEPT_ATTR}
+            className="hidden"
+            onChange={(event) => {
+              onFilesPicked(event.target.files)
+              event.target.value = ""
+            }}
+          />
+          <input
+            ref={folderInputRef}
+            type="file"
+            multiple
+            // @ts-expect-error -- webkitdirectory is a real, widely-supported attribute with no React/DOM typing
+            webkitdirectory=""
+            className="hidden"
+            onChange={(event) => {
+              onFilesPicked(event.target.files)
+              event.target.value = ""
+            }}
+          />
+          <input
+            ref={zipInputRef}
+            type="file"
+            accept=".zip"
+            className="hidden"
+            onChange={(event) => {
+              onFilesPicked(event.target.files)
+              event.target.value = ""
+            }}
+          />
+        </div>
+      ) : null}
+
+      {step.phase === "staged" || step.phase === "verifying" ? (
+        <StagedList staged={step.staged} />
+      ) : null}
+
+      {step.phase === "verifying" ? (
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <Loader2 className="size-4 animate-spin" />
+          {t("verifying")}
+        </div>
+      ) : null}
+
+      {step.phase === "verified" ? (
+        <VerifiedPanel
+          verdict={step.verdict}
+          summary={step.summary}
+          problems={step.problems}
+          staged={step.staged}
+          applyCollisions={step.applyCollisions}
+        />
+      ) : null}
+
+      {step.phase === "applying" ? (
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <Loader2 className="size-4 animate-spin" />
+          {t("applying")}
+        </div>
+      ) : null}
+
+      {step.phase === "done" ? <PlacedList placed={step.placed} /> : null}
+
+      {step.phase === "staged" || step.phase === "verified" ? (
+        <div className="flex items-center justify-end gap-2">
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            disabled={busy}
+            onClick={() => setStep({ phase: "idle" })}
+          >
+            {t("footer.startOver")}
+          </Button>
           {step.phase === "staged" ? (
             <Button type="button" size="sm" onClick={() => void verify()}>
               {t("footer.verify")}
@@ -487,9 +462,9 @@ export function ImportDocsDialog({
               {t("footer.apply")}
             </Button>
           ) : null}
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+        </div>
+      ) : null}
+    </div>
   )
 }
 

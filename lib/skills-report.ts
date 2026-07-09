@@ -14,13 +14,14 @@
 /** Repo-relative path of the report file under the target root. */
 export const SKILLS_REPORT_FILE = ".vivicy/development/reports/skills-report.json"
 
-/** Phases meaning an install is currently in flight (not terminal). */
-export const SKILLS_IN_FLIGHT_PHASES = ["selecting", "auditing", "installing"] as const
+/** Phases meaning an install/remove is currently in flight (not terminal). */
+export const SKILLS_IN_FLIGHT_PHASES = ["selecting", "auditing", "installing", "removing"] as const
 
 export type SkillsPhase =
   | "selecting"
   | "auditing"
   | "installing"
+  | "removing"
   | "green"
   | "failed"
   | "skipped"
@@ -51,13 +52,22 @@ export interface RejectedSkill {
   detail?: string
 }
 
+/** One skill a remove run uninstalled. */
+export interface RemovedSkill {
+  id?: string
+  detail?: string
+}
+
 export interface SkillsReport {
   phase?: SkillsPhase | string
   baseline_id?: string | null
-  /** "auto" = selected from the frozen spec; "explicit" = user-given ids. */
-  mode?: "auto" | "explicit" | string
+  /** "auto" = selected from the frozen spec; "explicit" = user-given ids;
+   *  "remove" = an uninstall run (W6). */
+  mode?: "auto" | "explicit" | "remove" | string
   installed?: InstalledSkill[]
   rejected?: RejectedSkill[]
+  /** Present on a remove run: the skills it uninstalled. */
+  removed?: RemovedSkill[]
   summary?: string
   updated_at?: string
   [key: string]: unknown

@@ -4,7 +4,10 @@
 // baseline verify -> semantic-extraction check -> viewer-data generation -> the
 // two-agent dev loop (Claude implementer + Codex reviewer) -> gate -> done/ ->
 // progress ledger -> read-time viewer-data projection showing each issue verified
-// and linked to its transcript.
+// and linked to its transcript -> the W7b FEATURE-CYCLE stage (open a drafting spec
+// cycle on the frozen baseline, evolve the canonical, re-run the REAL extraction
+// orchestrator with fake agent legs: the minor-bump freeze carries the cycle id as
+// approval_ref and closes the cycle mechanically).
 //
 // Self-contained: this is Vivicy's OWN self-test. The fixture and role prompts are
 // bundled in factory/ (factory/rehearsal/pocket-ledger, factory/prompts); the
@@ -30,6 +33,7 @@ import { dirname, join, resolve } from "node:path";
 import type { SpawnSyncReturns } from "node:child_process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { FACTORY_REHEARSAL_DIR } from "./target-root.ts";
+import { hasActiveFrozenBaseline, isSpecCycleOpen, SPEC_CYCLE_REL, writeSpecCycle } from "../lib/spec-cycle.ts";
 
 interface Stage {
   name: string;
@@ -399,6 +403,11 @@ async function main(): Promise<void> {
   const porcelain = (git(["status", "--porcelain"], temp).stdout || "").trim();
   record("closure: clean tree (only gitignored untracked)", porcelain === "", porcelain ? `dirty:\n${porcelain}` : "clean");
 
+  // 7c. FEATURE-CYCLE (W7b): the chain above ended a BUILD (frozen baseline, corpus
+  //     done, clean tree) — exactly the state a feature cycle legally opens on. Prove
+  //     the spec-cycle method end to end on this same repo.
+  await runFeatureCycleStages(temp);
+
   // 8. Write the rehearsal report (the deliverable evidence) to the real repo.
   writeReport({ dry, temp, processed, verified, blocked, totalIssues, doneCount, verifiedStates: verifiedStates.length, passingGates });
   record("write method-rehearsal-report.md", existsSync(reportPath), reportPath);
@@ -524,6 +533,322 @@ function dependencyOrderRespected(temp: string): boolean {
   return true;
 }
 
+// ---------------------------------------------------------------------------
+// FEATURE-CYCLE (W7b): the spec-cycle method end to end on the rehearsal repo
+// ---------------------------------------------------------------------------
+
+/** The extractIssues result fields the cycle stage asserts on. */
+interface CycleExtractionResult {
+  status: string;
+  manifestPath: string;
+  baselineId: string;
+  committed?: boolean;
+  summary: string;
+}
+
+/** The baseline-manifest fields the cycle stage reads back. */
+interface CycleManifest {
+  version?: string;
+  approval?: { approval_ref?: string };
+  superseded?: { by_baseline_id?: string };
+}
+
+/** The issue-index fields the fake extractor re-pins/extends (all others preserved). */
+interface CycleIssueEntry {
+  id: string;
+  title: string;
+  summary: string;
+  issue_path: string;
+  requirement_ids: string[];
+  source_line_refs: string[];
+  depends_on: string[];
+  spike_gates: string[];
+  graph_refs: string[];
+  verification_gate_ids: string[];
+}
+interface CycleIssueIndex {
+  baseline_id: string;
+  baseline_version: string;
+  manifest_path: string;
+  manifest_hash: string;
+  document_set_hash: string;
+  issues: CycleIssueEntry[];
+}
+
+// Prove the W7b spec-cycle method on the repo the whole chain just built: (a) open a
+// drafting cycle on the frozen baseline (the guards lib/control.ts openSpecCycle
+// enforces), (b) evolve the canonical (a new doc joins the corpus, committed the way
+// this harness commits elsewhere), (c) re-run the REAL extraction orchestrator
+// (extractIssues) with FAKE agent legs — the same dry-agent stance as the dev loop;
+// the freeze, deterministic checks, map gate, and mechanical corpus commit are the
+// real tooling. Asserted mechanics: the freeze is a MINOR bump whose approval_ref is
+// the cycle id, the prior baseline is superseded (never overwritten), the freeze
+// deletes the cycle-state file, and extraction reaches green with FULL line coverage
+// over the EVOLVED canonical.
+async function runFeatureCycleStages(temp: string): Promise<void> {
+  const git = (a: string[]) => spawnSync("git", a, { cwd: temp, encoding: "utf8" });
+  const readJsonIn = <T,>(rel: string): T => readJson<T>(join(temp, rel));
+  const clean = () => (git(["status", "--porcelain"]).stdout || "").trim() === "";
+
+  // (a) Open the drafting cycle. Guard exactly like the official opener: a frozen
+  // baseline must exist (before one, drafting IS the regime) and no cycle is open.
+  const guardOk = hasActiveFrozenBaseline(temp) && !isSpecCycleOpen(temp);
+  const cycleId = `cycle-${new Date().toISOString().slice(0, 10)}-rehearsal`;
+  if (guardOk) {
+    writeSpecCycle(temp, { status: "drafting", kind: "feature", id: cycleId, opened_at: new Date().toISOString(), opened_by: "owner:dev-rehearsal" });
+  }
+  record("feature-cycle: drafting cycle opened on the frozen baseline (guarded)", guardOk && isSpecCycleOpen(temp), cycleId);
+
+  // Dynamic import AFTER VIVICY_TARGET_ROOT points at the temp repo (extract-issues
+  // pulls in dev-loop, whose target binds at import — same reason as the dev loop above).
+  const extract = await import(pathToFileURL(factoryScript("extract-issues.ts")).href);
+  const prior = extract.findFrozenManifest(temp) as { manifestPath: string; baselineId: string } | null;
+  const priorVersion = prior ? (readJsonIn<CycleManifest>(prior.manifestPath).version ?? null) : null;
+
+  // (b) Evolve the canonical: a new doc joins the corpus, committed so the re-freeze
+  // sees a clean tree (extract's own spec-snapshot path then stays a no-op).
+  const doc = writeCycleAddendumDoc(temp);
+  git(["add", "-A"]);
+  git(["-c", "user.email=rehearsal@local", "-c", "user.name=rehearsal", "commit", "-qm", `spec evolution: add ${doc.docRel} (cycle ${cycleId})`]);
+  record("feature-cycle: canonical evolved + committed (new doc joins the corpus)", existsSync(join(temp, doc.docRel)) && clean(), doc.docRel);
+
+  // (c) The REAL extraction path with FAKE agent legs. The fake extractor authors the
+  // corpus delta for the evolved canonical — the semantic gate still demands FULL line
+  // coverage over the new doc; nothing is weakened. The fake verifier writes a faithful
+  // verdict; the per-lens map review (an agent-judgment stage) is injected clean.
+  let result: CycleExtractionResult | null = null;
+  let failure = "";
+  try {
+    result = (await extract.extractIssues({
+      repoRoot: temp,
+      spawnExtractor: async (ctx: { manifestPath: string }) => {
+        authorEvolvedCorpus(temp, doc, ctx.manifestPath);
+        return writeFakeTranscript(temp, { id: "EXTRACTION" }, "claude-extractor");
+      },
+      spawnVerifier: async () => {
+        const verdictAbs = join(temp, ".vivicy/development/reports/extraction-fidelity-verdict.json");
+        mkdirSync(dirname(verdictAbs), { recursive: true });
+        writeFileSync(verdictAbs, `${JSON.stringify({ faithful: true, problems: [] }, null, 2)}\n`);
+        return writeFakeTranscript(temp, { id: "EXTRACTION" }, "codex-verifier");
+      },
+      mapReview: async () => ({ findings: [], actionable: [], legs: [] }),
+    })) as CycleExtractionResult;
+  } catch (error) {
+    failure = String((error as Error)?.message ?? error);
+  }
+  const coverage = existsSync(join(temp, ".vivicy/requirements/coverage-report.json"))
+    ? readJsonIn<{ totals?: { uncovered_lines?: number }; files?: { path: string }[] }>(".vivicy/requirements/coverage-report.json")
+    : null;
+  const uncovered = coverage?.totals?.uncovered_lines;
+  const docCovered = (coverage?.files ?? []).some((f) => f.path === doc.docRel);
+  record(
+    "feature-cycle: re-extraction green over the EVOLVED canonical (fake agents, real gates)",
+    result?.status === "green" && uncovered === 0 && docCovered && result?.committed === true && clean(),
+    result ? `${result.summary.split(":")[0]}; ${doc.docRel} in corpus, ${uncovered} uncovered; committed, clean tree` : failure || "extraction did not run",
+  );
+
+  // The freeze the re-extraction cut: a MINOR bump over the prior baseline, carrying
+  // the cycle id as its approval_ref (honest provenance), superseding — never
+  // overwriting — the prior manifest.
+  const bumped = priorVersion ? minorBump(priorVersion) : null;
+  const fresh = result ? readJsonIn<CycleManifest>(result.manifestPath) : null;
+  const priorAfter = prior ? readJsonIn<CycleManifest>(prior.manifestPath) : null;
+  record(
+    "feature-cycle: freeze is a MINOR bump, approval_ref = cycle id, prior baseline superseded",
+    Boolean(bumped && fresh?.version === bumped && result?.baselineId === `baseline-v${bumped}` && fresh?.approval?.approval_ref === cycleId && priorAfter?.superseded?.by_baseline_id === result?.baselineId),
+    `${priorVersion ?? "?"} -> ${fresh?.version ?? "?"}; approval_ref ${fresh?.approval?.approval_ref ?? "(none)"}`,
+  );
+
+  // Closing the cycle is the freeze's MECHANICAL side effect (P1), never a declaration:
+  // the state file must be gone.
+  record(
+    "feature-cycle: freeze CLOSED the cycle mechanically (state file gone)",
+    !existsSync(join(temp, ...SPEC_CYCLE_REL.split("/"))) && !isSpecCycleOpen(temp),
+    SPEC_CYCLE_REL,
+  );
+}
+
+function minorBump(version: string): string | null {
+  const m = version.match(/^(\d+)\.(\d+)\.(\d+)$/);
+  return m ? `${m[1]}.${Number(m[2]) + 1}.0` : null;
+}
+
+// The evolved canonical doc, following the fixture naming (next NN- prefix). The body
+// is authored so every line is either auto-excludable (the H1 title, blanks) or a
+// normative statement the new issue cites — full line coverage over the evolved
+// corpus with no new exclusions.
+function writeCycleAddendumDoc(temp: string): { docRel: string; refs: string[]; title: string } {
+  const canonicalDir = join(temp, ".vivicy/canonical");
+  const next =
+    readdirSync(canonicalDir)
+      .filter((f) => f.endsWith(".md"))
+      .reduce((max, f) => Math.max(max, Number(/^(\d+)-/.exec(f)?.[1] ?? 0)), 0) + 1;
+  const nn = String(next).padStart(2, "0");
+  const docRel = `.vivicy/canonical/${nn}-feature-cycle-addendum.md`;
+  const title = "Feature Cycle Addendum";
+  const lines = [
+    `# ${nn} - ${title}`,
+    "",
+    "The system exposes a read-only build identifier naming the frozen baseline it was built from, so a caller can confirm which governed spec version is running.",
+    "",
+    "The build identifier changes only when a new baseline is frozen; two builds from the same frozen baseline report the same identifier.",
+  ];
+  writeFileSync(join(temp, docRel), `${lines.join("\n")}\n`);
+  const refs = lines
+    .map((text, i) => ({ text, line: i + 1 }))
+    .filter(({ text, line }) => text.trim().length > 0 && line !== 1)
+    .map(({ line }) => `${docRel}:${line}`);
+  return { docRel, refs, title };
+}
+
+// The FAKE extractor's corpus delta for the evolved canonical — the same authoring a
+// real extractor performs after the re-freeze, done mechanically so the REAL gates
+// (semantic full-line coverage, traceability, map generation) verify a complete
+// corpus: re-pin the issue index to the fresh manifest, add the new issue citing
+// every coverable line of the added doc, add its catalog requirement, cite the doc
+// on an existing map node (the file-level canonical-coverage map gate), and re-pin
+// the reused architecture map's source_baseline. Existing entries stay untouched.
+// Idempotent: a fix-pass re-author converges on the same corpus.
+function authorEvolvedCorpus(temp: string, doc: { docRel: string; refs: string[]; title: string }, manifestPath: string): void {
+  const manifest = readJson<{ baseline_id: string; version: string; manifest_hash: string; document_set_hash: string }>(join(temp, manifestPath));
+
+  const indexAbs = join(temp, ".vivicy/development/issue-index.json");
+  const index = readJson<CycleIssueIndex>(indexAbs);
+  index.baseline_id = manifest.baseline_id;
+  index.baseline_version = manifest.version;
+  index.manifest_path = manifestPath;
+  index.manifest_hash = manifest.manifest_hash;
+  index.document_set_hash = manifest.document_set_hash;
+
+  const reqId = "REQ-CYCLE-001";
+  const gateId = "gate:test:feature-cycle-addendum";
+  const nextIssueNumber = index.issues.reduce((max, i) => Math.max(max, Number(/^ISS-(\d+)$/.exec(i.id)?.[1] ?? 0)), 0) + 1;
+  const issueId = index.issues.find((i) => i.requirement_ids.includes(reqId))?.id ?? `ISS-${String(nextIssueNumber).padStart(4, "0")}`;
+  // The evolution touches an existing module: reuse a node graph ref the map carries.
+  const graphRef = index.issues.flatMap((i) => i.graph_refs).find((ref) => ref.startsWith("node:"));
+  if (!graphRef) throw new Error("dev-rehearsal: no node: graph ref in the issue index to reuse for the cycle issue");
+  const entry: CycleIssueEntry = {
+    id: issueId,
+    title: "Expose the frozen-baseline build identifier",
+    summary: "Implement the read-only build identifier that names the frozen baseline the build was produced from, stable within one baseline and changing only on a new freeze.",
+    issue_path: `.vivicy/development/issues/${issueId}.md`,
+    requirement_ids: [reqId],
+    source_line_refs: doc.refs,
+    depends_on: [],
+    spike_gates: [],
+    graph_refs: [graphRef],
+    verification_gate_ids: [gateId],
+  };
+  index.issues = [...index.issues.filter((i) => i.id !== issueId), entry];
+  writeFileSync(indexAbs, `${JSON.stringify(index, null, 2)}\n`);
+
+  writeFileSync(
+    join(temp, entry.issue_path),
+    [
+      `# ${issueId} - ${entry.title}`,
+      "",
+      "## Summary",
+      "",
+      entry.summary,
+      "",
+      "## Task Type",
+      "",
+      "implementation",
+      "",
+      "## Traceability",
+      "",
+      "```text",
+      `issue_id: ${issueId}`,
+      "graph_refs:",
+      `  - ${graphRef}`,
+      "requirement_ids:",
+      `  - ${reqId}`,
+      "source_line_refs:",
+      ...doc.refs.map((ref) => `  - ${ref}`),
+      "depends_on:",
+      "spike_gates:",
+      "verification_gate_ids:",
+      `  - ${gateId}`,
+      "```",
+      "",
+      "## Scope",
+      "",
+      "Expose a read-only build identifier derived from the frozen baseline identity; no other module changes.",
+      "",
+      "## Verification",
+      "",
+      `Unit tests proving the identifier is present and stable within one frozen baseline; the deterministic gate ${gateId} must be green before this issue is reported complete.`,
+      "",
+    ].join("\n"),
+  );
+
+  const catalogAbs = join(temp, ".vivicy/requirements/catalog.json");
+  const catalog = readJson<{ requirements: Record<string, unknown>[] }>(catalogAbs);
+  catalog.requirements = catalog.requirements.filter((r) => r.id !== reqId);
+  catalog.requirements.push({
+    id: reqId,
+    title: doc.title,
+    statement: "The system exposes a read-only build identifier naming the frozen baseline it was built from; it changes only when a new baseline is frozen.",
+    area: "feature-cycle",
+    type: "functional",
+    maturity: "mvp",
+    disposition: "must_implement",
+    sourceRefs: doc.refs,
+    dependsOn: [],
+    blocks: [],
+    coveredByIssues: [issueId],
+    coveredByTests: [],
+    coveredByCode: [],
+    verificationLevel: "unit",
+    notes: [],
+    baselineId: manifest.baseline_id,
+    baselineVersion: manifest.version,
+    baselineManifestPath: manifestPath,
+    manifestHash: manifest.manifest_hash,
+    documentSetHash: manifest.document_set_hash,
+  });
+  writeFileSync(catalogAbs, `${JSON.stringify(catalog, null, 2)}\n`);
+
+  // S5 reused-map mode: the map is updated IN PLACE — after the re-freeze its
+  // source_baseline must pin the ACTIVE frozen baseline, and the new canonical doc
+  // must be cited by a node source_ref (the map's file-level canonical-coverage gate).
+  const mapAbs = join(temp, ".vivicy/architecture-map/architecture-map.yml");
+  let yml = readFileSync(mapAbs, "utf8");
+  for (const [key, value] of [
+    ["baseline_id", manifest.baseline_id],
+    ["baseline_version", manifest.version],
+    ["manifest_path", manifestPath],
+    ["manifest_hash", manifest.manifest_hash],
+    ["document_set_hash", manifest.document_set_hash],
+  ] as const) {
+    yml = yml.replace(new RegExp(`^(\\s+${key}: ).*$`, "m"), `$1"${value}"`);
+  }
+  writeFileSync(mapAbs, citeDocOnNode(yml, graphRef.slice("node:".length), doc.docRel));
+}
+
+// Append the new doc to the source_refs of ONE existing map node (inline-flow YAML
+// array, the fixtures' shape) so the canonical-coverage map gate sees it cited.
+function citeDocOnNode(yml: string, nodeId: string, docRel: string): string {
+  if (yml.includes(`"${docRel}"`)) return yml;
+  const lines = yml.split("\n");
+  let inNode = false;
+  let nodeSeen = false;
+  for (let i = 0; i < lines.length; i += 1) {
+    const idMatch = lines[i].match(/^\s+-\s+id:\s*"?([^"\s]+)"?\s*$/);
+    if (idMatch) {
+      inNode = idMatch[1] === nodeId;
+      nodeSeen ||= inNode;
+    }
+    if (inNode && /^\s+source_refs:\s*\[.*\]\s*$/.test(lines[i])) {
+      lines[i] = lines[i].replace(/\]\s*$/, `, "${docRel}"]`);
+      return lines.join("\n");
+    }
+  }
+  throw new Error(
+    `dev-rehearsal: cannot cite ${docRel} — ${nodeSeen ? `node ${nodeId} has no inline source_refs line` : `node ${nodeId} not found in architecture-map.yml`}`,
+  );
+}
+
 function writeReport(ctx: ReportContext): void {
   mkdirSync(dirname(reportPath), { recursive: true });
   const verdict = stages.every((s) => s.ok) ? "passed" : "failed";
@@ -559,7 +884,9 @@ ${rows}
 - Isolation: throwaway temp repo at run time; the committed fixture holds only inputs.
 - Gates exercised end to end: baseline freeze + verify, semantic-extraction:check,
   traceability:check, viewer-data generation, the two-agent dev loop, gate-run
-  evidence, and the verified progress overlay.
+  evidence, the verified progress overlay, and the W7b feature cycle (cycle open ->
+  canonical evolution -> minor-bump re-freeze carrying the cycle id as approval_ref
+  and closing the cycle).
 `;
   writeFileSync(reportPath, body);
 }

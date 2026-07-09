@@ -1,3 +1,5 @@
+import { realpathSync } from "node:fs"
+
 import { defineConfig, devices, type Project } from "@playwright/test"
 
 // Vivicy's e2e suite covers three app SHAPES — a populated demo target, a target
@@ -93,6 +95,17 @@ const CHROMIUM_DESKTOP_ONLY = /layout-edit\.spec\.ts/
 // have their own shapes/state).
 const DEMO_TEST_IGNORE = /(empty-state|onboarding)\.spec\.ts/
 
+// overflow.spec is the ONE demo spec that re-points the server's process-global
+// current-project store to a DIFFERENT root (the long target). Serial-within-file
+// cannot protect the OTHER files: a control.spec Run/Stop straddling that switch
+// reads the other project's (idle, lockless) status — a phantom pill-idle timeout
+// or a 409 on Stop that trips the browser-issue gate. Isolate the mutation in
+// TIME, not on yet another server: each demo browser runs overflow.spec as a
+// dependency phase of the SAME server, so it can never overlap the main phase
+// (overflow.spec restores the demo target as its last step). `--project=demo-*`
+// still covers overflow.spec — Playwright auto-runs dependency projects.
+const OVERFLOW_SPEC = /overflow\.spec\.ts/
+
 type ShapeName = "demo" | "empty" | "onboarding"
 
 /** The port a given (shape × browser) server listens on. */
@@ -114,18 +127,28 @@ function projectsForShape(
   shape: ShapeName,
   options: { testMatch?: RegExp; testIgnore?: RegExp }
 ): Project[] {
-  return BROWSERS.map((browser, index) => {
+  return BROWSERS.flatMap((browser, index) => {
+    const use = { ...browser.device, baseURL: `http://127.0.0.1:${portFor(shape, index)}` }
     const testIgnore = [
       options.testIgnore,
+      shape === "demo" ? OVERFLOW_SPEC : undefined,
       browser.mobile ? DESKTOP_ONLY : undefined,
       browser.key === "chromium-desktop" ? undefined : CHROMIUM_DESKTOP_ONLY,
     ].filter(Boolean) as RegExp[]
-    return {
+    const main: Project = {
       name: `${shape}-${browser.key}`,
       testMatch: options.testMatch,
       testIgnore: testIgnore.length > 0 ? testIgnore : undefined,
-      use: { ...browser.device, baseURL: `http://127.0.0.1:${portFor(shape, index)}` },
+      use,
     }
+    if (shape !== "demo") return [main]
+    // The current-project-mutating phase (see OVERFLOW_SPEC above): same server,
+    // strictly before the rest of this browser's demo suite.
+    const overflowName = `${shape}-${browser.key}-overflow`
+    return [
+      { name: overflowName, testMatch: OVERFLOW_SPEC, use },
+      { ...main, dependencies: [overflowName] },
+    ]
   })
 }
 
@@ -134,6 +157,20 @@ const TARGET_FOR: Record<ShapeName, string> = {
   demo: DEMO_TARGET_ROOT,
   empty: EMPTY_TARGET_ROOT,
   onboarding: ONBOARD_TARGET_ROOT,
+}
+
+/**
+ * Canonical (symlink-resolved) spelling when the dir already exists — keeps the
+ * env fallback in lock-step with global-setup's realpath'ed current-project
+ * seeds, so the W8 per-project runtime key (a hash of the root string) can never
+ * fork across /tmp vs /private/tmp spellings of one target mid-run.
+ */
+function canonicalIfExists(p: string): string {
+  try {
+    return realpathSync(p)
+  } catch {
+    return p
+  }
 }
 
 /** One dev server per (shape × browser), each fully isolated on disk. */
@@ -146,7 +183,7 @@ function webServersForShape(shape: ShapeName) {
       timeout: 180_000,
       reuseExistingServer: !process.env.CI,
       env: {
-        VIVICY_TARGET_ROOT: TARGET_FOR[shape],
+        VIVICY_TARGET_ROOT: canonicalIfExists(TARGET_FOR[shape]),
         VIVICY_FAKE_SPAWN: "1",
         // Distinct dist dir per server so they don't collide on Next's
         // single-instance dev lock (keyed on .next/dev).

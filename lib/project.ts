@@ -6,7 +6,7 @@
  * {@link file://./project-types}.
  */
 
-import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs"
 import path from "node:path"
 
 import type { CurrentProject } from "@/lib/project-types"
@@ -53,7 +53,7 @@ export class ProjectError extends Error {
  * validation — does not persist anything.
  */
 export function describeProject(candidate: string): CurrentProject {
-  const root = candidate.trim()
+  let root = candidate.trim()
   if (!path.isAbsolute(root)) {
     throw new ProjectError(`project path must be absolute: ${candidate}`, "not_absolute")
   }
@@ -65,6 +65,15 @@ export function describeProject(candidate: string): CurrentProject {
   }
   if (!stat.isDirectory()) {
     throw new ProjectError(`path is not a directory: ${root}`, "not_a_directory")
+  }
+  // Canonicalize (resolve symlinks) so ONE directory has ONE spelling everywhere
+  // downstream. The W8 per-project runtime key hashes this string — two spellings
+  // of the same root (macOS /tmp vs /private/tmp) would otherwise fork the
+  // project's namespace (run lock, notifications, sessions) mid-flight.
+  try {
+    root = realpathSync(root)
+  } catch {
+    // The dir just stat'ed fine; on a realpath hiccup keep the validated spelling.
   }
   // A `.vivicy/canonical/` directory is where the canonical spec lives, so flag it:
   // the map route surfaces a different onboarding state for a project with no spec.

@@ -2,7 +2,7 @@
   "emptyState": {
     "noTarget": {
       "title": "No project selected",
-      "body": "Vivicy needs a project whose .vivicy/canonical/ holds the canonical spec. Use “Open project” in the top-left to choose the local repository to develop."
+      "body": "Vivicy needs a project whose .vivicy/canonical/ holds the canonical spec. Open Vivi (bottom-left) to set one up."
     },
     "noMap": {
       "title": "No issues extracted yet",

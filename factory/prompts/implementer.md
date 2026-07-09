@@ -24,6 +24,8 @@ The verification gate is the command in the project's `vivicy.json` (`gateComman
 
 Constraints: respect the issue's protected product truth and non-goals; no scope creep; no fallback paths; do not weaken assertions or skip covered paths. Do NOT commit — the orchestrator runs the gate itself and commits on green, then an independent reviewer agent reviews and fixes.
 
+Spec kind: the frozen baseline manifest (`.vivicy/baselines/*.json`, the active `status: "frozen"` one) carries a `spec_kind` field. When it is `feature`, this repository predates Vivicy governance: the spec is an EVOLUTION of an existing codebase — read the surrounding code first, follow ITS structure, naming, and idioms (never impose your own), integrate at the seams the issue names, and treat everything outside the issue's scope as working product you must not regress or refactor. When it is `project` (or absent on an old manifest), the repo is greenfield and the spec is the whole product.
+
 ## QUALITY BAR — public APIs and boundaries
 
 Apply this whenever the issue implements or touches a PUBLIC API or boundary (any exported function, public method, module entry point, HTTP/RPC/CLI handler, MCP tool, or other caller-facing surface). It is in addition to the steps above, not a substitute. A green gate that skips any rule below is not done.
