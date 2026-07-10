@@ -25,7 +25,7 @@ test.describe("Vivicy onboarding (panel-hosted)", () => {
     })
   })
 
-  test("no_target auto-opens the Vivi panel with the three start choices", async ({
+  test("no_target keeps the Vivi panel closed until the empty-state CTA opens the start choices", async ({
     page,
   }, testInfo) => {
     await page.goto("/")
@@ -33,6 +33,10 @@ test.describe("Vivicy onboarding (panel-hosted)", () => {
     await expect(page.getByText(/No project yet — Vivi sets one up/)).toBeVisible({
       timeout: 30_000,
     })
+
+    await expect(page.getByRole("heading", { name: "Start a project" })).toHaveCount(0)
+
+    await page.getByRole("main").getByRole("button", { name: "Open Vivi" }).click()
 
     await expect(page.getByRole("heading", { name: "Start a project" })).toBeVisible()
     await expect(
@@ -62,9 +66,13 @@ test.describe("Vivicy onboarding (panel-hosted)", () => {
     page.on("pageerror", (err) => pageErrors.push(err.message))
 
     await page.goto("/")
+    await expect(page.getByText(/No project yet — Vivi sets one up/)).toBeVisible({
+      timeout: 30_000,
+    })
+    await page.getByRole("main").getByRole("button", { name: "Open Vivi" }).click()
     await expect(
       page.getByRole("button", { name: /Start a new project/i })
-    ).toBeVisible({ timeout: 30_000 })
+    ).toBeVisible()
 
     await page.getByRole("button", { name: /Start a new project/i }).click()
     await expect(page.getByLabel("Project name")).toBeVisible()

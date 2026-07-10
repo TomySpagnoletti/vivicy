@@ -1,6 +1,5 @@
 "use client"
 
-import { useEffect, useRef } from "react"
 import { Sparkles } from "lucide-react"
 import { useTranslations } from "next-intl"
 
@@ -11,13 +10,6 @@ import { useViviPanel } from "@/components/chat/vivi-panel-context"
 export function OnboardingEmptyState() {
   const t = useTranslations("project.onboardingEmptyState")
   const { openPanel } = useViviPanel()
-
-  const autoOpenedRef = useRef(false)
-  useEffect(() => {
-    if (autoOpenedRef.current) return
-    autoOpenedRef.current = true
-    openPanel()
-  }, [openPanel])
 
   return (
     <div className="flex h-svh w-full flex-col items-center justify-center gap-3 p-6 text-center">

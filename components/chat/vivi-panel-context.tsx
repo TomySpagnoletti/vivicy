@@ -5,9 +5,12 @@ import {
   useCallback,
   useContext,
   useMemo,
-  useState,
   type ReactNode,
 } from "react"
+
+import { usePersistedBoolean } from "@/hooks/use-persisted-boolean"
+
+export const VIVI_PANEL_OPEN_KEY = "vivicy:vivi-panel-open"
 
 interface ViviPanelContextValue {
   open: boolean
@@ -19,11 +22,11 @@ interface ViviPanelContextValue {
 const ViviPanelContext = createContext<ViviPanelContextValue | null>(null)
 
 export function ViviPanelProvider({ children }: { children: ReactNode }) {
-  const [open, setOpen] = useState(false)
+  const [open, setOpen] = usePersistedBoolean(VIVI_PANEL_OPEN_KEY, false)
 
-  const openPanel = useCallback(() => setOpen(true), [])
-  const closePanel = useCallback(() => setOpen(false), [])
-  const togglePanel = useCallback(() => setOpen((prev) => !prev), [])
+  const openPanel = useCallback(() => setOpen(true), [setOpen])
+  const closePanel = useCallback(() => setOpen(false), [setOpen])
+  const togglePanel = useCallback(() => setOpen(!open), [open, setOpen])
 
   const value = useMemo<ViviPanelContextValue>(
     () => ({ open, openPanel, closePanel, togglePanel }),
