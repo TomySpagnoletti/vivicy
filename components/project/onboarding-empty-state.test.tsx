@@ -29,6 +29,18 @@ afterEach(() => {
   window.localStorage.clear()
 })
 
+test("renders the insieme brand illustration above the copy, not a decorative icon", () => {
+  renderWithIntl(
+    <ViviPanelProvider>
+      <OnboardingEmptyState />
+    </ViviPanelProvider>
+  )
+
+  expect(
+    screen.getByRole("img", { name: "La Nonna and il Nonno" })
+  ).toBeInTheDocument()
+})
+
 test("mounting never opens the panel; the Open Vivi button does, and again after a close", async () => {
   const user = userEvent.setup()
   renderWithIntl(

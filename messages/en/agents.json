@@ -40,7 +40,6 @@
   "gate": {
     "title": "Install the agent CLIs",
     "description": "{brandName} runs on two agent CLIs — Claude Code and Codex. Both must be installed on this machine before anything can run.",
-    "illustrationAlt": "La Nonna and il Nonno",
     "checkAgain": "Check again",
     "checking": "Checking…"
   },

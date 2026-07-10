@@ -1,6 +1,6 @@
 # Vivicy — exhaustive test matrix
 
-Reconciled fingerprint: `0f7fdf29cea901ba6dc3aa2d32c6cb5df3edfa7732ea1754814987515bc34498` @ commit `dae006540bd55b45f0bc580726f29826ced48590`
+Reconciled fingerprint: `0ffe9f5f6abb4a08955a0575c52b1630dd8e255e8d5181a7442813305a5ffc9a` @ commit `e352b5b2e7701c93746691fab5bd053233cf75e2`
 
 
 This file is the exhaustive, always-current inventory of every test case for Vivicy — every behavior the system has, whether it is covered by a test today or is a known GAP. It is **committed and machine-guarded**: the `Reconciled fingerprint` line above hashes the behavior-bearing source tree and records the HEAD commit at reconciliation time, and `scripts/test-matrix.test.ts` fails the vitest suite when code changes without this file being reconciled and re-stamped (`npm run matrix:stamp`). `git log test/TEST-MATRIX.md` is the audit trail of reconciliations. It is the single source of truth for "what should be tested" across the app (`app/`, `components/`, `lib/`) and the factory (`factory/`). It was assembled from a full per-area audit pass plus three adversarial cross-matrices (user journeys, parallel/merge chaos, process/crash chaos).
@@ -24,13 +24,13 @@ This file is the exhaustive, always-current inventory of every test case for Viv
 | e2e-test-infra-rehearsal | 313 | 108 | 205 |
 | extraction-gates | 293 | 159 | 134 |
 | map-ui-data-viewer | 287 | 187 | 100 |
-| onboarding-project-scaffold | 313 | 219 | 94 |
+| onboarding-project-scaffold | 314 | 219 | 95 |
 | pipeline-notifications-agents-ui | 196 | 128 | 68 |
 | upload-vivi-chat | 401 | 249 | 152 |
 | cross-journeys | 87 | 70 | 17 |
 | cross-chaos-parallel-merge | 47 | 33 | 14 |
 | cross-chaos-process | 46 | 43 | 3 |
-| **TOTAL** | **3768** | **2286** | **1482** |
+| **TOTAL** | **3769** | **2286** | **1483** |
 
 ---
 
@@ -3597,8 +3597,9 @@ Area: extraction-gates. Scope: `factory/extract-issues.ts`, `factory/semantic-ex
 ### components/project/onboarding-empty-state.tsx
 
 - [onboarding-project-scaffold.322] | First `no_target` render mounts the calm empty state | The Vivi panel does NOT auto-open — it stays closed until user action (P7: no automatism left of the boundary) | unit | onboarding-empty-state.test.tsx ("mounting never opens the panel; the Open Vivi button does, and again after a close")
-- [onboarding-project-scaffold.323] | The centered content renders: icon, one i18n sentence (`project.onboardingEmptyState.description`), and an "Open Vivi" Button | Clicking the button calls `useViviPanel().openPanel()` (works again after the user closed the panel) | unit | onboarding-empty-state.test.tsx ("mounting never opens the panel; the Open Vivi button does, and again after a close")
+- [onboarding-project-scaffold.323] | The centered content renders: the shared insieme illustration, one i18n sentence (`project.onboardingEmptyState.description`), and an "Open Vivi" Button | Clicking the button calls `useViviPanel().openPanel()` (works again after the user closed the panel) | unit | onboarding-empty-state.test.tsx ("mounting never opens the panel; the Open Vivi button does, and again after a close")
 - [onboarding-project-scaffold.324] | Rendered outside a `ViviPanelProvider` | `useViviPanel` throws its explicit provider error (never a silent no-op) | unit | GAP
+- [onboarding-project-scaffold.334] | The leading visual is the shared `InsiemeIllustration` atom (`next/image` of `/brand/3.small/insieme_sm.png`, `h-auto w-56` ~224px, `priority`, alt `common.insiemeAlt` = "La Nonna and il Nonno") — the SAME brand atom + i18n key the install gate renders, so a user past the CLI gate meets the mascots on their first project screen too | illustration present by role `img` + accessible name (a named illustration, not an `aria-hidden` decorative glyph) | unit | onboarding-empty-state.test.tsx ("renders the insieme brand illustration above the copy, not a decorative icon")
 
 ### components/chat/vivi-onboarding.tsx (ViviOnboarding — the panel-hosted onboarding view)
 
@@ -4014,7 +4015,7 @@ Area: extraction-gates. Scope: `factory/extract-issues.ts`, `factory/semantic-ex
 ### components/agents/agents-gate.tsx (+ agent-status.tsx — prerequisite gate)
 
 - [pipeline-notifications-agents-ui.229] `agentsGateBlocked`: true when EITHER (or both) CLI binary is `present:false`; false when both present regardless of auth (present-but-unauthenticated and auth-unknown are NOT blocking) | exact blocking rule | unit | agents-gate.test.tsx ("blocks when either (or both) CLI binary is missing" + "present-but-unauthenticated (or auth unknown) is NOT blocking")
-- [pipeline-notifications-agents-ui.230] Both missing: the full-screen gate renders the brand illustration (`/brand/3.small/insieme_sm.png` via `next/image`, intrinsic 500×313 rendered ~224px, alt "La Nonna and il Nonno") above the explanation, then one Card per agent laid out table-like — the CLI name left and its status badge on the SAME row far right (shadcn `CardAction`; header grid switches to `1fr auto`) — with the harmonized guidance line + labeled external install-docs link (`AGENT_GUIDANCE.docsUrl`, `target="_blank" rel="noopener noreferrer"`, sr-only "(opens in new tab)" cue) centered in the card; NO install command and NO copy button anywhere on the page (install commands change too often to pin; the docs are authoritative) | illustration present (alt); each name⟷badge on one row inside `[data-slot=card-action]`; both docs links (exact href + new-tab attrs), centered; no command, no copy button | unit | agents-gate.test.tsx ("both missing: per-agent cards link to each CLI's install docs in a new tab — no command, no copy button")
+- [pipeline-notifications-agents-ui.230] Both missing: the full-screen gate renders the brand illustration (the shared `InsiemeIllustration` atom — `next/image` of `/brand/3.small/insieme_sm.png`, intrinsic 500×313 rendered ~224px, alt from `common.insiemeAlt` = "La Nonna and il Nonno") above the explanation, then one Card per agent laid out table-like — the CLI name left and its status badge on the SAME row far right (shadcn `CardAction`; header grid switches to `1fr auto`) — with the harmonized guidance line + labeled external install-docs link (`AGENT_GUIDANCE.docsUrl`, `target="_blank" rel="noopener noreferrer"`, sr-only "(opens in new tab)" cue) centered in the card; NO install command and NO copy button anywhere on the page (install commands change too often to pin; the docs are authoritative) | illustration present (alt); each name⟷badge on one row inside `[data-slot=card-action]`; both docs links (exact href + new-tab attrs), centered; no command, no copy button | unit | agents-gate.test.tsx ("both missing: per-agent cards link to each CLI's install docs in a new tab — no command, no copy button")
 - [pipeline-notifications-agents-ui.231] One missing: the present agent shows its version suffix + Installed/auth badges on the name row (`CardAction`) and NO docs link; only the missing agent gets the centered guidance line + install-docs link | selective guidance; present-agent badges on the header row | unit | agents-gate.test.tsx ("one missing: the present agent shows its version/auth rows and no docs link; only the missing one links to its install docs")
 - [pipeline-notifications-agents-ui.232] "Check again" fetches `/api/agents/health?fresh=1` (bypassing the route memo) and hands the fresh snapshot up via `onHealth`; the button shows the checking spinner and disables while in flight | exact URL + onHealth payload | unit | agents-gate.test.tsx ("Check again re-probes with ?fresh=1 and hands the fresh snapshot up")
 - [pipeline-notifications-agents-ui.233] A failed/thrown re-probe keeps the last snapshot (best-effort) and re-enables the button in `finally` | no crash, retryable | unit | GAP
