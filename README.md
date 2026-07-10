@@ -62,6 +62,16 @@ node factory/cli.ts rehearsal --dry
 
 The rehearsal exercises the whole chain (freeze → extract → gates → loop → ledger → map) against an isolated throwaway fixture with real tooling and fake agents — a fast proof the factory is wired correctly on your machine.
 
+### Fake missing agent CLIs — even when they're installed
+
+`VIVICY_FAKE_MISSING_CLI` forces the agent-CLI health check to report Claude Code and/or Codex as absent, triggering the **Install the agent CLIs** gate — the fast way to develop or test that flow without uninstalling anything.
+
+```sh
+VIVICY_FAKE_MISSING_CLI=claude,codex npm run dev   # =claude or =codex to fake just one
+```
+
+Server-side only; unknown tokens are ignored, and an unset value means real detection.
+
 ## What lands in your repo
 
 Everything Vivicy reads and writes lives under `.vivicy/` at the target root: `canonical/` (the spec — the only part you write), `baselines/`, `requirements/`, `architecture-map/`, `change-requests/`, and `development/` (issues, spikes, progress ledger, reports). The scaffold adds only three root files (`AGENTS.md`, `CLAUDE.md`, `README.md`) plus `vivicy.json` and a complete `.gitignore` — and **never clobbers** an existing file when added to a populated repo.
