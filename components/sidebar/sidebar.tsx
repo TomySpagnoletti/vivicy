@@ -61,8 +61,6 @@ export function VivicySidebar({
   onMapRefresh?: () => void
 }) {
   const t = useTranslations("sidebar")
-  // Shared by the Settings dialog and the quota footer, so settings are owned
-  // here: loaded once on mount and updated in place when the dialog saves.
   const [settings, setSettings] = useState<AgentsSettings>(DEFAULT_SETTINGS)
   useEffect(() => {
     let cancelled = false
@@ -72,7 +70,6 @@ export function VivicySidebar({
         const body = (await res.json()) as { settings?: AgentsSettings }
         if (!cancelled && body.settings) setSettings(body.settings)
       } catch {
-        // Keep the defaults if settings can't be loaded; never block the UI.
       }
     })()
     return () => {

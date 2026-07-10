@@ -1,8 +1,4 @@
-// Synchronous blocking wait shared by the deterministic factory scripts.
-//
-// Atomics.wait on a private SharedArrayBuffer parks the thread for the interval
-// instead of spinning the CPU. The wait can never be satisfied (nothing ever
-// writes the buffer), so it always times out after the requested slice.
+// Atomics.wait on a private SharedArrayBuffer parks the thread without spinning the CPU; the buffer is never written, so it always times out after the requested slice by design.
 export function sleepSync(ms: number): void {
   if (ms <= 0) return;
   const end = Date.now() + ms;

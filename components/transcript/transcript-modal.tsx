@@ -33,18 +33,11 @@ interface TranscriptTarget {
 }
 
 interface TranscriptContextValue {
-  /** Open the transcript modal for a `transcript_refs` value. */
   open: (ref: string, title?: string) => void
 }
 
 const TranscriptContext = createContext<TranscriptContextValue | null>(null)
 
-/**
- * Provides a single shared transcript modal for the whole app. Both the map
- * (node/edge details) and the sidebar (Details/Tasks transcript refs) call
- * `useTranscript().open(ref)` to show the structured viewer. The modal is built
- * from the shadcn `Dialog` so it stays on the design system.
- */
 export function TranscriptProvider({ children }: { children: ReactNode }) {
   const [target, setTarget] = useState<TranscriptTarget | null>(null)
 
@@ -92,8 +85,6 @@ function TranscriptDialog({
   return (
     <Dialog open={target !== null} onOpenChange={onOpenChange}>
       <DialogContent className="flex max-h-[88vh] w-full max-w-3xl flex-col gap-0 overflow-hidden p-0">
-        {/* Keyed by ref so a new transcript remounts fresh (loading state) and
-            the load effect never has to synchronously reset state. */}
         {target ? (
           <TranscriptBody key={target.ref} target={target} />
         ) : (
@@ -168,7 +159,6 @@ function TranscriptBody({ target }: { target: TranscriptTarget }) {
   )
 }
 
-/** Markdown-ish: fenced code blocks become collapsed <details>; rest is prose. */
 function RichText({ text }: { text: string }) {
   const parts = useMemo(() => {
     const out: Array<{ code: boolean; lang?: string; body: string }> = []

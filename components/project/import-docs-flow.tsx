@@ -19,7 +19,6 @@ import { Button } from "@/components/ui/button"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { cn } from "@/lib/utils"
 
-/** What kind of `.vivicy` artifact a staged/normalized/placed file is routed to. */
 type UploadKind = "canonical" | "spike" | "map" | "unknown"
 
 /** Mirrors `lib/upload.ts` `StagedFile` — the client never imports the server module. */
@@ -65,35 +64,16 @@ type Step =
       problems: UploadProblem[]
       summary: string
       normalized: NormalizedFile[]
-      /** Set when a prior Apply attempt failed on a destination collision. */
       applyCollisions?: string[]
     }
   | { phase: "applying"; stagingId: string; staged: StagedFile[]; verdict: "green" | "red" }
   | { phase: "done"; placed: PlacedFile[] }
 
-/**
- * G1's staged import flow (S1-import), dialog-free so two surfaces host it: the
- * map empty state's import dialog and the Vivi panel's onboarding view (W4b/W5).
- * Drop zone + file/folder/zip pickers, then a visible three-step check-then-place
- * flow — Stage (`POST /api/upload`), Verify (`POST /api/upload/verify`), Apply
- * (`POST /api/upload/apply`). Nothing is placed into `.vivicy/` until the agent
- * CHECK comes back green; a red verdict lists the exact problems and lets the
- * user re-stage. The step actions (Start over / Verify / Retry / Apply) render
- * inline at the bottom; a wrapping dialog adds only its own Close.
- *
- * Accepted: .md/.markdown/.txt/.doc/.docx/.yml/.yaml/.zip, as individual files,
- * a folder (webkitdirectory, native HTML5 — no dependency), or a single .zip.
- * Drag-drop recurses `DataTransferItem.webkitGetAsEntry()` to preserve a
- * dropped folder's relative paths, falling back to a flat file list when the
- * browser has no entry API.
- */
 export function ImportDocsFlow({
   active,
   onApplied,
 }: {
-  /** Resets the step machine to idle whenever this flips true (surface (re)opened). */
   active: boolean
-  /** Fired after a successful Apply so the caller can refresh the map/project. */
   onApplied: () => void
 }) {
   const t = useTranslations("project.importDocsDialog")
@@ -105,9 +85,7 @@ export function ImportDocsFlow({
   const folderInputRef = useRef<HTMLInputElement>(null)
   const zipInputRef = useRef<HTMLInputElement>(null)
 
-  // Reset to idle each time the hosting surface re-activates. The state writes
-  // live inside the async closure (not the effect body) so they don't fire
-  // synchronously during the render commit.
+  // State writes run inside the async closure, not the effect body, so they don't fire synchronously during the render commit.
   useEffect(() => {
     if (!active) return
     void (async () => {
@@ -118,9 +96,6 @@ export function ImportDocsFlow({
 
   const busy = step.phase === "verifying" || step.phase === "applying"
 
-  // STAGE: POST /api/upload as multipart, field `files` repeated + parallel
-  // `paths` (webkitRelativePath, or "" for a bare file). A stage failure (e.g.
-  // unsupported extension) resets to idle so the user can fix the selection.
   const stageFiles = useCallback(async (entries: Array<{ file: File; rel: string }>) => {
     if (entries.length === 0) return
     const form = new FormData()
@@ -152,9 +127,6 @@ export function ImportDocsFlow({
     }
   }, [t, tErrors])
 
-  // VERIFY: POST /api/upload/verify { stagingId }. Green enables Apply; red
-  // surfaces the exact problems (including inline conversion_unavailable
-  // entries) with a Retry that goes back to staged so the user can pick again.
   const verify = useCallback(async () => {
     if (step.phase !== "staged") return
     const { stagingId, staged } = step
@@ -174,10 +146,7 @@ export function ImportDocsFlow({
         error?: string
         code?: string
       }
-      // A red verdict is still HTTP 200 (runUploadVerify never throws for it) —
-      // only a genuinely thrown ControlError (bad staging id, no target, a dead
-      // leg) produces a non-2xx AND omits `verdict` entirely. Both conditions
-      // must hold to distinguish "verify ran and said red" from "verify never ran".
+      // Red verdict is still HTTP 200 (runUploadVerify never throws for it); only a thrown ControlError omits `verdict` AND returns non-2xx — both must hold to tell "ran, said red" from "never ran".
       if (!res.ok && !body.verdict) {
         const fallback = body.error ?? t("toast.httpError", { status: res.status })
         toast.error(t("toast.verifyErrorTitle"), {
@@ -211,9 +180,6 @@ export function ImportDocsFlow({
     }
   }, [step, t, tErrors])
 
-  // APPLY: POST /api/upload/apply { stagingId }. `would_overwrite` carries the
-  // exact colliding destinations in `collisions`, rendered as a list below (not
-  // just the toast); any other code/error just surfaces the message as-is.
   const apply = useCallback(async () => {
     if (step.phase !== "verified" || step.verdict !== "green") return
     const { stagingId, staged, verdict } = step
@@ -300,11 +266,6 @@ export function ImportDocsFlow({
       const hadItems = event.dataTransfer.items.length > 0 || event.dataTransfer.files.length > 0
       const entries = await entriesFromDataTransfer(event.dataTransfer)
       if (hadItems && entries.length === 0) {
-        // A folder was dropped on a browser with no File/Directory Entries API
-        // (see entriesFromDataTransfer): DataTransfer.files never contains a
-        // dropped directory's contents, so the drop silently yields nothing.
-        // Surface that honestly instead of leaving the user staring at an
-        // unchanged drop zone.
         toast.error(t("toast.folderReadErrorTitle"), {
           description: t("toast.folderReadErrorDescription"),
         })
@@ -506,7 +467,6 @@ function VerifiedPanel({
   summary: string
   problems: UploadProblem[]
   staged: StagedFile[]
-  /** Destinations a prior Apply refused to overwrite (409 would_overwrite). */
   applyCollisions?: string[]
 }) {
   const t = useTranslations("project.importDocsDialog")
@@ -607,16 +567,7 @@ function formatBytes(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
-/**
- * Recurse a drop's `DataTransferItemList` via `webkitGetAsEntry()` so a dropped
- * folder keeps its relative paths (mirroring `webkitRelativePath` from a folder
- * `<input>`). `webkitGetAsEntry` ships in every current evergreen browser; the
- * only fallback available without it is the flat `DataTransfer.files` list,
- * which is NEVER populated for a dropped directory (a folder is not a `File`) —
- * so a folder drop on a browser without the entry API yields zero files, not a
- * flat listing of its contents. `acceptSelection` toasts on that empty result
- * rather than silently no-op-ing.
- */
+// Platform trap: `DataTransfer.files` is never populated for a dropped directory, so without `webkitGetAsEntry` a folder drop yields zero files, not a flat listing of its contents.
 async function entriesFromDataTransfer(
   dataTransfer: DataTransfer
 ): Promise<Array<{ file: File; rel: string }>> {
@@ -635,11 +586,6 @@ async function entriesFromDataTransfer(
   return out
 }
 
-/**
- * Recurse one File/Directory Entries API entry (the standard DOM
- * `FileSystemEntry`/`FileSystemFileEntry`/`FileSystemDirectoryEntry` types), pushing
- * every leaf file with its path relative to the drop root.
- */
 async function walkEntry(
   entry: FileSystemEntry,
   rel: string,
@@ -654,8 +600,7 @@ async function walkEntry(
   }
   if (entry.isDirectory) {
     const reader = (entry as FileSystemDirectoryEntry).createReader()
-    // readEntries must be called repeatedly until it yields an empty batch —
-    // a single call is not guaranteed to return the full directory listing.
+    // readEntries() must be called repeatedly until it yields an empty batch — one call isn't guaranteed to return the full listing.
     const children: FileSystemEntry[] = []
     for (;;) {
       const batch = await new Promise<FileSystemEntry[]>((resolve, reject) => {

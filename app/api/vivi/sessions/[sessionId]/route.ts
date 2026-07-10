@@ -1,8 +1,7 @@
 import { ControlError } from "@/lib/control"
 import { readTranscript } from "@/lib/vivi"
 
-// Read-only transcript of one session (W3 rehydration): the panel restores the
-// visible history from the SAME JSONL the turn engine writes.
+// Reads the SAME JSONL the turn engine writes elsewhere — no separate read-side representation.
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 

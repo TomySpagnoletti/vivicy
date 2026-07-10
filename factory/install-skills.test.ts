@@ -1,10 +1,3 @@
-// Unit tests for the project-skills stage orchestrator (install-skills.ts).
-//
-// Every impure edge is injected: the scout leg is a fake that writes the result file,
-// the audit fetch is an in-memory map, and the install runner records calls — no
-// network and no real npx. The frozen-baseline detection, the report file, the
-// vivicy.json merge, and the AGENTS.md managed block are exercised for REAL against a
-// temp target repo.
 import assert from "node:assert/strict";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -59,7 +52,6 @@ interface FakeInstallCall {
   skill: string;
 }
 
-/** A scout fake that writes the given result JSON (or raw text) per attempt. */
 function fakeScout(resultsByAttempt: Array<unknown | string>, calls: Array<{ attempt: number; feedback: string | null }> = []) {
   return async ({ repoRoot, attempt, feedback }: { repoRoot: string; attempt: number; feedback: string | null }) => {
     calls.push({ attempt, feedback });
@@ -75,7 +67,6 @@ function passAudit(): SkillAuditFetch {
   return { found: true, audits: [{ provider: "gateseal", status: "pass" }] };
 }
 
-/** Audit fetch backed by a map keyed on `source@skill`; unlisted skills pass. */
 function fakeAudits(bySkill: Record<string, SkillAuditFetch> = {}) {
   return async ({ source, skill }: { source: string; skill: string }) => bySkill[`${source}@${skill}`] ?? passAudit();
 }
@@ -262,8 +253,6 @@ describe("auto mode", () => {
       runInstall: fakeInstaller(installs),
       emitReport: () => {},
     });
-    // 4 already installed -> 2 slots; officials keep them in their proposed order,
-    // the community candidate overflows; the already-installed id is a silent no-op.
     assert.deepEqual(report.installed.map((e) => e.id), ["stripe/agent-skills@payments", "supabase/agent-skills@auth"]);
     assert.deepEqual(report.rejected, [
       { id: "somebody/community@first", reason: "cap_exceeded", detail: `project already has 4 skill(s); the installed set may never exceed ${MAX_PROJECT_SKILLS} total` },
@@ -543,15 +532,12 @@ describe("removeSkills (W6 — deterministic uninstall)", () => {
     assert.equal(report.mode, "remove");
     assert.deepEqual(report.removed, [{ id: "anthropics/skills@pdf" }]);
     assert.deepEqual(calls, [{ source: "anthropics/skills", skill: "pdf" }]);
-    // vivicy.json requiredSkills shrank (gateCommand preserved).
     const config = readJson("vivicy.json") as { gateCommand: string; requiredSkills: string[] };
     assert.equal(config.gateCommand, "npm test");
     assert.deepEqual(config.requiredSkills, ["acme/repo@scraper"]);
-    // AGENTS.md managed block now lists only the survivor.
     const agents = readFileSync(resolve(repo, "AGENTS.md"), "utf8");
     assert.ok(agents.includes("acme/repo@scraper"));
     assert.ok(!agents.includes("anthropics/skills@pdf"));
-    // The mirrored report survives on disk with the surviving installed set.
     const onDisk = readJson(SKILLS_REPORT_REL) as SkillsReport;
     assert.equal(onDisk.installed?.length, 1);
     assert.equal(onDisk.installed?.[0]?.id, "acme/repo@scraper");
@@ -575,7 +561,6 @@ describe("removeSkills (W6 — deterministic uninstall)", () => {
     assert.equal(calls.length, 0, "nothing not-installed is ever passed to the remover");
     const reasons = report.rejected.map((r) => r.reason).sort();
     assert.deepEqual(reasons, ["invalid_id", "not_installed"]);
-    // Nothing shrank.
     const config = readJson("vivicy.json") as { requiredSkills: string[] };
     assert.equal(config.requiredSkills.length, 2);
   });

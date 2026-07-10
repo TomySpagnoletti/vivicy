@@ -1,12 +1,9 @@
 import { dismissNotifications, readNotifications } from "@/lib/notifications"
 
-// Reads the notification log as read-only display data (the app-side half of the
-// G14 notifications verb; the `vivicy notifications` CLI reads the SAME file). Node
-// runtime only (filesystem read/write). A missing/empty log is an empty list, not
-// an error.
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 
+// The `vivicy notifications` CLI reads this same log file; a missing/empty log is an empty list here, not an error.
 export async function GET() {
   try {
     return Response.json({ ok: true, notifications: readNotifications() })
@@ -18,15 +15,7 @@ export async function GET() {
   }
 }
 
-/**
- * Dismiss one or more notifications (G9's per-item X and "clear all"). Body is
- * `{ id: string }` (single dismiss — the notification's unique `id`; a legacy
- * line without one matches on its `ts` instead, see lib/notifications.ts) or
- * `{ all: true }` (clear all). Flips `dismissed: true` in place — see
- * lib/notifications.ts for why a rewrite, not a second append, is the chosen
- * mechanism. Always 200 with the count actually flipped; dismissing an
- * already-dismissed or unknown `id` is a harmless no-op (count 0), not an error.
- */
+// A notification without an id (legacy line) is matched by its ts instead; dismissing an already-dismissed or unknown id is a harmless no-op, not an error.
 export async function POST(request: Request) {
   let body: { id?: unknown; all?: unknown }
   try {

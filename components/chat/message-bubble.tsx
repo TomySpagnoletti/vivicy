@@ -13,23 +13,14 @@ import { Bubble, BubbleContent } from "@/components/ui/bubble"
 import { Marker, MarkerContent, MarkerIcon } from "@/components/ui/marker"
 import { Message, MessageContent, MessageFooter } from "@/components/ui/message"
 
-/** One message in the Vivi conversation, mirroring `lib/vivi.ts` `ViviTurn`. */
+/** Mirrors `lib/vivi.ts`'s `ViviTurn`. */
 export interface ChatMessage {
   role: "user" | "vivi"
   text: string
-  /** Repo-relative `.md` paths a Vivi turn wrote (rendered as attachments). */
   wrote?: string[]
-  /** Set on a Vivi turn whose writes were rejected + rolled back. */
   rejected?: string
 }
 
-/**
- * A single chat turn built from the dedicated shadcn chat primitives: a
- * `Message` (alignment), a `Bubble` (muted for the user, outline for Vivi), and a
- * `MessageFooter` carrying the turn's outcome — the `.md` files Vivi wrote as
- * `Attachment` chips, or a destructive `Marker` when the writes were rejected and
- * rolled back. No raw Tailwind design, no hand-rolled bubbles.
- */
 export function MessageBubble({ message }: { message: ChatMessage }) {
   const isUser = message.role === "user"
   const align = isUser ? "end" : "start"

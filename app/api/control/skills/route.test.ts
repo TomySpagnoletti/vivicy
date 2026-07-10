@@ -4,8 +4,6 @@ import path from "node:path"
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
-// Mock the control plane so the route never touches a real target or spawns the
-// installer. `ControlError` stays real so the route's `instanceof` check holds.
 const { readSkillsReport, startSkillsInstall } = vi.hoisted(() => ({
   readSkillsReport: vi.fn(),
   startSkillsInstall: vi.fn(),
@@ -30,8 +28,7 @@ function postJson(body: unknown): Request {
   })
 }
 
-// The route appends real notifications (lib/notifications, unmocked) — isolate
-// the log to a temp runtime dir, mirroring the retry-stage route test.
+// lib/notifications is unmocked and writes real files; isolate via a temp VIVICY_RUNTIME_DIR.
 let runtimeDir: string
 let prevRuntimeEnv: string | undefined
 

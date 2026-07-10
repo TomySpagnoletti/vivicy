@@ -2,9 +2,6 @@ import { ControlError } from "@/lib/control"
 import { getSpawner } from "@/lib/spawner"
 import { decideCardAction } from "@/lib/vivi"
 
-// The owner's click on a decision card (D6). The click is the trigger — this route
-// validates card + action ids server-side and records the outcome on the turn, so a
-// card can never be decided twice and the decided state survives rehydration.
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 

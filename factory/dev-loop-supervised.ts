@@ -1,22 +1,4 @@
 #!/usr/bin/env node
-// Supervisor that lets a resumable dev-loop run survive multi-hour work. It
-// relaunches the loop whenever its process dies for any reason (the loop resumes
-// from done/ + the ledger), and stops cleanly on:
-//   - all issues done,
-//   - a hard block (an *-blocked.json report), for a human,
-//   - a no-progress stall (no new done/ across N consecutive relaunches),
-//   - a relaunch cap.
-// It writes a heartbeat run-state file so `vivicy status` and any agent can
-// see liveness across relaunches.
-//
-// Launch it DETACHED so it outlives the launching shell/task (this is what kept
-// killing single-process runs — the parent task was killed, taking the loop):
-//   nohup node vivicy/factory/dev-loop-supervised.ts > /tmp/vivicy-dev-loop.log 2>&1 &
-//   vivicy status                 # progress anytime
-// Stop it via the pid recorded in the run-state file.
-//
-// Modes: default supervises the real dev-loop.ts against the target project.
-// With --rehearsal it supervises dev-rehearsal.ts against REHEARSAL_DIR.
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
@@ -43,8 +25,6 @@ interface SupervisorLimits {
   maxRelaunches?: number;
 }
 
-// Pure decision: given the observed run state, what should the supervisor do?
-// Exported so the policy is unit-tested without spawning anything.
 export function nextSupervisorAction(
   { done, total, blocked, attempt, stall }: SupervisorState,
   limits: SupervisorLimits = {},
@@ -58,10 +38,6 @@ export function nextSupervisorAction(
   return { action: "relaunch" };
 }
 
-// Pure decision: does the project-skills stage (install-skills.ts, AUTO mode) need to
-// run before issue cycles start? Yes when a frozen baseline exists and the skills
-// report is missing, unsettled, or was produced for a DIFFERENT baseline. No baseline
-// means extraction has not run yet — the stage has nothing to select from.
 export function skillsStageNeeded(
   baseline: { baselineId: string } | null,
   report: { phase?: unknown; baseline_id?: unknown } | null,
@@ -82,11 +58,7 @@ function main() {
     process.exit(2);
   }
   const rehearsal = process.argv.includes("--rehearsal");
-  // The supervised child is a sibling factory script; resolve it by absolute
-  // path so the supervisor works regardless of cwd or where the target lives.
   const target = join(scriptDir, rehearsal ? "dev-rehearsal.ts" : "dev-loop.ts");
-  // Where progress lives: the rehearsal writes into REHEARSAL_DIR; the real loop
-  // into the target project (VIVICY_TARGET_ROOT).
   const progressRoot = rehearsal && process.env.REHEARSAL_DIR ? resolve(process.env.REHEARSAL_DIR) : repoRoot;
   const statePath = join(repoRoot, ".vivicy/development/reports/dev-loop-supervisor.json");
 
@@ -114,12 +86,6 @@ function main() {
     writeFileSync(statePath, `${JSON.stringify({ pid: process.pid, target, progress_root: progressRoot, updated_at: new Date().toISOString(), ...extra }, null, 2)}\n`);
   };
 
-  // Project-skills stage (S-K), before issue cycles: bounded synchronous run of
-  // install-skills.ts in AUTO mode when the report is missing or stale for the active
-  // baseline. NON-FATAL by design: a red skills stage is loud (its own report +
-  // notifications) but never blocks the dev loop — zero skills is legal, and the stage
-  // stays retryable on the next supervised start. Skipped in rehearsal (the fixture
-  // exercises the loop, not the registry).
   if (!rehearsal) {
     const skillsReport = readJson(join(repoRoot, SKILLS_REPORT_REL), null) as { phase?: unknown; baseline_id?: unknown } | null;
     if (skillsStageNeeded(findFrozenManifest(repoRoot), skillsReport)) {

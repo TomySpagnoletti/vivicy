@@ -2,17 +2,10 @@ import { ControlError, readSkillsReport, removeSkills, startSkillsInstall } from
 import { appendNotification } from "@/lib/notifications"
 import { getSpawner } from "@/lib/spawner"
 
-// Reads the skills report / launches the detached installer; Node runtime only.
+// Launches a detached installer process — requires the Node runtime, not Edge.
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 
-/**
- * Read-only skills report (the SK stage + the sidebar Skills section derive
- * their state from this): install-skills.ts's own report file, reflecting
- * whatever the last install wrote, including mid-run phases
- * (selecting/auditing/installing) while a run is in flight. `report` is null
- * when no install has ever run.
- */
 export async function GET() {
   try {
     return Response.json({ ok: true, report: readSkillsReport() })
@@ -27,13 +20,6 @@ export async function GET() {
   }
 }
 
-/**
- * Start a skills install DETACHED, or run a REMOVE synchronously (W6). Body:
- *   { ids?: string[] }    — install: absent/empty = auto mode, present = explicit
- *   { remove: string[] }  — uninstall exactly these ids (deterministic, no agent)
- * Install progress lands in the report file the GET above serves; a remove returns
- * its final report directly (it is fast — no agent leg).
- */
 export async function POST(request: Request) {
   const body = (await request.json().catch(() => ({}))) as { ids?: unknown; remove?: unknown }
   if (body.remove !== undefined) {

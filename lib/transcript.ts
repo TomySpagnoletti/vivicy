@@ -1,9 +1,3 @@
-/**
- * Transcript parsing: normalize Claude session JSONL and Codex rollout JSONL
- * into one entry model. Faithful port of the original viewer's parser, kept as a
- * pure, framework-free module so it is unit-testable and reused by the modal.
- */
-
 export type TranscriptEntry =
   | { kind: "user"; text: string }
   | { kind: "thinking"; text: string }
@@ -33,7 +27,6 @@ function reasoningText(p: Record<string, unknown>): string {
     : asText(p.text)
 }
 
-// ---- Claude session JSONL --------------------------------------------------
 function parseClaude(lines: Record<string, unknown>[]): TranscriptEntry[] {
   const entries: TranscriptEntry[] = []
   const toolById = new Map<string, Extract<TranscriptEntry, { kind: "tool" }>>()
@@ -75,7 +68,6 @@ function parseClaude(lines: Record<string, unknown>[]): TranscriptEntry[] {
   return entries
 }
 
-// ---- Codex rollout JSONL ---------------------------------------------------
 function parseCodex(lines: Record<string, unknown>[]): TranscriptEntry[] {
   const entries: TranscriptEntry[] = []
   const toolById = new Map<string, Extract<TranscriptEntry, { kind: "tool" }>>()
@@ -149,7 +141,6 @@ export function parseTranscript(jsonl: string): {
     try {
       lines.push(JSON.parse(line))
     } catch {
-      // skip non-JSON lines
     }
   }
   const isCodex = lines.some(
@@ -186,7 +177,6 @@ export function parseTranscript(jsonl: string): {
     if (sameText || sameTool) continue
     entries.push(e)
   }
-  // Mark the last assistant entry as the final response.
   for (let i = entries.length - 1; i >= 0; i -= 1) {
     if (entries[i].kind === "assistant") {
       ;(entries[i] as Extract<TranscriptEntry, { kind: "assistant" }>).final = true
@@ -196,12 +186,10 @@ export function parseTranscript(jsonl: string): {
   return { entries, format }
 }
 
-/** Build the API URL that serves a transcript ref through the Next route. */
 export function transcriptUrl(ref: string): string {
   return `/api/transcript/${ref.replace(/^\/+/, "")}`
 }
 
-/** The display name for a transcript ref (its file name). */
 export function transcriptName(ref: string): string {
   return ref.split("/").slice(-1)[0] ?? ref
 }

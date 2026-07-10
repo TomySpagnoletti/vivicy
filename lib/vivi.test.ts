@@ -8,14 +8,6 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import { ControlError, type RunOptions, type RunResult, type Spawner } from "@/lib/control"
 import { appendCardTurn, decideCardAction, listViviSessions, parseSkillsDirective, readTranscript, runViviTurn, type ViviTurn } from "@/lib/vivi"
 
-/**
- * A recording fake spawner whose `run` DELEGATES to a per-test `onRun` so a test
- * can simulate exactly what the Vivi leg does to the target (write .md files, write
- * the --reply-file, or misbehave by writing outside the allowlist). Records every
- * run's args + env so tests assert the settings plumb-through. `onRun` may return a
- * partial {@link RunResult} to override the default success — the post-freeze CR
- * validation spawns change-control.ts and a test simulates its verdict this way.
- */
 function makeFakeSpawner(onRun: (options: RunOptions) => Partial<RunResult> | void = () => {}) {
   const calls = {
     run: [] as Array<{ args: string[]; env: NodeJS.ProcessEnv; cwd: string }>,
@@ -37,12 +29,10 @@ function makeFakeSpawner(onRun: (options: RunOptions) => Partial<RunResult> | vo
   return { spawner, calls }
 }
 
-/** Does a recorded run drive change-control.ts (the post-freeze CR validator)? */
 function isChangeControlRun(args: string[]): boolean {
   return args.some((a) => a.endsWith("change-control.ts"))
 }
 
-/** Seed an active frozen baseline manifest so the target is in the post-freeze phase. */
 function seedFrozenBaseline(root: string): void {
   const dir = path.join(root, ".vivicy", "baselines")
   mkdirSync(dir, { recursive: true })
@@ -52,7 +42,6 @@ function seedFrozenBaseline(root: string): void {
   )
 }
 
-/** A minimally well-formed CR body the change-control checker would accept. */
 function wellFormedCr(id: string): string {
   return [
     "---",
@@ -85,21 +74,17 @@ function wellFormedCr(id: string): string {
   ].join("\n")
 }
 
-/** Pull the `--reply-file` path out of a recorded run's args. */
 function replyFileFrom(args: string[]): string {
   const i = args.indexOf("--reply-file")
   return args[i + 1]
 }
 
-/** Write the agent's textual reply to the reply file (what a real leg does). */
 function writeReply(options: RunOptions, text: string): void {
   const file = replyFileFrom(options.args)
   mkdirSync(path.dirname(file), { recursive: true })
   writeFileSync(file, text)
 }
 
-/** Write a file at a repo-relative path under the target (what a misbehaving or
- *  well-behaved leg does inside cwd=targetRoot). */
 function writeInTarget(targetRoot: string, rel: string, body: string): void {
   const abs = path.join(targetRoot, rel)
   mkdirSync(path.dirname(abs), { recursive: true })
@@ -111,9 +96,6 @@ let targetRoot: string
 let runtimeDir: string
 let prevCwd: string
 
-/** Build a fake factory dir with the scripts the control plane resolves. The
- *  change-control stub only needs to EXIST — the fake spawner supplies its verdict, so a
- *  turn never launches a real Node validator. */
 function scaffoldFactory(root: string) {
   mkdirSync(path.join(root, "prompts"), { recursive: true })
   writeFileSync(path.join(root, "vivi-turn.ts"), "// stub\n")
@@ -123,8 +105,6 @@ function scaffoldFactory(root: string) {
   writeFileSync(path.join(root, "prompts", "vivi.md"), "# Vivi persona (test stub)\n")
 }
 
-/** Turn a dir into a committed git repo (the scaffold guarantees every real target
- *  is one — the W2 no-code witness depends on it). */
 function gitInit(root: string): void {
   const git = (...args: string[]) => execFileSync("git", args, { cwd: root, stdio: "ignore" })
   git("init", "-q")
@@ -133,7 +113,6 @@ function gitInit(root: string): void {
   git("commit", "--allow-empty", "-q", "-m", "init")
 }
 
-/** Write + commit a file so it is tracked in HEAD (a "product" file of the target). */
 function gitCommitFile(root: string, rel: string, body: string): void {
   writeInTarget(root, rel, body)
   execFileSync("git", ["add", "--", rel], { cwd: root, stdio: "ignore" })
@@ -145,8 +124,6 @@ beforeEach(() => {
   targetRoot = mkdtempSync(path.join(tmpdir(), "vivi-target-"))
   runtimeDir = mkdtempSync(path.join(tmpdir(), "vivi-runtime-"))
   scaffoldFactory(factoryRoot)
-  // The target must have a .vivicy so the allowlist dirs resolve, and a git repo so
-  // the W2 no-code witness is active (the scaffold guarantees both on real targets).
   mkdirSync(path.join(targetRoot, ".vivicy", "canonical"), { recursive: true })
   mkdirSync(path.join(targetRoot, ".vivicy", "development", "spikes"), { recursive: true })
   gitInit(targetRoot)
@@ -186,8 +163,6 @@ describe("runViviTurn — transcript", () => {
     expect(turns[0].text).toBe("I want a todo app.")
     expect(turns[1].text).toBe("Reply one.")
 
-    // Second turn on the SAME session appends, and the composed prompt carries the
-    // prior transcript (replay) to the leg.
     let seenPrompt = ""
     const second = makeFakeSpawner((o) => {
       seenPrompt = readFileSync(promptFileFrom(o.args), "utf8")
@@ -208,16 +183,10 @@ describe("runViviTurn — transcript", () => {
     expect(calls.run).toHaveLength(0)
 
     delete process.env.VIVICY_TARGET_ROOT
-    // No persisted project + no env target => missing_target.
     await expect(runViviTurn(spawner, { message: "hi" })).rejects.toThrow(/no project selected/)
   })
 
   it("uses per-turn scratch files so concurrent turns on one session never collide", async () => {
-    // Two turns on the SAME session, running concurrently. The fix: each turn gets
-    // its OWN prompt/reply scratch files (a per-turn token, not just the session id),
-    // so a leg's reply is captured from ITS file and can never be clobbered by the
-    // sibling turn — the reply-file race the reviewer flagged. We key each reply to
-    // its own reply-file basename to prove each caller reads back exactly its own.
     const sessionId = "22222222-2222-2222-2222-222222222222"
     const seenPromptFiles = new Set<string>()
     const seenReplyFiles = new Set<string>()
@@ -225,8 +194,6 @@ describe("runViviTurn — transcript", () => {
       const replyFile = replyFileFrom(o.args)
       seenPromptFiles.add(promptFileFrom(o.args))
       seenReplyFiles.add(replyFile)
-      // The reply is tied to THIS turn's own reply file, so a mixed-up capture would
-      // surface as one caller getting the other's file token.
       writeReply(o, `reply@${path.basename(replyFile)}`)
     }
     const a = makeFakeSpawner(onRun)
@@ -237,11 +204,8 @@ describe("runViviTurn — transcript", () => {
       runViviTurn(b.spawner, { sessionId, message: "BETA" }),
     ])
 
-    // Distinct scratch files per turn (the fix): two prompt files, two reply files.
     expect(seenPromptFiles.size).toBe(2)
     expect(seenReplyFiles.size).toBe(2)
-    // Each caller read back the reply written to ITS OWN reply file — no cross-talk.
-    // (Each fake spawner recorded exactly one run, so run[0] is that turn's run.)
     expect(ra.reply).toBe(`reply@${path.basename(replyFileFrom(a.calls.run[0].args))}`)
     expect(rb.reply).toBe(`reply@${path.basename(replyFileFrom(b.calls.run[0].args))}`)
     expect(ra.reply).not.toBe(rb.reply)
@@ -264,17 +228,12 @@ describe("runViviTurn — allowlist enforcement", () => {
       path.join(CANONICAL, "01-product.md"),
       path.join(SPIKES, "S01-provider.md"),
     ])
-    // The files survive (a legit turn is never rolled back), and the transcript
-    // records the writes on the vivi turn.
     expect(existsSync(path.join(targetRoot, CANONICAL, "01-product.md"))).toBe(true)
     const turns = readTranscript(result.sessionId)
     expect((turns.at(-1) as ViviTurn).wrote).toEqual(result.wrote)
   })
 
   it("ignores the leg's own transcript write and keeps the legit spike", async () => {
-    // The real agent leg writes its transcript under .vivicy/development/transcripts/
-    // (gitignored infrastructure). That must NOT be treated as an allowlist violation
-    // — otherwise every real turn rolls back and destroys the spikes it just wrote.
     const { spawner } = makeFakeSpawner((o) => {
       writeInTarget(targetRoot, path.join(SPIKES, "S01-native-argon2id.md"), "# S01\n")
       writeInTarget(
@@ -288,7 +247,6 @@ describe("runViviTurn — allowlist enforcement", () => {
 
     expect(result.rejected).toBeUndefined()
     expect(result.wrote).toEqual([path.join(SPIKES, "S01-native-argon2id.md")])
-    // The spike SURVIVES (not rolled back), and the transcript is left in place.
     expect(existsSync(path.join(targetRoot, SPIKES, "S01-native-argon2id.md"))).toBe(true)
     expect(
       existsSync(path.join(targetRoot, ".vivicy", "development", "transcripts", "VIVI-CHAT", "claude-vivi-abc.jsonl"))
@@ -296,14 +254,10 @@ describe("runViviTurn — allowlist enforcement", () => {
   })
 
   it("rejects a write OUTSIDE the allowlist and REMOVES the offending file", async () => {
-    // Seed an existing canonical doc so we can prove the legit dirs are restored
-    // byte-for-byte even when the turn also touches a legit file.
     writeInTarget(targetRoot, path.join(CANONICAL, "01-product.md"), "original\n")
 
     const { spawner } = makeFakeSpawner((o) => {
-      // A legit edit...
       writeInTarget(targetRoot, path.join(CANONICAL, "01-product.md"), "TAMPERED\n")
-      // ...plus a forbidden write outside the two allowed dirs.
       writeInTarget(targetRoot, path.join(".vivicy", "development", "issues", "sneaky.md"), "no\n")
       writeReply(o, "I tried to escape.")
     })
@@ -311,11 +265,8 @@ describe("runViviTurn — allowlist enforcement", () => {
 
     expect(result.rejected).toMatch(/outside its allowlist/)
     expect(result.wrote).toEqual([])
-    // The forbidden file is gone...
     expect(existsSync(path.join(targetRoot, ".vivicy", "development", "issues", "sneaky.md"))).toBe(false)
-    // ...and the legit dir is restored to its pre-turn bytes (the tamper is undone).
     expect(readFileSync(path.join(targetRoot, CANONICAL, "01-product.md"), "utf8")).toBe("original\n")
-    // The rejection is recorded on the transcript.
     expect((readTranscript(result.sessionId).at(-1) as ViviTurn).rejected).toBeTruthy()
   })
 
@@ -332,9 +283,6 @@ describe("runViviTurn — allowlist enforcement", () => {
   })
 
   it("discards a legit canonical .md written in the SAME turn as an in-.vivicy violation", async () => {
-    // The whole turn is atomic: a good doc that lands alongside a forbidden
-    // in-.vivicy write (here, into .vivicy/baselines) is rolled back WITH the turn,
-    // never kept partially.
     const { spawner } = makeFakeSpawner((o) => {
       writeInTarget(targetRoot, path.join(CANONICAL, "02-good.md"), "# Good\n")
       writeInTarget(targetRoot, path.join(".vivicy", "baselines", "forged.md"), "# forged a baseline\n")
@@ -344,7 +292,6 @@ describe("runViviTurn — allowlist enforcement", () => {
 
     expect(result.rejected).toMatch(/outside its allowlist/)
     expect(result.wrote).toEqual([])
-    // Both the forbidden baseline write and the good doc are gone.
     expect(existsSync(path.join(targetRoot, ".vivicy", "baselines", "forged.md"))).toBe(false)
     expect(existsSync(path.join(targetRoot, CANONICAL, "02-good.md"))).toBe(false)
   })
@@ -353,7 +300,6 @@ describe("runViviTurn — allowlist enforcement", () => {
 describe("runViviTurn — post-freeze (Change Requests, B8.1)", () => {
   it("accepts a well-formed CR under change-requests/ and reports it in `wrote`", async () => {
     seedFrozenBaseline(targetRoot)
-    // The leg writes a valid CR; the change-control validator (second spawn) passes.
     const { spawner, calls } = makeFakeSpawner((o) => {
       if (isChangeControlRun(o.args)) return { code: 0, stdout: "change-control: OK\n" }
       writeInTarget(targetRoot, path.join(CHANGE_REQUESTS, "CR-0001-add-csv-export.md"), wellFormedCr("CR-0001"))
@@ -363,16 +309,13 @@ describe("runViviTurn — post-freeze (Change Requests, B8.1)", () => {
 
     expect(result.rejected).toBeUndefined()
     expect(result.wrote).toEqual([path.join(CHANGE_REQUESTS, "CR-0001-add-csv-export.md")])
-    // The CR survives (a valid turn is never rolled back)...
     expect(existsSync(path.join(targetRoot, CHANGE_REQUESTS, "CR-0001-add-csv-export.md"))).toBe(true)
-    // ...and change-control WAS consulted (the validator ran as its own spawn).
     expect(calls.run.some((c) => isChangeControlRun(c.args))).toBe(true)
   })
 
   it("REJECTS a canonical/spike write in the frozen phase and rolls it back", async () => {
     seedFrozenBaseline(targetRoot)
     writeInTarget(targetRoot, path.join(CANONICAL, "01-product.md"), "frozen original\n")
-    // Post-freeze the canonical is locked: editing it (or writing a spike) is a violation.
     const { spawner, calls } = makeFakeSpawner((o) => {
       writeInTarget(targetRoot, path.join(CANONICAL, "01-product.md"), "TAMPERED after freeze\n")
       writeInTarget(targetRoot, path.join(SPIKES, "01-late-spike.md"), "# too late\n")
@@ -382,17 +325,13 @@ describe("runViviTurn — post-freeze (Change Requests, B8.1)", () => {
 
     expect(result.rejected).toMatch(/outside its allowlist/)
     expect(result.wrote).toEqual([])
-    // The canonical is restored byte-for-byte and the spike is gone.
     expect(readFileSync(path.join(targetRoot, CANONICAL, "01-product.md"), "utf8")).toBe("frozen original\n")
     expect(existsSync(path.join(targetRoot, SPIKES, "01-late-spike.md"))).toBe(false)
-    // A pure allowlist violation never even reaches the CR validator.
     expect(calls.run.some((c) => isChangeControlRun(c.args))).toBe(false)
   })
 
   it("REJECTS a malformed CR (change-control fails) and rolls the turn back", async () => {
     seedFrozenBaseline(targetRoot)
-    // The leg writes a CR into the allowed dir, but its shape is bad: the validator's
-    // second spawn returns non-zero, so the whole turn is rejected + rolled back.
     const { spawner } = makeFakeSpawner((o) => {
       if (isChangeControlRun(o.args)) {
         return { code: 1, stderr: "error:\nRule: cr_id_filename_match\n", lastLine: "change-control: FAILED with 1 error(s)" }
@@ -404,15 +343,12 @@ describe("runViviTurn — post-freeze (Change Requests, B8.1)", () => {
 
     expect(result.rejected).toMatch(/did not pass change-control/)
     expect(result.wrote).toEqual([])
-    // The malformed CR is removed by the rollback.
     expect(existsSync(path.join(targetRoot, CHANGE_REQUESTS, "CR-0001-broken.md"))).toBe(false)
     expect((readTranscript(result.sessionId).at(-1) as ViviTurn).rejected).toBeTruthy()
   })
 
   it("fail-closed: a CR write is REJECTED when the change-control spawn throws", async () => {
     seedFrozenBaseline(targetRoot)
-    // The validator spawn itself errors (not just a non-zero exit). Fail-closed: the turn
-    // is rejected + rolled back rather than keeping an unproven CR.
     const spawner: Spawner = {
       spawnDetached: () => ({ pid: 1 }),
       run: async (options) => {
@@ -433,7 +369,6 @@ describe("runViviTurn — post-freeze (Change Requests, B8.1)", () => {
 
   it("threads spec_frozen + the next CR id into the leg's env and prompt", async () => {
     seedFrozenBaseline(targetRoot)
-    // Seed one existing CR so the next id is CR-0002 (proves lib computes it, not the agent).
     writeInTarget(targetRoot, path.join(CHANGE_REQUESTS, "CR-0001-first.md"), wellFormedCr("CR-0001"))
     let seenPrompt = ""
     const { spawner, calls } = makeFakeSpawner((o) => {
@@ -445,14 +380,11 @@ describe("runViviTurn — post-freeze (Change Requests, B8.1)", () => {
 
     const legRun = calls.run.find((c) => c.args.some((a) => a.endsWith("vivi-turn.ts")))
     expect(legRun?.env.VIVICY_SPEC_FROZEN).toBe("true")
-    // The composed prompt announces the phase and the exact next id for the CR filename.
     expect(seenPrompt).toContain("spec_frozen: true")
     expect(seenPrompt).toContain("CR-0002")
   })
 
   it("pre-freeze threads spec_frozen: false (no baseline) and writes canonical as before", async () => {
-    // No frozen baseline seeded: the phase is pre-freeze, so the flag is false and the
-    // canonical write path is unchanged (requirement 1, made explicit for the flag).
     let seenPrompt = ""
     const { spawner, calls } = makeFakeSpawner((o) => {
       seenPrompt = readFileSync(promptFileFrom(o.args), "utf8")
@@ -466,14 +398,12 @@ describe("runViviTurn — post-freeze (Change Requests, B8.1)", () => {
     expect(seenPrompt).toContain("spec_frozen: false")
     const legRun = calls.run.find((c) => c.args.some((a) => a.endsWith("vivi-turn.ts")))
     expect(legRun?.env.VIVICY_SPEC_FROZEN).toBe("false")
-    // Pre-freeze never consults change-control (that gate is post-freeze only).
     expect(calls.run.some((c) => isChangeControlRun(c.args))).toBe(false)
   })
 })
 
 describe("runViviTurn — settings plumb-through", () => {
   it("passes the configured CLI + model env and cwd=target to the leg", async () => {
-    // Persist non-default settings so the leg env reflects the user's choice.
     writeFileSync(
       path.join(runtimeDir, "settings.json"),
       JSON.stringify({
@@ -489,7 +419,6 @@ describe("runViviTurn — settings plumb-through", () => {
     const call = calls.run[0]
     expect(call.cwd).toBe(targetRoot)
     expect(call.env.VIVICY_TARGET_ROOT).toBe(targetRoot)
-    // The implementer CLI is Vivi's engine; its model rides the CLI-keyed env.
     expect(call.env.VIVICY_IMPLEMENTER_CLI).toBe("codex")
     expect(call.env.VIVICY_CODEX_MODEL).toBe("gpt-5.5")
     expect(call.args.some((a) => a.endsWith("vivi-turn.ts"))).toBe(true)
@@ -502,13 +431,11 @@ describe("runViviTurn — settings plumb-through", () => {
   })
 })
 
-/** Pull the `--prompt-file` path out of a recorded run's args. */
 function promptFileFrom(args: string[]): string {
   const i = args.indexOf("--prompt-file")
   return args[i + 1]
 }
 
-/** A reply text ending with the persona's skills-install fenced block. */
 function replyWithDirective(json: string): string {
   return `Sure, I will ask the control plane to install those.\n\n\`\`\`vivicy-skills\n${json}\n\`\`\``
 }
@@ -550,12 +477,10 @@ describe("parseSkillsDirective — pure parser", () => {
   })
 })
 
-/** A reply text ending with a vivicy-action fenced block. */
 function replyWithActions(json: string, lead = "On it."): string {
   return `${lead}\n\n\`\`\`vivicy-action\n${json}\n\`\`\``
 }
 
-/** Recorded leg runs only (vivi-turn.ts spawns), excluding validators/status probes. */
 function legRuns(calls: { run: Array<{ args: string[] }> }): Array<{ args: string[] }> {
   return calls.run.filter((c) => c.args.some((a) => a.endsWith("vivi-turn.ts")))
 }
@@ -586,12 +511,10 @@ describe("runViviTurn — action protocol (the governess loop)", () => {
     expect(result.actions?.[0]).toMatchObject({ tool: "crs.list", ok: true })
     expect(leg).toBe(2)
 
-    // The continuation prompt carries the tool results and the close-the-loop task.
     expect(continuationPrompt).toContain("Tool results")
     expect(continuationPrompt).toContain("✓ crs.list")
     expect(continuationPrompt).toContain("close the loop")
 
-    // Transcript: user → vivi (fence stripped) → action (structured) → vivi (final).
     const turns = readTranscript(result.sessionId)
     expect(turns.map((t) => t.role)).toEqual(["user", "vivi", "action", "vivi"])
     expect(turns[1].text).toBe("On it.")
@@ -609,9 +532,6 @@ describe("runViviTurn — action protocol (the governess loop)", () => {
     const result = await runViviTurn(spawner, { message: "lance le build" })
 
     expect(result.actions?.[0]).toMatchObject({ tool: "pipeline.start", ok: true })
-    // The supervisor was spawned DETACHED via the injected spawner. (The run lock was
-    // written too, then honestly cleared by the round-2 status probe: the fake's pid is
-    // never alive, so the lock reads as stale — exactly the dead-run cleanup contract.)
     expect(calls.spawnDetached.some((c) => c.args.some((a) => a.endsWith("dev-loop-supervised.ts")))).toBe(true)
   })
 
@@ -631,7 +551,6 @@ describe("runViviTurn — action protocol (the governess loop)", () => {
     process.env.VIVICY_VIVI_MAX_ROUNDS = "2"
     const { spawner, calls } = makeFakeSpawner((o) => {
       if (!o.args.some((a) => a.endsWith("vivi-turn.ts"))) return
-      // Every round asks for another action — the loop must cut at 2.
       writeReply(o, replyWithActions('{"actions": [{"tool": "crs.list"}]}'))
     })
     const result = await runViviTurn(spawner, { message: "spin" })
@@ -662,11 +581,9 @@ describe("runViviTurn — action protocol (the governess loop)", () => {
       if (!o.args.some((a) => a.endsWith("vivi-turn.ts"))) return
       leg += 1
       if (leg === 1) {
-        // Round 1: a legit canonical write + an action batch.
         writeInTarget(targetRoot, path.join(CANONICAL, "01-product.md"), "round-one edit\n")
         writeReply(o, replyWithActions('{"actions": [{"tool": "crs.list"}]}'))
       } else {
-        // Round 2: a violation — the whole turn's writes roll back.
         writeInTarget(targetRoot, path.join(".vivicy", "baselines", "forged.md"), "no\n")
         writeReply(o, "oops")
       }
@@ -677,7 +594,6 @@ describe("runViviTurn — action protocol (the governess loop)", () => {
     expect(result.rejected).toMatch(/1 action\(s\) already executed this turn remain in effect/)
     expect(result.wrote).toEqual([])
     expect(result.actions).toHaveLength(1)
-    // Round 1's legit write is rolled back WITH the turn; the violation is gone.
     expect(readFileSync(path.join(targetRoot, CANONICAL, "01-product.md"), "utf8")).toBe("original\n")
     expect(existsSync(path.join(targetRoot, ".vivicy", "baselines", "forged.md"))).toBe(false)
   })
@@ -726,7 +642,6 @@ describe("runViviTurn — whole-target no-code enforcement (W2)", () => {
 
     expect(result.rejected).toMatch(/code writes are forbidden \(src\/index\.ts\)/)
     expect(result.wrote).toEqual([])
-    // The code file is gone AND the .vivicy write rolled back with the turn.
     expect(existsSync(path.join(targetRoot, "src", "index.ts"))).toBe(false)
     expect(existsSync(path.join(targetRoot, CANONICAL, "01-a.md"))).toBe(false)
   })
@@ -745,7 +660,6 @@ describe("runViviTurn — whole-target no-code enforcement (W2)", () => {
 
   it("never touches the owner's OWN pre-turn dirty files (not Vivi's writes)", async () => {
     gitCommitFile(targetRoot, path.join("src", "wip.ts"), "export const a = 1\n")
-    // The OWNER has uncommitted work in progress before the turn.
     writeInTarget(targetRoot, path.join("src", "wip.ts"), "export const a = 2 // wip\n")
 
     const { spawner } = makeFakeSpawner((o) => {
@@ -757,12 +671,10 @@ describe("runViviTurn — whole-target no-code enforcement (W2)", () => {
     expect(result.rejected).toBeUndefined()
     expect(result.reply).toBe("Wrote the first area.")
     expect(result.wrote).toEqual([path.join(CANONICAL, "01-a.md")])
-    // The owner's WIP is untouched — not restored, not flagged.
     expect(readFileSync(path.join(targetRoot, "src", "wip.ts"), "utf8")).toBe("export const a = 2 // wip\n")
   })
 
   it("appends a LOUD note (and still enforces .vivicy) when the target has no git", async () => {
-    // A fresh target without a git repository: the witness is unavailable.
     const bareTarget = mkdtempSync(path.join(tmpdir(), "vivi-bare-"))
     mkdirSync(path.join(bareTarget, ".vivicy", "canonical"), { recursive: true })
     process.env.VIVICY_TARGET_ROOT = bareTarget
@@ -811,14 +723,12 @@ describe("runViviTurn — skills directive (explicit installs via chat)", () => 
 
     expect(result.rejected).toBeUndefined()
     expect(result.reply).toContain("skills install started (explicit mode)")
-    // The control plane spawned install-skills.ts DETACHED with the exact ids.
     expect(calls.spawnDetached).toHaveLength(1)
     const spawn = calls.spawnDetached[0]
     expect(spawn.args.some((a) => a.endsWith("install-skills.ts"))).toBe(true)
     expect(spawn.args).toContain("--ids")
     expect(spawn.args[spawn.args.indexOf("--ids") + 1]).toBe("anthropic/skills@pdf")
     expect(spawn.env.VIVICY_TARGET_ROOT).toBe(targetRoot)
-    // The augmented reply (with the status line) is what the transcript records.
     expect((readTranscript(result.sessionId).at(-1) as ViviTurn).text).toContain("skills install started")
   })
 
@@ -830,7 +740,7 @@ describe("runViviTurn — skills directive (explicit installs via chat)", () => 
     const result = await runViviTurn(spawner, { message: "install something" })
 
     expect(result.rejected).toBeUndefined()
-    expect(result.wrote).toEqual([path.join(CANONICAL, "01-product.md")]) // the turn's writes survive
+    expect(result.wrote).toEqual([path.join(CANONICAL, "01-product.md")])
     expect(result.reply).toContain("skills install NOT started: the vivicy-skills block is not valid JSON")
     expect(calls.spawnDetached).toHaveLength(0)
   })
@@ -880,7 +790,6 @@ describe("decision cards (W3/D6 — server contracts)", () => {
     expect(turns[0].decided?.summary).toContain("change request")
     expect(turns[1].actions?.[0]).toMatchObject({ tool: "crs.list", ok: true })
 
-    // A decided card can NEVER be decided again.
     const again = await decideCardAction(spawner, { sessionId, cardId: "card-1", actionId: "list" })
     expect(again.ok).toBe(false)
     expect(again.summary).toContain("already decided")
@@ -962,7 +871,6 @@ describe("listViviSessions (W3 rehydration index)", () => {
   it("lists sessions newest-first with a human preview", async () => {
     const a = makeFakeSpawner((o) => writeReply(o, "reply A"))
     const first = await runViviTurn(a.spawner, { message: "First project conversation" })
-    // Ensure a strictly later timestamp for the second session.
     await new Promise((r) => setTimeout(r, 5))
     const b = makeFakeSpawner((o) => writeReply(o, "reply B"))
     const second = await runViviTurn(b.spawner, { message: "Second conversation about billing" })
@@ -978,7 +886,6 @@ describe("listViviSessions (W3 rehydration index)", () => {
 describe("runViviTurn — drafting spec cycle (W7b)", () => {
   it("an OPEN cycle reopens the pre-freeze allowlist on a frozen target", async () => {
     seedFrozenBaseline(targetRoot)
-    // The cycle-state file is the orchestrator-owned reopen switch.
     writeInTarget(
       targetRoot,
       path.join(".vivicy", "development", "reports", "spec-cycle.json"),
@@ -988,7 +895,6 @@ describe("runViviTurn — drafting spec cycle (W7b)", () => {
     const { spawner, calls } = makeFakeSpawner((o) => {
       if (!o.args.some((a) => a.endsWith("vivi-turn.ts"))) return
       seenPrompt = readFileSync(promptFileFrom(o.args), "utf8")
-      // A canonical write — a VIOLATION post-freeze, but LEGAL while the cycle is open.
       writeInTarget(targetRoot, path.join(CANONICAL, "07-new-feature.md"), "# New feature\n")
       writeReply(o, "Captured the new feature area.")
     })
@@ -997,7 +903,6 @@ describe("runViviTurn — drafting spec cycle (W7b)", () => {
     expect(result.rejected).toBeUndefined()
     expect(result.wrote).toEqual([path.join(CANONICAL, "07-new-feature.md")])
     expect(seenPrompt).toContain("spec_frozen: false")
-    // Canonical writes during a cycle are NOT change requests: no CR validator spawn.
     expect(calls.run.some((c) => isChangeControlRun(c.args))).toBe(false)
   })
 })
@@ -1017,32 +922,26 @@ describe("runViviTurn — action side effects are orchestrator state, never Vivi
     expect(result.rejected).toBeUndefined()
     expect(result.actions?.[0]).toMatchObject({ tool: "cycle.open", ok: true })
     expect(leg).toBe(2)
-    // The REAL openSpecCycle wrote the state file (non-.md, inside .vivicy); the
-    // round-2 diff must NOT attribute it to Vivi — it survives.
     expect(existsSync(path.join(targetRoot, ".vivicy", "development", "reports", "spec-cycle.json"))).toBe(true)
   })
 
   it("detects Vivi tampering with the OWNER's pre-turn dirty file and restores the owner's bytes", async () => {
     gitCommitFile(targetRoot, path.join("src", "wip.ts"), "export const a = 1\n")
-    // The owner's uncommitted WIP before the turn.
     writeInTarget(targetRoot, path.join("src", "wip.ts"), "export const a = 2 // owner wip\n")
 
     const { spawner } = makeFakeSpawner((o) => {
-      // Vivi hides a code write INSIDE the already-dirty file.
       writeInTarget(targetRoot, path.join("src", "wip.ts"), "export const a = 666 // vivi was here\n")
       writeReply(o, "tweaked your file")
     })
     const result = await runViviTurn(spawner, { message: "go" })
 
     expect(result.rejected).toMatch(/modified your uncommitted work in progress \(src\/wip\.ts\)/)
-    // Restored to the OWNER's pre-turn bytes — not to HEAD.
     expect(readFileSync(path.join(targetRoot, "src", "wip.ts"), "utf8")).toBe("export const a = 2 // owner wip\n")
   })
 
   it("a .gitignore self-hiding write is cleaned up in the second pass", async () => {
     gitCommitFile(targetRoot, ".gitignore", "node_modules\n")
     const { spawner } = makeFakeSpawner((o) => {
-      // Hide the payload from git status by ignoring it FIRST.
       writeInTarget(targetRoot, ".gitignore", "node_modules\nsrc/evil.ts\n")
       writeInTarget(targetRoot, path.join("src", "evil.ts"), "export const pwned = true\n")
       writeReply(o, "nothing to see")
@@ -1050,7 +949,6 @@ describe("runViviTurn — action side effects are orchestrator state, never Vivi
     const result = await runViviTurn(spawner, { message: "go" })
 
     expect(result.rejected).toBeTruthy()
-    // Restoring .gitignore unmasks the payload; the deep cleanup removes it too.
     expect(readFileSync(path.join(targetRoot, ".gitignore"), "utf8")).toBe("node_modules\n")
     expect(existsSync(path.join(targetRoot, "src", "evil.ts"))).toBe(false)
   })
@@ -1074,10 +972,8 @@ describe("runViviTurn — pending CRs become in-chat decision cards (D6 producer
     expect(cards).toHaveLength(1)
     expect(cards[0].card).toMatchObject({ id: "cr-CR-0001", title: expect.stringContaining("CR-0001") })
     expect(cards[0].card?.actions.map((a) => a.id)).toEqual(["approve", "reject", "later"])
-    // The decision kinds route to the owner-click paths (P2), never auto-decide.
     expect(cards[0].card?.actions[0].action).toEqual({ kind: "cr_decide", crId: "CR-0001", decision: "approved" })
 
-    // Idempotent: a second crs.list on the SAME session never re-cards CR-0001.
     const second = makeFakeSpawner(onRun)
     await runViviTurn(second.spawner, { sessionId: result.sessionId, message: "re-liste" })
     const after = readTranscript(result.sessionId).filter((t) => t.role === "card")

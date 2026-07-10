@@ -121,11 +121,6 @@ export type DevelopmentOverlay = {
   } | null;
 };
 
-// The target project whose architecture map this generator reads and whose viewer
-// data it writes. VIVICY_TARGET_ROOT selects it. Vivicy is standalone: with no
-// target there is nothing to generate, so we exit clearly instead of guessing a
-// directory. The map and generated artifact always live under the target
-// project's .vivicy/, never beside this script.
 const targetOverride = process.env.VIVICY_TARGET_ROOT;
 if (!(targetOverride && targetOverride.trim().length > 0)) {
   process.stderr.write(
@@ -141,21 +136,12 @@ const allowedStatuses = ["not_started", "in_progress", "reviewing", "implemented
 const allowedLayoutRoles = ["primary_flow", "support", "shared_state", "provider", "future"] as const;
 const allowedScopes = ["mvp", "present", "future"] as const;
 
-// Self-heal the owner's manual graph layout. For every node and edge present in
-// BOTH the reference map (the owner's pre-extraction graph) and the current,
-// extractor-rewritten map, restore the reference's layout — node `layout_x/_y/
-// _cluster/_role` and edge `layout_label_ratio`. New nodes/edges (absent from the
-// reference) keep their fresh layout. This NEVER throws: a malformed reference, or
-// a patch it cannot place, simply yields fewer restorations — so a refine pass can
-// never lose a manually placed position, and never blocks the run on one.
+// Contract: never throws — a malformed reference or unplaceable patch just yields fewer restorations, so a refine pass can never lose a manual placement or block the run.
 export function reconcileLayout(reference: string, current: string): { source: string; restored: string[]; warning?: string } {
   let ref: ArchitectureMap;
   try {
     ref = parseArchitectureMap(reference);
   } catch {
-    // The owner's reference did not parse: there is nothing reliable to restore
-    // from. Never block, but never SILENT — surface that placements went
-    // unprotected this run so it is visible in the map-gen output.
     return {
       source: current,
       restored: [],
@@ -167,7 +153,6 @@ export function reconcileLayout(reference: string, current: string): { source: s
   try {
     cur = parseArchitectureMap(current);
   } catch {
-    // The current map is the map-gen gate's job to fail on; nothing to reconcile.
     return { source: current, restored: [] };
   }
   const currentNodeById = new Map(cur.nodes.map((node) => [node.id, node]));
@@ -450,11 +435,6 @@ export function validateMap(input: ArchitectureMap): void {
   }
 }
 
-/**
- * high_risk_kinds is an optional root array naming the kind_taxonomy entries whose
- * nodes must carry line/anchor-precise source references. It is data-declared in the
- * map, not hardcoded in this script, so the policy travels with each repository.
- */
 function validateHighRiskKinds(highRiskKinds: string[] | undefined, kindTaxonomy: Set<string>): void {
   if (highRiskKinds === undefined) {
     return;
@@ -469,16 +449,10 @@ function validateHighRiskKinds(highRiskKinds: string[] | undefined, kindTaxonomy
   }
 }
 
-/** A source ref is line-precise when it carries a :line (or :start-end) or a #anchor suffix. */
 function hasLinePrecision(sourceRef: string): boolean {
   return /:\d+(-\d+)?($|#)/.test(sourceRef) || sourceRef.includes("#");
 }
 
-/**
- * Mandatory line precision for high-risk kinds: a node whose kind is declared in
- * high_risk_kinds must cite at least one line/anchor-precise source_ref, unless it
- * declares an explicit source_ref_scope_reason explaining why the rule spans a whole file.
- */
 function validateHighRiskLinePrecision(input: ArchitectureMap): void {
   const highRisk = new Set(input.high_risk_kinds ?? []);
   if (highRisk.size === 0) {
@@ -500,12 +474,7 @@ function validateHighRiskLinePrecision(input: ArchitectureMap): void {
   }
 }
 
-/**
- * Enforces the YAML Source Style Contract the line-oriented parser depends on, using
- * universal YAML syntax (not repository-specific strings): no tabs, no block scalars
- * (| or >), no flow mappings ({ ... }) inside records, and no comments interleaved
- * inside records or lists. Inline flow sequences ([ ... ]) for scalar arrays stay legal.
- */
+// Enforces the YAML subset the hand-rolled line-oriented parseArchitectureMap depends on; loosen only if that parser is upgraded too.
 export function assertYamlSourceStyle(source: string): void {
   source.split(/\r?\n/).forEach((raw, index) => {
     const lineNumber = index + 1;
@@ -541,11 +510,7 @@ export function assertYamlSourceStyle(source: string): void {
   });
 }
 
-/**
- * FILE-level gate only: every canonical file matched by the baseline globs must
- * be cited by at least one node or edge source_ref. BLOCK-level (within-file)
- * coverage is gated separately by the semantic-extraction coverage report.
- */
+// FILE-level coverage gate only; BLOCK-level (within-file) coverage is enforced separately by the semantic-extraction coverage report.
 function validateCanonicalCoverage(input: ArchitectureMap): void {
   const matchedFiles = enumerateBaselineFiles(input.source_baseline);
 
@@ -571,13 +536,7 @@ function validateCanonicalCoverage(input: ArchitectureMap): void {
   }
 }
 
-/**
- * The baseline-glob check alone misses a canonical doc added or renamed after
- * the documentation freeze: such a ref still matches the glob while being
- * absent from the pinned frozen manifest. Refs covered by the manifest's
- * include globs must therefore also appear in its frozen files set; refs
- * outside that coverage are exempt.
- */
+// Closes a gap the glob-only check misses: a doc added/renamed after the freeze still matches the include glob but is absent from the frozen manifest, so in-scope refs must also appear in the manifest's frozen files set.
 function validateSourceRefsInManifest(input: ArchitectureMap): void {
   const manifestPath = input.source_baseline.manifest_path;
   const manifestAbsolutePath = resolve(repoRoot, manifestPath);
@@ -622,10 +581,6 @@ function validateSourceRefsInManifest(input: ArchitectureMap): void {
   }
 }
 
-/**
- * Must use matchesSimpleGlob so inclusion/exclusion semantics stay identical
- * to the per-ref check in validateSourceRefWithinBaseline.
- */
 function enumerateBaselineFiles(sourceBaseline: SourceBaseline): Set<string> {
   const matched = new Set<string>();
   for (const includeGlob of sourceBaseline.included_docs) {
@@ -736,12 +691,7 @@ function loadDevelopmentOverlay(map: ArchitectureMap): DevelopmentOverlay {
   const issueIndex = readOptionalJson(issueIndexPath, "issue index");
   const progressLedger = readOptionalJson(progressLedgerPath, "progress ledger");
   const issues = readIssues(issueIndex, graphRefs, map.verification_gate_ref_grammar);
-  // ONE shared derivation maps the live ledger -> { graph_item_states,
-  // active_items }. The extraction-time generator runs it STRICTLY: it injects an
-  // evidence checker that verifies every evidence_ref points at a real file/line
-  // on disk, so the authored corpus is provably honest. The /api/map read path
-  // calls the same function WITHOUT the checker (a stale on-disk evidence file
-  // never 500s a request). No divergent ledger->overlay logic exists.
+  // Shared with the /api/map read path, which calls this WITHOUT evidenceRefChecker so a stale on-disk evidence file never 500s a request — keep that path checker-free.
   const { graph_item_states, active_items } = deriveDevelopmentOverlay({
     graphRefs,
     issues,
@@ -802,9 +752,7 @@ function readIssues(input: unknown, graphRefs: Set<string>, verificationGateRefG
   if (!isRecord(input) || !Array.isArray(input.issues)) {
     throw new Error("Development issue index must define an issues array");
   }
-  // The architecture map's verification_gate_ref_grammar is canonical; the issue
-  // index must match it even while issues is empty, because progress-ledger.ts
-  // reads the grammar from the issue index.
+  // Grammar check runs even when issues is empty because progress-ledger.ts reads the grammar from the issue index regardless.
   const issueIndexGrammar = requiredString(
     input.verification_evidence_ref_grammar,
     "Issue index verification_evidence_ref_grammar",
@@ -1174,8 +1122,6 @@ function toRepositoryRelativePath(absolutePath: string): string {
   return relative(repoRoot, absolutePath).split("\\").join("/");
 }
 
-// Vivicy is project-agnostic: stamp the generated date in UTC (YYYY-MM-DD) with
-// no host-locale or timezone assumption.
 function getUtcDate(): string {
   return new Date().toISOString().slice(0, 10);
 }
@@ -1185,8 +1131,6 @@ export function updateGeneratedDate(source: string, date: string): string {
   const next = /^updated: ".*"$/m.test(source)
     ? source.replace(/^updated: ".*"$/m, updatedLine)
     : source.replace(/^version: .+$/m, (line) => `${line}\n${updatedLine}`);
-  // The replace-or-append above only touches the first match, so a source that
-  // already carried duplicate `updated:` keys must fail loudly here.
   const updatedKeyCount = (next.match(/^updated:/gm) ?? []).length;
   if (updatedKeyCount !== 1) {
     throw new Error(

@@ -10,10 +10,7 @@ import { BRAND } from "@/lib/brand"
 import { LOCALE } from "@/lib/i18n"
 import { cn } from "@/lib/utils"
 
-// Self-hosted Geist (the same fonts shadcn ships with). Loading them locally
-// instead of `next/font/google` keeps the production build deterministic and
-// offline-capable — it never reaches out to Google Fonts at build time. The
-// woff2 files are the latin variable axes, so `font-weight` still works.
+// Self-hosted (not next/font/google) for a deterministic, offline-capable build; woff2 files are the latin variable axes so font-weight still works.
 const geist = localFont({
   src: "./fonts/Geist-latin.woff2",
   variable: "--font-sans",
@@ -47,10 +44,7 @@ export default async function RootLayout({
     <html
       lang={LOCALE}
       className={cn("antialiased", fontMono.variable, "font-sans", geist.variable)}
-      // Browser extensions (LanguageTool's data-lt-installed, Grammarly, etc.)
-      // mutate <html>/<body> before React hydrates. suppressHydrationWarning
-      // silences only these two elements' own attribute mismatch — the app
-      // tree below is still fully hydration-checked.
+      // suppressHydrationWarning here only silences browser-extension attribute mutations (LanguageTool, Grammarly, etc.) on html/body — the tree below stays fully hydration-checked.
       suppressHydrationWarning
     >
       <body suppressHydrationWarning>

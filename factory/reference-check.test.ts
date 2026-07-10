@@ -5,7 +5,6 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { runReferenceCheck } from "./reference-check.ts";
 
-// `files` maps repo-relative path -> content. Returns the check result.
 function run(files: Record<string, string>) {
   const root = mkdtempSync(join(tmpdir(), "vivicy-ref-"));
   try {
@@ -91,7 +90,7 @@ test("a broken angle-bracket link is caught", () => {
 test("a link resolving to a directory (not a file) fails", () => {
   const result = run({
     "README.md": "[dir](.vivicy/canonical.md)",
-    ".vivicy/canonical.md/keep.txt": "x", // makes .vivicy/canonical.md a directory
+    ".vivicy/canonical.md/keep.txt": "x",
   });
   assert.equal(result.exitCode, 1);
   assert.match(result.errors.join("\n"), /reference_resolves/);

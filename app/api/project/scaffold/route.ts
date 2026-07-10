@@ -1,17 +1,8 @@
 import { ScaffoldError, scaffoldProject } from "@/lib/scaffold"
 
-// Writes the scaffold skeleton to the local filesystem; Node only.
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 
-/**
- * Scaffold Vivicy into a project (R9). The body is `{ targetDir, projectName }`:
- * `targetDir` must be an absolute path (absent/empty => a fresh lean skeleton;
- * populated => add Vivicy to the existing repo, creating only the MISSING files),
- * and `projectName` a 1–64 char name. On success the lean skeleton is written
- * (never clobbering an existing file) and the project is set as the current target;
- * the response echoes the described project, the scaffold mode, and the files written.
- */
 export async function POST(request: Request) {
   try {
     const body = (await request.json().catch(() => null)) as {

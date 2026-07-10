@@ -1,7 +1,6 @@
 import { cn } from "@/lib/utils"
 import type { NodeStatus } from "@/lib/types"
 
-/** Background token class per status. `not_started`/null/undefined stay neutral. */
 const BG_BY_STATUS: Record<NodeStatus, string> = {
   not_started: "bg-border",
   in_progress: "bg-status-in-progress",
@@ -11,7 +10,6 @@ const BG_BY_STATUS: Record<NodeStatus, string> = {
   blocked: "bg-status-blocked",
 }
 
-/** A small colored dot representing a development status, tinted by a token. */
 export function StatusDot({
   status,
   className,

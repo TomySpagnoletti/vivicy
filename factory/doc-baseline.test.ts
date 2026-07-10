@@ -7,19 +7,10 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { BaselineManifest } from "./doc-baseline.ts";
 
-// doc-baseline.ts is a CLI-only script (no exported helpers). Its hashing and
-// verification are deterministic and self-contained per target root, selected via
-// VIVICY_TARGET_ROOT — so we exercise the pure round-trip (generate -> verify) and
-// tamper detection against a tiny, throwaway doc tree. This never touches the real
-// frozen baseline: each test builds and tears down its own target root.
-//
-// Mirrors the CLI-subprocess convention already used in progress-ledger.test.ts.
-
 const SCRIPT = resolve(dirname(fileURLToPath(import.meta.url)), "doc-baseline.ts");
 
 function makeTargetRoot() {
   const root = mkdtempSync(resolve(tmpdir(), "doc-baseline-test-"));
-  // The script's corpus is .vivicy/canonical/**/*.md; baselines land in .vivicy/baselines.
   mkdirSync(resolve(root, ".vivicy", "canonical"), { recursive: true });
   mkdirSync(resolve(root, ".vivicy", "baselines"), { recursive: true });
   return root;
@@ -42,8 +33,6 @@ interface CliResult {
 }
 
 function runCli(root: string, args: string[]): CliResult {
-  // Returns { ok, stdout, stderr, status }. The script process.exit(1)s on failure,
-  // which execFileSync surfaces as a thrown error carrying status/stdout/stderr.
   try {
     const stdout = execFileSync(process.execPath, [SCRIPT, ...args], {
       cwd: root,
@@ -84,7 +73,6 @@ test("generate hashes the doc set and produces a self-consistent manifest", () =
     assert.equal(manifest.files.length, 2, "both canonical docs were hashed into the manifest");
     assert.match(manifest.document_set_hash, /^[0-9a-f]{64}$/, "document_set_hash is a sha256 hex digest");
     assert.match(manifest.manifest_hash, /^[0-9a-f]{64}$/, "manifest_hash is a sha256 hex digest");
-    // Each file entry carries a real per-file sha256 + byte count.
     for (const file of manifest.files) {
       assert.match(file.sha256, /^[0-9a-f]{64}$/);
       assert.equal(typeof file.bytes, "number");
@@ -99,12 +87,10 @@ test("the document set hash is reproducible for the same content and changes whe
   const rootB = makeTargetRoot();
   const rootC = makeTargetRoot();
   try {
-    // Two independent target roots with byte-identical doc sets...
     for (const root of [rootA, rootB]) {
       writeDoc(root, "01-a.md", "# Doc One\n\nbody alpha\n");
       writeDoc(root, "02-b.md", "# Doc Two\n\nbody beta\n");
     }
-    // ...and a third whose only difference is one doc's body.
     writeDoc(rootC, "01-a.md", "# Doc One\n\nbody ALPHA-CHANGED\n");
     writeDoc(rootC, "02-b.md", "# Doc Two\n\nbody beta\n");
 
@@ -149,8 +135,6 @@ test("verify fails when a tracked doc is tampered after the manifest was frozen"
     writeDoc(root, "02-b.md", "# Doc Two\n\nbody beta\n");
     assert.equal(runCli(root, ["generate", "--version", "1.0.0", "--status", "draft"]).status, 0);
 
-    // Mutate a tracked doc's bytes; verification must detect both the per-file
-    // change and the document_set_hash mismatch.
     writeDoc(root, "01-a.md", "# Doc One\n\nbody TAMPERED\n");
 
     const verify = runCli(root, ["verify", "--manifest", `.vivicy/baselines/${BASELINE_ID}.json`]);
@@ -169,7 +153,6 @@ test("verify detects a newly added tracked doc that the manifest does not list",
     writeDoc(root, "01-a.md", "# Doc One\n\nbody alpha\n");
     assert.equal(runCli(root, ["generate", "--version", "1.0.0", "--status", "draft"]).status, 0);
 
-    // Add a brand-new canonical doc after freezing; it must surface as "new included file".
     writeDoc(root, "03-c.md", "# Doc Three\n\nbody gamma\n");
 
     const verify = runCli(root, ["verify", "--manifest", `.vivicy/baselines/${BASELINE_ID}.json`]);
@@ -186,8 +169,6 @@ test("verify reports a manifest_hash mismatch when the manifest body is edited",
     writeDoc(root, "01-a.md", "# Doc One\n\nbody alpha\n");
     assert.equal(runCli(root, ["generate", "--version", "1.0.0", "--status", "draft"]).status, 0);
 
-    // Hand-edit the manifest's version without recomputing manifest_hash: the
-    // recorded hash no longer matches the recomputed one over the manifest body.
     const manifestPath = resolve(root, ".vivicy", "baselines", `${BASELINE_ID}.json`);
     const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
     manifest.product = "Tampered Product Name";
@@ -221,16 +202,13 @@ test("generate --bump validates the version delta matches the declared bump clas
   try {
     writeDoc(root, "01-a.md", "# Doc One\n\nbody\n");
     writePackage(root, "formula");
-    // A correct minor bump from 1.0.0 is 1.1.0.
     assert.equal(
       runCli(root, ["generate", "--version", "1.1.0", "--status", "draft", "--bump", "minor", "--previous-version", "1.0.0"]).status,
       0,
     );
-    // A wrong delta (1.2.0 is not a minor bump from 1.0.0) fails before writing anything.
     const wrong = runCli(root, ["generate", "--version", "1.2.0", "--status", "draft", "--bump", "minor", "--previous-version", "1.0.0"]);
     assert.equal(wrong.status, 1);
     assert.match(wrong.stderr, /does not match a minor bump from 1\.0\.0 \(expected 1\.1\.0\)/);
-    // A major bump from 1.4.2 is 2.0.0.
     assert.equal(
       runCli(root, ["generate", "--version", "2.0.0", "--status", "draft", "--bump", "major", "--previous-version", "1.4.2"]).status,
       0,
@@ -255,7 +233,6 @@ test("verify --require-min-version rejects a frozen 0.x as an extraction source 
     ]);
     assert.equal(tooLow.status, 1, "a 0.x baseline cannot drive extraction");
     assert.match(tooLow.stderr, /below the required minimum 1\.0\.0/);
-    // A 1.0.0 baseline passes the same gate.
     assert.equal(runCli(root, ["generate", "--version", "1.0.0", "--status", "draft"]).status, 0);
     assert.equal(
       runCli(root, ["verify", "--manifest", `.vivicy/baselines/${BASELINE_ID}.json`, "--require-min-version", "1.0.0"]).status,
@@ -289,7 +266,6 @@ test("product falls back to a neutral name when the target has no package.json (
   const root = makeTargetRoot();
   try {
     writeDoc(root, "01-a.md", "# Doc One\n\nbody alpha\n");
-    // No package.json written.
     assert.equal(runCli(root, ["generate", "--version", "1.0.0", "--status", "draft"]).status, 0);
 
     const manifest = readBaseline(root, BASELINE_ID);
@@ -331,14 +307,11 @@ test("generate stamps the mechanically detected spec_kind (W7a) and it rides the
   const root = makeTargetRoot();
   try {
     writeDoc(root, "01-a.md", "# Doc\n");
-    // A bare target (no tracked/product code) is a PROJECT spec.
     const gen = runCli(root, ["generate", "--version", "1.0.0", "--status", "draft"]);
     assert.equal(gen.status, 0, gen.stderr);
     const project = readBaseline(root, BASELINE_ID);
     assert.equal(project.spec_kind, "project");
 
-    // Product code present -> FEATURE spec, and the manifest hash CHANGES with the
-    // kind (it is contract, not metadata).
     mkdirSync(resolve(root, "src"), { recursive: true });
     writeFileSync(resolve(root, "src", "main.go"), "package main\n");
     const gen2 = runCli(root, ["generate", "--version", "1.0.0", "--status", "draft"]);
@@ -357,9 +330,7 @@ test("a freshly generated manifest verifies with spec_kind present (shape stays 
     writeDoc(root, "01-a.md", "# Doc\n");
     const gen = runCli(root, ["generate", "--version", "1.0.0", "--status", "draft"]);
     assert.equal(gen.status, 0, gen.stderr);
-    // spec_kind is emitted on every new manifest but stays OPTIONAL on read
-    // (assertManifestShape was deliberately not extended), so pre-v0.7.0 frozen
-    // manifests keep verifying; here we prove the emitted field round-trips verify.
+    // spec_kind is optional in assertManifestShape by design — extending it to require the field would break old frozen manifests that predate it.
     const manifest = readBaseline(root, BASELINE_ID);
     assert.ok(manifest.spec_kind === "project" || manifest.spec_kind === "feature");
     const verify = runCli(root, ["verify", "--manifest", `.vivicy/baselines/${BASELINE_ID}.json`]);

@@ -17,10 +17,7 @@ const prevRuntime = process.env.VIVICY_RUNTIME_DIR
 
 beforeEach(() => {
   tmp = mkdtempSync(path.join(tmpdir(), "vivicy-target-"))
-  // Isolate from any persisted current-project selection on this machine:
-  // point the runtime dir at an empty location so readCurrentProjectRoot()
-  // returns null and target resolution is driven purely by
-  // VIVICY_TARGET_ROOT / cwd here, not the developer's real picked project.
+  // Point VIVICY_RUNTIME_DIR at an empty temp dir so readCurrentProjectRoot() returns null — otherwise tests could pick up the developer's real persisted project selection.
   process.env.VIVICY_RUNTIME_DIR = path.join(tmp, "runtime")
 })
 
@@ -91,7 +88,6 @@ describe("isTargetResolved", () => {
   })
 
   it("is false when .vivicy/canonical is a file, not a directory", () => {
-    // A .vivicy/canonical that is not a directory is not a usable canonical-spec home.
     mkdirSync(path.join(tmp, ".vivicy"), { recursive: true })
     const docsAsFile = path.join(tmp, ".vivicy", "canonical")
     writeFileSync(docsAsFile, "not a dir")

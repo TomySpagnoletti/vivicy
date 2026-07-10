@@ -1,30 +1,9 @@
-/**
- * Spec-kind detection (W7a, v0.7.0 — owner decision D1). A governed project's spec is
- * one of exactly two kinds, decided MECHANICALLY from what the repository contains
- * when the spec work starts (never by an agent's judgment):
- *
- *   - "project": the repo carries no product code — Vivicy builds from scratch, so
- *     the spec is complete (stack, architecture, the whole product).
- *   - "feature": the repo already carries code — Vivicy governs an evolution, so the
- *     spec is scoped to what changes and the build must respect what exists.
- *
- * "Code" = any tracked file that is not Vivicy's own governance surface (`.vivicy/`),
- * a scaffold root file, or repo housekeeping. Git is the witness of record (the
- * scaffold guarantees a repo); a target with no usable git falls back to a filesystem
- * scan with the same exclusions.
- *
- * Shared by BOTH worlds — the Next control plane (`@/lib/...`) and the factory
- * (`../lib/spec-kind.ts`, same pattern as project-runtime.ts) — so Vivi's prompt,
- * the freeze manifest, and the extraction context all agree on one derivation.
- */
-
 import { execFileSync } from "node:child_process"
 import { existsSync, readdirSync } from "node:fs"
 import path from "node:path"
 
 export type SpecKind = "project" | "feature"
 
-/** Root files the scaffold itself plants — never evidence of product code. */
 const SCAFFOLD_ROOT_FILES = new Set([
   "agents.md",
   "claude.md",
@@ -37,7 +16,6 @@ const SCAFFOLD_ROOT_FILES = new Set([
   "license.txt",
 ])
 
-/** Is this repo-relative POSIX path evidence of product code? */
 function isCodeEvidence(rel: string): boolean {
   if (rel === ".vivicy" || rel.startsWith(".vivicy/")) return false
   const base = rel.toLowerCase()
@@ -46,12 +24,6 @@ function isCodeEvidence(rel: string): boolean {
   return true
 }
 
-/**
- * Detect the spec kind for a target repo. Tracked files are the witness (`git
- * ls-files` — deliberately NOT untracked scratch, which is not yet part of the
- * product); without usable git, a shallow filesystem walk with the same exclusions
- * (plus `node_modules`/dot-dirs) answers instead.
- */
 export function detectSpecKind(targetRoot: string): SpecKind {
   const tracked = gitTrackedFiles(targetRoot)
   if (tracked !== null) {

@@ -1,21 +1,3 @@
-/**
- * Server-only layout-save for the architecture map: patches the SOURCE
- * `architecture-map.yml` in place (node `layout_x`/`layout_y`, edge
- * `layout_label_ratio`), then regenerates the served `architecture-data.json`.
- *
- * Three layers protect the source map from accidental/corrupt mutation:
- *   1. the UI edit-mode toggle — drag + Save only exist when the user opts in;
- *   2. an operator kill-switch — `VIVICY_MAP_LAYOUT_WRITE` set falsey
- *      (0/false/no/off) hard-locks this endpoint to read-only regardless of the
- *      UI (a frozen map refuses all writes); defaults enabled;
- *   3. integrity guards — every patch is validated against the on-disk map (node
- *      ids and exact edge identity must match), the target path passes a traversal
- *      guard, and a failed regeneration rolls the source back to its pre-save bytes.
- *
- * The YAML is edited line-by-line (never re-serialized) so untouched content is
- * preserved byte-for-byte.
- */
-
 import { execFile } from "node:child_process"
 import { existsSync, readFileSync, writeFileSync } from "node:fs"
 import path from "node:path"
@@ -24,14 +6,12 @@ import { getFactoryRoot } from "@/lib/control"
 import { getTargetRoot } from "@/lib/target"
 import { isRecord } from "@/lib/type-guards"
 
-/** A dirty node's new committed coordinates. */
 export interface NodeLayoutPatch {
   id: string
   layout_x: number
   layout_y: number
 }
 
-/** A dirty edge label's new position ratio, with its identity for verification. */
 export interface EdgeLabelLayoutPatch {
   index: number
   from: string
@@ -41,13 +21,11 @@ export interface EdgeLabelLayoutPatch {
   layout_label_ratio: number
 }
 
-/** The POST body the viewer sends when saving an edited layout. */
 export interface LayoutSavePayload {
   nodes: NodeLayoutPatch[]
   edgeLabels: EdgeLabelLayoutPatch[]
 }
 
-/** Why a layout save failed (typed so the route never invents prose). */
 export type LayoutSaveErrorCode =
   | "read_only"
   | "no_target"
@@ -66,10 +44,8 @@ export class LayoutSaveError extends Error {
   }
 }
 
-/** The committed architecture map, relative to the target project root. */
 export const MAP_RELATIVE_PATH = ".vivicy/architecture-map/architecture-map.yml"
 
-/** When an edge label sits at the midpoint we drop the key (it is the default). */
 const DEFAULT_LABEL_RATIO = 0.5
 
 interface YamlRecord {
@@ -78,10 +54,6 @@ interface YamlRecord {
   values: Record<string, string>
   keyLines: Map<string, number>
 }
-
-// --------------------------------------------------------------------------
-// Payload validation (ported from the original middleware).
-// --------------------------------------------------------------------------
 
 export function validateLayoutSavePayload(input: unknown): LayoutSavePayload {
   if (!isRecord(input) || !Array.isArray(input.nodes) || !Array.isArray(input.edgeLabels)) {
@@ -144,15 +116,7 @@ function validateEdgeLabelLayoutPatch(input: unknown): EdgeLabelLayoutPatch {
   }
 }
 
-// --------------------------------------------------------------------------
-// Pure YAML patching (ported from the original middleware; edge identity is read
-// from the line records, so no generator import is required).
-// --------------------------------------------------------------------------
-
-/**
- * Validate the patch against the on-disk map, then apply it, returning the new
- * source. Pure (string in, string out) so it can be exercised directly.
- */
+// Patches the YAML line-by-line, never re-serialized, so untouched content is preserved byte-for-byte.
 export function patchArchitectureMapLayout(source: string, payload: LayoutSavePayload): string {
   assertPatchTargets(source, payload)
   return applyLayoutPatch(source, payload)
@@ -211,9 +175,7 @@ function applyLayoutPatch(source: string, payload: LayoutSavePayload): string {
     )
   }
 
-  // Edge records are re-read after the in-place node patches (which never change
-  // the line count). Iterate in reverse so a splice only shifts lines belonging
-  // to already-processed records, keeping earlier records' line indices valid.
+  // Iterate in reverse: node patches never change line count, but a splice here would shift indices for not-yet-processed records if we went forward.
   const edgeRecords = getYamlRecords(lines, "edges")
   for (let index = edgeRecords.length - 1; index >= 0; index -= 1) {
     const record = edgeRecords[index]
@@ -368,16 +330,6 @@ function formatRatio(value: number): string {
   return Number(value.toFixed(4)).toString()
 }
 
-// --------------------------------------------------------------------------
-// Filesystem save + regeneration (the side-effecting layer).
-// --------------------------------------------------------------------------
-
-/**
- * Operator kill-switch mirroring the old viewer's server-side write gate. Writes
- * are enabled by default (the UI edit-mode toggle is the everyday gate); setting
- * `VIVICY_MAP_LAYOUT_WRITE` to a falsey value hard-locks this endpoint so the map
- * cannot be mutated even by a direct request.
- */
 export function isLayoutWriteEnabled(
   env: Record<string, string | undefined> = process.env
 ): boolean {
@@ -387,10 +339,6 @@ export function isLayoutWriteEnabled(
   return !(normalized === "0" || normalized === "false" || normalized === "no" || normalized === "off")
 }
 
-/**
- * Resolve the absolute path of the target project's source map, guarding against
- * traversal even though the relative path is a fixed in-repo constant.
- */
 export function resolveMapPath(targetRoot: string): string {
   const abs = path.resolve(targetRoot, MAP_RELATIVE_PATH)
   const rel = path.relative(targetRoot, abs)
@@ -400,7 +348,6 @@ export function resolveMapPath(targetRoot: string): string {
   return abs
 }
 
-/** Regenerate the served viewer data by invoking the factory generator. */
 async function regenerateViewerData(targetRoot: string): Promise<void> {
   const factoryRoot = getFactoryRoot()
   const script = path.join(factoryRoot, "generate-viewer-data.ts")
@@ -430,17 +377,10 @@ async function regenerateViewerData(targetRoot: string): Promise<void> {
 
 export interface LayoutSaveOptions {
   payload: LayoutSavePayload
-  /** Defaults to the resolved target project root. */
   targetRoot?: string
-  /** Injection seam for the regeneration step (real impl invokes the generator). */
   regenerate?: (targetRoot: string) => Promise<void>
 }
 
-/**
- * Patch the target map's layout and regenerate the viewer data. Writes the
- * patched YAML, then regenerates; if regeneration fails the source file is rolled
- * back to its pre-save bytes so a bad save never leaves the map half-written.
- */
 export async function applyLayoutSave(
   options: LayoutSaveOptions
 ): Promise<{ ok: true; mapPath: string }> {
@@ -467,7 +407,7 @@ export async function applyLayoutSave(
   try {
     await regenerate(targetRoot)
   } catch (error) {
-    // Roll the source back so a failed regeneration never leaves a divergent map.
+    // Roll back: a failed regen must never leave the source map ahead of the served data.
     writeFileSync(mapPath, original)
     throw error instanceof LayoutSaveError
       ? error

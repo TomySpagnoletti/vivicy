@@ -1,8 +1,6 @@
 import { ControlError } from "@/lib/control"
 import { listViviSessions } from "@/lib/vivi"
 
-// Read-only session index for the panel's rehydration (W3): the per-project
-// transcripts already persist on disk; this lists them newest-first.
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 

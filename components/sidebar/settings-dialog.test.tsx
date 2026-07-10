@@ -6,18 +6,15 @@ import { SettingsDialog } from "@/components/sidebar/settings-dialog"
 import { DEFAULT_SETTINGS, MODEL_IDS, type AgentsSettings } from "@/lib/settings"
 import { renderWithIntl } from "@/test/render"
 
-// Mock toast so a save path never logs noise into the test output.
 vi.mock("sonner", () => ({
   toast: { success: vi.fn(), error: vi.fn() },
 }))
 
-/** Stub `GET /api/settings` to return a chosen persisted document. */
 function stubSettings(settings: AgentsSettings) {
   vi.stubGlobal(
     "fetch",
     vi.fn(async (url: string, init?: RequestInit) => {
       if (typeof url === "string" && url.includes("/api/settings")) {
-        // PUT echoes back the body (the dialog reads body.settings).
         if (init?.method === "PUT") {
           return new Response(JSON.stringify({ ok: true, settings }), { status: 200 })
         }
@@ -36,11 +33,9 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-/** Open the dialog and wait for the persisted load to settle. */
 async function openDialog(user: ReturnType<typeof userEvent.setup>) {
   await user.click(screen.getByRole("button", { name: "Settings" }))
   await screen.findByRole("dialog")
-  // Wait for the GET to resolve (the model trigger reflects the loaded value).
   await waitFor(() => expect(screen.getByLabelText("Implementer model")).toBeInTheDocument())
 }
 
@@ -50,13 +45,11 @@ describe("model picker", () => {
     renderWithIntl(<SettingsDialog />)
     await openDialog(user)
 
-    // Open the implementer (claude) model Select.
     await user.click(screen.getByLabelText("Implementer model"))
     const listbox = await screen.findByRole("listbox")
     for (const id of MODEL_IDS.claude) {
       expect(within(listbox).getByRole("option", { name: new RegExp(id) })).toBeInTheDocument()
     }
-    // Exactly the 4 curated options (no custom for a default-list model).
     expect(within(listbox).getAllByRole("option")).toHaveLength(MODEL_IDS.claude.length)
   })
 
@@ -69,19 +62,16 @@ describe("model picker", () => {
     renderWithIntl(<SettingsDialog />)
     await openDialog(user)
 
-    // The trigger shows the custom model and it survives as an option.
     expect(screen.getByLabelText("Implementer model")).toHaveTextContent("claude-internal-x")
     await user.click(screen.getByLabelText("Implementer model"))
     const listbox = await screen.findByRole("listbox")
     expect(within(listbox).getByRole("option", { name: /claude-internal-x \(custom\)/ })).toBeInTheDocument()
-    // The 4 curated + the custom one.
     expect(within(listbox).getAllByRole("option")).toHaveLength(MODEL_IDS.claude.length + 1)
   })
 })
 
 describe("fast toggle compatibility", () => {
   test("fast switch is ENABLED for a fast-capable model", async () => {
-    // Default implementer is Opus 4.8 (fast-capable).
     const user = userEvent.setup()
     renderWithIntl(<SettingsDialog />)
     await openDialog(user)
@@ -92,7 +82,6 @@ describe("fast toggle compatibility", () => {
   test("fast switch is DISABLED with a tooltip for a fast-incapable model", async () => {
     stubSettings({
       ...DEFAULT_SETTINGS,
-      // Persist an older Opus that has no fast mode.
       implementer: { provider: "claude", model: "claude-opus-4-5", effort: "high", fast: false },
     })
     const user = userEvent.setup()
@@ -101,12 +90,10 @@ describe("fast toggle compatibility", () => {
 
     const fast = screen.getByLabelText("Implementer fast mode")
     expect(fast).toBeDisabled()
-    // The honest reason is reachable via the tooltip — Radix opens it on focus of
-    // the wrapping trigger (more deterministic than hover under jsdom).
+    // Radix opens the tooltip on focus of the trigger, not hover — hover is undeterministic under jsdom.
     const trigger = screen.getByLabelText("Implementer fast mode unavailable")
     trigger.focus()
-    // Radix renders the tooltip text twice (visible content + an a11y mirror), so
-    // assert at least one match.
+    // Radix renders the tooltip text twice (visible content + an a11y mirror) — assert at least one match.
     const reasons = await screen.findAllByText(/only available on Opus 4\.6–4\.8/i)
     expect(reasons.length).toBeGreaterThan(0)
   })
@@ -115,17 +102,14 @@ describe("fast toggle compatibility", () => {
     stubSettings({
       ...DEFAULT_SETTINGS,
       implementer: { provider: "claude", model: "claude-opus-4-8", effort: "xhigh", fast: false },
-      // Reviewer = codex on Spark: no reasoning levels, no fast.
       reviewer: { provider: "codex", model: "gpt-5.3-codex-spark", effort: "", fast: false },
     })
     const user = userEvent.setup()
     renderWithIntl(<SettingsDialog />)
     await openDialog(user)
 
-    // No thinking-level control for the reviewer (Spark has none).
     expect(screen.queryByLabelText("Reviewer thinking level")).not.toBeInTheDocument()
     expect(screen.getByText(/no separate thinking level/i)).toBeInTheDocument()
-    // Fast disabled for the reviewer.
     expect(screen.getByLabelText("Reviewer fast mode")).toBeDisabled()
   })
 })
@@ -136,17 +120,14 @@ describe("thinking level filter", () => {
     renderWithIntl(<SettingsDialog />)
     await openDialog(user)
 
-    // Implementer = claude opus: claude levels.
     await user.click(screen.getByLabelText("Implementer thinking level"))
     let listbox = await screen.findByRole("listbox")
     for (const level of ["low", "medium", "high", "xhigh", "max"]) {
       expect(within(listbox).getByRole("option", { name: level })).toBeInTheDocument()
     }
-    // No codex-only level offered.
     expect(within(listbox).queryByRole("option", { name: "minimal" })).not.toBeInTheDocument()
     await user.keyboard("{Escape}")
 
-    // Reviewer = codex gpt-5.5: codex levels (incl. minimal, xhigh; no claude "max").
     await user.click(screen.getByLabelText("Reviewer thinking level"))
     listbox = await screen.findByRole("listbox")
     for (const level of ["minimal", "low", "medium", "high", "xhigh"]) {
@@ -165,18 +146,15 @@ describe("concurrency stepper (range 1–12)", () => {
 
     const input = screen.getByLabelText("Max parallel issues") as HTMLInputElement
     expect(input).toHaveValue(8)
-    // The input advertises the 1–12 range.
     expect(input).toHaveAttribute("min", "1")
     expect(input).toHaveAttribute("max", "12")
 
-    // The up arrow increments by 1 and is reachable as a button.
     const increase = screen.getByRole("button", { name: "Increase" })
     await user.click(increase)
     await user.click(increase)
     await user.click(increase)
     await user.click(increase)
     expect(input).toHaveValue(12)
-    // At the cap, the up arrow disables — the stepper can never exceed 12.
     expect(increase).toBeDisabled()
   })
 
@@ -191,7 +169,6 @@ describe("concurrency stepper (range 1–12)", () => {
     const decrease = screen.getByRole("button", { name: "Decrease" })
     await user.click(decrease)
     expect(input).toHaveValue(1)
-    // Sequential floor: cannot go below 1, the down arrow disables.
     expect(decrease).toBeDisabled()
   })
 
@@ -201,7 +178,6 @@ describe("concurrency stepper (range 1–12)", () => {
     await openDialog(user)
 
     const input = screen.getByLabelText("Max parallel issues") as HTMLInputElement
-    // Typing 99 clamps to the cap of 12 (clampMaxParallel runs on every change).
     await user.clear(input)
     await user.type(input, "99")
     expect(input).toHaveValue(12)
@@ -242,8 +218,7 @@ describe("save guard", () => {
   })
 
   test("Save is disabled when the persisted document is an invalid combo", async () => {
-    // A same-CLI-both-roles document is invalid (distinctness broken). The loader
-    // sets it verbatim into the draft, so the Save guard must catch it.
+    // The loader sets a persisted document verbatim into the draft (no validation) — the Save guard is the only thing that catches an invalid same-CLI-both-roles combo.
     stubSettings({
       implementer: { provider: "claude", model: "claude-opus-4-8", effort: "xhigh", fast: false },
       reviewer: { provider: "claude", model: "claude-opus-4-7", effort: "high", fast: false },

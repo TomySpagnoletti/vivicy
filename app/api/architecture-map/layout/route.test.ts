@@ -2,11 +2,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import type { LayoutSaveErrorCode } from "@/lib/map-layout-save"
 
-// Mock the server-only save module so the route never patches a real YAML file
-// or spawns the regeneration child process. `validateLayoutSavePayload` and
-// `applyLayoutSave` are the two collaborators; `LayoutSaveError` is kept real so
-// the route's `instanceof` check holds and we can construct typed errors to drive
-// each status-code branch.
 const { validateLayoutSavePayload, applyLayoutSave } = vi.hoisted(() => ({
   validateLayoutSavePayload: vi.fn(),
   applyLayoutSave: vi.fn(),
@@ -25,7 +20,6 @@ import { POST } from "./route"
 
 const VALID_PAYLOAD = { nodes: [], edgeLabels: [] }
 
-/** Build a POST request whose raw text is `raw` (so we can send invalid JSON). */
 function postRaw(raw: string): Request {
   return new Request("http://localhost/api/architecture-map/layout", {
     method: "POST",
@@ -54,7 +48,6 @@ describe("POST /api/architecture-map/layout", () => {
       error: "Request body must be valid JSON.",
       code: "invalid_payload",
     })
-    // It never validates or applies anything when JSON.parse failed.
     expect(validateLayoutSavePayload).not.toHaveBeenCalled()
     expect(applyLayoutSave).not.toHaveBeenCalled()
   })
@@ -71,7 +64,6 @@ describe("POST /api/architecture-map/layout", () => {
     expect(applyLayoutSave).toHaveBeenCalledWith({ payload: VALID_PAYLOAD })
   })
 
-  // Each typed code maps to a specific HTTP status via statusFor().
   const cases: Array<{ code: LayoutSaveErrorCode; status: number }> = [
     { code: "read_only", status: 403 },
     { code: "no_target", status: 404 },
@@ -104,13 +96,10 @@ describe("POST /api/architecture-map/layout", () => {
 
     expect(body.ok).toBe(false)
     expect(body.error).toBe("spawn EACCES")
-    // A generic error carries no typed code.
     expect(body.code).toBeUndefined()
   })
 
   it("surfaces a validation-stage LayoutSaveError with its mapped status", async () => {
-    // Defense in depth: even an error thrown by validateLayoutSavePayload (before
-    // applyLayoutSave) is caught and mapped by the same handler.
     validateLayoutSavePayload.mockImplementation(() => {
       throw new LayoutSaveError("bad shape", "invalid_payload")
     })

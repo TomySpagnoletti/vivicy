@@ -1,78 +1,4 @@
 #!/usr/bin/env node
-// Vivicy CLI — point the autonomous dev factory at any target project, and drive
-// or interrogate a running pipeline non-interactively (agent-consumable).
-//
-// Vivicy operates ON a target project: it reads that project's canonical docs,
-// architecture map, issue index, and progress ledger, and drives the two-agent
-// implement -> review -> verify loop over them. The target is selected with
-// VIVICY_TARGET_ROOT (or `--dir`/`--target <dir>`); everything else is local to
-// this package.
-//
-// ── G14: CLI + API PARITY (why this file and lib/control.ts do NOT share code) ──
-// There is ONE control plane conceptually, exposed to two clients:
-//   • the Next.js API routes (app/api/control/*) — the UI's client, TS, Next-side;
-//   • this `vivicy` CLI — the agents' client, Node ESM, factory-side.
-// cli.ts and lib/control.ts MUST NOT import each other: one is bundled by Next
-// (server-only, `@/` alias, TS), the other is a plain executable resolved by the
-// package `bin`. PARITY does not come from shared code — it comes from both
-// clients (a) spawning the SAME factory scripts with the same args + env, and
-// (b) reading the SAME state files with the same schema. Change a script/schema
-// and both clients move together; neither owns policy the other lacks.
-//
-// ── Lock-path compatibility (a CLI-started run is visible to the UI and back) ──
-// lib/control.ts keeps the single-run lock PER PROJECT (W8) at
-//   <runtimeRoot>/projects/<key>/run-state.json
-// where runtimeRoot = VIVICY_RUNTIME_DIR ?? <cwd>/.vivicy-runtime and <key> is
-// derived from the target's absolute path by the ONE shared module both sides
-// import: lib/project-runtime.ts (the same pattern as lib/development-overlay.ts).
-// That shared derivation IS the agreement — neither side hardcodes the other's
-// layout. The runtime ROOT still resolves as before: in every supported launch
-// path the app's cwd IS the package root (`vivicy app` spawns `next dev` with
-// cwd=<appDir>; `npm run dev`/`start` run from the package root), and this file
-// lives in factory/, so the root is resolve(<factory>, "..")/.vivicy-runtime;
-// VIVICY_RUNTIME_DIR overrides on both sides, `--runtime-dir` overrides for tests.
-// The RunState schema { pid, started_at, target_root, factory_root, log_file, mode }
-// and the wx-exclusive claim + stale-lock liveness logic are byte-compatible with
-// lib/control.ts, so a `vivicy start` run appears in the UI and a UI-started run
-// is seen (and stoppable) here. Per-project locks make CROSS-project concurrent
-// builds legal; within one project the single-run rule is unchanged.
-//
-// ── Why the CLI does NOT read the persisted current-project.json ──
-// The app's persisted project (.vivicy-runtime/current-project.json) is
-// app-runtime state written by the UI folder picker (R10). The CLI is
-// target-explicit by contract: an agent driving a headless pipeline passes the
-// target (VIVICY_TARGET_ROOT or --dir) rather than inheriting whatever the UI
-// last picked. Reading it here would make `vivicy` on one machine silently act
-// on another project the UI chose. So target resolution is env/flag only.
-//
-// ── CLI contract for non-human callers (agents) ──
-//   • --json prints ONE JSON object on stdout and nothing else; all human/log
-//     noise (child stdout/stderr, progress) goes to stderr.
-//   • Exit codes are stable: 0 ok · 1 actionable refusal (blocked / not green /
-//     unknown id / no run) · 2 usage (unknown verb/flag, unsupported stage) ·
-//     3 unexpected (a bug/crash we did not model).
-//   • No prompts, ever. A missing target is a code-2 usage error, not a question.
-//
-// Usage:
-//   vivicy status        [--dir <d>] [--json]           merged run/dev/extraction health
-//   vivicy extract       [--dir <d>]                    author issues from canonical (sync)
-//   vivicy start         [--dir <d>]                    launch the resumable supervisor (detached)
-//   vivicy resume        [--dir <d>]                    relaunch the supervisor (resumes from done/)
-//   vivicy stop          [--dir <d>]                    stop the supervised run (per-project lock)
-//   vivicy crs           [--json]                       list change requests
-//   vivicy cr approve <id> --by <actor>                 decide + apply an approved CR
-//   vivicy cr reject  <id> --by <actor>                 decide (reject) a CR
-//   vivicy skills        [--dir <d>] [--json]           read the project-skills report
-//   vivicy skills install [ids...] [--dir <d>]          select/audit/install project skills
-//   vivicy skills remove <ids...> [--dir <d>]           uninstall project skills (deterministic)
-//   vivicy retry-stage <stage>                          re-run a retryable stage (extract|skills|dev)
-//   vivicy cycle <open|cancel|status> [--dir <d>]       spec-cycle transitions (W7b; extraction closes cycles)
-//   vivicy notifications [--json]                       read the notification log
-//   vivicy app           [--target <d>] [--port <n>]    start the visual control plane (Next.js)
-//   vivicy loop          [--target <d>]                 run the two-agent dev loop once
-//   vivicy supervise     [--target <d>]                 run the resumable supervisor (foreground-attached)
-//   vivicy rehearsal     [--dry]                        end-to-end method rehearsal
-//   vivicy --help
 import { spawn, spawnSync } from "node:child_process";
 import {
   existsSync,
@@ -89,15 +15,11 @@ import { fileURLToPath } from "node:url";
 import { getProjectRuntimeDir } from "../lib/project-runtime.ts";
 import { clearSpecCycle, hasActiveFrozenBaseline, isSpecCycleOpen, readSpecCycle, writeSpecCycle } from "../lib/spec-cycle.ts";
 
-// This CLI lives in factory/, so its own directory IS the default factory root —
-// the scripts it drives (dev-loop-supervised / dev-status / extract-issues /
-// change-control / cr-apply) are its siblings. VIVICY_FACTORY_ROOT overrides it,
-// symmetrically with lib/control.ts getFactoryRoot(): the control plane honors it
-// so tests can point at a stub factory (scripts that write the expected state files
-// without spawning agents), and the CLI's parity twin must offer the same seam.
+// cli.ts and lib/control.ts must not import each other — parity comes from both spawning the same factory scripts and reading the same state files, never shared code.
 const cliDir = dirname(fileURLToPath(import.meta.url));
-const appDir = resolve(cliDir, ".."); // the Vivicy app (package root)
+const appDir = resolve(cliDir, "..");
 
+// Keep symmetric with lib/control.ts's getFactoryRoot — same default/override on both clients.
 function factoryRootDir() {
   const fromEnv = process.env.VIVICY_FACTORY_ROOT;
   if (fromEnv && fromEnv.trim().length > 0) return resolve(fromEnv);
@@ -105,13 +27,11 @@ function factoryRootDir() {
 }
 const factoryDir = factoryRootDir();
 
-// ── Stable exit codes (mirror the CLI contract above) ──
 const EXIT_OK = 0;
-const EXIT_REFUSAL = 1; // actionable refusal: blocked / not green / unknown id / no run
-const EXIT_USAGE = 2; // bad invocation: unknown verb/flag, unsupported stage, missing target
-const EXIT_UNEXPECTED = 3; // a bug/crash we did not model
+const EXIT_REFUSAL = 1;
+const EXIT_USAGE = 2;
+const EXIT_UNEXPECTED = 3;
 
-// ── Runtime-dir + lock (byte-compatible with lib/control.ts) ──
 const RUN_STATE_FILE = "run-state.json";
 const LOG_FILE = "supervisor.log";
 const RUNTIME_DIR_NAME = ".vivicy-runtime";
@@ -128,10 +48,7 @@ const EXTRACTION_STATUS_REL = ".vivicy/development/reports/extraction-status.jso
 const SKILLS_REPORT_REL = ".vivicy/development/reports/skills-report.json";
 const CHANGE_REQUESTS_DIR = ".vivicy/change-requests";
 const REPORTS_DIR = ".vivicy/development/reports";
-// G9 (notifications) lands the WRITER after this CLI. The READ contract is fixed
-// here so the widget + writer follow it: newline-delimited JSON, one object per
-// line { ts, level, stage, event, message, dismissed? }; a missing/empty file is
-// an empty list (exit 0), never an error.
+// Notification log format: NDJSON, one { ts, level, stage, event, message, dismissed? } per line; a missing/empty file reads as [] (never an error).
 const NOTIFICATIONS_REL = "notifications.jsonl";
 const NON_CR_FILES = new Set(["cr-template.md", "readme.md"]);
 
@@ -163,20 +80,15 @@ Agent contract: --json prints one JSON object on stdout (nothing else); exit
 or VIVICY_TARGET_ROOT (the persisted UI project is NOT read here).
 `;
 
-// ── shared shapes ──
-
-/** Hidden --runtime-dir override threaded through the lock-aware verbs. */
 interface Opts {
   runtimeDir?: string | null;
 }
 
-/** An Error carrying a stable exit code the top-level catch maps to process.exit. */
 interface VivicyError extends Error {
   vivicyCode?: number;
 }
 
-/** The single-run lock persisted at <runtimeDir>/run-state.json (byte-compatible
- *  with lib/control.ts). */
+// byte-compatible with lib/control.ts's RunState — cross-process lock reads depend on this shape.
 interface RunState {
   pid: number;
   started_at?: string;
@@ -186,7 +98,6 @@ interface RunState {
   mode?: string;
 }
 
-/** Result of a factory-script spawn run to completion. */
 interface ScriptResult {
   code: number | null;
   stdout: string;
@@ -194,7 +105,6 @@ interface ScriptResult {
   error?: Error;
 }
 
-/** Read-only CR display projection derived from a CR file's frontmatter. */
 interface CrSummary {
   id: string;
   title: string;
@@ -204,7 +114,6 @@ interface CrSummary {
   source: string | null;
 }
 
-/** Extraction-status.json fields the CLI surfaces (best-effort read). */
 interface ExtractionStatus {
   phase?: string;
   spike_mode?: string;
@@ -213,8 +122,7 @@ interface ExtractionStatus {
   summary?: string;
 }
 
-/** skills-report.json fields the CLI surfaces (best-effort read; the schema of
- *  record is install-skills.ts's writer — SAME file the app reads). */
+// Schema of record is install-skills.ts's writer — this is a partial read-only projection.
 interface SkillsReport {
   phase?: string;
   baseline_id?: string | null;
@@ -225,8 +133,6 @@ interface SkillsReport {
   updated_at?: string;
 }
 
-/** apply-CR-####.json fields the CLI surfaces (best-effort read + null-normalized
- *  projection). */
 interface CrApplyReport {
   cr?: string | null;
   status?: string | null;
@@ -235,7 +141,6 @@ interface CrApplyReport {
   updated_at?: string | null;
 }
 
-/** One line of the notification log (read contract fixed in this file). */
 interface Notification {
   ts?: string;
   level?: string;
@@ -245,7 +150,6 @@ interface Notification {
   dismissed?: boolean;
 }
 
-/** The machine object emitted by emitJsonOrHuman; the human path reads ok/blocked/summary. */
 interface EmitObject {
   ok: boolean;
   blocked?: boolean;
@@ -253,10 +157,6 @@ interface EmitObject {
   [key: string]: unknown;
 }
 
-// ── arg helpers ──
-
-/** Take `--name value` out of argv, returning the value (or null). A following
- *  token that itself starts with `--` is treated as absent (a bare flag). */
 function takeFlag(argv: string[], name: string): string | null {
   const i = argv.indexOf(name);
   if (i === -1) return null;
@@ -273,33 +173,21 @@ function takeBool(argv: string[], name: string): boolean {
   return true;
 }
 
-// ── stdout/stderr discipline ──
-
-/** The one JSON object a --json invocation is allowed to write to stdout. */
 function emitJson(obj: unknown): void {
   process.stdout.write(`${JSON.stringify(obj, null, 2)}\n`);
 }
 
-/** Human/log line — always stderr, so it never contaminates --json stdout. */
 function note(line: string): void {
   process.stderr.write(`${line}\n`);
 }
 
-/** Emit an error either as JSON (stdout) or a human line (stderr) per --json,
- *  then exit with `code`. `extra` merges into the JSON error object. */
 function fail(json: boolean, code: number, message: string, extra: Record<string, unknown> = {}): never {
   if (json) emitJson({ ok: false, error: message, ...extra });
   else note(`vivicy: ${message}`);
   process.exit(code);
 }
 
-// ── runtime dir / lock (compatible with lib/control.ts) ──
-
-/** The runtime dir the lock lives in. VIVICY_RUNTIME_DIR (the one override that
- *  makes the CLI and the app coincide regardless of launch cwd), else the package
- *  root's .vivicy-runtime — which equals the app's getRuntimeDir() default because
- *  the app is launched from the package root (see the header). Deliberately NOT
- *  process.cwd(): `vivicy` may run from anywhere. `--runtime-dir` overrides for tests. */
+// Deliberately not process.cwd() — vivicy may run from anywhere; this default must equal the app's getRuntimeDir() default (both anchor to the package root) so a CLI run and the UI agree on one lock.
 function runtimeDir(opts: Opts = {}): string {
   if (opts.runtimeDir) return resolve(opts.runtimeDir);
   const fromEnv = process.env.VIVICY_RUNTIME_DIR;
@@ -307,9 +195,6 @@ function runtimeDir(opts: Opts = {}): string {
   return join(appDir, RUNTIME_DIR_NAME);
 }
 
-/** The per-project runtime namespace — SAME derivation as lib/control.ts, through
- *  the one shared module (lib/project-runtime.ts). That shared derivation is the
- *  CLI↔UI agreement on where the lock/log/notifications of a project live. */
 function projectDir(opts: Opts, target: string): string {
   return getProjectRuntimeDir(runtimeDir(opts), target);
 }
@@ -332,7 +217,7 @@ function readRunState(opts: Opts, target: string): RunState | null {
   }
 }
 
-/** Is a pid currently alive? Signal 0 probes existence without affecting it. */
+// Signal 0 probes existence without sending an actual signal (POSIX idiom).
 function isAlive(pid: unknown): boolean {
   if (typeof pid !== "number") return false;
   try {
@@ -343,9 +228,7 @@ function isAlive(pid: unknown): boolean {
   }
 }
 
-/** A run is active when the lock exists AND its pid is alive; a stale lock
- *  (process gone) is cleared so a fresh start can claim it — same rule as
- *  lib/control.ts isRunActive. */
+// Mirrors lib/control.ts's isRunActive — keep both in sync.
 function isRunActive(opts: Opts, target: string): boolean {
   const state = readRunState(opts, target);
   if (!state) return false;
@@ -354,10 +237,7 @@ function isRunActive(opts: Opts, target: string): boolean {
   return false;
 }
 
-// ── target resolution (env/flag only; never the persisted UI project) ──
-
-/** Resolve the target explicitly from --dir/--target or VIVICY_TARGET_ROOT.
- *  Returns null when none is set (callers surface a usage error). */
+// Target is env/flag only, by design — never the persisted UI project (.vivicy-runtime/current-project.json), or a CLI run could silently act on whatever project the UI last picked.
 function resolveTarget(argv: string[]): string | null {
   const flag = takeFlag(argv, "--dir") ?? takeFlag(argv, "--target");
   if (flag && flag.trim().length > 0) return resolve(flag);
@@ -366,9 +246,6 @@ function resolveTarget(argv: string[]): string | null {
   return null;
 }
 
-/** Resolve a factory script path, verifying it exists on disk. Throws a coded
- *  Error the caller maps to exit 3 (a missing bundled script is a packaging bug,
- *  not a user error). */
 function scriptPath(name: string): string {
   const abs = join(factoryDir, name);
   if (!existsSync(abs)) {
@@ -379,21 +256,12 @@ function scriptPath(name: string): string {
   return abs;
 }
 
-/** Child env for a factory spawn: inherit + point at the target. Every script
- *  reads VIVICY_TARGET_ROOT; dev-status/cr-apply additionally accept --dir, which
- *  callers pass where the script documents it (matching lib/control.ts). */
 function childEnv(target: string, opts: Opts = {}): NodeJS.ProcessEnv {
-  // VIVICY_RUNTIME_DIR points at the PROJECT namespace (W8) so spawned factory
-  // orchestrators emit their notifications into exactly this project's log — the
-  // same contract lib/control.ts devEnv passes.
+  // Matches lib/control.ts's devEnv — VIVICY_RUNTIME_DIR is project-scoped, not root.
   return { ...process.env, VIVICY_TARGET_ROOT: target, VIVICY_RUNTIME_DIR: projectDir(opts, target) };
 }
 
-/** Run a factory script to completion, streaming its stdout+stderr to OUR stderr
- *  (never stdout — that is reserved for the final --json object) and collecting
- *  both streams for the caller to parse. Factory CLIs print their JSON result on
- *  stdout OR stderr (change-control's `decide` errors go to stderr), so callers
- *  parse both, exactly as lib/control.ts does. */
+// Streams child output to OUR stderr only (stdout stays reserved for the final --json object). Factory CLIs may print their JSON result on stdout OR stderr (e.g. change-control's decide errors go to stderr), so callers must parse both.
 function runScript(
   command: string,
   args: string[],
@@ -410,7 +278,7 @@ function runScript(
     child.stdout!.on("data", (chunk) => {
       const text = chunk.toString("utf8");
       stdout += text;
-      process.stderr.write(text); // human-follows-along on stderr
+      process.stderr.write(text);
     });
     child.stderr!.on("data", (chunk) => {
       const text = chunk.toString("utf8");
@@ -430,9 +298,7 @@ function readJsonFile<T>(file: string, fallback: T | null = null): T | null {
   }
 }
 
-/** Parse the first `{...}` JSON line out of text (the single-line payload a
- *  factory CLI prints, e.g. change-control's `decide`), or null. Mirrors
- *  lib/control.ts parseJsonLine. */
+// Mirrors lib/control.ts's parseJsonLine exactly — keep both in sync.
 function parseJsonLine(text: string): Record<string, unknown> | null {
   for (const line of String(text).split("\n")) {
     const trimmed = line.trim();
@@ -440,15 +306,11 @@ function parseJsonLine(text: string): Record<string, unknown> | null {
     try {
       return JSON.parse(trimmed) as Record<string, unknown>;
     } catch {
-      // keep scanning
     }
   }
   return null;
 }
 
-/** Parse a whole `{...}` JSON document out of text (dev-status.ts prints
- *  multi-line pretty JSON), tolerating surrounding noise by slicing from the
- *  first `{` to the last `}`. */
 function parseJsonBlock(text: string): Record<string, unknown> | null {
   const s = String(text);
   const start = s.indexOf("{");
@@ -461,8 +323,7 @@ function parseJsonBlock(text: string): Record<string, unknown> | null {
   }
 }
 
-/** Minimal frontmatter reader for the CR list (read-only display projection),
- *  mirroring lib/control.ts parseFrontmatter and change-control.ts's parser. */
+// Mirrors lib/control.ts's parseFrontmatter and change-control.ts's parser — keep all three in sync.
 function parseFrontmatter(text: string): Record<string, string> {
   const m = text.match(/^---\r?\n([\s\S]*?)\r?\n---/);
   if (!m) return {};
@@ -474,9 +335,6 @@ function parseFrontmatter(text: string): Record<string, string> {
   return fm;
 }
 
-// ── legacy passthrough verbs (app / loop / supervise / rehearsal) ──
-// These keep the original detached-inherit behavior: they hand the terminal to a
-// long-lived child and exit with its code. Not part of the --json agent surface.
 function passthrough(
   command: string,
   args: string[],
@@ -493,12 +351,6 @@ function passthrough(
   });
 }
 
-// ── verb: status ─────────────────────────────────────────────────────────────
-// Merged, read-only view over the SAME files the app reads: the run-state lock
-// (liveness), dev-status.ts --json (issues/gates/active/quota), the extraction
-// status file (phase + spike_mode/map_mode + spike_proving), the latest
-// cr-apply report, and the pending-CR count. Exit 0 always on a successful read;
-// a missing target is a usage error (2).
 async function cmdStatus(argv: string[], opts: Opts): Promise<void> {
   const json = takeBool(argv, "--json");
   const target = resolveTarget(argv);
@@ -516,7 +368,6 @@ async function cmdStatus(argv: string[], opts: Opts): Promise<void> {
     });
   }
 
-  // 1. run-state lock (liveness of the detached supervisor) — SAME lock the app uses.
   const lock = readRunState(opts, target);
   const runActive = isRunActive(opts, target);
   const run = lock
@@ -529,11 +380,7 @@ async function cmdStatus(argv: string[], opts: Opts): Promise<void> {
       }
     : null;
 
-  // 2. dev-status.ts --json (deterministic + live process inspection). Best-effort:
-  // a merged read-only view must not abort because one sub-source is unavailable
-  // (missing script, ps failure), so an unreadable dev-status degrades to dev: null
-  // rather than failing the whole status — the lock, extraction, and CR sources are
-  // still worth returning. (In production dev-status.ts is a bundled sibling.)
+  // Best-effort: an unreadable dev-status degrades to dev: null rather than failing the whole merged view — the lock, extraction, and CR sources are still worth returning.
   let devStatus = null;
   try {
     const dev = await runScript(process.execPath, [scriptPath(STATUS_SCRIPT), "--dir", target, "--json"], {
@@ -545,13 +392,10 @@ async function cmdStatus(argv: string[], opts: Opts): Promise<void> {
     devStatus = null;
   }
 
-  // 3. extraction-status.json (phase + spike/map modes + proving summary).
   const extraction = readJsonFile<ExtractionStatus>(join(target, EXTRACTION_STATUS_REL));
 
-  // 4. latest cr-apply report (most recently updated), if any.
   const latestCrApply = readLatestCrApply(target);
 
-  // 5. pending CRs (idea | under_review — the decidable ones).
   const pendingCrs = countPendingCrs(target);
 
   emitJsonOrHuman(json, {
@@ -638,11 +482,6 @@ function countPendingCrs(target: string): number {
     .length;
 }
 
-// ── verb: extract ────────────────────────────────────────────────────────────
-// Spawn extract-issues.ts synchronously, stream its progress to stderr, and read
-// the terminal extraction-status.json back. Exit 0 ONLY on green; a blocked
-// terminal (extraction_blocked / blocked_on_unverified_spikes) is a code-1
-// refusal a human/agent must act on; any other non-green is code 1 too.
 async function cmdExtract(argv: string[], opts: Opts): Promise<void> {
   const json = takeBool(argv, "--json");
   const target = resolveTarget(argv);
@@ -679,11 +518,6 @@ async function cmdExtract(argv: string[], opts: Opts): Promise<void> {
   process.exit(ok ? EXIT_OK : EXIT_REFUSAL);
 }
 
-// ── verbs: start / resume / stop ─────────────────────────────────────────────
-// Detached supervisor lifecycle, byte-compatible with lib/control.ts's lock so a
-// CLI-started run shows up in the UI and a UI-started run is seen (and stoppable)
-// here. `start`/`resume` differ only in the recorded `mode` label — the
-// supervisor resumes from done/ + the ledger either way.
 function startSupervisor(argv: string[], opts: Opts, mode: string): void {
   const json = takeBool(argv, "--json");
   const target = resolveTarget(argv);
@@ -696,17 +530,12 @@ function startSupervisor(argv: string[], opts: Opts, mode: string): void {
     return fail(json, EXIT_USAGE, `target root does not exist: ${target}`, { code: "missing_target" });
   }
 
-  // W7b: an open drafting cycle means the canonical may legitimately drift from the
-  // frozen baseline — refuse here with the actionable message (same guard as the app).
   if (isSpecCycleOpen(target)) {
     return fail(json, EXIT_REFUSAL, "a drafting spec cycle is open — run `vivicy extract` to freeze it (or `vivicy cycle cancel`) before building", {
       code: "cycle_state",
     });
   }
 
-  // Refuse a double start while a run is active (the single-run lock). isRunActive
-  // clears a stale lock, so a dead prior run does not block a fresh start. The lock
-  // is PER PROJECT (W8): two different targets may build concurrently.
   if (isRunActive(opts, target)) {
     const lock = readRunState(opts, target);
     return fail(json, EXIT_REFUSAL, "a supervised run is already active", {
@@ -719,10 +548,7 @@ function startSupervisor(argv: string[], opts: Opts, mode: string): void {
   mkdirSync(projectDir(opts, target), { recursive: true });
   const logFile = logPath(opts, target);
 
-  // Atomically claim the lock BEFORE spawning (closes the check-then-spawn TOCTOU
-  // window), exactly as lib/control.ts claimRunLock does: `wx` exclusive create,
-  // placeholder pid = OUR pid so a concurrent claimant sees a live lock, then patch
-  // in the child pid after spawn. A lost race (EEXIST) is a code-1 refusal.
+  // Claims the lock (wx exclusive, placeholder pid = ours) BEFORE spawning to close the check-then-spawn TOCTOU window — mirrors lib/control.ts's claimRunLock; a lost race (EEXIST) is a refusal.
   const placeholder = {
     pid: process.pid,
     started_at: new Date().toISOString(),
@@ -740,8 +566,6 @@ function startSupervisor(argv: string[], opts: Opts, mode: string): void {
     throw error;
   }
 
-  // Detached, own process group, stdio -> the shared supervisor log (append, so a
-  // resume accumulates), unref so this CLI can exit while the run keeps going.
   const out = openSync(logFile, "a");
   const err = openSync(logFile, "a");
   let child: ReturnType<typeof spawn>;
@@ -753,7 +577,7 @@ function startSupervisor(argv: string[], opts: Opts, mode: string): void {
       stdio: ["ignore", out, err],
     });
   } catch (error) {
-    rmSync(runStatePath(opts, target), { force: true }); // release the claim for a retry
+    rmSync(runStatePath(opts, target), { force: true });
     return fail(json, EXIT_UNEXPECTED, `failed to spawn supervisor: ${errText(error)}`, {
       code: "spawn_failed",
     });
@@ -784,9 +608,7 @@ function cmdStop(argv: string[], opts: Opts): void {
   if (!state) {
     return fail(json, EXIT_REFUSAL, "no supervised run is recorded", { code: "not_running" });
   }
-  // Kill the whole group (negative pid) so the supervisor's relaunched children
-  // die with it; fall back to the single pid. Clear the lock regardless — SAME
-  // teardown as lib/control.ts stopSupervisor.
+  // Negative pid kills the whole process group (so the supervisor's relaunched children die too), falling back to the single pid; same teardown as lib/control.ts stopSupervisor.
   killGroup(state.pid);
   rmSync(runStatePath(opts, target), { force: true });
   note(`vivicy: stopped supervised run pid ${state.pid}`);
@@ -808,7 +630,6 @@ function killGroup(pid: number, signal: NodeJS.Signals | number = "SIGTERM"): bo
   }
 }
 
-// ── verb: crs (list) ─────────────────────────────────────────────────────────
 function cmdCrs(argv: string[]): void {
   const json = takeBool(argv, "--json");
   const target = resolveTarget(argv);
@@ -831,16 +652,9 @@ function cmdCrs(argv: string[]): void {
   process.exit(EXIT_OK);
 }
 
-// ── verb: cr approve|reject <id> --by <actor> ────────────────────────────────
-// The decision + apply chain, driven through the SAME factory scripts the app
-// spawns: change-control.ts `decide` (deterministic, no agent) then, for an
-// approval, cr-apply.ts (its agent APPLY leg lives inside the script). Child
-// output streams to stderr; the final JSON goes to stdout. Exit 0 only when the
-// decision recorded AND (for an approval) the chain reached green; a blocked
-// chain / unknown id / undecidable CR are code-1 refusals.
 async function cmdCr(argv: string[], opts: Opts): Promise<void> {
   const json = takeBool(argv, "--json");
-  const decision = argv.shift(); // "approve" | "reject"
+  const decision = argv.shift();
   const id = argv[0] && !argv[0].startsWith("--") ? argv.shift() : null;
   const by = takeFlag(argv, "--by");
   const target = resolveTarget(argv);
@@ -869,9 +683,7 @@ async function cmdCr(argv: string[], opts: Opts): Promise<void> {
 
   const decisionWord = decision === "approve" ? "approved" : "rejected";
 
-  // 1. DECIDE — deterministic. change-control.ts reads VIVICY_TARGET_ROOT only
-  // (no --dir), so the target rides the env. It prints a JSON result line; exit 0
-  // ok, 1 on a decision error (unknown/undecidable/no-baseline), 2 usage.
+  // change-control.ts reads VIVICY_TARGET_ROOT only (no --dir) — target must ride the env.
   note(`vivicy: recording decision ${decisionWord} on ${id} (by ${by})…`);
   const decideRes = await runScript(
     process.execPath,
@@ -885,8 +697,6 @@ async function cmdCr(argv: string[], opts: Opts): Promise<void> {
       lastLine(decideRes.stderr) ||
       lastLine(decideRes.stdout) ||
       "decision failed";
-    // A usage exit (2) from the child stays a usage error; everything else is an
-    // actionable refusal (unknown id / undecidable CR / no frozen baseline).
     const code = decideRes.code === 2 ? EXIT_USAGE : EXIT_REFUSAL;
     return fail(json, code, message, { id, code: classifyDecisionCode(message) });
   }
@@ -897,13 +707,11 @@ async function cmdCr(argv: string[], opts: Opts): Promise<void> {
         ? "accepted_current_build"
         : "rejected";
 
-  // A rejection stops here — the decision is the whole outcome (no chain).
   if (decisionWord === "rejected") {
     emitJsonOrHuman(json, { ok: true, id, decision: decisionWord, status, summary: `CR ${id} rejected` });
     process.exit(EXIT_OK);
   }
 
-  // 2. APPLY chain (approvals) — cr-apply.ts; read its terminal report back.
   note(`vivicy: applying ${id} (apply -> re-freeze -> re-extract -> reopen impacted issues)…`);
   const applyRes = await runScript(process.execPath, [scriptPath(CR_APPLY_SCRIPT), "--cr", id], {
     cwd: factoryDir,
@@ -929,22 +737,13 @@ async function cmdCr(argv: string[], opts: Opts): Promise<void> {
   process.exit(applied.ok ? EXIT_OK : EXIT_REFUSAL);
 }
 
-/** Map a decide-failure message to the same coded reason the control plane uses,
- *  for stable machine handling. */
+// Codes must match lib/control.ts's equivalent classifier — same machine-readable reasons on both clients.
 function classifyDecisionCode(message: string): string {
   if (/no CR with id/i.test(message)) return "unknown_cr";
   if (/can be decided|no frozen baseline/i.test(message)) return "cr_not_decidable";
   return "decision_failed";
 }
 
-// ── verb: skills [install] ───────────────────────────────────────────────────
-// `skills` reads the SAME skills-report.json the app reads (stable JSON on
-// stdout; exit 1 when the last install's phase is failed — a report an agent
-// must act on, not just display). `skills install [ids...]` drives
-// install-skills.ts synchronously like `extract` drives extract-issues.ts:
-// stream progress to stderr, read the terminal report back, exit 0 only on
-// green/skipped. No ids = auto mode (selection from the frozen spec); ids =
-// explicit mode (`--ids <id1,id2,...>`).
 function cmdSkillsReport(argv: string[]): void {
   const json = takeBool(argv, "--json");
   const target = resolveTarget(argv);
@@ -1035,10 +834,7 @@ function cmdSkills(argv: string[], opts: Opts = {}): Promise<void> | void {
   return cmdSkillsReport(argv);
 }
 
-/** Claim the per-project skills lock (byte-compatible with lib/control.ts): the app
- *  patches its detached installer's pid into this file, so a CLI claim while that
- *  pid is alive is refused — no cross-client double-spawn. Returns a release fn, or
- *  null when a live install holds the lock. */
+// Byte-compatible with lib/control.ts's skills lock — the app patches its installer's pid into the same file, so a live install from either client refuses the other (no cross-client double-spawn).
 function claimCliSkillsLock(opts: Opts, target: string): (() => void) | null {
   const file = join(projectDir(opts, target), "skills-install.lock");
   mkdirSync(projectDir(opts, target), { recursive: true });
@@ -1065,8 +861,6 @@ function claimCliSkillsLock(opts: Opts, target: string): (() => void) | null {
   return tryClaim() ? () => rmSync(file, { force: true }) : null;
 }
 
-// Deterministic uninstall (W6): runs install-skills.ts --remove to completion and
-// mirrors its final report — same dispatch the app's skills route applies.
 async function cmdSkillsRemove(argv: string[], opts: Opts = {}): Promise<void> {
   const json = takeBool(argv, "--json");
   const target = resolveTarget(argv);
@@ -1113,18 +907,11 @@ async function cmdSkillsRemove(argv: string[], opts: Opts = {}): Promise<void> {
   process.exit(ok ? EXIT_OK : EXIT_REFUSAL);
 }
 
-// ── verb: retry-stage <stage> ────────────────────────────────────────────────
-// Honest scope: only three stages are actually retryable today — `extract`
-// (re-run extraction), `skills` (re-run the skills installer, auto mode), and
-// `dev` (relaunch the supervisor = resume). Map generation lives INSIDE
-// extraction, so there is no standalone map stage to retry. This is a thin
-// dispatcher; anything else is a code-2 usage error listing what IS supported
-// (no fake generality). G8's per-stage retry buttons call POST /api/control/retry-stage
-// with the same dispatch, so parity holds.
+// Only extract/skills/dev are retryable — map generation lives inside extraction, so there's no standalone map stage; POST /api/control/retry-stage must dispatch the same three.
 const RETRYABLE_STAGES: Record<string, string> = { extract: "extract", skills: "skills", dev: "resume" };
 
 async function cmdRetryStage(argv: string[], opts: Opts): Promise<void> {
-  const json = argv.includes("--json"); // peek; the sub-verb consumes it
+  const json = argv.includes("--json"); // peek only — the dispatched sub-verb consumes it via its own takeBool
   const stage = argv[0] && !argv[0].startsWith("--") ? argv.shift() : null;
   const action = stage ? RETRYABLE_STAGES[stage] : undefined;
   if (!action) {
@@ -1140,10 +927,7 @@ async function cmdRetryStage(argv: string[], opts: Opts): Promise<void> {
   return startSupervisor(argv, opts, "resume");
 }
 
-// ── verb: cycle <open|cancel|status> (W7b — spec cycles) ─────────────────────
-// Same guards as the app's /api/control/cycle: open requires a frozen baseline, no
-// active run, no cycle already open; cancel requires an undrifted canonical (the
-// doc-baseline verifier is the drift judge). Extraction closes cycles — never this.
+// Extraction closes cycles — never this dispatcher (no "close" action exists here by design).
 async function cmdCycle(argv: string[], opts: Opts): Promise<void> {
   const action = argv.shift();
   const json = takeBool(argv, "--json");
@@ -1205,7 +989,6 @@ async function cmdCycle(argv: string[], opts: Opts): Promise<void> {
   return fail(json, EXIT_USAGE, `unknown cycle action "${action}" (expected open|cancel|status)`, { code: "usage" });
 }
 
-/** Repo-relative path of the ACTIVE frozen manifest under a target, or null. */
 function activeFrozenManifestRel(target: string): string | null {
   const dir = join(target, ".vivicy", "baselines");
   if (!existsSync(dir)) return null;
@@ -1221,18 +1004,9 @@ function activeFrozenManifestRel(target: string): string | null {
   return null;
 }
 
-// ── verb: notifications ──────────────────────────────────────────────────────
-// Read the notification log (.vivicy-runtime/notifications.jsonl). G9 lands the
-// WRITER after this CLI; the READ contract is fixed here: newline-delimited JSON,
-// one object per line { ts, level, stage, event, message, dismissed? }. A missing
-// or empty file is an empty list (exit 0), never an error. Malformed lines are
-// skipped so a partial write never breaks a read.
 function cmdNotifications(argv: string[], opts: Opts): void {
   const json = takeBool(argv, "--json");
-  // Per-project log when a target is given (W8). A still-unmigrated legacy root log
-  // is read FIRST (it is older by construction) so the CLI's view matches the app's
-  // — the app folds that same legacy log into the project on its first access; this
-  // reader stays read-only and never migrates.
+  // A still-unmigrated legacy root log is read FIRST (older by construction) so this view matches the app's own fold-in order; this reader stays read-only and never migrates it.
   const target = resolveTarget(argv);
   const files = target
     ? [join(runtimeDir(opts), NOTIFICATIONS_REL), join(projectDir(opts, target), NOTIFICATIONS_REL)]
@@ -1246,7 +1020,6 @@ function cmdNotifications(argv: string[], opts: Opts): void {
       try {
         notifications.push(JSON.parse(trimmed) as Notification);
       } catch {
-        // Skip a malformed/partial line rather than failing the whole read.
       }
     }
   }
@@ -1262,7 +1035,6 @@ function cmdNotifications(argv: string[], opts: Opts): void {
   process.exit(EXIT_OK);
 }
 
-// ── small utilities ──
 function lastLine(text: string): string | null {
   const lines = String(text ?? "").split("\n");
   for (let i = lines.length - 1; i >= 0; i--) {
@@ -1275,8 +1047,6 @@ function errText(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-/** Emit the machine object as JSON on stdout, or a terse human confirmation on
- *  stderr, per --json. Verbs with a richer human view call note() directly. */
 function emitJsonOrHuman(json: boolean, obj: EmitObject): void {
   if (json) {
     emitJson(obj);
@@ -1286,7 +1056,6 @@ function emitJsonOrHuman(json: boolean, obj: EmitObject): void {
   note(`vivicy: ${verdict}${obj.summary ? ` — ${obj.summary}` : ""}`);
 }
 
-// ── dispatch ─────────────────────────────────────────────────────────────────
 async function main(): Promise<void> {
   const argv = process.argv.slice(2);
   if (argv.length === 0 || argv.includes("--help") || argv.includes("-h")) {
@@ -1294,13 +1063,10 @@ async function main(): Promise<void> {
     process.exit(argv.length === 0 ? EXIT_USAGE : EXIT_OK);
   }
 
-  // A hidden --runtime-dir override (used by tests) so the lock/log land in an
-  // isolated dir; production callers rely on VIVICY_RUNTIME_DIR / the default.
   const opts = { runtimeDir: takeFlag(argv, "--runtime-dir") };
 
   const command = argv.shift();
   switch (command) {
-    // Agent-consumable control surface.
     case "status":
       return cmdStatus(argv, opts);
     case "extract":
@@ -1324,7 +1090,6 @@ async function main(): Promise<void> {
     case "notifications":
       return cmdNotifications(argv, opts);
 
-    // Legacy passthrough verbs (long-lived, terminal-attached; not the JSON surface).
     case "app": {
       const target = takeFlag(argv, "--target");
       const env = target ? { VIVICY_TARGET_ROOT: resolve(target) } : {};
@@ -1337,8 +1102,6 @@ async function main(): Promise<void> {
     }
     case "loop": {
       const target = takeFlag(argv, "--target");
-      // The project runtime dir rides along (W8) so the orchestrator's notify()
-      // lands in the same per-project log the app and `vivicy notifications` read.
       const env = target
         ? { VIVICY_TARGET_ROOT: resolve(target), VIVICY_RUNTIME_DIR: projectDir(opts, resolve(target)) }
         : {};
@@ -1365,8 +1128,6 @@ async function main(): Promise<void> {
 }
 
 main().catch((error) => {
-  // An unmodeled crash: honest exit 3 with the message on stderr (never a
-  // half-written JSON object on stdout).
   const code = error && typeof error.vivicyCode === "number" ? error.vivicyCode : EXIT_UNEXPECTED;
   note(`vivicy: ${errText(error)}`);
   process.exit(code);

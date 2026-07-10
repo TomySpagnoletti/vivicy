@@ -19,21 +19,12 @@ const CODEX_AUTH = path.join(HOME, ".codex", "auth.json")
 const CLAUDE_CRED = path.join(HOME, ".claude", ".credentials.json")
 const CLAUDE_SETTINGS = path.join(HOME, ".claude", "settings.json")
 
-// A realistic Windows home + the OS-correct credential/auth paths under it. The
-// detector composes these with `path.join`, so tests must key the probe's file
-// map with the SAME join. On a posix test host `path.join` stays posix; that is
-// fine — the platform SEAM (`platform: "win32"`) is what selects the Windows code
-// path, and the file lookups are keyed consistently on both sides of the seam.
+// path.join stays posix even in "win32" tests run on a posix host — harmless, since the platform SEAM (an explicit param) drives Windows behavior, not the real host OS, and both sides key paths with the same join.
 const WIN_HOME = "C:\\Users\\test-user"
 const WIN_CLAUDE_CRED = path.join(WIN_HOME, ".claude", ".credentials.json")
 const WIN_CLAUDE_SETTINGS = path.join(WIN_HOME, ".claude", "settings.json")
 const WIN_CODEX_AUTH = path.join(WIN_HOME, ".codex", "auth.json")
 
-/**
- * A fully-stubbed probe so detection is exercised without a real CLI, home dir,
- * env, or — critically — the real macOS Keychain. `keychain` defaults to "no item"
- * and tests opt into a specific {@link KeychainResult} (or `null` = unprobeable).
- */
 function makeProbe(opts: {
   present?: Record<string, string>
   versions?: Record<string, string>
@@ -50,14 +41,11 @@ function makeProbe(opts: {
     home: () => opts.home ?? HOME,
     env: (name) => opts.env?.[name] ?? null,
     platform: () => opts.platform ?? "linux",
-    // `keychain` may be explicitly null (unprobeable); only default when omitted.
     keychain: () =>
       "keychain" in opts ? opts.keychain ?? null : { secret: null, exists: false },
   }
 }
 
-// A realistic Keychain secret: OAuth creds wrapped under `claudeAiOauth`, as the
-// live macOS item is shaped. The token is fake; tests never read a real secret.
 const KEYCHAIN_MAX_JSON = JSON.stringify({
   claudeAiOauth: {
     accessToken: "sk-ant-oat01-FAKEFAKEFAKE",
@@ -71,12 +59,10 @@ const KEYCHAIN_MAX_JSON = JSON.stringify({
 
 describe("normalizeVersion", () => {
   it("strips Claude's trailing product-name parenthetical (real raw string)", () => {
-    // `claude --version` prints e.g. "2.1.191 (Claude Code)".
     expect(normalizeVersion("2.1.191 (Claude Code)")).toBe("2.1.191")
   })
 
   it("strips Codex's leading product-name prefix (real raw string)", () => {
-    // `codex --version` prints e.g. "codex-cli 0.141.0".
     expect(normalizeVersion("codex-cli 0.141.0")).toBe("0.141.0")
   })
 
@@ -91,7 +77,6 @@ describe("normalizeVersion", () => {
   })
 
   it("cleans a truncated/malformed product parenthetical (no closing paren)", () => {
-    // A garbled `--version` line must not leak the dangling product name.
     expect(normalizeVersion("2.1.191 (Claude Code")).toBe("2.1.191")
   })
 
@@ -100,7 +85,6 @@ describe("normalizeVersion", () => {
   })
 
   it("never doubles up — only the redundant product name is removed", () => {
-    // A version that merely contains digits and dots must survive verbatim.
     expect(normalizeVersion("v1.2.3-beta.4")).toBe("v1.2.3-beta.4")
   })
 })
@@ -185,7 +169,7 @@ describe("detectClaudeAuth (layered, honest)", () => {
     const probe = makeProbe({
       platform: "darwin",
       env: { ANTHROPIC_API_KEY: "sk-ant-api03-FAKE" },
-      keychain: { secret: KEYCHAIN_MAX_JSON, exists: true }, // present but env wins
+      keychain: { secret: KEYCHAIN_MAX_JSON, exists: true },
     })
     expect(detectClaudeAuth(probe)).toEqual({
       authenticated: true,
@@ -281,8 +265,6 @@ describe("getAgentsHealth", () => {
       },
     })
     const health = getAgentsHealth(probe)
-    // The raw probe strings ("2.1.0 (Claude Code)", "codex-cli 0.141.0") are
-    // normalized to just the version number before reaching the UI.
     expect(health.claude).toEqual({
       present: true,
       version: "2.1.0",
@@ -332,8 +314,6 @@ describe("getAgentsHealth", () => {
 })
 
 describe("resolveOnPath (cross-platform presence, no real spawn)", () => {
-  // Inject the exec seam so we assert WHICH command each platform runs and that
-  // Windows never reaches the POSIX `/bin/sh` probe (which would throw there).
   function recordingExec(reply: (bin: string, args: string[]) => string | null) {
     const calls: Array<{ bin: string; args: string[] }> = []
     const exec: ExecFirstLine = (bin, args) => {
@@ -349,15 +329,12 @@ describe("resolveOnPath (cross-platform presence, no real spawn)", () => {
     )
     const resolved = resolveOnPath("claude", "win32", exec)
     expect(resolved).toBe("C:\\Users\\test-user\\AppData\\Roaming\\npm\\claude.cmd")
-    // It used `where` via cmd.exe and NEVER touched `/bin/sh`.
     expect(calls).toHaveLength(1)
     expect(calls[0]).toEqual({ bin: "cmd.exe", args: ["/c", "where", "claude"] })
     expect(calls.some((c) => c.bin === "/bin/sh")).toBe(false)
   })
 
   it("Windows: a non-absolute / error line from `where` is rejected as absent", () => {
-    // `where` prints "INFO: Could not find files..." to stdout on a miss; the
-    // absolute-path guard rejects it rather than treating it as a hit.
     const { exec } = recordingExec(() => "INFO: Could not find files for the given pattern(s).")
     expect(resolveOnPath("claude", "win32", exec)).toBe(null)
   })
@@ -373,20 +350,17 @@ describe("resolveOnPath (cross-platform presence, no real spawn)", () => {
     )
     expect(resolveOnPath("codex", "linux", exec)).toBe("/usr/local/bin/codex")
     expect(calls[0]).toEqual({ bin: "/bin/sh", args: ["-c", "command -v codex"] })
-    // It never spawned cmd.exe on Unix.
     expect(calls.some((c) => c.bin === "cmd.exe")).toBe(false)
   })
 
   it("Unix: a relative resolution (shell builtin/alias) is rejected as not-on-PATH", () => {
-    const { exec } = recordingExec(() => "claude") // builtin/alias, not an abs path
+    const { exec } = recordingExec(() => "claude")
     expect(resolveOnPath("claude", "darwin", exec)).toBe(null)
   })
 })
 
 describe("Windows auth detection (file store, per official docs)", () => {
-  // Per https://code.claude.com/docs/en/authentication, Windows stores Claude
-  // creds at %USERPROFILE%\.claude\.credentials.json — a FILE, not the Credential
-  // Manager. Detection must read that file, never call the Keychain branch.
+  // Per https://code.claude.com/docs/en/authentication, Windows stores Claude creds in a FILE (%USERPROFILE%\.claude\.credentials.json), never the Keychain — detection must never fall through to the Keychain branch there.
   it("Claude: reads %USERPROFILE%\\.claude\\.credentials.json as subscription", () => {
     const probe = makeProbe({
       platform: "win32",
@@ -526,15 +500,12 @@ describe("config-dir overrides (cross-platform)", () => {
 
 describe("honest unknown vs unauthenticated by OS", () => {
   it("Codex keyring mode (no auth.json on disk) degrades to not-authenticated, never fabricated", () => {
-    // With `cli_auth_credentials_store=keyring`, creds live in the OS keyring and
-    // auth.json is absent. We cannot read the keyring non-interactively, so the
-    // honest verdict is the no-file one — NOT a made-up "authenticated".
+    // With cli_auth_credentials_store=keyring, creds live in the OS keyring and auth.json never appears; unreadable non-interactively, so the honest verdict is "not authenticated," never a fabricated "authenticated."
     const probe = makeProbe({
       present: { codex: "/usr/bin/codex" },
       versions: { codex: "codex-cli 0.141.0" },
       platform: "win32",
       home: WIN_HOME,
-      // no WIN_CODEX_AUTH entry → file absent
     })
     const codex = getAgentsHealth(probe).codex
     expect(codex.present).toBe(true)

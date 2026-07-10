@@ -1,8 +1,3 @@
-// The agent prompts must be SELF-CONTAINED: they carry the per-action discipline
-// themselves and do NOT depend on the (now lean) target containing development-
-// method docs. The target no longer ships `docs/governance/**`, so any prompt that
-// told an agent to read or route to a `docs/governance/...` doc would be a dangling
-// reference. This test fails if any such reference reappears.
 import assert from "node:assert/strict";
 import test from "node:test";
 import { readFileSync } from "node:fs";
@@ -22,7 +17,6 @@ test("no prompt references a docs/governance/** method doc (target is lean)", ()
       !/docs\/governance\//.test(text),
       `${name} still references docs/governance/** — the lean target does not contain it`,
     );
-    // The specific stale numbers the implementer prompt used to cite.
     assert.ok(!/governance\/0[0-9]-/.test(text), `${name} cites a stale governance doc number`);
   }
 });
@@ -31,7 +25,6 @@ test("implementer.md is self-contained: declares it carries the discipline, list
   const text = readPrompt("implementer.md");
   assert.match(text, /SELF-CONTAINED/, "implementer.md must declare it is self-contained");
   assert.match(text, /LEAN/, "implementer.md must note the target is lean");
-  // The four-action implementer discipline still travels in the prompt itself.
   assert.match(text, /verification gate/i);
   assert.match(text, /TDD|test delta/i);
   assert.match(text, /smallest vertical slice/i);
@@ -41,7 +34,6 @@ test("implementer.md is self-contained: declares it carries the discipline, list
 test("extractor.md is self-contained: carries the corpus schemas without a target method doc", () => {
   const text = readPrompt("extractor.md");
   assert.match(text, /SELF-CONTAINED/, "extractor.md must declare it is self-contained");
-  // The artifact schemas it owns are present in the prompt itself.
   assert.match(text, /Requirement Catalog/);
   assert.match(text, /Traceability Matrix/);
   assert.match(text, /issue-index\.json/);
@@ -99,17 +91,13 @@ test("spike-prover.md carries the run-it-in-the-target-repo proving discipline",
   const text = readPrompt("spike-prover.md");
   assert.match(text, /SELF-CONTAINED/, "spike-prover.md must declare it is self-contained");
   assert.match(text, /Spike Prover/i);
-  // It proves substance by RUNNING experiments in the target repo, never by reasoning.
   assert.match(text, /IN THIS TARGET REPO/i);
   assert.match(text, /never fabricate|never claim a proof/i);
-  // The six evidence fields it must record.
   for (const field of ["environment", "commands", "observed output", "decision", "documentation updates", "unresolved risks"]) {
     assert.match(text, new RegExp(field, "i"), `spike-prover must record the "${field}" evidence field`);
   }
-  // The machine verdict contract.
   assert.match(text, /spike-<stem>-proof\.json/);
   assert.match(text, /"verdict":\s*"verified"/);
-  // It stays in scope and only corrects canonical when reality forces it (rule 1).
   assert.match(text, /truth-model rule 1|pre-freeze correction/i);
   assert.match(text, /Forbidden/i, "must forbid touching other spikes / the corpus");
 });
@@ -119,7 +107,6 @@ test("spike-verifier.md carries the independent counter-verification discipline"
   assert.match(text, /SELF-CONTAINED/, "spike-verifier.md must declare it is self-contained");
   assert.match(text, /independent Spike Verifier/i);
   assert.match(text, /did \*\*NOT\*\* establish this proof|You did .*NOT.* establish/i);
-  // It writes the agree verdict and edits nothing.
   assert.match(text, /spike-<stem>-verdict\.json/);
   assert.match(text, /"agree":\s*(true|boolean)/i);
   assert.match(text, /Report, never edit|edit no file|You edit nothing/i);
@@ -127,9 +114,6 @@ test("spike-verifier.md carries the independent counter-verification discipline"
 
 test("vivi.md pins the strict spike filename/gate_id grammar", () => {
   const text = readPrompt("vivi.md");
-  // Vivi writes spikes the rest of the pipeline consumes; a filename that does not
-  // match the gate_id slug is silently skipped by the proving stage (real bug found
-  // in the torture run — Vivi wrote `S01-...md` with `gate:phase0:s01-...`).
   assert.match(text, /NO leading `S`\/`s`/i, "vivi.md must forbid the leading-S filename");
   assert.match(text, /gate:phase0:s<nn>-<slug>/, "vivi.md must show the gate_id grammar");
   assert.match(text, /filename stem \*\*verbatim\*\*|equal the filename without `\.md`/i, "vivi.md must require gate_id slug == filename stem");
@@ -153,10 +137,8 @@ test("the spec-kind discipline (W7a) is pinned across vivi/implementer/reviewer 
 
 test("vivi.md carries the governess charter (action protocol, no code, no CR decision)", () => {
   const text = readPrompt("vivi.md");
-  // The action protocol: the ONE structured channel, mirrored by lib/vivi-actions.ts.
   assert.match(text, /```vivicy-action/, "vivi.md must document the vivicy-action fence");
   assert.match(text, /"actions": \[\{"tool":/, "vivi.md must show the envelope shape");
-  // The tool catalog must name the verbs the registry actually implements.
   for (const tool of [
     "status.read",
     "pipeline.start",
@@ -174,7 +156,6 @@ test("vivi.md carries the governess charter (action protocol, no code, no CR dec
   ]) {
     assert.match(text, new RegExp(tool.replace(".", "\\.")), `vivi.md must document the ${tool} tool`);
   }
-  // The two hard prohibitions: never code, never decide a CR (P2's human touchpoint).
   assert.match(text, /You never write code/i, "vivi.md must carry the no-code prohibition");
   assert.match(text, /no `cr\.decide` tool/i, "vivi.md must state the CR decision is never hers");
   assert.match(text, /never repeat a succeeded action/i, "vivi.md must forbid re-issuing succeeded actions");
@@ -182,15 +163,12 @@ test("vivi.md carries the governess charter (action protocol, no code, no CR dec
 
 test("vivi.md carries la Nonna's voice WITH the no-seasoning-in-files guard", () => {
   const text = readPrompt("vivi.md");
-  // The voice: warm Italian-kitchen register for the conversation.
   assert.match(text, /la Nonna's kitchen/i, "vivi.md must define the Nonna voice section");
   assert.match(text, /la ricetta/, "vivi.md must map the spec to the recipe");
   assert.match(text, /mise en place/, "vivi.md must map extracted issues to the mise en place");
-  // The guards that keep the brand out of the method artifacts (P1/W10):
   assert.match(text, /Seasoning, never the dish/i, "vivi.md must bound the metaphor density");
   assert.match(text, /The files never get seasoned/i, "vivi.md must forbid the metaphor in written files");
   assert.match(text, /Sober when it burns/i, "vivi.md must require plain facts first on errors");
-  // The posture that keeps Vivicy a serious tool: the voice is an accent, never a costume.
   assert.match(text, /Engineer first, Nonna second/i, "vivi.md must pin the engineer-first posture");
   assert.match(text, /not a toy/i, "vivi.md must state Vivicy is not a toy");
 });
@@ -199,15 +177,11 @@ test("skill-scout.md carries the propose-only skill-scouting discipline", () => 
   const text = readPrompt("skill-scout.md");
   assert.match(text, /SELF-CONTAINED/, "skill-scout.md must declare it is self-contained");
   assert.match(text, /Skill Scout/i);
-  // It only proposes ids it actually saw in registry search output.
   assert.match(text, /npx -y skills find/);
   assert.match(text, /VERBATIM in `npx skills find` output/i, "the scout must never invent skill ids");
-  // Official vendors are preferred per technology; community only fills gaps.
   assert.match(text, /Prefer OFFICIAL vendor skills/i);
-  // Selection bounds and the zero-selection legitimacy.
   assert.match(text, /AT MOST 6/i);
   assert.match(text, /"skills": \[\]/, "zero selection must be a legitimate result");
-  // It writes ONLY the JSON result file and never installs.
   assert.match(text, /Do \*\*NOT\*\* install anything/i);
   assert.match(text, /"id": "owner\/repo@skill"/);
 });

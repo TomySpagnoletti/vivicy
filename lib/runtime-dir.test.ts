@@ -29,8 +29,7 @@ describe("getRuntimeDir", () => {
   it("defaults to <cwd>/.vivicy-runtime when the env var is unset", () => {
     delete process.env.VIVICY_RUNTIME_DIR
     process.chdir(tmp)
-    // process.cwd() may resolve symlinks (e.g. /var -> /private/var on macOS),
-    // so compare against the live cwd, not the raw mkdtemp path.
+    // process.cwd() may resolve symlinks (e.g. /var -> /private/var on macOS) — compare against the live cwd, not the raw mkdtemp path.
     expect(getRuntimeDir()).toBe(path.join(process.cwd(), RUNTIME_DIR_NAME))
   })
 

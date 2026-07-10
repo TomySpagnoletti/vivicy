@@ -2,7 +2,6 @@ import { ControlError, stopSupervisor } from "@/lib/control"
 import { appendNotification } from "@/lib/notifications"
 import { getSpawner } from "@/lib/spawner"
 
-// Kills the supervised process group and clears the lock; Node runtime only.
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 

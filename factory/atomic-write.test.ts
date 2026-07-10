@@ -5,11 +5,6 @@ import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { atomicWriteJson } from "./atomic-write.ts";
 
-// atomicWriteJson(absolutePath, value): writes `value` as pretty-printed JSON to a
-// sibling temp file, then rename(2)s it into place atomically. The contract under
-// test: the destination ends up with exactly the serialized value, missing parent
-// dirs are created, a re-write overwrites, and no `.tmp` sibling is left behind.
-
 function scratch() {
   const root = mkdtempSync(resolve(tmpdir(), "atomic-write-test-"));
   return {
@@ -27,9 +22,7 @@ test("writes the file with exactly the serialized JSON (pretty-printed, trailing
 
     assert.ok(existsSync(target), "destination file exists");
     const onDisk = readFileSync(target, "utf8");
-    // Byte-for-byte: 2-space indent + a single trailing newline, no key reordering.
     assert.equal(onDisk, `${JSON.stringify(value, null, 2)}\n`);
-    // And it round-trips back to the same value.
     assert.deepEqual(JSON.parse(onDisk), value);
   } finally {
     s.cleanup();
@@ -39,9 +32,6 @@ test("writes the file with exactly the serialized JSON (pretty-printed, trailing
 test("throws when the parent directory is missing (it does not create parent dirs) and leaves no residue", () => {
   const s = scratch();
   try {
-    // The writer opens a sibling temp file next to the destination and renames it;
-    // it never mkdir's. So a destination under a non-existent directory must throw
-    // (ENOENT on the temp open), and nothing may be written into the scratch root.
     const target = resolve(s.root, "missing-dir", "out.json");
     assert.ok(!existsSync(resolve(s.root, "missing-dir")), "parent dir does not exist");
 
@@ -118,9 +108,6 @@ test("repeated writes do not accumulate temp siblings across the directory", () 
 test("propagates the error when the destination directory is unwritable (rename fails) and cleans up its temp file", () => {
   const s = scratch();
   try {
-    // A path whose parent is an existing FILE, not a directory: mkdirSync is not
-    // called by atomicWriteJson (it does not create parents), so opening the temp
-    // sibling under a file-as-directory must throw, and no `.tmp` may linger.
     const fileAsParent = resolve(s.root, "a-file");
     atomicWriteJson(fileAsParent, { ok: true });
     assert.ok(existsSync(fileAsParent), "the blocking file exists");
@@ -128,8 +115,6 @@ test("propagates the error when the destination directory is unwritable (rename 
     const impossible = resolve(fileAsParent, "child.json");
     assert.throws(() => atomicWriteJson(impossible, { ok: true }));
 
-    // The directory still contains only the destination + the blocking file —
-    // no half-written temp sibling escaped.
     const stray = readdirSync(s.root).filter((name) => name.endsWith(".tmp"));
     assert.deepEqual(stray, [], `unexpected stray temp files after failure: ${stray.join(", ")}`);
   } finally {

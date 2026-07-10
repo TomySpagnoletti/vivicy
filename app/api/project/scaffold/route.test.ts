@@ -2,10 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import type { ScaffoldResult } from "@/lib/scaffold"
 
-// Mock the server-only scaffolder so the route never writes a real template tree
-// or sets the current project. `scaffoldProject` is the single collaborator;
-// `ScaffoldError` stays real so the route's `instanceof` check holds and we can
-// drive the typed-error (400) branch with each code.
+// ScaffoldError stays the real class (not mocked) so the route's instanceof check still holds.
 const { scaffoldProject } = vi.hoisted(() => ({
   scaffoldProject: vi.fn(),
 }))
@@ -68,8 +65,6 @@ describe("POST /api/project/scaffold", () => {
     expect(res.status).toBe(400)
     const body = await res.json()
 
-    // The route does NOT pre-validate; it hands both fields (name undefined) to
-    // the scaffolder, whose typed rejection becomes a 400.
     expect(scaffoldProject).toHaveBeenCalledWith({
       targetDir: "/abs/new",
       projectName: undefined,

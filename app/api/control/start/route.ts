@@ -2,7 +2,6 @@ import { ControlError, startSupervisor } from "@/lib/control"
 import { appendNotification } from "@/lib/notifications"
 import { getSpawner } from "@/lib/spawner"
 
-// Spawns a local process and writes a lock file; Node runtime only.
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 

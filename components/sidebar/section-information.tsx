@@ -10,12 +10,6 @@ import {
 } from "@/lib/map-data"
 import type { ArchitectureMapData } from "@/lib/types"
 
-/**
- * Information section: map metadata (name, version, updated, purpose), the
- * active view's subtitle, total + filtered ("visible") node/edge counts, the
- * lane count, and the full status legend. Pure shadcn — design tokens and
- * primitives only, no raw colors or arbitrary values.
- */
 export function SectionInformation({
   data,
   filters,

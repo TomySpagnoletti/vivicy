@@ -10,8 +10,6 @@ import { TooltipProvider } from "@/components/ui/tooltip"
 import type { DevelopmentBlock, DevelopmentIssue } from "@/lib/types"
 import { renderWithIntl } from "@/test/render"
 
-// Minimal EventSource fake so the control bar can subscribe to the SSE status
-// stream in jsdom. We capture the instance to push a frame into onmessage.
 class FakeEventSource {
   static last: FakeEventSource | null = null
   onmessage: ((event: { data: string }) => void) | null = null
@@ -31,7 +29,6 @@ class FakeEventSource {
 beforeEach(() => {
   vi.stubGlobal("EventSource", FakeEventSource as unknown as typeof EventSource)
   FakeEventSource.last = null
-  // A default fetch stub so an accidental Extract POST never hits the network.
   vi.stubGlobal(
     "fetch",
     vi.fn(async () => new Response(JSON.stringify({ ok: true }), { status: 200 }))
@@ -42,7 +39,6 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-/** An idle status frame so the bar leaves its initial loading state. */
 const IDLE_STATUS = {
   run_active: false,
   verdict: "OK",
@@ -77,8 +73,6 @@ describe("ProcessControlBar — Extract gating on already-extracted issues", () 
     act(() => FakeEventSource.last?.emit(IDLE_STATUS))
 
     const extract = await screen.findByRole("button", { name: "Extract" })
-    // Greyed and aria-disabled, but still a real, focusable tooltip trigger (not
-    // a native-disabled focus hole) so the explanation is keyboard-reachable.
     expect(extract).toHaveAttribute("aria-disabled", "true")
     expect(extract).toHaveClass("opacity-50")
     expect(extract).toHaveAttribute("data-slot", "tooltip-trigger")
@@ -86,8 +80,6 @@ describe("ProcessControlBar — Extract gating on already-extracted issues", () 
   })
 
   test("the greyed Extract carries the honest re-extraction message", () => {
-    // The tooltip copy is rendered live in the e2e; here we assert the exact,
-    // plural message the gated trigger shows.
     expect(extractedGateMessage(8)).toBe(
       "Already extracted — 8 issues. Re-extraction isn't available yet."
     )
@@ -100,9 +92,7 @@ describe("ProcessControlBar — Extract gating on already-extracted issues", () 
     act(() => FakeEventSource.last?.emit(IDLE_STATUS))
 
     const extract = await screen.findByRole("button", { name: "Extract" })
-    // Click is a guarded no-op (onClick preventDefault, aria-disabled).
     await user.click(extract).catch(() => undefined)
-    // Keyboard activation is also a no-op: focus the trigger and press Enter/Space.
     extract.focus()
     await user.keyboard("[Enter]").catch(() => undefined)
     await user.keyboard("[Space]").catch(() => undefined)

@@ -4,8 +4,6 @@ import path from "node:path"
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
-// Mock the control plane so the route never spawns a factory script.
-// `ControlError` stays real so the route's `instanceof` check holds.
 const { runExtract, getExtractionStatus } = vi.hoisted(() => ({
   runExtract: vi.fn(),
   getExtractionStatus: vi.fn(),
@@ -23,9 +21,7 @@ import { readNotifications } from "@/lib/notifications"
 
 import { GET, POST } from "./route"
 
-// The route appends real notifications (lib/notifications, unmocked) — isolate
-// the log to a temp runtime dir so the test suite never writes into the
-// developer's real .vivicy-runtime.
+// lib/notifications is real (unmocked) and writes under VIVICY_RUNTIME_DIR — pointed at a temp dir here so tests don't pollute the real .vivicy-runtime.
 let runtimeDir: string
 let prevRuntimeEnv: string | undefined
 

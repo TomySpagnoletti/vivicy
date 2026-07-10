@@ -15,11 +15,6 @@ import {
 import type { DevelopmentBlock, DevelopmentIssue } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
-/**
- * Tasks section: the development issue list with full info (id, title, status,
- * requirement / graph / gate / source refs, and clickable transcript refs), a
- * three-metric summary header, and the doc-line coverage counters. Pure shadcn.
- */
 export function SectionTasks({
   development,
 }: {

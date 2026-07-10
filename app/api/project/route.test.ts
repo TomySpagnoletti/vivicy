@@ -2,9 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import type { CurrentProject } from "@/lib/project-types"
 
-// Mock the server-only project store so the route is exercised without touching
-// the runtime dir / filesystem. `getCurrentProject` backs GET; `setCurrentProject`
-// backs POST. `ProjectError` is the real class so `instanceof` in the route holds.
+// ProjectError stays the real class (not mocked) so the route's instanceof check still holds.
 const { getCurrentProject, setCurrentProject } = vi.hoisted(() => ({
   getCurrentProject: vi.fn(),
   setCurrentProject: vi.fn(),
@@ -63,7 +61,6 @@ describe("POST /api/project", () => {
 
     expect(body.ok).toBe(false)
     expect(body.code).toBe("not_absolute")
-    // It never reaches the store when validation rejects the body up front.
     expect(setCurrentProject).not.toHaveBeenCalled()
   })
 
@@ -85,7 +82,6 @@ describe("POST /api/project", () => {
     const body = await res.json()
 
     expect(setCurrentProject).toHaveBeenCalledWith("/abs/proj/../proj")
-    // The response is the described record from the store, never the raw path.
     expect(body).toEqual({ ok: true, project: PROJECT })
   })
 

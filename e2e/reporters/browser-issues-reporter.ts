@@ -2,11 +2,6 @@ import path from "node:path"
 
 import type { FullResult, Reporter, TestCase, TestResult } from "@playwright/test/reporter"
 
-// Aggregates the per-test "browser-issues" attachments produced by the fixture in
-// e2e/browser-issues.ts, dedupes them across the whole run with occurrence counts,
-// prints a readable summary, and fails the suite when any error-level issue is not
-// covered by the allowlist below.
-
 type BrowserIssueLevel = "warning" | "error"
 type BrowserIssueKind = "console" | "pageerror" | "requestfailed" | "http"
 
@@ -105,9 +100,7 @@ function formatOccurrence(occurrence: IssueOccurrence): string {
   return `${project}${occurrence.testTitle} (${file}:${occurrence.line})${retry}`
 }
 
-// Known-safe noise for this stack (Next 16 dev servers across chromium/firefox/webkit):
-// mid-navigation cancellations of Next static chunk / RSC fetches that each browser
-// reports in its own dialect. Everything else — and every error-level issue — blocks.
+// Platform trap: each browser reports mid-navigation Next-chunk/RSC fetch cancellations in its own dialect; the allowlist below is exhaustive — everything else blocks.
 function isAllowedIssue(issue: BrowserIssue) {
   if (issue.kind === "console" && issue.level === "warning") {
     return /Loading failed for the <script> with source .*\/_next\/static\/chunks\//i.test(issue.text)

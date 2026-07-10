@@ -1,6 +1,4 @@
-// MUST be the first import: it binds VIVICY_TARGET_ROOT to a dedicated temp root
-// as a side effect, before any later import pulls in a factory module that reads
-// resolveTargetRoot() at load time. See test-target-root.ts for why ordering matters.
+// Must be the first import: binds VIVICY_TARGET_ROOT as a side effect before any later import reads resolveTargetRoot() at load time.
 import { testTargetRoot as repoRoot } from "./test-target-root.ts";
 import assert from "node:assert/strict";
 import test, { after, before } from "node:test";
@@ -20,9 +18,6 @@ import { dirname, relative, resolve } from "node:path";
 import { applyProgressEvent, createEmptyProgressLedger, recordProgressEvent } from "./progress-ledger.ts";
 import type { GateRunRecord, ProgressEvent, ProgressLedger } from "./progress-ledger.ts";
 
-// Self-contained artifact identity, faithful to the real frozen-baseline shape.
-// The manifest is the pinned source of truth; the issue-index and progress-ledger
-// placeholders pin to it, exactly like the committed artifacts do.
 const MANIFEST_REL = ".vivicy/baselines/test-baseline.json";
 const MANIFEST = {
   schema_version: 1,
@@ -34,14 +29,8 @@ const MANIFEST = {
   files: [] as Array<{ path: string }>,
 };
 
-// The verification grammar matches the committed artifacts (see the bundled
-// rehearsal fixture's issue-index.json). The gate-evidence refs the tests write
-// under .vivicy/development/gates/ satisfy it, so there is no hand-copied second regex.
 const VERIFICATION_EVIDENCE_REF_GRAMMAR = "^.vivicy/development/(gates|reports)/.+";
 
-// A minimal placeholder issue-index (no issues yet), pinned to the manifest and
-// carrying the grammar — the shape recordProgressEvent and the artifact-readiness
-// tests read. It is rewritten by the function-call tests as needed.
 const placeholderIssueIndex = {
   schema_version: 1,
   status: "pending_llm_semantic_issue_generation",
@@ -73,8 +62,6 @@ const placeholderProgressLedger = {
   active_items: [],
 };
 
-// The architecture map declares the gate-ref grammar; the artifact-readiness test
-// cross-checks that the issue-index grammar equals the map's, so write both.
 const ARCHITECTURE_MAP =
   `schema_version: 1\nverification_gate_ref_grammar: "${VERIFICATION_EVIDENCE_REF_GRAMMAR}"\n`;
 
@@ -84,8 +71,6 @@ function writeJson(rel: string, value: unknown) {
   writeFileSync(abs, `${JSON.stringify(value, null, 2)}\n`);
 }
 
-// The artifact-readiness tests read the same committed paths the real factory uses,
-// now self-contained under the temp target root.
 function writeRealArtifacts() {
   writeJson(MANIFEST_REL, MANIFEST);
   writeJson(".vivicy/development/issue-index.json", placeholderIssueIndex);
@@ -93,13 +78,9 @@ function writeRealArtifacts() {
   const mapAbs = resolve(repoRoot, ".vivicy/architecture-map/architecture-map.yml");
   mkdirSync(dirname(mapAbs), { recursive: true });
   writeFileSync(mapAbs, ARCHITECTURE_MAP);
-  // A short README so a "missing line" evidence ref (README.md:999999) reaches the
-  // line-range check instead of failing on a missing file first.
   writeFileSync(resolve(repoRoot, "README.md"), "# Test target\n");
 }
 
-// Stand-in for the "real" artifacts the host used to provide: in the standalone
-// factory they are the self-contained temp fixtures written above.
 const realIssueIndex = placeholderIssueIndex;
 const realManifest = MANIFEST;
 
@@ -113,8 +94,6 @@ const issueIndex = {
   ],
 };
 
-// Evidence refs must be repo-relative and point to an existing file, so the
-// fixture gate-evidence files live inside the repo and are removed in after().
 const gateEvidenceRel = ".vivicy/development/gates/_test-iss-manager-0001-gate.json";
 const gateEvidenceAbs = resolve(repoRoot, gateEvidenceRel);
 const gateEvidenceDir = dirname(gateEvidenceAbs);
@@ -125,7 +104,6 @@ const failedGateEvidenceRel = ".vivicy/development/gates/_test-iss-manager-0001-
 const failedGateEvidenceAbs = resolve(repoRoot, failedGateEvidenceRel);
 
 function gateRunRecord(overrides: Partial<GateRunRecord> = {}): GateRunRecord {
-  // Canonical gate-run record shape from the governance method.
   return {
     gate_id: "gate:test:iss-manager-0001",
     issue_id: "ISS-MANAGER-0001",
@@ -147,7 +125,6 @@ before(() => {
 });
 
 after(() => {
-  // The whole temp target root is removed, taking every scratch fixture with it.
   rmSync(repoRoot, { recursive: true, force: true });
 });
 
@@ -192,7 +169,6 @@ test("carries the actor role on the active item", () => {
 });
 
 test("completing an issue clears active items from both legs (implementer + reviewer)", () => {
-  // Reviewer leg (codex actor) opens a "reviewing" active item.
   const afterReview = applyProgressEvent({
     event: {
       actor: "codex",
@@ -208,9 +184,6 @@ test("completing an issue clears active items from both legs (implementer + revi
   });
   assert.equal(afterReview.active_items.length, 1);
 
-  // The gate passes, emitted by the implementer actor (a DIFFERENT actor). The
-  // reviewer's active item must still be cleared, or it would dangle forever and
-  // hold the shared node's conservative aggregate below verified.
   const afterGate = applyProgressEvent({
     event: {
       actor: "claude",
@@ -275,11 +248,6 @@ test("accumulates transcript_refs on the graph item state and active item", () =
   assert.deepEqual(ledger.active_items[0].transcript_refs, [ref]);
 });
 
-// Progress is 100% MECHANICAL: the orchestrator (dev-loop's emit()) is the sole
-// writer, through recordProgressEvent — there is no agent self-report seam (no MCP
-// tool, no progress-emit CLI, no Stop-hook backfill). This proves the orchestrator
-// path records a reviewer-leg event with the right role + reviewing state, exactly
-// as dev-loop emits when it sequences the review leg.
 test("the orchestrator write path records a review event with role + reviewing state", () => {
   const scratchDir = mkdtempSync(resolve(repoRoot, "_tmp-progress-orchestrator-test-"));
   try {
@@ -341,8 +309,6 @@ test("records verified state and clears active item on completion (tool-owned ga
 });
 
 test("#31: rejects completion evidence that is a docs/ prose doc (not under the gate dir)", () => {
-  // The evidence ref is a prose doc outside the gate dir: the failure is the
-  // grammar rejection, independent of whether the file exists on disk.
   assert.throws(
     () =>
       applyProgressEvent({
@@ -441,8 +407,6 @@ test("rejects evidence refs pointing to missing lines", () => {
 });
 
 test("rejects absolute evidence refs even when they point inside the repository", () => {
-  // issue_blocked has no verification-grammar requirement, so the absolute path
-  // reaches the repository-relative guard rather than failing the grammar check first.
   assert.throws(
     () =>
       applyProgressEvent({
@@ -461,10 +425,6 @@ test("rejects absolute evidence refs even when they point inside the repository"
     /repository-relative/,
   );
 });
-
-// ---------------------------------------------------------------------------
-// Monotonic graph status + non-regressing updated_at
-// ---------------------------------------------------------------------------
 
 const VERIFICATION_EVIDENCE = gateEvidenceRel;
 
@@ -554,12 +514,7 @@ test("explicit issue_reopened downgrades verified back to in_progress", () => {
   assert.equal(reopened.active_items[0].state, "working");
 });
 
-// ---------------------------------------------------------------------------
-// Atomic, locked, multi-writer-safe ledger writes
-// ---------------------------------------------------------------------------
-
-// recordProgressEvent only accepts repository-relative paths, so the scratch dir
-// must live under the repo root.
+// recordProgressEvent only accepts repository-relative paths, so the scratch dir must live under the repo root.
 function makeScratch() {
   const absDir = mkdtempSync(resolve(repoRoot, "_tmp-progress-ledger-test-"));
   const rel = (name: string) => relative(repoRoot, resolve(absDir, name)).split("\\").join("/");
@@ -645,8 +600,7 @@ test("recordProgressEvent reclaims a stale lock left by a dead writer", () => {
       progressLedgerPath: scratch.ledgerRel,
     });
 
-    // PID 999999999 is outside any real range, so isProcessAlive() reports it dead
-    // and the lock is reclaimed without waiting for the age TTL.
+    // PID 999999999 is outside any real range, so isProcessAlive() reports it dead and the lock reclaims without waiting for the age TTL.
     const lockPath = `${scratch.ledgerAbs}.lock`;
     const fd = openSync(lockPath, "wx");
     writeSync(
@@ -667,10 +621,6 @@ test("recordProgressEvent reclaims a stale lock left by a dead writer", () => {
     scratch.cleanup();
   }
 });
-
-// ---------------------------------------------------------------------------
-// Verified is bound to the issue's declared verification_gate_ids
-// ---------------------------------------------------------------------------
 
 const gateBoundIssueIndex = {
   verification_evidence_ref_grammar: VERIFICATION_EVIDENCE_REF_GRAMMAR,
@@ -712,10 +662,6 @@ test("#31b: rejects a failed gate-run record for the declared gate", () => {
   assert.throws(() => gateBoundCompletion([failedGateEvidenceRel]), /gate_id declared on the issue/);
 });
 
-// ---------------------------------------------------------------------------
-// Governance progress contract — required event fields
-// ---------------------------------------------------------------------------
-
 test("rejects events without session_ref", () => {
   assert.throws(
     () =>
@@ -753,10 +699,6 @@ test("rejects events with empty graph_refs (no fallback to the issue's full set)
     /explicit graph focus/,
   );
 });
-
-// ---------------------------------------------------------------------------
-// Shared graph items aggregate conservatively across linked issues
-// ---------------------------------------------------------------------------
 
 const sharedGraphIssueIndex = {
   verification_evidence_ref_grammar: VERIFICATION_EVIDENCE_REF_GRAMMAR,
@@ -815,11 +757,6 @@ test("#34: one issue going verified does not overstate a graph item another issu
 
   assert.equal(afterSecondGate.graph_item_states[0].status, "verified", "all linked issues verified -> verified");
 });
-
-// ---------------------------------------------------------------------------
-// Artifact readiness — the self-contained development-control files written into
-// the temp target root by writeRealArtifacts(), not a host project's files.
-// ---------------------------------------------------------------------------
 
 test("real issue-index artifact carries schema, frozen-baseline identity, and grammar", () => {
   assert.equal(realIssueIndex.schema_version, 1);
@@ -884,8 +821,6 @@ test("progress recording is inert against the real empty issue index (Unknown is
             timestamp: "2026-06-08T12:00:00.000Z",
           },
           {
-            // The real placeholder index (no issues) with a scratch ledger path,
-            // so nothing real is written.
             issueIndexPath: ".vivicy/development/issue-index.json",
             progressLedgerPath: scratch.ledgerRel,
           },

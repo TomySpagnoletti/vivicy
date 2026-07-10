@@ -19,10 +19,9 @@ test("compareExcerpts classifies unchanged / changed / added / removed", () => {
     { id: "REQ-A-003", source_excerpt_sha256: "h3" },
   ]);
   const next = sm([
-    { id: "REQ-A-001", source_excerpt_sha256: "h1" }, // unchanged
-    { id: "REQ-A-002", source_excerpt_sha256: "h2-NEW" }, // changed by a doc edit
-    { id: "REQ-A-004", source_excerpt_sha256: "h4" }, // added
-    // REQ-A-003 removed
+    { id: "REQ-A-001", source_excerpt_sha256: "h1" },
+    { id: "REQ-A-002", source_excerpt_sha256: "h2-NEW" },
+    { id: "REQ-A-004", source_excerpt_sha256: "h4" },
   ]);
   const d = compareExcerpts(prior, next);
   assert.deepEqual(d.unchanged, ["REQ-A-001"]);

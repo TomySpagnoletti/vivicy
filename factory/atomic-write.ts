@@ -1,8 +1,4 @@
-// Atomic JSON writer shared by the dev-loop.
-//
-// rename(2) is atomic only within a filesystem, so we write a sibling temp file
-// first and rename it into place — a concurrent reader (the status probe, the
-// Vivicy SSE) never sees a half-written file.
+// rename(2) is atomic only within a filesystem; write a sibling temp file then rename so concurrent readers (status probe, SSE) never see a half-written file.
 import { closeSync, openSync, renameSync, unlinkSync, writeSync } from "node:fs";
 
 export function atomicWriteJson(absolutePath: string, value: unknown): void {
@@ -19,7 +15,6 @@ export function atomicWriteJson(absolutePath: string, value: unknown): void {
     try {
       unlinkSync(tmpPath);
     } catch {
-      // best-effort cleanup of the temp file
     }
     throw error;
   }

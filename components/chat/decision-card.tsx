@@ -15,15 +15,6 @@ import {
 } from "@/components/ui/card"
 import { Marker, MarkerContent, MarkerIcon } from "@/components/ui/marker"
 
-/**
- * The GENERIC in-chat decision card (D6): deterministic server-authored content
- * rendered as one shadcn Card with one Button per action. The CLICK is the only
- * trigger — it POSTs `/api/vivi/card` and the SERVER validates + records the
- * outcome; this component never interprets the action itself. Buttons disable
- * while the click is in flight and FOREVER once decided (whether the decision
- * came stamped on the rehydrated turn or from this click's response), so a card
- * can never fire twice from the UI either.
- */
 export function DecisionCard({
   sessionId,
   card,
@@ -32,9 +23,7 @@ export function DecisionCard({
 }: {
   sessionId: string
   card: ViviCard
-  /** The decision persisted on the turn (rehydration) — always wins over local state. */
   decided?: ViviCardDecision
-  /** Fires once the server recorded the click, so the caller can re-sync the thread. */
   onDecided?: (action: ViviCardAction) => void
 }) {
   const t = useTranslations("chat")
@@ -71,10 +60,7 @@ export function DecisionCard({
         decided?: ViviCardDecision
       }
       const failed = !res.ok || body.ok === false
-      // The server stamps `decided` on ANY decided outcome — success, an
-      // executed-but-failed action, or an already-decided card — so trust it as
-      // the card's permanent decision and lock the buttons. Only a decision-less
-      // failure (a validation error that recorded nothing) leaves them open to retry.
+      // body.decided is populated on any decided outcome (success, executed-but-failed, already-decided) and absent only when nothing was recorded — trust its presence to lock the buttons.
       const recorded =
         body.decided ??
         (failed
@@ -108,11 +94,7 @@ export function DecisionCard({
 
       <CardFooter className="flex-col items-start gap-2">
         <div className="flex flex-wrap gap-2">
-          {/* aria-disabled + a guarded onClick, never the native `disabled`:
-              disabling the focused button on activation would drop keyboard focus
-              to <body> (the panel is DOM-last, so Tab would restart in the page
-              behind the overlay). The button stays focusable; the guard makes it
-              inert. */}
+          {/* aria-disabled + a guarded onClick, never the native disabled: disabling the focused button on activation would drop keyboard focus to <body> (the panel is DOM-last, so Tab would restart behind the overlay). */}
           {card.actions.map((action) => (
             <Button
               key={action.id}
@@ -131,8 +113,6 @@ export function DecisionCard({
           ))}
         </div>
 
-        {/* role="status": the outcome of the click is announced to screen
-            readers — without it a keyboard/SR user gets no confirmation at all. */}
         {decision ? (
           <Marker role="status">
             <MarkerIcon>

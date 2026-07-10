@@ -2,7 +2,6 @@ import { ControlError, startSupervisor } from "@/lib/control"
 import { appendNotification } from "@/lib/notifications"
 import { getSpawner } from "@/lib/spawner"
 
-// Resume re-launches the supervisor, which picks up from done/ + the ledger.
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 

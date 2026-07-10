@@ -6,11 +6,6 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest"
 
 import { readDevStatusFromDisk } from "@/lib/dev-status-fs"
 
-/**
- * Builds a minimal on-disk `.vivicy/development` tree under a real temp root so
- * readDevStatusFromDisk exercises its real fs/JSON parsing. Every section is
- * optional, mirroring the partial trees the reader must tolerate.
- */
 let root: string
 
 interface IssueIndexShape {
@@ -111,9 +106,6 @@ describe("readDevStatusFromDisk — verdict ordering", () => {
   })
 
   it("NOT STARTED even with a failing gate when no issue is done (ordering: DONE>fail>resume, but fail needs doneIds<total which holds, yet the resume branch is skipped)", () => {
-    // Subtle: the STOPPED(last gate failed) branch does NOT require doneIds>0 —
-    // only gatesFail>0 AND doneIds<total. So a failing gate with zero progress
-    // still yields "STOPPED (last gate failed)", NOT "NOT STARTED".
     writeIndex({ issues: [{ id: "ISS-1" }] })
     writeGate("gate-fail", "fail")
 
@@ -124,8 +116,6 @@ describe("readDevStatusFromDisk — verdict ordering", () => {
   })
 
   it("DONE takes precedence over a failing gate when all issues are complete", () => {
-    // gatesFail>0 but doneIds === total, so the DONE branch wins (the fail branch
-    // is guarded by doneIds.length < issues.length).
     writeIndex({ issues: [{ id: "ISS-1" }] })
     writeDoneFiles(["ISS-1"])
     writeGate("gate-fail", "fail")
@@ -136,8 +126,6 @@ describe("readDevStatusFromDisk — verdict ordering", () => {
   })
 
   it("NOT STARTED when there are zero issues (DONE requires issues.length>0)", () => {
-    // Empty index: doneIds.length === issues.length === 0, but the DONE branch is
-    // guarded by issues.length > 0, so the verdict falls through to NOT STARTED.
     writeIndex({ issues: [] })
 
     const status = readDevStatusFromDisk(root)
@@ -159,13 +147,11 @@ describe("readDevStatusFromDisk — per-issue done rule", () => {
       graph_item_states: [
         { graph_ref: "ref-a", issue_states: { "ISS-1": "verified" } },
         { graph_ref: "ref-b", issue_states: { "ISS-1": "verified" } },
-        // ISS-2's only ref is not verified.
         { graph_ref: "ref-c", issue_states: { "ISS-2": "in_progress" } },
       ],
     })
 
     const status = readDevStatusFromDisk(root)
-    // No done/ dir at all, yet ISS-1 is done purely via the ledger.
     expect(status.done).toEqual(["ISS-1"])
     expect(status.remaining).toEqual(["ISS-2"])
     expect(status.issues_done).toBe(1)
@@ -177,7 +163,6 @@ describe("readDevStatusFromDisk — per-issue done rule", () => {
     writeLedger({
       graph_item_states: [
         { graph_ref: "ref-a", issue_states: { "ISS-1": "verified" } },
-        // ref-b missing entirely => not every ref verified.
       ],
     })
 
@@ -187,8 +172,6 @@ describe("readDevStatusFromDisk — per-issue done rule", () => {
   })
 
   it("does NOT count an issue with an empty graph_refs list as done via the ledger (refs.length>0 guard)", () => {
-    // An issue with no graph_refs and no done/ file can never be 'done' through
-    // the ledger path: refs.length>0 is required.
     writeIndex({ issues: [{ id: "ISS-1", graph_refs: [] }] })
     writeLedger({ graph_item_states: [] })
 
@@ -213,7 +196,6 @@ describe("readDevStatusFromDisk — per-issue done rule", () => {
     writeIndex({ issues: [{ id: "ISS-1" }] })
     const doneDir = path.join(devDir(), "issues", "done")
     mkdirSync(doneDir, { recursive: true })
-    // A stray non-markdown file must not be read as a done marker.
     writeFileSync(path.join(doneDir, "ISS-1.txt"), "not a done marker")
 
     const status = readDevStatusFromDisk(root)
@@ -280,8 +262,6 @@ describe("readDevStatusFromDisk — quota fallback", () => {
   })
 
   it("repairs a quota object missing its agents map to the empty-agents fallback", () => {
-    // The final guard returns { updated_at: null, agents: {} } when quota.agents
-    // is absent, so a partial file never crashes the footer.
     writeIndex({ issues: [{ id: "ISS-1" }] })
     writeQuota({ updated_at: "2026-06-25T00:00:00.000Z" })
     const status = readDevStatusFromDisk(root)
@@ -291,7 +271,6 @@ describe("readDevStatusFromDisk — quota fallback", () => {
 
 describe("readDevStatusFromDisk — missing/empty inputs", () => {
   it("returns a fully NOT STARTED snapshot when the development tree is entirely absent", () => {
-    // No .vivicy/development at all (root is an empty temp dir).
     const status = readDevStatusFromDisk(root)
     expect(status).toMatchObject({
       verdict: "NOT STARTED",

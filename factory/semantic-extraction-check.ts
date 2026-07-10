@@ -1,29 +1,3 @@
-// Deterministic Part-1 gate for the semantic issue extraction pipeline.
-//
-// Usage: node vivicy/factory/semantic-extraction-check.ts [--strict]
-//
-// Issues are LLM-authored from the frozen canonical docs baseline; this checker
-// owns only the deterministic contract around them: the issue index pins must
-// equal the frozen manifest, every requirement ref must resolve into a pinned
-// canonical doc line range, dependencies must be acyclic, and every canonical
-// doc line must be accounted for as covered (issue-linked), excluded (with a
-// governed reason in .vivicy/requirements/exclusions.json), auto-excluded
-// (mechanical: blank lines, code-fence delimiters, horizontal rules, the H1
-// title), or UNCOVERED. Any UNCOVERED line fails the gate.
-//
-// While the issue index is still the committed placeholder (no issues,
-// status pending_llm_semantic_issue_generation) the gate exits 0 with
-// "nothing to check yet" so verify stays green before extraction starts.
-// While the index status is llm_extraction_in_progress the gate runs the
-// full accounting and writes the reports, but uncovered lines are tolerated
-// as warnings: extraction spans several sessions and the root gate must stay
-// green mid-extraction. Pin, schema, reference, and cycle failures stay fatal.
-// --strict escalates: placeholder mode, tolerated uncovered lines, and
-// warnings become failures.
-//
-// The checker is read-only over the issue index; its outputs are
-// .vivicy/requirements/source-map.json and coverage-report.json.
-
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname, isAbsolute, relative, resolve } from "node:path";
@@ -51,15 +25,11 @@ export const exclusionReasonClasses = [
   "toc_or_index",
 ];
 
-// The deterministic ref grammar: .vivicy/canonical/<file>.md:<start>[-<end>].
 export const requirementRefPattern = /^(\.vivicy\/canonical\/[a-z0-9-]+\.md):(\d+)(?:-(\d+))?$/;
 const requirementFilePattern = /^\.vivicy\/canonical\/[a-z0-9-]+\.md$/;
 const issuePathPattern = /^\.vivicy\/development\/issues\/[A-Za-z0-9._/-]+\.md$/;
 
-// Aligned with the development traceability method and the viewer validator
-// (vivicy/factory/generate-viewer-data.ts): issue_path, requirement_ids
-// (REQ-* IDs), and source_line_refs (path:line refs). The index stores no live
-// status (progress lives only in the ledger), so the viewer validator rejects it.
+// Schema must stay aligned with the viewer validator (factory/generate-viewer-data.ts); it rejects the index if a live status field appears here (progress lives only in the ledger).
 const issueEntrySchema = z.object({
   depends_on: z.array(z.string().min(1)),
   graph_refs: z.array(z.string().min(1)).min(1),
@@ -151,7 +121,6 @@ interface LineRange {
   start: number;
 }
 
-// Scalar keys hold a string, list keys hold a string[]; keys may be absent.
 type TraceabilityBlock = Record<string, string | string[]>;
 
 interface SemanticCheckOptions {
@@ -199,7 +168,6 @@ export function runSemanticExtractionCheck(options: SemanticCheckOptions = {}): 
     warnings,
   });
 
-  // 1. Issue index (read-only here; reports are this checker's only outputs).
   let indexRaw;
   try {
     indexRaw = readJson(repoRoot, paths.issueIndexPath, "issue index");
@@ -214,7 +182,6 @@ export function runSemanticExtractionCheck(options: SemanticCheckOptions = {}): 
   }
   const index = indexParsed.data;
 
-  // 2. Pinned manifest: the index pin fields must equal the frozen manifest.
   let manifestRaw;
   try {
     manifestRaw = readJson(repoRoot, index.manifest_path, "baseline manifest");
@@ -245,7 +212,6 @@ export function runSemanticExtractionCheck(options: SemanticCheckOptions = {}): 
   }
   if (errors.length > 0) return fail();
 
-  // 3. Accounting domain: manifest files that belong to the declared corpus.
   const corpusMatchers = index.source_corpus.map(globToRegExp);
   const corpusFiles = manifest.files.filter((file) => corpusMatchers.some((matcher) => matcher.test(file.path)));
   if (corpusFiles.length === 0) {
@@ -254,8 +220,7 @@ export function runSemanticExtractionCheck(options: SemanticCheckOptions = {}): 
   }
   const corpusPaths = new Set(corpusFiles.map((file) => file.path));
 
-  // Line counts come from the working tree: the baseline gate elsewhere
-  // guarantees the content matches the manifest hashes.
+  // Line counts are read from the working tree; valid only because the baseline gate elsewhere guarantees tree content matches the manifest hashes.
   const docLinesCache = new Map<string, string[]>();
   const loadDocLines = (path: string): string[] => {
     if (docLinesCache.has(path)) return docLinesCache.get(path)!;
@@ -265,7 +230,6 @@ export function runSemanticExtractionCheck(options: SemanticCheckOptions = {}): 
     return lines;
   };
 
-  // 4. Governed exclusions: refs must resolve exactly like issue refs.
   if (!existsSync(resolveRepoPath(repoRoot, paths.exclusionsPath))) {
     errors.push(
       `exclusions file missing: create ${paths.exclusionsPath} with { "schema_version": 1, "exclusions": [] }`,
@@ -284,7 +248,6 @@ export function runSemanticExtractionCheck(options: SemanticCheckOptions = {}): 
     errors.push(...zodIssueMessages(`exclusions ${paths.exclusionsPath}`, exclusionsParsed.error));
     return fail();
   }
-  // path -> Map(line -> reason_class); first exclusion wins on overlap.
   const excludedByFile = new Map<string, Map<number, string>>();
   exclusionsParsed.data.exclusions.forEach((exclusion, position) => {
     const label = `exclusions[${position}]`;
@@ -313,7 +276,6 @@ export function runSemanticExtractionCheck(options: SemanticCheckOptions = {}): 
   });
   if (errors.length > 0) return fail();
 
-  // 5. Placeholder mode: the gate must not block before extraction starts.
   const placeholder = index.issues.length === 0 && index.status === placeholderStatus;
   if (index.issues.length === 0 && index.status !== placeholderStatus) {
     errors.push(`issue index has no issues but status is "${index.status}" (expected "${placeholderStatus}")`);
@@ -339,14 +301,12 @@ export function runSemanticExtractionCheck(options: SemanticCheckOptions = {}): 
     };
   }
 
-  // 6. Issues: index entries, issue files, traceability blocks, refs.
   const issueIds = new Set<string>();
   for (const entry of index.issues) {
     if (issueIds.has(entry.id)) errors.push(`duplicate issue id in index: ${entry.id}`);
     issueIds.add(entry.id);
   }
 
-  // path -> Set(line) covered by at least one issue requirement ref.
   const coveredByFile = new Map<string, Set<number>>();
   for (const entry of index.issues) {
     const label = `issue ${entry.id} (${entry.issue_path})`;
@@ -401,10 +361,7 @@ export function runSemanticExtractionCheck(options: SemanticCheckOptions = {}): 
   if (cycle) errors.push(`depends_on cycle detected: ${cycle.join(" -> ")}`);
   if (errors.length > 0) return fail();
 
-  // 7. Accounting: every corpus line is covered / excluded / auto / UNCOVERED.
   const totals = { auto_lines: 0, covered_lines: 0, doc_files: corpusFiles.length, excluded_lines: 0, total_lines: 0, uncovered_lines: 0 };
-  // Governance coverage_summary metrics count NON-BLANK lines only (the method's
-  // "real documentation lines"); blank lines inside covered ranges do not count.
   const summaryTotals = { classified: 0, covered: 0, total: 0 };
   const fileReports: FileReport[] = [];
   const sourceMapFiles: { path: string; ranges: ClassifiedRange[]; total_lines: number }[] = [];
@@ -418,7 +375,6 @@ export function runSemanticExtractionCheck(options: SemanticCheckOptions = {}): 
     const counts = { auto: 0, covered: 0, excluded: 0, uncovered: 0 };
     for (let line = 1; line <= docLines.length; line += 1) {
       if (covered.has(line)) {
-        // Overlap conflict: covered wins, excluded becomes a warning.
         if (excluded.has(line)) overlapLines.push(line);
         classes[line] = { classification: "covered" };
       } else if (excluded.has(line)) {
@@ -458,10 +414,7 @@ export function runSemanticExtractionCheck(options: SemanticCheckOptions = {}): 
     totals.uncovered_lines += counts.uncovered;
   }
 
-  // 8. Reports (atomic writes); the gate verdict follows after they exist so a
-  // red run still leaves the evidence of what is uncovered. While extraction is
-  // in progress (multi-session), uncovered lines are tolerated as warnings;
-  // --strict keeps them fatal.
+  // Reports are written before the verdict is returned, deliberately: a failing run still leaves evidence of what's uncovered.
   const toleratedUncovered = index.status === inProgressStatus && !strict && totals.uncovered_lines > 0;
   if (toleratedUncovered) {
     warnings.push(
@@ -469,11 +422,6 @@ export function runSemanticExtractionCheck(options: SemanticCheckOptions = {}): 
         `${totals.uncovered_lines} canonical doc line(s) still UNCOVERED (see ${paths.coverageReportJsonPath})`,
     );
   }
-  // Per-requirement source-excerpt hashes: TOOL-computed (deterministic) over the
-  // exact cited canonical lines, persisted so a later baseline can detect which
-  // requirements a doc edit invalidated. The hash is owned by tooling, never
-  // authored by the extractor (an LLM cannot compute a hash); the drift COMPARISON
-  // across baselines is the Change-Control step, this only computes + persists it.
   const sourceMap = {
     baseline_id: index.baseline_id,
     baseline_version: index.baseline_version,
@@ -493,9 +441,6 @@ export function runSemanticExtractionCheck(options: SemanticCheckOptions = {}): 
   try {
     writeReport(resolveRepoPath(repoRoot, paths.sourceMapPath), sourceMap);
     writeReport(resolveRepoPath(repoRoot, paths.coverageReportJsonPath), coverageReport);
-    // coverage_summary is owned by this check (the traceability method): same
-    // computation as the report, written back only when the numbers changed.
-    // issues[] stays read-only here.
     const summary = {
       total_doc_lines: summaryTotals.total,
       classified_doc_lines: summaryTotals.classified,
@@ -532,11 +477,6 @@ export function runSemanticExtractionCheck(options: SemanticCheckOptions = {}): 
   };
 }
 
-// Compute the deterministic source-excerpt hash for every catalog requirement
-// whose cited refs all resolve into the pinned corpus: the SHA-256 of the exact
-// cited lines, joined in ref order. Requirements with malformed or out-of-range
-// refs are skipped here (that is traceability:check's domain), so this stays a
-// pure, additive enrichment of the source map.
 function computeRequirementExcerpts(
   repoRoot: string,
   corpusPaths: Set<string>,
@@ -582,8 +522,6 @@ function computeRequirementExcerpts(
   return excerpts;
 }
 
-// The Traceability block is YAML-shaped but parsed with fixed line rules so the
-// checker stays dependency-free and the accepted grammar stays deterministic.
 const traceabilityScalarKeys = ["issue_id"];
 const traceabilityListKeys = ["depends_on", "graph_refs", "requirement_ids", "source_line_refs", "spike_gates", "verification_gate_ids"];
 
@@ -644,8 +582,6 @@ function parseTraceabilityBlock(markdown: string, label: string, errors: string[
   return data;
 }
 
-// The index entry and the issue file's traceability block must agree exactly:
-// the index is what tooling reads, the file is what humans review.
 function crossCheckTraceability(entry: IssueEntry, block: TraceabilityBlock, label: string, errors: string[]): void {
   if (block.issue_id !== undefined && block.issue_id !== entry.id) {
     errors.push(`${label}: traceability issue_id "${block.issue_id}" does not match index id "${entry.id}"`);
@@ -670,7 +606,6 @@ function sameStringSet(a: Iterable<string>, b: Iterable<string>): boolean {
   return left.length === right.length && left.every((value, i) => value === right[i]);
 }
 
-// Returns the first dependency cycle as [start, ..., start] or null.
 function findDependencyCycle(issues: IssueEntry[]): string[] | null {
   const dependencies = new Map(issues.map((issue) => [issue.id, issue.depends_on]));
   const state = new Map<string, "visiting" | "done">();
@@ -700,8 +635,6 @@ function findDependencyCycle(issues: IssueEntry[]): string[] | null {
   return null;
 }
 
-// Mechanical lines no issue can meaningfully cover: blank/whitespace-only
-// lines, pure code-fence delimiter lines, horizontal rules, and the H1 title.
 function computeAutoExclusions(docLines: string[]): Set<number> {
   const auto = new Set<number>();
   let h1Seen = false;
@@ -727,8 +660,6 @@ function computeAutoExclusions(docLines: string[]): Set<number> {
   return auto;
 }
 
-// classes is 1-indexed; merges contiguous lines with equal classification
-// (and equal reason_class for excluded lines) into compact ranges.
 function compactClassifiedRanges(classes: LineClass[]): ClassifiedRange[] {
   const ranges: ClassifiedRange[] = [];
   for (let line = 1; line < classes.length; line += 1) {
@@ -770,7 +701,6 @@ function formatRange(range: LineRange): string {
   return range.start === range.end ? `${range.start}` : `${range.start}-${range.end}`;
 }
 
-// Minimal glob support for the source_corpus entries (`**/` segments and `*`).
 function globToRegExp(glob: string): RegExp {
   let pattern = "^";
   for (let i = 0; i < glob.length; i += 1) {
@@ -798,8 +728,7 @@ function zodIssueMessages(label: string, error: z.ZodError): string[] {
   return error.issues.map((issue) => `${label}: ${issue.path.join(".") || "(root)"}: ${issue.message}`);
 }
 
-// The report dirs may not exist yet in a fresh target, and the shared atomic
-// writer never creates parents — so ensure the directory before the rename.
+// atomicWriteJson never creates parent directories, so mkdir here first (report dirs may not exist yet in a fresh target).
 function writeReport(absolutePath: string, value: unknown): void {
   mkdirSync(dirname(absolutePath), { recursive: true });
   atomicWriteJson(absolutePath, value);
@@ -830,9 +759,6 @@ if (cliEntry === fileURLToPath(import.meta.url)) {
     console.error("Usage: node vivicy/factory/semantic-extraction-check.ts [--strict]");
     process.exit(2);
   }
-  // VIVICY_TARGET_ROOT selects the project to check. Vivicy is standalone: with
-  // no target there is nothing to check, so exit clearly instead of guessing a
-  // directory.
   const targetRoot = resolveTargetRoot();
   if (!targetRoot) {
     console.error(

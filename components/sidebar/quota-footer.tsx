@@ -14,8 +14,6 @@ import { Progress } from "@/components/ui/progress"
 import { Separator } from "@/components/ui/separator"
 import sidebarMessages from "@/messages/en/sidebar.json"
 
-// Maps each dev-loop agent actor to the settings role that configures it; the
-// label + thinking level are derived from those live settings, never hardcoded.
 const AGENT_ROLE: Record<string, Role> = {
   claude: "implementer",
   codex: "reviewer",
@@ -30,7 +28,6 @@ const WINDOW_KEYS: Array<{
   { key: "weekly", shortKey: "windowShortWeekly", longKey: "windowLongWeekly" },
 ]
 
-// Unknown ids fall back to the raw model string — honest, never fabricated.
 export function friendlyModel(model: string): string {
   const map: Record<string, string> = {
     "claude-opus-4-8": "Opus 4.8",
@@ -45,7 +42,6 @@ interface QuotaState {
 
 const COLLAPSE_KEY = "vivicy:quota-footer-collapsed"
 
-/** Read the persisted collapse state (default collapsed). Safe on the server. */
 function readCollapsed(): boolean {
   if (typeof window === "undefined") return true
   try {
@@ -55,9 +51,6 @@ function readCollapsed(): boolean {
   }
 }
 
-// Driven by the live SSE status stream, which carries the dev-loop's `quota`
-// block with the real per-window usage from each provider. Where a provider
-// exposes no percentage we render "—", never a fabricated number.
 export function QuotaFooter({
   settings = DEFAULT_SETTINGS,
 }: {
@@ -78,7 +71,6 @@ export function QuotaFooter({
         if (next.error) return
         setQuota(next.quota ?? { agents: {} })
       } catch {
-        // Ignore malformed frames; keep the last good state.
       }
     }
     return () => source.close()
@@ -90,14 +82,12 @@ export function QuotaFooter({
       try {
         window.localStorage.setItem(COLLAPSE_KEY, String(next))
       } catch {
-        // best-effort persistence
       }
       return next
     })
   }
 
   const agents = quota?.agents ?? {}
-  // Render in the known display order; fall back to any unknown agents after.
   const knownNames = Object.keys(AGENT_ROLE).filter((name) => name in agents)
   const extraNames = Object.keys(agents).filter((name) => !(name in AGENT_ROLE))
   const names = [...knownNames, ...extraNames]
@@ -151,12 +141,10 @@ export function QuotaFooter({
   )
 }
 
-/** "Opus 4.8" label derived from settings, falling back to the reported model. */
 function agentLabel(config: AgentSettings | undefined, agent: AgentQuota, fallbackName: string): string {
   return config ? friendlyModel(config.model) : friendlyModel(agent.model ?? fallbackName)
 }
 
-/** A window's percentage as "38%" or "—" when the provider exposes no number. */
 function pctText(t: ReturnType<typeof useTranslations<"sidebar.quotaFooter">>, win: QuotaWindow | undefined): string {
   return win && typeof win.used_pct === "number" ? `${Math.round(win.used_pct)}%` : t("unknownPct")
 }
@@ -229,8 +217,6 @@ function ExpandedAgent({
   )
 }
 
-// Honest by construction: no bar and no number when the provider exposes
-// nothing — only a real percentage renders a Progress bar.
 function WindowBar({
   label,
   win,
@@ -263,8 +249,6 @@ function WindowBar({
   )
 }
 
-// The label is derived during render from `resetAt` and a per-minute clock tick,
-// so state only ever changes on the tick, never synchronously inside an effect.
 function ResetCountdown({ resetAt }: { resetAt: string | null }) {
   const [nowMs, setNowMs] = useState(() => Date.now())
 
@@ -278,11 +262,8 @@ function ResetCountdown({ resetAt }: { resetAt: string | null }) {
   return <span className="tabular-nums text-muted-foreground">{label}</span>
 }
 
-// A standalone translator (not the useTranslations hook) since formatReset is a
-// pure function unit-tested outside any component render.
 const formatResetT = createTranslator({ locale: LOCALE, messages: sidebarMessages, namespace: "quotaFooter" })
 
-/** ISO reset time -> "resets in 2h14" / "resets in 45m"; null when past/unknown. */
 export function formatReset(resetAt: string | null, nowMs: number): string | null {
   if (!resetAt) return null
   const ms = new Date(resetAt).getTime() - nowMs

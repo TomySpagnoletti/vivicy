@@ -3,26 +3,15 @@ import { z } from "zod"
 import { getAgentsHealth } from "@/lib/agents-health"
 import { runAgentUpdate, UnknownAgentError } from "@/lib/agents-update"
 
-// Execs an allow-listed CLI self-update; Node runtime only.
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 
-/**
- * Request body: which agent to update. The agent name is validated to the closed
- * set here AND again inside {@link runAgentUpdate}; only an allow-listed, fixed
- * command ever runs (no shell, no interpolation of request input).
- */
+// Validated against this closed enum here AND again inside runAgentUpdate — only an allow-listed, fixed command ever runs (no shell, no interpolation of request input).
 const UpdateRequest = z.object({
   agent: z.enum(["claude", "codex"]),
 })
 
-/**
- * Agent CLI self-update (R11 follow-on). Vivicy is a LOCAL single-user tool, so
- * the server may exec — but ONLY the CLI's own built-in updater for the named
- * agent (`claude update` / `codex update`), via a closed allow-list. Captures the
- * (capped) output + exit code and re-runs health detection so the caller can show
- * the fresh version. An unknown agent is rejected before anything runs.
- */
+// Vivicy is a local single-user tool, so this route may exec — but only the CLI's own allow-listed self-update command, never arbitrary input.
 export async function POST(request: Request) {
   let parsed: { agent: "claude" | "codex" }
   try {
@@ -37,8 +26,7 @@ export async function POST(request: Request) {
 
   try {
     const result = await runAgentUpdate(parsed.agent)
-    // Re-detect AFTER the update so the modal reflects the new version. Detection
-    // is read-only (which/--version/auth-file reads), never runs the agent.
+    // Re-detect AFTER the update (not before) so the response reflects the new version; detection is read-only (which/--version/auth-file reads), never runs the agent.
     const agents = getAgentsHealth()
     return Response.json({
       ok: result.ok,

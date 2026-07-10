@@ -1,22 +1,5 @@
 #!/usr/bin/env node
-// Vivicy S1-import CHECK (G1): the standalone agent leg that verifies a NORMALIZED
-// upload corpus before it is placed into a target's .vivicy/. Deterministic
-// normalization already ran (lib/upload normalizeStaging wrote <staging>/normalized/);
-// this script drives ONE claude leg (role upload-verifier) that reads that corpus,
-// checks it for internal contradictions, drift vs any EXISTING .vivicy/canonical
-// docs, and confirms normalization preserved intention verbatim — then writes
-// <staging>/report.json { verdict, problems, summary }.
-//
-// It reuses the same leg infrastructure the extractor does (agent-spawn.ts +
-// dev-loop.ts helpers), built minimally like extract-issues.ts. Honest failure
-// (P1/P3): the script exits 0 ONLY when the report exists with verdict green; if
-// the leg dies, times out, or writes nothing usable, the script WRITES a red report
-// with the reason and exits non-zero — it never exits 0 without a green report.
-//
-// Usage: node verify-upload.ts --staging <abs>
-//   env VIVICY_TARGET_ROOT   the target project root (for canonical cross-checks;
-//                            an empty/absent canonical is fine — then the leg only
-//                            checks the corpus's internal consistency).
+
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -26,8 +9,6 @@ import type { AgentIssue, AgentLeg, LegConfig, LegDeps, LegRunResult } from "./a
 import { agentCliArgs, CLI_DEFAULTS, composePrompt, DEFAULT_CONFIG, resolveAgentLegs } from "./dev-loop.ts";
 import { FACTORY_PROMPTS_DIR, resolveTargetRoot } from "./target-root.ts";
 
-// The synthetic "issue" the leg runs against — its transcript/identity handle, not
-// a product issue (identical role to extract-issues.ts's extractionIssue()).
 const VERIFY_ISSUE_ID = "UPLOAD-VERIFY";
 
 type Verdict = "green" | "red";
@@ -50,8 +31,6 @@ interface VerifyResult {
   transcriptRel?: string;
 }
 
-// Where the normalized corpus + report live, plus the target for drift checks; the
-// leg the spawnVerifier seam runs against.
 interface VerifierArgs {
   stagingDir: string;
   normalizedDir: string;
@@ -60,8 +39,6 @@ interface VerifierArgs {
   cfg: LegConfig;
 }
 
-// The verifyUpload options: the staging inputs and the injectable seams (each
-// defaults to the real tooling).
 interface VerifyOptions {
   stagingDir?: string;
   normalizedDir?: string;
@@ -74,13 +51,7 @@ interface VerifyOptions {
   writeReport?: (args: { reportPath: string; report: Report }) => void;
 }
 
-/**
- * Verify a staged upload's normalized corpus with one agent leg, writing
- * <staging>/report.json. Injectable seams (default to the real tooling):
- *   spawnVerifier — the agent leg; writes report.json
- *   readReport    — read the leg's report back (null when missing/unparseable)
- *   writeReport   — persist a report the script authors
- */
+// Every exit path must either return a green report or write+return a red one — never resolve without a report.json verdict on disk.
 export async function verifyUpload(options: VerifyOptions = {}): Promise<VerifyResult> {
   const stagingDir = options.stagingDir;
   if (!stagingDir) {
@@ -96,8 +67,7 @@ export async function verifyUpload(options: VerifyOptions = {}): Promise<VerifyR
   const readReport = options.readReport ?? defaultReadReport;
   const writeReport = options.writeReport ?? defaultWriteReport;
 
-  // The leg writes report.json itself; clear any stale one first so a dead leg is
-  // read as "no report" (=> red), never a leftover green from a prior run.
+  // Clear any stale report first so a dead leg reads as "no report" (red), never a leftover green from a prior run.
   rmSync(reportPath, { force: true });
 
   let leg: LegRunResult;
@@ -110,9 +80,6 @@ export async function verifyUpload(options: VerifyOptions = {}): Promise<VerifyR
     return { verdict: "red", report };
   }
 
-  // Honest failure: a timed-out/killed leg authors no usable report. If the leg
-  // reports a timeout (leg-timeout.ts sets result.timedOut) OR no report exists,
-  // WRITE a red report naming the reason — never exit 0 without a green report.
   if (leg?.result?.timedOut) {
     const report = redReport(
       `upload-verifier leg was killed: ${leg.result.timeoutReason || "leg timed out"}`,
@@ -124,8 +91,6 @@ export async function verifyUpload(options: VerifyOptions = {}): Promise<VerifyR
 
   const report = readReport({ reportPath });
   if (!report || report.verdict !== "green") {
-    // A missing/unparseable report, or a red one, stays red. If the leg wrote
-    // nothing at all, synthesize a red report so the caller always has one.
     const finalReport = report ?? redReport(
       `upload-verifier wrote no report at ${reportPath}`,
       "no_report",
@@ -137,17 +102,10 @@ export async function verifyUpload(options: VerifyOptions = {}): Promise<VerifyR
   return { verdict: "green", report, transcriptRel: leg?.transcriptRel };
 }
 
-// A red report the SCRIPT authors when the agent leg could not produce one — so
-// there is always a report on disk, and it is never a false green.
 function redReport(summary: string, kind: string): Report {
   return { verdict: "red", problems: [{ file: "*", kind, detail: summary }], summary };
 }
 
-// Build the real verifier seam: drive the IMPLEMENTER-role CLI (Claude by default)
-// with the upload-verifier prompt, re-roled to "upload-verifier". The leg runs
-// inside the TARGET repo so it can read EXISTING .vivicy/canonical docs for drift
-// cross-checks; the normalized corpus + the report path it must write are injected
-// via the appended prompt context.
 function makeDefaultSpawnVerifier(
   options: VerifyOptions,
   baseCfg: LegConfig,
@@ -163,8 +121,7 @@ function makeDefaultSpawnVerifier(
   };
   const leg: AgentLeg = { ...implementer, role: "upload-verifier" };
   return async ({ stagingDir, normalizedDir, reportPath, targetRoot, cfg }: VerifierArgs) => {
-    // execRoot is the TARGET repo (so canonical cross-checks resolve); the corpus +
-    // report live under the staging dir, given to the leg by absolute path.
+    // execRoot must be the target repo so canonical cross-checks resolve; corpus/report stay under staging, passed by absolute path.
     const execRoot = targetRoot ?? stagingDir;
     const legCfg = { ...cfg, promptsDir, execRoot };
     const issue = verifyIssue();
@@ -174,13 +131,10 @@ function makeDefaultSpawnVerifier(
   };
 }
 
-// The synthetic issue the leg runs against (transcript + actor/role identity handle).
 function verifyIssue(): AgentIssue {
   return { id: VERIFY_ISSUE_ID, graph_refs: ["node:upload-verify"], path: "report.json" };
 }
 
-// Extra prompt context for the upload-verifier leg: where the normalized corpus is,
-// where the existing canonical is (for drift), and the ABSOLUTE report path to write.
 function verifierContext({ normalizedDir, reportPath, targetRoot }: { normalizedDir: string; reportPath: string; targetRoot: string | null }): string {
   const canonicalDir = targetRoot ? resolve(targetRoot, ".vivicy/canonical") : null;
   const existingCanonical =
@@ -197,8 +151,6 @@ function verifierContext({ normalizedDir, reportPath, targetRoot }: { normalized
   );
 }
 
-// Bind the shared leg runner to the exec repo's roots, appending the run-specific
-// prompt context onto the role prompt (same wrapping extract-issues.ts uses).
 function legDepsForTarget(legCfg: LegConfig, issue: AgentIssue, execRoot: string, context: string): LegDeps {
   const abs = (rel: string) => resolve(execRoot, rel);
   return {
@@ -211,8 +163,6 @@ function legDepsForTarget(legCfg: LegConfig, issue: AgentIssue, execRoot: string
   };
 }
 
-// Read the leg's structured report. A missing or unparseable file is NOT green:
-// return null so the caller writes/keeps a red report (never a silent pass).
 function defaultReadReport({ reportPath }: { reportPath: string }): Report | null {
   if (!existsSync(reportPath)) return null;
   let parsed: { verdict?: unknown; problems?: unknown; summary?: unknown };
@@ -227,16 +177,10 @@ function defaultReadReport({ reportPath }: { reportPath: string }): Report | nul
   return { verdict, problems, summary };
 }
 
-// Persist a report the SCRIPT authors (honest-failure path). The leg writes its own
-// report directly; this is only for the reasons the leg could not.
 function defaultWriteReport({ reportPath, report }: { reportPath: string; report: Report }): void {
   mkdirSync(dirname(reportPath), { recursive: true });
   writeFileSync(reportPath, `${JSON.stringify(report, null, 2)}\n`);
 }
-
-// ---------------------------------------------------------------------------
-// CLI entry
-// ---------------------------------------------------------------------------
 
 function parseArgs(argv: string[]): { stagingDir?: string } {
   const out: { stagingDir?: string } = {};

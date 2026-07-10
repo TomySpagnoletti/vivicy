@@ -5,8 +5,6 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest"
 import { QuotaFooter, formatReset } from "@/components/sidebar/quota-footer"
 import { renderWithIntl } from "@/test/render"
 
-// Minimal EventSource fake so the footer can subscribe in jsdom. We capture the
-// instance to push frames into onmessage as the SSE stream would.
 class FakeEventSource {
   static last: FakeEventSource | null = null
   onmessage: ((event: { data: string }) => void) | null = null
@@ -33,7 +31,6 @@ afterEach(() => {
   window.localStorage.clear()
 })
 
-// A future ISO time so reset countdowns render.
 const future = (h: number, m = 0) => new Date(Date.now() + (h * 3600 + m * 60) * 1000).toISOString()
 
 describe("formatReset", () => {
@@ -43,8 +40,8 @@ describe("formatReset", () => {
       "resets in 2h14"
     )
     expect(formatReset(new Date(now + 45 * 60 * 1000).toISOString(), now)).toBe("resets in 45m")
-    expect(formatReset(new Date(now - 60_000).toISOString(), now)).toBeNull() // already past
-    expect(formatReset(null, now)).toBeNull() // unknown
+    expect(formatReset(new Date(now - 60_000).toISOString(), now)).toBeNull()
+    expect(formatReset(null, now)).toBeNull()
   })
 })
 
@@ -55,7 +52,6 @@ describe("QuotaFooter — real % where available, honest — where not", () => {
       FakeEventSource.last?.emit({
         quota: {
           agents: {
-            // Codex exposes real % for BOTH windows (its rollout rate_limits).
             codex: {
               model: "gpt-5.5",
               status: "available",
@@ -66,7 +62,6 @@ describe("QuotaFooter — real % where available, honest — where not", () => {
                 weekly: { used_pct: 12, remaining: 88, reset_at: future(40) },
               },
             },
-            // Claude exposes a 5h reset but NO percentage; weekly is unknown.
             claude: {
               model: "claude-opus-4-8",
               status: "available",
@@ -80,13 +75,10 @@ describe("QuotaFooter — real % where available, honest — where not", () => {
     })
 
     await waitFor(() => expect(screen.getByText("Opus 4.8")).toBeInTheDocument())
-    // Real Codex numbers appear honestly.
     expect(screen.getByText(/5h 38%/)).toBeInTheDocument()
     expect(screen.getByText(/wk 12%/)).toBeInTheDocument()
-    // Claude has no percentage anywhere => "—" for both windows.
     expect(screen.getByText(/5h —/)).toBeInTheDocument()
     expect(screen.getByText(/wk —/)).toBeInTheDocument()
-    // Collapsed view shows no Progress bars yet.
     expect(screen.queryByRole("progressbar")).toBeNull()
   })
 
@@ -113,18 +105,14 @@ describe("QuotaFooter — real % where available, honest — where not", () => {
     })
     await waitFor(() => expect(screen.getByText("GPT 5.5")).toBeInTheDocument())
 
-    // Starts collapsed: no Progress bars, no per-window long labels.
     expect(screen.queryByRole("progressbar")).toBeNull()
 
     await user.click(screen.getByRole("button", { name: /expand quota details/i }))
 
-    // Expanded: a Progress bar per window with a real percentage (5h + weekly).
     await waitFor(() => expect(screen.getAllByRole("progressbar")).toHaveLength(2))
     expect(screen.getByText("5-hour")).toBeInTheDocument()
     expect(screen.getByText("Weekly")).toBeInTheDocument()
-    // Reset countdown is shown for a known reset.
     expect(screen.getByText(/resets in 2h1[34]/)).toBeInTheDocument()
-    // Persisted as expanded.
     expect(window.localStorage.getItem("vivicy:quota-footer-collapsed")).toBe("false")
 
     await user.click(screen.getByRole("button", { name: /collapse quota details/i }))
@@ -144,7 +132,6 @@ describe("QuotaFooter — real % where available, honest — where not", () => {
               status: "available",
               reset_at: null,
               last_message: null,
-              // 5h has a reset but no %, weekly entirely unknown.
               windows: { "5h": { used_pct: null, remaining: null, reset_at: future(3) } },
             },
           },
@@ -154,12 +141,9 @@ describe("QuotaFooter — real % where available, honest — where not", () => {
     await waitFor(() => expect(screen.getByText("Opus 4.8")).toBeInTheDocument())
     await user.click(screen.getByRole("button", { name: /expand quota details/i }))
 
-    // Both windows render their labels, but NEITHER has a real % => no bars,
-    // honest "—" instead of a fabricated number.
     await waitFor(() => expect(screen.getByText("5-hour")).toBeInTheDocument())
     expect(screen.getByText("Weekly")).toBeInTheDocument()
     expect(screen.queryByRole("progressbar")).toBeNull()
-    // No fabricated percentage anywhere for Claude.
     expect(document.body.textContent).not.toMatch(/\d+%/)
   })
 
@@ -187,14 +171,12 @@ describe("QuotaFooter — real % where available, honest — where not", () => {
     await waitFor(() => expect(screen.getByText("GPT 5.5")).toBeInTheDocument())
     await user.click(screen.getByRole("button", { name: /expand quota details/i }))
     await waitFor(() => expect(screen.getByText("throttled")).toBeInTheDocument())
-    // Real percentages still shown for the throttled agent.
     expect(screen.getByText("100%")).toBeInTheDocument()
   })
 
   test("renders a neutral placeholder when no quota is known yet", () => {
     renderWithIntl(<QuotaFooter />)
     expect(screen.getByText(/Agent quota status appears here/i)).toBeInTheDocument()
-    // No toggle button until there is at least one agent.
     expect(screen.queryByRole("button", { name: /quota details/i })).toBeNull()
   })
 
@@ -222,12 +204,9 @@ describe("QuotaFooter — real % where available, honest — where not", () => {
     })
     await waitFor(() => expect(screen.getByText("Opus 4.8")).toBeInTheDocument())
     await user.click(screen.getByRole("button", { name: /expand quota details/i }))
-    // Implementer: friendly name from the configured model + configured effort.
     expect(screen.getByText(/· max/)).toBeInTheDocument()
-    // Reviewer: unknown model id shown raw (honest), configured effort.
     expect(screen.getByText("custom-codex-x")).toBeInTheDocument()
     expect(screen.getByText(/· low/)).toBeInTheDocument()
-    // The reported (quota-state) models must NOT win over settings.
     expect(screen.queryByText("claude-old")).toBeNull()
     expect(screen.queryByText("gpt-old")).toBeNull()
   })

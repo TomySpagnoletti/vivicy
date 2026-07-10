@@ -32,7 +32,6 @@ const EDGE: MapEdge = {
   graph_ref: "edge:telegram->mcp",
 }
 
-/** A map whose development block covers both the node and the edge graph refs. */
 const DATA: ArchitectureMapData = {
   name: "demo-map",
   nodes: [NODE],
@@ -79,14 +78,11 @@ describe("SectionDetails — a selected node", () => {
     renderDetails({ type: "node", item: NODE })
 
     expect(screen.getByText("Telegram Channel")).toBeInTheDocument()
-    // Field rows: kind, lane, scope, tech, owns_data all render their values.
     expect(screen.getByText("channel")).toBeInTheDocument()
     expect(screen.getByText("Telegram Bot API")).toBeInTheDocument()
     expect(screen.getByText("chat_id, claim_token")).toBeInTheDocument()
-    // The overlay status (implemented) is shown, humanized.
     expect(screen.getByText("implemented")).toBeInTheDocument()
 
-    // Source + evidence refs render as labelled badge groups.
     const sourceLabel = screen.getByText("Source refs")
     const sourceGroup = sourceLabel.parentElement as HTMLElement
     expect(
@@ -98,10 +94,8 @@ describe("SectionDetails — a selected node", () => {
 
   test("lists the covering issue and the captured transcript button", () => {
     renderDetails({ type: "node", item: NODE })
-    // The issue whose graph_refs include this node's ref is listed under Covered by.
     expect(screen.getByText("Covered by")).toBeInTheDocument()
     expect(screen.getByText("ISS-0100")).toBeInTheDocument()
-    // Its transcript state ref becomes a clickable transcript button.
     expect(
       screen.getByRole("button", { name: "codex-rollout.jsonl" })
     ).toBeInTheDocument()
@@ -114,7 +108,6 @@ describe("SectionDetails — a selected node", () => {
       { name: "m", nodes: [lonelyNode], edges: [] }
     )
     expect(screen.getByText("blocked")).toBeInTheDocument()
-    // No issues / transcripts => "None yet" under Covered by.
     expect(screen.getByText("None yet")).toBeInTheDocument()
   })
 })
@@ -123,15 +116,11 @@ describe("SectionDetails — a selected edge", () => {
   test("renders the endpoints, protocol, relation, and progress status", () => {
     renderDetails({ type: "edge", id: "edge:telegram->mcp", item: EDGE })
 
-    // Endpoint header.
     expect(screen.getByText("telegram-channel → worker-platform-mcp")).toBeInTheDocument()
-    // Protocol + relation + data values render from the edge.
     expect(screen.getByText("Worker Platform MCP")).toBeInTheDocument()
     expect(screen.getByText("invokes")).toBeInTheDocument()
     expect(screen.getByText("message, claim_token")).toBeInTheDocument()
-    // The edge's overlay status (in_progress) renders as Progress, humanized.
     expect(screen.getByText("in progress")).toBeInTheDocument()
-    // The covering issue is listed.
     expect(screen.getByText("ISS-0200")).toBeInTheDocument()
   })
 })

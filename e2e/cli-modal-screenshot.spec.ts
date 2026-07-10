@@ -1,11 +1,6 @@
 import { expect, test } from "./browser-issues"
 
-/**
- * Capture the "Agent CLIs" modal at a fixed 1320x820 so the cleaned version
- * lines, the per-agent Update buttons, and the (subscription) cost note are all
- * visible in one frame. Runs on the demo server, which performs REAL health
- * detection against the dev machine's installed CLIs.
- */
+// Runs against REAL CLI health detection on the dev machine — not mocked, so results vary by what's installed locally.
 test("Agent CLIs modal — cleaned versions, Update buttons, cost note", async ({ page }) => {
   await page.setViewportSize({ width: 1320, height: 820 })
   await page.goto("/")
@@ -17,9 +12,7 @@ test("Agent CLIs modal — cleaned versions, Update buttons, cost note", async (
 
   const dialog = page.getByRole("dialog")
   await expect(dialog.getByText("Agent CLIs")).toBeVisible()
-  // Let detection resolve (presence badge) before the shot.
   await expect(dialog.getByText(/Installed|Not found/).first()).toBeVisible({ timeout: 15_000 })
-  // Give the per-agent Update buttons a beat to render on the resolved cards.
   await page.waitForTimeout(300)
 
   await page.screenshot({ path: "/tmp/vivicy-cli-modal.png" })

@@ -1,15 +1,3 @@
-// Tests for the agent-drivable `vivicy` CLI (factory/cli.ts) — G14.
-//
-// Every case spawns cli.ts as a CHILD (the real bin) and asserts its stdout JSON
-// schema + exit code, because that IS the contract non-human callers depend on. No
-// real agent ever spawns:
-//   • read-only verbs (status / crs / notifications) run against seeded .vivicy
-//     state files in a tmp target — no factory scripts run.
-//   • spawning verbs (extract / cr) point at a STUB FACTORY via VIVICY_FACTORY_ROOT
-//     (the same override lib/control.ts honors): stub scripts write the expected
-//     state files and print the expected JSON instead of launching claude/codex.
-// The lock/log land in an isolated dir via --runtime-dir so tests never touch the
-// real .vivicy-runtime.
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -22,17 +10,10 @@ import { getProjectRuntimeDir } from "../lib/project-runtime.ts";
 
 const CLI = join(dirname(fileURLToPath(import.meta.url)), "cli.ts");
 
-// EVERY runCli gets an isolated runtime dir by default: without it, any verb that
-// locks/spawns (start, skills install, cr approve — and the notify() of the factory
-// children they spawn) writes projects/<key>/ into the REPO's own .vivicy-runtime.
-// The `--runtime-dir` flag some tests pass still wins (flag > env in the CLI).
+// runCli injects an isolated VIVICY_RUNTIME_DIR by default — without it, locking verbs (start, skills install, cr approve) would write into the repo's real .vivicy-runtime; --runtime-dir flag still wins over it.
 const isolatedRuntimeRoot = mkdtempSync(join(tmpdir(), "vivicy-cli-rt-"));
 after(() => rmSync(isolatedRuntimeRoot, { recursive: true, force: true }));
 
-/** Run the CLI as a child. Returns { code, out, err, json } where json is the
- *  parsed stdout (the contract: exactly one JSON object on stdout).
- *  `json` is `any`: each test pokes a different ad-hoc slice of the CLI's JSON
- *  payload, so a precise per-verb shape here would be pure ceremony. */
 function runCli(
   args: string[],
   { env = {} }: { env?: NodeJS.ProcessEnv } = {}
@@ -56,7 +37,6 @@ function runCli(
 let target: string;
 let runtimeDir: string;
 
-/** Seed a minimal target project's .vivicy state. */
 function seedTarget(): string {
   const dir = mkdtempSync(join(tmpdir(), "vivicy-cli-target-"));
   mkdirSync(join(dir, ".vivicy/development/reports"), { recursive: true });
@@ -97,7 +77,6 @@ afterEach(() => {
   for (const d of [target, runtimeDir]) rmSync(d, { recursive: true, force: true });
 });
 
-// ── help / unknown verb ──────────────────────────────────────────────────────
 describe("help + unknown verb", () => {
   test("--help exits 0 and lists verbs", () => {
     const r = runCli(["--help"]);
@@ -119,7 +98,6 @@ describe("help + unknown verb", () => {
   });
 });
 
-// ── status ───────────────────────────────────────────────────────────────────
 describe("status --json", () => {
   test("green fixture: merged shape, exit 0", () => {
     writeIssueIndex(target, ["ISS-1", "ISS-2"]);
@@ -146,20 +124,15 @@ describe("status --json", () => {
     assert.ok(r.json, "stdout must be one JSON object");
     assert.equal(r.json.ok, true);
     assert.equal(r.json.target, target);
-    // run-state lock: no run recorded => null + inactive.
     assert.equal(r.json.run, null);
     assert.equal(r.json.run_active, false);
-    // dev block came from dev-status.ts (real, read-only).
     assert.equal(r.json.dev.issues_total, 2);
     assert.equal(r.json.dev.issues_done, 1);
-    // extraction block: phase + spike/map modes + proving summary.
     assert.equal(r.json.extraction.phase, "green");
     assert.equal(r.json.extraction.spike_mode, "integrate");
     assert.equal(r.json.extraction.map_mode, "reused");
     assert.deepEqual(r.json.extraction.spike_proving, { proved: 2, failed: 0, skipped: 1 });
-    // pending CRs: the single idea-status CR.
     assert.equal(r.json.pending_crs, 1);
-    // stdout is JSON only; human/log noise stays on stderr.
     assert.equal(r.out.trim().startsWith("{"), true);
   });
 
@@ -172,7 +145,7 @@ describe("status --json", () => {
 
     const r = runCli(["status", "--dir", target, "--runtime-dir", runtimeDir, "--json"]);
 
-    assert.equal(r.code, 0); // status itself succeeded; it REPORTS the blocked phase
+    assert.equal(r.code, 0);
     assert.equal(r.json.extraction.phase, "extraction_blocked");
   });
 
@@ -186,8 +159,6 @@ describe("status --json", () => {
   });
 
   test("degrades to dev:null (not exit 3) when the dev-status sub-probe is unavailable", () => {
-    // Point at a stub factory WITHOUT dev-status.ts: the merged read must still
-    // succeed on its other sources rather than aborting because one is missing.
     const stub = mkdtempSync(join(tmpdir(), "vivicy-nostatus-"));
     writeExtractionStatus(target, { phase: "green", summary: "green" });
     try {
@@ -197,14 +168,13 @@ describe("status --json", () => {
       assert.equal(r.code, 0);
       assert.equal(r.json.ok, true);
       assert.equal(r.json.dev, null);
-      assert.equal(r.json.extraction.phase, "green"); // other sources still returned
+      assert.equal(r.json.extraction.phase, "green");
     } finally {
       rmSync(stub, { recursive: true, force: true });
     }
   });
 });
 
-// ── crs list ─────────────────────────────────────────────────────────────────
 describe("crs --json", () => {
   test("lists well-formed CRs, skipping template + readme", () => {
     writeCr(target, "CR-0001-a.md", {
@@ -247,11 +217,8 @@ describe("crs --json", () => {
   });
 });
 
-// ── cr approve/reject (unknown id refusal) ───────────────────────────────────
 describe("cr approve", () => {
   test("unknown id is an actionable refusal (exit 1, unknown_cr)", () => {
-    // Uses the REAL change-control.ts decide (deterministic, no agent): it refuses
-    // an id with no CR file. No stub factory needed.
     writeCanonical(target);
     const r = runCli(["cr", "approve", "CR-9999", "--by", "tester", "--dir", target, "--runtime-dir", runtimeDir, "--json"]);
     assert.equal(r.code, 1);
@@ -271,7 +238,6 @@ describe("cr approve", () => {
   });
 });
 
-// ── retry-stage dispatcher ───────────────────────────────────────────────────
 describe("retry-stage", () => {
   test("an unsupported stage exits 2 and lists supported stages", () => {
     const r = runCli(["retry-stage", "S6", "--json"]);
@@ -288,7 +254,6 @@ describe("retry-stage", () => {
   });
 });
 
-// ── notifications read contract ──────────────────────────────────────────────
 describe("notifications --json", () => {
   test("missing log => empty list, exit 0", () => {
     const r = runCli(["notifications", "--runtime-dir", runtimeDir, "--json"]);
@@ -314,7 +279,6 @@ describe("notifications --json", () => {
   });
 });
 
-// ── skills report read + install via a STUB FACTORY ─────────────────────────
 describe("skills verbs", () => {
   function writeSkillsReport(dir: string, report: Record<string, unknown>): void {
     writeFileSync(
@@ -365,9 +329,6 @@ describe("skills verbs", () => {
     let stubFactory: string;
     before(() => {
       stubFactory = mkdtempSync(join(tmpdir(), "vivicy-stub-skills-"));
-      // install-skills.ts stub: reproduces the real script's OBSERVABLE contract —
-      // reads --ids (explicit mode) or none (auto), writes skills-report.json with
-      // the phase named by STUB_SKILLS_PHASE, exit 0 on green/skipped else 1.
       writeFileSync(
         join(stubFactory, "install-skills.ts"),
         [
@@ -437,19 +398,12 @@ describe("skills verbs", () => {
   });
 });
 
-// ── extract + start/stop via a STUB FACTORY (no real agents) ─────────────────
 describe("spawning verbs against a stub factory", () => {
   let stubFactory: string;
 
-  // A stub factory dir with just the scripts the spawning verbs resolve. Each stub
-  // reproduces the real script's OBSERVABLE contract (writes the same state file /
-  // prints the same JSON, sets the same exit code) but spawns nothing.
   before(() => {
     stubFactory = mkdtempSync(join(tmpdir(), "vivicy-stub-factory-"));
 
-    // extract-issues.ts: read VIVICY_TARGET_ROOT, write extraction-status.json with
-    // the phase named by STUB_EXTRACT_PHASE, exit 0 on green else 1 — exactly the
-    // real orchestrator's terminal contract.
     writeFileSync(
       join(stubFactory, "extract-issues.ts"),
       [
@@ -465,7 +419,6 @@ describe("spawning verbs against a stub factory", () => {
         "process.exit(phase === 'green' ? 0 : 1);",
       ].join("\n")
     );
-    // dev-status.ts stub (not exercised by extract, present for completeness).
     writeFileSync(join(stubFactory, "dev-status.ts"), "console.log(JSON.stringify({ verdict: 'NOT STARTED', issues_total: 0, issues_done: 0, active: [], gates: { pass: 0, fail: 0 } }));\nprocess.exit(0);\n");
   });
   after(() => rmSync(stubFactory, { recursive: true, force: true }));
@@ -505,13 +458,10 @@ describe("spawning verbs against a stub factory", () => {
   });
 });
 
-// ── start / stop lifecycle + lock compatibility ──────────────────────────────
 describe("start/stop lock lifecycle (byte-compatible run-state)", () => {
   let stubFactory: string;
   before(() => {
     stubFactory = mkdtempSync(join(tmpdir(), "vivicy-stub-sup-"));
-    // A supervisor that just sleeps, so the detached pid stays alive long enough to
-    // observe the lock, then a stop kills it. It writes nothing under .vivicy.
     writeFileSync(
       join(stubFactory, "dev-loop-supervised.ts"),
       "setTimeout(() => {}, 60000);\n"
@@ -528,20 +478,16 @@ describe("start/stop lock lifecycle (byte-compatible run-state)", () => {
     assert.equal(start.json.ok, true);
     assert.ok(start.json.run.pid > 0);
     assert.equal(start.json.run.mode, "start");
-    // The lock lives in the PROJECT namespace (W8): <runtimeDir>/projects/<key>/run-state.json,
-    // the SAME derivation the app uses (shared lib/project-runtime.ts module).
     const lockFile = join(getProjectRuntimeDir(runtimeDir, target), "run-state.json");
     const lockRaw = JSON.parse(readFileSync(lockFile, "utf8"));
     assert.equal(lockRaw.pid, start.json.run.pid);
     assert.equal(lockRaw.target_root, target);
     assert.equal(lockRaw.mode, "start");
 
-    // A second start while the run is active is refused (single-run lock, exit 1).
     const again = runCli(["start", "--dir", target, "--runtime-dir", runtimeDir, "--json"], { env });
     assert.equal(again.code, 1);
     assert.equal(again.json.code, "already_running");
 
-    // Stop kills the pid and clears the lock (target-scoped: the lock is per project).
     const stop = runCli(["stop", "--dir", target, "--runtime-dir", runtimeDir, "--json"]);
     assert.equal(stop.code, 0);
     assert.equal(stop.json.stopped.pid, start.json.run.pid);
@@ -565,9 +511,7 @@ describe("cycle verbs (W7b — open/cancel/status, guards mirrored from the app)
   let stubFactory: string;
   before(() => {
     stubFactory = mkdtempSync(join(tmpdir(), "vivicy-stub-cycle-"));
-    // The drift judge for `cycle cancel`: a doc-baseline stub that always verifies.
     writeFileSync(join(stubFactory, "doc-baseline.ts"), "process.exit(0);\n");
-    // A sleeping supervisor so `start` can hold a live lock for the guard test.
     writeFileSync(join(stubFactory, "dev-loop-supervised.ts"), "setTimeout(() => {}, 60000);\n");
   });
   after(() => rmSync(stubFactory, { recursive: true, force: true }));
@@ -604,13 +548,11 @@ describe("cycle verbs (W7b — open/cancel/status, guards mirrored from the app)
     assert.equal(status.code, 0);
     assert.equal(status.json.cycle.id, open.json.cycle.id);
 
-    // The build is gated while the cycle is open (the canonical may drift).
     writeCanonical(target);
     const start = runCli(["start", "--dir", target, "--runtime-dir", runtimeDir, "--json"], { env });
     assert.equal(start.code, 1);
     assert.equal(start.json.code, "cycle_state");
 
-    // Cancel is legal while nothing drifted (the stub verifier says clean).
     const cancel = runCli(["cycle", "cancel", "--dir", target, "--runtime-dir", runtimeDir, "--json"], { env });
     assert.equal(cancel.code, 0, cancel.err);
     assert.equal(cancel.json.cancelled, open.json.cycle.id);

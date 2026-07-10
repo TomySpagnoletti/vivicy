@@ -13,14 +13,7 @@ import {
 } from "@/components/ui/tooltip"
 import { OpenProjectDialog } from "@/components/project/open-project-dialog"
 
-/**
- * Top-left overlay controls: the project SWITCHER (once a project exists) and the
- * agents health chip. The current project is owned by the page (single source of
- * truth — the Vivi panel's onboarding/reset logic reads the same state), so this
- * bar is fully controlled: it renders `project` and reports changes up. The
- * notification bell that used to live here is retired (W5/D3) — notifications
- * moved into the Vivi panel.
- */
+// Fully controlled: project state is owned by the page (the Vivi panel's onboarding/reset logic reads the same state) — this bar only renders `project` and reports changes up.
 export function SetupBar({
   project,
   onProjectChanged,
@@ -34,12 +27,7 @@ export function SetupBar({
 
   return (
     <div className="pointer-events-auto absolute top-2 left-2 z-20 flex items-center gap-1.5">
-      {/* z-20 keeps these controls (project switcher, agents chip) clickable
-          ABOVE the pipeline widget (z-10), whose wide centered strip would
-          otherwise intercept clicks over the top-left corner. */}
-      {/* The project picker lives here only once a project is selected — changing
-          projects, with no duplicate selector. Before any project exists the Vivi
-          panel's onboarding view is the sole entry point, so this affordance is absent. */}
+      {/* z-20: must stay above the pipeline widget's z-10, or its wide centered strip intercepts clicks in this corner. */}
       {project ? (
         <>
           <Tooltip>
@@ -57,7 +45,7 @@ export function SetupBar({
               </Button>
             </TooltipTrigger>
             <TooltipContent className="max-w-xs">
-              {/* break-all so a long absolute path wraps inside the capped width. */}
+              {/* break-all: absolute paths have no spaces, so wrapping needs break-all not break-words. */}
               <span className="block break-all">{project.root}</span>
             </TooltipContent>
           </Tooltip>

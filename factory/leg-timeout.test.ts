@@ -1,10 +1,4 @@
-// Per-leg timeout tests — fakes only, NO real Claude/Codex CLI.
-//
-// These guard the resilience fix for the live 5-hour hang: a `codex exec` leg
-// stalled internally and the orchestrator awaited it forever because there was no
-// per-leg timeout. The leg now runs under a hard wall-clock cap AND a stall/idle
-// timeout, enforced by killing the leg's WHOLE process group. Every case here
-// uses a fake `node -e` leg so the suite never touches a live agent.
+// fakes only — never invoke a live Claude/Codex CLI in this suite.
 import assert from "node:assert/strict";
 import test from "node:test";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -18,12 +12,10 @@ import {
   spawnLegSync,
 } from "./leg-timeout.ts";
 
-// A fake leg = `node -e <code>`. No network, no agent, deterministic timing.
 const node = process.execPath;
 const legArgs = (code: string) => ["-e", code];
 
 test("resolveLegTimeout: defaults, env override, and explicit options precedence", () => {
-  // Defaults when nothing is set.
   const prev = { cap: process.env.VIVICY_LEG_TIMEOUT_MS, idle: process.env.VIVICY_LEG_IDLE_MS };
   delete process.env.VIVICY_LEG_TIMEOUT_MS;
   delete process.env.VIVICY_LEG_IDLE_MS;
@@ -32,19 +24,15 @@ test("resolveLegTimeout: defaults, env override, and explicit options precedence
       { capMs: resolveLegTimeout().capMs, idleMs: resolveLegTimeout().idleMs },
       { capMs: DEFAULT_LEG_CAP_MS, idleMs: DEFAULT_LEG_IDLE_MS },
     );
-    // The generous defaults leave room for legit xhigh-effort work (15-30 min).
     assert.ok(DEFAULT_LEG_CAP_MS >= 30 * 60 * 1000, "hard cap must not be set too low for hard issues");
 
-    // Env override is honored.
     process.env.VIVICY_LEG_TIMEOUT_MS = "123456";
     process.env.VIVICY_LEG_IDLE_MS = "7890";
     assert.equal(resolveLegTimeout().capMs, 123456);
     assert.equal(resolveLegTimeout().idleMs, 7890);
 
-    // Explicit options win over env.
     assert.equal(resolveLegTimeout({ capMs: 5 }).capMs, 5);
 
-    // Garbage env falls back to the default (never NaN/negative).
     process.env.VIVICY_LEG_TIMEOUT_MS = "not-a-number";
     assert.equal(resolveLegTimeout().capMs, DEFAULT_LEG_CAP_MS);
   } finally {
@@ -75,8 +63,6 @@ test("a non-zero exit under the cap is a normal failure, NOT a timeout", () => {
 
 test("a leg that sleeps past the hard cap is killed and returns a timeout failure", () => {
   const t0 = Date.now();
-  // Emits steadily so the IDLE watchdog never fires — only the hard cap can stop
-  // it, proving the cap path specifically.
   const res = spawnLegSync(node, legArgs("setInterval(()=>process.stdout.write('.'),50)"), {
     timeout: { capMs: 700, idleMs: 10_000, graceMs: 300 },
   });
@@ -89,7 +75,6 @@ test("a leg that sleeps past the hard cap is killed and returns a timeout failur
 
 test("a leg that goes idle (no output) past the idle timeout is killed", () => {
   const t0 = Date.now();
-  // Silent forever: never emits, never exits. Only the IDLE watchdog can stop it.
   const res = spawnLegSync(node, legArgs("setTimeout(()=>{}, 600000)"), {
     timeout: { capMs: 60_000, idleMs: 600, graceMs: 300 },
   });
@@ -104,9 +89,6 @@ test("a killed leg leaves NO orphaned child process (whole tree is reaped)", asy
   const marker = resolve(dir, "grand.pid");
   writeFileSync(marker, "");
   try {
-    // The fake leg spawns a long-lived GRANDCHILD, records its pid, and pipes the
-    // grandchild's steady output up so the leg never goes idle — the leg can only
-    // be stopped by the hard cap, and the kill must reach the grandchild's group.
     const legCode = `
       const { spawn } = require('node:child_process');
       const fs = require('node:fs');
@@ -121,8 +103,7 @@ test("a killed leg leaves NO orphaned child process (whole tree is reaped)", asy
     const grandPid = Number(readFileSync(marker, "utf8").trim());
     assert.ok(Number.isInteger(grandPid) && grandPid > 0, "the grandchild recorded its pid");
 
-    // After the SIGKILL grace, the grandchild must be gone. process.kill(pid, 0)
-    // throws ESRCH when the process no longer exists.
+    // process.kill(pid, 0) throws ESRCH once the process is gone — used here as an existence check, not a kill.
     await new Promise((r) => setTimeout(r, 700));
     let alive = true;
     try {

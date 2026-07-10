@@ -1,35 +1,11 @@
 #!/usr/bin/env node
-// spike:check — the Phase 0 evidence-gate well-formedness gate. It proves every
-// spike artifact under .vivicy/development/spikes/ carries a valid Traceability
-// block (gate-id grammar, status enum, requirement ids) and, once a spike is
-// verified, the evidence field labels the Completion Rule requires. It is the
-// spike analogue of
-// semantic-extraction:check (source well-formedness) and is deterministic and
-// read-only.
-//
-//   VIVICY_TARGET_ROOT=<root> node vivicy/factory/spike-check.ts
-//
-// Scope boundary, kept deliberately narrow:
-//   - This gate checks each spike file IN ISOLATION (shape, not meaning).
-//   - It does NOT resolve issue spike_gates against spikes — that referential
-//     check lives in traceability:check.
-//   - It does NOT block on verification status — the dev-loop readiness gate owns
-//     "an issue must not start against an unverified spike". `pending` is a valid,
-//     freshly-minted state, so a corpus of pending spikes passes this gate.
-//
-// With no spikes/ directory or an empty one it exits 0 ("nothing to check yet"),
-// mirroring the other extraction checks before extraction has run.
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { resolveTargetRoot } from "./target-root.ts";
 
-/** The five states a spike's `status:` scalar may hold (the spike status enum). */
 export type SpikeStatus = "pending" | "verified" | "deferred" | "blocked" | "failed";
 
-/** A well-formed spike as `readSpikes` indexes it. `status` is null when the file's
- *  status scalar is off-enum; `requirement_ids`/`gated_by_external` are the raw block
- *  scalars (null when absent). */
 export interface Spike {
   file: string;
   gate_id: string;
@@ -40,7 +16,6 @@ export interface Spike {
   gated_by_external: string | null;
 }
 
-/** The outcome of a `runSpikeCheck` run: an exit code plus the collected failures. */
 export interface SpikeCheckResult {
   exitCode: number;
   errors: string[];
@@ -48,24 +23,16 @@ export interface SpikeCheckResult {
   summary: string;
 }
 
-// The scalar keys the Traceability block may carry, as parsed line-by-line (each a
-// raw trimmed string when present).
 type TraceabilityScalars = Partial<Record<"requirement_ids" | "gate_id" | "status" | "gated_by" | "blocks" | "gated_by_external", string>>;
 
-// The failure sink runSpikeCheck threads into each rule: (rule, scope, evidence, expected, requiredFix).
 type FailFn = (rule: string, scope: string, evidence: string, expected: string, requiredFix: string) => void;
 
 const repoRoot = resolveTargetRoot();
 
 const SPIKES_DIR = ".vivicy/development/spikes";
 const SPIKE_STATUSES: readonly SpikeStatus[] = ["pending", "verified", "deferred", "blocked", "failed"];
-// gate:phase0:s<slug>, where <slug> equals the spike filename stem (e.g.
-// 03-codex-auth.md -> gate:phase0:s03-codex-auth). The leading "s" namespaces the
-// gate; the slug is the join key back to the file.
 const GATE_ID_PATTERN = /^gate:phase0:s([a-z0-9][a-z0-9-]*)$/;
-// Files the scan skips: the shipped template and any directory readme.
 const NON_SPIKE_FILES = new Set(["readme.md", "spike-template.md"]);
-// The six evidence fields the Completion Rule requires a spike to capture.
 const COMPLETION_FIELDS = [
   "environment",
   "commands",
@@ -91,10 +58,9 @@ export function runSpikeCheck(options: { repoRoot?: string | null } = {}): Spike
     .sort();
   if (files.length === 0) return placeholder("no spikes");
 
-  // gate ids are inherently unique: each must equal its (unique) filename slug.
   for (const file of files) {
     const label = `${SPIKES_DIR}/${file}`;
-    const fileSlug = file.slice(0, -3).toLowerCase(); // strip ".md"
+    const fileSlug = file.slice(0, -3).toLowerCase();
     const text = readFileSync(join(dirAbs, file), "utf8");
 
     const block = parseSpikeTraceability(text, label, fail);
@@ -141,10 +107,7 @@ export function runSpikeCheck(options: { repoRoot?: string | null } = {}): Spike
       }
     }
 
-    // Completion Rule: a spike is complete only once verified, so the six evidence
-    // fields are required only at `verified`. This proves the field LABELS are
-    // present; whether the recorded evidence actually supports the decision is the
-    // fidelity verifier's judgment, not something a deterministic check can read.
+    // Checks field LABELS are present, not evidence quality — content trust is the fidelity verifier's job, not this deterministic check.
     if (block && block.status === "verified") {
       const evidence = extractSection(text, "Evidence Required").toLowerCase();
       const missing = COMPLETION_FIELDS.filter((field) => !evidence.includes(field));
@@ -160,15 +123,10 @@ export function runSpikeCheck(options: { repoRoot?: string | null } = {}): Spike
     }
   }
 
-  // No two spikes may describe the SAME dependency. A stale or renamed duplicate — e.g.
-  // `01-provider-auth.md` left beside `s01-provider-auth.md` — means the folder was not
-  // kept clean. Compare each file's DESCRIPTIVE slug (the stem minus its leading
-  // `s?<digits>-` id prefix) and fail on any collision so duplicates surface here instead
-  // of silently accumulating.
   const byDescriptive = new Map();
   for (const file of files) {
     const key = file.slice(0, -3).toLowerCase().replace(/^s?\d+-?/, "");
-    if (!key) continue; // a bare-number stem has no descriptive part to collide on
+    if (!key) continue;
     const firstSeen = byDescriptive.get(key);
     if (firstSeen) {
       fail(
@@ -183,20 +141,12 @@ export function runSpikeCheck(options: { repoRoot?: string | null } = {}): Spike
     }
   }
 
-  // E2 — inter-spike gating: validate the gated_by/blocks graph across the well-formed spikes.
   validateSpikeGatingGraph(readSpikes(root), fail);
 
   return done(errors, `${files.length} spike(s)`);
 }
 
-// Reader for the spike corpus, shared by traceability-check (referential
-// resolution + requirement back-fill) and the dev-loop readiness gate. It indexes
-// ONLY well-formed spikes — a spike whose gate id is not exactly
-// `gate:phase0:s<filename-stem>` is skipped here, because runSpikeCheck (the
-// authoritative validator) fails the corpus on it anyway. Indexing only the
-// well-formed entries makes gate ids inherently unique (each equals its unique
-// filename) and keeps a malformed spike from masquerading as a real gate.
-// Returns an empty array when no spikes exist.
+// Filtering to well-formed spikes keeps gate_id inherently unique — other gate_id-keyed Maps in this file rely on that and silently drop collisions otherwise.
 export function readSpikes(root: string | null = repoRoot): Spike[] {
   const spikes: Spike[] = [];
   if (!root) return spikes;
@@ -220,15 +170,11 @@ export function readSpikes(root: string | null = repoRoot): Spike[] {
   return spikes;
 }
 
-// gate_id -> status for every well-formed spike (a thin index over readSpikes).
 export function readSpikeGateStatuses(root: string | null = repoRoot): Map<string, SpikeStatus | null> {
   return new Map(readSpikes(root).map((spike) => [spike.gate_id, spike.status]));
 }
 
-// The gate_ids that are not only `verified` but whose ENTIRE transitive gated_by chain is
-// also verified — the only spike gates safe to treat as satisfied. This makes the dev-loop
-// readiness chain-aware on every turn, not only at the startup spike-check, so a spike
-// hand-flipped to verified ahead of its chain never silently unblocks a dependent issue.
+// Verified only if its entire transitive gated_by chain is also verified — guards against a hand-flipped spike silently unblocking a dependent issue.
 export function transitivelyVerifiedGates(root: string | null = repoRoot): Set<string> {
   const spikes = readSpikes(root);
   const byGate = new Map(spikes.map((spike) => [spike.gate_id, spike]));
@@ -251,12 +197,6 @@ function parseGateList(value: string | undefined): string[] {
     .filter(Boolean);
 }
 
-// E2 — inter-spike gating graph. A spike may declare `gated_by` (the spikes it depends on,
-// which must verify first) and `blocks` (the inverse). The graph is validated for: referential
-// integrity (entries resolve to real spikes), inverse consistency (A.blocks B <-> B.gated_by A),
-// acyclicity (like issue depends_on), and the status chain — a `verified` spike requires every
-// spike in its transitive gated_by chain to be verified. That last rule enforces the ordering,
-// and the dev-loop's spike-status readiness then honours it for free.
 function validateSpikeGatingGraph(spikes: Spike[], fail: FailFn): void {
   const byGate = new Map(spikes.map((spike) => [spike.gate_id, spike]));
   for (const spike of spikes) {
@@ -290,7 +230,6 @@ function validateSpikeGatingGraph(spikes: Spike[], fail: FailFn): void {
   }
 }
 
-// DFS three-colour cycle detection (the spike graph is small); returns a cycle path or null.
 function findGateCycle(nodes: string[], edgesOf: (g: string) => string[]): string[] | null {
   const color = new Map<string, number>(nodes.map((n) => [n, 0])); // 0 white, 1 gray (on path), 2 black
   const path: string[] = [];
@@ -329,9 +268,6 @@ function transitiveGatedBy(gate: string, byGate: Map<string, Spike>): string[] {
   return [...seen];
 }
 
-// The spike Traceability block is YAML-shaped but parsed with fixed line rules
-// (dependency-free, deterministic), mirroring semantic-extraction-check. Reads the
-// three scalar keys; the caller decides whether missing keys are an error.
 function extractTraceabilityScalars(text: string): TraceabilityScalars {
   const lines = text.split(/\r?\n/);
   const headingIndex = lines.findIndex((line) => /^##\s+Traceability\s*$/.test(line));

@@ -1,21 +1,7 @@
-/**
- * Typed contract for the architecture-map data consumed by the Vivicy viewer.
- *
- * The shape mirrors the committed
- * `<target>/.vivicy/architecture-map/architecture-data.json` produced by
- * the Vivicy architecture-map tooling. This file is the single source of truth
- * for the data types used across the app; do not redeclare these shapes inline.
- */
-
 import type { OverlayStatus } from "@/lib/development-overlay"
 
-/**
- * Development progress statuses, ordered from untouched to verified. Aliased to
- * `OverlayStatus` so the ordered six-status list has one source (the overlay).
- */
 export type NodeStatus = OverlayStatus
 
-/** Which projection of the graph is currently shown. */
 export type ViewMode = "target" | "progress"
 
 export interface MapLane {
@@ -31,9 +17,7 @@ export interface MapNode {
   order?: number
   layout_x: number
   layout_y: number
-  /** Cluster id used to group nodes under a labeled backdrop on the map. */
   layout_cluster?: string
-  /** Layout role hint from the source map (primary_flow, support, etc.). */
   layout_role?: string
   scope?: string
   status?: NodeStatus
@@ -49,7 +33,6 @@ export interface MapEdge {
   to: string
   relation?: string
   protocol?: string
-  /** Position of the protocol label along the edge (0..1). */
   layout_label_ratio?: number
   data?: string[]
   source_refs?: string[]
@@ -76,7 +59,6 @@ export interface GraphItemState {
   transcript_refs?: string[]
 }
 
-/** A development agent actively working on one or more graph items. */
 export interface ActiveItem {
   id: string
   actor?: string
@@ -124,34 +106,14 @@ export interface ArchitectureMapData {
   development?: DevelopmentBlock
 }
 
-/**
- * The reason the viewer has no graph to render, used to pick the right
- * onboarding guidance. A discriminated value so the client never has to parse
- * prose or HTTP status codes to decide what to show:
- *
- * - `no_target`  — no usable project resolved (root missing, or no `.vivicy/canonical/`).
- * - `no_map`     — the project exists but no architecture map was generated yet.
- * - `empty_map`  — a map is present on disk but contains zero nodes.
- */
 export type MapEmptyReason = "no_target" | "no_map" | "empty_map"
 
-/** The onboarding payload `/api/map` returns instead of a graph. */
 export interface MapEmptyState {
   empty: true
   reason: MapEmptyReason
-  /**
-   * Absolute target root the viewer resolved, for operator-facing detail. Null in
-   * the `no_target` case: no project is selected, so there is genuinely no root.
-   */
   targetRoot: string | null
 }
 
-/** A node enriched with its effective, view-aware status for rendering. */
 export interface ResolvedNode extends MapNode {
-  /**
-   * The status the map should color by in the current view. `null` means
-   * "render neutral" (always true in the target view, and in the progress view
-   * when there is no overlay and no node status).
-   */
   effectiveStatus: NodeStatus | null
 }

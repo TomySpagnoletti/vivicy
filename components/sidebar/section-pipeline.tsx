@@ -39,15 +39,6 @@ interface SkillsReportResponse {
   report?: SkillsReport | null
 }
 
-/**
- * G8's "full process view": the complete S0–S12 state, one row per stage, with
- * the last status line and timestamp when the extraction orchestrator recorded
- * one. Subscribes to the same SSE status stream + extraction poll the
- * PipelineWidget does (each surface owns its own subscription — the same
- * pattern ProcessControlBar already uses — rather than threading live status
- * through props from page.tsx). Read-honest: a stage with no observed data
- * shows only its pending badge, never a fabricated timestamp or summary.
- */
 export function SectionPipeline() {
   const [status, setStatus] = useState<RunStatus | null>(null)
   const [extraction, setExtraction] = useState<ExtractionStatusLike | null>(null)
@@ -61,14 +52,12 @@ export function SectionPipeline() {
         const body = (await res.json().catch(() => ({}))) as ExtractStatusResponse
         if (!cancelled && res.ok && body.ok !== false) setExtraction(body.status ?? null)
       } catch {
-        // Best-effort: leave the last known extraction status in place.
       }
       try {
         const res = await fetch("/api/control/skills", { cache: "no-store" })
         const body = (await res.json().catch(() => ({}))) as SkillsReportResponse
         if (!cancelled && res.ok && body.ok !== false) setSkills(body.report ?? null)
       } catch {
-        // Best-effort: leave the last known skills report in place.
       }
     }
     void (async () => {
@@ -83,7 +72,6 @@ export function SectionPipeline() {
         setStatus(next)
         void loadReports()
       } catch {
-        // A malformed frame just keeps the last known status.
       }
     }
     return () => {
@@ -124,10 +112,6 @@ export function SectionPipeline() {
   )
 }
 
-/** Evidence pointers as plain text — only what actually exists on the read
- *  models, never a placeholder. S2–S6 read from the extraction status file
- *  (phase/summary/updated_at); SK reads the skills report the same way;
- *  S7–S12 read from the dev-status gate counts. */
 function StageEvidence({
   stageId,
   extraction,

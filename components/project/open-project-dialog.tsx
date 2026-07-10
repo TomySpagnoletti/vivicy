@@ -17,16 +17,6 @@ import {
 } from "@/components/ui/dialog"
 import { OpenProjectForm } from "@/components/project/open-project-form"
 
-/**
- * Web project picker (R10): a shadcn Dialog around the shared
- * {@link OpenProjectForm} — the setup bar's project SWITCHER once a project
- * exists. First-time acquisition lives in the Vivi panel's onboarding view
- * (W4b), which hosts the same form dialog-free.
- *
- * Controlled by the parent so the switcher affordance owns open/close.
- * `onChanged` fires with the persisted project so the app can re-fetch the map;
- * the dialog closes itself on a successful selection.
- */
 export function OpenProjectDialog({
   open,
   onOpenChange,

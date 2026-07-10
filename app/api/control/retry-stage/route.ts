@@ -2,18 +2,11 @@ import { ControlError, runExtract, startSkillsInstall, startSupervisor } from "@
 import { appendNotification } from "@/lib/notifications"
 import { getSpawner } from "@/lib/spawner"
 
-// Per-stage retry (G8 buttons call this; the `vivicy retry-stage` CLI dispatches
-// identically — CLI+API parity). Node runtime only: spawns a factory script / writes
-// the run-state lock.
+// The `vivicy retry-stage` CLI dispatches identically (CLI+API parity); spawns a factory script and writes the run-state lock, so Node runtime only.
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 
-// Honest scope: only three stages are actually retryable today. `extract` re-runs
-// extraction; `skills` relaunches the detached skills installer (auto mode); `dev`
-// relaunches the supervisor (a resume — it picks up from done/ + the ledger). Map
-// generation lives INSIDE extraction, so there is no standalone map stage. Anything
-// else is a 400 listing what IS supported — the same dispatcher the CLI applies, so
-// both clients steer the pipeline the same way.
+// map generation lives inside extraction (no standalone stage); dev is a resume via done/ + the ledger — the CLI's dispatcher matches this list exactly.
 const RETRYABLE_STAGES = ["extract", "skills", "dev"] as const
 type RetryableStage = (typeof RETRYABLE_STAGES)[number]
 
@@ -50,8 +43,6 @@ export async function POST(request: Request) {
   try {
     if (stage === "extract") {
       const result = await runExtract(getSpawner())
-      // Same 200/422 honest split as the extract route: a blocked extraction is not
-      // a clean success.
       appendNotification({
         level: result.ok ? "info" : "error",
         stage: "retry",
@@ -64,7 +55,6 @@ export async function POST(request: Request) {
       )
     }
     if (stage === "skills") {
-      // Detached relaunch in auto mode; progress lands in the skills report file.
       const run = startSkillsInstall(getSpawner())
       appendNotification({
         level: "info",
@@ -74,7 +64,6 @@ export async function POST(request: Request) {
       })
       return Response.json({ ok: true, stage, run })
     }
-    // stage === "dev": relaunch the supervisor as a resume.
     const run = startSupervisor(getSpawner(), "resume")
     appendNotification({
       level: "info",

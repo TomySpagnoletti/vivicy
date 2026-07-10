@@ -5,16 +5,7 @@ import { expect, test } from "./browser-issues"
 
 import { DEMO_TARGET_ROOT } from "../playwright.config"
 
-/**
- * Layout editing against the populated demo target (VIVICY_TARGET_ROOT=
- * /tmp/vivicy-demo). Toggles edit mode, drags a node, clicks Save, and asserts
- * the save round-trips through the real /api/architecture-map/layout route
- * (which patches the source yml and regenerates the served viewer data).
- *
- * The demo target is a committed git repo, so the source map and generated data
- * are snapshotted before the run and restored after — even on failure — so the
- * suite leaves it pristine. Serial: the single test mutates shared files.
- */
+// Demo target is a committed git repo; snapshot/restore keeps it pristine. Serial: the test mutates shared files.
 test.describe.configure({ mode: "serial" })
 
 const MAP_YML = path.join(
@@ -36,7 +27,6 @@ test.describe("Architecture map layout editing", () => {
   })
 
   test.afterAll(() => {
-    // Restore the demo target to its committed bytes regardless of outcome.
     writeFileSync(MAP_YML, ymlSnapshot)
     writeFileSync(VIEWER_JSON, jsonSnapshot)
   })
@@ -46,32 +36,20 @@ test.describe("Architecture map layout editing", () => {
   }) => {
     await page.goto("/")
 
-    // The map renders from the demo target.
     const nodes = page.locator(".react-flow__node")
     await expect(nodes.first()).toBeVisible({ timeout: 30_000 })
 
-    // Read-only by default: the Edit-layout toggle is offered (not yet active)
-    // and there is no Save control.
     const firstNode = nodes.first()
     await expect(page.getByRole("button", { name: "Edit layout" })).toBeVisible()
     await expect(page.getByRole("button", { name: "Editing layout" })).toHaveCount(0)
     await expect(page.getByRole("button", { name: "Save layout" })).toHaveCount(0)
 
-    // Turn ON layout editing.
     const editToggle = page.getByRole("button", { name: "Edit layout" })
     await expect(editToggle).toBeVisible()
     await editToggle.click()
     await expect(page.getByRole("button", { name: "Editing layout" })).toBeVisible()
 
-    // Drag the first node by a screen offset large enough to clear the snap grid.
-    // React Flow's drag needs the pointer-down to register before the moves; under
-    // CI/matrix load that init can occasionally be dropped, leaving the node
-    // un-moved. Retry the whole drag until it BOTH marks the layout dirty (Save
-    // appears) AND the node's on-screen position actually changed — a drag that
-    // registers a click but nets zero movement can reveal Save yet leave the yml
-    // byte-identical, so requiring a real positional delta here removes that flake
-    // at its source rather than letting the later yml comparison fail. The position
-    // is re-measured each attempt.
+    // Offset must clear the snap grid or the drag registers as a no-op.
     const saveButton = page.getByRole("button", { name: "Save layout" })
     await expect(async () => {
       const before = await firstNode.boundingBox()
@@ -80,14 +58,11 @@ test.describe("Architecture map layout editing", () => {
       const startY = before.y + before.height / 2
       await page.mouse.move(startX, startY)
       await page.mouse.down()
-      // A short settle so React Flow registers the drag start before the moves.
+      // Settle so React Flow registers drag-start before the moves.
       await page.waitForTimeout(50)
       await page.mouse.move(startX + 90, startY + 70, { steps: 12 })
       await page.mouse.up()
-      // The move must have marked the layout dirty, revealing Save...
       await expect(saveButton).toBeVisible({ timeout: 3_000 })
-      // ...and actually shifted the node on screen (a real move, not a jiggle that
-      // snaps back to the origin — that would reveal Save but not change the yml).
       const after = await firstNode.boundingBox()
       if (!after) throw new Error("could not re-measure the node after the drag")
       const moved = Math.abs(after.x - before.x) + Math.abs(after.y - before.y)
@@ -96,13 +71,9 @@ test.describe("Architecture map layout editing", () => {
 
     await saveButton.click()
 
-    // The save succeeds: the status flips to "Saved" and no error is shown.
     await expect(page.getByText("Saved", { exact: true })).toBeVisible({ timeout: 30_000 })
     await expect(page.getByText(/Save failed/i)).toHaveCount(0)
 
-    // The source map on disk now carries the moved coordinates: it differs from
-    // the committed snapshot but is still a well-formed map (node/edge counts
-    // unchanged), proving the patch hit the real yml, not a shadow copy.
     const patched = readFileSync(MAP_YML, "utf8")
     expect(patched).not.toBe(ymlSnapshot)
     const countNodes = (s: string) => (s.match(/^ {2}- id:/gm) ?? []).length

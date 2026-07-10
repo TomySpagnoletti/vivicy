@@ -1,9 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
-// Mock the server-only directory browser so the route never creates a real
-// directory. `createDirectory` backs the happy path; `getDefaultBrowseRoot`
-// supplies the fallback in error bodies. `FsBrowseError` stays real so the
-// route's `instanceof` check holds and we can drive the typed-error branch.
+// createDirectory/getDefaultBrowseRoot are mocked; FsBrowseError stays real so the route's instanceof check still matches.
 const { createDirectory, getDefaultBrowseRoot } = vi.hoisted(() => ({
   createDirectory: vi.fn(),
   getDefaultBrowseRoot: vi.fn(),
@@ -42,7 +39,6 @@ describe("POST /api/fs/mkdir", () => {
     const body = await res.json()
 
     expect(body).toEqual({ ok: true, path: "/home/me/projects/new-app" })
-    // Both the parent string and the name are forwarded to the creator.
     expect(createDirectory).toHaveBeenCalledWith("/home/me/projects", "new-app")
   })
 
@@ -51,7 +47,6 @@ describe("POST /api/fs/mkdir", () => {
 
     const res = await POST(postJson({ name: "new-app" }))
     expect(res.status).toBe(200)
-    // A non-string parent collapses to null (defaults to home in the lib).
     expect(createDirectory).toHaveBeenCalledWith(null, "new-app")
   })
 

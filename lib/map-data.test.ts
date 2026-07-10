@@ -87,18 +87,18 @@ describe("normalizeMapData", () => {
           status: "verified",
           owns_data: ["x", 5, "y"],
         },
-        { id: "no-graph-ref" }, // dropped: missing graph_ref
-        "garbage", // dropped: not an object
+        { id: "no-graph-ref" },
+        "garbage",
       ],
       edges: [],
     })
     expect(data).not.toBeNull()
     expect(data!.nodes).toHaveLength(1)
     const node = data!.nodes[0]
-    expect(node.label).toBe("a") // defaults to id
+    expect(node.label).toBe("a")
     expect(node.kind).toBe("unknown")
     expect(node.status).toBe("verified")
-    expect(node.owns_data).toEqual(["x", "y"]) // non-strings filtered out
+    expect(node.owns_data).toEqual(["x", "y"])
   })
 
   it("drops edges that reference missing nodes (no dangling edges)", () => {
@@ -111,7 +111,7 @@ describe("normalizeMapData", () => {
       edges: [
         { from: "a", to: "b", graph_ref: "edge:a->b" },
         { from: "a", to: "ghost", graph_ref: "edge:a->ghost" },
-        { from: "a" }, // dropped: missing `to`
+        { from: "a" },
       ],
     })
     expect(data!.edges).toHaveLength(1)
@@ -343,7 +343,6 @@ describe("computeVisibleCounts", () => {
   })
 
   it("applies the lane filter and prunes edges to hidden nodes", () => {
-    // Lane x keeps a and c; edge a->b is pruned (b hidden), a->c survives.
     expect(computeVisibleCounts(data, { ...base, laneFilter: "x" })).toEqual({
       nodes: 2,
       edges: 1,
@@ -358,7 +357,6 @@ describe("computeVisibleCounts", () => {
   })
 
   it("applies the search query, hiding non-matching nodes and their edges", () => {
-    // Only "Alpha" matches; both its edges need the other endpoint, which is gone.
     expect(computeVisibleCounts(data, { ...base, query: "alpha" })).toEqual({
       nodes: 1,
       edges: 0,
@@ -379,15 +377,13 @@ describe("clusterMovedPositions (cluster-drag math)", () => {
   const start = new Map<string, XY>([
     ["a", { x: 100, y: 200 }],
     ["b", { x: 300, y: 200 }],
-    ["c", { x: 500, y: 0 }], // not a member of the dragged cluster
+    ["c", { x: 500, y: 0 }],
   ])
 
   it("applies the same snapped delta to every member, leaving non-members out", () => {
     const moved = clusterMovedPositions(start, ["a", "b"], { x: 42, y: -38 })
-    // 42 -> 40, -38 -> -40 after snapping to the grid.
     expect(moved.get("a")).toEqual({ x: 140, y: 160 })
     expect(moved.get("b")).toEqual({ x: 340, y: 160 })
-    // Only the requested members are returned.
     expect(moved.has("c")).toBe(false)
     expect(moved.size).toBe(2)
   })
@@ -396,7 +392,6 @@ describe("clusterMovedPositions (cluster-drag math)", () => {
     const moved = clusterMovedPositions(start, ["a", "b"], { x: 100, y: 100 })
     const a = moved.get("a")!
     const b = moved.get("b")!
-    // a and b were 200 apart on x and 0 on y before; that must be unchanged.
     expect(b.x - a.x).toBe(300 - 100)
     expect(b.y - a.y).toBe(0)
   })

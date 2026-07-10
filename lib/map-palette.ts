@@ -1,12 +1,4 @@
-/**
- * Map-only color palette.
- *
- * This is a faithful port of the original architecture-map viewer's slate
- * palette. The map surface is intentionally allowed a custom (non-shadcn) style
- * so it reads like a domain diagram; the sidebar stays on shadcn tokens. These
- * literals therefore live ONLY here and are consumed only by the React Flow map
- * (node cards, edges, legend, minimap, cluster backdrops) — never the sidebar.
- */
+// Map-only literals: the map surface is deliberately non-shadcn (reads like a domain diagram); never import these into the shadcn-token sidebar.
 
 export interface ColorToken {
   bg: string
@@ -15,7 +7,6 @@ export interface ColorToken {
   text: string
 }
 
-/** Per-`kind` colors used by the target view. */
 export const KIND_COLORS: Record<string, ColorToken> = {
   actor: { bg: "#dbeafe", border: "#60a5fa", pill: "#bfdbfe", text: "#0f172a" },
   app: { bg: "#dcfce7", border: "#4ade80", pill: "#bbf7d0", text: "#0f172a" },
@@ -54,7 +45,6 @@ export const UNKNOWN_KIND_COLOR: ColorToken = {
   text: "#0f172a",
 }
 
-/** Per-status colors used by the progress view (and the status legend). */
 export const STATUS_COLORS: Record<string, ColorToken> = {
   not_started: { bg: "#f8fafc", border: "#94a3b8", pill: "#e2e8f0", text: "#0f172a" },
   in_progress: { bg: "#dbeafe", border: "#2563eb", pill: "#bfdbfe", text: "#0f172a" },
@@ -72,7 +62,6 @@ export function progressStatusColor(status: string): ColorToken {
   return STATUS_COLORS[status] ?? STATUS_COLORS.not_started
 }
 
-/** Cluster-backdrop tones (6 variants), keyed by index. Map-only literals. */
 export const CLUSTER_TONES: { fill: string; border: string }[] = [
   { fill: "rgb(239 246 255 / 42%)", border: "rgb(96 165 250 / 32%)" },
   { fill: "rgb(240 253 244 / 40%)", border: "rgb(34 197 94 / 28%)" },

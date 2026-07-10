@@ -2,11 +2,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import type { ArchitectureMapData } from "@/lib/types"
 
-// Mock the two server-only collaborators so the route is exercised without
-// touching a real filesystem. `@/lib/target` resolves whether a usable project
-// exists and where its map JSON lives; `@/lib/map-data` normalizes the parsed
-// payload. `readFile` is mocked at the node:fs/promises level so the route's own
-// try/catch around a missing map is exercised faithfully.
 const {
   isTargetResolved,
   getTargetRoot,
@@ -43,7 +38,6 @@ const TARGET_ROOT = "/abs/target"
 const MAP_PATH = "/abs/target/.vivicy/architecture-map/architecture-data.json"
 const LEDGER_PATH = "/abs/target/.vivicy/development/progress-ledger.json"
 
-/** A minimal, already-normalized map the route should return verbatim. */
 const NORMALIZED: ArchitectureMapData = {
   name: "Example",
   nodes: [
@@ -65,8 +59,6 @@ beforeEach(() => {
   getTargetRoot.mockReturnValue(TARGET_ROOT)
   getArchitectureDataPath.mockReturnValue(MAP_PATH)
   getProgressLedgerPath.mockReturnValue(LEDGER_PATH)
-  // By default the overlay is a pass-through so existing assertions about the
-  // normalized data still hold; tests that care about the overlay set it.
   applyLiveOverlay.mockImplementation((data: ArchitectureMapData) => data)
 })
 
@@ -79,7 +71,6 @@ describe("GET /api/map", () => {
     const body = await res.json()
 
     expect(body).toEqual({ empty: true, reason: "no_target", targetRoot: TARGET_ROOT })
-    // It never tries to read a file when there is no target.
     expect(readFile).not.toHaveBeenCalled()
     expect(normalizeMapData).not.toHaveBeenCalled()
   })
@@ -119,7 +110,6 @@ describe("GET /api/map", () => {
 
     expect(body.error).toBe("architecture map is not valid JSON")
     expect(body.detail).toContain(MAP_PATH)
-    // Normalization is never reached when JSON.parse already failed.
     expect(normalizeMapData).not.toHaveBeenCalled()
   })
 
@@ -146,7 +136,6 @@ describe("GET /api/map", () => {
     expect(res.status).toBe(200)
     const body = await res.json()
 
-    // The full normalized data is returned, NOT an empty-state envelope.
     expect(body.empty).toBeUndefined()
     expect(body.name).toBe("Example")
     expect(body.nodes).toHaveLength(1)
@@ -156,7 +145,6 @@ describe("GET /api/map", () => {
   it("overlays the LIVE ledger at read time and returns the overlaid data", async () => {
     isTargetResolved.mockReturnValue(true)
     const ledgerJson = JSON.stringify({ graph_item_states: [], active_items: [] })
-    // Static map first, then the ledger — both read via node:fs/promises.readFile.
     readFile.mockImplementation(async (path: string) =>
       path === LEDGER_PATH ? ledgerJson : JSON.stringify({ name: "Example", nodes: [{}] })
     )
@@ -171,8 +159,6 @@ describe("GET /api/map", () => {
     expect(res.status).toBe(200)
     const body = await res.json()
 
-    // The route read the STATIC map and the LIVE ledger, then projected one onto
-    // the other via applyLiveOverlay — no regeneration of any data file.
     expect(readFile).toHaveBeenCalledWith(MAP_PATH, "utf8")
     expect(readFile).toHaveBeenCalledWith(LEDGER_PATH, "utf8")
     expect(applyLiveOverlay).toHaveBeenCalledWith(NORMALIZED, { graph_item_states: [], active_items: [] })
@@ -189,7 +175,6 @@ describe("GET /api/map", () => {
 
     const res = await GET()
     expect(res.status).toBe(200)
-    // A missing ledger yields `undefined`, which the overlay treats as no progress.
     expect(applyLiveOverlay).toHaveBeenCalledWith(NORMALIZED, undefined)
   })
 })

@@ -9,14 +9,6 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
 
-/**
- * Shared presentation atoms for the agent-CLI health surfaces (R11/W4a): the
- * setup dialog and the blocking prerequisite gate render the same status badges
- * and the same copy-only command blocks, so both import from here instead of
- * duplicating them.
- */
-
-/** A present/authenticated badge with an honest "unknown" variant. */
 export function AgentStatusBadge({
   ok,
   okLabel,
@@ -51,10 +43,6 @@ export function AgentStatusBadge({
   )
 }
 
-/**
- * A copyable command block with a one-line hint. Copy-only: it never runs
- * anything — install and auth are interactive and run in the user's terminal.
- */
 export function CopyableCommand({
   hint,
   command,
@@ -79,9 +67,7 @@ export function CopyableCommand({
       <Separator />
       <p className="text-xs text-muted-foreground">{hint}</p>
       <div className="flex items-stretch gap-2">
-        {/* Focusable + labelled: a keyboard user must be able to reach and scroll
-            the overflowing command line, so it takes a tab stop with a visible
-            focus ring instead of being mouse-scroll-only. */}
+        {/* tabIndex+aria-label: keyboard users must be able to reach/scroll this overflowing line, not just mouse-scroll it. */}
         <code
           tabIndex={0}
           aria-label={t("commandScrollAriaLabel", { label })}

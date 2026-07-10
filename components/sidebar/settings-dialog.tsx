@@ -55,7 +55,6 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 
-/** The opposite role — used to keep the two-CLI assignment distinct. */
 const OTHER_ROLE: Record<Role, Role> = {
   implementer: "reviewer",
   reviewer: "implementer",
@@ -63,9 +62,7 @@ const OTHER_ROLE: Record<Role, Role> = {
 
 const ROLES: Role[] = ["implementer", "reviewer"]
 
-// Agent settings dialog. The schema validators in @/lib/settings are the source
-// of truth; the form mirrors them so an impossible model+CLI+effort+fast combo
-// is never submitted, and Save is disabled on any invalid combination.
+// @/lib/settings is the validation source of truth — this form only mirrors it, never re-implements the rules.
 export function SettingsDialog({
   onSaved,
 }: {
@@ -77,8 +74,6 @@ export function SettingsDialog({
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
 
-  // Load the persisted settings each time the dialog opens, so it always edits
-  // the live values rather than a stale snapshot.
   useEffect(() => {
     if (!open) return
     let cancelled = false
@@ -89,7 +84,7 @@ export function SettingsDialog({
         const body = (await res.json()) as { settings?: AgentsSettings }
         if (!cancelled && body.settings) setDraft(body.settings)
       } catch {
-        // Keep the defaults/last draft on a failed load; the user can still edit.
+        // Deliberate: keep the last draft on a failed load rather than surface an error.
       } finally {
         if (!cancelled) setLoading(false)
       }
@@ -111,8 +106,6 @@ export function SettingsDialog({
     setDraft((prev) => ({ ...prev, maxParallel: clampMaxParallel(value) }))
   }, [])
 
-  // The two roles must stay distinct, so reassigning one forces the other to the
-  // complementary CLI; both reset to the new CLI's defaults.
   const assignCli = useCallback((role: Role, provider: Provider) => {
     setDraft((prev) => {
       if (prev[role].provider === provider) return prev
@@ -144,7 +137,7 @@ export function SettingsDialog({
         })
         return
       }
-      // Echo the validated document the server actually wrote.
+      // Server may normalize the payload — echo what it actually persisted, not what we sent.
       setDraft(body.settings)
       onSaved?.(body.settings)
       toast.success(t("toastSaveSuccessTitle"), {
@@ -289,19 +282,14 @@ function AgentFields({
   const effortId = `settings-${role}-effort`
   const fastId = `settings-${role}-fast`
 
-  // The curated list for this CLI, plus the persisted model as an extra option when
-  // it is custom (not in the list) — so a hand-set model never disappears.
   const listed = MODEL_IDS[provider]
   const modelOptions = listed.includes(agent.model) ? listed : [agent.model, ...listed]
 
-  // Strict per-MODEL compatibility drives the rest of the controls.
   const levels = effortsForModel(provider, agent.model)
   const hasEffort = levels.length > 0
   const fastOk = modelSupportsFast(provider, agent.model)
   const fastDisabledReason = fastReason(t, provider, agent.model, fastOk)
 
-  // The duo's faces (W10, chrome-only): the implementer role wears la Nonna, the
-  // reviewer il Nonno — role-based, never CLI-branded (roles are reassignable).
   const RoleFace = role === "implementer" ? NonnaIcon : NonnoIcon
   const roleBlurb = role === "implementer" ? DUO.nonna.blurb : DUO.nonno.blurb
 
@@ -385,8 +373,7 @@ function AgentFields({
         ) : (
           <Tooltip>
             <TooltipTrigger asChild>
-              {/* A disabled switch swallows pointer events, so wrap it to keep the
-                  tooltip reachable on hover/focus. */}
+              {/* disabled switch swallows pointer events — span wrapper keeps the tooltip reachable on hover/focus */}
               <span
                 tabIndex={0}
                 className="inline-flex"
@@ -408,7 +395,6 @@ function AgentFields({
   )
 }
 
-/** Honest, specific reason a model+CLI cannot offer fast mode. */
 function fastReason(
   t: ReturnType<typeof useTranslations<"sidebar.settings">>,
   provider: Provider,

@@ -56,7 +56,6 @@ describe("AgentsGate — blocking install screen", () => {
     expect(screen.getByText("Claude Code")).toBeInTheDocument()
     expect(screen.getByText("Codex CLI")).toBeInTheDocument()
     expect(screen.getAllByText("Not found")).toHaveLength(2)
-    // The exact install commands from AGENT_GUIDANCE, with copy affordances.
     expect(
       screen.getByText("npm install -g @anthropic-ai/claude-code")
     ).toBeInTheDocument()
@@ -126,7 +125,6 @@ describe("AgentsAuthBanner — present-but-unauthenticated", () => {
     expect(screen.getByText("Agent sign-in needed")).toBeInTheDocument()
     expect(screen.getByText(/Claude Code is installed but not signed in/)).toBeInTheDocument()
     expect(screen.getByText("claude")).toBeInTheDocument()
-    // Codex is authenticated — no line for it.
     expect(screen.queryByText(/Codex CLI is installed but not signed in/)).not.toBeInTheDocument()
 
     await user.click(

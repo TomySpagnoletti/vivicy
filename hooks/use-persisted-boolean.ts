@@ -2,20 +2,6 @@
 
 import { useCallback, useSyncExternalStore } from "react"
 
-/**
- * A hydration-safe boolean persisted to localStorage, shared by collapsible UI
- * (e.g. the sidebar legend) that must default-first on the server and apply the
- * stored choice only after hydration.
- *
- * Built on {@link useSyncExternalStore}: `getServerSnapshot` returns the
- * `defaultValue`, so SSR and the first client (hydration) render agree; the
- * persisted value is swapped in right after hydration — never during the first
- * paint, and never via a setState-in-effect (which the cascading-render lint
- * rule forbids).
- *
- * Each `key` gets its own module-level store, so multiple components reading the
- * same key stay in sync (and across tabs via the `storage` event).
- */
 interface BooleanStore {
   value: boolean | null
   readonly defaultValue: boolean
@@ -48,19 +34,15 @@ function writePersisted(key: string, value: boolean): void {
   try {
     window.localStorage.setItem(key, String(value))
   } catch {
-    // Private mode / disabled storage: persistence is best-effort.
+    // Private-mode/quota limits can throw on setItem; persistence is best-effort.
   }
 }
 
-/** Reset every store. Test-only — never used by app code. */
 export function __resetPersistedBooleanStoresForTests(): void {
   stores.clear()
 }
 
-// --- Module-level store operations (mirrors use-panel-state). ----------------
-// Keeping mutation in free functions — not in hook-captured objects — avoids the
-// `react-hooks/immutability` rule while keeping a single shared store per key.
-
+// Mutation lives in free functions, not hook-captured objects, to avoid the react-hooks/immutability rule while sharing one store per key.
 function subscribeStore(
   key: string,
   defaultValue: boolean,
@@ -106,6 +88,7 @@ export function usePersistedBoolean(
     () => snapshotStore(key, defaultValue),
     [defaultValue, key]
   )
+  // getServerSnapshot must return defaultValue so SSR and first hydration render match; swap in the persisted value only after hydration, never via setState-in-effect (cascading render).
   const getServerSnapshot = useCallback(() => defaultValue, [defaultValue])
 
   const value = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot)

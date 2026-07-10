@@ -1,18 +1,4 @@
 #!/usr/bin/env node
-// Vivicy PROJECT-SKILLS stage (S-K): deterministically install at most 6 agent skills
-// from the skills.sh registry into the TARGET repo. Two modes:
-//   - AUTO (default): one "skill-scout" agent leg (the implementer CLI) reads the frozen
-//     canonical docs, searches the registry, and proposes 0-6 skill ids; the orchestrator
-//     enforces everything else.
-//   - EXPLICIT (--ids): the given ids/URLs are the candidates; no leg is spawned. This is
-//     the Vivi "install this skill URL" path.
-//
-// The AGENT only ever PROPOSES. Every enforcement decision is deterministic and lives
-// here: the 6-skill project cap (official vendors kept first), the skills.sh security
-// audits (a skill is safe iff zero "fail" and at most one "warn"; anything else installs
-// only under VIVICY_ALLOW_UNSAFE_SKILLS=1 and is flagged security_waived), and the
-// `npx skills add` install itself. Every rejection lands in the report with a machine
-// reason — never silent.
 import { spawnSync } from "node:child_process";
 import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
@@ -28,16 +14,12 @@ import { FACTORY_PROMPTS_DIR, resolveTargetRoot } from "./target-root.ts";
 import { pruneGitkeeps } from "../lib/skeleton.ts";
 
 export const SKILLS_REPORT_REL = ".vivicy/development/reports/skills-report.json";
-// Transient scout->orchestrator handoff (same lifecycle as the extraction fidelity
-// verdict): cleared before the leg runs and after each read, never a durable report.
 const SCOUT_RESULT_REL = ".vivicy/development/reports/skill-scout-result.json";
 export const MAX_PROJECT_SKILLS = 6;
 const SKILL_ID_RE = /^[\w.-]+\/[\w.-]+@[\w.-]+$/;
 const SCOUT_ISSUE_ID = "SKILLS";
 
-// GitHub owners whose skills are FIRST-PARTY for the technology they cover. Used only
-// for priority (official-first when the auto selection exceeds the cap) and for the
-// official/community label — never as a security gate (the audits are the gate).
+// Priority/label only — never a security gate; the audits are the gate.
 export const OFFICIAL_VENDOR_OWNERS: ReadonlySet<string> = new Set([
   "vercel-labs", "vercel", "supabase", "anthropics", "shadcn", "shadcn-ui", "openai", "stripe",
   "cloudflare", "expo", "prisma", "tailwindlabs", "remotion-dev", "microsoft", "google", "googleapis",
@@ -69,8 +51,7 @@ export interface SkillAuditRecord {
   status: string;
 }
 
-// The audit endpoint's answer for one skill: `found:false` covers both an unreachable
-// endpoint and a 404 — the UNVERIFIED gate treats them identically.
+// found:false covers both unreachable and 404 alike — the UNVERIFIED gate (and any test fetchAudit double) must treat them identically.
 export interface SkillAuditFetch {
   found: boolean;
   audits: SkillAuditRecord[];
@@ -104,7 +85,6 @@ export interface SkillsReport {
   mode: "auto" | "explicit" | "remove";
   installed: InstalledSkillEntry[];
   rejected: RejectedSkillEntry[];
-  /** Skills a REMOVE run uninstalled this run (absent on install runs). */
   removed?: RemovedSkillEntry[];
   summary: string;
   updated_at: string;
@@ -119,8 +99,6 @@ interface SpawnScoutArgs {
   feedback: string | null;
 }
 
-// The impure edges a caller may inject (all default to the real tooling) — the same
-// deps pattern extract-issues uses so tests run with no network and no real npx.
 export interface InstallSkillsOptions {
   repoRoot?: string;
   ids?: string[];
@@ -135,10 +113,8 @@ export interface InstallSkillsOptions {
   now?: () => Date;
 }
 
-/** A configuration/sequencing error the CLI maps to exit 2 (vs 1 for a failed stage). */
 export class SkillsConfigError extends Error {}
 
-/** Parse a strict `owner/repo@skill` id into its parts, or null when malformed. */
 export function parseSkillId(id: string): SkillRef | null {
   if (!SKILL_ID_RE.test(id)) return null;
   const at = id.lastIndexOf("@");
@@ -146,7 +122,6 @@ export function parseSkillId(id: string): SkillRef | null {
   return { id, owner: source.slice(0, source.indexOf("/")), source, skill: id.slice(at + 1) };
 }
 
-/** Normalize a user-supplied skill reference — `owner/repo@skill` or a full `https://skills.sh/owner/repo/skill` URL — into a parsed ref, or null. */
 export function normalizeSkillId(raw: string): SkillRef | null {
   const trimmed = raw.trim();
   const url = /^https?:\/\/skills\.sh\/([\w.-]+)\/([\w.-]+)\/([\w.-]+)\/?$/.exec(trimmed);
@@ -154,7 +129,6 @@ export function normalizeSkillId(raw: string): SkillRef | null {
   return parseSkillId(trimmed);
 }
 
-/** The deterministic safety verdict for one skill's audits: "safe", or the machine rejection reason. */
 export function auditVerdict(audit: SkillAuditFetch): "safe" | "red_audit" | "too_many_warnings" | "unaudited" {
   if (!audit.found) return "unaudited";
   const fails = audit.audits.filter((a) => a.status === "fail").length;
@@ -164,13 +138,6 @@ export function auditVerdict(audit: SkillAuditFetch): "safe" | "red_audit" | "to
   return "safe";
 }
 
-/**
- * Drive select -> audit -> install -> record for the project-skills stage. Returns the
- * final report (also mirrored to .vivicy/development/reports/skills-report.json at every
- * phase transition). Green with zero installed skills is a legitimate outcome; every
- * rejection carries a machine reason. Throws {@link SkillsConfigError} when no target is
- * configured or when AUTO mode finds no active frozen baseline.
- */
 export async function installSkills(options: InstallSkillsOptions = {}): Promise<SkillsReport> {
   const repoRoot = options.repoRoot;
   if (!repoRoot) {
@@ -206,9 +173,6 @@ export async function installSkills(options: InstallSkillsOptions = {}): Promise
     emitReport(report, repoRoot);
   };
 
-  // Idempotent re-run guard: a green (or already-skipped) report for the SAME baseline
-  // means the stage is settled — a changed (re-frozen) baseline re-runs, an explicit
-  // --ids always runs, and a failed report stays retryable.
   if (mode === "auto" && (priorReport?.phase === "green" || priorReport?.phase === "skipped") && priorReport.baseline_id === report.baseline_id) {
     report.phase = "skipped";
     report.installed = Array.isArray(priorReport.installed) ? priorReport.installed : [];
@@ -248,15 +212,10 @@ export async function installSkills(options: InstallSkillsOptions = {}): Promise
     candidates = selection.candidates;
   }
 
-  // Deterministic cap: the project's installed set never exceeds 6 TOTAL, counting what
-  // vivicy.json / the prior report already record. Already-installed candidates are
-  // dropped silently (re-requesting an installed skill is a no-op, not a rejection).
   const alreadyInstalled = installedSkillIds(repoRoot, priorReport);
   candidates = candidates.filter((c) => !alreadyInstalled.has(c.id));
   const slots = Math.max(0, MAX_PROJECT_SKILLS - alreadyInstalled.size);
   if (mode === "auto") {
-    // Stable official-first: official vendors keep their slots when the selection
-    // overflows; relative order within each group is preserved.
     candidates = [...candidates.filter((c) => c.official), ...candidates.filter((c) => !c.official)];
   }
   const accepted = candidates.slice(0, slots);
@@ -315,11 +274,6 @@ export async function installSkills(options: InstallSkillsOptions = {}): Promise
   return report;
 }
 
-// ---------------------------------------------------------------------------
-// Remove (W6, v0.7.0) — uninstall project skills deterministically
-// ---------------------------------------------------------------------------
-
-/** The impure edges of a remove run (all default to the real tooling). */
 export interface RemoveSkillsOptions {
   repoRoot?: string;
   ids?: string[];
@@ -329,15 +283,6 @@ export interface RemoveSkillsOptions {
   now?: () => Date;
 }
 
-/**
- * REMOVE explicitly named skills from the target project. Fully deterministic — no
- * agent leg, ever. For each id: refuse an unknown/not-installed id with a machine
- * reason; otherwise uninstall it (the skills CLI first, a direct `.agents/skills/`
- * removal as fallback), drop it from `vivicy.json` requiredSkills, and rebuild the
- * AGENTS.md managed block from the remaining set. Removal frees slots under the
- * {@link MAX_PROJECT_SKILLS} cap. Every outcome lands in the report (mode "remove"),
- * never silent.
- */
 export async function removeSkills(options: RemoveSkillsOptions = {}): Promise<SkillsReport> {
   const repoRoot = options.repoRoot;
   if (!repoRoot) {
@@ -358,8 +303,6 @@ export async function removeSkills(options: RemoveSkillsOptions = {}): Promise<S
     phase: "removing",
     baseline_id: typeof priorReport?.baseline_id === "string" ? priorReport.baseline_id : null,
     mode: "remove",
-    // The report documents the project's whole surviving installed set at the end;
-    // during the run it starts from the prior installed entries.
     installed: Array.isArray(priorReport?.installed) ? [...priorReport.installed] : [],
     rejected: [],
     removed: [],
@@ -406,18 +349,11 @@ export async function removeSkills(options: RemoveSkillsOptions = {}): Promise<S
   return report;
 }
 
-/**
- * Default uninstall seam: try the skills CLI's own `remove` first (it owns the
- * per-agent symlinks it created); when the CLI refuses or lacks the verb, fall back
- * to removing the skill directory under `.agents/skills/` plus any now-dangling
- * per-agent symlinks — the same layout `npx skills add` produces.
- */
 function defaultRunRemove({ repoRoot, source, skill }: { repoRoot: string; source: string; skill: string }): { code: number; output?: string } {
   const viaCli = spawnSync("npx", ["-y", "skills", "remove", skill, "-y"], { cwd: repoRoot, encoding: "utf8", env: process.env });
   if ((viaCli.status ?? 1) === 0) {
     return { code: 0, output: `${viaCli.stdout ?? ""}\n${viaCli.stderr ?? ""}`.trim() };
   }
-  // Fallback: direct removal of the installed layout.
   const skillDir = resolve(repoRoot, ".agents", "skills", skill);
   if (!existsSync(skillDir)) {
     return { code: 1, output: `skills CLI could not remove "${skill}" (${source}) and ${skillDir} does not exist` };
@@ -431,7 +367,6 @@ function defaultRunRemove({ repoRoot, source, skill }: { repoRoot: string; sourc
   }
 }
 
-/** Remove now-dangling symlinks in the per-agent skill dirs (.claude/skills, .codex/skills). */
 function pruneDanglingSkillLinks(repoRoot: string): void {
   for (const rel of [".claude/skills", ".codex/skills"]) {
     const dir = resolve(repoRoot, rel);
@@ -448,13 +383,11 @@ function pruneDanglingSkillLinks(repoRoot: string): void {
         const stat = lstatSync(abs);
         if (stat.isSymbolicLink() && !existsSync(abs)) rmSync(abs, { force: true });
       } catch {
-        // Best-effort pruning; a leftover link is cosmetic, never state.
       }
     }
   }
 }
 
-/** Drop ids from vivicy.json requiredSkills (preserving every other field); returns the remaining list. */
 function dropRequiredSkills(repoRoot: string, drop: Set<string>): string[] {
   const abs = resolve(repoRoot, "vivicy.json");
   if (!existsSync(abs)) return [];
@@ -466,10 +399,6 @@ function dropRequiredSkills(repoRoot: string, drop: Set<string>): string[] {
   writeFileSync(abs, `${JSON.stringify(config, null, 2)}\n`);
   return remaining;
 }
-
-// ---------------------------------------------------------------------------
-// Scout leg (AUTO mode)
-// ---------------------------------------------------------------------------
 
 async function runScoutSelection({ repoRoot, spawnScout, manifestPath, baselineId }: { repoRoot: string; spawnScout: (args: SpawnScoutArgs) => Promise<LegResult | void>; manifestPath: string; baselineId: string }): Promise<{ ok: true; candidates: SkillCandidate[] } | { ok: false; problems: string[] }> {
   let feedback: string | null = null;
@@ -487,9 +416,6 @@ async function runScoutSelection({ repoRoot, spawnScout, manifestPath, baselineI
   return { ok: false, problems };
 }
 
-// Strict validation of the scout's result file: `{ "skills": [{ id, name, reason }] }`
-// with 0-6 entries and every id in `owner/repo@skill` form. Duplicates are deduped;
-// anything else is invalid and triggers the single bounded re-prompt.
 function validateScoutResult(raw: unknown): { ok: true; candidates: SkillCandidate[] } | { ok: false; problems: string[] } {
   if (raw === null || typeof raw !== "object") {
     return { ok: false, problems: [`no valid JSON result file was written (expected { "skills": [...] } at ${SCOUT_RESULT_REL})`] };
@@ -525,9 +451,7 @@ function clearScoutResult(repoRoot: string): void {
   rmSync(resolve(repoRoot, SCOUT_RESULT_REL), { force: true });
 }
 
-// Build the real SCOUT seam: the IMPLEMENTER-role CLI re-roled to "skill-scout", run in
-// the target repo via the shared leg infra — the same binding extract-issues uses for
-// its extractor leg, so flags/transcripts/timeouts never diverge.
+// Mirrors extract-issues' extractor leg binding (makeDefaultSpawnExtractor) — keep both in sync.
 function makeDefaultSpawnScout(options: InstallSkillsOptions): (args: SpawnScoutArgs) => Promise<LegResult | void> {
   const promptsDir = options.promptsDir ?? FACTORY_PROMPTS_DIR;
   const cfg: Record<string, unknown> = { ...DEFAULT_CONFIG, ...(options.cfg ?? {}) };
@@ -556,8 +480,7 @@ function scoutContext({ manifestPath, baselineId, resultRel, attempt, feedback }
   );
 }
 
-// Bind the shared leg runner to the TARGET repo, injecting the run context onto the
-// role prompt — exactly as extract-issues' legDepsForTarget.
+// Mirrors extract-issues' legDepsForTarget — keep both in sync.
 function legDepsForTarget(legCfg: Record<string, unknown>, issue: AgentIssue, repoRoot: string, context: string): LegDeps {
   const abs = (rel: string) => resolve(repoRoot, rel);
   return {
@@ -570,12 +493,6 @@ function legDepsForTarget(legCfg: Record<string, unknown>, issue: AgentIssue, re
   };
 }
 
-// ---------------------------------------------------------------------------
-// Default seams (the real tooling)
-// ---------------------------------------------------------------------------
-
-// GET the PUBLIC skills.sh audit endpoint for one skill. Unreachable / non-200 / bad
-// JSON all collapse to found:false — the UNVERIFIED gate, never a crash.
 async function defaultFetchAudit({ source, skill }: { source: string; skill: string }): Promise<SkillAuditFetch> {
   try {
     const res = await fetch(`https://skills.sh/api/v1/skills/audit/${source}/${skill}`, {
@@ -595,8 +512,7 @@ async function defaultFetchAudit({ source, skill }: { source: string; skill: str
   }
 }
 
-// Project-level install via the Vercel skills CLI: lands under .agents/skills/ in the
-// target repo with per-agent symlinks, so one install serves both agents.
+// Installs at .agents/skills/<skill> with per-agent symlinks (.claude/skills, .codex/skills) — defaultRunRemove's fallback and pruneDanglingSkillLinks assume this exact layout.
 function defaultRunInstall({ repoRoot, source, skill }: { repoRoot: string; source: string; skill: string }): { code: number; output?: string } {
   const r = spawnSync("npx", ["-y", "skills", "add", source, "--skill", skill, "-y"], { cwd: repoRoot, encoding: "utf8", env: process.env });
   return { code: r.status ?? 1, output: `${r.stdout ?? ""}\n${r.stderr ?? ""}`.trim() };
@@ -618,10 +534,6 @@ function defaultEmitReport(report: SkillsReport, repoRoot: string): void {
   if (mapped) notify({ ...mapped, event: `skills_${report.phase}` });
 }
 
-// ---------------------------------------------------------------------------
-// Target-repo artifacts: vivicy.json requiredSkills + the AGENTS.md managed block
-// ---------------------------------------------------------------------------
-
 const SKILLS_BLOCK_BEGIN = "<!-- vivicy:skills:begin -->";
 const SKILLS_BLOCK_END = "<!-- vivicy:skills:end -->";
 
@@ -632,7 +544,6 @@ export interface SkillBlockEntry {
   reason: string;
 }
 
-/** Render the managed AGENTS.md skills block. Pure and deterministic: same entries -> byte-identical block. */
 export function buildSkillsBlock(entries: SkillBlockEntry[]): string {
   const bullets = entries.length > 0
     ? entries.map((e) => `- **${e.name}** (\`${e.id}\`, ${e.official ? "official" : "community"})${e.reason ? ` — ${e.reason}` : ""}`)
@@ -648,7 +559,6 @@ export function buildSkillsBlock(entries: SkillBlockEntry[]): string {
   ].join("\n");
 }
 
-/** Replace the managed skills block in `content` (or append/create). Pure; idempotent for identical inputs. */
 export function applySkillsBlock(content: string | null, entries: SkillBlockEntry[]): string {
   const block = buildSkillsBlock(entries);
   if (content === null) return `# Agent instructions\n\n${block}\n`;
@@ -666,12 +576,7 @@ function updateAgentsMd(repoRoot: string, entries: SkillBlockEntry[]): void {
   writeFileSync(abs, applySkillsBlock(content, entries));
 }
 
-// Merge the installed ids into vivicy.json's requiredSkills (the canonical, polyglot
-// home dev-preflight reads first). Preserves gateCommand and every unknown field
-// (parse -> mutate one key -> re-stringify keeps key order); 2-space pretty-print with
-// a trailing newline like lib/scaffold.ts. A present-but-unparseable vivicy.json is
-// left untouched (never clobber the owner's file); the report still records the
-// installs and the prior-report union keeps the cap honest on the next run.
+// requiredSkills in vivicy.json is the canonical field dev-preflight reads.
 function mergeRequiredSkills(repoRoot: string, newIds: string[]): string[] {
   const abs = resolve(repoRoot, "vivicy.json");
   let config: Record<string, unknown> = {};
@@ -687,9 +592,7 @@ function mergeRequiredSkills(repoRoot: string, newIds: string[]): string[] {
   return merged;
 }
 
-// The AGENTS.md block documents the project's WHOLE installed set, not just this run:
-// metadata comes from this run's entries first, then the prior report, then a derived
-// fallback for ids that predate any report.
+// Metadata priority is this-run > prior-report > derived fallback — the prior loop MUST run before the this-run loop below.
 function skillBlockEntries(mergedIds: string[], priorReport: Partial<SkillsReport> | null, installedNow: InstalledSkillEntry[]): SkillBlockEntry[] {
   const meta = new Map<string, SkillBlockEntry>();
   const priorInstalled = priorReport && Array.isArray(priorReport.installed) ? priorReport.installed : [];
@@ -710,12 +613,7 @@ function skillBlockEntries(mergedIds: string[], priorReport: Partial<SkillsRepor
   return entries;
 }
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-// The ids already occupying project slots: vivicy.json requiredSkills UNION the prior
-// report's installed entries (defence in depth if vivicy.json could not be written).
+// Also checks the prior report as defence in depth — mergeRequiredSkills can silently no-op on an unparseable vivicy.json.
 function installedSkillIds(repoRoot: string, priorReport: Partial<SkillsReport> | null): Set<string> {
   const ids = new Set<string>();
   const config = readJsonOrNull(resolve(repoRoot, "vivicy.json"));
@@ -757,10 +655,6 @@ function tail(output: string | undefined, max = 800): string {
   const text = (output ?? "").trim();
   return text.length > max ? text.slice(-max) : text;
 }
-
-// ---------------------------------------------------------------------------
-// CLI entry
-// ---------------------------------------------------------------------------
 
 const cliEntry = process.argv[1] ? resolve(process.argv[1]) : null;
 if (cliEntry === fileURLToPath(import.meta.url)) {

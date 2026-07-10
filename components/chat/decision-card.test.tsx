@@ -100,9 +100,6 @@ describe("DecisionCard", () => {
   })
 
   test("a 422 carrying `decided` (already-decided / executed-but-failed) locks the buttons and shows both markers", async () => {
-    // The extended contract: /api/vivi/card ALWAYS returns `decided` once the card
-    // is decided — including an ok:false already-decided or executed-but-failed
-    // outcome. The client must render that permanent decision, not offer a re-click.
     vi.stubGlobal(
       "fetch",
       vi.fn(async () =>
@@ -129,12 +126,9 @@ describe("DecisionCard", () => {
 
     await user.click(screen.getByRole("button", { name: "Approve" }))
 
-    // The decided marker renders from the server stamp, and the buttons stay
-    // permanently disabled — the stamp is authoritative.
     expect(
       await screen.findByText("Chose “Approve” — CR-0001 approved")
     ).toBeInTheDocument()
-    // The failure is surfaced honestly alongside the decided state.
     expect(
       screen.getByText(/this card was already decided/)
     ).toBeInTheDocument()
@@ -150,8 +144,6 @@ describe("DecisionCard", () => {
   })
 
   test("a decision-less failure (no `decided`) shows the error and re-enables for a retry", async () => {
-    // A genuine validation failure that recorded NOTHING (e.g. an unknown card id)
-    // carries no `decided`, so the buttons must re-open for another attempt.
     vi.stubGlobal(
       "fetch",
       vi.fn(async () =>
