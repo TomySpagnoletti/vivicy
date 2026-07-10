@@ -22,11 +22,6 @@ const SCOPES = [
   { value: "future", labelKey: "scopeFuture" },
 ] as const
 
-/**
- * Filters section: the Target/Progress view toggle, a search input, and the
- * lane / status / scope dropdowns that drive map dimming and visibility. Pure
- * shadcn (ToggleGroup, Input, Select, Label) — tokens only.
- */
 export function SectionFilters({
   data,
   view,

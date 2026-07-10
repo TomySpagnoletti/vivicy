@@ -10,7 +10,6 @@ import {
   type UpdateRunResult,
 } from "@/lib/agents-update"
 
-/** A fake exec that records the exact (cmd, args) it was asked to run. */
 function recordingExec(result: Partial<UpdateRunResult> = {}): {
   exec: AgentExec
   calls: Array<{ cmd: string; args: readonly string[] }>
@@ -46,7 +45,7 @@ describe("agents-update allow-list", () => {
   it("rejects an unknown agent BEFORE running anything", async () => {
     const { exec, calls } = recordingExec()
     await expect(runAgentUpdate("rm-rf", exec)).rejects.toBeInstanceOf(UnknownAgentError)
-    expect(calls).toEqual([]) // exec never reached
+    expect(calls).toEqual([])
     expect(exec).not.toHaveBeenCalled()
   })
 
@@ -55,7 +54,6 @@ describe("agents-update allow-list", () => {
     await expect(runAgentUpdate("claude; rm -rf /", exec)).rejects.toBeInstanceOf(
       UnknownAgentError
     )
-    // Crucially, the malicious string was never forwarded to exec as a command.
     expect(calls).toEqual([])
   })
 
@@ -91,8 +89,6 @@ describe("capBytes — output cap never splits a UTF-8 code point", () => {
   })
 
   it("truncates at a byte budget without producing replacement chars", () => {
-    // "你" is 3 UTF-8 bytes; with max=8, "hello " (6 bytes) fits but the next
-    // 3-byte char does not, so it is dropped WHOLE — never split into U+FFFD.
     const out = capBytes("hello 你好", 8)
     expect(out).toBe("hello ")
     expect(out).not.toContain("�")
@@ -100,14 +96,13 @@ describe("capBytes — output cap never splits a UTF-8 code point", () => {
   })
 
   it("keeps a multibyte char only when it fits entirely in the budget", () => {
-    const out = capBytes("a你b", 4) // "a"(1) + "你"(3) = 4 bytes; "b" drops
+    const out = capBytes("a你b", 4)
     expect(out).toBe("a你")
     expect(Buffer.byteLength(out, "utf8")).toBe(4)
     expect(out).not.toContain("�")
   })
 
   it("preserves astral (surrogate-pair) emoji as a whole", () => {
-    // 😀 is 4 UTF-8 bytes; budget 4 keeps it, budget 3 drops it cleanly.
     expect(capBytes("😀", 4)).toBe("😀")
     expect(capBytes("😀", 3)).toBe("")
   })

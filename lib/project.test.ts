@@ -13,16 +13,14 @@ import {
   setCurrentProject,
 } from "@/lib/project"
 
-// The store writes under <cwd>/.vivicy-runtime, so each test runs in its own
-// temp cwd to avoid touching the real runtime dir.
+// The store writes under <cwd>/.vivicy-runtime; tests chdir into a temp cwd to avoid touching the real runtime dir.
 let tmpCwd: string
 let projectDir: string
 let prevCwd: string
 
 beforeEach(() => {
   tmpCwd = mkdtempSync(path.join(tmpdir(), "vivicy-project-cwd-"))
-  // Canonical (realpath) spelling: describeProject canonicalizes its result, so
-  // tests compare against the one true spelling (macOS tmpdir is symlinked).
+  // realpath'd: describeProject canonicalizes its result and macOS tmpdir is symlinked, so tests must compare the same resolved spelling.
   projectDir = realpathSync(mkdtempSync(path.join(tmpdir(), "vivicy-project-target-")))
   prevCwd = process.cwd()
   process.chdir(tmpCwd)
@@ -119,7 +117,6 @@ describe("setCurrentProject / readCurrentProjectRoot / getCurrentProject", () =>
   it("returns null from getCurrentProject when the persisted path went stale", () => {
     setCurrentProject(projectDir)
     rmSync(projectDir, { recursive: true, force: true })
-    // The raw root is still recorded, but it no longer resolves to a directory.
     expect(readCurrentProjectRoot()).toBe(projectDir)
     expect(getCurrentProject()).toBe(null)
   })

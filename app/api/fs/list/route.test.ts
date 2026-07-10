@@ -2,10 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import type { DirListing } from "@/lib/project-types"
 
-// Mock the server-only directory browser so the route never touches the real
-// filesystem. `listDirectories` backs the happy path; `getDefaultBrowseRoot`
-// supplies the fallback included in error bodies. `FsBrowseError` stays real so
-// the route's `instanceof` check holds and we can drive the typed-error branch.
+// listDirectories/getDefaultBrowseRoot are mocked; FsBrowseError stays real so the route's instanceof check still matches.
 const { listDirectories, getDefaultBrowseRoot } = vi.hoisted(() => ({
   listDirectories: vi.fn(),
   getDefaultBrowseRoot: vi.fn(),
@@ -48,9 +45,7 @@ describe("GET /api/fs/list", () => {
     expect(res.status).toBe(200)
     const body = await res.json()
 
-    // The whole listing is spread alongside ok:true.
     expect(body).toEqual({ ok: true, ...LISTING })
-    // The query `path` is forwarded verbatim to the browser.
     expect(listDirectories).toHaveBeenCalledWith("/home/me/projects")
   })
 
@@ -74,7 +69,6 @@ describe("GET /api/fs/list", () => {
     expect(body.ok).toBe(false)
     expect(body.code).toBe("not_absolute")
     expect(body.error).toContain("absolute")
-    // The error body carries the default root so the UI can recover.
     expect(body.default).toBe(DEFAULT_ROOT)
   })
 

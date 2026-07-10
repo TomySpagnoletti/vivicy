@@ -11,7 +11,6 @@ import { renderWithIntl } from "@/test/render"
 const SESSION_A = "11111111-1111-1111-1111-111111111111"
 const SESSION_B = "22222222-2222-2222-2222-222222222222"
 
-/** One persisted thread exercising every turn role the panel must render. */
 const HISTORY: ViviTurn[] = [
   { role: "user", text: "I want a todo app.", ts: "2026-07-08T10:00:00Z" },
   {
@@ -59,7 +58,6 @@ const HISTORY: ViviTurn[] = [
   },
 ]
 
-/** One pending change request as GET /api/control/crs projects it. */
 const PENDING_CR = {
   id: "CR-0001",
   title: "Spike gate:phase0:s01-argon2id hypothesis disproven",
@@ -69,10 +67,7 @@ const PENDING_CR = {
   source: "agent",
 }
 
-// stage/event have no messages/en/notifications.json entry on purpose: these
-// fixtures assert on arbitrary opaque `message` text (dismiss/list/ask-vivi
-// mechanics), which only stays honest when notificationText has nothing to
-// translate and falls back to the raw stored message, like a real unmapped event.
+// stage/event intentionally unmapped in notifications.json: keeps notificationText falling back to the raw message, which these assertions rely on.
 function notificationRows(...overrides: Array<Partial<Notification>>): Notification[] {
   return overrides.map((o, i) => ({
     id: `test-id-${i}`,
@@ -85,8 +80,6 @@ function notificationRows(...overrides: Array<Partial<Notification>>): Notificat
   }))
 }
 
-// Minimal EventSource fake so the notifications feed can subscribe to the SSE
-// status stream in jsdom, mirroring the retired bell's test setup.
 class FakeEventSource {
   static last: FakeEventSource | null = null
   onmessage: ((event: { data: string }) => void) | null = null
@@ -111,13 +104,6 @@ const IDLE_STATUS = {
   gates: { pass: 0, fail: 0 },
 }
 
-/**
- * URL-routed fetch stub for every endpoint the panel touches: the engine GET,
- * the session index, one session's turns, the turn POST, the notifications
- * list/dismiss, the CR list/decide, and the onboarding acquisition routes
- * (fs listing + scaffold). No real network, no agent. Dismissals mutate the
- * live notifications array so a re-fetch after POST surfaces the flip.
- */
 function stubFetch(opts: {
   sessions?: {
     sessionId: string
@@ -272,7 +258,6 @@ describe("ViviPanel — rehydration", () => {
 
     await user.click(screen.getByRole("button", { name: "Open Vivi" }))
 
-    // The user and Vivi bubbles, the wrote chip, and the rejected marker.
     expect(await screen.findByText("I want a todo app.")).toBeInTheDocument()
     expect(
       screen.getByText("What states can a todo be in?")
@@ -282,13 +267,11 @@ describe("ViviPanel — rehydration", () => {
     ).toBeInTheDocument()
     expect(screen.getByText(/wrote outside its allowlist/)).toBeInTheDocument()
 
-    // The action turn renders as the titled mono block.
     expect(screen.getByText("Actions")).toBeInTheDocument()
     expect(
       screen.getByText(/✓ pipeline\.extract: extraction complete/)
     ).toBeInTheDocument()
 
-    // The card turn renders as a decision card with live buttons.
     expect(screen.getByText("Freeze the spec?")).toBeInTheDocument()
     expect(screen.getByText("This locks the canonical.")).toBeInTheDocument()
     expect(screen.getByRole("button", { name: "Freeze it" })).toBeEnabled()
@@ -296,8 +279,6 @@ describe("ViviPanel — rehydration", () => {
   })
 
   test("a project-root change drops the thread and rehydrates against the new project's sessions", async () => {
-    // The server resolves sessions per project itself, so the stub models the
-    // switch by swapping what the session index returns.
     const sessions = [
       {
         sessionId: SESSION_A,
@@ -316,9 +297,6 @@ describe("ViviPanel — rehydration", () => {
     await user.click(screen.getByRole("button", { name: "Open Vivi" }))
     expect(await screen.findByText("I want a todo app.")).toBeInTheDocument()
 
-    // The project switches: the old project's turns must NOT survive (sessions
-    // are per-project on the server since W8), and the rehydration hits the NEW
-    // project's (empty) session index.
     sessions.length = 0
     view.rerender(
       <ViviPanelProvider>
@@ -328,7 +306,6 @@ describe("ViviPanel — rehydration", () => {
     await waitFor(() =>
       expect(screen.queryByText("I want a todo app.")).not.toBeInTheDocument()
     )
-    // The empty-thread hint shows: the new project starts a fresh conversation.
     expect(screen.getByText(/a sentence is enough to start/)).toBeInTheDocument()
   })
 })
@@ -374,7 +351,6 @@ describe("ViviPanel — send flow", () => {
     await user.type(screen.getByLabelText("Message Vivi"), "Add auth.")
     await user.click(screen.getByRole("button", { name: "Send message" }))
 
-    // The POST carried the message (no sessionId yet on a fresh conversation).
     await waitFor(() => {
       const post = fetchMock.mock.calls.find(
         (c) =>
@@ -387,8 +363,6 @@ describe("ViviPanel — send flow", () => {
       })
     })
 
-    // The thread came from the RE-FETCHED transcript, not just the returned
-    // reply: the server-appended action turn is visible too.
     expect(
       await screen.findByText("Noted — magic links it is.")
     ).toBeInTheDocument()
@@ -396,7 +370,6 @@ describe("ViviPanel — send flow", () => {
       screen.getByText(/✓ status\.read: pipeline idle/)
     ).toBeInTheDocument()
 
-    // A turn that wrote files / ran actions refreshes the page state.
     await waitFor(() => expect(onActivity).toHaveBeenCalled())
   })
 
@@ -460,7 +433,6 @@ describe("ViviPanel — send flow", () => {
     await user.type(screen.getByLabelText("Message Vivi"), "hello?")
     await user.click(screen.getByRole("button", { name: "Send message" }))
 
-    // The code maps through the errors catalog; the user bubble stays for retry.
     expect(
       await screen.findByText(
         "no project selected — choose a target project first"
@@ -489,7 +461,6 @@ describe("ViviPanel — onboarding view (no target project)", () => {
       screen.getByRole("button", { name: /Import documents/ })
     ).toBeInTheDocument()
 
-    // No chat surfaces without a target: no composer, no new-conversation.
     expect(screen.queryByLabelText("Message Vivi")).not.toBeInTheDocument()
     expect(
       screen.queryByRole("button", { name: "New conversation" })
@@ -508,10 +479,7 @@ describe("ViviPanel — onboarding view (no target project)", () => {
       await screen.findByRole("button", { name: /Start a new project/ })
     )
 
-    // The path/name inputs are disabled while the folder browser's initial
-    // listing is in flight — typing into a disabled input is a silent no-op, so
-    // WAIT for the enabled state first (the real contract: the form activates
-    // once the listing settles), then type. Deterministic, no timing slack.
+    // Inputs stay disabled until the folder listing settles; typing into a disabled input is a silent no-op, so wait for enabled first.
     const pathInput = screen.getByLabelText(/absolute target path/i)
     await waitFor(() => expect(pathInput).toBeEnabled(), { timeout: 5_000 })
     await user.type(screen.getByLabelText("Project name"), "Acme App")
@@ -532,11 +500,8 @@ describe("ViviPanel — onboarding view (no target project)", () => {
         projectName: "Acme App",
       })
     })
-    // The page is notified so it reloads the map/project — the flip to chat mode
-    // follows from the re-fetched hasTarget coming back down (next test).
     await waitFor(() => expect(onActivity).toHaveBeenCalled())
-    // The internal 5s waitFor above (folder-browser listing) needs headroom over
-    // the default 5s test timeout, which full-suite contention can otherwise race.
+    // 15s test timeout must clear the internal 5s waitFor above with headroom, or full-suite contention flakes.
   }, 15_000)
 
   test("acquisition flips the panel to chat mode with the composer focused", async () => {
@@ -547,8 +512,6 @@ describe("ViviPanel — onboarding view (no target project)", () => {
     await user.click(screen.getByRole("button", { name: "Open Vivi" }))
     expect(await screen.findByText("Start a project")).toBeInTheDocument()
 
-    // The page re-fetched map + project after the acquisition and passes the
-    // new state down.
     view.rerender(
       <ViviPanelProvider>
         <ViviPanel hasTarget projectRoot="/tmp/acme-app" />
@@ -557,7 +520,6 @@ describe("ViviPanel — onboarding view (no target project)", () => {
 
     const composer = await screen.findByLabelText("Message Vivi")
     await waitFor(() => expect(composer).toHaveFocus())
-    // The empty-thread hint guides the first message.
     expect(screen.getByText(/Tell Vivi what you want to build/)).toBeInTheDocument()
     expect(screen.queryByText("Start a project")).not.toBeInTheDocument()
   })
@@ -593,7 +555,6 @@ describe("ViviPanel — notifications tab", () => {
     renderPanel()
 
     await user.click(screen.getByRole("button", { name: "Open Vivi" }))
-    // Two undismissed → badge "2" on the Notifications tab.
     await waitFor(() =>
       expect(screen.getByLabelText("2 unread notifications")).toBeInTheDocument()
     )
@@ -685,11 +646,9 @@ describe("ViviPanel — notifications tab", () => {
       ).length
     const baseline = countGets()
 
-    // First frame only records the signature — no refetch.
     await act(() => FakeEventSource.last?.emit(IDLE_STATUS))
     expect(countGets()).toBe(baseline)
 
-    // A changed signature (an issue completed) must refetch promptly (P9).
     await act(() =>
       FakeEventSource.last?.emit({
         ...IDLE_STATUS,
@@ -719,8 +678,7 @@ describe("ViviPanel — notifications tab", () => {
     await user.click(screen.getByRole("button", { name: "Open Vivi" }))
     await user.click(screen.getByRole("tab", { name: /Notifications/ }))
 
-    // events.S9.gate_failed is "{id}: gate red" — the id extraction must stop
-    // BEFORE the delimiter, so exactly one colon renders.
+    // id extraction must stop before the ": " delimiter in "{id}: gate red", or this renders a double colon.
     expect(await screen.findByText("ISS-0004: gate red")).toBeInTheDocument()
     expect(screen.queryByText(/ISS-0004::/)).not.toBeInTheDocument()
   })
@@ -742,7 +700,6 @@ describe("ViviPanel — notifications tab", () => {
       "Explain this notification and what I should do: «extraction blocked after retries»"
     )
     await waitFor(() => expect(composer).toHaveFocus())
-    // Nothing was sent on the user's behalf.
     const posts = fetchMock.mock.calls.filter(
       (c) =>
         String(c[0]) === "/api/vivi" &&
@@ -771,7 +728,6 @@ describe("ViviPanel — notifications tab", () => {
     expect(screen.getByText("2026-07-03")).toBeInTheDocument()
 
     await user.click(screen.getByRole("button", { name: /^Approve$/ }))
-    // The decision must NOT fire until the confirm dialog is accepted (P2).
     expect(
       fetchMock.mock.calls.find((c) => String(c[0]).includes("/api/control/crs/decide"))
     ).toBeUndefined()
@@ -790,7 +746,6 @@ describe("ViviPanel — notifications tab", () => {
         decision: "approved",
       })
     })
-    // The apply outcome renders inline on the card, not as a toast.
     expect(
       await screen.findByText(/CR-0001 approved — applied and re-extracted/)
     ).toBeInTheDocument()
@@ -809,13 +764,10 @@ describe("ViviPanel — closed-panel attention badge (F6)", () => {
     const user = userEvent.setup()
     renderPanel()
 
-    // Panel closed on load: the feed still runs, so the launcher carries 2 + 1 = 3.
     expect(
       await screen.findByLabelText("3 items need your attention")
     ).toBeInTheDocument()
 
-    // Opening hides the launcher badge; the in-panel tab badge shows the SAME total
-    // (so the two surfaces can never disagree).
     await user.click(screen.getByRole("button", { name: "Open Vivi" }))
     await waitFor(() =>
       expect(
@@ -862,16 +814,13 @@ describe("ViviPanel — turn resilience (F1–F5)", () => {
     await user.type(composer, "Add auth.")
     await user.click(screen.getByRole("button", { name: "Send message" }))
 
-    // Mid-turn: the composer is NOT locked — the user keeps drafting the next line.
     expect(composer).toBeEnabled()
     await user.type(composer, "next thought")
     expect(composer).toHaveValue("next thought")
 
-    // Focus drifts away during the (minutes-long) turn.
     act(() => screen.getByRole("button", { name: "Close Vivi" }).focus())
     expect(composer).not.toHaveFocus()
 
-    // The turn completes: the reply renders and focus is restored to the composer.
     gate.resolve()
     expect(
       await screen.findByText("Done — magic links.")
@@ -890,7 +839,7 @@ describe("ViviPanel — turn resilience (F1–F5)", () => {
         }
         if (url.startsWith("/api/vivi/sessions")) {
           indexCalls += 1
-          if (indexCalls === 1) await firstGate.promise // hang the first attempt
+          if (indexCalls === 1) await firstGate.promise
           return jsonResponse({
             ok: true,
             sessions: [
@@ -916,8 +865,6 @@ describe("ViviPanel — turn resilience (F1–F5)", () => {
     const view = renderPanel({ projectRoot: "/proj/x" })
 
     await user.click(screen.getByRole("button", { name: "Open Vivi" }))
-    // The first attempt hangs. Flipping hasTarget (undefined→true) cancels it and
-    // re-runs the effect; the retry must NOT be short-circuited by a stale latch.
     view.rerender(
       <ViviPanelProvider>
         <ViviPanel hasTarget projectRoot="/proj/x" />
@@ -941,7 +888,6 @@ describe("ViviPanel — turn resilience (F1–F5)", () => {
         }
         if (url.startsWith("/api/vivi/sessions/")) {
           turnsCalls += 1
-          // 1st = rehydration (immediate); 2nd = the card resync (held open).
           if (turnsCalls >= 2) await resyncGate.promise
           return jsonResponse({ ok: true, sessionId: SESSION_A, turns: HISTORY })
         }
@@ -972,15 +918,12 @@ describe("ViviPanel — turn resilience (F1–F5)", () => {
     await user.click(screen.getByRole("button", { name: "Open Vivi" }))
     expect(await screen.findByText("I want a todo app.")).toBeInTheDocument()
 
-    // Decide the card → the resync starts (held open by resyncGate).
     await user.click(screen.getByRole("button", { name: "Freeze it" }))
-    // Start a fresh conversation before the resync lands.
     await user.click(screen.getByRole("button", { name: "New conversation" }))
     await waitFor(() =>
       expect(screen.queryByText("I want a todo app.")).not.toBeInTheDocument()
     )
 
-    // The stale resync resolves — it must NOT rebuild the discarded thread.
     resyncGate.resolve()
     await act(async () => {
       await Promise.resolve()
@@ -1043,7 +986,6 @@ describe("ViviPanel — turn resilience (F1–F5)", () => {
     await user.type(screen.getByLabelText("Message Vivi"), "Add auth.")
     await user.click(screen.getByRole("button", { name: "Send message" }))
 
-    // Switch project while the POST is still in flight: the new project resets.
     sessions.length = 0
     view.rerender(
       <ViviPanelProvider>
@@ -1054,8 +996,6 @@ describe("ViviPanel — turn resilience (F1–F5)", () => {
       expect(screen.queryByText("I want a todo app.")).not.toBeInTheDocument()
     )
 
-    // The stale reply resolves AFTER the switch — it must not surface in the new
-    // project's (empty) thread.
     postGate.resolve()
     await act(async () => {
       await Promise.resolve()
@@ -1105,8 +1045,7 @@ describe("ViviPanel — mid-turn resume (F4)", () => {
         }
       )
       vi.stubGlobal("fetch", fetchMock)
-      // fireEvent, not userEvent: userEvent's internal delays deadlock under fake
-      // timers. Open the panel, then drain the rehydration's microtask chain.
+      // fireEvent, not userEvent: userEvent's internal delays deadlock under fake timers.
       renderPanel({ projectRoot: "/proj/x", hasTarget: true })
       await act(async () => {
         fireEvent.click(screen.getByRole("button", { name: "Open Vivi" }))
@@ -1115,12 +1054,9 @@ describe("ViviPanel — mid-turn resume (F4)", () => {
         for (let i = 0; i < 20; i++) await Promise.resolve()
       })
 
-      // The rehydrated thread ends on the user's turn: the pending marker shows
-      // even though nothing is actively "sending".
       expect(screen.getByText("Add auth.")).toBeInTheDocument()
       expect(screen.getByText("Vivi is thinking…")).toBeInTheDocument()
 
-      // The reply becomes available server-side; a poll tick picks it up.
       current = answeredThread
       await act(async () => {
         await vi.advanceTimersByTimeAsync(5_100)
@@ -1140,7 +1076,6 @@ function jsonResponse(body: unknown, status = 200): Response {
   })
 }
 
-/** A promise whose resolution the test drives, to hold a fetch in flight. */
 function deferred<T = void>() {
   let resolve!: (value: T) => void
   const promise = new Promise<T>((r) => {

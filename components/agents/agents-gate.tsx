@@ -21,33 +21,21 @@ import {
 } from "@/components/ui/card"
 import { AgentStatusBadge, CopyableCommand } from "@/components/agents/agent-status"
 
-/** The gate blocks only on a MISSING binary — auth problems get the banner instead. */
 export function agentsGateBlocked(health: AgentsHealth): boolean {
   return !health.claude.present || !health.codex.present
 }
 
-/** The agents that are installed but verifiably signed out (the banner's subjects). */
 export function unauthenticatedAgents(health: AgentsHealth): AgentKey[] {
   return (["claude", "codex"] as AgentKey[]).filter(
     (key) => health[key].present && health[key].authenticated === false
   )
 }
 
-/**
- * The prerequisite gate (W4a): a full-screen blocking screen shown INSTEAD of the
- * app whenever either agent CLI binary is missing from PATH — Vivicy runs
- * entirely on the two CLIs, so nothing downstream (map, onboarding, Vivi) can
- * work without them. Per-agent status rows, the exact install command from
- * {@link AGENT_GUIDANCE} as a copy-only block, and a "Check again" that re-probes
- * with `?fresh=1` (bypassing the route's once-per-process memo) and hands the
- * fresh snapshot back up so the page can lift the gate the moment both are found.
- */
 export function AgentsGate({
   health,
   onHealth,
 }: {
   health: AgentsHealth
-  /** Receives the re-probed snapshot after "Check again". */
   onHealth: (health: AgentsHealth) => void
 }) {
   const t = useTranslations("agents")
@@ -56,19 +44,17 @@ export function AgentsGate({
   const recheck = useCallback(async () => {
     setChecking(true)
     try {
+      // ?fresh=1 bypasses the health route's once-per-server-process memo — otherwise "Check again" would keep returning the first snapshot.
       const res = await fetch("/api/agents/health?fresh=1", { cache: "no-store" })
       const body = (await res.json().catch(() => ({}))) as { agents?: AgentsHealth }
       if (body.agents) onHealth(body.agents)
     } catch {
-      // Best-effort: a failed re-probe keeps the last snapshot; the user can retry.
     } finally {
       setChecking(false)
     }
   }, [onHealth])
 
-  // items-start + m-auto (not items-center) on the scroller: centering clips the
-  // TOP of content taller than the viewport unreachably (short windows, 200% zoom);
-  // auto margins center only when space allows.
+  // items-start + m-auto, not items-center: items-center would clip the top of overflowing content unreachably (short windows, 200% zoom).
   return (
     <div className="flex h-svh w-full items-start justify-center overflow-y-auto p-6">
       <div className="m-auto flex w-full max-w-xl flex-col gap-4">
@@ -100,7 +86,6 @@ export function AgentsGate({
   )
 }
 
-/** One agent's status row on the gate, with the install command when it is missing. */
 function GateAgentCard({ agentKey, health }: { agentKey: AgentKey; health: AgentHealth }) {
   const t = useTranslations("agents")
   const guidance = AGENT_GUIDANCE[agentKey]
@@ -145,12 +130,6 @@ function GateAgentCard({ agentKey, health }: { agentKey: AgentKey; health: Agent
   )
 }
 
-/**
- * The non-blocking half of W4a: an agent that is INSTALLED but verifiably signed
- * out gets a dismissible amber banner over the normal app (never a gate — the map
- * and onboarding still work; only the agent legs would refuse). One line per
- * signed-out agent with its exact auth command.
- */
 export function AgentsAuthBanner({ health }: { health: AgentsHealth }) {
   const t = useTranslations("agents")
   const [dismissed, setDismissed] = useState(false)

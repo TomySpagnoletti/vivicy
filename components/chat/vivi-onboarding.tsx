@@ -17,27 +17,6 @@ import { OpenProjectForm } from "@/components/project/open-project-form"
 
 type OnboardingView = "choices" | "open" | "scaffold" | "import"
 
-/**
- * The panel-hosted onboarding view (W4b, owner point 7): when no target project
- * is resolved, the Vivi panel's thread area hosts this deterministic chooser
- * instead of the chat — three user-driven choices (P7: S0/S1 are buttons, zero
- * automatism), each expanding IN-PANEL with a back affordance:
- *
- *   - Open an existing project — the shared {@link OpenProjectForm} (same form
- *     the setup bar's switcher dialog wraps).
- *   - Start a new project — the scaffold form (name + browsed parent + folder
- *     name, or an absolute override), `POST /api/project/scaffold`.
- *   - Import documents — acquisition FIRST (imports need a target to land in),
- *     then the staged {@link ImportDocsFlow} (stage → verify → apply).
- *
- * `onAcquired` fires the moment a project is persisted — for ALL three legs,
- * including import (as soon as the target is chosen). The import view then stays
- * open to keep staging: a freshly acquired import target has no `.vivicy/` map yet,
- * so the page keeps reporting `no_target` and the panel stays in this onboarding
- * view until the applied docs produce a spec. Reporting immediately is what makes
- * closing the panel mid-import safe — the acquisition is already on record instead
- * of being deferred to Apply/Back and lost on an early close.
- */
 export function ViviOnboarding({
   onAcquired,
 }: {
@@ -104,8 +83,7 @@ export function ViviOnboarding({
       {view === "import" && importTarget === null ? (
         <>
           <p className="text-xs text-muted-foreground">{t("importPickTargetHint")}</p>
-          {/* Report the acquisition the instant the target is persisted (parity
-              with open/scaffold), then advance to staging in the same view. */}
+          {/* Fires onAcquired immediately on persistence (before staging), so closing mid-import never loses the acquired target. */}
           <OpenProjectForm
             active
             onChanged={(project) => {
@@ -123,7 +101,6 @@ export function ViviOnboarding({
   )
 }
 
-/** One full-width onboarding choice: icon + title + one-line description. */
 function ChoiceButton({
   icon,
   title,
@@ -156,14 +133,6 @@ function ChoiceButton({
   )
 }
 
-/**
- * The scaffold (start-from-scratch, R9) form, ported from the retired
- * ScaffoldDialog: a project name plus a target folder — browsed PARENT joined
- * with a new folder name, or a direct absolute path — POSTed to
- * `POST /api/project/scaffold`. An empty or non-existent folder gets the full
- * lean skeleton; a populated folder gets only the MISSING Vivicy files, never
- * clobbering existing ones (add-to-existing-repo).
- */
 function ScaffoldForm({ onScaffolded }: { onScaffolded: (project: CurrentProject) => void }) {
   const t = useTranslations("project.scaffoldForm")
   const tErrors = useTranslations("errors")
@@ -174,9 +143,6 @@ function ScaffoldForm({ onScaffolded }: { onScaffolded: (project: CurrentProject
   const [folderName, setFolderName] = useState("")
   const [absoluteOverride, setAbsoluteOverride] = useState("")
 
-  // Reset the fields on mount; the browser re-browses itself from its `open`
-  // prop. The state writes live inside the async closure (not the effect body)
-  // so they don't fire synchronously during the render commit.
   useEffect(() => {
     void (async () => {
       setProjectName("")
@@ -185,8 +151,6 @@ function ScaffoldForm({ onScaffolded }: { onScaffolded: (project: CurrentProject
     })()
   }, [])
 
-  // The resolved target directory: an explicit absolute override wins; otherwise
-  // the browsed parent joined with the new folder name.
   const targetDir = (() => {
     const override = absoluteOverride.trim()
     if (override.length > 0) return override

@@ -1,8 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
-// Mock the reader/writer so the route test does not touch a real log file; the
-// read CONTRACT (missing/empty => [], malformed lines skipped) and the
-// append/dismiss round-trip are covered directly in lib/notifications.test.ts.
+// The read contract (missing/empty => [], malformed lines skipped) and the append/dismiss round-trip are covered in lib/notifications.test.ts.
 const { readNotifications, dismissNotifications } = vi.hoisted(() => ({
   readNotifications: vi.fn(),
   dismissNotifications: vi.fn(),

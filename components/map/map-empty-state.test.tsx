@@ -7,8 +7,6 @@ import { MapEmptyState } from "@/components/map/map-empty-state"
 import map from "@/messages/en/map.json"
 import project from "@/messages/en/project.json"
 
-// MapEmptyState hosts project/import-docs-flow.tsx in its inline dialog (owned by
-// the project area), so its catalog namespace has to be present too, not just "map".
 function renderEmptyState(ui: React.ReactElement) {
   return render(
     <NextIntlClientProvider locale="en" messages={{ map, project }}>
@@ -22,7 +20,6 @@ describe("MapEmptyState — guidance per empty reason", () => {
     renderEmptyState(<MapEmptyState reason="no_target" onExtract={vi.fn()} />)
     expect(screen.getByText("No project selected")).toBeInTheDocument()
     expect(screen.getByText(/Open Vivi \(bottom-left\) to set one up/)).toBeInTheDocument()
-    // Extract makes no sense before a target is resolved — even with onExtract.
     expect(
       screen.queryByRole("button", { name: /Extract from docs/ })
     ).not.toBeInTheDocument()
@@ -41,7 +38,6 @@ describe("MapEmptyState — guidance per empty reason", () => {
     expect(screen.getByText("Architecture map is empty")).toBeInTheDocument()
     expect(screen.getByText(/re-run Extract/)).toBeInTheDocument()
     expect(screen.getByRole("button", { name: "Extract from docs" })).toBeInTheDocument()
-    // The reason is reflected on the Card for downstream selectors.
     expect(document.querySelector('[data-empty-reason="empty_map"]')).toBeTruthy()
   })
 
@@ -59,7 +55,6 @@ describe("MapEmptyState — guidance per empty reason", () => {
     renderEmptyState(<MapEmptyState reason="no_map" onExtract={onExtract} extracting />)
     const extract = screen.getByRole("button", { name: "Extracting…" })
     expect(extract).toBeDisabled()
-    // The idle label is gone, and a disabled button cannot fire onExtract.
     expect(screen.queryByRole("button", { name: "Extract from docs" })).toBeNull()
     await user.click(extract).catch(() => undefined)
     expect(onExtract).not.toHaveBeenCalled()
@@ -69,8 +64,6 @@ describe("MapEmptyState — guidance per empty reason", () => {
     renderEmptyState(<MapEmptyState reason="no_map" />)
     expect(screen.getByText("No issues extracted yet")).toBeInTheDocument()
     expect(screen.queryByRole("button", { name: /Extract from docs/ })).toBeNull()
-    // A target already exists in no_map/empty_map, so Import docs (G1) is always
-    // offered regardless of whether the caller wired an Extract handler.
     expect(screen.getByRole("button", { name: /Import docs/ })).toBeInTheDocument()
   })
 
@@ -101,8 +94,6 @@ describe("MapEmptyState — guidance per empty reason", () => {
     expect(
       screen.getByText(/canonical is empty \(only the scaffold README\)/)
     ).toBeInTheDocument()
-    // The Import action becomes the primary (default-variant) button — the fix
-    // for an empty canonical — while Extract stays the secondary outline action.
     expect(screen.getByRole("button", { name: /Import docs/ })).toHaveAttribute(
       "data-variant",
       "default"

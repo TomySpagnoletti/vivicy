@@ -6,20 +6,9 @@ import { applyUpload, UploadError } from "@/lib/upload"
 
 import { uploadErrorResponse } from "../route"
 
-// Places the normalized files into the target's .vivicy/; Node only.
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 
-/**
- * PLACE a verified upload into the target's `.vivicy/` (G1's final step). The body
- * is `{ stagingId }`. Refuses (409, `not_verified`) unless `<staging>/report.json`
- * exists with a green verdict. Requires a resolved target (422, `missing_target`).
- * Places canonical -> `.vivicy/canonical/<basename>`, spikes ->
- * `.vivicy/development/spikes/<basename>`, map ->
- * `.vivicy/architecture-map/architecture-map.yml`; NEVER overwrites an existing
- * file — it checks ALL destinations first and refuses (409, `would_overwrite`,
- * listing the collisions) with nothing placed. The response is `{ ok, placed }`.
- */
 export async function POST(request: Request) {
   try {
     const body = (await request.json().catch(() => null)) as { stagingId?: unknown } | null

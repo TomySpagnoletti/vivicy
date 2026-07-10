@@ -41,7 +41,6 @@ import {
   visibleNotifications,
 } from "@/components/chat/vivi-notifications"
 
-/** The read-only agent engine Vivi runs on, from `GET /api/vivi` (implementer role). */
 interface ViviEngine {
   provider: string
   providerLabel: string
@@ -50,13 +49,10 @@ interface ViviEngine {
 
 type PanelTab = "chat" | "notifications"
 
-/** Mid-turn resume poll (F4): after a reload lands on a thread whose last turn is
- *  still the user's, poll the transcript until the reply appears — bounded so a
- *  turn the server silently dropped stops polling after ~10 minutes. */
+// Capped so a turn the server silently dropped doesn't poll forever.
 const RESUME_POLL_MS = 5_000
 const RESUME_POLL_MAX = 120
 
-/** GET one session's persisted turns; null when the fetch or shape fails. */
 async function fetchSessionTurns(
   sessionId: string
 ): Promise<ViviTurn[] | null> {
@@ -75,32 +71,6 @@ async function fetchSessionTurns(
   }
 }
 
-/**
- * Vivi's persistent home (W3): an Intercom-style launcher bubble (bottom-left,
- * visible in every app state) toggling a left-side NON-MODAL overlay panel (owner
- * decision D2) — no backdrop, the map behind stays interactive. Two tabs (W5, D3):
- * Chat (the thread) and Notifications (the ONLY notification surface — the old
- * bell/center are retired). An attention badge — undismissed notifications plus
- * pending CRs — rides both the tab (while open) and the launcher bubble (while
- * closed), the two fed from the same always-running feed so they never disagree.
- *
- * The Chat tab hosts three mutually exclusive contents:
- *   - `agentsMissing` — a quiet hint that the CLIs must be installed first (Vivi
- *     runs on them); the prerequisite gate behind carries the commands.
- *   - `hasTarget === false` — the deterministic onboarding view (W4b): three
- *     user-driven acquisition choices instead of a chat that could do nothing.
- *   - otherwise — the thread, rendering the full `ViviTurn` union: user/vivi
- *     bubbles, compact "action" tool-result blocks, and decision cards (D6).
- *
- * The persisted transcript is the single source of truth: on first open the panel
- * rehydrates from the newest session, and after every turn it RE-FETCHES the
- * session — the server may have appended intermediate vivi/action turns during
- * multi-round action execution, so trusting only the returned reply would drop
- * them. Sessions are per-project on the server (W8), so when `projectRoot`
- * changes — a switch or the first acquisition — the panel drops its thread state
- * and rehydrates against the NEW project's sessions. Turns that changed project
- * state (`wrote`/`actions`) bubble up through `onActivity` so the page refreshes.
- */
 export function ViviPanel({
   onActivity,
   hasTarget,
@@ -108,11 +78,8 @@ export function ViviPanel({
   agentsMissing = false,
 }: {
   onActivity?: () => void
-  /** False when the map reports `no_target` (drives the onboarding view); undefined while unknown. */
   hasTarget?: boolean
-  /** The current project root (reset key for the per-project thread); null = none, undefined while unknown. */
   projectRoot?: string | null
-  /** True while the prerequisite gate is up (either CLI binary missing). */
   agentsMissing?: boolean
 }) {
   const t = useTranslations("chat")
@@ -134,23 +101,13 @@ export function ViviPanel({
   const closeRef = useRef<HTMLButtonElement | null>(null)
   const hydratedRef = useRef(false)
 
-  // The thread "era". It bumps whenever the thread identity resets — a project
-  // switch (per-project sessions on the server) or a "New conversation" — so any
-  // in-flight response captured before the bump is DISCARDED instead of writing
-  // itself into the wrong thread (a stale reply blanking a rehydrated one, or a
-  // foreign session id leaking into the new project's namespace).
+  // Bumps on thread-identity reset (project switch / New conversation); an in-flight response captured before the bump is discarded instead of written into the wrong thread.
   const epochRef = useRef(0)
-  // The live sessionId, readable inside post-await callbacks whose closed-over
-  // `sessionId` is stale (e.g. a card resync racing "New conversation").
   const sessionIdRef = useRef(sessionId)
   useEffect(() => {
     sessionIdRef.current = sessionId
   }, [sessionId])
 
-  // Composer focus across mounts: the composer often does not EXIST yet when a
-  // flow decides it should be focused (a tab switch or the onboarding→chat flip
-  // commits the new content one render later), so the request is remembered and
-  // honoured by the callback ref the moment the textarea mounts.
   const pendingFocusRef = useRef(false)
   const composerRef = useCallback((node: HTMLTextAreaElement | null) => {
     textareaRef.current = node
@@ -164,17 +121,13 @@ export function ViviPanel({
     else pendingFocusRef.current = true
   }, [])
 
-  // The feed runs ALWAYS (open or closed) so the launcher can carry a closed-panel
-  // attention badge. The count = undismissed notifications + pending CRs, the same
-  // total the in-panel tab badge shows, so the two can never disagree.
+  // Deliberately unconditional (not gated on `open`) so the closed-panel launcher badge stays live.
   const { notifications, crs, reload: reloadFeed } = useNotificationsFeed()
   const attentionCount =
     visibleNotifications(notifications).length + pendingCrs(crs).length
 
   const chatUsable = !agentsMissing && hasTarget !== false
 
-  // Load the read-only engine (which CLI/model Vivi runs on) whenever the panel
-  // opens, so the badge always reflects the current settings.
   useEffect(() => {
     if (!open) return
     let cancelled = false
@@ -186,7 +139,6 @@ export function ViviPanel({
         }
         if (!cancelled && body.engine) setEngine(body.engine)
       } catch {
-        // Non-fatal: the chat works without the badge.
       }
     })()
     return () => {
@@ -194,31 +146,22 @@ export function ViviPanel({
     }
   }, [open])
 
-  // PROJECT-SWITCH RESET (W4b): sessions are per-project on the server, so when
-  // the project root changes — including the first acquisition — the thread
-  // state belongs to the OLD project and must be dropped before rehydrating.
-  // The initial undefined→known transition is a resolution, not a switch.
+  // Sessions are per-project on the server; the initial undefined→known transition is a resolution, not a switch, so it skips the reset below.
   const prevRootRef = useRef(projectRoot)
   useEffect(() => {
     if (prevRootRef.current === projectRoot) return
     const prev = prevRootRef.current
     prevRootRef.current = projectRoot
-    // A new project namespace: discard any response still in flight from the old one.
     epochRef.current += 1
     if (prev === undefined) return
     hydratedRef.current = false
     setSessionId(undefined)
     setTurns([])
     setSendError(null)
-    // The old send's `finally` is epoch-guarded and will NOT clear this, so reset
-    // it here — otherwise the new project would be stuck "thinking" behind a stale
-    // in-flight turn (and its composer blocked).
+    // Reset here too: the old send's epoch-guarded finally won't clear it, and skipping this would strand the new project "thinking" behind a stale in-flight turn.
     setSending(false)
   }, [projectRoot])
 
-  // Rehydrate once per (open, project): resume the newest persisted session so
-  // the conversation survives reloads (and decided cards render decided). Skipped
-  // while there is no target — the onboarding view owns the thread area then.
   useEffect(() => {
     if (!open || hydratedRef.current || hasTarget === false) return
     let cancelled = false
@@ -230,14 +173,11 @@ export function ViviPanel({
           sessions?: { sessionId: string }[]
         }
         if (cancelled) return
-        // A failed index fetch is NOT a completion: leave hydratedRef false so the
-        // next effect run retries, rather than latching on a transient error that
-        // happened to parse to an empty body.
+        // A failed fetch leaves hydratedRef false so the next effect run retries, instead of latching on a transient error.
         if (!res.ok || body.ok === false) return
         const newest = body.sessions?.[0]
         if (!newest) {
-          // The index resolved to no prior session: nothing to restore, but the
-          // attempt COMPLETED — latch so we don't refetch the empty index each render.
+          // No prior session is still a completed attempt — latch so the empty index isn't refetched every render.
           hydratedRef.current = true
           return
         }
@@ -245,12 +185,9 @@ export function ViviPanel({
         if (cancelled || restored === null) return
         setSessionId(newest.sessionId)
         setTurns(restored)
-        // Latch ONLY here, on a successful non-cancelled restore. A dep that flips
-        // mid-fetch cancels this attempt and leaves the ref false, so the next
-        // effect run retries instead of being permanently stuck "hydrated".
+        // Latches only on a successful, non-cancelled restore, so a mid-fetch cancellation retries next run instead of getting stuck unhydrated.
         hydratedRef.current = true
       } catch {
-        // Non-fatal: leave hydratedRef false so the next effect run retries.
       }
     })()
     return () => {
@@ -258,12 +195,7 @@ export function ViviPanel({
     }
   }, [open, projectRoot, hasTarget])
 
-  // Move focus with the panel: into the composer on open, back to the launcher on
-  // close (the panel goes inert, so focus would otherwise fall to <body>). The
-  // composer does not exist in the onboarding and agents-missing states — the
-  // header close button is the fallback target, so keyboard focus ALWAYS enters
-  // the panel on open (the launcher goes inert on the same render, force-blurring
-  // whatever was focused).
+  // Focus follows the panel (inert would otherwise drop it to body on close); falls back to the close button when the composer doesn't exist yet (onboarding / agents-missing).
   const prevOpenRef = useRef(open)
   useEffect(() => {
     if (open) (textareaRef.current ?? closeRef.current)?.focus()
@@ -271,9 +203,6 @@ export function ViviPanel({
     prevOpenRef.current = open
   }, [open])
 
-  // First acquisition while the panel is open: the onboarding view just became
-  // the chat — land on the Chat tab with the composer focused, its empty-state
-  // hint ("tell Vivi what you want to build") doing the guiding.
   const prevHasTargetRef = useRef(hasTarget)
   useEffect(() => {
     const prev = prevHasTargetRef.current
@@ -284,10 +213,6 @@ export function ViviPanel({
     }
   }, [hasTarget, open, focusComposer])
 
-  // Restore composer focus when a turn completes (F3): the composer stays enabled
-  // during sending so the user can keep typing, but focus can drift; on the
-  // sending true→false edge, if the panel is open on the Chat tab, put the caret
-  // back in the composer so the next message flows without a manual click.
   const prevSendingRef = useRef(sending)
   useEffect(() => {
     const was = prevSendingRef.current
@@ -323,12 +248,8 @@ export function ViviPanel({
         error?: string
         code?: string
       }
-      // The thread reset (project switch / New conversation) while this was in
-      // flight: this response belongs to a retired era — drop it silently so it
-      // can neither blank the new thread nor leak a foreign session id into it.
       if (epoch !== epochRef.current) return
       if (!res.ok || body.ok === false || typeof body.reply !== "string") {
-        // Inline, never a crash: the user bubble stays visible for a retry.
         const fallback =
           body.error ?? t("requestFailed", { status: res.status })
         setSendError(
@@ -346,8 +267,6 @@ export function ViviPanel({
       if (restored !== null) {
         setTurns(restored)
       } else {
-        // Re-fetch failed: fall back to appending the returned reply so the turn
-        // is never invisible; the next successful re-fetch re-syncs the thread.
         setTurns((prev) => [
           ...prev,
           {
@@ -365,15 +284,12 @@ export function ViviPanel({
       if (epoch !== epochRef.current) return
       setSendError(error instanceof Error ? error.message : t("networkError"))
     } finally {
-      // Only the send that still owns the era clears the flag — a stale send whose
-      // era was retired must not unblock (or clobber) the current turn.
       if (epoch === epochRef.current) setSending(false)
     }
   }, [draft, sending, sessionId, onActivity, t, tErrors])
 
   const onKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
-      // Enter sends; Shift+Enter inserts a newline (standard chat idiom).
       if (event.key === "Enter" && !event.shiftKey) {
         event.preventDefault()
         void send()
@@ -383,10 +299,7 @@ export function ViviPanel({
   )
 
   const startNewConversation = useCallback(() => {
-    // A fresh thread era: invalidate any in-flight send/card resync so its late
-    // response can't resurrect the conversation we just cleared. Resetting
-    // `sending` keeps the invariant here (not solely on the button's disabled
-    // prop): the retired send's epoch-guarded finally won't clear it.
+    // Bumps the era (invalidates any in-flight send/resync); sending is reset here too since the stale send's epoch-guarded finally won't clear it.
     epochRef.current += 1
     setSessionId(undefined)
     setTurns([])
@@ -395,9 +308,7 @@ export function ViviPanel({
     textareaRef.current?.focus()
   }, [])
 
-  // A decided card usually DID something (a control action, a CR decision, a Vivi
-  // message) — re-sync the thread from the transcript (the decided stamp + any
-  // appended turns live there) and refresh the page state unless it was a dismiss.
+  // A decided card re-syncs the thread from the transcript (the decided stamp and any appended turns live there); a dismiss doesn't count as activity.
   const onCardDecided = useCallback(
     (action: ViviCardAction) => {
       const cardSession = sessionId
@@ -405,9 +316,7 @@ export function ViviPanel({
         const epoch = epochRef.current
         void (async () => {
           const restored = await fetchSessionTurns(cardSession)
-          // Discard if the thread moved on while the resync was in flight: a
-          // project switch (epoch) or a "New conversation"/switch that changed the
-          // live sessionId out from under the card this decision belonged to.
+          // Discard if the thread moved on mid-resync: an epoch bump (project switch) or the live sessionId changed underneath this card (New conversation).
           if (
             epoch !== epochRef.current ||
             sessionIdRef.current !== cardSession ||
@@ -422,10 +331,6 @@ export function ViviPanel({
     [sessionId, onActivity]
   )
 
-  // Mid-turn resume (F4): reloading while a turn is being generated rehydrates a
-  // thread whose LAST turn is the user's message with no reply yet. Surface the
-  // pending marker (in the render below) and poll the transcript until the reply
-  // lands, so the answer appears without the user having to resend.
   const lastTurn = turns[turns.length - 1]
   const awaitingReply = !sending && !!sessionId && lastTurn?.role === "user"
   useEffect(() => {
@@ -441,8 +346,6 @@ export function ViviPanel({
       void (async () => {
         const restored = await fetchSessionTurns(sessionId)
         if (epoch !== epochRef.current || restored === null) return
-        // Commit only once the reply (any non-user turn) has landed: an unchanged
-        // still-pending transcript would needlessly re-render on every poll.
         const next = restored[restored.length - 1]
         if (next && next.role !== "user") setTurns(restored)
       })()
@@ -450,8 +353,6 @@ export function ViviPanel({
     return () => clearInterval(timer)
   }, [awaitingReply, sessionId])
 
-  // A notification's "Ask Vivi": land on the Chat tab with the composer
-  // PRE-FILLED about the displayed text — the user presses send, never the app.
   const askVivi = useCallback(
     (text: string) => {
       setTab("chat")
@@ -461,20 +362,12 @@ export function ViviPanel({
     [t, focusComposer]
   )
 
-  // An in-panel acquisition (open/scaffold/import) changed the current project —
-  // same page-refresh path as any project change; the flip to chat mode follows
-  // from the page's re-fetched `hasTarget`/`projectRoot` coming back down.
   const onAcquired = useCallback(() => {
     onActivity?.()
   }, [onActivity])
 
   return (
     <>
-      {/* The launcher yields while the panel is open: the panel is full-height, so
-          a persistent bubble would sit on top of the composer — the header X is the
-          close affordance instead. The wrapper is inert to pointer events so the
-          map behind stays clickable when the bubble is hidden; the button re-enables
-          them for itself while closed. */}
       <div className="pointer-events-none fixed bottom-4 left-4 z-50">
         <Button
           ref={bubbleRef}
@@ -494,9 +387,6 @@ export function ViviPanel({
         >
           <NonnaIcon className="size-6" />
         </Button>
-        {/* Closed-panel attention signal (F6): undismissed notifications + pending
-            CRs, capped at 9+. Hidden at zero and while the panel is open (the tab
-            badge carries the count then). The count is announced via aria-label. */}
         {!open && attentionCount > 0 ? (
           <Badge
             variant="destructive"
@@ -637,9 +527,7 @@ export function ViviPanel({
                 </MessageScrollerProvider>
 
                 <div className="flex items-end gap-2 border-t border-border p-3">
-                  {/* Enabled through the whole turn (F3): a Vivi turn can run for
-                      minutes, so locking the composer would strand the user — they
-                      keep drafting the next message while this one runs. */}
+                  {/* Not disabled while sending: a turn can run minutes, so locking the composer would strand the user mid-draft. */}
                   <Textarea
                     ref={composerRef}
                     value={draft}
@@ -650,10 +538,7 @@ export function ViviPanel({
                     aria-label={t("inputAriaLabel")}
                     className="max-h-40 flex-1 resize-none"
                   />
-                  {/* aria-disabled + a guarded send, never the native `disabled`:
-                      a natively-disabled button drops keyboard focus to <body> the
-                      instant the turn starts. `send()` itself no-ops while sending
-                      or on an empty draft, so the gate is honoured either way. */}
+                  {/* aria-disabled, not native disabled: a natively-disabled button would drop focus to body the instant sending starts. send() itself no-ops when sending or empty either way. */}
                   <Button
                     type="button"
                     size="icon-sm"
@@ -689,7 +574,6 @@ export function ViviPanel({
   )
 }
 
-/** Route one persisted turn to its rendering: bubbles, action block, or card. */
 function TurnView({
   turn,
   sessionId,
@@ -743,7 +627,6 @@ function TurnView({
   return null
 }
 
-/** The turn-based pending state — a shadcn Marker with a spinner while the exec runs. */
 function PendingMarker() {
   const t = useTranslations("chat")
   return (

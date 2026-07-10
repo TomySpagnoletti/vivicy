@@ -1,41 +1,4 @@
-/**
- * Vivicy control plane: drive the Vivicy dev-factory scripts from the app.
- *
- * Server-only. This module owns the policy (single-run lock, path safety, how
- * each factory script is invoked) and stays independent of `child_process` via
- * an injectable {@link Spawner}. Real routes use {@link nodeSpawner}; tests
- * inject a fake so `start` never launches real claude/codex.
- *
- * ── G14: CLI + API parity (why this file and factory/cli.ts do NOT share code) ──
- * This module is the UI's client (behind the Next API routes). The agents' client
- * is the `vivicy` CLI (factory/cli.ts), a plain Node ESM executable. The two MUST
- * NOT import each other: this is Next-bundled server-only TS (the `@/` alias, the
- * injectable Spawner), while cli.ts is resolved by the package `bin` and cannot
- * pull in Next internals. PARITY is NOT shared code — it is both clients (a) spawning
- * the SAME factory scripts (SUPERVISOR/STATUS/EXTRACT/CHANGE_CONTROL/CR_APPLY) with the
- * same args + env, and (b) reading the SAME state files with the same schema (the
- * run-state lock below, extraction-status.json, the CR registry, cr-apply reports).
- * The lock lives at <runtime>/projects/<key>/run-state.json — the per-project
- * namespace derived by the SHARED lib/project-runtime.ts module, which cli.ts imports
- * too, so a CLI-started run is visible to the UI and vice versa. Any script/schema
- * change moves
- * both clients together; neither owns a verb the other lacks (retry-stage dispatches
- * {extract -> runExtract, dev -> startSupervisor("resume"), skills -> startSkillsInstall}
- * identically on both sides).
- *
- * Roots:
- *   factoryRoot = VIVICY_FACTORY_ROOT ?? <cwd>/factory   (the in-package factory)
- *   targetRoot  = the UI-chosen project (persisted) ?? VIVICY_TARGET_ROOT
- *                 (the project being built; resolved by {@link getTargetRoot})
- *
- * The factory is bundled inside this package (vivicy/factory). The target is the
- * project the user picked from the UI (R10), falling back to the env override;
- * with neither, there is no target and {@link resolveContext} refuses with a
- * `missing_target` error rather than guessing a directory (Vivicy is standalone).
- * Scripts are resolved inside factoryRoot and always invoked with
- * VIVICY_TARGET_ROOT=<targetRoot> (plus `--dir <targetRoot>` where the script
- * documents it). Nothing is ever written or spawned outside these two roots.
- */
+// Server-only; deliberately independent of factory/cli.ts (Next-bundled TS vs a plain Node ESM bin) — parity is both spawning the same factory scripts/args and reading the same state files, not shared code.
 
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs"
 import path from "node:path"
@@ -66,17 +29,13 @@ import {
   type NormalizationProblem,
 } from "@/lib/upload"
 
-/** A single detached child process the spawner has launched. */
 export interface DetachedHandle {
   pid: number
 }
 
-/** Outcome of a script run to completion. */
 export interface RunResult {
   code: number | null
-  /** Last non-empty line of stdout (trimmed), for surfacing in the UI. */
   lastLine: string
-  /** Combined stdout (already collected); kept small by callers. */
   stdout: string
   stderr: string
 }
@@ -86,7 +45,6 @@ export interface SpawnDetachedOptions {
   args: string[]
   cwd: string
   env: NodeJS.ProcessEnv
-  /** Absolute path to the file the detached process' stdio is redirected to. */
   logFile: string
 }
 
@@ -97,22 +55,13 @@ export interface RunOptions {
   env: NodeJS.ProcessEnv
 }
 
-/**
- * Injection seam for process control. The real implementation shells out via
- * `child_process`; tests substitute a fake that records calls and never spawns.
- */
 export interface Spawner {
-  /** Launch a long-lived process detached from this server; return its pid. */
   spawnDetached(options: SpawnDetachedOptions): DetachedHandle
-  /** Run a short-lived script to completion and collect its output. */
   run(options: RunOptions): Promise<RunResult>
-  /** Kill a process group by pid. Returns false if the process was already gone. */
   killGroup(pid: number, signal?: NodeJS.Signals): boolean
-  /** Whether a process with this pid is currently alive. */
   isAlive(pid: number): boolean
 }
 
-/** Persisted lock describing the currently supervised run. */
 export interface RunState {
   pid: number
   started_at: string
@@ -122,59 +71,32 @@ export interface RunState {
   mode: "start" | "resume"
 }
 
-/**
- * One rolling quota window's REAL usage, extracted from a provider's transcript.
- * `used_pct` is null when the provider does not expose a percentage (honest
- * unknown — Claude's stream-json gives a reset but no %); the footer shows "—".
- */
 export interface QuotaWindow {
-  /** Real usage percentage 0–100, or null when the provider exposes none. */
   used_pct: number | null
-  /** Real remaining percentage (100 - used_pct), or null when unknown. */
   remaining: number | null
-  /** ISO time this window resets, or null when unknown. */
   reset_at: string | null
 }
 
-/** The rolling windows the footer surfaces, keyed by canonical label. */
 export interface QuotaWindows {
-  /** Short rolling window (Codex primary / Claude five_hour). */
   "5h"?: QuotaWindow
-  /** Long rolling window (Codex secondary). */
   weekly?: QuotaWindow
 }
 
-/** Per-agent quota/rate-limit status, written by the dev-loop quota handler. */
 export interface AgentQuota {
-  /** Model id the leg runs (e.g. "claude-opus-4-8"), or null when unknown. */
   model: string | null
-  /** "available" steady state; "throttled" while waiting out a rate limit. */
   status: "available" | "throttled"
-  /** ISO time the quota is expected to reopen, when throttled and parseable. */
   reset_at: string | null
-  /** The rate-limit line we matched (honest provenance), or null. */
   last_message: string | null
-  /**
-   * Real per-window usage (Codex: % for 5h + weekly; Claude: 5h reset only).
-   * Absent => unknown; a present window with `used_pct: null` is an honest
-   * "we have a reset but no percentage" signal, never a fabricated number.
-   */
   windows?: QuotaWindows
-  /**
-   * ISO time the Claude status-line quota probe last ran (claude only). Used to
-   * throttle the probe to once per refresh window; durable across loop restarts.
-   */
   last_probe_at?: string | null
   updated_at?: string | null
 }
 
-/** The whole quota block: per-agent state keyed by actor (claude / codex). */
 export interface QuotaBlock {
   updated_at: string | null
   agents: Record<string, AgentQuota>
 }
 
-/** Snapshot returned by {@link readDevStatus}. */
 export interface DevStatus {
   verdict: string
   issues_total: number
@@ -185,25 +107,15 @@ export interface DevStatus {
   process_alive: boolean
   idle_seconds: number | null
   gates: { pass: number; fail: number }
-  /** Per-agent quota state; absent on older runs => treat as unknown. */
   quota?: QuotaBlock
   [key: string]: unknown
 }
 
-/**
- * Outcome of a full extraction run (freeze -> author -> verify -> map). `ok` is
- * true only when the orchestrator reached green; `blocked` is true when the
- * deterministic checks stayed red after the bounded retries (a human must look) —
- * surfaced honestly to the caller rather than hidden behind a generic failure.
- */
 export interface ExtractResult {
   ok: boolean
   blocked: boolean
-  /** Terminal phase the orchestrator reported: "green" | "extraction_blocked". */
   status: string
-  /** One-line human summary (issue count on green, the failing checks on block). */
   summary: string
-  /** The orchestrator's raw last stdout line (provenance for the UI). */
   lastLine: string
 }
 
@@ -232,41 +144,20 @@ const LOG_FILE = "supervisor.log"
 
 const SUPERVISOR_SCRIPT = "dev-loop-supervised.ts"
 const STATUS_SCRIPT = "dev-status.ts"
-// The single orchestrator that AUTHORS the issues from the frozen spec, then
-// validates and regenerates the map (freeze -> author -> verify -> map). The
-// agent leg lives inside this script; the control plane only launches it.
 const EXTRACT_SCRIPT = "extract-issues.ts"
-// The S1-import CHECK: one agent leg reads a normalized upload corpus and writes
-// its verdict report. The agent leg lives inside this script; the control plane
-// only launches it (same pattern as EXTRACT_SCRIPT) — see runUploadVerify.
 const UPLOAD_VERIFY_SCRIPT = "verify-upload.ts"
-// The Change-Request registry validator, which also carries the `decide` subcommand
-// that records an owner decision deterministically (no agent) — see decideCr.
 const CHANGE_CONTROL_SCRIPT = "change-control.ts"
-// The CR APPLICATION chain (G7): apply -> re-freeze -> re-extract -> reopen impacted issues for an
-// approved CR. A standalone factory script; the agent APPLY leg lives inside it and the
-// control plane only launches it (same pattern as EXTRACT_SCRIPT) — see decideCr.
 const CR_APPLY_SCRIPT = "cr-apply.ts"
-// The project-skills stage (SK): select from the frozen spec (or take explicit ids),
-// security-audit, and install skills. The agent legs live inside the script; the
-// control plane only launches it DETACHED — see startSkillsInstall.
 const SKILLS_SCRIPT = "install-skills.ts"
 const SKILLS_LOG_FILE = "skills-install.log"
 
-/** Resolve the in-package factory root (vivicy/factory by default). */
 export function getFactoryRoot(): string {
   const fromEnv = process.env.VIVICY_FACTORY_ROOT
   if (fromEnv && fromEnv.trim().length > 0) return path.resolve(fromEnv)
   return path.resolve(process.cwd(), "factory")
 }
 
-/**
- * Per-project runtime namespace (W8): every project-scoped runtime file — the run
- * lock, supervisor log, skills lock/log, notifications, Vivi sessions, upload
- * staging — lives under `<runtime>/projects/<key>/` so two governed projects never
- * see each other's state. The CLI derives the SAME path from the same shared module
- * (`lib/project-runtime.ts`) — that shared derivation is the CLI↔UI agreement.
- */
+// Runtime files live under <runtime>/projects/<key>/, derived here from the shared lib/project-runtime.ts — cli.ts uses the same module so CLI-started state stays visible to the UI and vice versa.
 function projectRuntimeDir(targetRoot: string): string {
   return getProjectRuntimeDir(getRuntimeDir(), targetRoot)
 }
@@ -279,7 +170,6 @@ function getLogPath(targetRoot: string): string {
   return path.join(projectRuntimeDir(targetRoot), LOG_FILE)
 }
 
-/** Assert `child` resolves inside `root`; throws otherwise. Path-safety guard. */
 function assertInside(root: string, child: string): string {
   const abs = path.resolve(root, child)
   const rel = path.relative(root, abs)
@@ -289,7 +179,6 @@ function assertInside(root: string, child: string): string {
   return abs
 }
 
-/** Resolve a factory script path and verify it exists on disk. */
 function resolveScript(factoryRoot: string, relativeScript: string): string {
   const abs = assertInside(factoryRoot, relativeScript)
   if (!existsSync(abs)) {
@@ -302,17 +191,10 @@ function resolveScript(factoryRoot: string, relativeScript: string): string {
 }
 
 function devEnv(targetRoot: string): NodeJS.ProcessEnv {
-  // VIVICY_RUNTIME_DIR is passed explicitly so factory orchestrators (dev-loop,
-  // extract-issues, cr-apply) append their notifications to the SAME log the app
-  // reads; factory-side notify is a no-op without it (explicit contract, no
-  // guessed paths from a detached process). Since W8 it points at the PROJECT's
-  // runtime namespace, so a detached orchestrator writes into exactly the project
-  // it builds — never a shared global log.
+  // VIVICY_RUNTIME_DIR must be set explicitly — factory-side notify is a silent no-op without it.
   return { ...process.env, VIVICY_TARGET_ROOT: targetRoot, VIVICY_RUNTIME_DIR: projectRuntimeDir(targetRoot) }
 }
 
-/** Read the persisted run-state lock for the CURRENT project, or null when no run is
- *  recorded (or no project is selected — no project means no visible run). */
 export function readRunState(): RunState | null {
   const targetRoot = getTargetRoot()
   if (targetRoot === null) return null
@@ -325,19 +207,11 @@ export function readRunState(): RunState | null {
   }
 }
 
-/** Overwrite the lock in place (used to patch the real pid after spawn). */
 function updateRunState(targetRoot: string, state: RunState): void {
   writeFileSync(getRunStatePath(targetRoot), `${JSON.stringify(state, null, 2)}\n`)
 }
 
-/**
- * Atomically claim the single-run lock BEFORE spawning, closing the
- * check-then-spawn TOCTOU window. The lock file is created with the `wx` flag
- * (exclusive create): if it already exists the call fails with EEXIST, and only
- * then do we consult liveness — a stale lock (dead pid) is cleared and the claim
- * retried once; a live lock is refused. Returns the placeholder state written;
- * callers patch the real pid in via {@link updateRunState} after spawn.
- */
+// Lock claimed with wx (exclusive create) before spawn to close the check-then-spawn TOCTOU window; a dead pid is cleared and the claim retried once.
 function claimRunLock(spawner: Spawner, targetRoot: string, placeholder: RunState): void {
   mkdirSync(projectRuntimeDir(targetRoot), { recursive: true })
   const file = getRunStatePath(targetRoot)
@@ -348,7 +222,6 @@ function claimRunLock(spawner: Spawner, targetRoot: string, placeholder: RunStat
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error
   }
-  // A lock already exists: refuse if live, clear and retry once if stale.
   if (isRunActive(spawner)) {
     throw new ControlError("a supervised run is already active", "already_running")
   }
@@ -356,7 +229,6 @@ function claimRunLock(spawner: Spawner, targetRoot: string, placeholder: RunStat
     writeFileSync(file, body, { flag: "wx" })
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "EEXIST") {
-      // Lost a concurrent race to claim the freed lock.
       throw new ControlError("a supervised run is already active", "already_running")
     }
     throw error
@@ -370,11 +242,6 @@ function clearRunState(): void {
   if (existsSync(file)) rmSync(file)
 }
 
-/**
- * Is a supervised run currently active? A run is active when the lock exists
- * AND the recorded pid is still alive; a stale lock (process gone) is cleared
- * so a fresh start can proceed.
- */
 export function isRunActive(spawner: Spawner): boolean {
   const state = readRunState()
   if (!state) return false
@@ -396,25 +263,15 @@ function resolveContext(): ControlContext {
   return { factoryRoot: getFactoryRoot(), targetRoot }
 }
 
-/**
- * Start (or resume) the supervisor detached. Refuses when a run is already
- * active (single-run lock). `mode` only affects the recorded label — the
- * supervisor itself resumes from done/ + the ledger either way.
- */
 export function startSupervisor(
   spawner: Spawner,
   mode: "start" | "resume" = "start"
 ): RunState {
   const { factoryRoot, targetRoot } = resolveContext()
 
-  // Validate inputs before touching the lock so a bad request never leaves a
-  // dangling claim.
   if (!existsSync(targetRoot)) {
     throw new ControlError(`target root does not exist: ${targetRoot}`, "missing_target")
   }
-  // W7b: while a drafting cycle is open the canonical may legitimately drift from
-  // the frozen baseline — building against it would fail verifyBaseline anyway, so
-  // refuse HERE with the actionable message instead of a downstream red gate.
   if (isSpecCycleOpen(targetRoot)) {
     throw new ControlError(
       "a drafting spec cycle is open — run the extraction to freeze it (or cancel the cycle) before building",
@@ -424,9 +281,7 @@ export function startSupervisor(
   const command = resolveScript(factoryRoot, SUPERVISOR_SCRIPT)
   const logFile = getLogPath(targetRoot)
 
-  // The placeholder pid (this server's pid) keeps the lock "live" per isAlive
-  // between the atomic claim and patching in the real child pid, so a
-  // concurrent claimant correctly sees an active run rather than a stale one.
+  // Placeholder pid is THIS server's own pid (not the eventual child's) so isAlive sees it as live during the claim-to-spawn window.
   const state: RunState = {
     pid: process.pid,
     started_at: new Date().toISOString(),
@@ -436,13 +291,8 @@ export function startSupervisor(
     mode,
   }
 
-  // Atomically claim the lock BEFORE spawning (closes the TOCTOU window).
   claimRunLock(spawner, targetRoot, state)
 
-  // Per-agent model + thinking level chosen in Settings, surfaced to the dev-loop
-  // as VIVICY_CLAUDE_*/VIVICY_CODEX_* env vars so a run uses exactly the user's
-  // choices (start AND resume both go through here). Invalid/missing settings
-  // normalize to the documented defaults.
   const supervisorEnv = { ...devEnv(targetRoot), ...settingsToEnv(readSettings()) }
 
   let handle: DetachedHandle
@@ -455,7 +305,6 @@ export function startSupervisor(
       logFile,
     })
   } catch (error) {
-    // Release the claim so a retry can proceed.
     clearRunState()
     throw new ControlError(
       `failed to spawn supervisor: ${error instanceof Error ? error.message : String(error)}`,
@@ -463,25 +312,11 @@ export function startSupervisor(
     )
   }
 
-  // Patch in the real child pid now that the process exists.
   state.pid = handle.pid
   updateRunState(targetRoot, state)
   return state
 }
 
-// ---------------------------------------------------------------------------
-// Spec cycles (W7b — sequential canonical evolution between builds)
-// ---------------------------------------------------------------------------
-
-/**
- * OPEN a drafting spec cycle on top of the frozen baseline (W7b): the official
- * mechanism for evolving the canonical between two builds. Reopens Vivi's
- * pre-freeze allowlist; extraction's next freeze (minor bump) closes it.
- * Deterministic guards, all loud:
- *   - a frozen baseline must exist (before one, drafting IS the default regime);
- *   - no supervised run may be active (stop or finish the build first);
- *   - at most one open cycle.
- */
 export function openSpecCycle(spawner: Spawner, openedBy: string): SpecCycle {
   const { targetRoot } = resolveContext()
   if (!existsSync(targetRoot)) {
@@ -513,13 +348,6 @@ export function openSpecCycle(spawner: Spawner, openedBy: string): SpecCycle {
   return cycle
 }
 
-/**
- * CANCEL an open drafting cycle — legal ONLY while the canonical still matches the
- * frozen baseline (nothing drafted yet). Once the spec drifted, cancelling would
- * leave canonical ≠ manifest and every downstream gate red; the honest paths out
- * are extracting (freeze the evolution) or manually reverting the canonical edits.
- * The drift check is doc-baseline `verify` itself — the owner of that question.
- */
 export async function cancelSpecCycle(spawner: Spawner): Promise<{ id: string }> {
   const { factoryRoot, targetRoot } = resolveContext()
   const cycle = readSpecCycle(targetRoot)
@@ -546,7 +374,6 @@ export async function cancelSpecCycle(spawner: Spawner): Promise<{ id: string }>
   return { id: cycle.id }
 }
 
-/** The repo-relative path of the ACTIVE frozen manifest, or null. */
 function findActiveFrozenManifestRel(targetRoot: string): string | null {
   const dir = path.join(targetRoot, ".vivicy", "baselines")
   if (!existsSync(dir)) return null
@@ -567,16 +394,11 @@ function findActiveFrozenManifestRel(targetRoot: string): string | null {
   return null
 }
 
-/** The current cycle state for display (null = no open cycle). */
 export function getSpecCycle(): SpecCycle | null {
   const { targetRoot } = resolveContext()
   return readSpecCycle(targetRoot)
 }
 
-/**
- * Stop the supervised run by killing its process group and clearing the lock.
- * Refuses when no run is recorded.
- */
 export function stopSupervisor(spawner: Spawner): { pid: number } {
   const state = readRunState()
   if (!state) {
@@ -587,10 +409,6 @@ export function stopSupervisor(spawner: Spawner): { pid: number } {
   return { pid: state.pid }
 }
 
-/**
- * Read dev-status as JSON by running `dev-status.ts --dir <target> --json`.
- * Layers in whether a supervised run is active per the lock.
- */
 export async function readDevStatus(
   spawner: Spawner
 ): Promise<DevStatus & { run_active: boolean }> {
@@ -619,18 +437,10 @@ export async function readDevStatus(
   return { ...parsed, run_active: isRunActive(spawner) }
 }
 
-/** Repo-relative status the extraction orchestrator writes as it runs. */
 const EXTRACTION_STATUS_FILE = ".vivicy/development/reports/extraction-status.json"
 
-/**
- * The orchestrator's terminal/in-flight status file (extract-issues.ts
- * `defaultEmitStatus`), read back for display. Every field beyond `phase`/
- * `summary` is optional because a report can be a mid-run snapshot (`phase`
- * one of "authoring" | "fixing" | "refreezing" | "validating" | "mapping" |
- * "verifying" | "map-review" | "green" | "extraction_blocked" |
- * "blocked_on_unverified_spikes") or an older run predating a field.
- */
 export interface ExtractionStatus {
+  // phase: "authoring" | "fixing" | "refreezing" | "validating" | "mapping" | "verifying" | "map-review" | "green" | "extraction_blocked" | "blocked_on_unverified_spikes"
   phase?: string
   attempt?: number
   spike_mode?: "integrate" | "extract"
@@ -642,22 +452,6 @@ export interface ExtractionStatus {
   [key: string]: unknown
 }
 
-/**
- * AUTHOR the issues from the frozen canonical spec, then validate and regenerate
- * the map. This drives the single `extract-issues.ts` orchestrator, which:
- *   1. freezes .vivicy/canonical/** if no frozen baseline exists (else reuses it),
- *   2. spawns a real agent to author the full corpus (catalog, matrix, exclusions,
- *      vertical issues, issue index, architecture map),
- *   3. runs the deterministic checks (semantic-extraction + traceability),
- *   4. re-prompts the agent to FIX on a red check (bounded retries), and
- *   5. regenerates architecture-data.json on green.
- *
- * The agent leg lives INSIDE the orchestrator; this control plane only launches
- * the script through the injected {@link Spawner} (so tests never spawn an agent).
- * The blocked case — checks still red after the retries — is surfaced honestly via
- * {@link ExtractResult.blocked}, read back from the status file the orchestrator
- * writes, never hidden behind a generic failure.
- */
 export async function runExtract(spawner: Spawner): Promise<ExtractResult> {
   const { factoryRoot, targetRoot } = resolveContext()
   if (!existsSync(targetRoot)) {
@@ -676,9 +470,6 @@ export async function runExtract(spawner: Spawner): Promise<ExtractResult> {
   const lastLine =
     result.lastLine || result.stderr.trim().split("\n").filter(Boolean).at(-1) || ""
 
-  // The orchestrator exits 0 on green and non-zero when blocked or erroring; the
-  // status file it writes is the source of truth for WHICH terminal state. Read it
-  // back so the UI can tell "blocked for a human" from a transient script error.
   const status = readExtractionStatus(targetRoot)
   const blocked = status?.phase === "extraction_blocked"
   const ok = result.code === 0 && status?.phase === "green"
@@ -686,21 +477,13 @@ export async function runExtract(spawner: Spawner): Promise<ExtractResult> {
   return {
     ok,
     blocked,
-    // Never claim "green" without a green status file backing it: a 0 exit with no
-    // (or unparseable) status is an honest "error", not a silent success.
     status: status?.phase ?? "error",
     summary: status?.summary ?? lastLine,
     lastLine,
   }
 }
 
-/**
- * Pre-flight guard: extraction needs a real canonical corpus. The scaffold ships
- * a placeholder README.md in `.vivicy/canonical/`, and canonical docs are numbered
- * area files by contract — so "real" means at least one non-README `.md` anywhere
- * under the canonical dir. Without this, "Extract from docs" launches agents into
- * an empty spec and spins until the retry budget dies.
- */
+// Without this guard, extracting against an empty canonical launches agents into a void that spins until the retry budget dies.
 function assertRealCanonical(targetRoot: string): void {
   const canonicalDir = path.join(targetRoot, ".vivicy", "canonical")
   if (!existsSync(canonicalDir)) {
@@ -728,8 +511,6 @@ function assertRealCanonical(targetRoot: string): void {
   )
 }
 
-/** Read the orchestrator's status file for a resolved target root (best-effort:
- *  a missing or unparseable file is `null`, never a throw). */
 function readExtractionStatus(targetRoot: string): ExtractionStatus | null {
   const file = path.join(targetRoot, EXTRACTION_STATUS_FILE)
   if (!existsSync(file)) return null
@@ -740,12 +521,6 @@ function readExtractionStatus(targetRoot: string): ExtractionStatus | null {
   }
 }
 
-/**
- * Read the extraction status for display (G8's pipeline widget): resolves the
- * current target itself, mirroring {@link listChangeRequests}'s read-only
- * projection pattern. `null` when no status has ever been written (extraction
- * has not run yet) — an honest "no data", never a fabricated pending state.
- */
 export function getExtractionStatus(): ExtractionStatus | null {
   const { targetRoot } = resolveContext()
   if (!existsSync(targetRoot)) {
@@ -754,24 +529,11 @@ export function getExtractionStatus(): ExtractionStatus | null {
   return readExtractionStatus(targetRoot)
 }
 
-// ---------------------------------------------------------------------------
-// Project skills (the SK stage — select, audit, install)
-// ---------------------------------------------------------------------------
-
-/**
- * Liveness window for the report-based in-flight guard below. install-skills.ts
- * rewrites the report at every phase, so an in-flight phase whose `updated_at`
- * is older than this is treated as a DEAD run (a crashed installer) and never
- * blocks a fresh start. Deliberately generous: an audit/install leg can be slow,
- * and a false "stale" would double-spawn — the worse failure.
- */
+// Deliberately generous: a false "stale" read would double-spawn agent legs — worse than waiting out a slow install.
 const SKILLS_STALE_MS = 15 * 60 * 1000
 
 const SKILLS_IN_FLIGHT = new Set<string>(SKILLS_IN_FLIGHT_PHASES)
 
-/** Read the skills report for a resolved target root (best-effort: a missing or
- *  unparseable file is `null`, never a throw — same pattern as the extraction
- *  status reader). */
 function readSkillsReportFrom(targetRoot: string): SkillsReport | null {
   const file = path.join(targetRoot, SKILLS_REPORT_FILE)
   if (!existsSync(file)) return null
@@ -782,12 +544,6 @@ function readSkillsReportFrom(targetRoot: string): SkillsReport | null {
   }
 }
 
-/**
- * Read the skills report for display (the SK stage + the sidebar Skills section),
- * resolving the current target itself — mirroring {@link getExtractionStatus}.
- * `null` when no install has ever run: an honest "no data", never a fabricated
- * pending state.
- */
 export function readSkillsReport(): SkillsReport | null {
   const { targetRoot } = resolveContext()
   if (!existsSync(targetRoot)) {
@@ -796,31 +552,16 @@ export function readSkillsReport(): SkillsReport | null {
   return readSkillsReportFrom(targetRoot)
 }
 
-/**
- * Is a skills install currently in flight for this target? The report file the
- * installer rewrites at every phase IS the liveness signal (there is no pid lock
- * for this detached one-shot, unlike the long-lived supervisor): an in-flight
- * phase (selecting/auditing/installing) with a fresh `updated_at` means live; an
- * in-flight phase gone silent past {@link SKILLS_STALE_MS} means the installer
- * died and a restart is allowed. An in-flight report with NO parseable timestamp
- * counts as live — failing toward refusal beats double-spawning agent legs.
- */
 function isSkillsInstallInFlight(targetRoot: string): boolean {
   const report = readSkillsReportFrom(targetRoot)
   if (!report?.phase || !SKILLS_IN_FLIGHT.has(report.phase)) return false
   const updated = Date.parse(report.updated_at ?? "")
+  // Unparseable timestamp fails toward "in flight" (refuse) rather than risk a double-spawned install.
   if (!Number.isFinite(updated)) return true
   return Date.now() - updated < SKILLS_STALE_MS
 }
 
-/**
- * The skills-install single-run lock, mirroring the supervisor's run lock: the
- * report file alone cannot close the check-then-spawn TOCTOU window (two callers
- * can both read a settled report and double-spawn agent legs). The lock is claimed
- * with `wx` BEFORE the spawn and patched with the child pid after; a lock whose
- * pid is dead is stale and cleared on the next claim (the installer is a one-shot
- * detached process — its exit is what releases the lock, via pid liveness).
- */
+// Same TOCTOU-safe wx-claim pattern as the run lock — the report file alone can't stop two callers from double-spawning.
 const SKILLS_LOCK_FILE = "skills-install.lock"
 
 interface SkillsLock {
@@ -828,9 +569,7 @@ interface SkillsLock {
   started_at: string
 }
 
-/** The lock path is CAPTURED once per operation (threaded targetRoot): re-resolving
- *  the current project on every call would let a mid-operation project switch clear
- *  or patch the WRONG project's lock. */
+// targetRoot is threaded through, never re-resolved mid-operation, so a project switch mid-call can't touch another project's lock.
 function skillsLockPath(targetRoot: string): string {
   return path.join(projectRuntimeDir(targetRoot), SKILLS_LOCK_FILE)
 }
@@ -878,23 +617,12 @@ function claimSkillsLock(spawner: Spawner, targetRoot: string): void {
   }
 }
 
-/** What {@link startSkillsInstall} launched: the detached pid + honest mode. */
 export interface SkillsInstallStart {
   pid: number
   mode: "auto" | "explicit"
   ids: string[]
 }
 
-/**
- * Start the project-skills install DETACHED (it runs agent legs and can be slow;
- * the report file is the progress surface, like the supervisor's status files).
- * Auto mode (no ids): install-skills.ts selects skills from the frozen spec.
- * Explicit mode: the given ids ride `--ids <id1,id2,...>`. Env wiring matches the
- * other factory spawns exactly — VIVICY_TARGET_ROOT + VIVICY_RUNTIME_DIR via
- * {@link devEnv} plus {@link settingsToEnv} (which carries
- * VIVICY_ALLOW_UNSAFE_SKILLS). Refuses while an install is already in flight per
- * {@link isSkillsInstallInFlight}.
- */
 export function startSkillsInstall(
   spawner: Spawner,
   opts: { ids?: string[] } = {}
@@ -931,13 +659,6 @@ export function startSkillsInstall(
   return { pid: handle.pid, mode: ids.length > 0 ? "explicit" : "auto", ids }
 }
 
-/**
- * REMOVE explicitly named project skills (W6). Deterministic and synchronous — no
- * agent leg lives in this path, so unlike {@link startSkillsInstall} the script runs
- * to completion through the injected {@link Spawner} and the final report is read
- * back as the verdict. The single skills lock still guards it: a remove never races
- * an in-flight install.
- */
 export async function removeSkills(
   spawner: Spawner,
   opts: { ids: string[] }
@@ -975,13 +696,6 @@ export async function removeSkills(
   }
 }
 
-/**
- * Outcome of the S1-import CHECK (G1): the deterministic normalization pass plus
- * the agent verdict. `verdict` is "green" only when the CHECK leg wrote a green
- * report AND normalization had no fatal problem; a red verdict (or a leg that died
- * without a report) is surfaced honestly rather than hidden — nothing is placed
- * downstream unless this is green.
- */
 export interface UploadVerifyResult {
   ok: boolean
   verdict: "green" | "red"
@@ -990,22 +704,6 @@ export interface UploadVerifyResult {
   normalized: NormalizedFile[]
 }
 
-/**
- * VERIFY a staged upload (G1's check-then-place gate). Two passes:
- *   1. deterministic NORMALIZATION (lib/upload normalizeStaging) into
- *      <staging>/normalized/ — .txt/.doc/.docx -> MD, map verbatim; a per-file
- *      conversion problem excludes that file and continues.
- *   2. the agent CHECK — drives `verify-upload.ts` through the injected
- *      {@link Spawner} (identical control-plane pattern to {@link runExtract}); the
- *      script spawns ONE claude leg (role upload-verifier) that reads the normalized
- *      corpus and writes <staging>/report.json { verdict, problems, summary }.
- *
- * The agent leg lives INSIDE the script; this control plane only launches it (so
- * tests inject a fake spawner and never spawn claude). The final verdict is green
- * only when the report says green AND normalization produced no problems — the
- * report is the source of truth for the AGENT half, and a red normalization is a
- * fatal problem the agent never gets to override.
- */
 export async function runUploadVerify(
   spawner: Spawner,
   stagingId: string
@@ -1020,13 +718,8 @@ export async function runUploadVerify(
   }
   const command = resolveScript(factoryRoot, UPLOAD_VERIFY_SCRIPT)
 
-  // Deterministic normalization first; its per-file problems are fatal (they mean
-  // a file could not be normalized), so a non-empty problems list forces red.
   const { normalized, problems: normProblems } = normalizeStaging(stagingId)
 
-  // The agent CHECK. VIVICY_TARGET_ROOT lets the leg cross-check the normalized
-  // corpus against the target's EXISTING .vivicy/canonical docs; --staging points
-  // it at the corpus + the report path it must write.
   const result = await spawner.run({
     command: process.execPath,
     args: [command, "--staging", stagingDir],
@@ -1038,9 +731,6 @@ export async function runUploadVerify(
   const lastLine =
     result.lastLine || result.stderr.trim().split("\n").filter(Boolean).at(-1) || ""
 
-  // Honest verdict: green requires the script to have exited 0, a green report, AND
-  // no fatal normalization problem. Any other combination is red — a missing report
-  // (a dead/timed-out leg) or a red report both fail closed, never a silent pass.
   const reportGreen = result.code === 0 && report?.verdict === "green"
   const verdict: "green" | "red" =
     reportGreen && normProblems.length === 0 ? "green" : "red"
@@ -1054,7 +744,6 @@ export async function runUploadVerify(
   }
 }
 
-/** Combine the deterministic normalization problems with the agent report's. */
 function mergeUploadProblems(
   normProblems: NormalizationProblem[],
   report: { problems?: Array<{ file: string; kind: string; detail: string }> } | null
@@ -1063,18 +752,10 @@ function mergeUploadProblems(
   return [...normProblems, ...fromReport]
 }
 
-// ---------------------------------------------------------------------------
-// Change requests (G7 — the CR decision + application chain, control-plane verbs)
-// ---------------------------------------------------------------------------
-
-/** Repo-relative registry directory the CR files live under. */
 const CHANGE_REQUESTS_DIR = ".vivicy/change-requests"
-/** Repo-relative dir the cr-apply chain writes its per-CR progress report into. */
 const REPORTS_DIR = ".vivicy/development/reports"
-/** Non-CR files in the registry directory (the template + the readme). */
 const NON_CR_FILES = new Set(["cr-template.md", "readme.md"])
 
-/** One CR as surfaced to the UI/CLI list — read-only display data. */
 export interface ChangeRequestSummary {
   id: string
   title: string
@@ -1084,19 +765,11 @@ export interface ChangeRequestSummary {
   source: string | null
 }
 
-/**
- * Outcome of a CR decision (G7). `recorded` is always true once the deterministic
- * decision landed; for an APPROVED CR the application chain then ran, and `applied`
- * carries its terminal state (green vs. blocked, surfaced honestly like {@link ExtractResult}).
- * A rejection records the decision only — no chain, `applied` absent.
- */
 export interface DecideCrResult {
   ok: boolean
   id: string
   decision: "approved" | "rejected"
-  /** The registry status after the decision (accepted_current_build | rejected). */
   status: string
-  /** Present for an approval: the apply chain's terminal state. */
   applied?: {
     ok: boolean
     blocked: boolean
@@ -1106,14 +779,6 @@ export interface DecideCrResult {
   summary: string
 }
 
-/**
- * List the change requests as read-only display data for the UI/CLI. Deterministic
- * disk read (no agent, no spawn): the registry frontmatter is parsed directly here —
- * change-control.ts stays the VALIDATOR of record (the `decide`/apply paths and the
- * extraction gate enforce well-formedness); this is a lightweight projection for
- * display, mirroring how {@link readDevStatus} reads status files rather than owning
- * their schema. Malformed/ template files are skipped, never surfaced.
- */
 export function listChangeRequests(): { crs: ChangeRequestSummary[] } {
   const { targetRoot } = resolveContext()
   if (!existsSync(targetRoot)) {
@@ -1127,7 +792,7 @@ export function listChangeRequests(): { crs: ChangeRequestSummary[] } {
     if (!lower.endsWith(".md") || NON_CR_FILES.has(lower)) continue
     const fm = parseFrontmatter(readFileSync(path.join(dir, file), "utf8"))
     const id = typeof fm.id === "string" ? fm.id : ""
-    if (!/^CR-\d{4}$/.test(id)) continue // only well-identified CRs are display rows
+    if (!/^CR-\d{4}$/.test(id)) continue
     crs.push({
       id,
       title: typeof fm.title === "string" ? fm.title : id,
@@ -1140,21 +805,6 @@ export function listChangeRequests(): { crs: ChangeRequestSummary[] } {
   return { crs }
 }
 
-/**
- * Record the owner decision on a CR (G7 — P2's single human touchpoint), and, for an
- * APPROVAL, run the application chain. Two factory steps, both launched through the
- * injected {@link Spawner} (so tests never spawn agents):
- *   1. DECIDE — `change-control.ts decide` records the decision deterministically
- *      (approved -> accepted_current_build with previous_* from the frozen baseline;
- *      rejected -> rejected). It prints a JSON line the control plane reads.
- *   2. APPLY (approvals only) — `cr-apply.ts --cr <id>` runs apply -> re-freeze ->
- *      re-extract -> reopen impacted issues; the agent APPLY leg lives inside the script. Its terminal
- *      state is read back from the apply-<id>.json report (blocked vs green surfaced
- *      honestly, exactly as {@link runExtract} does for extraction).
- *
- * `decidedBy` is the actor recorded as owner_decision_by (the route passes "owner:ui";
- * the G14 CLI passes its own actor) — honest provenance, never an agent self-assertion.
- */
 export async function decideCr(
   spawner: Spawner,
   input: { id: string; decision: "approved" | "rejected"; decidedBy: string }
@@ -1168,9 +818,6 @@ export async function decideCr(
     throw new ControlError(`invalid decision "${decision}" (expected approved|rejected)`, "cr_not_decidable")
   }
 
-  // 1. DECIDE — deterministic, no agent. The subcommand exits 0 with a JSON line on
-  // success; non-zero with a JSON error otherwise. Map its known failures to typed
-  // ControlErrors so the route can surface them (422) distinctly from a spawn error.
   const ccScript = resolveScript(factoryRoot, CHANGE_CONTROL_SCRIPT)
   const decideRun = await spawner.run({
     command: process.execPath,
@@ -1185,12 +832,10 @@ export async function decideCr(
   }
   const status = typeof decided.status === "string" ? decided.status : decision === "approved" ? "accepted_current_build" : "rejected"
 
-  // A rejection stops here — the decision is the whole outcome (no chain).
   if (decision === "rejected") {
     return { ok: true, id, decision, status, summary: `CR ${id} rejected` }
   }
 
-  // 2. APPLY chain (approvals) — spawn cr-apply.ts; read its terminal report back.
   const applyScript = resolveScript(factoryRoot, CR_APPLY_SCRIPT)
   const applyRun = await spawner.run({
     command: process.execPath,
@@ -1216,7 +861,6 @@ export async function decideCr(
   }
 }
 
-/** Map a change-control `decide` failure message to a typed ControlError. */
 function classifyDecisionError(id: string, message: string): ControlError {
   if (/no CR with id/i.test(message)) return new ControlError(`unknown change request: ${id}`, "unknown_cr")
   if (/only idea\|under_review|can be decided|only .* can be/i.test(message)) {
@@ -1226,7 +870,6 @@ function classifyDecisionError(id: string, message: string): ControlError {
   return new ControlError(message, "spawn_failed")
 }
 
-/** Read the cr-apply chain's terminal report for a CR (best-effort). */
 function readCrApplyReport(targetRoot: string, id: string): { status?: string; summary?: string } | null {
   const file = path.join(targetRoot, REPORTS_DIR, `apply-${id}.json`)
   if (!existsSync(file)) return null
@@ -1237,7 +880,6 @@ function readCrApplyReport(targetRoot: string, id: string): { status?: string; s
   }
 }
 
-/** Parse one JSON object from text (the first `{...}` line), or null. */
 function parseJsonLine(text: string): Record<string, unknown> | null {
   for (const line of text.split("\n")) {
     const trimmed = line.trim()
@@ -1245,17 +887,11 @@ function parseJsonLine(text: string): Record<string, unknown> | null {
     try {
       return JSON.parse(trimmed) as Record<string, unknown>
     } catch {
-      // keep scanning — a non-JSON `{` line is not the payload
     }
   }
   return null
 }
 
-/**
- * Minimal, dependency-free frontmatter reader for the CR list (read-only display).
- * Mirrors change-control.ts's parser: the `--- ... ---` block's `key: value` lines,
- * unquoted. This is display projection only; change-control.ts stays the validator.
- */
 function parseFrontmatter(text: string): Record<string, string> {
   const m = text.match(/^---\r?\n([\s\S]*?)\r?\n---/)
   if (!m) return {}

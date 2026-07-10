@@ -4,13 +4,9 @@ import {
   validateLayoutSavePayload,
 } from "@/lib/map-layout-save"
 
-// Patches the target project's source architecture-map.yml on disk and
-// regenerates the served viewer data, so this route must run on Node, not Edge.
 export const runtime = "nodejs"
-// Never cache a mutating endpoint.
 export const dynamic = "force-dynamic"
 
-/** Map a typed save error to the HTTP status that best describes it. */
 function statusFor(code: LayoutSaveError["code"]): number {
   switch (code) {
     case "read_only":

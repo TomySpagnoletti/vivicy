@@ -7,8 +7,6 @@ import { PipelineWidget } from "@/components/pipeline/pipeline-widget"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import pipeline from "@/messages/en/pipeline.json"
 
-// Minimal EventSource fake so the widget can subscribe to the SSE status stream
-// in jsdom, mirroring components/sidebar/process-control-bar.test.tsx.
 class FakeEventSource {
   static last: FakeEventSource | null = null
   onmessage: ((event: { data: string }) => void) | null = null

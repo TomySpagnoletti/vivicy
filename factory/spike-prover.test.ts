@@ -1,14 +1,3 @@
-// Unit tests for the spike PROVER (S3 / G3), the substance-verification stage.
-//
-// BOTH agent legs are ALWAYS faked here — no real CLI is launched:
-//   - the PROVER leg (spawnProver) records the six evidence fields into the spike
-//     file and writes the machine verdict spike-<stem>-proof.json, and
-//   - the independent SPIKE-VERIFIER leg (spawnSpikeVerifier) writes its agree verdict
-//     spike-<stem>-verdict.json.
-// The orchestrator's DECISION logic is real: it reads both JSONs, flips the spike's
-// traceability status IN the file (single source of truth, no folder move), and — on a
-// disproven or unresolved proof — drafts a Change Request whose frontmatter is proven to
-// pass the REAL change-control gate. change-control + spike-check run for real.
 import assert from "node:assert/strict";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -33,12 +22,7 @@ afterEach(() => {
 const SPIKES_DIR = ".vivicy/development/spikes";
 const REPORTS_DIR = ".vivicy/development/reports";
 
-/**
- * Write a well-formed `pending` spike whose gate-id slug equals its filename stem.
- * `gated_by`/`blocks` model the inter-spike graph; the evidence section carries only the
- * environment placeholder (completion fields are enforced only at `verified`, so a
- * pending spike passes spike-check with one field).
- */
+// spike-check requires the evidence fields only at status: verified; a pending spike with just the placeholder still passes.
 function writeSpike(filename: string, { status = "pending", reqId = "REQ-ARCH-001", gated_by, blocks }: { status?: string; reqId?: string; gated_by?: string; blocks?: string } = {}): { file: string; path: string; gate_id: string } {
   const slug = filename.replace(/\.md$/, "");
   const content = [
@@ -95,20 +79,12 @@ function readStatus(file: string): string | null {
   return readSpikes(temp).find((s) => s.file === file)?.status ?? null;
 }
 
-/**
- * A fake PROVER: for the spike it is handed, it fills the six evidence fields into the
- * spike file (as the real prover would) and writes the machine verdict per a lookup
- * keyed by gate_id (default `verified`). Records every call so ordering can be asserted.
- */
-// `ctx` is the prover seam's call context (an internal, non-exported shape of spike-prover);
-// `any` here keeps the fake assignable to the seam without re-exporting that internal type.
+// ctx: any — the prover seam's call context is internal/non-exported in spike-prover; avoids re-exporting that type just for the fake.
 function fakeProver(verdictByGate: Record<string, string> = {}, { onAttempt }: { onAttempt?: (ctx: any) => string | null } = {}) {
   const calls: Array<{ gate_id: string; attempt: number; disagreement: string | null }> = [];
   const spawnProver = async (ctx: any) => {
     calls.push({ gate_id: ctx.spike.gate_id, attempt: ctx.attempt, disagreement: ctx.disagreement });
-    // Fill full evidence into the spike file so a `verified` flip yields a spike-check-clean
-    // corpus. The leg receives the spike as readSpikes() indexes it (a repo-relative `file`),
-    // so resolve the absolute path here — the real prover likewise edits the file in-repo.
+    // ctx.spike.file is repo-relative (as readSpikes() indexes it); resolve to an absolute path before writing, mirroring the real prover.
     fillEvidence(resolve(temp, ctx.spike.file));
     const decided = onAttempt ? onAttempt(ctx) : null;
     const verdict = decided ?? verdictByGate[ctx.spike.gate_id] ?? "verified";
@@ -120,12 +96,6 @@ function fakeProver(verdictByGate: Record<string, string> = {}, { onAttempt }: {
   return { spawnProver, calls };
 }
 
-/**
- * A fake SPIKE-VERIFIER: writes an agree verdict per a lookup keyed by gate_id (default
- * agree:true), or a scripted per-attempt decision. Records every call.
- */
-// `ctx`/`any`: same rationale as fakeProver — the verifier seam's internal call context.
-// The verdict may be a boolean OR the "__NO_REPORT__" sentinel (a leg that writes nothing).
 function fakeSpikeVerifier(agreeByGate: Record<string, boolean | "__NO_REPORT__"> = {}, { onAttempt }: { onAttempt?: (ctx: any) => boolean | "__NO_REPORT__" | null } = {}) {
   const calls: Array<{ gate_id: string; attempt: number }> = [];
   const spawnSpikeVerifier = async (ctx: any) => {
@@ -140,8 +110,6 @@ function fakeSpikeVerifier(agreeByGate: Record<string, boolean | "__NO_REPORT__"
   return { spawnSpikeVerifier, calls };
 }
 
-// Replace the spike file's Evidence Required section with all six filled fields, so a
-// spike flipped to `verified` passes spike-check's completion-fields rule.
 function fillEvidence(path: string): void {
   const text = readFileSync(path, "utf8");
   const filled = text.replace(
@@ -178,12 +146,9 @@ describe("runSpikeProving — agree + verified", () => {
       [[s.gate_id, "verified"]],
     );
     assert.equal(result.failed.length, 0);
-    // The status is flipped in-place; the file still lives in spikes/ (no /_verified move).
     assert.equal(readStatus(s.file), "verified");
     assert.ok(existsSync(s.path), "the spike file stays in place");
-    // The verified spike, with the prover's evidence, is a spike-check-clean corpus.
     assert.equal(runSpikeCheck({ repoRoot: temp }).exitCode, 0, "verified spike passes spike-check");
-    // No change request is drafted on a successful proof.
     assert.equal(result.changeRequests.length, 0);
     assert.ok(!existsSync(resolve(temp, ".vivicy/change-requests")), "no CR dir created on success");
   });
@@ -198,7 +163,6 @@ describe("runSpikeProving — agree + verified", () => {
 
     const types = events.map((e) => e.event_type);
     assert.deepEqual(types, ["spike_proof_started", "spike_proof_completed"]);
-    // The emitted roles are the ledger-vocabulary form (underscores), matching progressRoles.
     assert.equal(events[0].role, "spike_prover");
     assert.equal(events[1].role, "spike_verifier");
     assert.ok((progressRoles as readonly string[]).includes(events[0].role as string), "spike_proof_started role is a declared progress role");
@@ -224,7 +188,7 @@ describe("runSpikeProving — agree + failed drafts a Change Request", () => {
   it("flips the spike to failed and writes a CR whose frontmatter passes change-control", async () => {
     const s = writeSpike("01-provider-auth.md");
     const { spawnProver } = fakeProver({ [s.gate_id]: "failed" });
-    const { spawnSpikeVerifier } = fakeSpikeVerifier({ [s.gate_id]: true }); // agrees it failed
+    const { spawnSpikeVerifier } = fakeSpikeVerifier({ [s.gate_id]: true });
 
     const result = await runSpikeProving({ repoRoot: temp, spawnProver, spawnSpikeVerifier });
 
@@ -234,7 +198,6 @@ describe("runSpikeProving — agree + failed drafts a Change Request", () => {
       [s.gate_id],
     );
     assert.equal(readStatus(s.file), "failed", "a disproven spike is marked failed in-place");
-    // Exactly one CR was drafted, capturing both reports as evidence.
     assert.equal(result.changeRequests.length, 1);
     const crAbs = resolve(temp, result.changeRequests[0].file);
     assert.ok(existsSync(crAbs), "the CR file exists");
@@ -244,10 +207,8 @@ describe("runSpikeProving — agree + failed drafts a Change Request", () => {
     assert.match(crText, /classification: major_product_change/);
     assert.match(crText, new RegExp(proofRel(s.file).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")), "CR cites the prover report");
     assert.match(crText, new RegExp(verdictRel(s.file).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")), "CR cites the verifier report");
-    // The disproven spike's own gate rides on affected_verification_gates — the link cr-apply
-    // follows to retire this now-moot spike (failed -> deferred) once the CR is folded.
+    // affected_verification_gates carries this spike's gate_id so cr-apply can later retire it (failed -> deferred) once the CR is folded.
     assert.match(crText, new RegExp(`affected_verification_gates: \\[${s.gate_id.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\]`), "the CR records the spike gate_id on affected_verification_gates");
-    // The drafted CR passes the REAL change-control gate (valid enums, sequential id, decision scaffold).
     const cc = runChangeControlCheck({ repoRoot: temp });
     assert.equal(cc.exitCode, 0, `change-control must accept the drafted CR:\n${cc.errors.join("\n")}`);
   });
@@ -270,20 +231,16 @@ describe("runSpikeProving — agree + failed drafts a Change Request", () => {
 describe("runSpikeProving — disagreement retries once then drafts a CR", () => {
   it("retries the pair once feeding the disagreement back, then flips failed + CR on persistent disagreement", async () => {
     const s = writeSpike("01-provider-auth.md");
-    // Prover always claims verified; verifier always disagrees -> never resolves.
     const { spawnProver, calls: proofCalls } = fakeProver({ [s.gate_id]: "verified" });
     const { spawnSpikeVerifier, calls: verifyCalls } = fakeSpikeVerifier({ [s.gate_id]: false });
 
     const result = await runSpikeProving({ repoRoot: temp, spawnProver, spawnSpikeVerifier });
 
-    // The whole pair ran exactly twice (initial + one bounded retry).
     assert.equal(proofCalls.length, 2, "prover ran twice (bounded retry)");
     assert.equal(verifyCalls.length, 2, "verifier ran twice");
-    // The retry carried the disagreement back to the prover.
     assert.equal(proofCalls[0].disagreement, null, "the first attempt has no disagreement feedback");
     assert.ok(proofCalls[1].disagreement, "the retry attempt carries the disagreement feedback");
     assert.match(proofCalls[1].disagreement, /agree=false/);
-    // Persistent disagreement is treated as a failed proof: status failed + a CR.
     assert.equal(readStatus(s.file), "failed");
     assert.deepEqual(result.failed.map((f) => f.gate_id), [s.gate_id]);
     assert.equal(result.changeRequests.length, 1);
@@ -295,7 +252,6 @@ describe("runSpikeProving — disagreement retries once then drafts a CR", () =>
   it("a disagreement RESOLVED on the retry flips verified with no CR", async () => {
     const s = writeSpike("01-provider-auth.md");
     const { spawnProver, calls: proofCalls } = fakeProver({ [s.gate_id]: "verified" });
-    // Verifier disagrees on attempt 1, agrees on attempt 2.
     const { spawnSpikeVerifier } = fakeSpikeVerifier({}, { onAttempt: (ctx) => ctx.attempt === 1 ? false : true });
 
     const result = await runSpikeProving({ repoRoot: temp, spawnProver, spawnSpikeVerifier });
@@ -309,7 +265,6 @@ describe("runSpikeProving — disagreement retries once then drafts a CR", () =>
 
 describe("runSpikeProving — topological ordering of the gated_by graph", () => {
   it("proves a gate BEFORE the spike it gates (a spike waits for its gated_by within the run)", async () => {
-    // 01-a is gated_by 02-b: 02-b must be proved FIRST, then 01-a.
     const a = writeSpike("01-a.md", { gated_by: "gate:phase0:s02-b" });
     const b = writeSpike("02-b.md", { reqId: "REQ-ARCH-002", blocks: "gate:phase0:s01-a" });
 
@@ -318,12 +273,10 @@ describe("runSpikeProving — topological ordering of the gated_by graph", () =>
 
     const result = await runSpikeProving({ repoRoot: temp, spawnProver, spawnSpikeVerifier });
 
-    // Both verified, and b (the gate) was proved before a (the dependent).
     const order = proofCalls.map((c) => c.gate_id);
     assert.deepEqual(order, [b.gate_id, a.gate_id], "the gate is proved before its dependent");
     assert.equal(readStatus(a.file), "verified");
     assert.equal(readStatus(b.file), "verified");
-    // The verified chain (a verified only because b is) is spike-check clean.
     assert.equal(runSpikeCheck({ repoRoot: temp }).exitCode, 0, "the verified chain passes the status-chain rule");
     assert.equal(result.proved.length, 2);
   });
@@ -331,13 +284,11 @@ describe("runSpikeProving — topological ordering of the gated_by graph", () =>
   it("skips a spike whose gate FAILED this run (never proves on an unproven foundation)", async () => {
     const a = writeSpike("01-a.md", { gated_by: "gate:phase0:s02-b" });
     const b = writeSpike("02-b.md", { reqId: "REQ-ARCH-002", blocks: "gate:phase0:s01-a" });
-    // b fails; a must then be SKIPPED (its gate is not verified), not proved.
     const { spawnProver, calls: proofCalls } = fakeProver({ [a.gate_id]: "verified", [b.gate_id]: "failed" });
     const { spawnSpikeVerifier } = fakeSpikeVerifier({ [a.gate_id]: true, [b.gate_id]: true });
 
     const result = await runSpikeProving({ repoRoot: temp, spawnProver, spawnSpikeVerifier });
 
-    // Only b ran through the prover; a was skipped before spawning any leg.
     assert.deepEqual(proofCalls.map((c) => c.gate_id), [b.gate_id], "the dependent's legs never ran");
     assert.deepEqual(result.failed.map((f) => f.gate_id), [b.gate_id]);
     assert.deepEqual(result.skipped.map((s2) => s2.gate_id), [a.gate_id], "the dependent is skipped");
@@ -346,7 +297,6 @@ describe("runSpikeProving — topological ordering of the gated_by graph", () =>
   });
 
   it("skips a spike gated by an already-failed spike ON DISK (not proved this run)", async () => {
-    // 02-b was already failed in a prior run; 01-a depends on it and stays pending.
     const a = writeSpike("01-a.md", { gated_by: "gate:phase0:s02-b" });
     writeSpike("02-b.md", { reqId: "REQ-ARCH-002", status: "failed", blocks: "gate:phase0:s01-a" });
     const { spawnProver, calls: proofCalls } = fakeProver({ [a.gate_id]: "verified" });
@@ -374,12 +324,10 @@ describe("runSpikeProving — topological ordering of the gated_by graph", () =>
 describe("runSpikeProving — honest failure on a dead/timed-out leg", () => {
   it("a TIMED-OUT prover leg (writes no report) is an honest failed proof + CR, never a silent green", async () => {
     const s = writeSpike("01-provider-auth.md");
-    // The prover "leg" mimics a leg-timeout kill: it writes NO verdict JSON and carries a timeout result.
     const spawnProver = async () => ({
       result: { status: 124, timedOut: true, timeoutReason: "leg timed out after 45 min (hard cap)" },
       output: "",
     });
-    // The verifier can't agree with a proof that does not exist -> reads as no report either.
     const spawnSpikeVerifier = async () => ({ result: { status: 124, timedOut: true, timeoutReason: "leg timed out" }, output: "" });
 
     const result = await runSpikeProving({ repoRoot: temp, spawnProver, spawnSpikeVerifier });
@@ -387,18 +335,15 @@ describe("runSpikeProving — honest failure on a dead/timed-out leg", () => {
     assert.equal(result.proved.length, 0, "a timed-out proof is never verified");
     assert.deepEqual(result.failed.map((f) => f.gate_id), [s.gate_id]);
     assert.equal(readStatus(s.file), "failed", "the dead-leg proof honestly fails");
-    // A CR is drafted so a human sees the block; it passes change-control.
     assert.equal(result.changeRequests.length, 1);
     assert.equal(runChangeControlCheck({ repoRoot: temp }).exitCode, 0);
   });
 
   it("a prover that says verified but writes NO report is not trusted (no report -> failed)", async () => {
     const s = writeSpike("01-provider-auth.md");
-    // Prover fills evidence and returns a clean exit but writes NO verdict JSON at all.
-    // `ctx: any` — the prover seam's internal call context (see fakeProver).
     const spawnProver = async (ctx: any) => {
       fillEvidence(resolve(temp, ctx.spike.file));
-      return { result: { status: 0 }, output: "" }; // NO writeJson of the verdict
+      return { result: { status: 0 }, output: "" };
     };
     const { spawnSpikeVerifier } = fakeSpikeVerifier({ [s.gate_id]: true });
 
@@ -438,7 +383,6 @@ describe("flipSpikeStatus — surgical, byte-preserving status edit", () => {
   });
 
   it("preserves CRLF line endings on a Windows-authored spike (no CRLF->LF rewrite)", () => {
-    // Author a spike with CRLF endings, as a Windows editor would.
     const crlf = writeSpike("01-crlf.md", { status: "pending" });
     writeFileSync(crlf.path, readFileSync(crlf.path, "utf8").replace(/\n/g, "\r\n"));
 

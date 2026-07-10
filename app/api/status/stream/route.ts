@@ -1,7 +1,6 @@
 import { readDevStatus } from "@/lib/control"
 import { getSpawner } from "@/lib/spawner"
 
-// Long-lived SSE connection that polls the status probe; Node runtime only.
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 
@@ -51,10 +50,8 @@ export async function GET(request: Request) {
         if (!closed) timer = setTimeout(tick, POLL_INTERVAL_MS)
       }
 
-      // Close cleanly when the client disconnects.
       request.signal.addEventListener("abort", close)
-      // Eager first frame so the client renders without waiting a poll cycle,
-      // plus a comment heartbeat that keeps idle proxies from dropping us.
+      // Eager first frame avoids waiting on the first poll tick; periodic comment pings keep idle proxies from dropping the connection.
       enqueue(": connected\n\n")
       heartbeat = setInterval(() => enqueue(": ping\n\n"), POLL_INTERVAL_MS * 5)
       void tick()

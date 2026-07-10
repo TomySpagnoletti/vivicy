@@ -106,7 +106,6 @@ describe("deriveDevelopmentOverlay", () => {
           graph_ref: "node:ledger",
           status: "verified",
           issue_ids: ["ISS-A"],
-          // No evidence ref matches /gate/i.
           evidence_refs: [".vivicy/development/notes.md:1"],
         },
       ],
@@ -136,7 +135,6 @@ describe("deriveDevelopmentOverlay", () => {
   })
 
   it("rejects an issue/graph_ref membership mismatch", () => {
-    // ISS-A owns node:ledger, not node:cat.
     const ledger = {
       graph_item_states: [
         { graph_ref: "node:cat", status: "implemented", issue_ids: ["ISS-A"], evidence_refs: ["x/gate.json:1"] },
@@ -188,8 +186,6 @@ describe("deriveDevelopmentOverlay", () => {
   })
 
   it("omits the evidenceRefChecker on the tolerant (read) path — no filesystem access", () => {
-    // No checker -> a verified item with an unverifiable on-disk evidence ref still
-    // derives cleanly (the read path must never 500 on a stale evidence file).
     const ledger = {
       graph_item_states: [
         {

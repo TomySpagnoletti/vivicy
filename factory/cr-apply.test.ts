@@ -1,12 +1,3 @@
-// Unit tests for the CR APPLICATION chain (S11 / G7): the docs_applied automation for an
-// APPROVED Change Request.
-//
-// The agent APPLY leg is ALWAYS faked (no real CLI is launched): the fake spawnApplier
-// edits .vivicy/canonical/** as the real applier would. The orchestration is REAL — it
-// reads the CR, runs the reference gate, freezes (faked, but writes a real manifest the
-// change-control checker verifies), stamps the CR docs_applied via the REAL
-// stampChangeRequestApplied (so change-control must accept the stamped file), then spawns
-// extraction (faked). The report phases and the honest-block behaviour are asserted.
 import assert from "node:assert/strict";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -35,9 +26,6 @@ const write = (rel: string, content: string) => {
 };
 const read = (rel: string) => readFileSync(resolve(temp, rel), "utf8");
 
-// A previous frozen manifest (the pre-change baseline the CR chains from). Only the fields
-// the checker + cr-apply read need to be real; the checker verifies a manifest exists whose
-// manifest_hash matches the CR's resulting_manifest_hash (for the NEW one, below).
 function seedPreviousBaseline() {
   write(".vivicy/baselines/baseline-v1.0.0.json", JSON.stringify({
     schema_version: 1,
@@ -50,13 +38,10 @@ function seedPreviousBaseline() {
   }, null, 2));
 }
 
-// A canonical doc so reference-check has an entry doc and the applier has something to edit.
 function seedCanonical() {
   write(".vivicy/canonical/01-x.md", "# X\n\nThe product must do the original thing.\n");
 }
 
-// A well-formed spike on disk whose gate-id slug equals its filename stem. `status` seeds
-// the Traceability status (default `failed`, the disproven-spike case the retirement targets).
 function seedSpike(filename: string, { status = "failed", reqId = "REQ-ARCH-001" }: { status?: string; reqId?: string } = {}) {
   const slug = filename.replace(/\.md$/, "");
   write(`.vivicy/development/spikes/${filename}`, [
@@ -88,10 +73,6 @@ function seedSpike(filename: string, { status = "failed", reqId = "REQ-ARCH-001"
   return { file: `.vivicy/development/spikes/${filename}`, gate_id: `gate:phase0:s${slug}` };
 }
 
-// An approved CR (accepted_current_build) with the decided + previous_baseline_* fields the
-// registry requires from that status onward, so it passes change-control before we apply it.
-// `affectedGates` seeds affected_verification_gates (the spike gate_id(s) a disproven-spike
-// CR carries, which the apply chain retires on the fold).
 function seedApprovedCr(id = "CR-0001", { affectedGates = [] }: { affectedGates?: string[] } = {}) {
   const fm = [
     "---",
@@ -138,8 +119,6 @@ function seedApprovedCr(id = "CR-0001", { affectedGates = [] }: { affectedGates?
   write(`.vivicy/change-requests/${id}-change-the-thing.md`, fm);
 }
 
-// A fake APPLY leg: folds an edit into the canonical (as the real applier would) and records
-// every call so ordering/retries can be asserted.
 function fakeApplier({ edit }: { edit?: () => void } = {}) {
   const calls: Array<{ cr: unknown; attempt: number; feedback: string | null }> = [];
   const spawnApplier: NonNullable<ApplyChangeRequestArgs["spawnApplier"]> = async (ctx) => {
@@ -150,11 +129,8 @@ function fakeApplier({ edit }: { edit?: () => void } = {}) {
   return { spawnApplier, calls };
 }
 function defaultEdit() {
-  // No-op file touch that keeps reference-check green (no broken links).
 }
 
-// A fake FREEZE that writes a REAL new manifest (so change-control's resulting-manifest-exists
-// rule passes when the CR is stamped) and returns the identity cr-apply records.
 function fakeFreeze({ onFreeze }: { onFreeze?: () => void } = {}) {
   const calls: Array<{ version: string; previousVersion: string; approvedBy: string; approvalRef: string }> = [];
   const runFreeze: NonNullable<ApplyChangeRequestArgs["runFreeze"]> = async ({ repoRoot, version, previousVersion, approvedBy, approvalRef }) => {
@@ -172,7 +148,6 @@ function fakeFreeze({ onFreeze }: { onFreeze?: () => void } = {}) {
   return { runFreeze, calls };
 }
 
-// A fake EXTRACTION spawn (green by default). Records that it was invoked.
 function fakeExtraction({ status = "green", reopened }: { status?: string; reopened?: string[] } = {}) {
   const calls: Array<{ repoRoot: string }> = [];
   const runExtraction: NonNullable<ApplyChangeRequestArgs["runExtraction"]> = async ({ repoRoot }) => {
@@ -182,7 +157,6 @@ function fakeExtraction({ status = "green", reopened }: { status?: string; reope
   return { runExtraction, calls };
 }
 
-// Capture every recorded report snapshot (the running phase log + the terminal).
 function reportSink() {
   const reports: Array<Record<string, unknown>> = [];
   return { recordReport: (r: Record<string, unknown>) => reports.push(structuredClone(r)), reports, phases: () => reports.map((r) => r.phase) };
@@ -206,41 +180,31 @@ describe("applyChangeRequest — happy path (green)", () => {
       now: () => "2026-07-02T00:00:00.000Z",
     });
 
-    // Terminal green.
     assert.equal(result.status, "green");
     assert.equal(result.cr, "CR-0001");
     assert.equal(result.baseline!.baselineId, "baseline-v1.0.1", "patch bump 1.0.0 -> 1.0.1");
 
-    // The APPLY leg ran once (green gate, no retry).
     assert.equal(applyCalls.length, 1);
     assert.equal(applyCalls[0].feedback, null, "the first apply carries no repair feedback");
 
-    // FREEZE used a patch bump from the CR's previous version, with the CR id as approval_ref
-    // and the CR's owner as approved_by.
     assert.equal(freezeCalls.length, 1);
     assert.deepEqual(freezeCalls[0], { version: "1.0.1", previousVersion: "1.0.0", approvedBy: "owner:ui", approvalRef: "CR-0001" });
 
-    // EXTRACTION was spawned (reopening is intrinsic to it; the chain does not reopen here).
     assert.equal(extractCalls.length, 1, "extraction spawn invoked exactly once");
     assert.equal(extractCalls[0].repoRoot, temp);
 
-    // The CR is stamped docs_applied with the resulting baseline identity, and STILL passes
-    // change-control (the stamped frontmatter is well-formed against the new manifest on disk).
     const cr = readChangeRequest(temp, "CR-0001");
     assert.equal(cr!.fm!.status, "docs_applied");
     assert.equal(cr!.fm!.resulting_baseline_id, "baseline-v1.0.1");
     assert.equal(cr!.fm!.resulting_manifest_hash, "manifest-1.0.1");
     assert.equal(runChangeControlCheck({ repoRoot: temp }).exitCode, 0, "the stamped CR passes change-control");
 
-    // The report progressed through the chain phases and ended green.
     const phases = sink.phases();
     for (const expected of ["apply", "verify", "freeze", "stamped", "extract", "green"]) {
       assert.ok(phases.includes(expected), `report recorded phase "${expected}" (saw ${phases.join(", ")})`);
     }
     assert.equal(sink.reports.at(-1)!.status, "green");
 
-    // The report file was written to disk by the default recorder path only when used; here
-    // we injected a sink, so assert the terminal object rather than the file.
     assert.match(result.summary, /reopened 1 impacted issue/);
   });
 
@@ -249,8 +213,6 @@ describe("applyChangeRequest — happy path (green)", () => {
     seedCanonical();
     seedApprovedCr();
 
-    // Shared order log: the commit MUST land before the freeze, or the real freeze
-    // fails with "working tree clean: false" (the torture-run bug this locks).
     const order: string[] = [];
     const { spawnApplier } = fakeApplier();
     const { runExtraction } = fakeExtraction();
@@ -293,7 +255,6 @@ describe("applyChangeRequest — happy path (green)", () => {
 
     assert.equal(result.status, "blocked");
     assert.equal(result.phase, "commit");
-    // The CR stays accepted_current_build — NOT docs_applied — since the freeze never ran.
     assert.equal(readChangeRequest(temp, "CR-0001")!.fm!.status, "accepted_current_build");
   });
 });
@@ -302,16 +263,12 @@ describe("applyChangeRequest — retires the disproven spike(s) the CR folds (fa
   it("flips a failed spike named on affected_verification_gates to deferred BEFORE re-extraction, and leaves unnamed spikes untouched", async () => {
     seedPreviousBaseline();
     seedCanonical();
-    // The CR folds the correction for a disproven spike (gate on affected_verification_gates).
     const target = seedSpike("s01-argon2id-node-crypto.md", { status: "failed" });
-    // A second failed spike NOT named on the CR — it must stay failed (only THIS CR's gate retires).
     const bystander = seedSpike("s02-other.md", { status: "failed", reqId: "REQ-ARCH-002" });
     seedApprovedCr("CR-0001", { affectedGates: [target.gate_id] });
 
     const { spawnApplier } = fakeApplier();
     const { runFreeze } = fakeFreeze();
-    // Capture the on-disk spike status AT THE MOMENT extraction spawns — the retirement must
-    // already be committed to disk before the child re-extraction reads the corpus (G13).
     let statusAtExtraction: string | null = null;
     let bystanderAtExtraction: string | null = null;
     const runExtraction: NonNullable<ApplyChangeRequestArgs["runExtraction"]> = async ({ repoRoot }) => {
@@ -330,18 +287,13 @@ describe("applyChangeRequest — retires the disproven spike(s) the CR folds (fa
     });
 
     assert.equal(result.status, "green");
-    // The named spike is deferred (retired) BY THE TIME extraction runs — not still failed.
     assert.equal(statusAtExtraction, "deferred", "the disproven spike is deferred before re-extraction spawns");
     assert.equal(readSpikes(temp).find((s) => s.gate_id === target.gate_id)?.status, "deferred");
-    // The unnamed failed spike is untouched.
     assert.equal(bystanderAtExtraction, "failed", "a spike not named on the CR is not retired");
     assert.equal(readSpikes(temp).find((s) => s.gate_id === bystander.gate_id)?.status, "failed");
-    // The report recorded the retirement, naming exactly the one retired gate.
     const retireReport = sink.reports.find((r) => r.phase === "retire_spikes");
     assert.ok(retireReport, "a retire_spikes phase was recorded");
     assert.deepEqual(retireReport.retired, [target.gate_id]);
-    // The retirement edit was committed (a second commitApplied call, after the fold commit),
-    // so the child extraction reads a clean tree.
     assert.equal(commits.length, 2, "the fold commit and the retirement commit both ran");
   });
 
@@ -355,7 +307,6 @@ describe("applyChangeRequest — retires the disproven spike(s) the CR folds (fa
     const { runFreeze } = fakeFreeze();
     const { runExtraction } = fakeExtraction();
 
-    // Before apply: the failed spike WOULD block G13 (it is neither deferred nor verified).
     const blockingBefore = readSpikes(temp)
       .filter((s) => s.status !== "deferred" && !transitivelyVerifiedGates(temp).has(s.gate_id))
       .map((s) => s.gate_id);
@@ -367,8 +318,6 @@ describe("applyChangeRequest — retires the disproven spike(s) the CR folds (fa
       commitApplied: () => ({ committed: true }), recordReport: () => {},
     });
 
-    // After apply: retired to deferred, so the SAME G13 filter yields no blocking gate — the
-    // moot spike no longer holds up re-extraction (the blocked_on_unverified_spikes edge).
     assert.equal(readSpikes(temp).find((s) => s.gate_id === target.gate_id)?.status, "deferred");
     const blockingAfter = readSpikes(temp)
       .filter((s) => s.status !== "deferred" && !transitivelyVerifiedGates(temp).has(s.gate_id))
@@ -379,8 +328,6 @@ describe("applyChangeRequest — retires the disproven spike(s) the CR folds (fa
   it("leaves a spike alone when the CR names its gate but the spike is NOT failed (no verified/pending downgrade)", async () => {
     seedPreviousBaseline();
     seedCanonical();
-    // The CR names a gate whose spike is `verified` — retirement must NOT touch it (only
-    // failed spikes retire; a verified spike is settled truth, never downgraded here).
     const verified = seedSpike("s01-provider-auth.md", { status: "verified" });
     seedApprovedCr("CR-0001", { affectedGates: [verified.gate_id] });
 
@@ -407,8 +354,6 @@ describe("applyChangeRequest — a red reference-check blocks honestly", () => {
     seedCanonical();
     seedApprovedCr();
 
-    // The applier "edit" breaks a canonical doc link, so reference-check stays red on BOTH
-    // the initial attempt and the bounded retry.
     const { spawnApplier, calls: applyCalls } = fakeApplier({
       edit: () => write(".vivicy/canonical/01-x.md", "# X\n\nSee [gone](./02-missing.md).\n"),
     });
@@ -423,14 +368,11 @@ describe("applyChangeRequest — a red reference-check blocks honestly", () => {
 
     assert.equal(result.status, "blocked");
     assert.equal(result.phase, "verify");
-    // Bounded retry: the applier ran twice, the second attempt carrying the failure feedback.
     assert.equal(applyCalls.length, 2, "the apply leg retried once on the red gate");
     assert.ok(applyCalls[1].feedback, "the retry carried the reference-check failure feedback");
     assert.match(applyCalls[1].feedback, /reference-check FAILED/i);
-    // The chain stopped BEFORE freeze/extraction — nothing downstream ran.
     assert.equal(freezeCalls.length, 0, "no freeze on a blocked apply");
     assert.equal(extractCalls.length, 0, "no extraction on a blocked apply");
-    // The CR was NOT stamped — it stays accepted_current_build so a re-run resumes cleanly.
     const cr = readChangeRequest(temp, "CR-0001");
     assert.equal(cr!.fm!.status, "accepted_current_build", "the CR is not advanced to docs_applied on a block");
     assert.equal(runChangeControlCheck({ repoRoot: temp }).exitCode, 0, "the untouched CR still passes change-control");
@@ -453,8 +395,6 @@ describe("applyChangeRequest — blocked when extraction does not reach green", 
     assert.equal(result.status, "blocked");
     assert.equal(result.phase, "extract");
     assert.equal(extractCalls.length, 1, "extraction was attempted");
-    // The fold + freeze already happened, so the CR IS docs_applied (the baseline exists); the
-    // block is honestly reported for the extraction, not a rollback of the freeze.
     const cr = readChangeRequest(temp, "CR-0001");
     assert.equal(cr!.fm!.status, "docs_applied");
     assert.match(result.summary, /re-extraction did not reach green/);
@@ -465,7 +405,6 @@ describe("applyChangeRequest — refuses a CR that is not approved into the buil
   it("blocks on an idea CR without touching it", async () => {
     seedPreviousBaseline();
     seedCanonical();
-    // An idea CR (not accepted_current_build).
     write(".vivicy/change-requests/CR-0001-not-approved.md", [
       "---",
       "id: CR-0001",

@@ -15,25 +15,15 @@ import { detectSpecKind, type SpecKind } from "../lib/spec-kind.ts";
 
 const scriptPath = fileURLToPath(import.meta.url);
 const scriptDir = dirname(scriptPath);
-// The target project this tool freezes/verifies. VIVICY_TARGET_ROOT selects it;
-// a target must share the same layout (.vivicy/canonical/, .vivicy/baselines/).
-// Unset => the project the factory is vendored into, so production behavior is
-// unchanged.
 const targetOverride = process.env.VIVICY_TARGET_ROOT;
 const repoRoot =
   targetOverride && targetOverride.trim().length > 0
     ? resolve(targetOverride)
     : resolve(scriptDir, "../..");
-// Manifest provenance string, recorded inside newly generated manifests. Verification
-// accepts the KNOWN set below (not just the current value), so manifests frozen by the
-// pre-TypeScript tool keep verifying byte-unchanged forever; the value is stable
-// manifest DATA, not the script's filesystem location.
 const generatedBy = ".vivicy/baselines/doc-baseline.ts";
+// knownGeneratedBy must keep every historical value (the pre-TypeScript .mjs path included) or manifests frozen by older tool versions stop verifying.
 const knownGeneratedBy = [generatedBy, ".vivicy/baselines/doc-baseline.mjs"];
 const schemaVersion = 1;
-// Neutral fallback when the target project does not name itself in package.json.
-// Vivicy is project-agnostic, so the product name is DERIVED from the target
-// (see resolveProductName), never hardcoded to any one product.
 const neutralProductFallback = "Project";
 const baselineDir = ".vivicy/baselines";
 const validStatuses = ["draft", "frozen", "superseded"];
@@ -64,19 +54,13 @@ export interface BaselineSupersededMarker {
   at: string;
 }
 
-// The frozen/draft baseline manifest: the hash-chained freeze artifact this tool
-// writes and verifies, and the shape extract-issues/cr-apply read back after a freeze
-// (baseline_id, version, files[], document_set_hash, manifest_hash).
+// The hash-chained freeze artifact; extract-issues.ts and cr-apply.ts read this shape back after a freeze, so field renames here ripple there.
 export interface BaselineManifest {
   schema_version: number;
   baseline_id: string;
   version: string;
   status: BaselineStatus;
   product: string;
-  /** W7a (D1): "project" (greenfield — no product code at freeze time) or "feature"
-   *  (evolution of an existing codebase). Detected MECHANICALLY at generation by the
-   *  shared lib/spec-kind.ts derivation; optional so pre-v0.7.0 manifests still
-   *  verify. Part of the manifest hash — the kind is contract, not metadata. */
   spec_kind?: SpecKind;
   generated_at: string;
   generated_by: string;
@@ -109,8 +93,7 @@ const defaultExclude = [
   "**/.DS_Store",
   ".vivicy/baselines/*.json",
   ".vivicy/baselines/doc-baseline.ts",
-  // Legacy path-guard kept so manifests frozen by the pre-TypeScript tool still pass
-  // the subset check (exclude[] may gain entries over time, never lose them).
+  // Kept only because pre-TypeScript manifests still list this path in exclude[]; removing it fails their subset check.
   ".vivicy/baselines/doc-baseline.mjs",
   "docs/change-requests/CR-[0-9][0-9][0-9][0-9]-*.md",
   ".vivicy/architecture-map/viewer/**",
@@ -159,7 +142,6 @@ function generate(args: ParsedArgs): void {
   const files = collectIncludedFiles(defaultInclude, defaultExclude);
   const git = readGitEvidence();
 
-  // A frozen baseline must be reproducible from a clean, committed tree.
   if (status === "frozen" && (!git.available || !git.working_tree_clean)) {
     fail(
       "Refusing to generate a frozen baseline: git must be available and the working tree clean.\n" +
@@ -169,8 +151,7 @@ function generate(args: ParsedArgs): void {
     );
   }
 
-  // `verify --require-status frozen` fails when the approval block is missing,
-  // so an agent cannot self-assert a freeze.
+  // Required so an agent cannot self-assert a freeze — verify --require-status frozen checks for this approval block.
   let approval: BaselineApproval | null = null;
   if (status === "frozen") {
     if (!args["approved-by"] || !args["approval-ref"]) {
@@ -217,7 +198,6 @@ function generate(args: ParsedArgs): void {
   writeFileSync(absoluteOutPath, `${stableJson(manifest)}\n`);
   pruneGitkeeps(repoRoot);
 
-  // At most one active frozen baseline may exist at any time.
   if (status === "frozen") {
     supersedePriorFrozenManifests(manifest.baseline_id, absoluteOutPath);
   }
@@ -230,9 +210,6 @@ function generate(args: ParsedArgs): void {
   console.log(`manifest_hash=${manifest.manifest_hash}`);
 }
 
-// A just-parsed manifest before assertManifestShape/assertCorpusPolicy have run:
-// the shape-critical fields are read unconditionally after those asserts, while
-// git/approval/superseded are probed defensively (they may be absent on disk).
 type ParsedManifest = Omit<BaselineManifest, "git" | "approval"> & {
   git?: Partial<BaselineGitEvidence>;
   approval?: Partial<BaselineApproval>;
@@ -255,7 +232,6 @@ function verify(args: ParsedArgs): void {
     fail(`Manifest filename mismatch: expected ${manifest.baseline_id}.json, got ${basename(absoluteManifestPath)}`);
   }
 
-  // The `superseded` marker is unhashed evidence; it overrides the generation-time status.
   const effectiveStatus = manifest.superseded ? "superseded" : manifest.status;
   if (manifest.superseded && typeof manifest.superseded.by_baseline_id !== "string") {
     fail("Manifest superseded marker is malformed: missing by_baseline_id");
@@ -280,7 +256,6 @@ function verify(args: ParsedArgs): void {
     );
   }
 
-  // A frozen baseline must prove it was cut from a clean, committed tree.
   if (args["require-status"] === "frozen") {
     const git: Partial<BaselineGitEvidence> = manifest.git ?? {};
     if (git.available !== true || git.working_tree_clean !== true) {
@@ -450,22 +425,15 @@ function computeDocumentSetHash(files: BaselineFileEntry[]): string {
 
 function computeManifestHash(manifestWithoutHash: Record<string, unknown>): string {
   const hashableManifest = { ...manifestWithoutHash };
-  // Invariant: same document set => same manifest_hash regardless of commit or
-  // working-tree state, so time-/commit-bound evidence is outside the hash.
+  // Same document set => same manifest_hash regardless of commit/working-tree state: time-bound evidence stays outside the hash.
   delete hashableManifest.generated_at;
   delete hashableManifest.git;
-  // approval/superseded are also outside the hash: a later freeze can stamp
-  // `superseded` onto a prior manifest without invalidating its recorded hash.
+  // Also outside the hash: a later freeze can stamp `superseded` onto a prior manifest without invalidating its recorded hash.
   delete hashableManifest.approval;
   delete hashableManifest.superseded;
   return sha256(stableJson(hashableManifest));
 }
 
-// Resolve the manifest's `product` field. Vivicy is project-agnostic, so the
-// product name is DERIVED from the target, in order:
-//   1. an explicit --product <name> override (any project, any name)
-//   2. the target package.json "name", title-cased (e.g. "formula" -> "Formula")
-//   3. a neutral fallback ("Project") — NEVER a hardcoded product brand.
 function resolveProductName(override: string | undefined): string {
   if (isNonEmptyString(override)) return override.trim();
 
@@ -487,9 +455,6 @@ function readPackageName(): string | null {
   }
 }
 
-// Turn a package name ("my-cool-lib", "@scope/formula", "formula_engine") into a
-// human title ("My Cool Lib", "Formula", "Formula Engine"). Strips an npm scope,
-// splits on separators, and title-cases each word.
 function titleCase(name: string): string {
   const unscoped = name.includes("/") ? name.slice(name.lastIndexOf("/") + 1) : name;
   const words = unscoped
@@ -502,9 +467,7 @@ function titleCase(name: string): string {
 
 function readGitEvidence(): BaselineGitEvidence {
   const headSha = git(["rev-parse", "HEAD"]);
-  // Scope cleanliness to the target root subtree (`-- .` against cwd=repoRoot) so
-  // a freeze under VIVICY_TARGET_ROOT does not depend on the surrounding repo being
-  // clean. At the vendored project root, `.` is the whole repo, so behavior is unchanged.
+  // `-- .` scopes cleanliness to the target subtree so a freeze under VIVICY_TARGET_ROOT ignores dirt elsewhere in the surrounding repo.
   const status = git(["status", "--porcelain", "--untracked-files=all", "--", "."]);
   return {
     available: Boolean(headSha.ok && status.ok),
@@ -587,7 +550,6 @@ function assertVersion(version: string): void {
   }
 }
 
-// Compare two MAJOR.MINOR.PATCH versions: -1 if a<b, 0 if equal, 1 if a>b.
 function compareSemver(a: string, b: string): number {
   const pa = String(a).split(".").map(Number);
   const pb = String(b).split(".").map(Number);
@@ -599,10 +561,6 @@ function compareSemver(a: string, b: string): number {
   return 0;
 }
 
-// E4: a re-freeze declares its bump CLASS; the new version must be the exact SemVer
-// increment of the previous version for that class. The class itself (architecture=major,
-// behaviour=minor, wording=patch) is owner judgment; this enforces only the mechanical half
-// — that the version delta matches the declared bump.
 function assertBumpClass(version: string, previousVersion: string | undefined, bump: string): void {
   if (!previousVersion) fail(`--bump ${bump} requires --previous-version <prior frozen version>`);
   assertVersion(previousVersion);
@@ -664,9 +622,6 @@ function assertManifestShape(manifest: ParsedManifest): void {
   assertBaselineIdFormat(manifest.baseline_id, manifest.version, manifest.status);
 }
 
-// The baseline ID format is governed by 08-doc-baseline-lock.md: baseline-v<version>[-draft].
-// The format is repository-agnostic: the manifest lives in a project-named git repository,
-// so the product name is not repeated in the baseline id.
 function assertBaselineIdFormat(baselineId: string, version: string, status: string): void {
   const base = `baseline-v${version}`;
   const accepted = [base, `${base}-draft`];
@@ -682,8 +637,6 @@ function isNonEmptyString(value: unknown): value is string {
   return typeof value === "string" && value.trim().length > 0;
 }
 
-// The `superseded` marker is outside `manifest_hash`, so stamping it onto a prior
-// manifest never invalidates that manifest's recorded hashes.
 function supersedePriorFrozenManifests(newBaselineId: string, newManifestAbsolutePath: string): void {
   const baselineDirAbsolute = join(repoRoot, baselineDir);
   if (!existsSync(baselineDirAbsolute)) {
@@ -721,8 +674,7 @@ function supersedePriorFrozenManifests(newBaselineId: string, newManifestAbsolut
   }
 }
 
-// The corpus is owned by this tool, not the manifest: otherwise an edited
-// exclude/include could silently shrink the tracked set and still verify clean.
+// The corpus is owned by this tool, not the manifest — otherwise an edited include/exclude could silently shrink the tracked set and still verify clean.
 function assertCorpusPolicy(manifest: ParsedManifest): void {
   if (!sameStringSet(manifest.include, defaultInclude)) {
     fail(
@@ -731,9 +683,6 @@ function assertCorpusPolicy(manifest: ParsedManifest): void {
         `- manifest: ${JSON.stringify(Array.isArray(manifest.include) ? [...manifest.include].sort() : manifest.include)}`
     );
   }
-  // exclude[] is subset-checked, not equality-checked: the tool may gain new
-  // explicit excludes over time without invalidating already-frozen manifests,
-  // but a manifest can never claim an exclude the repo-owned policy does not have.
   const unknownExcludes = Array.isArray(manifest.exclude)
     ? manifest.exclude.filter((entry) => !defaultExclude.includes(entry))
     : null;

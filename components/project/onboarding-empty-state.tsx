@@ -8,13 +8,6 @@ import { BRAND } from "@/lib/brand"
 import { Button } from "@/components/ui/button"
 import { useViviPanel } from "@/components/chat/vivi-panel-context"
 
-/**
- * The calm `no_target` state (W4b): the full-screen chooser is retired —
- * onboarding lives INSIDE the Vivi panel now, so the map area only says so and
- * offers one way in. The panel AUTO-OPENS once on the first `no_target` render
- * (this component's mount); if the user closes it, this stays quiet and the
- * button (or the launcher bubble) reopens it — zero further automatism (P7).
- */
 export function OnboardingEmptyState() {
   const t = useTranslations("project.onboardingEmptyState")
   const { openPanel } = useViviPanel()

@@ -15,8 +15,7 @@ import {
   type LayoutSavePayload,
 } from "@/lib/map-layout-save"
 
-// A compact but faithful architecture-map.yml in the exact source style the
-// line-oriented patcher depends on (2-space "- " list items, 4-space props).
+// Exact source style the line-oriented patcher depends on: 2-space "- " list items, 4-space props.
 const SOURCE = `version: 1
 updated: "2026-06-22"
 name: "Test Map"
@@ -61,17 +60,12 @@ describe("patchArchitectureMapLayout — nodes", () => {
       SOURCE,
       emptyPayload({ nodes: [{ id: "alpha", layout_x: 120, layout_y: 240 }] })
     )
-    // alpha moved...
     expect(next).toContain("    layout_x: 120")
     expect(next).toContain("    layout_y: 240")
-    // ...its other fields are byte-identical...
     expect(next).toContain('    label: "Alpha"')
     expect(next).toContain('    kind: "service"')
-    // ...and beta is untouched.
     expect(next).toContain("    layout_x: 300")
     expect(next).toContain("    layout_y: 400")
-    // No stray content was dropped: the line count is unchanged for an in-place
-    // coordinate rewrite.
     expect(next.split("\n").length).toBe(SOURCE.split("\n").length)
   })
 
@@ -151,7 +145,6 @@ describe("patchArchitectureMapLayout — edge labels", () => {
       })
     )
     expect(next).not.toContain("layout_label_ratio")
-    // The rest of the edge is intact.
     expect(next).toContain("    relation: \"returns\"")
     expect(next).toContain('    data: ["y"]')
   })
@@ -319,7 +312,6 @@ describe("applyLayoutSave", () => {
   })
 
   it("refuses a target with no architecture map", async () => {
-    // root exists but no map file was seeded.
     await expect(
       applyLayoutSave({ targetRoot: root, payload: emptyPayload(), regenerate: async () => {} })
     ).rejects.toMatchObject({ code: "no_map" })
@@ -337,7 +329,6 @@ describe("applyLayoutSave", () => {
           regenerate: async () => {},
         })
       ).rejects.toMatchObject({ code: "read_only" })
-      // The source map is byte-identical — the gate short-circuits before any write.
       expect(readFileSync(mapPath, "utf8")).toBe(SOURCE)
     } finally {
       if (prev === undefined) delete process.env.VIVICY_MAP_LAYOUT_WRITE
@@ -357,7 +348,6 @@ describe("applyLayoutSave", () => {
       })
     ).rejects.toMatchObject({ code: "regen_failed" })
 
-    // The file must be byte-identical to the original — no half-written map.
     expect(readFileSync(mapPath, "utf8")).toBe(SOURCE)
   })
 })

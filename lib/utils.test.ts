@@ -8,7 +8,6 @@ describe("cn", () => {
   })
 
   it("drops falsy and conditional values", () => {
-    // clsx semantics: false/null/undefined/"" are skipped, truthy survives.
     expect(cn("base", false, null, undefined, "", "kept")).toBe("base kept")
     const active = true
     const disabled = false
@@ -20,20 +19,17 @@ describe("cn", () => {
   })
 
   it("dedupes conflicting tailwind utilities, last wins (twMerge)", () => {
-    // Same property family: the later class overrides the earlier one.
     expect(cn("px-2", "px-4")).toBe("px-4")
     expect(cn("text-sm", "text-lg")).toBe("text-lg")
     expect(cn("p-2", "p-4", "p-6")).toBe("p-6")
   })
 
   it("keeps non-conflicting utilities from the same string", () => {
-    // Different axes (padding-x vs padding-y) do not conflict.
     expect(cn("px-2 py-4")).toBe("px-2 py-4")
     expect(cn("text-red-500 bg-blue-500")).toBe("text-red-500 bg-blue-500")
   })
 
   it("resolves conflicts across conditional inputs (override a base class)", () => {
-    // A common real usage: a base class overridden by a caller-supplied one.
     expect(cn("rounded-md bg-white", "bg-black")).toBe("rounded-md bg-black")
     const override = true
     expect(cn("text-sm", override && "text-base")).toBe("text-base")

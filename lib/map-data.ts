@@ -1,11 +1,3 @@
-/**
- * Pure, framework-free helpers for the architecture map.
- *
- * Everything here is deterministic and side-effect free so it can be unit
- * tested directly and reused by both the API normalization step and the React
- * rendering layer. The data types live in `lib/types.ts`.
- */
-
 import {
   deriveDevelopmentOverlay,
   edgeGraphRef as canonicalEdgeGraphRef,
@@ -27,22 +19,16 @@ import type {
   ViewMode,
 } from "@/lib/types"
 
-/**
- * The development statuses the viewer understands, in display order. Derived
- * from `OVERLAY_STATUSES` so the ordered six-status list has one source.
- */
 const NODE_STATUSES: NodeStatus[] = [...OVERLAY_STATUSES]
 
 const NODE_STATUS_SET = new Set<string>(NODE_STATUSES)
 
-/** Narrow an arbitrary string to a known status, or `null` when unknown. */
 export function asNodeStatus(value: unknown): NodeStatus | null {
   return typeof value === "string" && NODE_STATUS_SET.has(value)
     ? (value as NodeStatus)
     : null
 }
 
-/** Build a `graph_ref -> status` overlay from the development block. */
 function buildStatusOverlay(
   graphItemStates: GraphItemState[] | undefined
 ): Map<string, NodeStatus> {
@@ -59,14 +45,6 @@ function buildStatusOverlay(
   return overlay
 }
 
-/**
- * Resolve the status a node should be colored by for a given view.
- *
- * - `target` view: always neutral (`null`) — the target architecture has no
- *   progress meaning.
- * - `progress` view: prefer the live overlay keyed by `graph_ref`; otherwise
- *   fall back to the node's own `status`. An unknown/missing status is `null`.
- */
 export function resolveNodeStatus(
   node: MapNode,
   view: ViewMode,
@@ -82,14 +60,6 @@ export function resolveNodeStatus(
   return asNodeStatus(node.status)
 }
 
-/**
- * Normalize raw, untrusted JSON (the parsed API payload) into a safe
- * `ArchitectureMapData`. Drops malformed nodes/edges and guarantees arrays
- * exist so the rendering layer never has to defensively guard.
- *
- * Returns `null` when the payload cannot be a map at all (missing name or a
- * non-array nodes field), which the caller surfaces as an error state.
- */
 export function normalizeMapData(raw: unknown): ArchitectureMapData | null {
   if (!raw || typeof raw !== "object") {
     return null
@@ -138,7 +108,7 @@ export function normalizeMapData(raw: unknown): ArchitectureMapData | null {
     if (typeof edge.from !== "string" || typeof edge.to !== "string") {
       return []
     }
-    // Drop dangling edges so React Flow never references a missing node.
+    // React Flow errors if an edge references a missing node.
     if (!validNodeIds.has(edge.from) || !validNodeIds.has(edge.to)) {
       return []
     }
@@ -197,25 +167,7 @@ export function normalizeMapData(raw: unknown): ArchitectureMapData | null {
   }
 }
 
-/**
- * Overlay the LIVE progress ledger onto the STATIC architecture-map data at read
- * time.
- *
- * The architecture-map JSON is a static graph generated once at extraction; the
- * progress ledger is the single source of truth for live progress. This DERIVES
- * `graph_item_states` and `active_items` from the ledger (using the ONE shared
- * `deriveDevelopmentOverlay`, the same function the extraction generator runs)
- * and returns a copy of `data` with those two fields replaced — so the map always
- * reflects current progress with zero regeneration of the data file.
- *
- * Tolerant by design: a missing/`null`/`undefined` ledger yields an empty overlay
- * (the static graph renders as `not_started`), and the verification-gate check is
- * permissive on read (a verified item was already gate-validated when the dev-loop
- * committed the ledger), so a stale on-disk evidence file never 500s the viewer.
- * The static `issues`, `coverage_summary`, and path pointers are preserved as-is.
- *
- * `applyLiveOverlay` never mutates its input.
- */
+// Shares deriveDevelopmentOverlay with the extraction generator — do not fork it, or read-time and generation-time overlays will diverge.
 export function applyLiveOverlay(
   data: ArchitectureMapData,
   ledger: unknown
@@ -226,9 +178,6 @@ export function applyLiveOverlay(
     graphRefs.add(edge.graph_ref || canonicalEdgeGraphRef(edge))
   }
 
-  // The static issue list scopes which issues a ledger entry may reference. It is
-  // authored at extraction and travels in the static data; the live overlay only
-  // changes the per-graph-item state, never the issue set.
   const issues: OverlayIssue[] = (data.development?.issues ?? []).map((issue) => ({
     id: issue.id,
     graph_refs: issue.graph_refs ?? [],
@@ -238,10 +187,8 @@ export function applyLiveOverlay(
     graphRefs,
     issues,
     ledger,
-    // Read path is tolerant: a verified item was gate-validated at write time, so
-    // accept any evidence_ref here rather than re-enforcing the grammar on read.
+    // Permissive on purpose: items were already gate-validated at write time; re-checking on read would 500 on stale on-disk evidence.
     verificationGateMatcher: /.*/,
-    // No on-disk evidence check on read — a stale evidence file must not 500.
   })
 
   return {
@@ -254,11 +201,6 @@ export function applyLiveOverlay(
   }
 }
 
-/**
- * Case-insensitive match of a node against a search query. Empty query matches
- * everything. Matches the same broad field set as the original viewer: id,
- * label, kind, tech, scope, status, lane, owns_data, source_refs, and graph_ref.
- */
 export function nodeMatchesQuery(node: MapNode, query: string): boolean {
   const q = query.trim().toLowerCase()
   if (!q) return true
@@ -279,32 +221,21 @@ export function nodeMatchesQuery(node: MapNode, query: string): boolean {
     .includes(q)
 }
 
-/** A point in the map's flow coordinate space. */
 export interface XY {
   x: number
   y: number
 }
 
-/** The snap step used when committing edited node positions (matches the grid). */
 export const LAYOUT_SNAP_GRID = 20
 
-/** Snap a single coordinate to the layout grid. */
 function snapCoordinate(value: number, grid = LAYOUT_SNAP_GRID): number {
   return Math.round(value / grid) * grid
 }
 
-/** Snap a point to the layout grid. */
 export function snapXY(point: XY, grid = LAYOUT_SNAP_GRID): XY {
   return { x: snapCoordinate(point.x, grid), y: snapCoordinate(point.y, grid) }
 }
 
-/**
- * Cluster-drag math: apply a (snapped) drag delta to every member node's drag
- * START position, returning the moved positions keyed by node id. Pure and
- * snap-aware so it can be unit tested and reused by the map's cluster handle —
- * a faithful port of the original viewer's `moveCluster`, which shifted every
- * member of a cluster by the same snapped delta from where the drag began.
- */
 export function clusterMovedPositions(
   startPositions: Map<string, XY>,
   memberIds: string[],
@@ -321,7 +252,6 @@ export function clusterMovedPositions(
   return moved
 }
 
-/** The active map filters that decide node/edge visibility. */
 export interface MapFilters {
   view: ViewMode
   query: string
@@ -330,12 +260,7 @@ export interface MapFilters {
   scopeFilter: string
 }
 
-/**
- * Count the nodes and edges that survive the active filters, mirroring exactly
- * what the map renders. Used by the Information panel's "visible" count. The
- * status filter keeps the endpoints of status-matching edges (same rule as the
- * map), and the search query hides non-matching nodes (pruning their edges).
- */
+// Must mirror the map's actual render-filter logic (including which edge endpoints the status filter keeps), or these counts drift from what's displayed.
 export function computeVisibleCounts(
   data: ArchitectureMapData,
   filters: MapFilters
@@ -383,12 +308,7 @@ export function computeVisibleCounts(
   return { nodes: visible.size, edges: edgeCount }
 }
 
-/**
- * Stable graph_ref for an edge. Prefers the ref baked into the static graph at
- * extraction; otherwise derives it from the ONE canonical formula shared with the
- * generator and the overlay derivation (`@/lib/development-overlay`). There is no
- * second copy of the edge-ref formula that could drift from the generator's keys.
- */
+// The one canonical edge-ref formula, shared with the generator and overlay derivation — do not reimplement, or refs will drift from the generator's keys.
 export function edgeGraphRef(edge: MapEdge): string {
   return edge.graph_ref || canonicalEdgeGraphRef(edge)
 }
@@ -399,7 +319,6 @@ export function edgeIndexFromId(id: string): number {
   return match ? Number(match[1]) : -1
 }
 
-/** Count the edges incident to each node id (both directions). */
 export function buildEdgeCounts(edges: MapEdge[]): Map<string, number> {
   const counts = new Map<string, number>()
   for (const edge of edges) {
@@ -409,7 +328,6 @@ export function buildEdgeCounts(edges: MapEdge[]): Map<string, number> {
   return counts
 }
 
-/** Map every graph_ref an issue touches to the issues that reference it. */
 export function buildIssuesByGraphRef(
   issues: DevelopmentIssue[] | undefined
 ): Map<string, DevelopmentIssue[]> {
@@ -424,7 +342,6 @@ export function buildIssuesByGraphRef(
   return byRef
 }
 
-/** Set of every graph_ref currently being worked on by an active agent. */
 export function buildActiveGraphRefs(
   activeItems: ActiveItem[] | undefined
 ): Set<string> {
@@ -435,7 +352,6 @@ export function buildActiveGraphRefs(
   return refs
 }
 
-/** Index graph item states by graph_ref for O(1) lookup. */
 export function buildGraphStatesByRef(
   states: GraphItemState[] | undefined
 ): Map<string, GraphItemState> {
@@ -446,10 +362,6 @@ export function buildGraphStatesByRef(
   return byRef
 }
 
-/**
- * Display status for an issue, mirroring the original viewer: an active item's
- * live state wins; otherwise the aggregate of its graph items' statuses.
- */
 export function issueDisplayStatus(
   issue: DevelopmentIssue,
   development: DevelopmentBlock | undefined
@@ -471,11 +383,6 @@ export function issueDisplayStatus(
   return "not_started"
 }
 
-/**
- * Transcript refs belonging to a single issue. Aggregated across the issue's
- * graph items and any active item, then filtered to the ones whose path encodes
- * this issue id (transcripts live under `.../transcripts/<ISSUE-ID>/...`).
- */
 export function issueTranscriptRefs(
   issue: DevelopmentIssue,
   development: DevelopmentBlock | undefined
@@ -493,7 +400,6 @@ export function issueTranscriptRefs(
   return [...refs].filter((ref) => ref.includes(`/${issue.id}/`))
 }
 
-/** Percentage of doc lines linked to issues, formatted like "37.0%". */
 export function formatLineCoverage(
   summary: CoverageSummary | undefined
 ): string {

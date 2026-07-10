@@ -12,19 +12,6 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { ScrollArea } from "@/components/ui/scroll-area"
 
-/**
- * Shared local-filesystem browser (R10) behind `GET /api/fs/list` and
- * `POST /api/fs/mkdir`: breadcrumbs of the current path, a parent-up row, a
- * scrollable subdirectory list, and an optional inline "New folder" affordance.
- * Used by both the open-project form (browsing IS the selection) and the panel's
- * scaffold form (browsing picks the PARENT a new folder is named into) — the
- * listing callback reports every path the browser lands on so each caller derives
- * its own meaning from it.
- *
- * Controlled: the parent owns `open` (when to (re)browse from the root) and
- * receives the live `DirListing` via `onListingChange` for its own "Select this
- * folder" / target-path affordances, which stay outside this component.
- */
 export function FolderBrowser({
   open,
   allowCreate = false,
@@ -33,16 +20,11 @@ export function FolderBrowser({
   onListingChange,
   onBusyChange,
 }: {
-  /** Re-browses the default root whenever this flips true (dialog opening). */
   open: boolean
-  /** Show the inline "New folder" affordance (open-project only). */
   allowCreate?: boolean
-  /** External busy state (e.g. a parent-level submit) that also disables rows. */
   disabled?: boolean
   className?: string
-  /** Fires on every successful browse, so the parent can read the current path. */
   onListingChange?: (listing: DirListing) => void
-  /** Fires whenever the browser's own loading/creating state changes. */
   onBusyChange?: (busy: boolean) => void
 }) {
   const t = useTranslations("project.folderBrowser")
@@ -53,8 +35,6 @@ export function FolderBrowser({
   const [newFolderName, setNewFolderName] = useState("")
   const [creatingFolder, setCreatingFolder] = useState(false)
 
-  // Browse a path (null => the server's default root, the user's home dir). On
-  // failure, keep the previous listing and toast — never strand the caller empty.
   const browse = useCallback(
     async (path: string | null) => {
       setLoading(true)
@@ -85,9 +65,6 @@ export function FolderBrowser({
     [onListingChange, t, tErrors]
   )
 
-  // Browse the default root each time the caller opens, so it always starts from
-  // a known place rather than a stale prior listing. State writes live inside the
-  // async closure (not the effect body) so they don't fire synchronously on mount.
   useEffect(() => {
     if (!open) return
     void (async () => {
@@ -98,9 +75,6 @@ export function FolderBrowser({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- re-browse only on open edge, not on every browse() identity change
   }, [open])
 
-  // Create a new folder inside the currently-browsed directory, then navigate
-  // into it so the user can immediately select it. Errors (already-exists,
-  // invalid name) are surfaced honestly via a toast; the browser stays put.
   const createFolder = useCallback(async () => {
     const name = newFolderName.trim()
     if (!listing || name.length === 0) return
@@ -127,7 +101,6 @@ export function FolderBrowser({
       toast.success(t("toast.createdTitle"), { description: body.path })
       setNewFolderName("")
       setNewFolderOpen(false)
-      // Navigate into the freshly-created folder so it is the open directory.
       await browse(body.path)
     } catch (error) {
       toast.error(t("toast.createErrorTitle"), {
@@ -138,11 +111,7 @@ export function FolderBrowser({
     }
   }, [browse, listing, newFolderName, t, tErrors])
 
-  // `ownBusy` (this browser's own fetch/mkdir activity) is what's reported
-  // upward via `onBusyChange` — echoing the parent's `disabled` back to it would
-  // be a useless round-trip. `busy` (below) is the local render-disabling flag
-  // and DOES fold in `disabled`, since rows must also freeze when the parent
-  // (e.g. a dialog mid-submit) says so.
+  // onBusyChange reports ownBusy, not busy — folding in the parent's own disabled would echo it back as a useless round-trip.
   const ownBusy = loading || creatingFolder
   useEffect(() => {
     onBusyChange?.(ownBusy)
@@ -155,9 +124,6 @@ export function FolderBrowser({
 
   return (
     <div className={className}>
-      {/* Breadcrumb of the current directory + the New-folder affordance. The
-          breadcrumb wraps within its min-w-0 column so a deep path never pushes
-          the New-folder button off the right edge. */}
       <div className="flex items-start justify-between gap-2">
         <nav aria-label={t("currentPathLabel")} className="min-w-0 flex-1">
           <ol className="flex flex-wrap items-center gap-0.5 text-xs text-muted-foreground">
@@ -193,8 +159,6 @@ export function FolderBrowser({
         ) : null}
       </div>
 
-      {/* Inline create-folder form: a name input + confirm, shown in place so
-          the user names the folder inside the current directory. */}
       {allowCreate && newFolderOpen ? (
         <form
           className="mt-2 flex items-center gap-2"
@@ -248,7 +212,6 @@ export function FolderBrowser({
         </form>
       ) : null}
 
-      {/* The folder list: parent-up entry, then immediate subdirectories. */}
       <ScrollArea className="mt-2 h-64 border border-border">
         <div className="flex flex-col p-1" role="group" aria-label={t("foldersGroupLabel")} aria-busy={loading}>
           {listing?.parent ? (
@@ -285,7 +248,6 @@ export function FolderBrowser({
   )
 }
 
-/** One navigable row in the folder list. */
 function FolderRow({
   icon,
   label,
@@ -312,7 +274,6 @@ function FolderRow({
   )
 }
 
-/** Split an absolute path into navigable breadcrumb segments (root first). */
 function toCrumbs(absolute: string): Array<{ label: string; path: string }> {
   const parts = absolute.split("/").filter((p) => p.length > 0)
   const crumbs: Array<{ label: string; path: string }> = [{ label: "/", path: "/" }]

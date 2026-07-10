@@ -11,12 +11,10 @@ import {
   type ViviActionResult,
 } from "@/lib/vivi-actions"
 
-/** A reply text ending with an action fenced block. */
 function replyWithActions(json: string): string {
   return `On it.\n\n\`\`\`vivicy-action\n${json}\n\`\`\``
 }
 
-/** A spawner no test path should ever reach (deps are fully faked). */
 const inertSpawner: Spawner = {
   spawnDetached: () => ({ pid: 1 }),
   run: async () => ({ code: 0, lastLine: "", stdout: "", stderr: "" }),
@@ -24,7 +22,6 @@ const inertSpawner: Spawner = {
   isAlive: () => false,
 }
 
-/** Fully-faked deps recording every call; each fn overridable per test. */
 function makeDeps(overrides: Partial<ViviActionDeps> = {}) {
   const calls: Record<string, unknown[][]> = {}
   const record = (name: string, ...args: unknown[]) => {
@@ -324,7 +321,6 @@ describe("executeViviActions — registry dispatch", () => {
     expect(results[0].ok).toBe(true)
     expect(results[0].summary).toContain("1 change request")
     expect(results[1].ok).toBe(true)
-    // Dismissed notifications are filtered; the limit clamps the slice.
     expect((results[1].data as { notifications: unknown[] }).notifications).toHaveLength(1)
     expect(results[1].summary).toContain("1 undismissed")
   })
@@ -346,7 +342,6 @@ describe("executeViviActions — registry dispatch", () => {
     expect(results[0].ok).toBe(false)
     expect(results[0].summary).toContain("already active")
     expect(results[1].ok).toBe(true)
-    // Both actions notified, the failure at error level.
     const events = (calls.notify ?? []).map((c) => (c[0] as { event: string }).event)
     expect(events).toEqual(["action_pipeline_start_error", "action_crs_list"])
   })

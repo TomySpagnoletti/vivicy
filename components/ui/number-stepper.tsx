@@ -7,21 +7,6 @@ import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 
-/**
- * A small, pure-shadcn number stepper: the standard {@link Input} (its native
- * spin buttons hidden) flanked by up/down icon buttons so a value can be nudged by
- * `step` with one click. Light-only, built from the existing shadcn primitives —
- * no new dependency, no decorative chrome.
- *
- * The component is fully controlled and ALWAYS reports an in-range integer:
- *   - typing is passed straight to `onValueChange` as `Number(text)` (the caller
- *     clamps, exactly as the bare Input did) so a half-typed value is never eaten;
- *   - the +/- buttons clamp to [min, max] themselves and disable at the bounds, so
- *     the stepper can never push the value out of range.
- *
- * `min`/`max`/`step` default to a 1..∞ integer stepper; callers pass the concrete
- * bounds (the concurrency knob uses [1, 12]).
- */
 function NumberStepper({
   value,
   onValueChange,
@@ -76,9 +61,8 @@ function NumberStepper({
         disabled={disabled}
         aria-describedby={ariaDescribedBy}
         aria-label={ariaLabel}
-        // Hide the browser's native spinners — the explicit +/- buttons replace
-        // them — and keep the digits centered between the two arrows.
         className="rounded-none text-center [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+        // Passes Number(text) unclamped (the caller clamps) so a half-typed value is never eaten mid-edit — only the +/- buttons below clamp to [min, max].
         onChange={(event) => onValueChange(Number(event.target.value))}
       />
       <Button

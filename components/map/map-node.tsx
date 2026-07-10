@@ -14,19 +14,15 @@ export interface MapNodeData {
   edgeCount: number
   linkedIssueCount: number
   isActive: boolean
-  /** Slate palette token for the current view (kind in target, status in progress). */
   color: ColorToken
-  /** Whether this node matches the current search query (dim when false). */
   matched: boolean
   selected: boolean
   isFuture: boolean
-  /** Cluster id, used by the cluster-backdrop layer. */
   cluster: string
   [key: string]: unknown
 }
 
-// The map surface is intentionally allowed a custom (non-shadcn) style; colors
-// come from the slate palette tokens rather than the design system.
+// Deliberately non-shadcn — do not refactor this component's inline colors to design-system tokens.
 function MapNodeComponent({ data }: NodeProps) {
   const t = useTranslations("map")
   const node = data as MapNodeData

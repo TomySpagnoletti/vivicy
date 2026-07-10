@@ -6,7 +6,6 @@ import { AgentsHealthDialog } from "@/components/agents/agents-health-dialog"
 import type { AgentHealth, AgentsHealth } from "@/lib/agents-health-types"
 import { renderWithIntl } from "@/test/render"
 
-/** Build a health snapshot, defaulting both agents to authed subscriptions. */
 function health(overrides?: {
   claude?: Partial<AgentHealth>
   codex?: Partial<AgentHealth>
@@ -24,32 +23,27 @@ function health(overrides?: {
   }
 }
 
-/** A fetch stub: GET /health returns `current`; POST /update returns `updateBody`. */
 function stubFetch(opts: {
   current: AgentsHealth
   updateBody?: unknown
   updateStatus?: number
   updateReject?: boolean
 }) {
-  // Mirror the real `fetch(url, init)` shape so recorded calls expose the POST
-  // body/method for assertions; `init` is intentionally part of the signature.
   return vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
     const href = String(url)
     if (href.includes("/api/agents/update")) {
       if (opts.updateReject) throw new Error("network down")
-      // Touch `init` so the param is meaningful (the route always sends a body).
       if (init && typeof init.body !== "string") throw new Error("expected a JSON body")
       return new Response(JSON.stringify(opts.updateBody ?? { ok: true }), {
         status: opts.updateStatus ?? 200,
       })
     }
-    // Default: the health endpoint.
     return new Response(JSON.stringify({ ok: true, agents: opts.current }), { status: 200 })
   })
 }
 
 beforeEach(() => {
-  // jsdom: scrollHeight is 0 and clipboard may be missing; provide safe stubs.
+  // jsdom always reports scrollHeight 0; stub it so scroll-dependent logic behaves in tests.
   Object.defineProperty(HTMLElement.prototype, "scrollHeight", {
     configurable: true,
     value: 100,
@@ -64,7 +58,6 @@ afterEach(() => {
 async function openDialog() {
   const user = userEvent.setup()
   renderWithIntl(<AgentsHealthDialog />)
-  // Wait for the initial health load to settle, then open the modal.
   const trigger = await screen.findByRole("button", { name: "Agent CLI status" })
   await user.click(trigger)
   await screen.findByText("Agent CLIs")
@@ -76,8 +69,6 @@ describe("AgentsHealthDialog — cleaned version line", () => {
     vi.stubGlobal("fetch", stubFetch({ current: health() }))
     await openDialog()
 
-    // The dialog shows "· 2.1.191" / "· 0.141.0", never "(Claude Code)" or
-    // "codex-cli ..." — the redundant product name is gone.
     expect(await screen.findByText("· 2.1.191")).toBeInTheDocument()
     expect(screen.getByText("· 0.141.0")).toBeInTheDocument()
     expect(screen.queryByText(/\(Claude Code\)/)).not.toBeInTheDocument()
@@ -146,7 +137,6 @@ describe("AgentsHealthDialog — per-agent Update button", () => {
     const updateBtn = await screen.findByRole("button", { name: "Update Claude Code" })
     await user.click(updateBtn)
 
-    // It POSTed the correct agent body to the allow-listed route.
     await waitFor(() => {
       const updateCall = fetchMock.mock.calls.find((c) => String(c[0]).includes("/agents/update"))
       expect(updateCall).toBeTruthy()
@@ -154,13 +144,11 @@ describe("AgentsHealthDialog — per-agent Update button", () => {
       expect(JSON.parse(String(updateCall?.[1]?.body))).toEqual({ agent: "claude" })
     })
 
-    // The captured output + done marker render; version refreshes from the response.
     expect(await screen.findByText(/✓ done/)).toBeInTheDocument()
     await waitFor(() => expect(screen.getByText("· 2.1.192")).toBeInTheDocument())
   })
 
   test("the button is disabled while the update is running", async () => {
-    // A deferred update response so we can observe the running state.
     let release!: () => void
     const gate = new Promise<void>((r) => (release = r))
     const fetchMock = vi.fn(async (url: string | URL | Request) => {
@@ -176,7 +164,6 @@ describe("AgentsHealthDialog — per-agent Update button", () => {
 
     const updateBtn = await screen.findByRole("button", { name: "Update Codex CLI" })
     await user.click(updateBtn)
-    // Running: label flips and the button is disabled.
     await waitFor(() => expect(screen.getByRole("button", { name: "Update Codex CLI" })).toBeDisabled())
     expect(screen.getAllByText("Updating…").length).toBeGreaterThan(0)
 
@@ -207,7 +194,6 @@ describe("AgentsHealthDialog — per-agent Update button", () => {
 
     const log = await screen.findByText(/✗ failed/)
     expect(log).toBeInTheDocument()
-    // The captured stderr is shown in the log, not swallowed.
     expect(within(log.closest("pre")!).getByText(/could not reach update server/)).toBeTruthy()
   })
 
@@ -218,7 +204,6 @@ describe("AgentsHealthDialog — per-agent Update button", () => {
     vi.stubGlobal("fetch", stubFetch({ current: notInstalled }))
     await openDialog()
     expect(screen.queryByRole("button", { name: "Update Claude Code" })).not.toBeInTheDocument()
-    // The installed Codex still offers Update.
     expect(screen.getByRole("button", { name: "Update Codex CLI" })).toBeInTheDocument()
   })
 })

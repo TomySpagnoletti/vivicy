@@ -26,30 +26,17 @@ import { AgentStatusBadge, CopyableCommand } from "@/components/agents/agent-sta
 
 type ChipState = "ok" | "warn" | "loading"
 
-/** Cap on the streamed native-install log so the buffer never grows unbounded. */
 const MAX_LOG_LINES = 500
 
-/** Overall chip state: green only when BOTH agents are present and authed. */
 function overallState(health: AgentsHealth | null): ChipState {
   if (!health) return "loading"
   const ready = (a: AgentHealth) => a.present && a.authenticated === true
   return ready(health.claude) && ready(health.codex) ? "ok" : "warn"
 }
 
-/**
- * Agent-CLI setup surface (R11). A status chip in the sidebar header that is
- * green when both Claude Code and the Codex CLI are present + authenticated, and
- * amber otherwise; clicking it opens a dialog detailing each CLI's presence,
- * version, and auth, with copyable install/login guidance.
- *
- * Honest by construction: a `null` auth signal renders as "unknown", never as a
- * green "authenticated". The chip is amber whenever an agent isn't verifiably
- * ready, since the dev-loop cannot run without both.
- */
 export function AgentsHealthDialog({
   onWarning,
 }: {
-  /** Called once per load with a human warning when an agent isn't ready. */
   onWarning?: (message: string) => void
 }) {
   const t = useTranslations("agents")
@@ -74,7 +61,6 @@ export function AgentsHealthDialog({
           if (warning) onWarning?.(warning)
         }
       } catch {
-        // Leave the chip in its loading-amber state; the dialog can be retried.
       } finally {
         setLoading(false)
       }
@@ -82,10 +68,7 @@ export function AgentsHealthDialog({
     [onWarning, t]
   )
 
-  // Load once on mount (drives the chip + the one-time warning; the route memo
-  // makes this cheap); RE-PROBE (`fresh=1`) on open so the dialog reflects a CLI
-  // the user just installed/logged into instead of the memoized snapshot. The
-  // state writes live inside `load`'s async body, not the effect body.
+  // Two effects, deliberately not merged: mount always loads (drives the closed-dialog chip); open re-probes with fresh=1 to catch a CLI just installed/logged into.
   useEffect(() => {
     void (async () => {
       await load()
@@ -145,7 +128,6 @@ export function AgentsHealthDialog({
   )
 }
 
-/** Per-agent detail card with presence/version/auth + conditional guidance. */
 function AgentCard({
   agentKey,
   health,
@@ -155,7 +137,6 @@ function AgentCard({
   agentKey: AgentKey
   health: AgentHealth | null
   loading: boolean
-  /** Apply a fresh health snapshot (e.g. the one the update route re-detects). */
   onHealth: (health: AgentsHealth) => void
 }) {
   const t = useTranslations("agents")
@@ -201,14 +182,10 @@ function AgentCard({
           {auth === true && authMethod ? (
             <p className="px-0.5 text-xs text-muted-foreground">{costNote(authMethod, t)}</p>
           ) : null}
-          {/* Self-update: only meaningful once the CLI is installed. */}
           {present ? <UpdateAction agentKey={agentKey} onHealth={onHealth} /> : null}
         </>
       )}
 
-      {/* Guidance: install command when absent; auth command when present-not-authed.
-          Both stay copy-only — install and auth are interactive and run in the
-          user's terminal. */}
       {!loading && !present ? (
         <CopyableCommand
           hint={guidance.installHint}
@@ -231,27 +208,20 @@ function AgentCard({
   )
 }
 
-/** Title-case a plan label for display (`"max"` → `"Max"`); leaves the rest intact. */
 function titleCase(value: string): string {
   return value.charAt(0).toUpperCase() + value.slice(1)
 }
 
-/** Badge label for the billing method, with the plan when known. */
 function methodLabel(authMethod: AuthMethod, plan: string | null, t: ReturnType<typeof useTranslations<"agents">>): string {
   if (authMethod === "api_key") return t("apiKey")
   return plan ? t("subscriptionPlan", { plan: titleCase(plan) }) : t("subscription")
 }
 
-/** Sober, one-line cost note that differentiates the two billing methods. */
 function costNote(authMethod: AuthMethod, t: ReturnType<typeof useTranslations<"agents">>): string {
   return authMethod === "api_key" ? t("apiKeyCostNote") : t("subscriptionCostNote")
 }
 
-/**
- * The billing-method indicator (subscription vs API key) — the cost-relevant
- * distinction. Reflects only what detection actually established; it is rendered
- * exclusively when `authenticated === true`, so it never fabricates a method.
- */
+/** Caller must gate on `authenticated === true` before rendering — this trusts authMethod without re-checking. */
 function MethodBadge({
   authMethod,
   plan,
@@ -269,7 +239,6 @@ function MethodBadge({
   )
 }
 
-/** The streamed/captured response shape from `POST /api/agents/update`. */
 interface UpdateResponse {
   ok?: boolean
   code?: number | null
@@ -279,14 +248,6 @@ interface UpdateResponse {
   agents?: AgentsHealth
 }
 
-/**
- * Per-agent "Update" action: runs the CLI's OWN built-in self-update so the user
- * never leaves Vivicy. It POSTs to the allow-listed `/api/agents/update` route
- * (the server execs only the fixed `claude update` / `codex update` command),
- * shows honest running/done/error state, captures (capped) output, disables the
- * button while running, and re-detects health on success so the version line
- * refreshes.
- */
 function UpdateAction({
   agentKey,
   onHealth,
@@ -330,8 +291,6 @@ function UpdateAction({
       if (body.error) appendLine(body.error)
       const ok = res.ok && body.ok === true
       setResult(ok ? "ok" : "fail")
-      // Re-detection ran server-side after the update; apply the fresh snapshot
-      // so the version line refreshes without a second round-trip.
       if (body.agents) onHealth(body.agents)
       if (ok) {
         toast.success(t("updateCompleteTitle"), { description: guidance.updateCommand })
@@ -378,12 +337,6 @@ function UpdateAction({
   )
 }
 
-/**
- * A human, one-line warning when an agent isn't VERIFIABLY ready (else null).
- * Mirrors the amber chip: absent and not-signed-in are hard problems; an unknown
- * auth (null) is surfaced honestly as "could not be verified", never as a false
- * "not signed in".
- */
 function warningFor(health: AgentsHealth, t: ReturnType<typeof useTranslations<"agents">>): string | null {
   const problems: string[] = []
   for (const key of ["claude", "codex"] as AgentKey[]) {

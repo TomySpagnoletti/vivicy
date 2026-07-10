@@ -63,17 +63,12 @@ export default function Page() {
     }
   }, [])
 
-  // The prerequisite gate's data (W4a): probed ONCE up front (the route memoizes
-  // per server process). `undefined` = probe in flight (keep the loading skeleton,
-  // never flash the gate); `null` = probe unreachable (fail OPEN — the app worked
-  // before the gate existed, and every agent leg still reports honestly).
   const [agentsHealth, setAgentsHealth] = useState<AgentsHealth | null | undefined>(undefined)
   useEffect(() => {
     let cancelled = false
     void (async () => {
       try {
-        // fresh=1: a page load re-probes so installing a CLI + reloading clears the
-        // gate honestly; the memo keeps serving the banner/dialog's follow-up GETs.
+        // fresh=1 re-probes so a CLI install + reload clears the gate; the server then memoizes for follow-up GETs.
         const res = await fetch("/api/agents/health?fresh=1", { cache: "no-store" })
         const body = (await res.json().catch(() => ({}))) as { agents?: AgentsHealth }
         if (!cancelled) setAgentsHealth(body.agents ?? null)
@@ -87,10 +82,6 @@ export default function Page() {
   }, [])
   const gateBlocked = agentsHealth ? agentsGateBlocked(agentsHealth) : false
 
-  // The current project, lifted here (single source of truth): the setup bar's
-  // switcher affordance and the Vivi panel's onboarding/reset logic both derive
-  // from it. `undefined` = first fetch still in flight (so the panel never
-  // mistakes "unknown yet" for a project switch).
   const [project, setProject] = useState<CurrentProject | null | undefined>(undefined)
   const loadProject = useCallback(async () => {
     try {
@@ -100,11 +91,10 @@ export default function Page() {
       }
       if (mountedRef.current) setProject(body.project ?? null)
     } catch {
-      // Keep the last known project on a transient fetch failure.
+      // Deliberate: keep the last known project on a transient fetch failure.
     }
   }, [])
-  // `projectSignal` is intentionally a dependency: any project change (setup bar,
-  // panel onboarding, Vivi activity) bumps it, re-running this load.
+  // projectSignal is intentionally a dep with no direct use in the body — bumping it re-triggers this load.
   useEffect(() => {
     void (async () => {
       await loadProject()
@@ -149,9 +139,7 @@ export default function Page() {
     [t, tErrors]
   )
 
-  // Extract from the onboarding state: runs the deterministic extraction +
-  // map-regeneration chain, then reloads the map so a freshly generated graph
-  // replaces the empty state. The panel's Extract drives the same endpoint.
+  // The Vivi panel's Extract action drives this same /api/control/extract endpoint — don't duplicate the call there.
   const [extracting, setExtracting] = useState(false)
   const [extractError, setExtractError] = useState<{
     message: string
@@ -170,9 +158,6 @@ export default function Page() {
         code?: string
       }
       if (!res.ok || body.ok === false) {
-        // The pre-flight guard refusals (no/empty canonical) are onboarding
-        // signals, not failures: surface them inline in the empty state, where
-        // the Import button is the fix, instead of a transient toast.
         if (body.code === "empty_canonical") {
           const fallback = body.error ?? t("extract.emptyCanonical")
           setExtractError({
@@ -181,9 +166,7 @@ export default function Page() {
           })
           return
         }
-        // Distinguish "blocked for a human" (the deterministic checks stayed red
-        // after the bounded retries) from a transient failure, so the operator
-        // knows whether to look at the corpus or just retry.
+        // blocked = deterministic checks stayed red after the bounded retries (inspect the corpus); otherwise it's transient (just retry).
         if (body.blocked) {
           toast.error(t("extract.blockedTitle"), {
             description: body.summary ?? t("extract.blockedDefaultDescription"),
@@ -227,9 +210,7 @@ export default function Page() {
     void loadMap(true)
   }, [loadMap])
 
-  // A Vivi turn that wrote files or executed actions (including an in-panel
-  // acquisition or CR decision) changed project state behind the map's back —
-  // same refresh path as a project change.
+  // Vivi writing files/executing actions changes project state behind the map's back.
   const onViviActivity = onProjectChanged
 
   const lastAgentsWarningRef = useRef<string | null>(null)
@@ -253,8 +234,6 @@ export default function Page() {
     return edge ? { type: "edge", id: selectedRef.id, item: edge } : null
   }, [state, selectedRef])
 
-  // False exactly when the map says `no_target` (drives the panel's onboarding
-  // view); unknown while the map is still loading or errored.
   const hasTarget =
     state.kind === "ready" || state.kind === "empty"
       ? !(state.kind === "empty" && state.reason === "no_target")
@@ -269,15 +248,12 @@ export default function Page() {
             {t("loading")}
           </CenteredMessage>
         ) : gateBlocked && agentsHealth ? (
-          // W4a: a missing CLI binary blocks the WHOLE app — only the gate (and
-          // the Vivi launcher below, which shows its own install hint) render.
           <AgentsGate health={agentsHealth} onHealth={setAgentsHealth} />
         ) : (
           <SidebarProvider
             open={panel.open}
             onOpenChange={panel.setOpen}
-            // Drive the open width (peek vs wide) into the shadcn Sidebar via its
-            // own CSS var, so width is the sidebar's own state, not a custom layout.
+            // Feeds width into shadcn Sidebar's own CSS var (peek vs wide) rather than a custom layout.
             style={{ "--sidebar-width": panel.width } as React.CSSProperties}
           >
             <SidebarInset className="relative min-w-0">
@@ -312,8 +288,7 @@ export default function Page() {
               ) : null}
 
               {state.kind === "empty" && state.reason === "no_target" ? (
-                // W4b: onboarding lives in the Vivi panel — this state only says
-                // so and auto-opens the panel once.
+                // Actual onboarding UI lives in the Vivi panel — this just signals the empty state and auto-opens the panel once.
                 <OnboardingEmptyState />
               ) : null}
 
@@ -329,10 +304,7 @@ export default function Page() {
                       void loadMap(true)
                     }}
                   />
-                  {/* The pipeline widget must be visible BEFORE a map exists too — the
-                  first extraction (S2–S6) is exactly what it should show, and there
-                  is no map yet at that point. It renders whenever a project is
-                  resolved, not only in the ready state. */}
+                  {/* Intentionally duplicated with the ready-state PipelineWidget below — this one covers the pre-map (first extraction) state. */}
                   <PipelineWidget />
                 </>
               ) : null}
@@ -354,9 +326,7 @@ export default function Page() {
                       else setSelectedRef({ type: "edge", id: next.id })
                     }}
                   />
-                  {/* Absolutely positioned OVER the map viewport (not a ViewportPortal —
-                  the widget must stay fixed to the screen, never pan/zoom with the
-                  graph), matching the SetupBar overlay pattern above. */}
+                  {/* Must stay a normal overlay, not a ViewportPortal child — fixed to the screen, never pans/zooms with the graph. */}
                   <PipelineWidget />
                 </>
               ) : null}
@@ -382,16 +352,11 @@ export default function Page() {
           </SidebarProvider>
         )}
 
-        {/* Present-but-unauthenticated is NOT blocking (W4a): a dismissible amber
-          banner over the normal app, with the exact auth command. */}
+        {/* Present-but-unauthenticated does not gate the app — just a dismissible banner with the exact auth command. */}
         {agentsHealth && !gateBlocked ? (
           <AgentsAuthBanner health={agentsHealth} />
         ) : null}
 
-        {/* Rendered once, OUTSIDE the load-state branches: the launcher bubble and
-          the panel exist in every state (loading/error/empty/ready — and on the
-          prerequisite gate), so Vivi is reachable even before a project or map
-          exists. */}
         <ViviPanel
           onActivity={onViviActivity}
           hasTarget={hasTarget}
@@ -403,7 +368,6 @@ export default function Page() {
   )
 }
 
-/** Narrow the `/api/map` JSON to the onboarding payload (vs. a real graph). */
 function isEmptyPayload(body: unknown): body is MapEmptyStatePayload {
   return (
     !!body &&
@@ -412,7 +376,6 @@ function isEmptyPayload(body: unknown): body is MapEmptyStatePayload {
   )
 }
 
-/** Lightweight identity for the selected item, kept stable across refreshes. */
 type SelectedRef = { type: "node"; id: string } | { type: "edge"; id: string }
 
 function CenteredMessage({ children }: { children: React.ReactNode }) {

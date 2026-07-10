@@ -1,13 +1,6 @@
 import { existsSync, readdirSync, rmSync } from "node:fs"
 import path from "node:path"
 
-/**
- * The directory skeleton every Vivicy-managed project needs: the `.vivicy/` layout
- * the factory reads + writes (so the empty-map onboarding resolves cleanly) and the
- * always-present output dirs. Empty dirs are tracked with a `.gitkeep` so they survive
- * a commit; the `.gitkeep` is a placeholder ONLY — {@link pruneGitkeeps} removes it
- * mechanically the moment real content lands next to it.
- */
 export const SKELETON_DIRS = [
   ".vivicy/canonical",
   ".vivicy/baselines",
@@ -19,14 +12,7 @@ export const SKELETON_DIRS = [
   ".vivicy/change-requests",
 ] as const
 
-/**
- * Remove the `.gitkeep` placeholder from every skeleton dir that now holds real
- * content. Deterministic, idempotent, and cheap (8 readdirs) — callers run it after
- * any write that can populate a skeleton dir (upload placement, Vivi turns, freeze,
- * extraction, CR application, dev-loop checkpoints). `.DS_Store` does not count as
- * content, mirroring resolveTargetDir's noise rule. Returns the pruned repo-relative
- * paths (POSIX separators, matching how the skeleton is declared).
- */
+// Mirrors resolveTargetDir's noise rule in lib/scaffold.ts — keep both in sync.
 export function pruneGitkeeps(targetRoot: string): string[] {
   const pruned: string[] = []
   for (const rel of SKELETON_DIRS) {

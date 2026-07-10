@@ -1,16 +1,4 @@
 #!/usr/bin/env node
-// traceability:check — the implementation-coverage gate from the Development
-// Traceability Method. It is the complement of semantic-extraction:check (which
-// proves SOURCE coverage): this proves every requirement is carried forward to an
-// issue, and every issue points at real requirements. It is deterministic and
-// read-only.
-//
-//   VIVICY_TARGET_ROOT=<root> node vivicy/factory/traceability-check.ts
-//
-// Until extraction has run (the committed placeholder issue index has no
-// issues), it exits 0 with "nothing to check yet", mirroring
-// semantic-extraction:check. Once issues exist it requires the Requirement
-// Catalog and Traceability Matrix and enforces the coverage rules below.
 import { existsSync, readFileSync } from "node:fs";
 import { isAbsolute, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -25,7 +13,6 @@ const MATRIX = ".vivicy/requirements/traceability-matrix.json";
 const MVP_DISPOSITIONS = new Set(["must_implement", "must_test", "must_verify_with_spike"]);
 const MVP_MATURITIES = new Set(["mvp", "phase_0_spike"]);
 
-// Minimal local shapes for the JSON corpus this gate reads (only the fields it touches).
 interface Issue {
   id: string;
   requirement_ids?: string[];
@@ -67,12 +54,10 @@ export function runTraceabilityCheck(options: { repoRoot?: string } = {}): Trace
   }
   const issues = Array.isArray(index.issues) ? index.issues : [];
 
-  // Placeholder: extraction has not run yet -> nothing to check (like sec:check).
   if (issues.length === 0) {
     return { exitCode: 0, errors: [], placeholder: true, summary: "traceability-check: nothing to check yet (no issues extracted)" };
   }
 
-  // Once issues exist, the catalog and matrix are mandatory (Development Traceability Method).
   if (!existsSync(resolveInside(root, CATALOG))) {
     fail("catalog_required", CATALOG, "file missing while issues exist", "the Requirement Catalog exists once extraction has run", `author ${CATALOG}`);
     return done(errors);
@@ -92,7 +77,6 @@ export function runTraceabilityCheck(options: { repoRoot?: string } = {}): Trace
   const requirements = Array.isArray(catalog.requirements) ? catalog.requirements : [];
   const catalogById = new Map(requirements.map((r) => [r.id, r]));
 
-  // 1. Every requirement_id referenced by an issue must exist in the catalog.
   const referenced = new Set<string>();
   for (const issue of issues) {
     for (const reqId of issue.requirement_ids ?? []) {
@@ -109,7 +93,6 @@ export function runTraceabilityCheck(options: { repoRoot?: string } = {}): Trace
     }
   }
 
-  // 2. Every MVP/must-implement requirement must be covered by at least one issue.
   for (const req of requirements) {
     const isMvp = MVP_MATURITIES.has(req.maturity) && MVP_DISPOSITIONS.has(req.disposition);
     if (!isMvp) continue;
@@ -125,7 +108,6 @@ export function runTraceabilityCheck(options: { repoRoot?: string } = {}): Trace
     }
   }
 
-  // 3. coveredByIssues must reference real issues.
   const issueIds = new Set(issues.map((i) => i.id));
   for (const req of requirements) {
     for (const issueId of req.coveredByIssues ?? []) {
@@ -141,11 +123,7 @@ export function runTraceabilityCheck(options: { repoRoot?: string } = {}): Trace
     }
   }
 
-  // 4. Spike referential integrity + back-fill. Every issue spike_gate must
-  //    resolve to a well-formed spike on disk, and every spike's requirement_ids
-  //    must be back-filled (not the template placeholder) and resolve to the
-  //    catalog. Verification STATUS is enforced at build time by the dev-loop
-  //    readiness gate, not here: at extraction a freshly-minted spike is `pending`.
+  // Spike verification status is enforced elsewhere (dev-loop readiness gate); a freshly-extracted spike is `pending` here.
   const spikes = readSpikes(root);
   const spikeGateIds = new Set(spikes.map((spike) => spike.gate_id));
   for (const issue of issues) {
@@ -186,10 +164,6 @@ export function runTraceabilityCheck(options: { repoRoot?: string } = {}): Trace
     }
   }
 
-  // 5. Every must_verify_with_spike requirement must be gated by a spike: some
-  //    spike's (back-filled) requirement_ids must reference it. This closes the
-  //    loop — an obligation that depends on unproven external behaviour cannot
-  //    reach implementation without a spike standing as its evidence gate.
   const spikeRequirementIds = new Set<string>();
   for (const spike of spikes) {
     for (const id of (spike.requirement_ids ?? "").split(/[\s,]+/).filter(Boolean)) spikeRequirementIds.add(id);
@@ -231,8 +205,6 @@ function resolveInside(root: string, rel: string): string {
 
 const cliEntry = process.argv[1] ? resolve(process.argv[1]) : null;
 if (cliEntry === fileURLToPath(import.meta.url)) {
-  // Vivicy is standalone: with no target there is nothing to check, so exit
-  // clearly instead of guessing a directory.
   if (!repoRoot) {
     console.error(
       "error: no target project configured. Set VIVICY_TARGET_ROOT to the absolute path of the project to check.",

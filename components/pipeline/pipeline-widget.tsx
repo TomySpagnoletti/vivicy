@@ -60,46 +60,28 @@ interface SkillsReportResponse {
 
 type RetryableStage = NonNullable<(typeof PIPELINE_STAGES)[number]["retryStage"]>
 
-/**
- * G8's mini-pipeline overlay: a compact horizontal strip of the 14 pipeline
- * stages, top-center OVER the map canvas. Derives stage state from the SAME SSE
- * status stream the control bar already subscribes to, plus a lightweight poll
- * of GET /api/control/extract (extraction phase, S2–S6) and GET
- * /api/control/skills (skills report, SK) — no second source of truth, only a
- * second read of already-existing state files.
- *
- * Collapsible: default expanded while a run/extraction is active, collapsed at
- * idle (persisted per the same localStorage pattern as the legend section), so
- * the strip never fights the map when nothing is happening.
- */
+// Polls /api/control/extract and /api/control/skills — a second read of already-existing state files, never a new source of truth.
 export function PipelineWidget() {
   const t = useTranslations("pipeline")
   const tErrors = useTranslations("errors")
   const [status, setStatus] = useState<RunStatus | null>(null)
   const [extraction, setExtraction] = useState<ExtractionStatusLike | null>(null)
   const [skills, setSkills] = useState<SkillsReport | null>(null)
-  const [open, setOpen] = useState<boolean | null>(null) // null = not yet decided
+  const [open, setOpen] = useState<boolean | null>(null)
   const [retryPending, setRetryPending] = useState<RetryableStage | null>(null)
   const userToggledRef = useRef(false)
 
-  // One combined poll of both report files (extraction for S2–S6, skills for SK)
-  // — still only a second read of already-existing state, never a new source of
-  // truth. Each fetch is best-effort: a failure keeps the last known value.
   const fetchReports = useCallback(async () => {
     try {
       const res = await fetch("/api/control/extract", { cache: "no-store" })
       const body = (await res.json().catch(() => ({}))) as ExtractStatusResponse
       if (res.ok && body.ok !== false) setExtraction(body.status ?? null)
-    } catch {
-      // Best-effort: leave the last known extraction status in place.
-    }
+    } catch {}
     try {
       const res = await fetch("/api/control/skills", { cache: "no-store" })
       const body = (await res.json().catch(() => ({}))) as SkillsReportResponse
       if (res.ok && body.ok !== false) setSkills(body.report ?? null)
-    } catch {
-      // Best-effort: leave the last known skills report in place.
-    }
+    } catch {}
   }, [])
 
   useEffect(() => {
@@ -118,23 +100,16 @@ export function PipelineWidget() {
         if (next.error) return
         setStatus(next)
         void fetchReports()
-      } catch {
-        // A malformed frame just keeps the last known status.
-      }
+      } catch {}
     }
     return () => source.close()
   }, [fetchReports])
 
   const states = deriveStageStates(status, extraction, skills)
-  // "Active" for the default-expanded heuristic means "worth looking at": a live
-  // run, a currently-pulsing stage, OR a blocked one — a red stage needs the
-  // strip visible exactly as much as a running one does, never less.
   const active =
     Boolean(status?.run_active) ||
     Object.values(states).some((s) => s === "running" || s === "red")
 
-  // Default-expanded-when-active, collapsed-at-idle, UNLESS the user explicitly
-  // toggled it — a manual choice always wins over the activity heuristic.
   useEffect(() => {
     if (userToggledRef.current) return
     setOpen(active)
@@ -196,12 +171,7 @@ export function PipelineWidget() {
             {t("widget.title")}
           </button>
         </CollapsibleTrigger>
-        {/* max-w-full is load-bearing: the strip's shrink-0 chips give the content a
-        ~1100px min-content width that would otherwise size this flex item PAST the
-        card's own max-width (intrinsic sizing ignores descendants' max-width). On a
-        phone that overflow makes mobile Chromium expand the layout viewport
-        (innerWidth 412 -> 768), flipping useIsMobile()/`md:` into desktop mode.
-        Clamping the item keeps the overflow inside the overflow-x-auto scroller. */}
+        {/* max-w-full is load-bearing: the shrink-0 chips' ~1100px min-content width would otherwise size this flex item past the card (intrinsic sizing ignores descendants' max-width), and on mobile Chromium that overflow expands the layout viewport (412->768), flipping md: into desktop mode. */}
         <CollapsibleContent className="max-w-full">
           <div className="flex items-center gap-0.5 overflow-x-auto py-1">
             {PIPELINE_STAGES.map((stage, index) => {

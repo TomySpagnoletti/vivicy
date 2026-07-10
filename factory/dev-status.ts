@@ -1,20 +1,10 @@
 #!/usr/bin/env node
-// Read-only health probe for a dev-loop / rehearsal run. Any agent can ask
-// "is the run going well?" instead of waiting blind for a success/fail.
-//
-//   VIVICY_TARGET_ROOT=<root> node vivicy/factory/dev-status.ts   # the target project
-//   node vivicy/factory/dev-status.ts --dir <root>                # a specific root (e.g. a rehearsal temp)
-//   node vivicy/factory/dev-status.ts --json          # machine-readable
-//
-// It never writes anything. It reads the issue index, the progress ledger, the
-// done/ folder, and gate records, and inspects live processes + file activity to
-// distinguish RUNNING / STALE / STOPPED / BLOCKED / DONE.
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { resolveTargetRoot } from "./target-root.ts";
 
-const STALE_IDLE_SECONDS = 600; // process alive but no file activity this long => suspect stall
+const STALE_IDLE_SECONDS = 600;
 
 function flag(name: string): string | null {
   const i = process.argv.indexOf(name);
@@ -22,9 +12,7 @@ function flag(name: string): string | null {
 }
 const asJson = process.argv.includes("--json");
 const dir = flag("--dir");
-// resolveTargetRoot() may return null (no target configured); the join(root, …)
-// reads below then throw the same TypeError they do today. Cast to string to keep
-// that crash-on-unset behavior rather than guarding it away.
+// Deliberate: the cast keeps join(root, …) crashing on an unset target instead of guarding it away.
 const root = (dir ? resolve(dir) : resolveTargetRoot()) as string;
 
 interface Issue {
@@ -79,16 +67,12 @@ function ageSeconds(ts: string | undefined): number | null {
   const ms = new Date(ts).getTime();
   return Number.isFinite(ms) ? Math.round((Date.now() - ms) / 1000) : null;
 }
-// Render one window's real percentage honestly: "5h 38%" when known, "5h —"
-// when the provider exposes no number (we never fabricate a percentage).
 function formatWindow(label: string, win: QuotaWindow | undefined): string | null {
   if (!win) return null;
   const pct = typeof win.used_pct === "number" ? `${Math.round(win.used_pct)}%` : "—";
   return `${label} ${pct}`;
 }
 
-// One-line human summary of the per-agent quota block for the text output.
-// Surfaces the REAL 5h + weekly percentages when present (honest "—" otherwise).
 function formatQuotaLine(quota: Quota): string {
   const agents = quota?.agents ?? {};
   const names = Object.keys(agents);
@@ -126,9 +110,6 @@ function newestMtimeMs(path: string): number {
 const index = readJson<IssueIndex>(join(root, ".vivicy/development/issue-index.json"), { issues: [] });
 const issues = Array.isArray(index.issues) ? index.issues : [];
 
-// Per-agent quota/rate-limit state written by the dev-loop quota handler.
-// Absent or unreadable => unknown (we report nothing rather than fabricating a
-// number). The handler keeps this honest: only real status + a parsed reset.
 const quota = readJson<Quota>(join(root, ".vivicy/development/reports/quota-state.json"), {
   updated_at: null,
   agents: {},
@@ -143,7 +124,6 @@ const gateRecords: GateRecord[] = existsSync(gatesDir)
       .map((f) => ({ file: f, ...readJson<{ status?: string }>(join(gatesDir, f), {}) }))
   : [];
 
-// Per-issue done: file in done/ OR this issue verified on every one of its graph refs.
 const verifiedIssuesByRef = new Map<string, Set<string>>();
 for (const state of ledger.graph_item_states ?? []) {
   const verified = Object.entries(state.issue_states ?? {})

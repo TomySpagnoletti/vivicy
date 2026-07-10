@@ -1,17 +1,4 @@
 #!/usr/bin/env node
-// change-control:check — the post-freeze Change-Request registry gate (A2).
-//
-// After a baseline is frozen, no idea touches active scope directly: it passes through a
-// Product Change Request under .vivicy/change-requests/. This deterministic gate proves the
-// CR registry is well-formed — sequential IDs that match their filenames, valid status +
-// classification enums, owner-decision evidence on every decided CR, the baseline-identity
-// fields required from `accepted_current_build`/`docs_applied` onward (with a resulting
-// manifest that actually exists), a consistent supersedes graph, and no active requirement
-// sourced only from a CR file. It is read-only and runs alongside the other extraction gates.
-//
-//   VIVICY_TARGET_ROOT=<root> node vivicy/factory/change-control.ts
-//
-// With no change-requests/ directory or no CR files it exits 0 ("nothing to check yet").
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -49,30 +36,23 @@ export const CR_CLASSIFICATIONS = [
   "rejection_candidate",
 ] as const;
 export type CrClassification = (typeof CR_CLASSIFICATIONS)[number];
-// A decided CR must carry owner-decision evidence (no agent self-assertion).
 const DECIDED_STATUSES = new Set(["accepted_current_build", "docs_applied", "accepted_future", "rejected", "implemented"]);
-// previous_baseline_* is required from accepted_current_build onward; resulting_* from docs_applied onward.
 const PREVIOUS_REQUIRED = new Set(["accepted_current_build", "docs_applied", "implemented"]);
 const RESULTING_REQUIRED = new Set(["docs_applied", "implemented"]);
 const PREVIOUS_FIELDS = ["previous_baseline_id", "previous_baseline_version", "previous_baseline_manifest_path", "previous_document_set_hash", "previous_manifest_hash"];
 const RESULTING_FIELDS = ["resulting_baseline_id", "resulting_baseline_version", "resulting_baseline_manifest_path", "resulting_document_set_hash", "resulting_manifest_hash"] as const;
 const DECISION_FIELDS = ["owner_decision_by", "owner_decision_at", "owner_decision_evidence"];
 
-// One parsed frontmatter value: `null`/empty -> null, `[a, b]` -> string array, booleans
-// parsed, everything else a string. A malformed CR may carry anything under any key, so
-// the fields stay wide — the checker (not the parser) enforces the enums.
 export type CrFrontmatterValue = string | boolean | string[] | null;
 export interface CrFrontmatter {
   [key: string]: CrFrontmatterValue | undefined;
 }
-// The CR registry record shape consumed by cr-apply, the spike prover, and lib/control.ts.
 export interface ChangeRequestRecord {
   file: string;
   fileNumber: number | null;
   fm: CrFrontmatter | null;
 }
 
-// Read + parse every real CR (skips the template + readme). Returns [{ file, number, fm }].
 export function readChangeRequests(root: string | null = repoRoot): ChangeRequestRecord[] {
   const out: ChangeRequestRecord[] = [];
   if (!root) return out;
@@ -87,13 +67,10 @@ export function readChangeRequests(root: string | null = repoRoot): ChangeReques
   return out;
 }
 
-// One CR by its frontmatter id (e.g. "CR-0003"), or null when none matches. The single
-// lookup both cr-apply and the control plane use so the id→file resolution lives here.
 export function readChangeRequest(root: string | null, id: string): ChangeRequestRecord | null {
   return readChangeRequests(root).find((cr) => String(cr.fm?.id ?? "") === id) ?? null;
 }
 
-// The next CR id is the highest existing CR-#### plus one (CR-0001 when none exist).
 export function nextCrId(crs: ChangeRequestRecord[] = readChangeRequests()): string {
   const max = crs.reduce((acc, cr) => {
     const n = cr.fm?.id && CR_ID.test(String(cr.fm.id)) ? Number(String(cr.fm.id).slice(3)) : (cr.fileNumber ?? 0);
@@ -102,18 +79,6 @@ export function nextCrId(crs: ChangeRequestRecord[] = readChangeRequests()): str
   return `CR-${String(max + 1).padStart(4, "0")}`;
 }
 
-// The single writer of a new Change Request (G7 emission). Every CR source — the spike
-// prover, a readiness/dev leg, Vivi mid-run — routes through here so the frontmatter
-// shape stays consistent — this module renders it, the single source of truth — and the
-// written file passes runChangeControlCheck. Computes the next sequential id, renders the full frontmatter
-// (status: idea, owner_decision: pending, the null baseline-identity scaffold the checker
-// needs to stay silent for an idea) + the template's narrative sections, writes the file,
-// and returns its refs. `now` is a seam (tests pin it); `sourceEvidence` is the machine
-// evidence (report paths, transcript refs) captured verbatim so the CR never rests on an
-// agent's unverified assertion. `affectedVerificationGates` records the spike gate_id(s)
-// this CR resolves at the intention level, so cr-apply can retire them on the fold (a
-// disproven spike drafts its own gate here — the link the apply chain follows to unblock
-// re-extraction). Throws if the rendered CR would not pass the checker.
 interface CreateChangeRequestOptions {
   repoRoot?: string | null;
   title?: string;
@@ -139,8 +104,6 @@ export function createChangeRequest({ repoRoot, title, classification = "minor_p
   const content = renderNewChangeRequest({ id, title, classification, source, sourceEvidence, affectedVerificationGates, body, date });
   writeFileSync(resolve(repoRoot, file), content);
 
-  // Validation of record: the written file must pass the deterministic gate, or the
-  // writer is buggy — fail loudly here rather than leave a malformed CR on disk.
   const check = runChangeControlCheck({ repoRoot });
   if (check.exitCode !== 0) {
     throw new Error(`createChangeRequest: the written CR ${id} does not pass change-control:\n${check.errors.join("\n")}`);
@@ -148,12 +111,6 @@ export function createChangeRequest({ repoRoot, title, classification = "minor_p
   return { id, path: file };
 }
 
-// Record the owner decision on a CR (G7 decision — P2's single human touchpoint). Pure
-// deterministic frontmatter rewrite, no agent: an `approved` CR becomes
-// accepted_current_build with previous_baseline_* filled from the CURRENT frozen baseline
-// manifest (the immutable pre-change identity the registry chains); a `rejected` CR
-// becomes rejected. Both stamp owner_decision/owner_decision_by/at/evidence. The decided
-// file must pass runChangeControlCheck. `now` is a seam (tests pin it).
 interface DecideChangeRequestOptions {
   repoRoot?: string | null;
   id?: string;
@@ -186,8 +143,6 @@ export function decideChangeRequest({ repoRoot, id, decision, decidedBy, evidenc
   if (decision === "rejected") {
     patch.status = "rejected";
   } else {
-    // accepted_current_build requires the pre-change baseline identity: the CURRENT frozen
-    // manifest. A CR cannot be approved into the build with no baseline to change against.
     const frozen = readFrozenBaselineIdentity(repoRoot);
     if (!frozen) {
       throw new Error(`decideChangeRequest: cannot approve ${id} — no frozen baseline manifest under ${BASELINES_DIR}/ to record as previous_baseline_*`);
@@ -206,13 +161,6 @@ export function decideChangeRequest({ repoRoot, id, decision, decidedBy, evidenc
   return { id: id!, path: rel, status: patch.status! };
 }
 
-// Stamp an APPROVED CR (status accepted_current_build) as docs_applied after the canonical
-// edit has been re-frozen (G7 application chain, step c). Deterministic frontmatter
-// rewrite: status → docs_applied, resulting_baseline_* filled from the NEW frozen manifest
-// identity, updated_at bumped. `resulting` is { resulting_baseline_id, resulting_baseline_version,
-// resulting_baseline_manifest_path, resulting_document_set_hash, resulting_manifest_hash }
-// — the resulting_manifest_hash must exist in a baselines/ manifest (the checker verifies
-// it). The stamped file must pass runChangeControlCheck. `now` is a seam (tests pin it).
 export interface ResultingBaselineIdentity {
   resulting_baseline_id: string;
   resulting_baseline_version: string;
@@ -250,10 +198,7 @@ export function stampChangeRequestApplied({ repoRoot, id, resulting, now }: Stam
   return { id: id!, path: rel, status: "docs_applied" };
 }
 
-// The single active frozen baseline's previous_* identity fields, or null when none is
-// frozen. The active manifest is status:frozen with no `superseded` marker (the same
-// definition doc-baseline and extract-issues use). Mirrors those fields into the
-// previous_baseline_* names the checker's PREVIOUS_FIELDS require.
+// Active baseline = status:frozen with no superseded marker; must match doc-baseline/extract-issues' definition.
 export interface FrozenBaselineIdentity {
   previous_baseline_id: string;
   previous_baseline_version: unknown;
@@ -322,7 +267,6 @@ export function runChangeControlCheck(options: { repoRoot?: string | null } = {}
       continue;
     }
 
-    // ID format + filename match.
     const id = fm.id ? String(fm.id) : "";
     if (!CR_ID.test(id)) {
       fail("cr_id_format", label, `id="${id}"`, "id matches CR-#### (four digits)", `set id: CR-#### in ${label}`);
@@ -333,7 +277,6 @@ export function runChangeControlCheck(options: { repoRoot?: string | null } = {}
       }
     }
 
-    // Status + classification enums.
     const status = fm.status ? String(fm.status) : "";
     if (!(CR_STATUSES as readonly string[]).includes(status)) {
       fail("cr_status_enum", label, `status="${status}"`, `status is one of ${CR_STATUSES.join(" | ")}`, `set a valid status in ${label}`);
@@ -343,7 +286,6 @@ export function runChangeControlCheck(options: { repoRoot?: string | null } = {}
       fail("cr_classification_enum", label, `classification="${classification}"`, `classification is one of ${CR_CLASSIFICATIONS.join(" | ")}`, `set a valid classification in ${label}`);
     }
 
-    // Decided status requires owner-decision evidence.
     if (DECIDED_STATUSES.has(status)) {
       const missing = DECISION_FIELDS.filter((f) => isBlank(fm[f]));
       if (missing.length > 0) {
@@ -351,7 +293,6 @@ export function runChangeControlCheck(options: { repoRoot?: string | null } = {}
       }
     }
 
-    // Baseline-identity fields required from accepted_current_build / docs_applied onward.
     if (PREVIOUS_REQUIRED.has(status)) {
       const missing = PREVIOUS_FIELDS.filter((f) => isBlank(fm[f]));
       if (missing.length > 0) {
@@ -368,7 +309,6 @@ export function runChangeControlCheck(options: { repoRoot?: string | null } = {}
     }
   }
 
-  // Sequential, gap-free, unique CR numbering (CR-0001..N).
   const sorted = [...numbers].sort((a, b) => a - b);
   for (let i = 0; i < sorted.length; i += 1) {
     if (sorted[i] !== i + 1) {
@@ -377,10 +317,8 @@ export function runChangeControlCheck(options: { repoRoot?: string | null } = {}
     }
   }
 
-  // Consistent supersedes / superseded_by graph.
   validateSupersedesGraph(crs, fail);
 
-  // No active requirement sourced ONLY from a CR file.
   validateNoCrOnlyRequirements(root, fail);
 
   return done(errors, `${crs.length} change request(s)`);
@@ -434,14 +372,12 @@ function readBaselineManifestHashes(root: string): Set<string> {
       const manifest = JSON.parse(readFileSync(join(dirAbs, file), "utf8")) as { manifest_hash?: unknown };
       if (typeof manifest.manifest_hash === "string") hashes.add(manifest.manifest_hash);
     } catch {
-      // ignore unparseable manifests; the baseline tool owns their validity
+      // the baseline tool owns manifest validity — not re-validated here
     }
   }
   return hashes;
 }
 
-// Minimal frontmatter reader (dependency-free, deterministic): the `--- ... ---` block's
-// `key: value` lines, with `null`/empty -> null, `[a, b]` -> array, booleans parsed.
 function parseFrontmatter(text: string): CrFrontmatter | null {
   const m = text.match(/^---\r?\n([\s\S]*?)\r?\n---/);
   if (!m) return null;
@@ -475,10 +411,6 @@ function toList(value: unknown): string[] {
   return [];
 }
 
-// A filename-safe slug from a CR title: lowercase, non-alphanumerics to single hyphens,
-// trimmed, and capped at a whole-word boundary (never mid-word, so no "…-dispro" stumps)
-// to keep the CR-####-slug.md filename short and readable while matching the CR_FILENAME
-// grammar ([a-z0-9-]+).
 const SLUG_MAX_LENGTH = 48;
 function slugify(title: string): string {
   const base = String(title)
@@ -492,12 +424,6 @@ function slugify(title: string): string {
   return cut || "change";
 }
 
-// Render a fresh CR file: the FULL CR frontmatter (valid enums + the null
-// baseline-identity scaffold an `idea` needs to pass the checker) followed by the
-// template's narrative sections. A caller may pass a `body` (already-formatted markdown
-// after the frontmatter) for a richer narrative; otherwise the template sections are
-// emitted with the machine evidence folded into the Audit Trail so the CR never rests on
-// an unverified assertion.
 function renderNewChangeRequest({ id, title, classification, source, sourceEvidence, affectedVerificationGates = [], body, date }: { id: string; title: string; classification: CrClassification; source: string; sourceEvidence: string[]; affectedVerificationGates?: string[]; body: string | null; date: string }): string {
   const fm = [
     "---",
@@ -576,10 +502,7 @@ function renderNewChangeRequest({ id, title, classification, source, sourceEvide
   ].join("\n");
 }
 
-// Deterministically rewrite the frontmatter `key: value` lines of a CR file: keys present
-// in `patch` are replaced in place (preserving their original position); keys not yet in
-// the block are appended just before the closing `---`. Everything outside the frontmatter
-// block is byte-preserved, and the file's dominant line ending is kept (no CRLF->LF).
+// Preserves the file's original CRLF/LF line ending — do not normalize to LF.
 function rewriteFrontmatter(text: string, patch: Record<string, unknown>): string {
   const m = text.match(/^---\r?\n([\s\S]*?)\r?\n---/);
   if (!m) throw new Error("rewriteFrontmatter: no --- frontmatter block");
@@ -642,9 +565,6 @@ if (cliEntry === fileURLToPath(import.meta.url)) {
     console.error("error: no target project configured. Set VIVICY_TARGET_ROOT to the absolute path of the project to check.");
     process.exit(2);
   }
-  // Default (no subcommand): run the registry check, exactly as before. The `decide`
-  // subcommand records an owner decision on a CR without disturbing that default — the
-  // control plane (lib/control.ts) and the CLI (G14) both drive decisions through it.
   const [subcommand, ...rest] = process.argv.slice(2);
   if (subcommand === "decide") {
     runDecideCli(rest);
@@ -656,10 +576,6 @@ if (cliEntry === fileURLToPath(import.meta.url)) {
   }
 }
 
-// `change-control.ts decide --cr CR-#### --decision approved|rejected [--by <actor>]
-// [--evidence <ref>]` — records an owner decision and prints the resulting status as JSON
-// for a non-human caller. Exit 0 on success, 1 on any decision error (unknown/undecidable
-// CR, no frozen baseline to approve against), 2 on a usage error.
 function runDecideCli(args: string[]): void {
   const opt = (name: string) => {
     const i = args.indexOf(`--${name}`);

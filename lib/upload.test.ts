@@ -33,12 +33,6 @@ import {
   type ZipExpander,
 } from "@/lib/upload"
 
-/**
- * A recording fake spawner (mirrors lib/control.test.ts) so runUploadVerify
- * exercises the real control flow without launching a claude leg. The fake `run`
- * writes the report the way verify-upload.ts's leg would, so the verdict merge
- * is tested end-to-end.
- */
 function makeFakeSpawner(overrides: Partial<Spawner> = {}) {
   const alive = new Set<number>()
   let nextPid = 1000
@@ -55,13 +49,11 @@ function makeFakeSpawner(overrides: Partial<Spawner> = {}) {
   return { spawner }
 }
 
-/** A fake zip expander that "expands" by writing a known file into destDir. */
 const fakeExpander: ZipExpander = (_zipPath, destDir) => {
   writeFileSync(path.join(destDir, "from-zip.md"), "# Unzipped\n\nContent from the archive.\n")
   return true
 }
 
-/** A fake doc converter that returns deterministic text (stands in for textutil). */
 const fakeConverter: DocConverter = (docPath) =>
   `# Converted ${path.basename(docPath)}\n\nThe converted body preserves the intention.\n`
 
@@ -70,7 +62,6 @@ let targetRoot: string
 let runtimeDir: string
 let prevCwd: string
 
-/** Build a fake factory dir holding the scripts the control plane resolves. */
 function scaffoldFactory(root: string) {
   mkdirSync(root, { recursive: true })
   for (const rel of ["verify-upload.ts"]) {
@@ -101,12 +92,10 @@ afterEach(() => {
   delete process.env.VIVICY_TARGET_ROOT
 })
 
-/** Build an UploadEntry from a rel path + text. */
 function entry(rel: string, text: string, name = path.basename(rel)): UploadEntry {
   return { rel, name, bytes: new TextEncoder().encode(text) }
 }
 
-/** Seed a green report for a staging id (the state /apply requires). */
 function writeGreenReport(stagingId: string) {
   writeFileSync(
     getReportPath(stagingId),
@@ -178,7 +167,6 @@ describe("stageUpload", () => {
       [entry("bundle.zip", "PK-fake-bytes")],
       fakeExpander
     )
-    // The zip archive itself is excluded; its expanded content is classified.
     expect(staged.some((s) => s.rel === "bundle.zip")).toBe(false)
     expect(staged.find((s) => s.rel === "from-zip.md")?.kind).toBe("canonical")
   })
@@ -192,11 +180,9 @@ describe("stageUpload", () => {
     }
   })
 
-  // Programmatic zip via `ditto` (darwin only) — exercises the REAL expander path.
   it.skipIf(process.platform !== "darwin")(
     "expands a real zip created with ditto (darwin)",
     () => {
-      // Build a real .zip with a nested doc using `ditto -c -k`.
       const src = mkdtempSync(path.join(tmpdir(), "vivicy-zipsrc-"))
       mkdirSync(path.join(src, "docs"), { recursive: true })
       writeFileSync(path.join(src, "docs", "brief.md"), "# Brief\n\nReal zipped content.\n")
@@ -225,7 +211,6 @@ describe("normalizeStaging", () => {
 
     const normDir = getNormalizedDir(stagingId)
     expect(readFileSync(path.join(normDir, "a/keep.md"), "utf8")).toBe("# Keep\n")
-    // .txt -> .md
     expect(existsSync(path.join(normDir, "a/note.md"))).toBe(true)
     expect(readFileSync(path.join(normDir, "a/note.md"), "utf8")).toBe("plain text note")
     const tos = normalized.map((n) => n.to).sort()
@@ -248,13 +233,11 @@ describe("normalizeStaging", () => {
       entry("good.md", "# Good\n"),
       entry("bad.docx", "binary"),
     ])
-    // Converter returns null => conversion unavailable.
     const { normalized, problems } = normalizeStaging(stagingId, () => null)
 
     expect(problems).toHaveLength(1)
     expect(problems[0].kind).toBe("conversion_unavailable")
     expect(problems[0].file).toBe("bad.docx")
-    // The good file still normalizes; the bad one is excluded.
     expect(normalized.map((n) => n.from)).toEqual(["good.md"])
     expect(existsSync(path.join(getNormalizedDir(stagingId), "bad.md"))).toBe(false)
   })
@@ -268,7 +251,6 @@ describe("normalizeStaging", () => {
 
     const normDir = getNormalizedDir(stagingId)
     expect(readFileSync(path.join(normDir, "architecture-map.yml"), "utf8")).toContain("nodes:")
-    // unknown excluded
     expect(existsSync(path.join(normDir, "stray.yaml"))).toBe(false)
     expect(normalized.map((n) => n.kind)).toEqual(["map"])
   })
@@ -287,14 +269,12 @@ describe("applyUpload", () => {
   it("refuses to place without a green report", () => {
     const { stagingId } = stageUpload([entry("01-product.md", "# Product\n")])
     normalizeStaging(stagingId, fakeConverter)
-    // No report yet.
     try {
       applyUpload(stagingId, targetRoot)
       throw new Error("expected throw")
     } catch (e) {
       expect((e as UploadError).code).toBe("not_verified")
     }
-    // A red report is equally refused.
     writeFileSync(
       getReportPath(stagingId),
       JSON.stringify({ verdict: "red", problems: [], summary: "nope" })
@@ -336,7 +316,6 @@ describe("applyUpload", () => {
     normalizeStaging(stagingId, fakeConverter)
     writeGreenReport(stagingId)
 
-    // Seed ONE colliding destination among the two.
     const collidingDest = path.join(targetRoot, ".vivicy/canonical/01-product.md")
     mkdirSync(path.dirname(collidingDest), { recursive: true })
     writeFileSync(collidingDest, "PRE-EXISTING — must not be overwritten\n")
@@ -350,15 +329,11 @@ describe("applyUpload", () => {
         path.join(".vivicy", "canonical", "01-product.md")
       )
     }
-    // Nothing placed: the colliding file is untouched AND the non-colliding one
-    // was NOT written (check-all-then-place-all).
     expect(readFileSync(collidingDest, "utf8")).toBe("PRE-EXISTING — must not be overwritten\n")
     expect(existsSync(path.join(targetRoot, ".vivicy/canonical/02-scope.md"))).toBe(false)
   })
 
   it("refuses two staged files that flatten to the same destination", () => {
-    // Two spikes named identically in different subdirs both map to
-    // .vivicy/development/spikes/db.md — placing them would silently drop one.
     const { stagingId } = stageUpload([
       entry("spikes/db.md", "# DB spike A\n"),
       entry("old/spikes/db.md", "# DB spike B\n"),
@@ -393,7 +368,6 @@ describe("runUploadVerify (control plane)", () => {
         seenScript = path.basename(args.find((a) => a.endsWith(".ts")) ?? "")
         seenStaging = args[args.indexOf("--staging") + 1] ?? ""
         expect(env.VIVICY_TARGET_ROOT).toBe(targetRoot)
-        // The leg would write the report; the fake does it here.
         writeGreenReport(stagingId)
         return { code: 0, lastLine: "green", stdout: "green\n", stderr: "" }
       },
@@ -406,9 +380,7 @@ describe("runUploadVerify (control plane)", () => {
     expect(runCount).toBe(1)
     expect(result.ok).toBe(true)
     expect(result.verdict).toBe("green")
-    // Normalization ran: .txt -> .md is reported.
     expect(result.normalized.some((n) => n.to === "note.md")).toBe(true)
-    // And the normalized corpus exists on disk for the leg to read.
     expect(existsSync(path.join(getNormalizedDir(stagingId), "note.md"))).toBe(true)
   })
 
@@ -444,9 +416,6 @@ describe("runUploadVerify (control plane)", () => {
   })
 
   it("forces red when normalization has a fatal problem, even on a green report", async () => {
-    // A .docx that cannot convert on this (non-darwin) host => a fatal norm problem.
-    // On darwin the real converter would succeed, so drive the deterministic case by
-    // staging a docx and letting the REAL convertDoc run: skip where it would pass.
     const { stagingId } = stageUpload([
       entry("01-product.md", "# Product\n"),
       entry("brief.docx", "binary-docx"),
@@ -459,9 +428,8 @@ describe("runUploadVerify (control plane)", () => {
     })
     const result = await runUploadVerify(spawner, stagingId)
 
+    // textutil is darwin-only and may or may not choke on these fake docx bytes, so accept either verdict there.
     if (process.platform === "darwin") {
-      // textutil converts the fake bytes? It fails on non-docx bytes, yielding a
-      // conversion problem -> red. Either way, a conversion problem forces red.
       expect(["green", "red"]).toContain(result.verdict)
     } else {
       expect(result.verdict).toBe("red")

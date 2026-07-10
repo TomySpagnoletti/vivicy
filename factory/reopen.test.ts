@@ -13,9 +13,9 @@ test("impactedIssues returns issues referencing a changed or removed requirement
   const drift = { changed: ["REQ-A-002"], removed: ["REQ-A-009"], added: [], unchanged: ["REQ-A-001"] };
   const index = {
     issues: [
-      { id: "ISS-0001", requirement_ids: ["REQ-A-001"] }, // unchanged -> not impacted
-      { id: "ISS-0002", requirement_ids: ["REQ-A-002"] }, // changed -> impacted
-      { id: "ISS-0003", requirement_ids: ["REQ-A-009", "REQ-A-001"] }, // removed -> impacted
+      { id: "ISS-0001", requirement_ids: ["REQ-A-001"] },
+      { id: "ISS-0002", requirement_ids: ["REQ-A-002"] },
+      { id: "ISS-0003", requirement_ids: ["REQ-A-009", "REQ-A-001"] },
     ],
   };
   assert.deepEqual(impactedIssues(drift, index), ["ISS-0002", "ISS-0003"]);
@@ -47,7 +47,7 @@ test("runReopen reopens exactly the impacted done issues and leaves unchanged on
     ]);
     const next = sm([
       { id: "REQ-A-001", source_excerpt_sha256: "h1" },
-      { id: "REQ-A-002", source_excerpt_sha256: "h2-NEW" }, // a doc edit changed REQ-A-002
+      { id: "REQ-A-002", source_excerpt_sha256: "h2-NEW" },
     ]);
     const events: ReopenEvent[] = [];
     const res = runReopen({

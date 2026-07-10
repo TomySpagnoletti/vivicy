@@ -82,7 +82,6 @@ interface EdgeData extends Record<string, unknown> {
   isSelected: boolean
   isConnected: boolean
   labelRatio: number
-  /** Edit-mode flag: drag the protocol label along the edge when true. */
   editable: boolean
   onMoveEdgeLabel: (edgeId: string, ratio: number) => void
 }
@@ -137,8 +136,6 @@ function ArchitectureMapInner({
     [data.development]
   )
 
-  // Layout editing state. OFF by default = today's read-only pan/select; ON =
-  // draggable nodes + cluster-title handles + draggable edge labels + Save.
   const [editMode, setEditMode] = useState(false)
   const [nodePositions, setNodePositions] = useState<Record<string, XY>>({})
   const [edgeLabelRatios, setEdgeLabelRatios] = useState<Record<string, number>>({})
@@ -225,8 +222,6 @@ function ArchitectureMapInner({
     [markEdgeLabelDirty]
   )
 
-  // Status filter also keeps the endpoints of status-matching edges visible,
-  // mirroring the original viewer.
   const statusMatchedEdgeIds = useMemo(() => {
     const ids = new Set<string>()
     if (statusFilter === "all") return ids
@@ -248,9 +243,6 @@ function ArchitectureMapInner({
     return ids
   }, [data.edges, statusMatchedEdgeIds])
 
-  // A node is visible when it clears every active filter, including the search
-  // query — matching the original viewer, which hid (not just dimmed) nodes the
-  // query did not match, pruning their edges along with them.
   const visibleNodeIds = useMemo(() => {
     return new Set(
       data.nodes
@@ -304,8 +296,7 @@ function ArchitectureMapInner({
             linkedIssueCount: issuesByRef.get(ref)?.length ?? 0,
             isActive: activeRefs.has(ref),
             color,
-            // Visible nodes always match (the query now hides non-matches), so
-            // this stays true; kept on the data for the dim-affordance hook.
+            // MapNodeCard reads this field for the dim affordance.
             matched: true,
             selected: selectedNodeId === node.id,
             isFuture: node.scope === "future",
@@ -395,8 +386,7 @@ function ArchitectureMapInner({
     visibleNodeIds,
   ])
 
-  // Mutable mirror of the derived flowNodes/flowEdges so React Flow can move
-  // nodes during a drag; the sync below preserves any in-flight drag position.
+  // The sync below preserves in-flight drag position, or a background refresh mid-drag would snap the node back.
   const [nodes, setNodes, onNodesChange] = useNodesState<Node<MapNodeData>>(flowNodes)
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge<EdgeData>>(flowEdges)
 
@@ -531,8 +521,7 @@ function ArchitectureMapInner({
     }
   }, [edgeLabelRatios, edgesById, nodePositions, nodesById, t, tErrors])
 
-  // Selection is resolved from the immutable data prop so it survives background
-  // refreshes that replace the node/edge objects.
+  // Resolved from the immutable data prop, not local nodes/edges, so selection survives background refreshes that replace those objects.
   const selectNode = useCallback(
     (event: React.MouseEvent, node: Node<MapNodeData>) => {
       event.stopPropagation()
@@ -591,18 +580,12 @@ function ArchitectureMapInner({
         <ClusterBackdrops nodes={nodes} editMode={editMode} onClusterMove={moveCluster} />
         <MiniMap
           position="bottom-right"
-          // Smaller footprint: the default ~200x150 took too much of the map.
           style={{ width: 140, height: 100 }}
           pannable
           zoomable
           nodeBorderRadius={8}
           nodeStrokeWidth={3}
-          // Fill with the node's map color (kind in target, status in progress)
-          // so the minimap matches the map. The bg tone for some statuses (e.g.
-          // not_started -> #f8fafc) is nearly white and would vanish on the
-          // minimap's white backdrop, which is why it looked EMPTY — so we also
-          // paint the saturated BORDER as the node stroke, keeping every node
-          // visible regardless of how pale its fill is.
+          // nodeStrokeColor is set too: some status bg tones (e.g. not_started) are near-white and would vanish on the minimap's white backdrop otherwise.
           nodeColor={(n) => nodeMinimapColor(n).bg}
           nodeStrokeColor={(n) => nodeMinimapColor(n).border}
         />
@@ -647,18 +630,11 @@ function ArchitectureMapInner({
   )
 }
 
-/**
- * The fill + stroke a node contributes to the MiniMap. Returns the same
- * map-palette tones the node card uses (`bg` fill + saturated `border` stroke),
- * with a safe slate fallback when the node data is missing — never an empty
- * minimap rect. A real color is always returned for both fields.
- */
 function nodeMinimapColor(node: { data?: unknown }): ColorToken {
   const data = node.data as MapNodeData | undefined
   return data?.color ?? UNKNOWN_KIND_COLOR
 }
 
-/** Render edge label + the selected-edge overlay path. */
 function ArchitectureEdge({
   id,
   sourceX,
@@ -698,8 +674,6 @@ function ArchitectureEdge({
     isSelected ? " selected" : isConnected ? " connected" : ""
   }${progressClass}`
 
-  // Drag the label along the edge (edit mode only). A small movement threshold
-  // distinguishes a drag from a click; double-click resets to the midpoint.
   const startLabelDrag = (event: React.PointerEvent<HTMLButtonElement>) => {
     if (!editable || !edgeData) return
     event.preventDefault()
@@ -862,8 +836,6 @@ function ClusterBackdrops({
       .sort((a, b) => b.width * b.height - a.width * a.height)
   }, [nodes])
 
-  // The cluster title is the drag handle (faithful to the original viewer): a
-  // pointer-drag on it shifts every member node of the cluster by the same delta.
   const startClusterDrag = (
     event: React.PointerEvent<HTMLButtonElement>,
     clusterId: string
@@ -955,7 +927,6 @@ function clampRatio(ratio: number): number {
   return Math.min(MAX_LABEL_RATIO, Math.max(MIN_LABEL_RATIO, ratio))
 }
 
-/** Scalar projection of a pointer onto the edge, clamped to the label travel. */
 function projectedEdgeRatio(point: XY, source: XY, target: XY): number {
   const edgeX = target.x - source.x
   const edgeY = target.y - source.y
@@ -993,8 +964,6 @@ async function readErrorMessage(
     if (parsed && typeof parsed.error === "string") {
       return parsed.code ? errorText(tErrors, `layoutSave.${parsed.code}`, parsed.error) : parsed.error
     }
-  } catch {
-    // Not JSON — fall through to the raw text.
-  }
+  } catch {}
   return text || httpStatusFallback
 }

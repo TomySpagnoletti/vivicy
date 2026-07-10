@@ -81,7 +81,7 @@ Design choices worth knowing: the orchestrator owns all state transitions (agent
 
 ## Status
 
-v0.7.0 — young and moving fast. Vivi is now the governess: reach her from the bubble in the corner and she drives the whole factory (spec, pipeline, skills, map, change requests) without ever writing code herself; a project's life is a chain of spec cycles (one project spec, then feature specs), and its runtime state is isolated per project. The pipeline is torture-tested (it survived a deliberately hostile, contradiction-riddled spec and turned the wreckage into evidence-backed change requests), but interfaces may still change without notice.
+Young and moving fast. Vivi is now the governess: reach her from the bubble in the corner and she drives the whole factory (spec, pipeline, skills, map, change requests) without ever writing code herself; a project's life is a chain of spec cycles (one project spec, then feature specs), and its runtime state is isolated per project. The pipeline is torture-tested (it survived a deliberately hostile, contradiction-riddled spec and turned the wreckage into evidence-backed change requests), but interfaces may still change without notice.
 
 ## License
 

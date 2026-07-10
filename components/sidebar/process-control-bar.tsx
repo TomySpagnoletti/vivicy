@@ -38,9 +38,6 @@ import {
 
 type Action = "start" | "stop" | "resume" | "extract"
 
-// Exported and pure so the tooltip copy is unit-tested without portal rendering.
-// A standalone translator (not the useTranslations hook) since this runs outside
-// component render — it reads the same sidebar.json ICU message the component uses.
 const t = createTranslator({ locale: LOCALE, messages: sidebarMessages, namespace: "processControl" })
 export function extractedGateMessage(issueCount: number): string {
   return t("extractedGateMessage", { count: issueCount })
@@ -108,15 +105,12 @@ export function ProcessControlBar({
 
   const phase: RunPhase = status ? resolveRunPhase(status) : "idle"
   const running = phase === "running" || phase === "stalled"
-  // Resume is offered only when stopped part-way; a completed run shows Run so
-  // the loop can be re-launched.
   const resumable = status ? isResumable(status) : false
   const total = status?.issues_total ?? 0
   const done = status?.issues_done ?? 0
   const percent = total > 0 ? Math.round((done / total) * 100) : 0
 
-  // Extraction is one-shot: once the map's development.issues is non-empty,
-  // re-extraction isn't available, so Extract is greyed out and explains why.
+  // Extraction is one-shot: once development.issues is non-empty, Extract stays disabled (not re-offered).
   const issueCount = development?.issues?.length ?? 0
   const alreadyExtracted = issueCount > 0
 
@@ -198,10 +192,7 @@ export function ProcessControlBar({
           )}
 
           {alreadyExtracted ? (
-            // Already extracted: keep the button focusable (so it's still a real
-            // tooltip trigger on hover AND keyboard focus and never a focus hole),
-            // but mark it aria-disabled and greyed, and make its click a guarded
-            // no-op. Enter/Space/click all do nothing — no re-extraction POST.
+            // aria-disabled (not disabled) so the button stays focusable — a real disabled button would kill the tooltip's focus trigger.
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button

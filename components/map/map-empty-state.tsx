@@ -25,27 +25,6 @@ import {
 import { ImportDocsFlow } from "@/components/project/import-docs-flow"
 import type { MapEmptyReason } from "@/lib/types"
 
-/**
- * Onboarding state shown in the map area when there is no graph to render.
- * Three distinct cases, all from the same sober shadcn family:
- *
- *   no_target  — no project resolved yet (folder picker arrives later).
- *   no_map     — project present but no architecture map generated yet.
- *   empty_map  — a map exists on disk but has zero nodes.
- *
- * `no_map`/`empty_map` both offer two actions side by side: Extract (reads the
- * frozen canonical) and Import docs (G1 — stages, checks, then places a corpus
- * into `.vivicy/`) — a target already exists in these states, so importing then
- * extracting is the natural path when the canonical is thin or empty.
- *
- * `extractError` surfaces the guard error from a failed extract (G11's
- * empty-canonical check: `{ ok:false, error, code:"empty_canonical" }`) — its
- * message is shown inline and the Import action is highlighted as the fix,
- * rather than leaving the user to guess from the ephemeral toast alone.
- *
- * Pure shadcn primitives (Card, Button, muted text, a lucide icon); centered in
- * the map area. No raw colors, no arbitrary values, light-only.
- */
 export function MapEmptyState({
   reason,
   onExtract,
@@ -54,19 +33,15 @@ export function MapEmptyState({
   extractError = null,
 }: {
   reason: MapEmptyReason
-  /** Re-run extraction (only meaningful when a target is set). */
   onExtract?: () => void
   extracting?: boolean
-  /** Fires after Import docs successfully places a corpus (refresh the map). */
   onImported?: () => void
-  /** The last extract failure, if any — highlights Import when it's empty-canonical. */
   extractError?: { message: string; code?: string } | null
 }) {
   const t = useTranslations("map")
   const t2 = useTranslations("project.importDocsDialog")
   const copy = COPY[reason]
   const Icon = copy.icon
-  // Extract and Import both only make sense once a target is resolved.
   const showExtract = reason !== "no_target" && onExtract
   const showImport = reason !== "no_target"
   const emptyCanonical = extractError?.code === "empty_canonical"
@@ -115,9 +90,7 @@ export function MapEmptyState({
         ) : null}
       </Card>
 
-      {/* A target already exists in no_map/empty_map, so this hosts the shared
-          staged import flow directly in a dialog — first-time acquisition + import
-          live in the Vivi panel's onboarding view instead (W4b). */}
+      {/* The import flow also lives in the Vivi panel's onboarding view for first-time acquisition; this dialog reuses it here since a target already exists in no_map/empty_map. */}
       <Dialog open={importOpen} onOpenChange={setImportOpen}>
         <DialogContent className="sm:max-w-xl">
           <DialogHeader>

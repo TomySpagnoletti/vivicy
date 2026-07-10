@@ -11,8 +11,6 @@ let runtimeDir: string
 let prevEnv: string | undefined
 
 beforeEach(() => {
-  // Isolate the store in a real temp dir via the runtime-dir env override, so
-  // these tests never touch the repo's own .vivicy-runtime.
   runtimeDir = mkdtempSync(path.join(tmpdir(), "vivicy-settings-store-"))
   prevEnv = process.env.VIVICY_RUNTIME_DIR
   process.env.VIVICY_RUNTIME_DIR = runtimeDir
@@ -42,8 +40,6 @@ describe("readSettings", () => {
   })
 
   it("normalizes a present-but-partial file (fills missing fields, repairs bad ones)", () => {
-    // A partial document with an incompatible effort: read should normalize it,
-    // not return it raw.
     writeFileSync(
       getSettingsPath(),
       JSON.stringify({
@@ -56,9 +52,7 @@ describe("readSettings", () => {
         implementer: { provider: "claude", model: "claude-opus-4-8", effort: "extreme" },
       })
     )
-    // The bad effort was repaired to the model default, not kept verbatim.
     expect(read.implementer.effort).toBe(DEFAULT_SETTINGS.implementer.effort)
-    // A reviewer (absent in the file) is filled in.
     expect(read.reviewer).toBeDefined()
   })
 
@@ -93,7 +87,6 @@ describe("writeSettings", () => {
       implementer: { provider: "claude", model: "claude-opus-4-8", effort: "extreme" },
       reviewer: { provider: "codex", model: "gpt-5.5", effort: "minimal" },
     })
-    // The invalid implementer effort was repaired before persisting.
     expect(written.implementer.effort).not.toBe("extreme")
     expect(written.implementer.effort).toBe(DEFAULT_SETTINGS.implementer.effort)
     const onDisk = JSON.parse(readFileSync(getSettingsPath(), "utf8"))
@@ -101,7 +94,6 @@ describe("writeSettings", () => {
   })
 
   it("creates the runtime dir on demand and writes a trailing-newline-terminated file", () => {
-    // The runtime dir is removed first to prove writeSettings creates it.
     rmSync(runtimeDir, { recursive: true, force: true })
     expect(existsSync(runtimeDir)).toBe(false)
     writeSettings(DEFAULT_SETTINGS)

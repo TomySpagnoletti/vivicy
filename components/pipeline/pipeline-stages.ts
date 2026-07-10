@@ -1,15 +1,3 @@
-/**
- * G8 pipeline widget — stage metadata + pure state derivation.
- *
- * Stage list is the v0.5.0 pipeline contract (S0–S12) plus the SK project-skills
- * stage between S7 and S8 — 14 stages total, each
- * typed 🖥️ deterministic / 🤖 agent / 🖥️🤖 mixed, and split across the autonomy
- * boundary: S0–S1 are "Non-loop" (user ↔ Vivi, no automatism), S2–S12 are
- * "Dev-loop (autonomous)". This module owns no React — it is the derivation
- * logic the widget and its tests both consume, kept separate so state mapping
- * is unit-testable without rendering.
- */
-
 import type { RunStatus } from "@/lib/run-status"
 import type { SkillsReport } from "@/lib/skills-report"
 
@@ -21,14 +9,9 @@ export interface PipelineStage {
   id: string
   marker: StageMarker
   side: StageSide
-  /** Stages the honest G14 retry set actually supports (extract, skills, dev). */
   retryStage?: "extract" | "skills" | "dev"
 }
 
-/** The 14 stages, §3 order (SK — project skills — sits between S7 and S8), with
- *  the dotted P7 boundary between S1 and S2. Display labels live in the
- *  `pipeline` message catalog (messages/en/pipeline.json, keyed by these same
- *  stage ids) — this module stays pure data/derivation, no React, no i18n. */
 export const PIPELINE_STAGES: PipelineStage[] = [
   { id: "S0", marker: "user", side: "non_loop" },
   { id: "S1", marker: "mixed", side: "non_loop" },
@@ -46,15 +29,12 @@ export const PIPELINE_STAGES: PipelineStage[] = [
   { id: "S12", marker: "user", side: "dev_loop" },
 ]
 
-/** The glyph the widget renders for each stage type (P8). */
 export const MARKER_GLYPH: Record<StageMarker, string> = {
   user: "🖥️",
   agent: "🤖",
   mixed: "🖥️🤖",
 }
 
-/** Extraction phases (extract-issues.ts `record()` calls) that are IN FLIGHT —
- *  i.e. S2–S6 are actively running, as opposed to terminal green/blocked. */
 const EXTRACTION_RUNNING_PHASES = new Set([
   "authoring",
   "fixing",
@@ -65,10 +45,7 @@ const EXTRACTION_RUNNING_PHASES = new Set([
   "map-review",
 ])
 
-/** Minimal shape client components need from the extraction status file; a
- *  subset of {@link import("@/lib/control").ExtractionStatus} so this stays
- *  decoupled from the server-only control module (this file, the widget, and
- *  the sidebar's SectionPipeline are all client components). */
+// Subset of @/lib/control's ExtractionStatus, redeclared here because this file and its consumers (the widget, SectionPipeline) are client components that can't import the server-only control module.
 export interface ExtractionStatusLike {
   phase?: string
   spike_mode?: "integrate" | "extract"
@@ -78,18 +55,6 @@ export interface ExtractionStatusLike {
   updated_at?: string
 }
 
-/**
- * Derive each stage's honest state from what the app can actually observe:
- * the dev-status SSE frame (S7–S12: verified issues / active work / gate
- * failures) and the extraction status file (S2–S6: which phase the
- * freeze->author->validate->verify chain is in). S0/S1 (non-loop) have no
- * machine state to observe — they stay "pending" until a target/canonical
- * exists, then read as quietly done (green) once extraction has ever run,
- * since reaching S2 is the only observable proof S0–S1 completed.
- *
- * This is a pure function so state-truth is unit-testable without SSE/fetch
- * plumbing; the widget calls it on every status tick.
- */
 export function deriveStageStates(
   status: RunStatus | null,
   extraction: ExtractionStatusLike | null,
@@ -98,8 +63,7 @@ export function deriveStageStates(
   const states: Record<string, StageState> = {}
   for (const stage of PIPELINE_STAGES) states[stage.id] = "pending"
 
-  // S0/S1: no automatism to observe (P7) — the only honest signal available is
-  // whether the dev-loop side has ever been reached at all.
+  // S0/S1 have no observable automatism; reaching the dev-loop is the only honest signal that they completed.
   const reachedDevLoop = extraction !== null || (status?.issues_total ?? 0) > 0
   if (reachedDevLoop) {
     states.S0 = "green"
@@ -113,9 +77,7 @@ export function deriveStageStates(
   return states
 }
 
-// Gotcha: any NEW phase the extraction orchestrator starts emitting must be
-// registered here (EXTRACTION_RUNNING_PHASES + phaseToRunningStage), or it
-// silently renders as "pending".
+// New extraction phases must be added to EXTRACTION_RUNNING_PHASES and phaseToRunningStage, or they silently render as "pending".
 function applyExtractionStates(
   states: Record<string, StageState>,
   extraction: ExtractionStatusLike | null
@@ -128,41 +90,26 @@ function applyExtractionStates(
     return
   }
   if (phase === "extraction_blocked") {
-    // The retries were spent inside S6 (authoring/fixing issues); S2–S5 ran
-    // clean to get there, so only S6 shows the failure.
     for (const id of ["S2", "S3", "S4", "S5"]) states[id] = "green"
     states.S6 = "red"
     return
   }
   if (phase === "blocked_on_unverified_spikes") {
-    // G13: S6 refuses to start while S3 (spike proving) has an unverified
-    // required gate — S2 ran (spikes were extracted/integrated), S3 is the
-    // stage actually blocking, S4–S6 never got a chance to run.
     states.S2 = "green"
     states.S3 = "red"
     return
   }
   if (EXTRACTION_RUNNING_PHASES.has(phase)) {
-    // A loop-back re-entry (e.g. CR -> re-freeze) re-runs "refreezing" onward;
-    // whichever phase is live is the stage currently pulsing (§G8's "visible
-    // backward/forward movement" — state truth, no separate re-entry flag).
     const runningStage = phaseToRunningStage(phase)
     if (runningStage) states[runningStage] = "running"
-    // Earlier stages in this pass are implicitly done; a re-freeze mid-flight
-    // still means S2/S3 held from the prior pass.
     for (const id of ["S2", "S3", "S4"]) {
       if (states[id] === "pending" && id !== runningStage) states[id] = "green"
     }
   }
 }
 
-/** Skills-report phases (install-skills.ts) meaning SK is actively running. */
 const SKILLS_RUNNING_PHASES = new Set(["selecting", "auditing", "installing"])
 
-// SK reads the skills report the same way S2–S6 read the extraction status:
-// in-flight phases pulse, green AND skipped are quietly done (skipped is the
-// honest "nothing to install" outcome, not a failure), failed is red, and an
-// absent report stays pending — never a fabricated state.
 function applySkillsStates(
   states: Record<string, StageState>,
   skills: SkillsReport | null
@@ -201,9 +148,7 @@ function applyDevStates(
 
   if (!hasIssues) return
 
-  // Reaching S6 green implied by hasIssues; S7 (verify issues) is folded into
-  // the same extraction green signal above, so only mark it here if extraction
-  // never reported (defensive: dev status can outlive an old extraction run).
+  // Defensive fallback: dev status can outlive an old extraction run, so only set S7 here if extraction never reported it.
   if (states.S7 === "pending") states.S7 = "green"
 
   if (status.run_active) {
@@ -217,15 +162,8 @@ function applyDevStates(
     states.S9 = "green"
     states.S10 = "green"
   }
-  // Stopped mid-way with no failing gate (0 < done < total, not running):
-  // S8-S10 stay PENDING. resolveRunPhase classifies this exact condition as
-  // "idle", never "done" — marking these stages green would fabricate
-  // completion for stages that never ran to completion (P1). The control bar's
-  // progress counter already communicates the partial done/total.
+  // Stopped mid-way with no failing gate: S8-S10 stay pending, not green — resolveRunPhase treats this as "idle", not "done", and marking them green would fabricate completion.
 
-  // S11 (CRs) has no signal in the dev-status frame or the extraction status —
-  // the widget does not poll the CR registry (that list is the sidebar's own
-  // fetch). Leaving it "pending" here is the honest choice (P1): a fabricated
-  // "green" would claim a CR-free state the widget never actually checked.
+  // S11 has no signal here (the widget doesn't poll the CR registry) — left pending rather than fabricating a CR-free "green".
   if (done >= total && total > 0) states.S12 = "green"
 }

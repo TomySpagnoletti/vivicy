@@ -1,15 +1,4 @@
-/**
- * Filesystem reader that reproduces `factory/dev-status.ts`'s *deterministic*
- * status from a target root's development artifacts, without spawning the
- * script. Used only by the fake spawner (E2E dry path) so the status endpoint
- * still reflects the real demo ledger. The real status endpoint uses the actual
- * dev-status.ts (which additionally inspects live processes).
- *
- * Mirrors the script's per-issue "done" rule (file in done/ OR verified on every
- * graph ref) and its verdict ordering, minus the live-process branch — liveness
- * is layered in by the caller from the run-state lock.
- */
-
+// Reimplements factory/dev-status.ts's deterministic status (minus live-process checks) for the E2E fake-spawner's dry path — keep both in sync.
 import { existsSync, readFileSync, readdirSync } from "node:fs"
 import path from "node:path"
 
@@ -71,8 +60,7 @@ export function readDevStatusFromDisk(root: string): DevStatus {
   const gatesPass = gateRecords.filter((g) => g.status === "pass").length
   const gatesFail = gateRecords.filter((g) => g.status === "fail").length
 
-  // Per-agent quota state, mirroring dev-status.ts. Absent => unknown (no
-  // fabricated numbers): an empty agents map renders nothing in the footer.
+  // Absent quota data must render as unknown, never fabricated — mirrors dev-status.ts.
   const quota = readJson<QuotaBlock>(path.join(dev, "reports", "quota-state.json"), {
     updated_at: null,
     agents: {},

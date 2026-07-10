@@ -8,10 +8,6 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { runSemanticExtractionCheck } from "./semantic-extraction-check.ts";
 
-// Vivicy is a STANDALONE factory: it has no implicit target. runSemanticExtractionCheck
-// takes an explicit repoRoot, and the CLI binds VIVICY_TARGET_ROOT at load time, so the
-// "real artifacts" cases write a self-contained placeholder index into a temp target root
-// rather than reading a host project's committed files.
 const factoryDir = dirname(fileURLToPath(import.meta.url));
 const checkerPath = resolve(factoryDir, "semantic-extraction-check.ts");
 
@@ -39,8 +35,6 @@ interface TestIssue {
   indexEntryOverrides?: Record<string, unknown>;
 }
 
-// Minimal read-shapes for the checker's JSON report outputs, reflecting only the
-// fields these assertions touch.
 interface ClassifiedRangeLike {
   classification: string;
   end: number;
@@ -67,9 +61,6 @@ interface CoverageReport {
   }[];
 }
 
-// A self-contained placeholder index: no issues yet, pinned to a frozen manifest,
-// with the canonical evidence-ref grammar. This is the standalone equivalent of the
-// committed pending-extraction placeholder artifacts.
 function makePlaceholderTarget() {
   const root = mkdtempSync(resolve(tmpdir(), "semantic-extraction-placeholder-"));
   const write = (rel: string, content: string) => {
@@ -77,8 +68,6 @@ function makePlaceholderTarget() {
     mkdirSync(dirname(absolute), { recursive: true });
     writeFileSync(absolute, content);
   };
-  // A frozen manifest needs at least one pinned doc; the checker stays in
-  // placeholder mode (no issues) so the doc body is never line-classified.
   const doc = "# Placeholder Spec\n";
   const docPath = ".vivicy/canonical/placeholder-spec.md";
   write(docPath, doc);
@@ -152,14 +141,7 @@ test("CLI rejects unknown arguments", () => {
   assert.match(run.stderr, /Unknown argument/);
 });
 
-// ---------------------------------------------------------------------------
-// Synthetic fixture: a mini frozen manifest + canonical doc + issues, laid out
-// like the real repo under a temp root (the checker takes repoRoot in options).
-// ---------------------------------------------------------------------------
-
-// 11 lines: 1 H1 (auto), 2/4/7 blank (auto), 3 heading (needs exclusion),
-// 5-6 requirements (need coverage), 8 horizontal rule (auto), 9/11 fence
-// delimiters (auto), 10 example line (needs coverage or exclusion).
+// SAMPLE_DOC line numbers are load-bearing: HEADING_EXCLUSION/EXAMPLE_EXCLUSION/requirements below cite lines 3, 5-6, 10 directly — editing the doc shifts them all.
 const SAMPLE_DOC = [
   "# Sample Spec",
   "",
@@ -345,7 +327,6 @@ test("C1: source-map carries the tool-computed per-requirement excerpt hash", ()
     assert.equal(result.exitCode, 0, result.errors.join("\n"));
     const sourceMap = JSON.parse(readFileSync(resolve(fixture.root, ".vivicy/requirements/source-map.json"), "utf8")) as SourceMapReport;
     const excerpt = sourceMap.requirement_excerpts.find((entry) => entry.id === "REQ-SAMPLE-001")!;
-    // Tool-computed over the exact cited line (line 5 of the sample doc), never authored.
     const expected = createHash("sha256").update("The system must do A.").digest("hex");
     assert.equal(excerpt.source_excerpt_sha256, expected);
   } finally {
@@ -426,7 +407,6 @@ test("requirement ref outside the canonical grammar fails", () => {
 });
 
 test("an uncovered canonical line fails the gate and is listed in the report", () => {
-  // Line 10 ("example code") is neither covered nor excluded here.
   const issue = makeIssue({ requirements: [`${SAMPLE_DOC_PATH}:5-6`] });
   const fixture = makeFixture({ exclusions: [HEADING_EXCLUSION], issues: [issue] });
   try {
@@ -455,8 +435,6 @@ test("an exclusion covering the same line turns the gate green", () => {
 });
 
 test("llm_extraction_in_progress tolerates uncovered lines; --strict escalates", () => {
-  // Line 10 ("example code") is neither covered nor excluded: mid-extraction
-  // the gate must stay green, run the full accounting, and write the reports.
   const issue = makeIssue({ requirements: [`${SAMPLE_DOC_PATH}:5-6`] });
   const fixture = makeFixture({
     exclusions: [HEADING_EXCLUSION],
@@ -522,7 +500,6 @@ test("index pin mismatch against the manifest fails even in placeholder mode", (
 });
 
 test("a line both covered and excluded warns, covered wins; --strict escalates", () => {
-  // Exclude line 5 although the issue also covers it.
   const overlap = { end: 5, file: SAMPLE_DOC_PATH, note: "overlaps the covered range", reason_class: "narrative_context", start: 5 };
   const fixture = makeFixture({ exclusions: [HEADING_EXCLUSION, EXAMPLE_EXCLUSION, overlap], issues: [makeIssue()] });
   try {

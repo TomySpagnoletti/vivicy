@@ -2,9 +2,6 @@ import { cancelSpecCycle, ControlError, getSpecCycle, openSpecCycle } from "@/li
 import { appendNotification } from "@/lib/notifications"
 import { getSpawner } from "@/lib/spawner"
 
-// Spec-cycle state + transitions (W7b): GET reads the open drafting cycle (null when
-// none); POST {action:"open"|"cancel"} transitions it. The freeze side of the state
-// machine lives in extraction — this route never closes a cycle by declaration.
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 

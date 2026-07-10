@@ -1,24 +1,4 @@
 #!/usr/bin/env node
-// Vivicy semantic issue EXTRACTION orchestrator: a two-agent loop that authors
-// the issue corpus from a frozen canonical spec. An EXTRACTOR agent authors,
-// deterministic checks gate, then an INDEPENDENT FIDELITY VERIFIER agent (the
-// reviewer CLI, never the extractor) judges source fidelity. Pipeline:
-//   1. FREEZE if needed   — reuse the frozen baseline or freeze .vivicy/canonical/**.
-//   2. AUTHOR (extractor) — agent writes the full corpus from the frozen baseline.
-//   3. VALIDATE           — deterministic checks + architecture-map generation.
-//   4. VERIFY (verifier)  — independent agent judges fidelity, writes a verdict JSON.
-//   5. FIX LOOP           — feed back to the extractor; extraction_blocked if exhausted.
-//
-// Gotcha (freeze-before-status): the freeze runs BEFORE any status is written.
-// extraction-status.json lives under a tracked path; emitting it first would
-// dirty the tree and trip doc-baseline's working-tree-clean guard. A live-run
-// fragility this orchestrator hit and now structurally prevents.
-//
-// Gotcha (map-generation-as-gate): map generation is a GATE, not a post-green
-// afterthought. A corpus whose architecture-map.yml the parser rejects (e.g. a
-// top-level `clusters:` section) is NOT green; its exact error is fed back to the
-// extractor. A prior run reported "green with map FAILED" because the map ran only
-// after green — never as a gate — so a malformed map never triggered a fix.
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -47,15 +27,9 @@ import { detectSpecKind, type SpecKind } from "../lib/spec-kind.ts";
 const BASELINE_DIR = ".vivicy/baselines";
 const ISSUE_INDEX_REL = ".vivicy/development/issue-index.json";
 const EXTRACTION_STATUS_REL = ".vivicy/development/reports/extraction-status.json";
-// Where the independent fidelity verifier writes its structured verdict. A
-// dedicated evidence file (NOT committed as corpus) the orchestrator reads to
-// decide green vs. feed-back-to-extractor, and that a human/the UI can inspect.
 const VERDICT_REL = ".vivicy/development/reports/extraction-fidelity-verdict.json";
 const DEFAULT_FREEZE_VERSION = "1.0.0";
 
-/** The next freeze version: 1.0.0 on a virgin target; a MINOR bump over the highest
- *  baseline version ever cut otherwise (superseded ones included — ids never get
- *  overwritten). cr-apply keeps its own PATCH-bump path; this governs extraction. */
 export function resolveFreezeVersion(repoRoot: string): string {
   const dir = resolve(repoRoot, BASELINE_DIR);
   if (!existsSync(dir)) return DEFAULT_FREEZE_VERSION;
@@ -80,30 +54,19 @@ export function resolveFreezeVersion(repoRoot: string): string {
 }
 const DEFAULT_MAX_RETRIES = 3;
 
-// The synthetic "issue" the agent legs run against. It is NOT a product issue
-// (no product issues exist yet — that is what we are authoring); it is the leg's
-// identity/transcript handle, so the shared spawn infra names the transcript and
-// injects the actor/role env exactly as it does for a dev-loop leg.
 const EXTRACTOR_ISSUE_ID = "EXTRACTION";
 
-// The two agent legs resolveAgentLegs (dev-loop) builds; each leg's `Leg` shape is
-// imported from dev-loop so the CLI-assignment fields never diverge.
 interface ResolvedLegs {
   implementer: Leg;
   reviewer: Leg;
 }
 
-// The synthetic issue handle both legs run against — assignable to both dev-loop's
-// Issue (composePrompt) and agent-spawn's AgentIssue (the leg runners).
 interface ExtractionIssue {
   id: string;
   graph_refs: string[];
   path: string;
 }
 
-// The deterministic-check result shape shared by the five gates (semantic /
-// traceability / spike / reference / change-control). Semantic additionally carries
-// `warnings` and `placeholder`; the optional fields cover the whole family.
 interface CheckResult {
   exitCode: number;
   errors?: string[];
@@ -112,7 +75,6 @@ interface CheckResult {
   summary?: string;
 }
 
-// The five-gate bundle carried across a fix loop, plus the attempt it came from.
 interface Checks {
   semantic: CheckResult;
   traceability: CheckResult;
@@ -122,13 +84,11 @@ interface Checks {
   attempt?: number;
 }
 
-// The architecture-map generation result: exit code + captured generator output.
 interface MapResult {
   code: number;
   output?: string;
 }
 
-// The independent fidelity verifier's structured verdict.
 interface VerdictProblem {
   issue?: string;
   kind?: string;
@@ -140,17 +100,12 @@ interface Verdict {
   problems: VerdictProblem[];
 }
 
-// The per-lens map-review aggregate (map-review.ts's runMapReview result): the flat
-// findings, the actionable subset that feeds back to the extractor, and the lens legs
-// (typed unknown[] by runMapReview; each is a leg result whose transcriptRel we read).
 interface MapReviewAggregate {
   findings: TaggedFinding[];
   actionable: TaggedFinding[];
   legs: LegResult[];
 }
 
-// The S3 spike-proving stage result (spike-prover.ts's runSpikeProving): the three
-// outcome arrays whose lengths this orchestrator folds into extraction-status.json.
 interface SpikeProvingResult {
   proved: unknown[];
   failed: unknown[];
@@ -158,8 +113,6 @@ interface SpikeProvingResult {
   changeRequests?: unknown[];
 }
 
-// The args this orchestrator hands the S3 proving stage; recordEvent is null here
-// (spikes are not graph items yet). The real runSpikeProving accepts a superset.
 interface SpikeProvingArgs {
   repoRoot: string;
   legs: ResolvedLegs;
@@ -167,14 +120,11 @@ interface SpikeProvingArgs {
   recordEvent: null;
 }
 
-// A resolved frozen baseline: the manifest path + its baseline id.
 interface FrozenBaseline {
   manifestPath: string;
   baselineId: string;
 }
 
-// The freeze/verify/status seams the caller may inject (all default to the real
-// tooling). Kept structural so tests pass lightweight fakes.
 interface ExtractIssuesOptions {
   repoRoot?: string;
   maxRetries?: number;
@@ -237,7 +187,6 @@ interface SpawnLensArgs {
   lens: MapReviewLens;
 }
 
-// The per-phase status object handed to emitStatus (mirrored to extraction-status.json).
 interface StatusEvent {
   phase: string;
   attempt?: number;
@@ -254,7 +203,6 @@ interface SpikeProvingSummary {
   skipped: number;
 }
 
-// The terminal result extractIssues returns for every path.
 interface ExtractionResult {
   status: "green" | "extraction_blocked" | "blocked_on_unverified_spikes";
   attempts: number;
@@ -275,47 +223,6 @@ interface ExtractionResult {
   timeoutReason?: string;
 }
 
-/**
- * Drive freeze -> author -> validate (checks + map gen) -> verify-fidelity -> fix
- * for the target project, as a two-agent loop (extractor authors, independent
- * verifier judges fidelity). The extraction is GREEN only when the deterministic
- * checks pass AND the architecture map generates cleanly (exit 0) AND the verdict
- * is faithful:true.
- *
- * Injectable seams (all default to the real tooling):
- *   spawnExtractor({ repoRoot, manifestPath, cfg, attempt, checkOutput, isFix })
- *       -> { transcriptRel?, output?, status? }   (authors/fixes the corpus)
- *   spawnVerifier({ repoRoot, manifestPath, baselineId, cfg, attempt })
- *       -> { transcriptRel?, output? }   (writes the structured fidelity verdict)
- *   runFreeze({ repoRoot, version })               -> { manifestPath, baselineId }
- *   runSemanticCheck({ repoRoot })                 -> { exitCode, errors, warnings, summary }
- *   runTraceability({ repoRoot })                  -> { exitCode, errors, summary }
- *   readVerdict({ repoRoot })                      -> { faithful, problems } | null
- *   runGenerateMap({ repoRoot })                   -> { code, output }   (mechanical GATE: code 0 required for green)
- *   emitStatus(status, repoRoot)                   -> persists extraction status
- *
- * `options.spawnAgent` is still accepted as a back-compat alias for
- * `options.spawnExtractor` (the extractor leg), so existing callers/tests keep
- * working.
- *
- * S2 spike mode (G12) and S5 map mode (G4) are decided from the pre-run corpus and
- * recorded in extraction-status.json so the UI/CLI can display which path S2/S5 took:
- *   - `spike_mode`: "integrate" when the owner already provided spikes (uploaded via G1
- *     or Vivi-written) so the extractor LINKS them, "extract" when it mints them.
- *   - `map_mode`: "reused" when an architecture-map.yml pre-exists so the extractor
- *     refines it in place, "authored" when it authors one from scratch.
- *
- * S3 spike proving (G3) runs BEFORE the freeze and S6 is gated on its result (G13):
- *   - `options.runSpikeProving` — injectable spike-proving stage (defaults to the real
- *     prover/verifier legs). It flips pending spikes to verified/failed in-place.
- *   - `spike_proving` (in the status) — { proved, failed, skipped } summary counts.
- *   - `status: "blocked_on_unverified_spikes"` — extraction REFUSES to author issues while
- *     any non-deferred spike is not transitively verified (with the offending gate_ids).
- *
- * @returns {{ status: "green"|"extraction_blocked"|"blocked_on_unverified_spikes", attempts,
- *             manifestPath, baselineId, checks, map, verdict, spike_mode, map_mode,
- *             spike_proving, transcripts, summary }}
- */
 export async function extractIssues(options: ExtractIssuesOptions = {}): Promise<ExtractionResult> {
   const repoRoot = options.repoRoot;
   if (!repoRoot) {
@@ -324,17 +231,10 @@ export async function extractIssues(options: ExtractIssuesOptions = {}): Promise
     );
   }
   const maxRetries = Number.isInteger(options.maxRetries) ? (options.maxRetries as number) : DEFAULT_MAX_RETRIES;
-  // A FIRST freeze is 1.0.0; any later freeze (an open spec cycle, or a spec edited
-  // since the frozen baseline) is a MINOR bump over the highest baseline ever cut —
-  // an intention evolution, never an overwrite of a prior baseline id (W7b).
   const version = options.version ?? resolveFreezeVersion(repoRoot);
-  // The open drafting cycle, if any: its id becomes the freeze's approval_ref (honest
-  // provenance), and the successful freeze CLOSES it mechanically.
   const openCycle = readSpecCycle(repoRoot);
   const cfg: Record<string, unknown> = { ...DEFAULT_CONFIG, ...(options.cfg ?? {}) };
-  // The two legs are assigned to distinct CLIs (R12): implementer CLI = extractor,
-  // reviewer CLI = verifier. resolveAgentLegs enforces the distinct-CLI invariant
-  // so the agent that verifies fidelity never authored the corpus.
+  // resolveAgentLegs enforces implementer != reviewer CLI: the fidelity verifier must never be the extractor, or the check becomes self-review.
   const legs: ResolvedLegs = resolveAgentLegs(process.env);
   const spawnExtractor =
     options.spawnExtractor ?? options.spawnAgent ?? makeDefaultSpawnExtractor(options, cfg, legs);
@@ -348,44 +248,16 @@ export async function extractIssues(options: ExtractIssuesOptions = {}): Promise
   const runChangeControl = options.runChangeControl ?? defaultRunChangeControl;
   const readVerdict = options.readVerdict ?? defaultReadVerdict;
   const runGenerateMap = options.runGenerateMap ?? defaultRunGenerateMap;
-  // The independent per-lens architecture-map review (method Review Method): a fan-out of
-  // domain-expert sub-agents over the generated map. Injectable for tests.
   const mapReview = options.mapReview ?? makeDefaultMapReview(options, cfg, legs);
   const emitStatus = options.emitStatus ?? defaultEmitStatus;
-  // Mechanical corpus commit (Item 2): on a green extraction the orchestrator —
-  // never a human — commits the whole authored corpus (frozen baseline + issues +
-  // catalog/matrix/exclusions/index + regenerated map) so the user gets a clean,
-  // committed tree with the live map straight from git. Injectable for tests.
   const commitCorpus = options.commitCorpus ?? defaultCommitCorpus;
-  // Mechanical SPEC-SNAPSHOT commit (Item 2, before the freeze): the owner wrote the
-  // canonical spec into .vivicy/canonical/** and clicked Extract — leaving a dirty (or
-  // not-even-a-repo) tree. The freeze (doc-baseline --status frozen) demands a git
-  // repo with a CLEAN committed tree, so BEFORE freezing the orchestrator ensures the
-  // target is a repo (defensive `git init` if somehow not — the scaffold normally did
-  // it) and commits any pending changes (the spec + any skeleton additions) as a clear
-  // "spec snapshot". No human ever runs git. Injectable for tests.
   const commitSpecSnapshot = options.commitSpecSnapshot ?? defaultCommitSpecSnapshot;
-  // S3 spike proving (G3): the substance-verification stage that flips pending spikes
-  // to verified/failed by running their experiments in the target repo. It runs BEFORE
-  // the freeze (S3 precedes S4) so a disproven hypothesis can correct the canonical
-  // directly (truth-model rule 1, pre-baseline) without forcing a re-freeze loop.
-  // Injectable so tests fake the legs; the default wires the real prover/verifier legs.
-  // The real runSpikeProving accepts a superset of args (all optional) and returns a
-  // richer result; cast it to this orchestrator's narrower proving contract. The only
-  // divergence is nominal (the proving contract narrows the richer real signature).
   const runSpikeProvingStage: (args: SpikeProvingArgs) => Promise<SpikeProvingResult> =
     options.runSpikeProving ?? (runSpikeProving as unknown as (args: SpikeProvingArgs) => Promise<SpikeProvingResult>);
 
   const transcripts: string[] = [];
   const record = (status: StatusEvent) => emitStatus(status, repoRoot);
 
-  // S3 BEFORE S4 (critical sequence): prove the spikes' SUBSTANCE before the freeze.
-  // A disproven hypothesis is a pre-baseline, truth-model rule-1 event — the prover
-  // may correct the canonical directly (or the orchestrator drafts a CR) — so proving
-  // must precede the freeze, or every correction would force a re-freeze loop. The spike
-  // files it flips are committed into the spec snapshot below, so the freeze hashes the
-  // settled corpus. recordEvent is null here (spikes are not graph items yet); the
-  // resulting summary counts ride on extraction-status.json once the freeze lets us emit.
   const spikeProving = await runSpikeProvingStage({ repoRoot, legs, cfg, recordEvent: null });
   const spikeProvingSummary: SpikeProvingSummary = {
     proved: spikeProving.proved.length,
@@ -393,45 +265,22 @@ export async function extractIssues(options: ExtractIssuesOptions = {}): Promise
     skipped: spikeProving.skipped.length,
   };
 
-  // Freeze must precede every record(): doc-baseline refuses to cut a frozen
-  // baseline on a dirty tree, and our own extraction-status.json lives under a
-  // tracked path. So we resolve/freeze the baseline before writing anything, and
-  // only THEN emit the first status. (extraction-status.json is also gitignored as
-  // defence in depth — see the scaffold/fixture .gitignore — so even a stale copy
-  // from a prior run never dirties the freeze.)
+  // Freeze must precede any record(): extraction-status.json lives under a tracked path, and doc-baseline refuses to freeze a dirty tree.
   let frozen: FrozenBaseline | null = findFrozenManifest(repoRoot);
   let froze = false;
-  // A reused frozen baseline must still match the CURRENT spec: if the owner edited
-  // .vivicy/canonical/** since the freeze, its document_set_hash no longer verifies, so
-  // the stale baseline is discarded and re-frozen below. Extraction NEVER authors
-  // against a baseline that no longer matches the spec on disk.
   if (frozen && !verifyFrozenManifest({ repoRoot, manifestPath: frozen.manifestPath, baselineId: frozen.baselineId })) {
     frozen = null;
   }
-  // An open drafting cycle whose canonical has NOT changed yet: extraction would
-  // neither freeze (nothing drafted) nor legitimately close the cycle — refuse with
-  // the actionable exits instead of leaving a half-state (P3).
   if (openCycle && frozen) {
     throw new Error(
       `extract-issues: drafting cycle ${openCycle.id} is open but the canonical has not changed — write the spec evolution (via Vivi) before extracting, or cancel the cycle`,
     );
   }
   if (!frozen) {
-    // Snapshot the owner's just-written spec BEFORE freezing: ensure the target is a
-    // git repo (defensive `git init` — the scaffold normally already did it) and
-    // commit any pending changes, so the freeze sees a CLEAN committed tree. The owner
-    // writes the spec and clicks Extract; Vivicy commits it. No human git step. Only
-    // needed on the freeze path — if a frozen baseline already exists we never touch
-    // git here. Safe: `git add -A` respects the scaffold .gitignore (transcripts /
-    // runtime / worktrees / node_modules are never committed); nothing-to-commit is a
-    // no-op, never an error; no remote is touched.
     commitSpecSnapshot({ repoRoot });
     frozen = await runFreeze({ repoRoot, version, approvalRef: openCycle?.id });
     froze = true;
   }
-  // ONLY a FREEZE closes an open drafting cycle (the doctrine's mechanical exit —
-  // never a reuse: a still-valid baseline means nothing was drafted yet, so the
-  // owner's drafting window stays open and the closure would be untraceable).
   if (froze && openCycle) {
     clearSpecCycle(repoRoot);
     notify({
@@ -447,46 +296,21 @@ export async function extractIssues(options: ExtractIssuesOptions = {}): Promise
   let lastMap: MapResult | null = null;
   let lastVerdict: Verdict | null = null;
   let lastMapReview: MapReviewAggregate | null = null;
-  // The most recent per-leg TIMEOUT reason (set by leg-timeout.ts when the
-  // extractor or verifier CLI was killed for overrunning the cap / going idle).
-  // A timed-out leg authors nothing usable, so the deterministic gate fails and
-  // the loop simply retries — it never hangs. We carry the reason so an eventual
-  // extraction_blocked names the stall explicitly instead of looking like a
-  // mysterious empty corpus.
   let lastTimeoutReason: string | null = null;
-  const maxAttempts = maxRetries + 1; // the initial author + up to maxRetries fixes
-  // Snapshot the owner's architecture-map layout BEFORE the extractor touches it, so
-  // map generation can self-heal any node/edge the extractor moved back to the
-  // owner's placement (never lost, never a block — see generate-viewer-data).
+  const maxAttempts = maxRetries + 1;
+  // Snapshot taken before the extractor can touch the map, so runGenerateMap's reconcileAgainst can self-heal layout_* fields back to it afterward.
   const mapAbs = resolve(repoRoot, ".vivicy/architecture-map/architecture-map.yml");
   let layoutBaselinePath: string | null = null;
-  // S5 map mode (G4): a map already on disk pre-run is REUSED (the extractor refines it
-  // in place, preserving every layout_* field; the reconcile gate restores them anyway).
-  // Otherwise the extractor AUTHORS one from scratch. Decided from the pre-run state.
   const mapMode = existsSync(mapAbs) ? "reused" : "authored";
   if (mapMode === "reused") {
     layoutBaselinePath = join(mkdtempSync(join(tmpdir(), "vivicy-map-")), "baseline.yml");
     writeFileSync(layoutBaselinePath, readFileSync(mapAbs, "utf8"));
   }
-  // S2 spike mode (G12): owner-provided spikes (uploaded via G1 or Vivi-written) put S2
-  // in INTEGRATE mode — the extractor treats them as the authority and only back-fills /
-  // corrects what is stale, never re-mints. No spikes -> EXTRACT mode (mint from the
-  // canonical). readSpikes indexes only WELL-FORMED spikes, so a byte-compatible imported
-  // corpus (an existing project's 21 valid spikes) selects integrate deterministically.
   const spikeMode = readSpikes(repoRoot).length > 0 ? "integrate" : "extract";
-  // Snapshot the PRIOR source-map before re-authoring overwrites it, so a Change-Control
-  // re-extraction can deterministically reopen exactly the issues whose requirement excerpts
-  // changed (see runReopen). Null on a first extraction (no prior, nothing to reopen).
+  // Snapshot taken before re-authoring overwrites source-map.json, so Change-Control reopening (runReopen) can diff prior vs current deterministically.
   const sourceMapAbs = resolve(repoRoot, ".vivicy/requirements/source-map.json");
   const priorSourceMap = readJsonOrNull(sourceMapAbs);
 
-  // G13 — extraction gated on VERIFIED spikes (S6 ordering). The diagram places issue
-  // extraction after spike verification: a NON-DEFERRED spike that is not transitively
-  // verified (pending/failed/blocked, or verified with an unverified gated_by chain) must
-  // block extraction LOUDLY rather than letting issues be authored against unproven
-  // ground. Deferred spikes never block — their dependents are gated in the dev loop
-  // anyway (a deferred spike is an accepted, tracked deferral, not an open question). This
-  // runs AFTER proving + the freeze, so the statuses reflect this run's proving.
   const verifiedGates = transitivelyVerifiedGates(repoRoot);
   const unverifiedRequiredGates = readSpikes(repoRoot)
     .filter((spike) => spike.status !== "deferred" && !verifiedGates.has(spike.gate_id))
@@ -516,8 +340,6 @@ export async function extractIssues(options: ExtractIssuesOptions = {}): Promise
     const isFix = attempt > 1;
     record({ phase: isFix ? "fixing" : "authoring", attempt });
 
-    // On a fix pass, feed BACK whatever made the previous attempt non-green: the
-    // deterministic check output, the map-gen error, and/or the fidelity verdict.
     const fixContext = isFix
       ? [
           formatFixContext(lastChecks, lastVerdict, lastMap),
@@ -530,11 +352,6 @@ export async function extractIssues(options: ExtractIssuesOptions = {}): Promise
     if (leg?.transcriptRel) transcripts.push(leg.transcriptRel);
     lastTimeoutReason = legTimeoutReason(leg) ?? lastTimeoutReason;
 
-    // Canonical contradiction resolution (extractor Pass 1): the extractor may EDIT
-    // .vivicy/canonical/** to resolve a genuine contradiction. If it did, the frozen
-    // baseline no longer matches the spec on disk — re-freeze + re-pin and re-author
-    // against the corrected corpus, autonomously: no human, no change-request. The
-    // re-freeze consumes an attempt, so the bounded loop still terminates.
     if (!verifyFrozenManifest({ repoRoot, manifestPath, baselineId })) {
       record({ phase: "refreezing", attempt });
       commitSpecSnapshot({ repoRoot });
@@ -556,10 +373,6 @@ export async function extractIssues(options: ExtractIssuesOptions = {}): Promise
       continue;
     }
 
-    // The first verdict is fully mechanical: coverage / pins / DAG / schema (the
-    // two checks) AND that the authored architecture-map.yml actually generates
-    // into viewer data (exit 0). Run the checks first, then map generation; both
-    // must pass before the fidelity verifier is worth spawning.
     record({ phase: "validating", attempt });
     const semantic = runSemanticCheck({ repoRoot });
     const traceability = runTraceability({ repoRoot });
@@ -574,12 +387,6 @@ export async function extractIssues(options: ExtractIssuesOptions = {}): Promise
       reference.exitCode === 0 &&
       changeControl.exitCode === 0 &&
       !semantic.placeholder;
-    // The semantic checker treats an unchanged placeholder index as exit 0 +
-    // placeholder:true — the agent authored nothing usable. Treat it as a failed
-    // attempt so the fix loop re-prompts rather than declaring success. A red
-    // deterministic check short-circuits map-gen and the verifier (no point
-    // generating a map or judging fidelity of a corpus that fails coverage/pins)
-    // and re-prompts the extractor.
     if (!deterministicGreen) {
       lastMap = null;
       lastVerdict = null;
@@ -587,10 +394,7 @@ export async function extractIssues(options: ExtractIssuesOptions = {}): Promise
       continue;
     }
 
-    // Map generation is a GATE, not a post-green afterthought: a corpus whose
-    // architecture-map.yml the parser rejects (e.g. an unsupported top-level
-    // `clusters:` section) is NOT green. Feed the exact generator error back to the
-    // EXTRACTOR like any other mechanical failure.
+    // Hard gate, not a post-green afterthought: a non-parsing architecture-map.yml (exit != 0) is NOT green — its error feeds back to the extractor.
     record({ phase: "mapping", attempt });
     const map = runGenerateMap({ repoRoot, reconcileAgainst: layoutBaselinePath });
     lastMap = map;
@@ -600,8 +404,6 @@ export async function extractIssues(options: ExtractIssuesOptions = {}): Promise
       continue;
     }
 
-    // Independent fidelity verifier — the second verdict (source fidelity), the
-    // half the deterministic checks cannot judge.
     record({ phase: "verifying", attempt });
     clearVerdict(repoRoot);
     const verifierLeg = await spawnVerifier({ repoRoot, manifestPath, baselineId, cfg, attempt });
@@ -610,20 +412,12 @@ export async function extractIssues(options: ExtractIssuesOptions = {}): Promise
     const verdict = readVerdict({ repoRoot });
     lastVerdict = verdict;
     clearVerdict(repoRoot);
-    // A missing/unparseable verdict is NOT faithful — never declare green without a
-    // structured faithful:true from the independent verifier.
     const faithful = verdict?.faithful === true;
     if (!faithful) {
-      // Fidelity failure: re-prompt the EXTRACTOR (not the verifier) to fix.
       lastMapReview = null;
       continue;
     }
 
-    // Final gate — the independent per-lens map review (the method's Review Method): the
-    // generated map is reviewed AS A SYSTEM by independent domain-expert sub-agents, one
-    // lens each, never a human reviewing their output. Real findings flow back to the
-    // EXTRACTOR (which fixes the map, or per Pass 1 the canonical it cites) like a fidelity
-    // problem; an empty review is the last thing between the corpus and green.
     record({ phase: "map-review", attempt });
     const review = await mapReview({ repoRoot, manifestPath, baselineId, cfg, attempt });
     for (const lensLeg of review.legs ?? []) {
@@ -634,10 +428,6 @@ export async function extractIssues(options: ExtractIssuesOptions = {}): Promise
       continue;
     }
 
-    // Deterministic Change-Control reopening: if this extraction re-ran over a CHANGED
-    // baseline (a prior source-map existed), reopen exactly the issues whose requirement
-    // excerpts changed or were removed — the orchestrator does this mechanically, never an
-    // agent's recollection. A first extraction or an unchanged corpus reopens nothing.
     let reopened: string[] = [];
     if (priorSourceMap) {
       const currentSourceMap = readJsonOrNull(sourceMapAbs);
@@ -660,12 +450,6 @@ export async function extractIssues(options: ExtractIssuesOptions = {}): Promise
       ...(reopened.length ? { reopened } : {}),
       summary: `extraction green after ${attempt} attempt(s): ${countIssues(repoRoot)} issue(s); deterministic checks pass; map regenerated; verifier faithful:true; map review clean${reopened.length ? `; reopened ${reopened.length} impacted issue(s)` : ""}; corpus committed`,
     };
-    // Emit the final green status FIRST, then commit MECHANICALLY — so the single
-    // commit captures the whole corpus (frozen baseline + authored issues +
-    // catalog/matrix/exclusions/index + regenerated map + the live extraction
-    // status) and leaves a CLEAN tree (only gitignored files untracked). No human
-    // commit step. `git add -A` is safe: the scaffold/fixture .gitignore covers the
-    // complete never-commit set (transcripts/runtime/worktrees/node_modules).
     record({ phase: "green", attempt, spike_mode: spikeMode, map_mode: mapMode, summary: status.summary });
     const commit = commitCorpus({ repoRoot, baselineId });
     status.committed = commit?.committed ?? false;
@@ -695,35 +479,19 @@ export async function extractIssues(options: ExtractIssuesOptions = {}): Promise
   return status;
 }
 
-// The timeout reason a leg result carries when leg-timeout.ts killed it for
-// overrunning the per-leg cap or going idle. Null for a normally-finished leg.
 function legTimeoutReason(leg: LegResult | undefined): string | null {
   return leg?.result?.timedOut ? leg.result.timeoutReason || "leg timed out" : null;
 }
 
-// ---------------------------------------------------------------------------
-// Default seams (the real tooling)
-// ---------------------------------------------------------------------------
-
-// The synthetic issue both legs run against (transcript + actor/role identity handle).
 function extractionIssue(): ExtractionIssue {
   return { id: EXTRACTOR_ISSUE_ID, graph_refs: ["node:extraction"], path: ISSUE_INDEX_REL };
 }
 
-// Build the real EXTRACTOR seam: drive the implementer CLI (Claude by default)
-// with the extractor prompt. The CLI follows the configured role assignment via
-// `legs.implementer` (resolveAgentLegs), so the extractor CLI/model/effort track
-// the same settings the dev-loop honors.
 function makeDefaultSpawnExtractor(options: ExtractIssuesOptions, baseCfg: Record<string, unknown>, legs: ResolvedLegs): (args: SpawnExtractorArgs) => Promise<LegResult> {
   const promptsDir = options.promptsDir ?? FACTORY_PROMPTS_DIR;
-  // The extractor is the IMPLEMENTER-role CLI, re-roled to "extractor" so it reads
-  // extractor.md and names its transcript / actor identity for extraction.
   const implementer = legs?.implementer ?? { actor: "claude", provider: "claude", model: CLI_DEFAULTS.claude.model, effort: CLI_DEFAULTS.claude.effort, fast: false };
   const leg = { ...implementer, role: "extractor" };
   return async ({ repoRoot, manifestPath, baselineId, cfg, attempt, checkOutput, isFix, spikeMode, mapMode }) => {
-    // The leg cfg points the shared spawn infra at the TARGET repo for the
-    // transcript store and at the factory prompts for the role prompt. abs/execRoot
-    // resolve against the target so the agent runs inside the project it extracts.
     const legCfg = { ...cfg, promptsDir, execRoot: repoRoot };
     const issue = extractionIssue();
     const specKind = readManifestSpecKind(repoRoot, manifestPath);
@@ -733,23 +501,15 @@ function makeDefaultSpawnExtractor(options: ExtractIssuesOptions, baseCfg: Recor
   };
 }
 
-/** The frozen manifest's spec_kind — falling back to a live detection for pre-v0.7.0
- *  manifests that predate the field (same shared derivation, so the two agree). */
 function readManifestSpecKind(repoRoot: string, manifestPath: string): SpecKind {
   try {
     const manifest = JSON.parse(readFileSync(resolve(repoRoot, manifestPath), "utf8")) as { spec_kind?: unknown };
     if (manifest.spec_kind === "project" || manifest.spec_kind === "feature") return manifest.spec_kind;
   } catch {
-    // fall through to live detection
   }
   return detectSpecKind(repoRoot);
 }
 
-// Build the real VERIFIER seam: drive the REVIEWER CLI (Codex by default) with
-// the independent fidelity-verifier prompt. resolveAgentLegs guarantees the
-// reviewer CLI differs from the implementer CLI, so the agent that judges fidelity
-// never authored the corpus — the same distinct-agent invariant the dev-loop
-// enforces for implement+review.
 function makeDefaultSpawnVerifier(options: ExtractIssuesOptions, baseCfg: Record<string, unknown>, legs: ResolvedLegs): (args: SpawnVerifierArgs) => Promise<LegResult> {
   const promptsDir = options.promptsDir ?? FACTORY_PROMPTS_DIR;
   const reviewer = legs?.reviewer ?? { actor: "codex", provider: "codex", model: CLI_DEFAULTS.codex.model, effort: CLI_DEFAULTS.codex.effort, fast: false };
@@ -763,24 +523,12 @@ function makeDefaultSpawnVerifier(options: ExtractIssuesOptions, baseCfg: Record
   };
 }
 
-// Dispatch a leg to the shared spawn helper for its assigned CLI. Both legs reuse
-// the SAME reviewer/implementer-leg infra the dev-loop uses (runClaudeLeg /
-// runCodexLeg via agent-spawn.ts) — the extractor through the Claude/implementer
-// path, the verifier through the Codex/reviewer path — so neither the flags, the
-// MCP wiring, nor the transcript capture are duplicated here.
 function runLegForProvider(leg: Leg, issue: ExtractionIssue, legCfg: Record<string, unknown>, deps: LegDeps): LegRunResult {
-  // legCfg always carries the two paths the runners read — cast to the runners'
-  // LegConfig at this seam (Leg itself IS the runners' AgentLeg).
   const cfg = legCfg as unknown as LegConfig;
   if (leg.provider === "codex") return runCodexLeg(leg, issue, cfg, deps);
   return runClaudeLeg(leg, issue, cfg, deps);
 }
 
-// Build the real per-lens MAP-REVIEW seam: one REVIEWER-CLI leg per lens, each reading
-// map-review.md with its lens injected via context and writing a per-lens findings file.
-// The reviewer CLI differs from the extractor CLI (the same distinct-agent invariant the
-// fidelity verifier uses), so the agents that review the map never authored it. Each leg's
-// transcript carries a unique UUID, so the shared "map-review" role does not collide.
 function makeDefaultSpawnLens(options: ExtractIssuesOptions, baseCfg: Record<string, unknown>, legs: ResolvedLegs): (args: SpawnLensArgs) => Promise<LegRunResult> {
   const promptsDir = options.promptsDir ?? FACTORY_PROMPTS_DIR;
   const reviewer = legs?.reviewer ?? { actor: "codex", provider: "codex", model: CLI_DEFAULTS.codex.model, effort: CLI_DEFAULTS.codex.effort, fast: false };
@@ -794,7 +542,6 @@ function makeDefaultSpawnLens(options: ExtractIssuesOptions, baseCfg: Record<str
   };
 }
 
-// Parse a JSON file, or null if it is missing or unparseable.
 function readJsonOrNull(abs: string): unknown {
   if (!existsSync(abs)) return null;
   try {
@@ -804,8 +551,6 @@ function readJsonOrNull(abs: string): unknown {
   }
 }
 
-// Read one lens's structured findings; a missing or unparseable file means that lens
-// surfaced nothing, so it never blocks the run.
 function defaultReadMapFindings({ repoRoot, lensKey }: { repoRoot: string; lensKey: string }): LensFindings {
   const abs = resolve(repoRoot, mapReviewReportRel(lensKey));
   if (!existsSync(abs)) return { findings: [] };
@@ -816,17 +561,11 @@ function defaultReadMapFindings({ repoRoot, lensKey }: { repoRoot: string; lensK
   }
 }
 
-// Bind the real per-lens spawn + findings read into the pure map-review fan-out.
 function makeDefaultMapReview(options: ExtractIssuesOptions, cfg: Record<string, unknown>, legs: ResolvedLegs): (args: MapReviewArgs) => Promise<MapReviewAggregate> {
   const spawnLens = makeDefaultSpawnLens(options, cfg, legs);
-  // runMapReview types its `legs` as unknown[] (a lens leg may write nothing); at
-  // runtime each entry is a leg result carrying transcriptRel, so re-cast the aggregate.
   return async (args) => (await runMapReview({ ...args, spawnLens, readFindings: defaultReadMapFindings })) as MapReviewAggregate;
 }
 
-// Extra prompt context for the EXTRACTOR leg: the frozen baseline, the resolved S2
-// spike mode (G12) and S5 map mode (G4), + (on a fix pass) the exact
-// deterministic-check output and/or fidelity-verdict problems.
 function extractorContext({ manifestPath, baselineId, attempt, checkOutput, isFix, spikeMode, mapMode, specKind }: { manifestPath: string; baselineId: string; attempt: number; checkOutput: string | null; isFix: boolean; spikeMode: string; mapMode: string; specKind?: SpecKind }): string {
   return (
     `\n\n---\n\n## Extraction context for this run\n\n` +
@@ -858,9 +597,6 @@ function extractorContext({ manifestPath, baselineId, attempt, checkOutput, isFi
   );
 }
 
-// Extra prompt context for the VERIFIER leg: where the corpus + manifest are, and
-// where to WRITE its structured verdict. The verifier writes ONLY the verdict file
-// (it never edits the corpus — fixes flow back to the extractor).
 function verifierContext({ manifestPath, baselineId, attempt }: { manifestPath: string; baselineId: string; attempt: number }): string {
   return (
     `\n\n---\n\n## Fidelity verification context for this run\n\n` +
@@ -873,9 +609,6 @@ function verifierContext({ manifestPath, baselineId, attempt }: { manifestPath: 
   );
 }
 
-// Bind the shared leg runner to the TARGET repo's roots, and inject the
-// run-specific prompt context by wrapping composePrompt so the appended context
-// rides on the role prompt the shared runner reads.
 function legDepsForTarget(legCfg: Record<string, unknown>, issue: ExtractionIssue, repoRoot: string, context: string): LegDeps {
   const abs = (rel: string) => resolve(repoRoot, rel);
   return {
@@ -888,16 +621,6 @@ function legDepsForTarget(legCfg: Record<string, unknown>, issue: ExtractionIssu
   };
 }
 
-// Freeze .vivicy/canonical/** at the given version via the existing doc-baseline tool.
-// We shell out to it (rather than import) so the corpus-policy + git-clean +
-// approval guards it owns run exactly as in production. A frozen baseline needs
-// owner-approval evidence; for an unattended first freeze we pass a recorded
-// self-approval reference so the manifest is auditable (the owner froze by
-// invoking extraction). The git-clean guard still applies — a frozen baseline must
-// be cut from a committed tree.
-// Verify a found frozen manifest still matches the current spec on disk: doc-baseline
-// verify recomputes document_set_hash from .vivicy/canonical/** and fails on a mismatch
-// (the owner edited the spec since the freeze) — the signal to re-freeze.
 function defaultVerifyFrozenManifest({ repoRoot, manifestPath, baselineId }: { repoRoot: string; manifestPath: string; baselineId: string }): boolean {
   const tool = resolve(FACTORY_DIR, "doc-baseline.ts");
   const r = spawnSync(
@@ -959,11 +682,6 @@ function defaultRunReferenceCheck({ repoRoot }: { repoRoot: string }): CheckResu
   return runReferenceCheckImpl({ repoRoot });
 }
 
-// Read the independent verifier's structured fidelity verdict. The verdict is the
-// authority on FIDELITY (source faithfulness), the half the deterministic checks
-// cannot judge. A missing or unparseable file is NOT faithful: we return a verdict
-// that says so, with an explicit problem the extractor can act on, so a verifier
-// that wrote nothing usable can never be mistaken for a passing run.
 export function defaultReadVerdict({ repoRoot }: { repoRoot: string }): Verdict {
   const abs = resolve(repoRoot, VERDICT_REL);
   if (!existsSync(abs)) {
@@ -978,25 +696,16 @@ export function defaultReadVerdict({ repoRoot }: { repoRoot: string }): Verdict 
       problems: [{ issue: "*", kind: "unparseable_verdict", detail: `verdict JSON is invalid: ${error instanceof Error ? error.message : String(error)}` }],
     };
   }
-  // Honest shape coercion: faithful is true ONLY when the boolean is exactly true;
-  // anything else (missing, truthy-but-not-true, string "true") is treated as not
-  // faithful so a malformed verdict never green-lights the extraction.
   const faithful = parsed?.faithful === true;
   const problems = Array.isArray(parsed?.problems) ? (parsed.problems as VerdictProblem[]) : [];
   return { faithful, problems };
 }
 
-// The fidelity verdict is a transient verifier->orchestrator handoff, not a durable
-// report — its result is folded into extraction-status.json (the single report). Cleared
-// before a verifier leg (a dead verifier then reads as no_verdict, not a stale pass) and
-// after each read (so the reports dir keeps only extraction-status.json).
+// Cleared both before a verifier leg and after each read: without the pre-clear, a dead/non-writing verifier leg would read back a stale faithful:true from a PRIOR attempt.
 function clearVerdict(repoRoot: string): void {
   rmSync(resolve(repoRoot, VERDICT_REL), { force: true });
 }
 
-// Regenerate the viewer's architecture-data.json. generate-viewer-data.ts is a TS
-// entry the project runs via the same node-with-TS path the rest of the factory
-// uses; we shell out and surface its exit code.
 function defaultRunGenerateMap({ repoRoot, reconcileAgainst }: { repoRoot: string; reconcileAgainst?: string | null }): MapResult {
   const tool = resolve(FACTORY_DIR, "generate-viewer-data.ts");
   const args = [tool];
@@ -1009,13 +718,6 @@ function defaultRunGenerateMap({ repoRoot, reconcileAgainst }: { repoRoot: strin
   return { code: result.status ?? 1, output: `${result.stdout ?? ""}\n${result.stderr ?? ""}`.trim() };
 }
 
-// Persist a small, honest extraction-status report so the UI/map can show where
-// extraction is (authoring / validating / fixing / green / blocked). This is a
-// dedicated status surface, NOT the per-issue progress ledger (which is keyed by
-// graph items of issues that do not exist until extraction finishes).
-// Extraction phases mirrored to the notification log (P9) — observability only,
-// a no-op unless the launcher passed VIVICY_RUNTIME_DIR; the status file stays
-// the source of truth.
 const NOTIFY_BY_PHASE: Record<string, { level: "info" | "success" | "warning" | "error"; stage: string; message: string }> = {
   spike_proving: { level: "info", stage: "S3", message: "proving spikes in the target repo" },
   authoring: { level: "info", stage: "S6", message: "extracting issues from the frozen canonical" },
@@ -1035,15 +737,6 @@ function defaultEmitStatus(status: StatusEvent, repoRoot: string): void {
   if (mapped) notify({ ...mapped, event: `extraction_${status.phase}` });
 }
 
-// Commit the whole authored corpus MECHANICALLY on a green extraction (Item 2): the
-// frozen baseline, the authored issues, the catalog/matrix/exclusions/index, and
-// the regenerated architecture-map data — everything Vivicy produced — in one
-// commit, so the run ends with a committed corpus and a clean tree. Today a human
-// had to commit this; now the orchestrator does. `git add -A` is safe because the
-// .gitignore covers the complete never-commit set (transcripts/runtime/worktrees/
-// node_modules). A no-op commit (nothing staged, e.g. re-running a green extraction
-// whose corpus is already committed) is tolerated. Returns { committed } so the
-// caller/tests can assert the commit happened.
 function defaultCommitCorpus({ repoRoot, baselineId }: { repoRoot: string; baselineId: string }): { committed: boolean } {
   ensureGitRepo(repoRoot);
   ensureLocalGitIdentity(repoRoot);
@@ -1055,8 +748,6 @@ function defaultCommitCorpus({ repoRoot, baselineId }: { repoRoot: string; basel
   }
   const message = `extraction: author corpus from frozen baseline ${baselineId}\n\nFrozen baseline + issues + catalog/matrix/index + architecture map; deterministic checks pass, fidelity verified.`;
   const commit = spawnSync("git", ["commit", "-m", message], { cwd: repoRoot, encoding: "utf8" });
-  // A no-op commit (nothing to commit) exits non-zero; treat "nothing to commit" as
-  // already-committed (still a clean tree), not a failure.
   const out = `${commit.stdout ?? ""}\n${commit.stderr ?? ""}`;
   if ((commit.status ?? 1) !== 0 && !/nothing to commit/i.test(out)) {
     process.stderr.write(`extract-issues: corpus commit failed: ${out.trim()}\n`);
@@ -1065,26 +756,16 @@ function defaultCommitCorpus({ repoRoot, baselineId }: { repoRoot: string; basel
   return { committed: true };
 }
 
-// Run `git <args>` in repoRoot and report status + combined output.
 function runGit(repoRoot: string, args: string[]): { status: number; stdout: string; stderr: string } {
   const r = spawnSync("git", args, { cwd: repoRoot, encoding: "utf8" });
   return { status: r.status ?? 1, stdout: r.stdout ?? "", stderr: r.stderr ?? "" };
 }
 
-// Defensive: make sure repoRoot is a git repo before we try to commit. The scaffold
-// normally `git init`-s a from-scratch target already, so this is belt-and-braces for
-// the edge case where the owner pointed extraction at a never-initialized dir. We
-// never touch an existing repo's history — `git init` on an already-initialized repo
-// is a harmless no-op. Returns true when repoRoot is (now) a repo.
 function ensureGitRepo(repoRoot: string): boolean {
   if (runGit(repoRoot, ["rev-parse", "--is-inside-work-tree"]).status === 0) return true;
   return runGit(repoRoot, ["init"]).status === 0;
 }
 
-// Set a LOCAL (repo-scoped) git identity only when none is configured, so the
-// mechanical commit succeeds on a fresh machine with no global git identity. We never
-// clobber an existing global/local identity — we only fill the gap. `git commit` fails
-// hard without an identity; this closes that failure mode without any human config.
 function ensureLocalGitIdentity(repoRoot: string): void {
   if (runGit(repoRoot, ["config", "user.email"]).stdout.trim() === "") {
     runGit(repoRoot, ["config", "user.email", "vivicy@local"]);
@@ -1094,20 +775,6 @@ function ensureLocalGitIdentity(repoRoot: string): void {
   }
 }
 
-// Mechanical SPEC-SNAPSHOT commit, run BEFORE the freeze. The owner writes the
-// canonical spec into .vivicy/canonical/** and clicks Extract — leaving a dirty (or
-// not-even-a-repo) tree. The freeze (doc-baseline --status frozen) requires a git repo
-// with a CLEAN committed tree, so here the orchestrator — never a human — ensures the
-// target is a repo (defensive `git init`), configures a local identity if the machine
-// has none, and commits any pending changes as a clear "spec snapshot". Safety:
-//   - `git add -A` respects the scaffold/fixture .gitignore (transcripts / runtime /
-//     worktrees / node_modules are never committed).
-//   - "nothing to commit" (an already-clean repo, e.g. the scaffold already committed
-//     the skeleton and the owner edited nothing yet, or a re-run) is a no-op, NOT an
-//     error — no redundant empty commit is created.
-//   - No remote is ever contacted; nothing is force-pushed.
-// Returns { committed: boolean } — true when a snapshot commit was made, false when
-// the tree was already clean (nothing to snapshot) or git was unavailable.
 function defaultCommitSpecSnapshot({ repoRoot }: { repoRoot: string }): { committed: boolean } {
   if (!ensureGitRepo(repoRoot)) {
     process.stderr.write("extract-issues: could not initialize a git repo for the spec snapshot\n");
@@ -1119,8 +786,6 @@ function defaultCommitSpecSnapshot({ repoRoot }: { repoRoot: string }): { commit
     process.stderr.write(`extract-issues: spec-snapshot git add -A failed: ${add.stderr || add.stdout}\n`);
     return { committed: false };
   }
-  // Nothing staged => the tree is already clean (respecting .gitignore). The freeze
-  // will see a clean committed tree; do NOT create an empty commit.
   if (runGit(repoRoot, ["diff", "--cached", "--quiet"]).status === 0) {
     return { committed: false };
   }
@@ -1137,12 +802,6 @@ function defaultCommitSpecSnapshot({ repoRoot }: { repoRoot: string }): { commit
   return { committed: true };
 }
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-// The active frozen baseline, or null. A manifest is frozen-and-active when its
-// status is "frozen" and it carries no `superseded` marker.
 export function findFrozenManifest(repoRoot: string): FrozenBaseline | null {
   const dir = resolve(repoRoot, BASELINE_DIR);
   if (!existsSync(dir)) return null;
@@ -1167,8 +826,6 @@ export function findFrozenManifest(repoRoot: string): FrozenBaseline | null {
   return null;
 }
 
-// Flatten the two checks' errors/warnings into a single text block the fix prompt
-// (and the blocked report) hands to the agent / human.
 export function formatCheckOutput(checks: Checks | null): string {
   if (!checks) return "(no check output)";
   const parts: string[] = [];
@@ -1183,7 +840,6 @@ export function formatCheckOutput(checks: Checks | null): string {
     parts.push(`traceability-check: ${traceability.summary ?? `exit ${traceability.exitCode}`}`);
     for (const e of traceability.errors ?? []) parts.push(`  error:\n${e}`);
   }
-  // The remaining deterministic gates only matter to the fix prompt when they FAILED.
   const remaining: Array<[string, CheckResult | undefined]> = [
     ["spike-check", checks.spike],
     ["reference-check", checks.reference],
@@ -1197,8 +853,6 @@ export function formatCheckOutput(checks: Checks | null): string {
   return parts.join("\n");
 }
 
-// Flatten the independent verifier's structured fidelity verdict into a readable
-// block the fix prompt (and the blocked report) hands to the extractor / human.
 export function formatVerdict(verdict: Verdict | null): string | null {
   if (!verdict) return null;
   if (verdict.faithful === true) return "fidelity-verifier: faithful:true";
@@ -1215,10 +869,6 @@ export function formatVerdict(verdict: Verdict | null): string | null {
   return parts.join("\n");
 }
 
-// Flatten a FAILED architecture-map generation into a readable block the fix
-// prompt hands to the extractor. The generator's output carries the exact reason
-// (e.g. "Unsupported architecture-map.yml line:   - id: pipeline"), which the
-// extractor needs verbatim to author a parseable map.
 export function formatMapError(map: MapResult | null | undefined): string | null {
   if (!map || map.code === 0) return null;
   const detail = (map.output ?? "").trim();
@@ -1230,16 +880,8 @@ export function formatMapError(map: MapResult | null | undefined): string | null
   );
 }
 
-// Build the combined feedback block for a FIX pass / the blocked report: the
-// deterministic check output, the map-generation error, AND/OR the fidelity
-// verdict problems, whichever made the previous attempt non-green. Any part may be
-// absent (a red deterministic check short-circuits map-gen and the verifier; a
-// map-gen failure short-circuits the verifier).
 export function formatFixContext(checks: Checks | null, verdict: Verdict | null, map?: MapResult | null): string {
   const blocks: string[] = [];
-  // Only include the deterministic block when it actually failed (a green
-  // deterministic check that was then rejected on fidelity should not re-feed
-  // passing check output as if it were the problem).
   if (checks) {
     const anyFailed =
       (checks.semantic && (checks.semantic.exitCode !== 0 || checks.semantic.placeholder)) ||
@@ -1262,10 +904,6 @@ function countIssues(repoRoot: string): number {
     return 0;
   }
 }
-
-// ---------------------------------------------------------------------------
-// CLI entry
-// ---------------------------------------------------------------------------
 
 const cliEntry = process.argv[1] ? resolve(process.argv[1]) : null;
 if (cliEntry === fileURLToPath(import.meta.url)) {

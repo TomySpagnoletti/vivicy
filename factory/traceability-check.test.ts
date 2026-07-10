@@ -84,7 +84,7 @@ test("fails when an MVP requirement is covered by no issue", () => {
 });
 
 test("requires the catalog once issues exist", () => {
-  const f = fixture({ issues: [{ id: "ISS-1", requirement_ids: ["REQ-A-001"] }] }); // no requirements => no catalog
+  const f = fixture({ issues: [{ id: "ISS-1", requirement_ids: ["REQ-A-001"] }] });
   try {
     const r = f.run();
     assert.equal(r.exitCode, 1);

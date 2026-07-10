@@ -160,14 +160,12 @@ test("a fully-populated accepted_current_build CR passes", () => {
 
 test("docs_applied needs resulting_* fields and a resulting manifest that exists", () => {
   const base = validCr({ status: "docs_applied", classification: "minor_product_change", ...decided, ...previousBaseline });
-  // Missing resulting_* fields.
   const f1 = fixture({ crs: { "CR-0001-x.md": base } });
   try {
     assert.ok(has(f1.run(), "cr_resulting_baseline"));
   } finally {
     f1.cleanup();
   }
-  // resulting_* present but the manifest hash matches nothing in baselines/.
   const withResulting = {
     ...base,
     resulting_baseline_id: "baseline-v1.1.0",
@@ -182,7 +180,6 @@ test("docs_applied needs resulting_* fields and a resulting manifest that exists
   } finally {
     f2.cleanup();
   }
-  // With a matching manifest on disk, it passes.
   const f3 = fixture({ crs: { "CR-0001-x.md": withResulting }, manifests: { "baseline-v1.1.0.json": { manifest_hash: "m2" } } });
   try {
     assert.deepEqual(f3.run().errors, []);
@@ -247,15 +244,11 @@ test("CR_STATUSES exposes the eight statuses", () => {
   assert.equal(CR_STATUSES.length, 8);
 });
 
-// --- G7: the CR writer + owner-decision recorder -------------------------------------
-
 function emptyRepo() {
   const root = mkdtempSync(resolve(tmpdir(), "cc-write-"));
   return { root, cleanup: () => rmSync(root, { force: true, recursive: true }) };
 }
 
-// A frozen baseline manifest under .vivicy/baselines/ — the pre-change identity an approved
-// CR chains from (decideChangeRequest reads its baseline_id/version/hashes into previous_*).
 function writeFrozenManifest(root: string, { version = "1.0.0" }: { version?: string } = {}) {
   const id = `baseline-v${version}`;
   const abs = resolve(root, `.vivicy/baselines/${id}.json`);
@@ -274,7 +267,6 @@ test("createChangeRequest writes an idea CR that passes the checker, returning i
     const { id, path } = createChangeRequest({ repoRoot: root, title: "Add a bulk export", now: () => "2026-07-02T00:00:00.000Z" });
     assert.equal(id, "CR-0001");
     assert.match(path, /^\.vivicy\/change-requests\/CR-0001-add-a-bulk-export\.md$/);
-    // The written file passes the real gate (valid enums, sequential id, decision scaffold).
     assert.equal(runChangeControlCheck({ repoRoot: root }).exitCode, 0);
     const cr = readChangeRequest(root, "CR-0001")!;
     assert.equal(cr.fm!.status, "idea");
@@ -293,7 +285,6 @@ test("createChangeRequest numbers ids sequentially and stays gap-free", () => {
     const b = createChangeRequest({ repoRoot: root, title: "Second", classification: "major_product_change" });
     const c = createChangeRequest({ repoRoot: root, title: "Third", source: "owner" });
     assert.deepEqual([a.id, b.id, c.id], ["CR-0001", "CR-0002", "CR-0003"]);
-    // Three sequential CRs still pass change-control together.
     assert.equal(runChangeControlCheck({ repoRoot: root }).exitCode, 0);
     assert.equal(nextCrId(readChangeRequests(root)), "CR-0004");
   } finally {
@@ -335,14 +326,12 @@ test("decideChangeRequest approved fills previous_* from the frozen manifest and
     assert.equal(result.status, "accepted_current_build");
     const cr = readChangeRequest(root, id)!;
     assert.equal(cr.fm!.status, "accepted_current_build");
-    // previous_baseline_* is filled from the frozen manifest (the pre-change identity).
     assert.equal(cr.fm!.previous_baseline_id, frozen.id);
     assert.equal(cr.fm!.previous_baseline_version, "1.2.0");
     assert.equal(cr.fm!.previous_manifest_hash, frozen.manifestHash);
     assert.equal(cr.fm!.owner_decision, "approved");
     assert.equal(cr.fm!.owner_decision_by, "owner:ui");
     assert.equal(cr.fm!.owner_decision_evidence, "approved in the UI");
-    // The decided CR passes the real gate (accepted_current_build needs previous_* + evidence).
     assert.equal(runChangeControlCheck({ repoRoot: root }).exitCode, 0);
   } finally {
     cleanup();
@@ -354,7 +343,6 @@ test("decideChangeRequest approved refuses when no frozen baseline exists to cha
   try {
     const { id } = createChangeRequest({ repoRoot: root, title: "No baseline yet" });
     assert.throws(() => decideChangeRequest({ repoRoot: root, id, decision: "approved", decidedBy: "owner:ui" }), /no frozen baseline/);
-    // The CR is untouched (still idea) after the refused approval.
     assert.equal(readChangeRequest(root, id)!.fm!.status, "idea");
   } finally {
     cleanup();
@@ -370,7 +358,6 @@ test("decideChangeRequest rejected records the decision and passes the checker",
     const cr = readChangeRequest(root, id)!;
     assert.equal(cr.fm!.status, "rejected");
     assert.equal(cr.fm!.owner_decision, "rejected");
-    // A rejected CR needs decision evidence (no previous_* required) — it passes the gate.
     assert.equal(runChangeControlCheck({ repoRoot: root }).exitCode, 0);
   } finally {
     cleanup();
@@ -383,7 +370,6 @@ test("decideChangeRequest refuses to decide an already-decided CR (no double-dec
     writeFrozenManifest(root);
     const { id } = createChangeRequest({ repoRoot: root, title: "Once only" });
     decideChangeRequest({ repoRoot: root, id, decision: "approved", decidedBy: "owner:ui" });
-    // A second decision on the now-accepted CR is refused (only idea|under_review decidable).
     assert.throws(() => decideChangeRequest({ repoRoot: root, id, decision: "rejected", decidedBy: "owner:ui" }), /only idea\|under_review/);
   } finally {
     cleanup();

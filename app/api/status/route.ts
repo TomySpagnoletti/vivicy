@@ -1,7 +1,6 @@
 import { ControlError, readDevStatus } from "@/lib/control"
 import { getSpawner } from "@/lib/spawner"
 
-// Runs the read-only dev-status probe; Node runtime only.
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 

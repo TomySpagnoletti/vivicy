@@ -96,8 +96,6 @@ describe("appendNotification (G9 writer)", () => {
 
     const rows = readNotifications()
     expect(rows.map((r) => r.message)).toEqual(["a", "b", "c"])
-    // Every appended line is well-formed JSON terminated by exactly one newline —
-    // no partial/interleaved writes.
     const raw = readFileSync(getNotificationsPath(), "utf8")
     expect(raw.endsWith("\n")).toBe(true)
     expect(raw.split("\n").filter((l) => l.trim().length > 0)).toHaveLength(3)
@@ -107,8 +105,6 @@ describe("appendNotification (G9 writer)", () => {
     const first = appendNotification({ level: "info", stage: "extract", event: "started", message: "a" })
     const second = appendNotification({ level: "error", stage: "extract", event: "failed", message: "b" })
 
-    // Two back-to-back calls routinely land in the same millisecond; the id
-    // must still differ (per-process counter), which is the whole point of id.
     expect(first.id).not.toBe(second.id)
   })
 })
@@ -127,8 +123,6 @@ describe("dismissNotifications (G9 dismissal mechanism: rewrite dismissed in pla
   })
 
   it("dismisses exactly one of two rows sharing the same ts (the cross-process same-ms case)", () => {
-    // Force the ts collision deterministically, as two processes appending in
-    // the same millisecond would: identical ts, distinct ids.
     writeFileSync(
       getNotificationsPath(),
       [

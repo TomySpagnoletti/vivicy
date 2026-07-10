@@ -1,26 +1,3 @@
-/**
- * Vivi Action Protocol (v0.7.0 — "the governess"): the ONE structured channel through
- * which Vivi drives the control plane. Vivi's reply may carry a single fenced block:
- *
- *   ```vivicy-action
- *   {"actions": [{"tool": "pipeline.start", "args": {}}]}
- *   ```
- *
- * The agent leg itself has ZERO tool access — it emits intent as text, and the
- * orchestrator (runViviTurn) parses it here, validates every action against the
- * server-side registry below, and executes by calling the SAME lib/control functions
- * the UI routes and the G14 CLI drive. Enforcement is always the orchestrator's (P5):
- * an unknown tool or bad args yields an honest per-action failure result, never a
- * trusted side effect. Every EXECUTED action appends a notification (P9).
- *
- * Deliberately NOT a tool: `cr.decide` — the CR decision is the single human
- * touchpoint (P2). Vivi may present a decision; only the owner's click records one.
- *
- * The generalized successor of the `vivicy-skills` fence (still parsed by vivi.ts as
- * a deprecated alias): same strict-JSON, same "malformed is a note, not a rejection"
- * posture, one honest outcome per action.
- */
-
 import {
   cancelSpecCycle,
   getExtractionStatus,
@@ -38,41 +15,25 @@ import {
 import { applyLayoutSave, validateLayoutSavePayload } from "@/lib/map-layout-save"
 import { appendNotification, readNotifications, type Notification } from "@/lib/notifications"
 
-/** Matches Vivi's action fenced block (see prompts/vivi.md, "Acting on Vivicy"). */
+/** Matches Vivi's action fenced block (see prompts/vivi.md, "Acting on Vivicy"); succeeds the legacy "vivicy-skills" fence still parsed by vivi.ts as a deprecated alias. */
 const ACTION_FENCE = /```vivicy-action\s*\n([\s\S]*?)\n\s*```/
 
-/** Hard cap on actions per turn — a runaway batch is a prompt bug, not a workload. */
 const MAX_ACTIONS_PER_TURN = 5
 
-/** One action as requested by Vivi's fenced block (parsed, not yet validated). */
 export interface ViviActionRequest {
   tool: string
   args: Record<string, unknown>
 }
 
-/** One executed (or refused) action's honest outcome, recorded on the transcript. */
 export interface ViviActionResult {
   tool: string
   ok: boolean
-  /** One human sentence: what happened (or why it was refused). */
   summary: string
-  /** Compact machine payload for read verbs (status, lists) — fed back to Vivi. */
   data?: unknown
 }
 
-/** Outcome of {@link parseActionDirective}: requests, an honest malformed reason,
- *  or null when the reply carries no action block at all. */
 export type ActionDirective = { actions: ViviActionRequest[] } | { malformed: string } | null
 
-/**
- * Parse the optional `vivicy-action` fenced block out of a Vivi reply. STRICT:
- * valid JSON of shape `{"actions": [{"tool": "<name>", "args": {...}?}, ...]}`,
- * 1..MAX_ACTIONS_PER_TURN entries. A present-but-broken block returns `{ malformed }`
- * so the caller appends an honest note WITHOUT rejecting the turn (same posture as
- * the legacy skills fence); no block returns null. Registry membership is NOT
- * checked here — an unknown tool is refused at execution with a per-action result,
- * so a partially-valid batch still reports honestly on every entry.
- */
 export function parseActionDirective(reply: string): ActionDirective {
   const match = reply.match(ACTION_FENCE)
   if (!match) return null
@@ -104,11 +65,6 @@ export function parseActionDirective(reply: string): ActionDirective {
   return { actions: out }
 }
 
-/**
- * The executable surface behind the registry — every entry resolves to a control-plane
- * function. Injectable so tests exercise the registry without spawning anything; the
- * default wiring is the real lib/control + lib/map-layout-save modules.
- */
 export interface ViviActionDeps {
   readDevStatus: typeof readDevStatus
   getExtractionStatus: typeof getExtractionStatus
@@ -127,7 +83,6 @@ export interface ViviActionDeps {
   notify: typeof appendNotification
 }
 
-/** The real dependency wiring — every verb backed by the module of record. */
 export function defaultViviActionDeps(): ViviActionDeps {
   return {
     readDevStatus,
@@ -152,7 +107,7 @@ export function defaultViviActionDeps(): ViviActionDeps {
 const RETRYABLE_STAGES = ["extract", "skills", "dev"] as const
 type RetryableStage = (typeof RETRYABLE_STAGES)[number]
 
-/** Every verb Vivi may invoke, with a one-line contract (mirrored in prompts/vivi.md). */
+/** Mirrored in prompts/vivi.md — keep in sync. `cr.decide` is deliberately absent: the CR decision is the sole human touchpoint, recorded only by the owner's click. */
 export const VIVI_ACTION_TOOLS = [
   "status.read",
   "pipeline.start",
@@ -175,7 +130,6 @@ function isKnownTool(tool: string): tool is ViviActionTool {
   return (VIVI_ACTION_TOOLS as readonly string[]).includes(tool)
 }
 
-/** Non-empty trimmed string list from `args[key]`, or null when absent/invalid. */
 function stringList(args: Record<string, unknown>, key: string): string[] | null {
   const raw = args[key]
   if (!Array.isArray(raw) || raw.length === 0) return null
@@ -187,12 +141,7 @@ function stringList(args: Record<string, unknown>, key: string): string[] | null
   return out
 }
 
-/**
- * Execute one validated batch of actions SEQUENTIALLY (order is Vivi's plan; a
- * failed action never aborts the rest — each entry gets its own honest result).
- * Every executed action appends a notification with stage "vivi" (P9), level
- * mirroring the outcome, so the autonomous internals stay loud.
- */
+/** Sequential by design — actions mutate shared external state (supervisor process, files); do not parallelize. */
 export async function executeViviActions(
   spawner: Spawner,
   actions: ViviActionRequest[],
@@ -209,7 +158,6 @@ export async function executeViviActions(
         message: `Vivi action ${action.tool}: ${result.summary}`,
       })
     } catch {
-      // A notification write failure never breaks the action outcome itself.
     }
     results.push(result)
   }
@@ -275,7 +223,6 @@ async function executeOne(
         if (typeof stage !== "string" || !(RETRYABLE_STAGES as readonly string[]).includes(stage)) {
           return { tool, ok: false, summary: `args.stage must be one of: ${RETRYABLE_STAGES.join(", ")}` }
         }
-        // Identical dispatch to the retry-stage route and the G14 CLI.
         if ((stage as RetryableStage) === "extract") {
           const result = await deps.runExtract(spawner)
           return { tool, ok: result.ok, summary: result.summary || result.status, data: { stage, status: result.status } }
@@ -311,9 +258,7 @@ async function executeOne(
         }
       }
       case "map.move": {
-        // Reuses the exact validated UI save path: coordinates + edge-label ratios
-        // only, unknown ids refused, source YAML patched line-by-line, regen with
-        // rollback, VIVICY_MAP_LAYOUT_WRITE kill-switch still applies.
+        // Same validated path as the UI save — unknown ids refused, VIVICY_MAP_LAYOUT_WRITE kill-switch still applies; no privileged bypass for Vivi.
         const payload = deps.validateLayoutSavePayload(args)
         const saved = await deps.applyLayoutSave({ payload })
         const moved = payload.nodes.length
@@ -366,16 +311,12 @@ async function executeOne(
   }
 }
 
-/** Render executed results as the honest per-action lines a transcript turn records. */
 export function renderActionResults(results: ViviActionResult[]): string {
   return results
     .map((r) => `${r.ok ? "✓" : "✗"} ${r.tool}: ${r.summary}`)
     .join("\n")
 }
 
-/** Remove the action fence from a reply for display/transcript purposes — the
- *  requested actions live on as the structured "action" turn's results, so the raw
- *  JSON block adds nothing for a human reader. */
 export function stripActionFence(reply: string): string {
   return reply.replace(ACTION_FENCE, "").replace(/\n{3,}/g, "\n\n").trim()
 }

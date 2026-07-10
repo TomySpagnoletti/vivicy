@@ -14,10 +14,6 @@ import { resolveTargetRoot } from "./target-root.ts";
 import { atomicWriteJson } from "./atomic-write.ts";
 import { sleepSync } from "./sleep-sync.ts";
 
-// The target project whose ledger and issue index this module reads/writes.
-// Resolution lives in target-root.ts (VIVICY_TARGET_ROOT, else null).
-// Entrypoints surface the null case; the in-process helpers below resolve
-// repo-relative paths against it.
 const repoRoot = resolveTargetRoot();
 const issueIndexPath = ".vivicy/development/issue-index.json";
 const progressLedgerPath = ".vivicy/development/progress-ledger.json";
@@ -32,28 +28,16 @@ export const progressEventTypes = [
   "gate_failed",
   "issue_blocked",
   "issue_completed",
-  // The only event allowed to downgrade a terminal status (verified/implemented)
-  // back to in_progress; it also bypasses the stale-timestamp guard.
   "issue_reopened",
   "review_started",
   "review_completed",
-  // S3 spike proving (G3): the substance-verification stage emits these around each
-  // spike's prover/verifier pair. They are keyed by spike gate_id (not a graph item),
-  // so they are recorded through the spike prover's own sink, not applyProgressEvent.
+  // Keyed by a spike gate_id, not a graph item; recorded via the spike prover's own sink, not applyProgressEvent.
   "spike_proof_started",
   "spike_proof_completed",
-  // S8 readiness check (G5): the per-issue non-linear-dev verdict and its
-  // consequences. readiness_update_applied records a bounded issue-text (execution
-  // detail) edit; issue_parked_on_cr records an intention-level block that parks the
-  // issue on a change request while the loop keeps moving on other ready issues.
   "readiness_check_started",
   "readiness_check_completed",
   "readiness_update_applied",
   "issue_parked_on_cr",
-  // S10 merge integrity (G6): the two integration-time judgments. post_merge_gate_failed
-  // is the deterministic detection that a merge damaged the integration tree (green
-  // pre-merge, red post-merge); the merge_conflict_* pair records whether the bounded
-  // merge-resolver leg reconciled a conflicting worktree branch.
   "post_merge_gate_failed",
   "merge_conflict_resolved",
   "merge_conflict_unresolved",
@@ -61,12 +45,6 @@ export const progressEventTypes = [
 
 export type ProgressEventType = (typeof progressEventTypes)[number];
 
-// Optional actor role on an event/active item, so the map can show which agent
-// (the implementer or the independent reviewer) is acting. The orchestrator sets
-// the role mechanically from the leg it is running, never the agent itself.
-// spike_prover / spike_verifier are the S3 proving legs (G3), the R12 pair on the
-// spike substance stage. readiness-checker (S8) and merge-resolver (S10) are advisory
-// legs that run on the implementer CLI; their verdicts the orchestrator re-gates deterministically.
 export const progressRoles = ["implementer", "reviewer", "spike_prover", "spike_verifier", "readiness-checker", "merge-resolver"] as const;
 
 export type ProgressRole = (typeof progressRoles)[number];
@@ -84,14 +62,10 @@ const activeStateByEvent: Partial<Record<ProgressEventType, ActiveItemState>> = 
   issue_started: "working",
   review_completed: "reviewing",
   review_started: "reviewing",
-  // S8 readiness: the check + a bounded issue edit are working-phase; parking on a CR
-  // is a block state so the map lights the parked node until a CR decision reopens it.
   readiness_check_started: "working",
   readiness_check_completed: "working",
   readiness_update_applied: "working",
   issue_parked_on_cr: "blocked",
-  // S10 merge integrity: a damaged-merge detection or an unresolved conflict is a block;
-  // a resolved conflict returns the issue to the working phase for its retried merge.
   post_merge_gate_failed: "blocked",
   merge_conflict_unresolved: "blocked",
   merge_conflict_resolved: "working",
@@ -99,9 +73,7 @@ const activeStateByEvent: Partial<Record<ProgressEventType, ActiveItemState>> = 
 
 export type GraphItemStatus = "in_progress" | "blocked" | "reviewing" | "implemented" | "verified";
 
-// Higher rank = more advanced; normal events may only raise (or hold) a status.
-// "blocked" shares in_progress's rank so blocking an in-progress item is allowed
-// while a stray block still cannot downgrade a verified item.
+// Rank only moves forward (>=); blocked shares in_progress's rank so it can flip an in-progress item but never downgrade a verified one.
 const graphStatusRank: Record<GraphItemStatus, number> = {
   in_progress: 1,
   blocked: 1,
@@ -110,15 +82,12 @@ const graphStatusRank: Record<GraphItemStatus, number> = {
   verified: 4,
 };
 
-// Hand-rolled O_EXCL lockfile to avoid extra dependencies; locks past
-// LOCK_STALE_MS or held by a dead PID are reclaimed as abandoned.
+// Hand-rolled O_EXCL lockfile: deliberately avoids adding a dependency.
 const LOCK_STALE_MS = 30_000;
 const LOCK_ACQUIRE_TIMEOUT_MS = 10_000;
 const LOCK_RETRY_MS = 25;
 const CAS_MAX_ATTEMPTS = 50;
 
-// The ledger event record: the contract every emitter (dev-loop legs, reopen)
-// writes through recordProgressEvent/applyProgressEvent.
 export interface ProgressEvent {
   event_type: ProgressEventType;
   issue_id: string;
@@ -133,7 +102,6 @@ export interface ProgressEvent {
   worktree?: string;
 }
 
-// The slice of the issue index this module validates events against.
 export interface ProgressIssue {
   id: string;
   graph_refs: string[];
@@ -145,8 +113,7 @@ export interface ProgressIssueIndex {
   verification_evidence_ref_grammar: string;
 }
 
-// Gate-run evidence record (written by the dev-loop gate runner; read here to
-// bind a gate_passed/issue_completed event to the issue's declared gate ids).
+// Written by the dev-loop gate runner (a separate module).
 export interface GateRunRecord {
   gate_id: string;
   issue_id: string;
@@ -187,8 +154,7 @@ export interface ProgressLedger {
   updated_at: string | null;
   graph_item_states: GraphItemState[];
   active_items: ActiveItem[];
-  // Open record: unknown fields (e.g. the baseline identity quartet) pass
-  // through applyProgressEvent's spread untouched.
+  // Deliberately open: unknown fields (e.g. baseline identity data) are written by other code and pass through untouched.
   [key: string]: unknown;
 }
 
@@ -208,8 +174,7 @@ export function recordProgressEvent(event: ProgressEvent, paths: ProgressLedgerP
 
   const lock = acquireLock(lockPath);
   try {
-    // The lock already serializes writers; the compare-and-swap additionally
-    // guards against a lock force-stolen mid-write.
+    // Lock already serializes writers; CAS additionally guards against a lock force-stolen mid-write.
     for (let attempt = 0; attempt < CAS_MAX_ATTEMPTS; attempt += 1) {
       const baseLedger = readProgressLedger(ledgerRelPath);
       const baseRevision = baseLedger.revision ?? 0;
@@ -234,15 +199,12 @@ interface LockHandle {
   lockPath: string;
 }
 
-// The lockfile body shape (written on acquire, read tolerantly on reclaim).
 interface LockOwner {
   pid?: number;
   acquired_at?: string;
   epoch_ms?: number;
 }
 
-// The lockfile body records owner pid + timestamp so a crashed holder's lock
-// can be reclaimed.
 function acquireLock(lockPath: string): LockHandle {
   const deadline = Date.now() + LOCK_ACQUIRE_TIMEOUT_MS;
   for (;;) {
@@ -275,7 +237,6 @@ function releaseLock(lock: LockHandle): void {
   }
 }
 
-// Returns true if a stale lock was found and removed (caller should retry acquire).
 function reclaimStaleLock(lockPath: string): boolean {
   let stat: Stats;
   try {
@@ -330,14 +291,11 @@ export function applyProgressEvent({
   const normalized = normalizeProgressEvent(event);
   validateProgressEvent(normalized, issueIndex);
   const now = normalized.timestamp;
-  // Never substitute the issue's full set: events declare their explicit graph
-  // focus (validated above).
+  // graphRefs come from the event, not the issue's full set — events declare their explicit graph focus (validated above).
   const graphRefs = normalized.graph_refs;
   const activeItemId = normalized.active_item_id ?? `${normalized.actor}:${normalized.session_ref}:${normalized.issue_id}`;
   const nextLedger: ProgressLedger = {
-    // Spread first: unknown fields (e.g. the unconditional baseline identity
-    // fields baseline_id/baseline_version/manifest_hash/document_set_hash) are
-    // preserved across writes instead of being silently dropped.
+    // Spread the ledger first: reordering would silently drop unknown fields (e.g. baseline identity data) instead of round-tripping them.
     ...ledger,
     schema_version: 1,
     updated_at: maxTimestamp(ledger.updated_at, now),
@@ -365,9 +323,6 @@ export function applyProgressEvent({
   }
 
   if (normalized.event_type === "review_started" || normalized.event_type === "review_completed") {
-    // review_completed carrying implemented-evidence advances the node to
-    // implemented; any other review event keeps the node in the reviewing phase
-    // so it shows as a distinct light on the map.
     const reviewStatus =
       normalized.event_type === "review_completed" && normalized.evidence_refs.length > 0 ? "implemented" : "reviewing";
     upsertGraphStates(nextLedger, graphRefs, normalized.issue_id, reviewStatus, normalized.evidence_refs, now, { transcriptRefs: normalized.transcript_refs });
@@ -383,7 +338,6 @@ export function applyProgressEvent({
 export function createEmptyProgressLedger(): ProgressLedger {
   return {
     schema_version: 1,
-    // Monotonic compare-and-swap token for the locked writer.
     revision: 0,
     updated_at: null,
     graph_item_states: [],
@@ -391,9 +345,7 @@ export function createEmptyProgressLedger(): ProgressLedger {
   };
 }
 
-// The event after field validation/defaulting, the currency of the rest of the
-// module. event_type/role membership is enforced right after in
-// validateProgressEvent, which is why the casts here are sound.
+// Casts below are sound only because validateProgressEvent, called right after, enforces event_type/role membership.
 interface NormalizedProgressEvent {
   active_item_id: string | undefined;
   actor: string;
@@ -417,12 +369,9 @@ function normalizeProgressEvent(event: ProgressEvent): NormalizedProgressEvent {
     graph_refs: stringArray(event.graph_refs ?? []),
     issue_id: requiredString(event.issue_id, "issue_id"),
     role: optionalString(event.role) as ProgressRole | undefined,
-    // Required so active items always correlate to a real session.
     session_ref: requiredString(event.session_ref, "session_ref"),
     timestamp: optionalString(event.timestamp) ?? new Date().toISOString(),
-    // Repo-relative paths to the full agent transcript(s) for this leg (the
-    // gitignored JSONL captured by the orchestrator). Not existence-validated:
-    // transcripts live in a gitignored store and may be absent in tests.
+    // Gitignored JSONL transcript paths captured by the orchestrator; unlike evidence_refs, not existence-validated (may be absent in tests).
     transcript_refs: stringArray(event.transcript_refs ?? []),
     worktree: optionalString(event.worktree),
   };
@@ -470,9 +419,6 @@ function validateProgressEvent(event: NormalizedProgressEvent, issueIndex: Progr
   return issue;
 }
 
-// When the issue declares verification_gate_ids, a grammar-matching path alone is
-// not proof: at least one evidence ref must be a green gate-run record (per the
-// governance method) for one of the issue's own declared gate ids.
 function validateVerificationGateBinding(event: NormalizedProgressEvent, issue: ProgressIssue, matcher: RegExp): void {
   const declaredGateIds = Array.isArray(issue.verification_gate_ids) ? issue.verification_gate_ids : [];
   if (declaredGateIds.length === 0) {
@@ -482,7 +428,6 @@ function validateVerificationGateBinding(event: NormalizedProgressEvent, issue: 
     if (!matcher.test(ref)) {
       return false;
     }
-    // Arbitrary JSON from disk; the shape is re-checked field by field below.
     let record: GateRunRecord | null;
     try {
       record = JSON.parse(readFileSync(resolveRepoPath(parseEvidenceRef(ref).filePath), "utf8")) as GateRunRecord | null;
@@ -518,8 +463,6 @@ function upsertGraphStates(
   for (const graphRef of graphRefs) {
     const existing = ledger.graph_item_states.find((state) => state.graph_ref === graphRef);
     if (existing) {
-      // issue_ids/evidence_refs/transcript_refs are append-only facts; status and
-      // updated_at must not regress on a late or downgrading event.
       existing.issue_ids = [...new Set([...existing.issue_ids, issueId])];
       existing.evidence_refs = [...new Set([...existing.evidence_refs, ...evidenceRefs])];
       if (transcriptRefs.length) {
@@ -557,16 +500,14 @@ function upsertGraphStates(
   }
 }
 
-// Migration shim: ledgers written before per-issue states synthesize issue_states
-// from the recorded scalar status.
+// Migration shim: ledgers written before per-issue states synthesize issue_states from the recorded scalar status.
 function ensureIssueStates(state: GraphItemState): void {
   if (!state.issue_states || typeof state.issue_states !== "object") {
     state.issue_states = Object.fromEntries(state.issue_ids.map((id) => [id, state.status] as const));
   }
 }
 
-// A shared graph item displays the least-advanced linked issue state; at equal
-// lowest rank, blocked wins so a blocker stays visible.
+// Displays the least-advanced linked issue state; blocked wins ties so a blocker stays visible.
 function aggregateGraphStatus(issueStates: Record<string, GraphItemStatus>): GraphItemStatus {
   const statuses = Object.values(issueStates);
   let lowest = statuses[0];
@@ -628,11 +569,7 @@ function upsertActiveItem(
   ledger.active_items.push(next);
 }
 
-// A completed issue has no active work, so clear EVERY active item for it — not
-// only the one matching the completing actor. The reviewer leg runs under a
-// different actor than the implementer, so a single-id removal would leave the
-// reviewer's "reviewing" item dangling and hold the shared node's conservative
-// aggregate below verified forever.
+// Clears every active item for the issue, not just the completing actor's — the reviewer runs under a different actor than the implementer, so a single-id removal would leave its item dangling and hold the aggregate below verified forever.
 function removeActiveItemsForIssue(ledger: ProgressLedger, issueId: string): void {
   ledger.active_items = ledger.active_items.filter((item) => item.issue_id !== issueId);
 }
@@ -642,8 +579,7 @@ function readProgressLedger(path: string): ProgressLedger {
   return readJson<ProgressLedger>(path, "progress ledger");
 }
 
-// The declared T is the caller's trusted shape for the JSON file; downstream
-// runtime guards (validateProgressEvent, the ?? defaults) keep tolerating drift.
+// T is the caller's trusted shape only — JSON.parse here isn't validated; downstream guards (validateProgressEvent, ?? defaults) tolerate drift.
 function readJson<T>(path: string, label: string): T {
   try {
     return JSON.parse(readFileSync(resolveRepoPath(path), "utf8")) as T;

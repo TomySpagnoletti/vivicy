@@ -1,34 +1,4 @@
 #!/usr/bin/env node
-// Vivicy CR APPLICATION chain (S11 / G7): the docs_applied automation for an APPROVED
-// Change Request. Today the sequence "patch canonical -> re-freeze -> re-extract -> reopen impacted issues"
-// is run by hand; this module makes it mechanical for a CR in status
-// accepted_current_build, honouring the fold rule (§4): the CR ends `docs_applied` and the
-// canonical becomes the single consolidated intention (never an old spec + infinite annexes).
-//
-// It is a STANDALONE factory script (like extract-issues.ts), so both the CLI (G14) and
-// the app route drive it identically through the control plane. Sequence, each step
-// recorded to .vivicy/development/reports/apply-<id>.json as it progresses (a `phase`
-// field, honest failures — a blocked step leaves the CR accepted_current_build, never a
-// half-applied docs_applied):
-//
-//   (a) APPLY   — one implementer leg (role "cr-applier", prompt cr-applier.md) reads the
-//                 CR's decided intent and folds it into .vivicy/canonical/** with the
-//                 smallest faithful edit, touching no other file. Bounded: one retry if the
-//                 read-only gate below stays red.
-//   (b) VERIFY  — reference-check must stay green (the same read-only guard extraction
-//                 uses); a broken canonical link means the applier damaged the corpus.
-//   (c) FREEZE  — a new frozen baseline via the SAME doc-baseline path extraction uses
-//                 (patch bump of the CR's previous_baseline_version; approved_by from the
-//                 CR's owner_decision_by; approval_ref = the CR id). The CR is then stamped
-//                 docs_applied with resulting_baseline_* (stampChangeRequestApplied — the
-//                 stamped file must pass change-control).
-//   (d) EXTRACT — spawn extract-issues.ts as a CHILD. That orchestrator already snapshots
-//                 the prior source-map and, on green, reopens impacted issues INTERNALLY to
-//                 reopen exactly the impacted done issues (see extract-issues.ts, the runReopen
-//                 block near the green return). So reopening is INTRINSIC to the extraction
-//                 spawn — this chain deliberately does NOT call runReopen itself, to keep a
-//                 single owner of the reopening step.
-//   (e) TERMINAL — { status: "green" | "blocked", cr, baseline, extraction }.
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
@@ -50,14 +20,9 @@ import { FACTORY_DIR, FACTORY_PROMPTS_DIR, resolveTargetRoot } from "./target-ro
 const BASELINE_DIR = ".vivicy/baselines";
 const REPORTS_DIR = ".vivicy/development/reports";
 const CHANGE_REQUESTS_DIR = ".vivicy/change-requests";
-// The synthetic "issue" the applier leg runs against (transcript + actor/role handle),
-// keyed by the CR id so the transcript lands under a per-CR dir — the same pattern the
-// extractor and prover use for a leg that is not a product issue.
 const APPLIER_GRAPH_REF = "node:cr-apply";
-const DEFAULT_APPLY_ATTEMPTS = 2; // the initial apply + one bounded retry on a red gate
+const DEFAULT_APPLY_ATTEMPTS = 2;
 
-// The two agent legs the applier chooses from — `resolveAgentLegs` (dev-loop) builds
-// them; `Leg` is an alias of the runners' `AgentLeg`, one contract end to end.
 interface AgentLegs {
   implementer: AgentLeg;
   reviewer: AgentLeg;
@@ -83,8 +48,6 @@ export interface Extraction {
   exitCode?: number;
 }
 
-// The terminal state extract-issues writes to extraction-status.json (only the fields
-// cr-apply reads back from it).
 interface ExtractionStatus {
   phase?: string;
   summary?: string;
@@ -111,8 +74,6 @@ export interface FreezeArgs {
   approvalRef: string;
 }
 
-// A progressing report snapshot: `phase` plus any of the step-specific fields recorded
-// as the chain advances. The terminal snapshots additionally carry `status`.
 type ReportSnapshot = Record<string, unknown>;
 type RecordReport = (report: ReportSnapshot) => void;
 
@@ -141,21 +102,6 @@ export interface ApplyChangeRequestArgs {
   recordReport?: RecordReport;
 }
 
-/**
- * Run the application chain for one APPROVED CR. Deterministic orchestration around a
- * single bounded agent leg; the report file is the running source of truth (phase per
- * step, honest block on any failure).
- *
- * Injectable seams (all default to the real tooling):
- *   spawnApplier({ repoRoot, cr, cfg, attempt, feedback }) -> leg result; the applier edits
- *       .vivicy/canonical/** to fold in the CR's decided intent.
- *   runReferenceCheck({ repoRoot }) -> { exitCode, ... } (read-only canonical-link guard)
- *   runFreeze({ repoRoot, version, previousVersion, approvedBy, approvalRef })
- *       -> { manifestPath, baselineId, version, documentSetHash, manifestHash }
- *   runExtraction({ repoRoot }) -> { status, summary, reopened?, ... } (spawns extract-issues.ts)
- *   recordReport(report) -> persists the progressing report (defaults to the report file)
- *   now() -> ISO timestamp (tests pin it).
- */
 export async function applyChangeRequest(args: ApplyChangeRequestArgs = {}): Promise<TerminalReport> {
   const repoRoot = args.repoRoot;
   if (!repoRoot) {
@@ -165,8 +111,6 @@ export async function applyChangeRequest(args: ApplyChangeRequestArgs = {}): Pro
   if (!id) throw new Error("applyChangeRequest: a CR id (e.g. CR-0001) is required");
 
   const cfg: Config = { ...DEFAULT_CONFIG, ...(args.cfg ?? {}) };
-  // resolveAgentLegs yields dev-loop's Leg (provider: string); the applier feeds the runner's
-  // AgentLeg (provider: "claude"|"codex"). The provider IS one of the two at runtime.
   const legs: AgentLegs = args.legs ?? resolveAgentLegs(process.env);
   const now = args.now ?? (() => new Date().toISOString());
   const spawnApplier = args.spawnApplier ?? makeDefaultSpawnApplier(cfg, legs);
@@ -176,24 +120,17 @@ export async function applyChangeRequest(args: ApplyChangeRequestArgs = {}): Pro
   const runExtraction = args.runExtraction ?? defaultRunExtraction;
   const recordReport = args.recordReport ?? ((report: ReportSnapshot) => defaultRecordReport(repoRoot, id, report));
 
-  // The CR must exist and be APPROVED into the current build. Any other status is a caller
-  // error (a docs_applied CR is already folded; an idea/rejected one is not approved) — we
-  // block loudly rather than apply an undecided CR.
   const found = readChangeRequest(repoRoot, id);
   if (!found) {
     return terminal(recordReport, "blocked", "resolve", id, { summary: `cr-apply: no CR with id ${id} under .vivicy/change-requests/` });
   }
-  // readChangeRequests yields a BARE filename in `file`; normalize to the repo-relative path
-  // so the applier context, its transcript key, and any display reference the real path.
+  // readChangeRequest returns a bare filename in `file`; normalize to repo-relative so the transcript key and any display show the real path.
   const cr: ChangeRequestRecord = { ...found, file: `${CHANGE_REQUESTS_DIR}/${found.file}` };
   const status = String(cr.fm?.status ?? "");
   if (status !== "accepted_current_build") {
     return terminal(recordReport, "blocked", "resolve", id, { summary: `cr-apply: CR ${id} is "${status}", the application chain only runs on accepted_current_build` });
   }
 
-  // (a) APPLY — one bounded agent leg edits the canonical to fold in the CR. A retry runs
-  // only when the read-only gate (b) stayed red, feeding the failure back. A leg that dies
-  // authors no usable edit, so the gate simply stays red and the attempt is honest.
   recordReport({ phase: "apply", cr: id, attempt: 1, started_at: now() });
   let referenceOk = false;
   let reference: ReferenceResult | null = null;
@@ -202,8 +139,6 @@ export async function applyChangeRequest(args: ApplyChangeRequestArgs = {}): Pro
     recordReport({ phase: "apply", cr: id, attempt, updated_at: now() });
     await spawnApplier({ repoRoot, cr, cfg, attempt, feedback });
 
-    // (b) VERIFY the canonical edit — reference-check must stay green (the applier must not
-    // have broken a doc-to-doc link). This is the read-only gate that bounds the retry.
     recordReport({ phase: "verify", cr: id, attempt, updated_at: now() });
     reference = runReferenceCheck({ repoRoot });
     if (reference.exitCode === 0) {
@@ -219,11 +154,6 @@ export async function applyChangeRequest(args: ApplyChangeRequestArgs = {}): Pro
     });
   }
 
-  // (c) FREEZE — a new frozen baseline via the same doc-baseline path extraction uses. The
-  // new version is the patch bump of the CR's recorded previous_baseline_version (an
-  // accepted_current_build CR always carries it). approved_by comes from the CR's owner
-  // decision (the owner who approved the CR is the one approving this freeze); approval_ref
-  // is the CR id, so the frozen manifest points back at the decision that produced it.
   const previousVersion = String(cr.fm?.previous_baseline_version ?? "");
   if (!/^\d+\.\d+\.\d+$/.test(previousVersion)) {
     return terminal(recordReport, "blocked", "freeze", id, { summary: `cr-apply: CR ${id} has no valid previous_baseline_version to bump from (got "${previousVersion}")` });
@@ -231,15 +161,9 @@ export async function applyChangeRequest(args: ApplyChangeRequestArgs = {}): Pro
   const newVersion = patchBump(previousVersion);
   const approvedBy = String(cr.fm?.owner_decision_by ?? "owner:cr-apply");
 
-  // Record the freeze phase BEFORE committing, so the commit sweeps up this status
-  // write too. The order matters: doc-baseline refuses to freeze a dirty tree, and the
-  // cr-apply report file is tracked — writing it AFTER the commit would re-dirty the
-  // tree and the freeze would fail with "working tree clean: false" (caught in the
-  // torture run). Same discipline extraction uses: freeze precedes no un-committed write.
+  // Must write before commitApplied below: doc-baseline refuses to freeze a dirty tree, and this report file is tracked — writing it after the commit would re-dirty the tree and fail the freeze.
   recordReport({ phase: "freeze", cr: id, from_version: previousVersion, to_version: newVersion, updated_at: now() });
 
-  // COMMIT the applied canonical edit (and this status write) so the tree is clean for
-  // the freeze — the same commit-before-freeze extraction does.
   const committed = commitApplied({ repoRoot, id });
   if (!committed.committed) {
     return terminal(recordReport, "blocked", "commit", id, { summary: `cr-apply: could not commit the applied canonical edit for ${id} before freezing (git add/commit failed)` });
@@ -251,8 +175,6 @@ export async function applyChangeRequest(args: ApplyChangeRequestArgs = {}): Pro
     return terminal(recordReport, "blocked", "freeze", id, { summary: `cr-apply: freeze failed for ${id}: ${error instanceof Error ? error.message : String(error)}` });
   }
 
-  // Stamp the CR docs_applied with the resulting baseline identity (the folded state). The
-  // stamped file must pass change-control (stampChangeRequestApplied enforces it).
   try {
     stampChangeRequestApplied({
       repoRoot,
@@ -271,17 +193,7 @@ export async function applyChangeRequest(args: ApplyChangeRequestArgs = {}): Pro
   }
   recordReport({ phase: "stamped", cr: id, baseline, updated_at: now() });
 
-  // (c.1) RETIRE the now-moot spike(s). A CR that folds a DISPROVEN spike's correction into
-  // the canonical carries that spike's gate_id on affected_verification_gates. Once the fold
-  // is applied, the disproven assumption is gone from the intention — there is nothing left
-  // to prove — so the failed spike must stop gating, or G13 (transitivelyVerifiedGates in
-  // extract-issues) would block re-extraction forever with blocked_on_unverified_spikes. We
-  // RETIRE (failed -> deferred), never auto-RE-AUTHOR: a fresh spike is a new intention the
-  // owner drives, not something this mechanical fold invents. `deferred` is the enum value
-  // meaning "no longer blocking" — G13 explicitly skips deferred spikes. This runs BEFORE the
-  // child extraction spawns so that gate already reads as deferred, and its file edit is
-  // committed here (same commit-before-freeze discipline: the child may freeze, and doc-baseline
-  // refuses a dirty tree). Only spikes named on THIS CR and currently `failed` are touched.
+  // Must run before extraction spawns and be committed before it: flips failed spikes to deferred (never re-authors) so the child's gate check doesn't see them as still-failed and block, and so a child freeze doesn't hit a dirty tree.
   const retired = retireAffectedSpikes({ repoRoot, cr });
   if (retired.length > 0) {
     recordReport({ phase: "retire_spikes", cr: id, retired, updated_at: now() });
@@ -291,9 +203,7 @@ export async function applyChangeRequest(args: ApplyChangeRequestArgs = {}): Pro
     }
   }
 
-  // (d) RE-EXTRACT (+ REOPEN, intrinsic): spawn extract-issues.ts. It captures the prior
-  // source-map and, on green, reopens exactly the impacted done issues
-  // INTERNALLY — see extract-issues.ts. We do NOT reopen here; the extraction owns it.
+  // Extraction reopens impacted done issues internally (see extract-issues.ts) — do not reopen here too, or issues double-reopen.
   recordReport({ phase: "extract", cr: id, updated_at: now() });
   const extraction = await runExtraction({ repoRoot });
   if (extraction.status !== "green") {
@@ -311,30 +221,14 @@ export async function applyChangeRequest(args: ApplyChangeRequestArgs = {}): Pro
   });
 }
 
-// ---------------------------------------------------------------------------
-// Terminal report
-// ---------------------------------------------------------------------------
-
-// Persist and return the terminal report. A `blocked` terminal is honest: the CR stays
-// accepted_current_build (only stampChangeRequestApplied moves it to docs_applied, and only
-// on the freeze success path), so a re-run resumes from a clean, decided CR.
 function terminal(recordReport: RecordReport, status: "green" | "blocked", phase: string, cr: string, extra: Omit<TerminalReport, "status" | "phase" | "cr">): TerminalReport {
   const report: TerminalReport = { status, phase, cr, ...extra };
   recordReport(report as unknown as ReportSnapshot);
   return report;
 }
 
-// ---------------------------------------------------------------------------
-// Default seams (the real tooling)
-// ---------------------------------------------------------------------------
-
-// The APPLIER seam: drive the IMPLEMENTER-role CLI (Claude by default), re-roled to
-// "cr-applier" so it reads cr-applier.md and names its transcript. Runs in the TARGET repo
-// so it edits the project's canonical in place.
 function makeDefaultSpawnApplier(baseCfg: Config, legs: AgentLegs): (ctx: ApplierContext) => Promise<unknown> {
   const implementer = legs?.implementer ?? { actor: "claude", provider: "claude", model: CLI_DEFAULTS.claude.model, effort: CLI_DEFAULTS.claude.effort, fast: false };
-  // provider is "claude"|"codex" at runtime (resolveAgentLegs or the literal above); the
-  // cast narrows dev-loop's looser Leg.provider to the runner's AgentLeg at this boundary.
   const leg: AgentLeg = { ...implementer, role: "cr-applier" };
   return async ({ repoRoot, cr, cfg, attempt, feedback }) => {
     const legCfg = { ...cfg, promptsDir: cfg?.promptsDir ?? FACTORY_PROMPTS_DIR, execRoot: repoRoot } as LegConfig;
@@ -345,16 +239,11 @@ function makeDefaultSpawnApplier(baseCfg: Config, legs: AgentLegs): (ctx: Applie
   };
 }
 
-// The synthetic issue the applier leg runs against (transcript + actor/role identity),
-// keyed by the CR id so its transcript lands under a per-CR dir. path points at the CR file
-// so the leg's identity references the artifact it is folding.
 function applierIssue(cr: ChangeRequestRecord): AgentIssue {
   const number = ((cr.fm?.id ?? "") as string).replace(/^CR-/, "");
   return { id: `CR-APPLY-${number}`, graph_refs: [APPLIER_GRAPH_REF], path: cr.file };
 }
 
-// Extra prompt context for the APPLIER leg: which CR to fold, into which canonical, and —
-// on a retry — the reference-check failure to repair.
 function applierContext({ cr, attempt, feedback }: { cr: ChangeRequestRecord; attempt: number; feedback: string | null }): string {
   return (
     `\n\n---\n\n## CR application context for this run\n\n` +
@@ -369,8 +258,6 @@ function applierContext({ cr, attempt, feedback }: { cr: ChangeRequestRecord; at
   );
 }
 
-// Bind the shared leg runner to the TARGET repo's roots and inject the run-specific prompt
-// context, exactly as extract-issues' legDepsForTarget.
 function legDepsForTarget(legCfg: LegConfig, issue: AgentIssue, repoRoot: string, context: string): LegDeps {
   const abs = (rel: string) => resolve(repoRoot, rel);
   return {
@@ -383,13 +270,7 @@ function legDepsForTarget(legCfg: LegConfig, issue: AgentIssue, repoRoot: string
   };
 }
 
-// Freeze .vivicy/canonical/** at the patch-bumped version via doc-baseline (shelled out so
-// its corpus-policy + git-clean + approval + bump-class guards run exactly as in
-// production). Returns the new baseline identity parsed from the written manifest.
-// Commit the applier's canonical edit so the tree is clean before the freeze. `git
-// add -A` is safe: the scaffold .gitignore covers the never-commit set. A no-op
-// commit (nothing staged — the applier made no net change) is tolerated as an
-// already-clean tree, not a failure.
+// git add -A is safe here: the scaffold .gitignore covers the never-commit set.
 function defaultCommitApplied({ repoRoot, id }: { repoRoot: string; id: string }): CommitResult {
   const add = spawnSync("git", ["add", "-A"], { cwd: repoRoot, encoding: "utf8" });
   if ((add.status ?? 1) !== 0) {
@@ -406,6 +287,7 @@ function defaultCommitApplied({ repoRoot, id }: { repoRoot: string; id: string }
   return { committed: true };
 }
 
+// Shells out to doc-baseline.ts (not imported) so its corpus-policy/git-clean/approval/bump-class guards run exactly as production.
 function defaultRunFreeze({ repoRoot, version, previousVersion, approvedBy, approvalRef }: FreezeArgs): Baseline {
   const tool = resolve(FACTORY_DIR, "doc-baseline.ts");
   const baselineId = `baseline-v${version}`;
@@ -436,11 +318,7 @@ function defaultRunFreeze({ repoRoot, version, previousVersion, approvedBy, appr
   };
 }
 
-// Spawn the extraction orchestrator as a CHILD (re-extract + reopen; reopening intrinsic
-// to it). We shell out — rather than import extractIssues — so the child runs the full real
-// path (freeze reuse, spike gating, commit) exactly as a standalone extraction, and reads
-// the terminal state back from the status file it writes (the same file the control plane
-// reads). The child's own reopening restores the impacted done issues.
+// Shells out to extract-issues.ts (not imported) so the child runs the full real path (freeze reuse, spike gating, commit); reads its terminal state back from the status file the control plane also reads.
 function defaultRunExtraction({ repoRoot }: { repoRoot: string }): Extraction {
   const tool = resolve(FACTORY_DIR, "extract-issues.ts");
   const result = spawnSync("node", [tool], { cwd: repoRoot, env: { ...process.env, VIVICY_TARGET_ROOT: repoRoot }, encoding: "utf8" });
@@ -463,9 +341,6 @@ function readExtractionStatus(repoRoot: string): ExtractionStatus | null {
   }
 }
 
-// Persist the progressing report to .vivicy/development/reports/apply-<id>.json. Each
-// call overwrites with the latest snapshot (a `phase` field + an `updated_at`), so a reader
-// (UI/CLI) always sees where the chain is; the terminal call leaves the final status.
 function defaultRecordReport(repoRoot: string, id: string, report: ReportSnapshot): void {
   const abs = resolve(repoRoot, `${REPORTS_DIR}/apply-${id}.json`);
   mkdirSync(dirname(abs), { recursive: true });
@@ -473,18 +348,6 @@ function defaultRecordReport(repoRoot: string, id: string, report: ReportSnapsho
   pruneGitkeeps(repoRoot);
 }
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-// Retire every spike this CR resolves at the intention level: for each gate_id on the CR's
-// affected_verification_gates that maps to a spike currently `status: failed`, flip it to
-// `deferred` in place (the same byte-preserving Traceability rewrite the prover uses). A
-// disproven spike whose correction is now folded into the canonical has nothing left to
-// prove, and a `deferred` spike does not gate G13 — so this is what actually unblocks
-// re-extraction. Returns the gate_ids retired (empty when the CR names none, or none of the
-// named spikes is failed). A gate that resolves to no spike, or to a non-failed spike, is a
-// deliberate no-op — never a re-authoring and never a downgrade of a verified spike.
 function retireAffectedSpikes({ repoRoot, cr }: { repoRoot: string; cr: ChangeRequestRecord }): string[] {
   const gates = toGateList(cr.fm?.affected_verification_gates);
   if (gates.length === 0) return [];
@@ -499,9 +362,6 @@ function retireAffectedSpikes({ repoRoot, cr }: { repoRoot: string; cr: ChangeRe
   return retired;
 }
 
-// affected_verification_gates parses to an array (parseFrontmatter's [a, b] form), but a
-// single value may arrive as a bare string; normalize both to a string[] so a lone gate is
-// still honoured.
 function toGateList(value: CrFrontmatterValue | undefined): string[] {
   if (Array.isArray(value)) return value.map(String).filter(Boolean);
   if (typeof value === "string" && value.trim()) return [value.trim()];
@@ -517,10 +377,6 @@ function formatReferenceFailure(reference: ReferenceResult): string {
   const errors = (reference?.errors ?? []).join("\n");
   return `reference-check FAILED (exit ${reference?.exitCode}). A canonical doc link no longer resolves — repair the link(s) you broke:\n${errors}`;
 }
-
-// ---------------------------------------------------------------------------
-// CLI entry
-// ---------------------------------------------------------------------------
 
 const cliEntry = process.argv[1] ? resolve(process.argv[1]) : null;
 if (cliEntry === fileURLToPath(import.meta.url)) {

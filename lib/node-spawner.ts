@@ -1,13 +1,3 @@
-/**
- * Real {@link Spawner} backed by `node:child_process`. Server-only.
- *
- * `spawnDetached` launches the supervisor in its own process group
- * (`detached: true`), redirects stdio to a log file, and `.unref()`s it so the
- * Next.js server can exit without killing the run. `killGroup` signals the
- * whole group (negative pid) so the supervisor's relaunched children die with
- * it. `run` collects bounded output for short-lived check scripts.
- */
-
 import { spawn, type SpawnOptions } from "node:child_process"
 import { openSync } from "node:fs"
 
@@ -19,7 +9,6 @@ import type {
   Spawner,
 } from "@/lib/control"
 
-/** Keep collected output bounded; we only surface the last line in the UI. */
 const MAX_OUTPUT_BYTES = 256 * 1024
 
 function lastNonEmptyLine(text: string): string {
@@ -46,7 +35,7 @@ export const nodeSpawner: Spawner = {
     if (typeof child.pid !== "number") {
       throw new Error("child process did not start (no pid)")
     }
-    // Let the server exit independently of the supervised run.
+    // unref() lets the Next.js server process exit without waiting on this detached child.
     child.unref()
     return { pid: child.pid }
   },
@@ -87,7 +76,6 @@ export const nodeSpawner: Spawner = {
       process.kill(-pid, signal)
       return true
     } catch {
-      // Fall back to the single pid (e.g. group already partially reaped).
       try {
         process.kill(pid, signal)
         return true

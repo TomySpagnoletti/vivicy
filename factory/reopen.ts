@@ -1,13 +1,3 @@
-// Deterministic Change-Control issue reopening.
-//
-// After an accepted CR patches canonical, re-freezes, and re-extracts, this reopens EXACTLY
-// the issues whose requirements changed or were removed — computed mechanically from the C1'
-// excerpt drift, never left to an agent to remember. Unchanged issues stay done. The dev-loop
-// then re-implements + re-gates the reopened issues on its next pass.
-//
-// An issue is "done" when BOTH its file lives under issues/done/ AND the ledger is not
-// downgraded, so reopening clears both: move done/ISS-X.md back to active and emit
-// issue_reopened. `recordEvent` + `now` are seams for testing.
 import { existsSync, readFileSync, renameSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -41,7 +31,6 @@ export interface ReopenEvent {
   timestamp: string;
 }
 
-// Pure: the ids of issues that reference any changed-or-removed requirement.
 export function impactedIssues(drift: ExcerptDrift | null | undefined, issueIndex: IssueIndex | null | undefined): string[] {
   const impacted = new Set([...(drift?.changed ?? []), ...(drift?.removed ?? [])]);
   const issues = Array.isArray(issueIndex?.issues) ? issueIndex.issues : [];
@@ -57,7 +46,7 @@ function readJsonSafe<T>(abs: string): T | null {
   }
 }
 
-// Reopen the impacted, currently-done issues. Returns { drift, impacted, reopened }.
+// "done" = file under issues/done/ AND ledger not downgraded; reopen must do both (move the file back + emit issue_reopened) or the two fall out of sync.
 export function runReopen({
   repoRoot = resolveTargetRoot(),
   priorSourceMap,
@@ -81,7 +70,7 @@ export function runReopen({
   const timestamp = now();
   for (const id of impacted) {
     const donePath = resolve(repoRoot!, DONE_DIR_REL, `${id}.md`);
-    if (!existsSync(donePath)) continue; // only reopen issues that were actually done
+    if (!existsSync(donePath)) continue;
     renameSync(donePath, resolve(repoRoot!, ISSUES_DIR_REL, `${id}.md`));
     const issue = issuesById.get(id) ?? { id, graph_refs: [] };
     recordEvent({

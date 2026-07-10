@@ -1,22 +1,4 @@
-/**
- * Server-only detection of the two agent CLIs Vivicy drives — Claude Code and the
- * Codex CLI — plus their auth state and billing method (R11). Side-effect-free:
- * presence is a PATH lookup with no execution of the agent itself; auth is read
- * from each CLI's credential store.
- *
- * macOS-vs-Windows credential-store gotcha: on darwin, Claude credentials live in
- * the login Keychain (`security find-generic-password`); on Linux AND Windows they
- * live in a FILE (`<config-dir>/.credentials.json`), NOT the Windows Credential
- * Manager — so one file probe serves both. The token value is NEVER returned,
- * logged, or surfaced — only the booleans, the method, and the plan label.
- *
- * Credential-store references (read June 2026):
- *   - Claude Code — https://code.claude.com/docs/en/authentication
- *   - Codex CLI — https://developers.openai.com/codex/auth
- *
- * `node:fs`/`node:child_process` live here so they never reach the client bundle;
- * the client-safe types are in {@link file://./agents-health-types}.
- */
+// Server-only: node:fs/node:child_process here must never reach the client bundle (client-safe types live in agents-health-types.ts). Token value is never returned/logged/surfaced.
 
 import { execFileSync } from "node:child_process"
 import { existsSync, readFileSync } from "node:fs"
@@ -25,30 +7,18 @@ import path from "node:path"
 
 import type { AgentHealth, AgentsHealth, AuthMethod } from "@/lib/agents-health-types"
 
-/** macOS login-Keychain service name Claude Code stores its OAuth creds under. */
 const CLAUDE_KEYCHAIN_SERVICE = "Claude Code-credentials"
 
-/** Timeout (ms) for each `security` Keychain probe — short, so we never hang. */
 const KEYCHAIN_TIMEOUT_MS = 2_000
 
-/** Console API keys carry this prefix; OAuth tokens (`sk-ant-oat01-`) do not. */
 const CLAUDE_API_KEY_PREFIX = "sk-ant-api03-"
 
-/**
- * Result of a macOS Keychain lookup:
- *   - `{ secret, exists: true }` — the item exists and its secret was readable.
- *   - `{ secret: null, exists: true }` — the item exists but its secret was locked
- *     / blocked (we know they're signed in, but not the method/plan).
- *   - `{ secret: null, exists: false }` — the item is definitively absent.
- *   - `null` (from the probe) — the Keychain could not be probed (timeout / error);
- *     genuinely undetectable, so the caller reports "unknown".
- */
+// exists=false → confirmed absent; secret=null+exists=true → found but locked; a null return from a probe → unprobeable (not the same as absent).
 export interface KeychainResult {
   secret: string | null
   exists: boolean
 }
 
-/** Normalised, token-free auth signal shared by both agents. */
 interface AuthSignal {
   authenticated: boolean | null
   authMethod: AuthMethod | null
@@ -58,56 +28,25 @@ interface AuthSignal {
 const UNAUTH: AuthSignal = { authenticated: false, authMethod: null, plan: null }
 const UNKNOWN: AuthSignal = { authenticated: null, authMethod: null, plan: null }
 
-/**
- * Injection seam so tests can stub presence, version, file reads, env, platform,
- * and the Keychain lookup — never touching a real CLI, home dir, or Keychain. The
- * real probes are pure reads with no agent execution.
- */
 export interface HealthProbe {
-  /** Absolute path of `bin` on PATH, or null when not found. */
   which(bin: string): string | null
-  /** Output of `<bin> --version` (trimmed first line), or null on any failure. */
   version(bin: string): string | null
-  /** Read a file's text, or null when absent/unreadable. */
   readFile(file: string): string | null
-  /** The user's home directory (so the auth-file paths are derivable in tests). */
   home(): string
-  /** A process env var's value, or null when unset/empty. */
   env(name: string): string | null
-  /** The platform string (`process.platform`), e.g. `"darwin"` / `"linux"`. */
   platform(): NodeJS.Platform
-  /**
-   * Look up a macOS Keychain generic-password by service name. Returns a
-   * {@link KeychainResult}, or `null` when the Keychain could not be probed
-   * (timeout / unexpected error / not macOS) — i.e. genuinely undetectable.
-   */
   keychain(service: string): KeychainResult | null
 }
 
-/**
- * Strip the redundant product-name decoration the agent CLIs add to their raw
- * `--version` output, leaving JUST the version number:
- *   - Claude prints `2.1.191 (Claude Code)` → drop the trailing
- *     ` (Claude Code)` / ` (claude-code)` parenthetical.
- *   - Codex prints `codex-cli 0.141.0` → drop the leading `codex-cli ` /
- *     `claude-code ` product prefix.
- * A plain version string (`0.141.0`) passes through untouched. The UI already
- * labels which agent a row is, so repeating the product name in the version is
- * pure noise. Returns null when the input is null (CLI absent/unreadable).
- */
 export function normalizeVersion(raw: string | null): string | null {
   if (raw == null) return null
   let v = raw.trim()
-  // Drop a trailing product-name parenthetical, e.g. " (Claude Code)". The
-  // closing paren is optional so a truncated/malformed `--version` line
-  // ("2.1.191 (Claude Code") is still cleaned rather than passed through.
+  // Trailing ")" is optional: still cleans a truncated/malformed "--version" line like "2.1.191 (Claude Code".
   v = v.replace(/\s*\((?:claude code|claude-code)\)?\s*$/i, "")
-  // Drop a leading product-name prefix, e.g. "codex-cli " or "claude-code ".
   v = v.replace(/^(?:codex-cli|claude-code)\s+/i, "")
   return v.trim()
 }
 
-/** Run a command and capture stdout, returning null on any non-zero/throw. */
 function safeExec(bin: string, args: string[]): string | null {
   try {
     const out = execFileSync(bin, args, {
@@ -122,29 +61,8 @@ function safeExec(bin: string, args: string[]): string | null {
   }
 }
 
-/**
- * The first-line stdout of a child process, or null on any failure. Matches
- * {@link safeExec}'s signature; injected in tests so the platform-branching of
- * {@link resolveOnPath} is exercised WITHOUT spawning a real `where`/`/bin/sh`.
- */
 export type ExecFirstLine = (bin: string, args: string[]) => string | null
 
-/**
- * Resolve a CLI's absolute path on PATH WITHOUT executing the agent. The command
- * is platform-specific because Windows has no POSIX shell:
- *   - Windows (`win32`): `cmd.exe /c where <bin>` — the built-in PATH/PATHEXT
- *     resolver. It prints every match (one per line); we keep the FIRST, which is
- *     the one the shell would run. Spawned via `cmd.exe` so `where` resolves
- *     regardless of how Node was launched. A success is an absolute,
- *     drive-qualified path (often `...\\<bin>.cmd` for an npm shim).
- *   - Unix (everything else): `command -v <bin>` under `/bin/sh`, resolving PATH
- *     entries, builtins, and aliases portably. `/bin/sh` exists on macOS/Linux
- *     and is NEVER invoked on Windows (where it would throw).
- * Only an absolute path (OS-correct: `win32`/`posix`) is accepted, so a stray
- * message can't masquerade as a hit. Any non-zero exit / missing tool / throw
- * yields null. `bin` is a fixed internal literal (`"claude"` / `"codex"`), never
- * user input. `exec` is injected so tests can drive both branches deterministically.
- */
 export function resolveOnPath(
   bin: string,
   platform: NodeJS.Platform,
@@ -154,23 +72,18 @@ export function resolveOnPath(
     const resolved = exec("cmd.exe", ["/c", "where", bin])
     return resolved && path.win32.isAbsolute(resolved) ? resolved : null
   }
+  // `bin` must stay a fixed internal literal ("claude"/"codex") — it's interpolated unescaped into this shell string.
   const resolved = exec("/bin/sh", ["-c", `command -v ${bin}`])
   return resolved && path.posix.isAbsolute(resolved) ? resolved : null
 }
 
-/** Outcome of one `security` invocation: exit code, stdout, and whether it timed out. */
 interface SecurityRun {
   code: number | null
   stdout: string
   timedOut: boolean
 }
 
-/**
- * Run `/usr/bin/security` with a hard timeout, capturing the exit code. `security`
- * exits 0 when the item is found, 44 when it is not, and non-zero (e.g. 51) when
- * an interactive unlock would be required. We translate throws into a structured
- * result so the caller never sees an exception.
- */
+// `security` exit codes: 0 = found, 44 = not found, other (e.g. 51) = needs interactive unlock.
 function runSecurity(args: string[]): SecurityRun {
   try {
     const stdout = execFileSync("/usr/bin/security", args, {
@@ -196,32 +109,23 @@ function runSecurity(args: string[]): SecurityRun {
   }
 }
 
-/**
- * Read a Keychain generic-password by service. First tries to read the secret
- * (`-w`); if that is blocked/locked, falls back to a secret-free existence probe
- * (no `-w`, which never prompts). A timeout on either step yields `null`
- * (undetectable). Only ever runs on macOS.
- */
 function nodeKeychain(service: string): KeychainResult | null {
   if (process.platform !== "darwin") return null
-  // Step 1: try to read the secret itself.
   const read = runSecurity(["find-generic-password", "-s", service, "-w"])
   if (read.timedOut) return null
   if (read.code === 0 && read.stdout.trim().length > 0) {
     return { secret: read.stdout.trim(), exists: true }
   }
-  // Step 2: secret unreadable — confirm existence without it (no prompt).
+  // No -w here: avoids triggering an interactive Keychain-unlock prompt.
   const exists = runSecurity(["find-generic-password", "-s", service])
   if (exists.timedOut) return null
   if (exists.code === 0) return { secret: null, exists: true }
   if (exists.code === 44) return { secret: null, exists: false }
-  return null // unexpected error → undetectable
+  return null
 }
 
-/** The real probe: PATH lookup + cheap version + plain reads + env/Keychain. */
 export const nodeHealthProbe: HealthProbe = {
   which(bin: string): string | null {
-    // Cross-platform PATH lookup: `where` on Windows, `command -v` on Unix.
     return resolveOnPath(bin, process.platform)
   },
   version(bin: string): string | null {
@@ -249,14 +153,6 @@ export const nodeHealthProbe: HealthProbe = {
   },
 }
 
-/**
- * Infer Codex auth + method from `~/.codex/auth.json`:
- *   - `OPENAI_API_KEY` set OR `auth_mode === "apikey"` → API key (pay-per-token).
- *   - else a `tokens.access_token` (typically `auth_mode: "chatgpt"`) →
- *     subscription, plan `"ChatGPT"`.
- *   - else unauthenticated.
- * The file is a clean, reliable signal, so the verdict is a definite boolean.
- */
 export function parseCodexAuth(text: string | null): AuthSignal {
   if (!text) return UNAUTH
   try {
@@ -280,13 +176,6 @@ export function parseCodexAuth(text: string | null): AuthSignal {
   }
 }
 
-/**
- * Parse a Claude credential blob (Keychain secret OR `.credentials.json`) into a
- * token-free auth signal, or `null` when it carries no usable access token. The
- * blob may be flat or wrapped under `claudeAiOauth`. Method is derived from the
- * token PREFIX only (`sk-ant-api03-` = API key, else OAuth = subscription) — the
- * token value itself is never returned.
- */
 export function parseClaudeCredentials(text: string | null): AuthSignal | null {
   if (!text) return null
   let parsed: unknown
@@ -312,7 +201,6 @@ export function parseClaudeCredentials(text: string | null): AuthSignal | null {
   return { authenticated: true, authMethod, plan }
 }
 
-/** True when `settings.json` defines an `apiKeyHelper` (an explicit API-key setup). */
 function settingsHasApiKeyHelper(text: string | null): boolean {
   if (!text) return false
   try {
@@ -323,28 +211,15 @@ function settingsHasApiKeyHelper(text: string | null): boolean {
   }
 }
 
-/**
- * Resolve Claude's config directory, honouring `CLAUDE_CONFIG_DIR` (the official
- * override on Linux/Windows) and otherwise `<home>/.claude`. The OS-correct
- * `path` join is used so a Windows home yields a back-slashed path. Both the
- * `.credentials.json` FILE and `settings.json` live here.
- */
 function claudeConfigDir(probe: HealthProbe): string {
   const override = probe.env("CLAUDE_CONFIG_DIR")
   return override ?? path.join(probe.home(), ".claude")
 }
 
-/**
- * Layered Claude auth detection (first match wins). See the module header for the
- * a→d order. Returns a token-free {@link AuthSignal}; `authenticated` is `null`
- * only when the store could not be probed at all (genuinely undetectable).
- */
 export function detectClaudeAuth(probe: HealthProbe): AuthSignal {
   const configDir = claudeConfigDir(probe)
 
-  // a. Explicit API-key signals — env key or an apiKeyHelper. These mean
-  //    pay-per-token billing and win over any subscription credential present.
-  //    Cross-platform: env vars and `settings.json` are read the same on every OS.
+  // Must run first: an API key always wins over a subscription credential found below.
   if (probe.env("ANTHROPIC_API_KEY")) {
     return { authenticated: true, authMethod: "api_key", plan: null }
   }
@@ -353,10 +228,8 @@ export function detectClaudeAuth(probe: HealthProbe): AuthSignal {
     return { authenticated: true, authMethod: "api_key", plan: null }
   }
 
-  // b. macOS Keychain — the real store on darwin ONLY. Windows does NOT use the
-  //    Credential Manager for Claude creds (per the official doc, Windows uses the
-  //    file in step c), so there is deliberately no Windows credential-store branch.
   let keychainSaidAbsent = false
+  // darwin only: Windows never uses Credential Manager for Claude creds — the file below is its only store.
   if (probe.platform() === "darwin") {
     const kc = probe.keychain(CLAUDE_KEYCHAIN_SERVICE)
     if (kc !== null) {
@@ -365,54 +238,34 @@ export function detectClaudeAuth(probe: HealthProbe): AuthSignal {
         if (parsed) return parsed
       }
       if (kc.exists) {
-        // Item present but secret locked/blocked: signed in, method/plan unknown.
         return { authenticated: true, authMethod: "subscription", plan: null }
       }
-      keychainSaidAbsent = true // item definitively not in the Keychain
+      keychainSaidAbsent = true
     }
-    // kc === null → Keychain unprobeable; fall through and resolve below.
   }
 
-  // c. File credentials — the real store on BOTH Linux AND Windows (and a macOS
-  //    user with a flat creds file). On Windows this is
-  //    `%USERPROFILE%\.claude\.credentials.json`; the same JSON shape as Linux.
   const credPath = path.join(configDir, ".credentials.json")
   const fileSignal = parseClaudeCredentials(probe.readFile(credPath))
   if (fileSignal) return fileSignal
 
-  // d. Resolve unknown vs unauthenticated.
-  //    - Keychain confirmed the item is absent → confident logged-out.
-  //    - Non-darwin with no creds file → the file IS the store there → logged-out.
-  //    - darwin where the Keychain could not be probed and no file → genuinely
-  //      undetectable → honest "unknown".
   if (keychainSaidAbsent) return UNAUTH
   if (probe.platform() !== "darwin") return UNAUTH
   return UNKNOWN
 }
 
-/**
- * Resolve Codex's home directory: `CODEX_HOME` when set, else `<home>/.codex`
- * (the default on macOS, Linux AND Windows). Cross-platform via the injected
- * `home()` + the OS-correct `path.join`.
- */
 function codexHome(probe: HealthProbe): string {
   return probe.env("CODEX_HOME") ?? path.join(probe.home(), ".codex")
 }
 
-/** Detect Codex: presence, version, and a definite auth + method signal. */
 function detectCodex(probe: HealthProbe): AgentHealth {
   const present = probe.which("codex") !== null
   const version = present ? normalizeVersion(probe.version("codex")) : null
-  // `<CODEX_HOME>/auth.json` — on Windows `%USERPROFILE%\.codex\auth.json`. Codex's
-  // `keyring`/`auto` credential modes store creds in the OS keyring instead; we read
-  // only auth.json, so a keyring-only user reads as unauthenticated — an honest
-  // false-negative (we never fabricate a positive), not an error.
+  // Codex's keyring/auto credential modes aren't read here — a keyring-only user reads as unauthenticated (honest false-negative, not a bug).
   const authFile = path.join(codexHome(probe), "auth.json")
   const auth = parseCodexAuth(probe.readFile(authFile))
   return { present, version, ...auth }
 }
 
-/** Detect Claude Code: presence, version, and a layered auth + method signal. */
 function detectClaude(probe: HealthProbe): AgentHealth {
   const present = probe.which("claude") !== null
   const version = present ? normalizeVersion(probe.version("claude")) : null
@@ -420,10 +273,6 @@ function detectClaude(probe: HealthProbe): AgentHealth {
   return { present, version, ...auth }
 }
 
-/**
- * Full health snapshot for both agents. Pure with respect to the injected probe,
- * so the route uses {@link nodeHealthProbe} and tests inject a fake.
- */
 export function getAgentsHealth(probe: HealthProbe = nodeHealthProbe): AgentsHealth {
   return {
     claude: detectClaude(probe),

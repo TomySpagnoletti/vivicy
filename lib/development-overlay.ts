@@ -1,27 +1,5 @@
-/**
- * The ONE shared derivation of the live development overlay from the progress
- * ledger. The progress ledger (`.vivicy/development/progress-ledger.json`) is the
- * single source of truth for live per-issue/per-graph-item progress; the
- * architecture map data is a STATIC graph generated once at extraction. The live
- * overlay — `graph_item_states` and `active_items` — is DERIVED from the ledger,
- * never baked in and never regenerated during the dev-loop.
- *
- * Both callers use this one implementation so the ledger -> overlay mapping can
- * never diverge:
- *   - `factory/generate-viewer-data.ts` (extraction-time, strict): passes an
- *     `evidenceRefChecker` that verifies every evidence_ref points at a real
- *     file/line on disk, so the authored corpus is provably honest.
- *   - the `/api/map` read path (request-time, tolerant): omits the checker and
- *     overlays the live ledger onto the static graph with zero regeneration, so
- *     loading a target always shows current progress.
- *
- * Framework-free: imports only `node:*`-free pure logic so it loads under both
- * the Next.js bundler (`@/lib/...`) and raw Node TS execution (a relative import
- * from the factory generator). No filesystem access here — strict file checks
- * are injected by the caller that needs them.
- */
+// Framework-free (no filesystem access): loads under both the Next.js bundler and the factory generator's raw Node TS execution; both /api/map and generate-viewer-data.ts share this derivation so the ledger->overlay mapping can't diverge between them.
 
-/** The development statuses a graph item can carry, in display order. */
 export const OVERLAY_STATUSES = [
   "not_started",
   "in_progress",
@@ -33,12 +11,10 @@ export const OVERLAY_STATUSES = [
 
 export type OverlayStatus = (typeof OVERLAY_STATUSES)[number]
 
-/** States an active development agent can be in. */
 export const ACTIVE_ITEM_STATES = ["working", "reviewing", "verifying", "blocked"] as const
 
 export type ActiveItemState = (typeof ACTIVE_ITEM_STATES)[number]
 
-/** A single graph item's live progress, derived from the ledger. */
 export type OverlayGraphItemState = {
   graph_ref: string
   status: OverlayStatus
@@ -47,7 +23,6 @@ export type OverlayGraphItemState = {
   transcript_refs?: string[]
 }
 
-/** A development agent actively working on one or more graph items. */
 export type OverlayActiveItem = {
   id: string
   actor: string
@@ -62,50 +37,30 @@ export type OverlayActiveItem = {
   heartbeat_at: string
 }
 
-/** The live overlay derived from the ledger: the only per-issue-changing part. */
 export type DevelopmentOverlayState = {
   graph_item_states: OverlayGraphItemState[]
   active_items: OverlayActiveItem[]
 }
 
-/** The minimum an issue must expose for graph-ref membership checks. */
 export type OverlayIssue = {
   id: string
   graph_refs: string[]
 }
 
-/**
- * Verify an evidence_ref points at a real file (and, when line-qualified, a real
- * line). Throws on a missing target. The strict (extraction) caller injects this;
- * the read path omits it so a stale on-disk evidence file never 500s a request.
- */
+// Read path omits this checker deliberately — enforcing on-disk evidence at request time would 500 the API on any stale evidence_ref.
 export type EvidenceRefChecker = (evidenceRef: string, owner: string) => void
 
 export type DeriveOverlayOptions = {
-  /** Valid graph_refs from the STATIC graph (every node + edge ref). */
   graphRefs: Set<string>
-  /** The static issue list (from the issue index), for membership checks. */
   issues: OverlayIssue[]
-  /** The parsed progress ledger JSON (or `undefined`/`null` when none exists). */
   ledger: unknown
-  /** Matches a verification-gate evidence_ref; required for `verified` items. */
   verificationGateMatcher: RegExp
-  /** Strict-only: verify each evidence_ref exists on disk. Omitted on read. */
   evidenceRefChecker?: EvidenceRefChecker
 }
 
 const ISO_8601_TIMESTAMP =
   /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/
 
-/**
- * Derive the live overlay (`graph_item_states`, `active_items`) from the ledger.
- *
- * Pure and deterministic: maps every ledger entry to a typed overlay item,
- * scoped to the static graph_refs and known issues, with the SAME validation
- * both callers share. The only injected difference is `evidenceRefChecker`
- * (on-disk evidence verification), which the strict extraction caller supplies
- * and the tolerant read caller omits.
- */
 export function deriveDevelopmentOverlay(options: DeriveOverlayOptions): DevelopmentOverlayState {
   const { graphRefs, issues, ledger, verificationGateMatcher, evidenceRefChecker } = options
   const issuesById = new Map(issues.map((issue) => [issue.id, issue]))
@@ -179,12 +134,7 @@ function validateGraphItemState(
       evidenceRefChecker(evidenceRef, `Progress graph item state ${graph_ref}`)
     }
   }
-  // Status discipline (the architecture-map method's overlay rules): a graph item stays
-  // not_started until real evidence exists — implemented/blocked/verified each REQUIRE
-  // non-empty evidence_refs, so status never optimistically advances ahead of proof, and
-  // verified additionally requires a verification-gate ref (below). `blocked` evidence may
-  // point to the blocking issue, an unresolved decision, missing access, an external
-  // condition, or a failed gate — it need NOT point to implemented code.
+  // `blocked` evidence need not point to implemented code — it may reference the blocking issue, an unresolved decision, missing access, or a failed gate.
   if ((statusNeedsEvidence(input.status) || input.status === "verified") && evidenceRefs.length === 0) {
     throw new Error(`Progress graph item state ${graph_ref} status ${String(input.status)} requires evidence_refs`)
   }
@@ -296,17 +246,11 @@ function statusNeedsEvidence(status: unknown): boolean {
   return status === "implemented" || status === "blocked"
 }
 
-/** `node:<id>` graph_ref for a map node. Shared with the static-graph derivation. */
 export function nodeGraphRef(nodeId: string): string {
   return `node:${nodeId}`
 }
 
-/**
- * Canonical edge graph_ref, mirroring the source-map / generator convention. Edges are
- * STRUCTURAL in the target map (EdgeSpec carries no status/evidence field); edge-level
- * implementation progress would require a deliberate overlay-schema extension adding
- * edge-status and edge-evidence validation rules — it is intentionally not modeled yet.
- */
+// Edges are structural only — EdgeSpec carries no status/evidence field, so edge-level progress isn't tracked (deliberately, not an oversight).
 export function edgeGraphRef(edge: {
   from: string
   to: string
@@ -318,11 +262,7 @@ export function edgeGraphRef(edge: {
   )}`
 }
 
-// INVARIANT (architecture-map method): overlay tooling consumes the generator-emitted
-// graph_refs VERBATIM and never recomputes slugs independently. This copy exists only
-// because the bundler cannot share the generator's `slugGraphRefPart` across the
-// generator/overlay split — it MUST stay byte-for-byte identical to
-// generate-viewer-data.ts's `slugGraphRefPart`; any drift between the two is a bug.
+// Must stay byte-for-byte identical to generate-viewer-data.ts's slugGraphRefPart — overlay code consumes generator-emitted graph_refs verbatim and never recomputes them independently.
 function slugGraphRefPart(value: string): string {
   return value
     .trim()
@@ -347,7 +287,7 @@ function requiredStringArray(value: unknown, label: string): string[] {
 
 function requiredIsoTimestamp(value: unknown, label: string): string {
   const stringValue = requiredString(value, label)
-  // Liveness/expiry is deliberately not checked here (see the method).
+  // Liveness/expiry is deliberately not checked here.
   if (!ISO_8601_TIMESTAMP.test(stringValue) || Number.isNaN(Date.parse(stringValue))) {
     throw new Error(`${label} must be an ISO-8601 timestamp`)
   }
@@ -361,13 +301,7 @@ function requiredEnum<T extends readonly string[]>(value: unknown, allowedValues
   return value as T[number]
 }
 
-/**
- * Kept local rather than imported from `@/lib/type-guards` because this module
- * must also load under the raw Node TS loader (the factory generator imports it
- * by relative `.ts` path), where neither the `@/` alias nor extensionless `.ts`
- * imports resolve. A cross-module import would force a `.ts` extension the
- * Next/root tsconfig rejects, so the guard stays self-contained here.
- */
+// Kept local, not imported from @/lib/type-guards: the factory's raw Node TS loader can't resolve the @/ alias or extensionless .ts imports, so a cross-module import would break here.
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value)
 }

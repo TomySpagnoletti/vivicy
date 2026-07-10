@@ -2,14 +2,11 @@ import { ControlError, decideCr } from "@/lib/control"
 import { appendNotification } from "@/lib/notifications"
 import { getSpawner } from "@/lib/spawner"
 
-// Records the owner decision on a CR and, for an approval, runs the application chain;
-// Node runtime only. The agent APPLY leg lives inside the factory script — this route
-// only launches it through the control plane.
+// The apply leg itself lives in the factory script; this route only launches it via the control plane.
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 
-// The UI is the owner's touchpoint (P2); the recorded actor is honest provenance. The
-// G14 CLI passes its own actor instead — the control plane takes decidedBy as input.
+// decidedBy is a parameter of decideCr because other callers (e.g. the CLI) pass their own actor; this route always attributes decisions to the UI owner.
 const DECIDED_BY = "owner:ui"
 
 export async function POST(request: Request) {
@@ -30,9 +27,7 @@ export async function POST(request: Request) {
 
   try {
     const result = await decideCr(getSpawner(), { id, decision, decidedBy: DECIDED_BY })
-    // Honest about the blocked case: for an approval whose application chain stayed red,
-    // ok is false and the caller is told the decision landed but the chain must be looked
-    // at — distinct from a clean green (mirrors the extract route's 200/422 split).
+    // ok:false here means the decision landed but the apply chain is blocked, not that the decision failed (mirrors the extract route's 200/422 split).
     if (decision === "rejected") {
       appendNotification({
         level: "info",

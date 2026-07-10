@@ -2,9 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import type { AgentsHealth } from "@/lib/agents-health-types"
 
-// Mock the server-only detector so the route is exercised without probing the
-// real PATH/Keychain. The memo is module-scoped, so each test re-imports the
-// route through a fresh module graph to start from an empty cache.
+// The route's memo is module-scoped; each test re-imports the route through a fresh module graph to start from an empty cache.
 const { getAgentsHealth } = vi.hoisted(() => ({ getAgentsHealth: vi.fn() }))
 
 vi.mock("@/lib/agents-health", () => ({ getAgentsHealth }))
@@ -43,7 +41,6 @@ describe("GET /api/agents/health — once-per-process memo (W4a)", () => {
     expect(await first.json()).toEqual({ ok: true, agents: health(false) })
     expect(getAgentsHealth).toHaveBeenCalledTimes(1)
 
-    // The CLI landscape "changed" — but without ?fresh=1 the memo is served.
     getAgentsHealth.mockReturnValue(health(true))
     const second = await GET(request("http://localhost/api/agents/health"))
     expect(await second.json()).toEqual({ ok: true, agents: health(false) })
@@ -60,7 +57,6 @@ describe("GET /api/agents/health — once-per-process memo (W4a)", () => {
     expect(await fresh.json()).toEqual({ ok: true, agents: health(true) })
     expect(getAgentsHealth).toHaveBeenCalledTimes(2)
 
-    // The re-probe result IS the new memo.
     const after = await GET(request("http://localhost/api/agents/health"))
     expect(await after.json()).toEqual({ ok: true, agents: health(true) })
     expect(getAgentsHealth).toHaveBeenCalledTimes(2)

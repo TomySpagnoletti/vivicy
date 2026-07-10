@@ -18,9 +18,7 @@ import {
 let root: string
 
 beforeEach(() => {
-  // realpath the temp root: on macOS /tmp is a symlink to /private/tmp, and the
-  // browser canonicalizes paths, so the assertions must compare against the real
-  // path the OS resolves to.
+  // realpathSync: macOS /tmp is a symlink to /private/tmp, and the browser canonicalizes paths — compare against the resolved real path.
   root = realpathSync(mkdtempSync(path.join(tmpdir(), "vivicy-fs-")))
   mkdirSync(path.join(root, "alpha"))
   mkdirSync(path.join(root, "beta"))
@@ -62,7 +60,6 @@ describe("resolveBrowsePath (path-safety)", () => {
   })
 
   it("collapses traversal segments to the real target", () => {
-    // root/alpha/../beta normalizes to root/beta — a valid directory, not an escape.
     const resolved = resolveBrowsePath(path.join(root, "alpha", "..", "beta"))
     expect(resolved).toBe(path.join(root, "beta"))
   })
@@ -83,7 +80,6 @@ describe("resolveBrowsePath (path-safety)", () => {
   })
 
   it("falls back to the default root (home) for empty input", () => {
-    // Empty input resolves to the real home dir; assert it's an absolute dir path.
     const resolved = resolveBrowsePath("")
     expect(path.isAbsolute(resolved)).toBe(true)
   })
@@ -94,10 +90,8 @@ describe("listDirectories", () => {
     const listing = listDirectories(root)
     expect(listing.path).toBe(root)
     expect(listing.entries.map((e) => e.name)).toEqual(["alpha", "beta"])
-    // Files and dotfiles are excluded.
     expect(listing.entries.some((e) => e.name === "a-file.txt")).toBe(false)
     expect(listing.entries.some((e) => e.name === ".hidden")).toBe(false)
-    // Entry paths are absolute children of the listed dir.
     expect(listing.entries[0].path).toBe(path.join(root, "alpha"))
   })
 
@@ -151,13 +145,11 @@ describe("createDirectory (POST /api/fs/mkdir logic)", () => {
     expect(created).toBe(path.join(root, "gamma"))
     expect(existsSync(created)).toBe(true)
     expect(statSync(created).isDirectory()).toBe(true)
-    // It shows up in the very next listing.
     expect(listDirectories(root).entries.map((e) => e.name)).toContain("gamma")
   })
 
   it("rejects a name that already exists with the exists code", () => {
     try {
-      // `alpha` was created in beforeEach.
       createDirectory(root, "alpha")
       expect.unreachable("should have thrown")
     } catch (error) {
@@ -172,7 +164,6 @@ describe("createDirectory (POST /api/fs/mkdir logic)", () => {
     } catch (error) {
       expect((error as FsBrowseError).code).toBe("invalid_name")
     }
-    // No escape directory was created next to the parent.
     expect(existsSync(path.join(path.dirname(root), "escape"))).toBe(false)
   })
 
@@ -195,9 +186,6 @@ describe("createDirectory (POST /api/fs/mkdir logic)", () => {
   })
 
   it("canonicalizes a symlinked parent before creating (writes to the real dir)", () => {
-    // A symlink pointing at a real directory must resolve to its canonical target
-    // before the mkdir, so the new folder lands in the REAL directory — a symlink
-    // can never smuggle the write somewhere the canonical path wouldn't reach.
     const link = path.join(root, "link-to-alpha")
     symlinkSync(path.join(root, "alpha"), link)
     const created = createDirectory(link, "via-symlink")

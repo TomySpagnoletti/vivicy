@@ -74,7 +74,6 @@ describe("defaults", () => {
 
 describe("per-model compatibility map", () => {
   it("declares the researched models with the right effort + fast support", () => {
-    // Claude Opus line: full effort range; fast on 4.6/4.7/4.8 only.
     expect(modelCapability("claude", "claude-opus-4-8")).toEqual({
       efforts: EFFORT_LEVELS.claude,
       fast: true,
@@ -82,11 +81,8 @@ describe("per-model compatibility map", () => {
     expect(modelSupportsFast("claude", "claude-opus-4-8")).toBe(true)
     expect(modelSupportsFast("claude", "claude-opus-4-7")).toBe(true)
     expect(modelSupportsFast("claude", "claude-opus-4-6")).toBe(true)
-    // Older Opus: no fast.
     expect(modelSupportsFast("claude", "claude-opus-4-5")).toBe(false)
 
-    // Codex: gpt-5.5 + gpt-5.4 support fast; mini does not; spark is speed-first
-    // with NO reasoning levels and no fast.
     expect(modelSupportsFast("codex", "gpt-5.5")).toBe(true)
     expect(modelSupportsFast("codex", "gpt-5.4")).toBe(true)
     expect(modelSupportsFast("codex", "gpt-5.4-mini")).toBe(false)
@@ -97,11 +93,9 @@ describe("per-model compatibility map", () => {
   it("every listed model declares a self-consistent capability", () => {
     for (const provider of ["claude", "codex"] as const) {
       for (const { id, capability } of MODELS[provider]) {
-        // efforts is the model's own allowed set (subset of the CLI union).
         for (const level of capability.efforts) {
           expect(EFFORT_LEVELS[provider]).toContain(level)
         }
-        // modelSupportsFast mirrors the capability flag for a listed model.
         expect(modelSupportsFast(provider, id)).toBe(capability.fast)
       }
     }
@@ -109,16 +103,13 @@ describe("per-model compatibility map", () => {
 
   it("treats a custom (unlisted) model as fast-incapable but keeps a usable effort set", () => {
     expect(modelCapability("claude", "claude-experimental-x")).toBeNull()
-    // Custom model: fast off (we never vouch for an unknown model's fast support).
     expect(modelSupportsFast("claude", "claude-experimental-x")).toBe(false)
-    // But effort falls back to the CLI union so it is never stranded.
     expect(effortsForModel("claude", "claude-experimental-x")).toEqual(EFFORT_LEVELS.claude)
   })
 })
 
 describe("effort validation (per model)", () => {
   it("accepts only the levels the SELECTED model allows", () => {
-    // Claude opus accepts the full claude set.
     for (const level of EFFORT_LEVELS.claude) {
       expect(isValidEffort("claude", "claude-opus-4-8", level)).toBe(true)
     }
@@ -126,7 +117,6 @@ describe("effort validation (per model)", () => {
     expect(isValidEffort("claude", "claude-opus-4-8", "extreme")).toBe(false)
     expect(isValidEffort("claude", "claude-opus-4-8", 5)).toBe(false)
 
-    // Codex frontier model accepts the codex set (incl. xhigh).
     for (const level of EFFORT_LEVELS.codex) {
       expect(isValidEffort("codex", "gpt-5.5", level)).toBe(true)
     }
@@ -142,7 +132,6 @@ describe("effort validation (per model)", () => {
       implementer: { provider: "claude", model: "claude-opus-4-8", effort: "extreme" },
       reviewer: { provider: "codex", model: "gpt-5.5", effort: "minimal" },
     })
-    // Bad effort falls back to the model default; a valid one is kept.
     expect(normalized.implementer.effort).toBe(DEFAULT_SETTINGS.implementer.effort)
     expect(normalized.implementer.model).toBe("claude-opus-4-8")
     expect(normalized.reviewer.effort).toBe("minimal")
@@ -151,12 +140,11 @@ describe("effort validation (per model)", () => {
 
   it("normalizeSettings empties the effort for a model with no reasoning control", () => {
     const normalized = normalizeSettings({
-      // Reviewer = codex on spark with a stale effort.
       implementer: { provider: "claude", model: "claude-opus-4-8", effort: "xhigh" },
       reviewer: { provider: "codex", model: "gpt-5.3-codex-spark", effort: "high" },
     })
     expect(normalized.reviewer.model).toBe("gpt-5.3-codex-spark")
-    expect(normalized.reviewer.effort).toBe("") // spark has no thinking level
+    expect(normalized.reviewer.effort).toBe("")
     expect(isAgentCompatible(normalized.reviewer)).toBe(true)
   })
 
@@ -166,14 +154,13 @@ describe("effort validation (per model)", () => {
       reviewer: { provider: "codex", model: "gpt-5.5", effort: "high" },
     })
     expect(normalized.implementer.model).toBe("custom-claude")
-    expect(normalized.implementer.effort).toBe("max") // valid in the CLI union fallback
+    expect(normalized.implementer.effort).toBe("max")
   })
 })
 
 describe("fast-mode validation", () => {
   it("normalizeSettings strips fast on a fast-INcapable model", () => {
     const normalized = normalizeSettings({
-      // Try to force fast on Opus 4.5 (no fast) and on spark (no fast).
       implementer: { provider: "claude", model: "claude-opus-4-5", effort: "high", fast: true },
       reviewer: { provider: "codex", model: "gpt-5.3-codex-spark", fast: true },
     })
@@ -196,10 +183,9 @@ describe("fast-mode validation", () => {
     const fastOpus = { provider: "claude", model: "claude-opus-4-8", effort: "max", fast: true } as const
     const switched = withModel(fastOpus, "claude-opus-4-5")
     expect(switched.model).toBe("claude-opus-4-5")
-    expect(switched.fast).toBe(false) // 4.5 has no fast
-    expect(switched.effort).toBe("max") // still a valid claude level
+    expect(switched.fast).toBe(false)
+    expect(switched.effort).toBe("max")
 
-    // Switching codex frontier -> spark drops both fast and effort.
     const fastCodex = { provider: "codex", model: "gpt-5.5", effort: "high", fast: true } as const
     const spark = withModel(fastCodex, "gpt-5.3-codex-spark")
     expect(spark.fast).toBe(false)
@@ -210,10 +196,10 @@ describe("fast-mode validation", () => {
   it("isAgentCompatible rejects an impossible fast/effort combo", () => {
     expect(
       isAgentCompatible({ provider: "claude", model: "claude-opus-4-5", effort: "high", fast: true })
-    ).toBe(false) // fast on a no-fast model
+    ).toBe(false)
     expect(
       isAgentCompatible({ provider: "codex", model: "gpt-5.3-codex-spark", effort: "high", fast: false })
-    ).toBe(false) // effort set on a no-reasoning model
+    ).toBe(false)
     expect(
       isAgentCompatible({ provider: "claude", model: "claude-opus-4-8", effort: "xhigh", fast: true })
     ).toBe(true)
@@ -286,7 +272,6 @@ describe("role -> CLI assignment (R12)", () => {
     expect(normalizeSettings({ maxParallel: 12 }).maxParallel).toBe(12)
     expect(normalizeSettings({ maxParallel: 0 }).maxParallel).toBe(1)
     expect(normalizeSettings({ maxParallel: -2 }).maxParallel).toBe(1)
-    // Above the cap is clamped to MAX_PARALLEL = 12 (not the old 8).
     expect(normalizeSettings({ maxParallel: 999 }).maxParallel).toBe(12)
     expect(normalizeSettings({ maxParallel: 2.7 }).maxParallel).toBe(2)
   })
@@ -391,8 +376,7 @@ describe("settingsToEnv", () => {
   })
 
   it("never emits fast '1' for a model that cannot do fast, even if fast is true", () => {
-    // Defence in depth: a forced-fast incapable model (should already be repaired
-    // upstream, but settingsToEnv re-checks) emits "0".
+    // Defence in depth: settingsToEnv re-checks even though normalizeSettings should already repair this upstream.
     const env = settingsToEnv({
       implementer: { provider: "claude", model: "claude-opus-4-5", effort: "high", fast: true },
       reviewer: { provider: "codex", model: "gpt-5.3-codex-spark", effort: "", fast: true },
@@ -425,7 +409,7 @@ describe("settingsToEnv", () => {
     expect(env.VIVICY_IMPLEMENTER_CLI).toBe("codex")
     expect(env.VIVICY_REVIEWER_CLI).toBe("claude")
     expect(env.VIVICY_CODEX_EFFORT).toBe("minimal")
-    expect(env.VIVICY_CODEX_FAST).toBe("1") // codex (implementer) wants fast on gpt-5.5
+    expect(env.VIVICY_CODEX_FAST).toBe("1")
     expect(env.VIVICY_CLAUDE_EFFORT).toBe("max")
     expect(env.VIVICY_CLAUDE_FAST).toBe("0")
   })

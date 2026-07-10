@@ -5,11 +5,8 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { readSpikeGateStatuses, readSpikes, runSpikeCheck, transitivelyVerifiedGates } from "./spike-check.ts";
 
-// The section overrides a test may pass; `null` drops the section entirely.
 type SpikeSections = Partial<Record<"traceability" | "question" | "mustVerify" | "evidence", string | null>>;
 
-// A well-formed spike whose gate-id slug matches its filename stem. `extra`
-// overrides individual sections so each test can break exactly one rule.
 function spike({ slug = "01-example", status = "pending", gate, sections }: { slug?: string; status?: string; gate?: string; sections?: SpikeSections } = {}): string {
   const s: Record<string, string | null> = {
     traceability:
@@ -46,7 +43,6 @@ function spike({ slug = "01-example", status = "pending", gate, sections }: { sl
   ].join("\n");
 }
 
-// `spikes` maps filename -> content; pass `null` for no spikes/ dir at all.
 function run(spikes: Record<string, string> | null) {
   const root = mkdtempSync(join(tmpdir(), "vivicy-spike-"));
   try {
@@ -122,7 +118,7 @@ test("a VERIFIED spike missing a completion field fails", () => {
     "environment: x\n" +
     "commands or API calls: x\n" +
     "observed output: x\n" +
-    "documentation updates: x\n" + // "decision" and "unresolved risks" removed
+    "documentation updates: x\n" +
     "```";
   const result = run({ "01-example.md": spike({ status: "verified", sections: { evidence } }) });
   assert.equal(result.exitCode, 1);
@@ -190,7 +186,6 @@ test("a missing Traceability field (no status) fails", () => {
   assert.match(result.errors.join("\n"), /spike_traceability_field/);
 });
 
-// E2 — inter-spike gating.
 type TraceOpts = { slug?: string; status?: string; gated_by?: string; blocks?: string; external?: string };
 function trace({ slug, status = "pending", gated_by, blocks, external }: TraceOpts = {}): string {
   return [

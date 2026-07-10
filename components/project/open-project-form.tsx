@@ -12,29 +12,15 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { FolderBrowser } from "@/components/project/folder-browser"
 
-/**
- * The open-existing-project flow (R10), dialog-free so two surfaces share it: the
- * {@link file://./open-project-dialog OpenProjectDialog} (the setup bar's project
- * switcher) and the Vivi panel's onboarding view (W4b). Browses the LOCAL
- * filesystem via {@link FolderBrowser}, persists the chosen folder via
- * `POST /api/project`, and hands the described project back through `onChanged`.
- *
- * Layout: the shared folder browser (breadcrumbs, parent-up, subdirectory list,
- * inline New-folder), a "Select this folder" action for the directory currently
- * open, and a manual absolute-path Input fallback.
- */
 export function OpenProjectForm({
   active,
   disabled = false,
   onChanged,
   onSelectingChange,
 }: {
-  /** Resets the manual path and re-browses the default root whenever this flips true. */
   active: boolean
-  /** External busy state (e.g. a wrapping dialog mid-teardown) that freezes the form. */
   disabled?: boolean
   onChanged: (project: CurrentProject) => void
-  /** Fires when a selection POST starts/ends (wrappers freeze their Cancel on it). */
   onSelectingChange?: (selecting: boolean) => void
 }) {
   const t = useTranslations("project.openProjectDialog")
@@ -45,10 +31,7 @@ export function OpenProjectForm({
   const [selecting, setSelecting] = useState(false)
   const [manualPath, setManualPath] = useState("")
 
-  // Reset the manual-path fallback each time the form re-activates; the browser
-  // resets and re-browses itself from its own `open` prop. The state write lives
-  // inside the async closure (not the effect body) so it doesn't fire
-  // synchronously during the render commit.
+  // The setState lives inside an async closure, not the effect body, so it doesn't read as a cascading-render (setState-in-effect) pattern.
   useEffect(() => {
     if (!active) return
     void (async () => {
@@ -61,7 +44,6 @@ export function OpenProjectForm({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- report only on selecting transitions
   }, [selecting])
 
-  // Persist a chosen folder, then hand the described project back to the caller.
   const select = useCallback(
     async (root: string) => {
       setSelecting(true)
@@ -113,10 +95,7 @@ export function OpenProjectForm({
         onBusyChange={setBrowserBusy}
       />
 
-      {/* Select the folder currently open in the browser. Full-width with a
-          truncating path so a long absolute path never pushes the button (or
-          its siblings) past the container edge — the icon + action label stay
-          fixed and only the path clips, with the full value in the title. */}
+      {/* min-w-0 + truncate on the path span (with shrink-0 on the icon/label) keeps a long absolute path from pushing the button past the container edge. */}
       <Button
         variant="outline"
         size="sm"
@@ -136,7 +115,6 @@ export function OpenProjectForm({
         ) : null}
       </Button>
 
-      {/* Manual absolute-path fallback. */}
       <form
         className="flex flex-col gap-1.5"
         onSubmit={(event) => {

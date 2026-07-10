@@ -4,7 +4,6 @@ import { describe, expect, test } from "vitest"
 import { StatusDot } from "@/components/map/status-dot"
 import type { NodeStatus } from "@/lib/types"
 
-/** The status -> background-token class the dot must apply, per the component. */
 const EXPECTED_BG: Record<NodeStatus, string> = {
   not_started: "bg-border",
   in_progress: "bg-status-in-progress",
@@ -14,7 +13,6 @@ const EXPECTED_BG: Record<NodeStatus, string> = {
   blocked: "bg-status-blocked",
 }
 
-/** Render a dot and return the single <span> it produces. */
 function renderDot(status: NodeStatus | null | undefined) {
   const { container } = render(<StatusDot status={status} />)
   return container.querySelector("span") as HTMLSpanElement
@@ -26,7 +24,6 @@ describe("StatusDot — status maps to a background token", () => {
     (status, expectedClass) => {
       const dot = renderDot(status as NodeStatus)
       expect(dot).toHaveClass(expectedClass)
-      // Always a presentational, aria-hidden dot on the shared base shape.
       expect(dot).toHaveAttribute("aria-hidden")
       expect(dot).toHaveClass("rounded-full")
     }
@@ -41,7 +38,6 @@ describe("StatusDot — status maps to a background token", () => {
     const inProgress = renderDot("in_progress")
     const verified = renderDot("verified")
     const blocked = renderDot("blocked")
-    // Each carries its own token, and they are not the same class.
     expect(inProgress).toHaveClass("bg-status-in-progress")
     expect(verified).toHaveClass("bg-status-verified")
     expect(blocked).toHaveClass("bg-status-blocked")

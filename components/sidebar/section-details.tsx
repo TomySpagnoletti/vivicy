@@ -17,11 +17,6 @@ import { transcriptName } from "@/lib/transcript"
 import type { ArchitectureMapData, MapEdge, MapNode } from "@/lib/types"
 import type { SelectedItem } from "@/components/map/architecture-map"
 
-/**
- * Details section: the full record of the selected node or edge, plus the
- * issues that cover it and the captured transcript refs (clickable, opening the
- * transcript modal). Pure shadcn — tokens, Badge, and Button only.
- */
 export function SectionDetails({
   selected,
   data,
@@ -178,7 +173,6 @@ function RefBadges({
   )
 }
 
-/** Clickable transcript refs; each opens the shared transcript modal. */
 export function TranscriptRefs({ refs }: { refs: string[] }) {
   const t = useTranslations("sidebar.details")
   const { open } = useTranscript()

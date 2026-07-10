@@ -41,7 +41,6 @@ import { NonnaIcon } from "@/components/chat/nonna-icon"
 
 const POLL_INTERVAL_MS = 10_000
 
-/** Level → icon/color, all theme tokens (`--warning` carries the amber warn hue). */
 const LEVEL_ICON: Record<string, React.ReactNode> = {
   error: <CircleAlert className="size-3.5 text-destructive" />,
   warning: <TriangleAlert className="size-3.5 text-warning" />,
@@ -50,8 +49,7 @@ const LEVEL_ICON: Record<string, React.ReactNode> = {
   info: <Info className="size-3.5 text-muted-foreground" />,
 }
 
-/** Un-dismissed notifications, newest first — the sole visible-list rule so the
- *  tab's unread badge and the feed's list can never disagree. */
+/** Sole visible-list filter; badge counts reuse it too, so it must stay the one source of truth. */
 export function visibleNotifications(notifications: Notification[]): Notification[] {
   return notifications
     .filter((n) => !n.dismissed)
@@ -59,19 +57,7 @@ export function visibleNotifications(notifications: Notification[]): Notificatio
     .reverse()
 }
 
-/**
- * The notification + change-request data feed behind the panel (W5, D3 — the
- * bell/center are retired; the panel is the ONLY notification surface). It runs
- * ALWAYS, panel open or closed, so the launcher bubble can carry a closed-panel
- * attention badge (the retired bell's always-visible unread signal): an initial
- * fetch, a 10s poll (the fallback for app-side emissions the dev-status frame
- * cannot reflect — upload verify/apply, CR decisions), and an immediate refetch
- * when the SSE dev-status signature changes (issues done/total, gate failures,
- * run liveness, P9). Pending change requests ride the SAME triggers so the CR
- * cards and their count never go stale behind the notifications feed. Owning its
- * own EventSource mirrors the control bar / pipeline widget pattern: each surface
- * subscribes independently.
- */
+/** Always runs, panel open or closed, so the closed-panel launcher badge stays live; CRs ride the same reload triggers as notifications so neither goes stale behind the other. */
 export function useNotificationsFeed(): {
   notifications: Notification[]
   crs: ChangeRequestSummary[]
@@ -100,8 +86,7 @@ export function useNotificationsFeed(): {
   }, [])
 
   useEffect(() => {
-    // The IIFE keeps the setState off the synchronous effect body (the linted
-    // cascading-render path); the poll's callback is already deferred.
+    // IIFE keeps the setState out of the effect body itself (cascading-render lint); the interval callback below is deferred the same way.
     void (async () => {
       await load()
     })()
@@ -110,8 +95,6 @@ export function useNotificationsFeed(): {
   }, [load])
 
   useEffect(() => {
-    // Each (re)subscription records its own first frame before reacting, so a
-    // remount never refetches off a stale signature from the previous stream.
     lastSignatureRef.current = null
     const source = new EventSource("/api/status/stream")
     source.onmessage = (event) => {
@@ -130,7 +113,6 @@ export function useNotificationsFeed(): {
         }
         lastSignatureRef.current = signature
       } catch {
-        // A malformed frame never breaks the feed; the poll still covers it.
       }
     }
     return () => source.close()
@@ -139,7 +121,6 @@ export function useNotificationsFeed(): {
   return { notifications, crs, reload: load }
 }
 
-/** GET the notification log; null on any failure so the caller keeps its last list. */
 async function fetchNotifications(): Promise<Notification[] | null> {
   try {
     const res = await fetch("/api/control/notifications", { cache: "no-store" })
@@ -149,12 +130,10 @@ async function fetchNotifications(): Promise<Notification[] | null> {
     }
     if (Array.isArray(body.notifications)) return body.notifications
   } catch {
-    // Best-effort: a transient failure leaves the last known list in place.
   }
   return null
 }
 
-/** GET the change-request projection; null on any failure (keep the last list). */
 async function fetchCrs(): Promise<ChangeRequestSummary[] | null> {
   try {
     const res = await fetch("/api/control/crs", { cache: "no-store" })
@@ -164,21 +143,10 @@ async function fetchCrs(): Promise<ChangeRequestSummary[] | null> {
     }
     if (body.ok && Array.isArray(body.crs)) return body.crs
   } catch {
-    // Non-fatal: the CR section just stays as-is if the registry can't be read.
   }
   return null
 }
 
-/**
- * The Notifications tab content (W5): pending change requests first (the owner's
- * one human touchpoint, P2), then the deterministic notification feed —
- * newest-first, per-level icon, `notificationText` translation with raw-message
- * fallback, relative time, per-item dismiss and a confirmed "Clear all". Every
- * dismiss/clear POSTs to /api/control/notifications and re-fetches (single
- * source of truth: the server log, never a client-only hide). Each row offers a
- * compact "Ask Vivi" that hands the displayed text to the Chat tab's composer —
- * the USER presses send.
- */
 export function NotificationsFeed({
   notifications,
   crs,
@@ -187,13 +155,9 @@ export function NotificationsFeed({
   onDecided,
 }: {
   notifications: Notification[]
-  /** Pending change requests from the shared feed hook (P2 touchpoint). */
   crs: ChangeRequestSummary[]
-  /** Re-fetch the feed (notifications + CRs) after a dismiss/clear/CR decision. */
   onReload: () => void
-  /** Switch to the Chat tab with the composer pre-filled about this text. */
   onAskVivi: (text: string) => void
-  /** Fires after a CR decision recorded (the apply chain may have changed state). */
   onDecided?: () => void
 }) {
   const t = useTranslations("notifications")
@@ -201,9 +165,6 @@ export function NotificationsFeed({
   const [error, setError] = useState<string | null>(null)
   const visible = visibleNotifications(notifications)
 
-  // Dismiss/clear POST to the server log (the single source of truth) and reload.
-  // A non-ok response or a thrown fetch must NOT silently no-op: the row would
-  // reappear on the next poll with no explanation, so the failure is surfaced.
   const post = useCallback(
     async (key: string | "all", body: Record<string, unknown>) => {
       setPending(key)
@@ -253,8 +214,7 @@ export function NotificationsFeed({
       ) : (
         <>
           <ul className="flex flex-col gap-2">
-            {/* `id` is the writer-guaranteed unique key; the ts+index fallback
-                only exists for legacy lines that predate the id field. */}
+            {/* `id` is the writer-guaranteed key; the ts/index fallback only covers legacy log lines from before the id field existed. */}
             {visible.map((n, i) => {
               const key = n.id ?? n.ts ?? String(i)
               const dismissRef = n.id ?? n.ts
@@ -300,8 +260,6 @@ function NotificationRow({
 }: {
   notification: Notification
   pending: boolean
-  /** Absent only for a malformed line with neither id nor ts — nothing to key
-   *  a dismiss on, so the X is not rendered. */
   onDismiss?: () => void
   onAskVivi: (text: string) => void
 }) {
@@ -351,8 +309,6 @@ function NotificationRow({
   )
 }
 
-/** Coarse relative time ("just now", "5m ago", "3h ago", "2d ago"); falls back
- *  to the raw timestamp when it cannot be parsed — never a blank field. */
 export function relativeTime(ts: string | undefined, t: ReturnType<typeof useTranslations<"notifications">>): string {
   if (!ts) return t("relativeTime.unknown")
   const then = Date.parse(ts)
@@ -367,7 +323,6 @@ export function relativeTime(ts: string | undefined, t: ReturnType<typeof useTra
   return t("relativeTime.daysAgo", { days })
 }
 
-/** One change-request row from GET /api/control/crs (read-only projection). */
 interface ChangeRequestSummary {
   id: string
   title: string
@@ -377,35 +332,20 @@ interface ChangeRequestSummary {
   source: string | null
 }
 
-/** Statuses that still await the owner decision — the only ones we surface with
- *  Approve/Reject. Decided CRs drop off on the next fetch (their outcome is a
- *  notification, and this session's decision stays visible inline). */
+/** The only statuses shown with Approve/Reject; a decided CR drops out here and surfaces as a notification instead. */
 const PENDING_STATUSES = new Set(["idea", "under_review"])
 
-/** The CRs still awaiting the owner's decision — the shared rule so the launcher
- *  badge, the in-panel tab badge, and the CR cards always count the same set. */
+/** CRs still awaiting a decision — shared so the launcher badge, tab badge, and CR cards all count the same set. */
 export function pendingCrs(crs: ChangeRequestSummary[]): ChangeRequestSummary[] {
   return crs.filter((cr) => PENDING_STATUSES.has(cr.status))
 }
 
-/** The recorded outcome of a decision made in THIS mount, rendered inline. */
 interface DecisionOutcome {
   ok: boolean
   text: string
 }
 
-/**
- * The owner's single legitimate human touchpoint (P2/B8.2), ported from the
- * retired CrReviewSection into the notifications feed: agent-submitted change
- * requests as Cards with Approve/Reject. Approving runs the docs_applied chain
- * (apply → re-freeze → re-extract) server-side; rejecting closes the CR. Both are
- * sensitive, so both confirm — the confirmed CLICK is the owner decision. The
- * apply outcome (ok/blocked) renders inline on the card instead of a toast.
- *
- * Presentational: the CR list comes from the shared feed hook (so it reloads on
- * the same initial/poll/SSE/decision triggers as the notifications and never goes
- * stale), and a decision here calls `onReload` to refresh it.
- */
+/** Approving a CR runs the server-side docs_applied chain (apply → re-freeze → re-extract) — not visible from this file alone. Both approve and reject require a confirm click since both are sensitive and irreversible. */
 function CrReviewCards({
   crs,
   onReload,
@@ -436,7 +376,6 @@ function CrReviewCards({
           code?: string
         }
         if (!res.ok || body.ok === false) {
-          // An approval whose apply chain stayed red is honest news, not a silent pass.
           const fallback = body.summary ?? body.error ?? `HTTP ${res.status}`
           const text =
             !body.summary && body.code ? errorText(tErrors, `control.${body.code}`, fallback) : fallback
@@ -467,9 +406,6 @@ function CrReviewCards({
         }))
       } finally {
         setDeciding(null)
-        // The shared reload refetches the CR list (and notifications); the local
-        // `outcomes` keeps this card's decision visible even after it drops out of
-        // the pending set on the refetch.
         onReload()
         onDecided()
       }
@@ -477,8 +413,6 @@ function CrReviewCards({
     [onReload, onDecided, t, tErrors]
   )
 
-  // Still-pending CRs plus the ones decided in this mount, so the inline outcome
-  // stays readable instead of vanishing with the next list refresh.
   const shown = crs.filter((cr) => PENDING_STATUSES.has(cr.status) || outcomes[cr.id])
   if (shown.length === 0) return null
 
@@ -528,8 +462,6 @@ function CrReviewCards({
                   onConfirm={() => void decide(cr.id, "rejected")}
                 />
               </div>
-              {/* role="status": the owner's decision outcome (P2's one human
-                  touchpoint) is announced to screen readers, not just painted. */}
               {outcome ? (
                 <Marker role="status" className={cn(!outcome.ok && "text-destructive")}>
                   <MarkerIcon>{outcome.ok ? <Check /> : <CircleAlert />}</MarkerIcon>
@@ -559,9 +491,7 @@ function ConfirmDecision({
 }) {
   const t = useTranslations("crs")
   const approve = decision === "approved"
-  // aria-disabled + a guarded open, never the native `disabled`: the AlertDialog
-  // returns focus to its trigger on close, and a natively-disabled trigger cannot
-  // receive it — keyboard focus would drop to <body> after every owner decision.
+  // aria-disabled + guarded open, never native `disabled`: AlertDialog returns focus to its trigger on close, and a natively-disabled trigger can't receive it — focus would drop to <body> after every decision.
   const [dialogOpen, setDialogOpen] = useState(false)
   return (
     <AlertDialog open={dialogOpen} onOpenChange={(next) => setDialogOpen(next && !disabled)}>

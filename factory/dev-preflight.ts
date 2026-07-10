@@ -1,27 +1,4 @@
 #!/usr/bin/env node
-// Start-of-work preflight: surface which development skills the TARGET project
-// declares, and whether they are installed and available to both agents via the
-// Vercel `skills` CLI. `skills` symlinks a skill across every agent on the
-// machine from one source, so a single install serves both agents.
-//
-// Vivicy is project-agnostic: it has NO built-in stack assumptions. The set of
-// development skills is owned by the target project, not by Vivicy. A project
-// declares the skills its agents should use; a project that declares none (e.g.
-// a pure-JS library) preflights cleanly with nothing to check.
-//
-// Where skills are declared (read from the target root; per field, a declared
-// vivicy.json array — even empty — wins over the package.json fallback):
-//   - vivicy.json   { "requiredSkills": [...], "recommendedSkills": [...] } — the
-//     canonical, language-neutral home (install-skills.ts maintains requiredSkills;
-//     entries are `owner/repo@skill` ids, matched against `skills list` output by
-//     their skill-name part).
-//   - package.json  "vivicy": { "requiredSkills": [...], "recommendedSkills": [...] }
-//     — Node-only fallback.
-//
-// Absent skills are reported as informational NOTES, never a hard failure — the
-// only thing that blocks the loop is an explicitly REQUIRED skill that is
-// missing. With no declared required skills (the default), preflight is always
-// ok, so an arbitrary project is never gated on any particular tech stack.
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -43,10 +20,6 @@ interface SkillsCheck {
   reason: string | undefined;
 }
 
-// Read the target project's declared skills. Returns { required, recommended }
-// arrays of skill NAMES (the part `skills list` prints — a declared `owner/repo@skill`
-// id contributes its skill-name part). vivicy.json is the canonical, polyglot home;
-// package.json#vivicy is the Node-only fallback, per field.
 export function readDeclaredSkills(targetRoot = resolveTargetRoot()): DeclaredSkills {
   const empty: DeclaredSkills = { required: [], recommended: [] };
   if (!targetRoot) return empty;
@@ -55,17 +28,14 @@ export function readDeclaredSkills(targetRoot = resolveTargetRoot()): DeclaredSk
   const pkg = readJsonOrNull(join(targetRoot, "package.json"));
   const fromPkg = declaredIn(pkg && typeof pkg === "object" ? (pkg as { vivicy?: unknown }).vivicy : null);
 
-  // A field vivicy.json DECLARES (even as an empty array — the owner emptied it) is
-  // authoritative; package.json only fills fields vivicy.json does not declare.
+  // vivicy.json declaring a field — even an empty array — is authoritative; package.json fills only fields vivicy.json omits.
   return {
     required: fromVivicy.required ?? fromPkg.required ?? [],
     recommended: fromVivicy.recommended ?? fromPkg.recommended ?? [],
   };
 }
 
-// Each field is `null` when the config does not declare it as an array (absent config,
-// absent field, or a non-array value), so the caller can distinguish "undeclared" from
-// an authoritative empty list.
+// null means undeclared (falls through to the other source); [] means declared-empty and authoritative — the two must stay distinguishable.
 function declaredIn(config: unknown): { required: string[] | null; recommended: string[] | null } {
   if (!config || typeof config !== "object") return { required: null, recommended: null };
   const field = (value: unknown): string[] | null => (Array.isArray(value) ? toStringList(value).map(skillName) : null);
@@ -75,9 +45,7 @@ function declaredIn(config: unknown): { required: string[] | null; recommended: 
   };
 }
 
-// A declared entry may be a bare skill name or an `owner/repo@skill` registry id; the
-// installed check greps `skills list` output, which prints skill names, so an id
-// matches by its part after the "@".
+// Declared entries may be a bare name or an `owner/repo@skill` id; `skills list` prints only names, so match on the part after "@".
 function skillName(entry: string): string {
   const at = entry.lastIndexOf("@");
   return at > 0 ? entry.slice(at + 1) : entry;
@@ -97,35 +65,23 @@ function toStringList(value: unknown): string[] {
   return value.map((entry) => String(entry).trim()).filter((entry) => entry.length > 0);
 }
 
-// Pure + unit-tested: which of the given skills are absent from `skills list`
-// output. Substring match keeps it robust across `skills` CLI output-format
-// changes. An empty `required` list yields no missing skills.
+// Substring match (not exact) so this stays robust to `skills` CLI output-format changes.
 export function missingSkills(listOutput: unknown, required: string[] = []): string[] {
   const text = String(listOutput ?? "");
   return required.filter((name) => !text.includes(name));
 }
 
-// Decide preflight outcome from the declared skills and the `skills list` output.
-//
-// Pure for testability: pass `declared` and a `runner`. Returns
-//   { ok, missingRequired, missingRecommended, notes, reason }
-// where `ok` is false ONLY when a declared REQUIRED skill is missing (or the CLI
-// is unavailable while required skills were declared). With no declared required
-// skills, ok is always true and absent skills become informational notes.
 export function checkSkills(runner: SkillsRunner = defaultRunner, declared = readDeclaredSkills()): SkillsCheck {
   const required = declared?.required ?? [];
   const recommended = declared?.recommended ?? [];
   const notes: string[] = [];
 
-  // A project that declares no skills has nothing to check: clean preflight.
   if (required.length === 0 && recommended.length === 0) {
     return { ok: true, missingRequired: [], missingRecommended: [], notes, reason: undefined };
   }
 
   const result = runner();
   if (!result || result.ok !== true) {
-    // The CLI is unavailable. Required skills can't be confirmed → block only if
-    // any are required; otherwise it's just an informational note.
     if (required.length > 0) {
       return {
         ok: false,

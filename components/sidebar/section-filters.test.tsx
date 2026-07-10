@@ -6,7 +6,6 @@ import { SectionFilters } from "@/components/sidebar/section-filters"
 import type { ArchitectureMapData } from "@/lib/types"
 import { renderWithIntl } from "@/test/render"
 
-/** A small but realistic map with two lanes and a status legend. */
 const DATA: ArchitectureMapData = {
   name: "demo-map",
   lanes: [
@@ -22,7 +21,6 @@ const DATA: ArchitectureMapData = {
   edges: [],
 }
 
-/** Default props with a vi.fn() per callback so each can be asserted in isolation. */
 function setup(overrides?: Partial<Parameters<typeof SectionFilters>[0]>) {
   const props = {
     data: DATA,
@@ -76,7 +74,6 @@ describe("SectionFilters — search input", () => {
     const props = setup()
     const input = screen.getByRole("searchbox")
     await user.type(input, "a")
-    // Controlled input: each keystroke reports the new value to the parent.
     expect(props.onQueryChange).toHaveBeenCalledWith("a")
   })
 
@@ -109,7 +106,6 @@ describe("SectionFilters — lane / status / scope selects", () => {
     const user = userEvent.setup()
     const props = setup()
     await user.click(screen.getByLabelText("Status"))
-    // The label is humanized but the option's value is the raw status key.
     await user.click(await screen.findByRole("option", { name: "in progress" }))
     expect(props.onStatusFilterChange).toHaveBeenCalledWith("in_progress")
   })

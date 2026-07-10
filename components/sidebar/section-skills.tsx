@@ -25,7 +25,6 @@ import { cn } from "@/lib/utils"
 
 const POLL_INTERVAL_MS = 10_000
 
-/** Phases meaning an install is currently running (mirrors the SK stage). */
 const IN_FLIGHT = new Set(["selecting", "auditing", "installing"])
 
 interface SkillsReportResponse {
@@ -34,14 +33,6 @@ interface SkillsReportResponse {
   error?: string
 }
 
-/**
- * Skills section: the project skills install-skills.ts actually installed (from
- * the SAME report file the SK pipeline stage reads), each with its official/
- * community provenance and an explicit warning when its security audits were
- * waived; rejected candidates stay visible (collapsed) with their reason. The
- * "Find skills" action starts an auto-mode install behind a confirm dialog (G8
- * sensitive-action pattern — it spawns agent legs).
- */
 export function SectionSkills() {
   const t = useTranslations("sidebar.skills")
   const tErrors = useTranslations("errors")
@@ -59,9 +50,7 @@ export function SectionSkills() {
   }, [])
 
   useEffect(() => {
-    // False positive of react-hooks/set-state-in-effect: `load` only calls setState
-    // AFTER an awaited fetch resolves (an external-system sync), never synchronously
-    // in the effect body.
+    // eslint false positive: load() only setStates after an awaited fetch resolves, never synchronously in the effect body.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     void load()
     const timer = setInterval(() => void load(), POLL_INTERVAL_MS)

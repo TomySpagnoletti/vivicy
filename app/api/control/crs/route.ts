@@ -1,6 +1,5 @@
 import { ControlError, listChangeRequests } from "@/lib/control"
 
-// Lists the change-request registry as read-only display data; Node runtime only.
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 

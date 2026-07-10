@@ -14,7 +14,6 @@ import {
 } from "@/components/ui/collapsible"
 import { Separator } from "@/components/ui/separator"
 
-/** Persisted open/closed key for the legend section. Collapsed by default. */
 export const LEGEND_OPEN_KEY = "vivicy:legend-open"
 
 interface LegendEntry {
@@ -23,11 +22,7 @@ interface LegendEntry {
   border: string
 }
 
-/**
- * Derive the legend rows for the current view — the SAME rule the map used:
- *   - target view   -> one row per distinct node `kind`, kind colors
- *   - progress view -> one row per status, progress/status colors
- */
+// Must stay in sync with the map's own color rule (target: kind; progress: status) — duplicated, not shared.
 function legendEntries(
   view: ViewMode,
   nodes: MapNode[],
@@ -45,18 +40,6 @@ function legendEntries(
   })
 }
 
-/**
- * The color legend, relocated OUT of the floating map overlay and INTO the
- * sidebar's fixed bottom region (just above the quota footer). A shadcn
- * Collapsible, COLLAPSED BY DEFAULT, whose open/closed choice is persisted.
- *
- * Hydration-safe by construction: the first render is always collapsed (the
- * server-safe default); the persisted "open" choice is applied in a mount
- * effect, so SSR and the first client render agree.
- *
- * Shows the right legend for the current view (kind colors in Target, status
- * colors in Progress), mirroring the map exactly.
- */
 export function SectionLegend({
   view,
   nodes,
@@ -67,8 +50,6 @@ export function SectionLegend({
   statusLegend?: Record<string, string>
 }) {
   const t = useTranslations("sidebar.legend")
-  // Hydration-safe persisted open state: collapsed by default on the server and
-  // the first client render; the stored choice is applied right after hydration.
   const [open, setOpen] = usePersistedBoolean(LEGEND_OPEN_KEY, false)
 
   const entries = legendEntries(view, nodes, statusLegend)

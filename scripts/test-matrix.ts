@@ -1,10 +1,4 @@
 #!/usr/bin/env node
-// TEST-MATRIX.md reconciliation machinery (P1: the upkeep mandate must be
-// machine-verified, not trusted). The matrix header carries a fingerprint of the
-// behavior-bearing source tree; the guard test recomputes it and fails the suite
-// when code changed without the matrix being reconciled. `npm run matrix:stamp`
-// rewrites the fingerprint — the explicit "I reconciled the matrix" act (a pure
-// refactor with no behavior change is declared the same way).
 import { spawnSync } from "node:child_process"
 import { createHash } from "node:crypto"
 import { readdirSync, readFileSync, statSync, writeFileSync } from "node:fs"
@@ -15,15 +9,11 @@ export const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url
 export const MATRIX_FILE = "test/TEST-MATRIX.md"
 export const FINGERPRINT_RE = /^Reconciled fingerprint: `([0-9a-f]{64})` @ commit `([0-9a-f]{7,40}|unknown)`$/m
 
-// The behavior surface the matrix inventories. Test files are excluded: adding a
-// test alone must not demand a re-stamp (flipping a GAP reference is encouraged,
-// not forced), while any non-test source change does.
+// Test files (.test/.spec) are deliberately excluded from the fingerprint — adding a test alone must not force a re-stamp.
 const BEHAVIOR_DIRS = ["app", "components", "lib", "factory", "hooks", "scripts", "e2e"]
 const BEHAVIOR_ROOT_FILES = ["playwright.config.ts", "vitest.config.ts", "vitest.setup.ts", "next.config.ts", "package.json"]
 
-// Regenerated, gitignored run ARTIFACTS are not behavior: hashing them would let
-// every rehearsal run invalidate a freshly-honest stamp (found live: the rehearsal
-// report re-reddened the guard minutes after a legitimate reconcile+stamp).
+// Regenerated gitignored artifacts must stay excluded from the fingerprint, or every rehearsal run would invalidate a freshly-stamped matrix.
 const ARTIFACT_PATHS = ["factory/rehearsal/reports/"]
 
 function isBehaviorFile(rel: string): boolean {
@@ -81,8 +71,6 @@ function headCommit(root: string): string {
   return r.status === 0 && /^[0-9a-f]{40}$/.test(hash) ? hash : "unknown"
 }
 
-// The behavior files changed since the stamped commit (committed AND dirty), so a
-// failing guard can say exactly WHAT to reconcile instead of "something changed".
 export function changedBehaviorFilesSince(commit: string, root = REPO_ROOT): string[] {
   const changed = new Set<string>()
   if (commit !== "unknown") {
@@ -112,7 +100,6 @@ export function stampFingerprint(root = REPO_ROOT): string {
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   if (process.argv.includes("--delta")) {
-    // The reconciliation work-list: what an agent must read to feed the matrix.
     const stamp = readStamp()
     if (!stamp) {
       console.error("no reconciliation stamp in test/TEST-MATRIX.md — run `npm run matrix:stamp` once first")

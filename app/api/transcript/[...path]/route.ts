@@ -3,22 +3,9 @@ import path from "node:path"
 
 import { getTargetRoot } from "@/lib/target"
 
-// Reads the gitignored transcript store from the local filesystem, so this
-// route must run on Node, not Edge.
 export const runtime = "nodejs"
-// Transcripts can be written while a run is in progress; never cache.
 export const dynamic = "force-dynamic"
 
-/**
- * Serve a captured agent transcript from the target project's gitignored
- * transcript store. Faithful port of the original viewer's Vite middleware:
- * read-only, restricted to `.vivicy/development/transcripts/**`, and only `.jsonl`
- * files. Path traversal is rejected.
- *
- * The client requests `/api/transcript/.vivicy/development/transcripts/<id>/<file>.jsonl`
- * (the `transcript_refs` value, verbatim). We rebuild that relative path, verify
- * it is inside the allowed directory, and stream the file as NDJSON.
- */
 export async function GET(
   _request: Request,
   { params }: { params: Promise<{ path: string[] }> }
@@ -26,7 +13,6 @@ export async function GET(
   const { path: segments } = await params
   const rel = decodeURIComponent((segments ?? []).join("/"))
 
-  // Allow only the transcript store, only .jsonl, and no traversal.
   if (
     rel.includes("..") ||
     !rel.startsWith(".vivicy/development/transcripts/") ||
@@ -36,14 +22,10 @@ export async function GET(
   }
 
   const targetRoot = getTargetRoot()
-  // No project selected — there is nothing to serve, so the transcript is simply
-  // not found (same signal a genuinely absent file yields below).
   if (targetRoot === null) {
     return new Response("transcript not found", { status: 404 })
   }
   const absolute = path.resolve(targetRoot, rel)
-  // Defense in depth: the resolved path must still live under the target root's
-  // transcript directory after normalization.
   const transcriptsDir = path.resolve(
     targetRoot,
     ".vivicy",
