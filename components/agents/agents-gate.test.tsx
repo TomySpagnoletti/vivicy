@@ -52,10 +52,18 @@ describe("AgentsGate — blocking install screen", () => {
       <AgentsGate health={{ claude: MISSING, codex: MISSING }} onHealth={vi.fn()} />
     )
 
+    expect(
+      screen.getByRole("img", { name: "La Nonna and il Nonno" })
+    ).toBeInTheDocument()
     expect(screen.getByText("Install the agent CLIs")).toBeInTheDocument()
     expect(screen.getByText("Claude Code")).toBeInTheDocument()
     expect(screen.getByText("Codex CLI")).toBeInTheDocument()
-    expect(screen.getAllByText("Not found")).toHaveLength(2)
+
+    const notFoundBadges = screen.getAllByText("Not found")
+    expect(notFoundBadges).toHaveLength(2)
+    for (const badge of notFoundBadges) {
+      expect(badge.closest("[data-slot='card-action']")).not.toBeNull()
+    }
 
     const claudeLink = screen.getByRole("link", { name: /Claude Code installation guide/ })
     expect(claudeLink).toHaveAttribute("href", "https://code.claude.com/docs/en/quickstart")
@@ -86,6 +94,8 @@ describe("AgentsGate — blocking install screen", () => {
     expect(screen.getByText("Installed")).toBeInTheDocument()
     expect(screen.getByText("Authenticated")).toBeInTheDocument()
     expect(screen.getByText("Not found")).toBeInTheDocument()
+    expect(screen.getByText("Installed").closest("[data-slot='card-action']")).not.toBeNull()
+    expect(screen.getByText("Not found").closest("[data-slot='card-action']")).not.toBeNull()
 
     expect(
       screen.queryByRole("link", { name: /Claude Code installation guide/ })

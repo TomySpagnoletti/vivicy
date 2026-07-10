@@ -1,7 +1,8 @@
 "use client"
 
 import { useCallback, useState } from "react"
-import { Loader2, RefreshCw, TerminalSquare, TriangleAlert, X } from "lucide-react"
+import Image from "next/image"
+import { Loader2, RefreshCw, TriangleAlert, X } from "lucide-react"
 import { useTranslations } from "next-intl"
 
 import { BRAND } from "@/lib/brand"
@@ -15,6 +16,7 @@ import { Alert, AlertAction, AlertDescription, AlertTitle } from "@/components/u
 import { Button } from "@/components/ui/button"
 import {
   Card,
+  CardAction,
   CardContent,
   CardHeader,
   CardTitle,
@@ -59,12 +61,14 @@ export function AgentsGate({
     <div className="flex h-svh w-full items-start justify-center overflow-y-auto p-6">
       <div className="m-auto flex w-full max-w-xl flex-col gap-4">
         <div className="flex flex-col items-center gap-2 text-center">
-          <span
-            aria-hidden
-            className="flex size-10 items-center justify-center rounded-full bg-muted text-muted-foreground"
-          >
-            <TerminalSquare className="size-5" />
-          </span>
+          <Image
+            src="/brand/3.small/insieme_sm.png"
+            alt={t("gate.illustrationAlt")}
+            width={500}
+            height={313}
+            priority
+            className="h-auto w-56"
+          />
           <h1 className="text-lg font-medium text-foreground">{t("gate.title")}</h1>
           <p className="max-w-lg text-sm text-muted-foreground">
             {t("gate.description", { brandName: BRAND.name })}
@@ -92,16 +96,14 @@ function GateAgentCard({ agentKey, health }: { agentKey: AgentKey; health: Agent
 
   return (
     <Card className="gap-3 [--card-spacing:--spacing(4)]" data-agent={agentKey}>
-      <CardHeader className="gap-1">
+      <CardHeader>
         <CardTitle className="flex items-center gap-2">
           {guidance.label}
           {health.version ? (
             <span className="text-xs font-normal text-muted-foreground">· {health.version}</span>
           ) : null}
         </CardTitle>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-2">
-        <div className="flex flex-wrap items-center gap-1.5">
+        <CardAction className="flex flex-wrap items-center justify-end gap-1.5">
           <AgentStatusBadge
             ok={health.present}
             okLabel={t("installed")}
@@ -117,15 +119,18 @@ function GateAgentCard({ agentKey, health }: { agentKey: AgentKey; health: Agent
               unknownLabel={t("authUnknown")}
             />
           ) : null}
-        </div>
-        {!health.present ? (
+        </CardAction>
+      </CardHeader>
+      {!health.present ? (
+        <CardContent>
           <InstallDocsLink
+            className="items-center text-center"
             hint={guidance.installHint}
             href={guidance.docsUrl}
             label={t("installGuide", { label: guidance.label })}
           />
-        ) : null}
-      </CardContent>
+        </CardContent>
+      ) : null}
     </Card>
   )
 }
