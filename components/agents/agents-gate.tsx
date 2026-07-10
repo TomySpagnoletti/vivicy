@@ -1,11 +1,11 @@
 "use client"
 
 import { useCallback, useState } from "react"
-import Image from "next/image"
 import { Loader2, RefreshCw, TriangleAlert, X } from "lucide-react"
 import { useTranslations } from "next-intl"
 
 import { BRAND } from "@/lib/brand"
+import { InsiemeIllustration } from "@/components/brand/insieme-illustration"
 import {
   AGENT_GUIDANCE,
   type AgentHealth,
@@ -61,14 +61,7 @@ export function AgentsGate({
     <div className="flex h-svh w-full items-start justify-center overflow-y-auto p-6">
       <div className="m-auto flex w-full max-w-xl flex-col gap-4">
         <div className="flex flex-col items-center gap-2 text-center">
-          <Image
-            src="/brand/3.small/insieme_sm.png"
-            alt={t("gate.illustrationAlt")}
-            width={500}
-            height={313}
-            priority
-            className="h-auto w-56"
-          />
+          <InsiemeIllustration />
           <h1 className="text-lg font-medium text-foreground">{t("gate.title")}</h1>
           <p className="max-w-lg text-sm text-muted-foreground">
             {t("gate.description", { brandName: BRAND.name })}
