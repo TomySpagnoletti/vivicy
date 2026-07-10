@@ -46,7 +46,7 @@ describe("agentsGateBlocked — the blocking rule", () => {
 })
 
 describe("AgentsGate — blocking install screen", () => {
-  test("both missing: per-agent rows with both exact install commands, copyable", () => {
+  test("both missing: per-agent cards link to each CLI's install docs in a new tab — no command, no copy button", () => {
     vi.stubGlobal("fetch", vi.fn())
     renderWithIntl(
       <AgentsGate health={{ claude: MISSING, codex: MISSING }} onHealth={vi.fn()} />
@@ -56,19 +56,24 @@ describe("AgentsGate — blocking install screen", () => {
     expect(screen.getByText("Claude Code")).toBeInTheDocument()
     expect(screen.getByText("Codex CLI")).toBeInTheDocument()
     expect(screen.getAllByText("Not found")).toHaveLength(2)
-    expect(
-      screen.getByText("npm install -g @anthropic-ai/claude-code")
-    ).toBeInTheDocument()
-    expect(screen.getByText("npm install -g @openai/codex")).toBeInTheDocument()
-    expect(
-      screen.getByRole("button", { name: "Copy: Install Claude Code" })
-    ).toBeInTheDocument()
-    expect(
-      screen.getByRole("button", { name: "Copy: Install Codex CLI" })
-    ).toBeInTheDocument()
+
+    const claudeLink = screen.getByRole("link", { name: /Claude Code installation guide/ })
+    expect(claudeLink).toHaveAttribute("href", "https://code.claude.com/docs/en/quickstart")
+    expect(claudeLink).toHaveAttribute("target", "_blank")
+    expect(claudeLink).toHaveAttribute("rel", "noopener noreferrer")
+
+    const codexLink = screen.getByRole("link", { name: /Codex CLI installation guide/ })
+    expect(codexLink).toHaveAttribute("href", "https://learn.chatgpt.com/docs/codex/cli")
+    expect(codexLink).toHaveAttribute("target", "_blank")
+    expect(codexLink).toHaveAttribute("rel", "noopener noreferrer")
+
+    expect(screen.getAllByText("(opens in new tab)")).toHaveLength(2)
+    expect(screen.queryByText(/npm install/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/brew install/)).not.toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: /^Copy:/ })).not.toBeInTheDocument()
   })
 
-  test("one missing: the present agent shows its version/auth rows, only the missing one gets an install command", () => {
+  test("one missing: the present agent shows its version/auth rows and no docs link; only the missing one links to its install docs", () => {
     vi.stubGlobal("fetch", vi.fn())
     renderWithIntl(
       <AgentsGate
@@ -81,10 +86,13 @@ describe("AgentsGate — blocking install screen", () => {
     expect(screen.getByText("Installed")).toBeInTheDocument()
     expect(screen.getByText("Authenticated")).toBeInTheDocument()
     expect(screen.getByText("Not found")).toBeInTheDocument()
+
     expect(
-      screen.queryByText("npm install -g @anthropic-ai/claude-code")
+      screen.queryByRole("link", { name: /Claude Code installation guide/ })
     ).not.toBeInTheDocument()
-    expect(screen.getByText("npm install -g @openai/codex")).toBeInTheDocument()
+    const codexLink = screen.getByRole("link", { name: /Codex CLI installation guide/ })
+    expect(codexLink).toHaveAttribute("href", "https://learn.chatgpt.com/docs/codex/cli")
+    expect(screen.queryByText(/npm install/)).not.toBeInTheDocument()
   })
 
   test("Check again re-probes with ?fresh=1 and hands the fresh snapshot up", async () => {

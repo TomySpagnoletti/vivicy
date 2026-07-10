@@ -18,10 +18,10 @@ export interface AgentsHealth {
 
 export type AgentKey = "claude" | "codex"
 
-// installCommand is display-only, never auto-run; updateCommand alone is exec'd server-side (POST /api/agents/update, allow-listed + fixed).
+// updateCommand alone is exec'd server-side (POST /api/agents/update, allow-listed + fixed); docsUrl/authCommand/installHint are display/navigation-only, never auto-run.
 export interface AgentGuidance {
   label: string
-  installCommand: string
+  docsUrl: string
   installHint: string
   authCommand: string
   authHint: string
@@ -31,7 +31,7 @@ export interface AgentGuidance {
 export const AGENT_GUIDANCE: Record<AgentKey, AgentGuidance> = {
   claude: {
     label: "Claude Code",
-    installCommand: "npm install -g @anthropic-ai/claude-code",
+    docsUrl: "https://code.claude.com/docs/en/quickstart",
     installHint: "Install the Claude Code CLI globally, then restart your shell.",
     authCommand: "claude",
     authHint: "Run `claude` once and complete the in-terminal sign-in.",
@@ -39,8 +39,8 @@ export const AGENT_GUIDANCE: Record<AgentKey, AgentGuidance> = {
   },
   codex: {
     label: "Codex CLI",
-    installCommand: "npm install -g @openai/codex",
-    installHint: "Install the Codex CLI globally (or `brew install codex`).",
+    docsUrl: "https://learn.chatgpt.com/docs/codex/cli",
+    installHint: "Install the Codex CLI globally, then restart your shell.",
     authCommand: "codex login",
     authHint: "Run `codex login` to authenticate with your ChatGPT account.",
     updateCommand: "codex update",
