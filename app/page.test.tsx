@@ -132,3 +132,16 @@ describe("Page — Vivi launcher gated on the agent-CLI install state", () => {
     expect(screen.queryByText("Install the agent CLIs")).not.toBeInTheDocument()
   })
 })
+
+describe("Page — first-boot loading state", () => {
+  test("renders the generic loading copy while the health probe is in flight", async () => {
+    vi.stubGlobal("fetch", stubFetch({ claude: agent(), codex: agent() }, NO_MAP))
+    renderWithIntl(<Page />)
+
+    expect(screen.getByText("Loading…")).toBeInTheDocument()
+
+    expect(
+      await screen.findByRole("button", { name: "Open Vivi" })
+    ).toBeInTheDocument()
+  })
+})

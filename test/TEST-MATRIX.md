@@ -1,6 +1,6 @@
 # Vivicy — exhaustive test matrix
 
-Reconciled fingerprint: `0ffe9f5f6abb4a08955a0575c52b1630dd8e255e8d5181a7442813305a5ffc9a` @ commit `e352b5b2e7701c93746691fab5bd053233cf75e2`
+Reconciled fingerprint: `0ffe9f5f6abb4a08955a0575c52b1630dd8e255e8d5181a7442813305a5ffc9a` @ commit `be28493024f78ce448fac653bfc4e406ae558d28`
 
 
 This file is the exhaustive, always-current inventory of every test case for Vivicy — every behavior the system has, whether it is covered by a test today or is a known GAP. It is **committed and machine-guarded**: the `Reconciled fingerprint` line above hashes the behavior-bearing source tree and records the HEAD commit at reconciliation time, and `scripts/test-matrix.test.ts` fails the vitest suite when code changes without this file being reconciled and re-stamped (`npm run matrix:stamp`). `git log test/TEST-MATRIX.md` is the audit trail of reconciliations. It is the single source of truth for "what should be tested" across the app (`app/`, `components/`, `lib/`) and the factory (`factory/`). It was assembled from a full per-area audit pass plus three adversarial cross-matrices (user journeys, parallel/merge chaos, process/crash chaos).
@@ -16,7 +16,7 @@ This file is the exhaustive, always-current inventory of every test case for Viv
 
 | Area | Cases | Gaps | Covered |
 |---|---:|---:|---:|
-| app-shell-sidebar-ui-kit | 364 | 271 | 93 |
+| app-shell-sidebar-ui-kit | 365 | 271 | 94 |
 | baselines-change-requests | 260 | 203 | 57 |
 | cli-supervisor-process-infra | 402 | 243 | 159 |
 | control-plane-api-routes | 474 | 233 | 241 |
@@ -30,7 +30,7 @@ This file is the exhaustive, always-current inventory of every test case for Viv
 | cross-journeys | 87 | 70 | 17 |
 | cross-chaos-parallel-merge | 47 | 33 | 14 |
 | cross-chaos-process | 46 | 43 | 3 |
-| **TOTAL** | **3769** | **2286** | **1483** |
+| **TOTAL** | **3770** | **2286** | **1484** |
 
 ---
 
@@ -64,6 +64,7 @@ This file is the exhaustive, always-current inventory of every test case for Viv
 - [app-shell-sidebar-ui-kit.22] `isEmptyPayload` type guard receives non-object, `null`, or an object with `empty` not strictly `=== true` (e.g. `empty: "true"`, `empty: 1`). | Guard returns `false` in every case — only a strict boolean `true` is treated as the onboarding payload. | unit | GAP
 
 - [app-shell-sidebar-ui-kit.339] Mount fetches `GET /api/agents/health?fresh=1` once — the `?fresh=1` re-probe on every page load means installing a CLI and reloading clears the gate honestly instead of serving a stale per-process memo; while it is in flight (`agentsHealth === undefined`) the page renders the existing loading skeleton — the gate NEVER flashes before the probe resolves. | Loading spinner until the health fetch settles; the boot probe always bypasses the memo. | unit | GAP
+- [app-shell-sidebar-ui-kit.355] First-boot loading state (`agentsHealth === undefined`, health probe in flight) — the copy of the boot loading skeleton. | Renders the generic "Loading…" (`app.loading`), asserted synchronously on the initial render before the probe resolves; no feature-specific wording. | unit | app/page.test.tsx ("renders the generic loading copy while the health probe is in flight")
 - [app-shell-sidebar-ui-kit.340] Health resolves with either (or both) CLI binary missing (`agentsGateBlocked` true). | ONLY `AgentsGate` renders — no SetupBar, no map, no onboarding, no sidebar; and the Vivi launcher (`ViviPanel`) is NOT mounted — no "Open Vivi" bubble in the DOM (absent, not merely disabled): the launcher exists only once the CLI gate is passed. | unit | app/page.test.tsx ("both CLIs missing: the install gate shows and the launcher bubble is absent from the DOM" + "one CLI missing: still gated — the launcher bubble is absent from the DOM")
 - [app-shell-sidebar-ui-kit.353] Both CLIs present and health settled (`agentsGateBlocked` false). | The normal app renders and the Vivi launcher (`ViviPanel`) mounts, gated by `agentsHealth !== undefined && !gateBlocked` (present exactly when the normal app is on screen — settled probe, gate not blocking); the `AgentsAuthBanner` mounts under the stricter `agentsHealth && !gateBlocked` since it consumes the health data. Both derive from the same `gateBlocked` source of truth as the install gate — no second probe, no duplicated predicate. | unit | app/page.test.tsx ("both CLIs installed: the launcher bubble mounts, no install gate")
 - [app-shell-sidebar-ui-kit.341] The gate's "Check again" hands a fresh snapshot up via `onHealth` and both CLIs are now present. | `gateBlocked` recomputes false and the normal app branches render without a reload. | unit | GAP
