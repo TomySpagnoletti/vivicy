@@ -38,7 +38,7 @@
   "warningSuffix": "The development loop needs both CLIs installed and signed in to run.",
   "gate": {
     "title": "Install the agent CLIs",
-    "description": "{brandName} runs on two agent CLIs — Claude Code implements, the Codex CLI reviews. Both must be installed on this machine before anything can run.",
+    "description": "{brandName} runs on two agent CLIs — Claude Code and Codex. Both must be installed on this machine before anything can run.",
     "checkAgain": "Check again",
     "checking": "Checking…"
   },
