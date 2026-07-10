@@ -184,7 +184,6 @@ function renderPanel(props?: {
   onActivity?: () => void
   hasTarget?: boolean
   projectRoot?: string | null
-  agentsMissing?: boolean
 }) {
   return renderWithIntl(
     <ViviPanelProvider>
@@ -526,20 +525,6 @@ describe("ViviPanel — onboarding view (no target project)", () => {
     const composer = await screen.findByLabelText("Message Vivi")
     await waitFor(() => expect(composer).toHaveFocus())
     expect(screen.getByText(/Tell Vivi what you want to build/)).toBeInTheDocument()
-    expect(screen.queryByText("Start a project")).not.toBeInTheDocument()
-  })
-
-  test("agentsMissing shows the quiet install-first hint instead of chat or onboarding", async () => {
-    vi.stubGlobal("fetch", stubFetch({}))
-    const user = userEvent.setup()
-    renderPanel({ agentsMissing: true, hasTarget: false, projectRoot: null })
-
-    await user.click(screen.getByRole("button", { name: "Open Vivi" }))
-
-    expect(
-      await screen.findByText(/Vivi runs on the agent CLIs/)
-    ).toBeInTheDocument()
-    expect(screen.queryByLabelText("Message Vivi")).not.toBeInTheDocument()
     expect(screen.queryByText("Start a project")).not.toBeInTheDocument()
   })
 })

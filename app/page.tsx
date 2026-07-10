@@ -351,17 +351,17 @@ export default function Page() {
           </SidebarProvider>
         )}
 
-        {/* Present-but-unauthenticated does not gate the app — just a dismissible banner with the exact auth command. */}
         {agentsHealth && !gateBlocked ? (
           <AgentsAuthBanner health={agentsHealth} />
         ) : null}
 
-        <ViviPanel
-          onActivity={onViviActivity}
-          hasTarget={hasTarget}
-          projectRoot={project === undefined ? undefined : (project?.root ?? null)}
-          agentsMissing={gateBlocked}
-        />
+        {agentsHealth !== undefined && !gateBlocked ? (
+          <ViviPanel
+            onActivity={onViviActivity}
+            hasTarget={hasTarget}
+            projectRoot={project === undefined ? undefined : (project?.root ?? null)}
+          />
+        ) : null}
       </ViviPanelProvider>
     </TranscriptProvider>
   )
