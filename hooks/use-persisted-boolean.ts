@@ -1,6 +1,11 @@
 "use client"
 
-import { useCallback, useSyncExternalStore } from "react"
+import {
+  useCallback,
+  useSyncExternalStore,
+  type Dispatch,
+  type SetStateAction,
+} from "react"
 
 interface BooleanStore {
   value: boolean | null
@@ -33,16 +38,13 @@ function writePersisted(key: string, value: boolean): void {
   if (typeof window === "undefined") return
   try {
     window.localStorage.setItem(key, String(value))
-  } catch {
-    // Private-mode/quota limits can throw on setItem; persistence is best-effort.
-  }
+  } catch {}
 }
 
 export function __resetPersistedBooleanStoresForTests(): void {
   stores.clear()
 }
 
-// Mutation lives in free functions, not hook-captured objects, to avoid the react-hooks/immutability rule while sharing one store per key.
 function subscribeStore(
   key: string,
   defaultValue: boolean,
@@ -68,10 +70,16 @@ function snapshotStore(key: string, defaultValue: boolean): boolean {
   return store.value
 }
 
-function writeStore(key: string, defaultValue: boolean, next: boolean): void {
+function writeStore(
+  key: string,
+  defaultValue: boolean,
+  action: SetStateAction<boolean>
+): void {
   const store = storeFor(key, defaultValue)
-  if (store.value === next) return
+  const current = store.value ?? readPersisted(key, defaultValue)
+  const next = typeof action === "function" ? action(current) : action
   store.value = next
+  if (current === next) return
   writePersisted(key, next)
   for (const listener of store.listeners) listener()
 }
@@ -79,7 +87,7 @@ function writeStore(key: string, defaultValue: boolean, next: boolean): void {
 export function usePersistedBoolean(
   key: string,
   defaultValue: boolean
-): [boolean, (next: boolean) => void] {
+): [boolean, Dispatch<SetStateAction<boolean>>] {
   const subscribe = useCallback(
     (listener: () => void) => subscribeStore(key, defaultValue, listener),
     [defaultValue, key]
@@ -88,13 +96,12 @@ export function usePersistedBoolean(
     () => snapshotStore(key, defaultValue),
     [defaultValue, key]
   )
-  // getServerSnapshot must return defaultValue so SSR and first hydration render match; swap in the persisted value only after hydration, never via setState-in-effect (cascading render).
   const getServerSnapshot = useCallback(() => defaultValue, [defaultValue])
 
   const value = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot)
 
-  const setValue = useCallback(
-    (next: boolean) => writeStore(key, defaultValue, next),
+  const setValue = useCallback<Dispatch<SetStateAction<boolean>>>(
+    (action) => writeStore(key, defaultValue, action),
     [defaultValue, key]
   )
 

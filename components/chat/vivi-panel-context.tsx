@@ -26,7 +26,7 @@ export function ViviPanelProvider({ children }: { children: ReactNode }) {
 
   const openPanel = useCallback(() => setOpen(true), [setOpen])
   const closePanel = useCallback(() => setOpen(false), [setOpen])
-  const togglePanel = useCallback(() => setOpen(!open), [open, setOpen])
+  const togglePanel = useCallback(() => setOpen((prev) => !prev), [setOpen])
 
   const value = useMemo<ViviPanelContextValue>(
     () => ({ open, openPanel, closePanel, togglePanel }),

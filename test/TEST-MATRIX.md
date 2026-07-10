@@ -1,6 +1,6 @@
 # Vivicy — exhaustive test matrix
 
-Reconciled fingerprint: `b9f549c1a52c4aa76bd9add508432f2953a6456c230bd92bd102896b03f753a5` @ commit `46fa565c66a81124e1ffdba2e0835c1cebba3e98`
+Reconciled fingerprint: `55328ed2c9d328db99ca3be233034226e9491ffd7745d248e035718cb11a2636` @ commit `c76bcd1186b87c658a94e628a36bd703cee08b24`
 
 
 This file is the exhaustive, always-current inventory of every test case for Vivicy — every behavior the system has, whether it is covered by a test today or is a known GAP. It is **committed and machine-guarded**: the `Reconciled fingerprint` line above hashes the behavior-bearing source tree and records the HEAD commit at reconciliation time, and `scripts/test-matrix.test.ts` fails the vitest suite when code changes without this file being reconciled and re-stamped (`npm run matrix:stamp`). `git log test/TEST-MATRIX.md` is the audit trail of reconciliations. It is the single source of truth for "what should be tested" across the app (`app/`, `components/`, `lib/`) and the factory (`factory/`). It was assembled from a full per-area audit pass plus three adversarial cross-matrices (user journeys, parallel/merge chaos, process/crash chaos).
@@ -26,11 +26,11 @@ This file is the exhaustive, always-current inventory of every test case for Viv
 | map-ui-data-viewer | 287 | 187 | 100 |
 | onboarding-project-scaffold | 313 | 219 | 94 |
 | pipeline-notifications-agents-ui | 196 | 128 | 68 |
-| upload-vivi-chat | 400 | 249 | 151 |
+| upload-vivi-chat | 401 | 249 | 152 |
 | cross-journeys | 87 | 70 | 17 |
 | cross-chaos-parallel-merge | 47 | 33 | 14 |
 | cross-chaos-process | 46 | 43 | 3 |
-| **TOTAL** | **3766** | **2287** | **1479** |
+| **TOTAL** | **3767** | **2287** | **1480** |
 
 ---
 
@@ -2434,7 +2434,7 @@ Scope: the Playwright e2e specs and their shared infra (config, global-setup, he
 ### e2e/onboarding.spec.ts
 
 - [e2e-test-infra-rehearsal.45] Suite runs serial; `beforeEach` deletes `current-project.json` from the onboarding server's runtime dir so every test (and every serial-mode retry) starts from the pristine `no_target` state | reset is deterministic independent of run/retry order | e2e-process | e2e/onboarding.spec.ts
-- [e2e-test-infra-rehearsal.46] Target has NO `.vivicy/` at all (unresolved target) | `/api/map` returns `no_target`; the calm map-area empty state renders with the Vivi panel CLOSED (no panel heading in the a11y tree) — the empty-state "Open Vivi" CTA (scoped to `main`, disambiguating from the launcher bubble) opens the onboarding view | e2e-ui | e2e/onboarding.spec.ts ("no_target keeps the Vivi panel closed until the empty-state CTA opens the start choices")
+- [e2e-test-infra-rehearsal.46] Target has NO `.vivicy/` at all (unresolved target) | `/api/map` returns `no_target`; the calm map-area empty state renders with the Vivi panel CLOSED (no panel heading in the a11y tree) — the empty-state "Open Vivi" CTA (located within the `no_target` empty-state container via its `data-empty-reason` marker, disambiguating it from the identically-named launcher bubble without depending on where `<ViviPanel>` sits in the DOM) opens the onboarding view | e2e-ui | e2e/onboarding.spec.ts ("no_target keeps the Vivi panel closed until the empty-state CTA opens the start choices")
 - [e2e-test-infra-rehearsal.47] After the user opens the panel, its three acquisition choices render: "Open an existing project", "Start a new project", "Import documents" — plus the "Start a project" welcome header; NO chat composer exists without a target | heading + all 3 buttons visible, `Message Vivi` count 0 | e2e-ui | e2e/onboarding.spec.ts
 - [e2e-test-infra-rehearsal.48] Cross-browser capture of the pristine panel onboarding (first test in the serial file, so it precedes the scaffold mutation) | screenshot written to `/tmp/vivicy-xbrowser/06-onboarding--<project>.png` | e2e-ui | e2e/onboarding.spec.ts
 - [e2e-test-infra-rehearsal.49] The scaffold choice expands the IN-PANEL scaffold form (no dialog) | "Project name" field visible after the click | e2e-ui | e2e/onboarding.spec.ts ("the scaffold choice creates a new project and lands on the no-map state")
@@ -4499,6 +4499,7 @@ Scope: `lib/upload.ts`, `lib/upload.test.ts`, `app/api/upload/route.ts`, `app/ap
 - [upload-vivi-chat.406] Cold start — no `vivicy:vivi-panel-open` key in localStorage | `ViviPanelProvider` mounts closed (`open=false`); nothing opens the panel without user action | unit | vivi-panel-context.test.tsx ("cold start with no stored key mounts closed")
 - [upload-vivi-chat.407] A stored `vivicy:vivi-panel-open` value exists on mount | `"true"` restores the panel open; any other value stays closed — the stored choice is respected across reloads | unit | vivi-panel-context.test.tsx ("a stored open state is respected on mount" + "a stored non-true value stays closed")
 - [upload-vivi-chat.408] `openPanel`/`closePanel`/`togglePanel` invoked | each persists the resulting state under `vivicy:vivi-panel-open` (via `usePersistedBoolean`) so the user's choice survives a reload | unit | vivi-panel-context.test.tsx ("open, close, and toggle persist the choice")
+- [upload-vivi-chat.409] `togglePanel` invoked twice synchronously in one render tick (before React re-renders between the calls) | the two flips compose atomically and net back to the original state — `togglePanel` uses `usePersistedBoolean`'s `SetStateAction` updater form, so neither call captures a stale `open` that would collapse both into a single flip | unit | vivi-panel-context.test.tsx ("two toggles in one tick flip twice and return to the original state")
 - [upload-vivi-chat.206] On open, GET /api/vivi fails (network error/non-JSON) | engine badge simply never appears (no toast, "non-fatal" per comment) — silently degrades | e2e-ui | GAP
 - [upload-vivi-chat.207] On open, GET /api/vivi succeeds but response body has no `engine` key | badge not shown (falsy check) | boundary | GAP
 - [upload-vivi-chat.208] Effect cleanup: if the panel closes/reopens rapidly, the `cancelled` flag prevents a stale GET response from setting engine state after unmount/reopen | no stale-state bug | e2e-ui | GAP
