@@ -104,7 +104,7 @@ describe("POST /api/control/extract — notification emissions", () => {
     expect(rows[1].message).toMatch(/SPIKE-01/)
   })
 
-  it("appends 'refused_empty_canonical' distinctly from a generic error (G11 guard)", async () => {
+  it("appends 'refused_empty_canonical' distinctly from a generic error", async () => {
     runExtract.mockRejectedValue(new ControlError("canonical is empty", "empty_canonical"))
     const res = await POST()
     expect(res.status).toBe(422)

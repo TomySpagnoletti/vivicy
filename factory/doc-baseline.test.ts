@@ -303,7 +303,7 @@ test("--product overrides the derived name", () => {
   }
 });
 
-test("generate stamps the mechanically detected spec_kind (W7a) and it rides the manifest hash", () => {
+test("generate stamps the mechanically detected spec_kind and it rides the manifest hash", () => {
   const root = makeTargetRoot();
   try {
     writeDoc(root, "01-a.md", "# Doc\n");

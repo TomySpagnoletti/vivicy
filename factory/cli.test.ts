@@ -500,14 +500,14 @@ describe("start/stop lock lifecycle (byte-compatible run-state)", () => {
     assert.equal(r.json.code, "not_running");
   });
 
-  test("stop without a target is a usage error (the lock is per project, W8)", () => {
+  test("stop without a target is a usage error (the lock is per project)", () => {
     const r = runCli(["stop", "--runtime-dir", runtimeDir, "--json"], { env: { VIVICY_TARGET_ROOT: "" } });
     assert.equal(r.code, 2);
     assert.equal(r.json.code, "missing_target");
   });
 });
 
-describe("cycle verbs (W7b — open/cancel/status, guards mirrored from the app)", () => {
+describe("cycle verbs (open/cancel/status, guards mirrored from the app)", () => {
   let stubFactory: string;
   before(() => {
     stubFactory = mkdtempSync(join(tmpdir(), "vivicy-stub-cycle-"));

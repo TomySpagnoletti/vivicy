@@ -45,6 +45,12 @@ These are build-discipline invariants you enforce while writing the system. The 
 - **Refactor, do not accrete.** Do not stack workaround-on-workaround patches. When an area becomes hard to reason about, collapse it to the smallest explicit design that still satisfies correctness, security, and performance.
 - **Diagnose before rewriting.** Reproduce, measure, localize, identify the actual cause, and apply the smallest evidence-backed fix.
 
+## Code hygiene
+
+- **Zero comments by default.** Code here is written and read mostly by AI agents: comments cost tokens on every read and rot into lies; the code, its names, and its tests are the documentation. The only comment allowed is a structural invariant, constraint, or danger genuinely not derivable from the code itself — one dense line, no story. Never write narration or paraphrase, JSDoc/docstrings that restate names and types, module-header essays, TODO musings, or decorative banners. Tool directives (`eslint-disable`, `@ts-expect-error`, `"use client"`, shebangs) are not comments — keep them. Never match the comment density of a heavily-commented codebase: that density is a defect, not a style to imitate.
+- **Never encode a moment in time.** Code is a flow — it states what the system IS now, never when or in which batch it was written: no version markers, plan/phase/sprint/batch codes, "new/old/legacy/added in vX" wording, or session references in identifiers, strings, comments, or docs. Version data a machine reads (dependency manifests, protocol/schema version fields) and requirement IDs from the traceability corpus are functional, not markers — those stay.
+- These two rules are the Vivicy factory default; the project owner owns this file and may amend this section for this repository.
+
 ## Language
 
 All development artifacts are English: code, comments, docs, generated specs, issue prompts, test names, commit messages, and default source/translation strings. Any product i18n behavior — locales, fallback language, internal working language — is product truth defined in the canonical baseline.

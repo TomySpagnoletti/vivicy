@@ -493,7 +493,7 @@ describe("official vendor owners", () => {
   });
 });
 
-describe("removeSkills (W6 — deterministic uninstall)", () => {
+describe("removeSkills (deterministic uninstall)", () => {
   const PRIOR: SkillsReport = {
     phase: "green",
     baseline_id: BASELINE_ID,

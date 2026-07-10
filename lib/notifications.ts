@@ -52,7 +52,7 @@ function migrateLegacyLog(projectFile: string): void {
       level: "info",
       stage: "runtime",
       event: "notifications_migrated",
-      message: "notification log migrated to this project's runtime namespace (W8 per-project isolation)",
+      message: "notification log migrated to this project's runtime namespace",
     }
     appendFileSync(projectFile, `${JSON.stringify(marker)}\n`)
   } catch {

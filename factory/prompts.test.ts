@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { FACTORY_PROMPTS_DIR } from "./target-root.ts";
+import { FACTORY_DIR, FACTORY_PROMPTS_DIR } from "./target-root.ts";
 
 const PROMPTS = ["implementer.md", "reviewer.md", "extractor.md", "extraction-verifier.md", "map-review.md", "change-request.md", "spike-prover.md", "spike-verifier.md", "cr-applier.md", "skill-scout.md"];
 
@@ -119,7 +119,7 @@ test("vivi.md pins the strict spike filename/gate_id grammar", () => {
   assert.match(text, /filename stem \*\*verbatim\*\*|equal the filename without `\.md`/i, "vivi.md must require gate_id slug == filename stem");
 });
 
-test("the spec-kind discipline (W7a) is pinned across vivi/implementer/reviewer prompts", () => {
+test("the spec-kind discipline is pinned across vivi/implementer/reviewer prompts", () => {
   const vivi = readPrompt("vivi.md");
   assert.match(vivi, /spec_kind: project/, "vivi.md must document the project kind");
   assert.match(vivi, /spec_kind: feature/, "vivi.md must document the feature kind");
@@ -133,6 +133,30 @@ test("the spec-kind discipline (W7a) is pinned across vivi/implementer/reviewer 
   const reviewer = readPrompt("reviewer.md");
   assert.match(reviewer, /spec_kind/, "reviewer.md must read the manifest's spec_kind");
   assert.match(reviewer, /rewrites or restyles pre-existing code beyond the issue's needs is a fail/i, "reviewer.md must fail legacy-rewriting diffs");
+});
+
+test("the zero-comment / no-time-marker hygiene is pinned across implementer/reviewer prompts and the target AGENTS.md template", () => {
+  const implementer = readPrompt("implementer.md");
+  assert.match(implementer, /CODE HYGIENE/, "implementer.md must carry the code-hygiene section");
+  assert.match(implementer, /ZERO comments by default/i);
+  assert.match(implementer, /not derivable from the code itself/i);
+  assert.match(implementer, /ONE dense line/i);
+  assert.match(implementer, /NEVER match the comment density/i, "a legacy codebase's comment density must never be imitated");
+  assert.match(implementer, /do not restyle untouched code/i, "hygiene must not license out-of-scope rewrites");
+  assert.match(implementer, /version markers/i);
+  assert.match(implementer, /never when or in which batch/i, "implementer.md must ban time-fixed references");
+
+  const reviewer = readPrompt("reviewer.md");
+  assert.match(reviewer, /Code hygiene \(MUST enforce on the whole diff\)/i, "reviewer.md must carry the hygiene enforcement section");
+  assert.match(reviewer, /non-invariant comment/i);
+  assert.match(reviewer, /time-fixed reference/i);
+  assert.match(reviewer, /do not restyle untouched code/i);
+
+  const template = readFileSync(join(FACTORY_DIR, "templates", "AGENTS.md"), "utf8");
+  assert.match(template, /Zero comments by default/i, "the scaffolded AGENTS.md must carry the standing comment rule");
+  assert.match(template, /structural invariant/i);
+  assert.match(template, /Never encode a moment in time/i, "the scaffolded AGENTS.md must ban time-fixed references");
+  assert.match(template, /may amend this section/i, "the owner valve must stay");
 });
 
 test("vivi.md carries the governess charter (action protocol, no code, no CR decision)", () => {

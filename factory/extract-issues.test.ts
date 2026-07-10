@@ -314,7 +314,7 @@ describe("extractIssues — two-agent happy path", () => {
   });
 });
 
-describe("extractIssues — S2 spike mode (G12) + S5 map mode (G4)", () => {
+describe("extractIssues — S2 spike mode + S5 map mode", () => {
   it("INTEGRATE mode: pre-existing spikes pass through byte-for-byte, status says spike_mode integrate", async () => {
     seedInputs(temp);
     const s1 = writeSpike(temp, "01-provider-auth.md");
@@ -400,7 +400,7 @@ describe("extractIssues — S2 spike mode (G12) + S5 map mode (G4)", () => {
   });
 });
 
-describe("extractIssues — S3 proving before freeze (order) + G13 spike-verification gate", () => {
+describe("extractIssues — S3 proving before freeze (order) + the spike-verification gate", () => {
   it("runs the S3 proving stage BEFORE the freeze (S3 precedes S4)", async () => {
     // Spike proving must run before the freeze — correcting canonical after freezing would force a re-freeze on every correction.
     cpSync(resolve(FIXTURE, ".vivicy/canonical"), resolve(temp, ".vivicy/canonical"), { recursive: true });
