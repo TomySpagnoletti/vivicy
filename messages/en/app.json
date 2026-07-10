@@ -1,5 +1,5 @@
 {
-  "loading": "Loading architecture map…",
+  "loading": "Loading…",
   "loadError": {
     "requestFailed": "Request failed ({status}).",
     "genericFailure": "Failed to load the architecture map."
