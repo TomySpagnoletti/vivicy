@@ -313,6 +313,104 @@ describe("getAgentsHealth", () => {
   })
 })
 
+describe("VIVICY_FAKE_MISSING_CLI (dev override forcing confirmed-absent)", () => {
+  const CONFIRMED_ABSENT = {
+    present: false,
+    version: null,
+    authenticated: false,
+    authMethod: null,
+    plan: null,
+  }
+
+  const CLAUDE_REAL = {
+    present: true,
+    version: "2.1.0",
+    authenticated: true,
+    authMethod: "subscription",
+    plan: "max",
+  }
+
+  const CODEX_REAL = {
+    present: true,
+    version: "0.141.0",
+    authenticated: true,
+    authMethod: "subscription",
+    plan: "ChatGPT",
+  }
+
+  function authedMachineProbe(fakeMissing?: string): HealthProbe {
+    return makeProbe({
+      present: { claude: "/usr/bin/claude", codex: "/usr/bin/codex" },
+      versions: { claude: "2.1.0 (Claude Code)", codex: "codex-cli 0.141.0" },
+      platform: "darwin",
+      keychain: { secret: KEYCHAIN_MAX_JSON, exists: true },
+      files: {
+        [CODEX_AUTH]: JSON.stringify({
+          auth_mode: "chatgpt",
+          OPENAI_API_KEY: null,
+          tokens: { access_token: "abc" },
+        }),
+      },
+      env: fakeMissing === undefined ? {} : { VIVICY_FAKE_MISSING_CLI: fakeMissing },
+    })
+  }
+
+  it("claude,codex forces BOTH to confirmed-absent on a fully installed+authed machine — no auth/keychain leak", () => {
+    const health = getAgentsHealth(authedMachineProbe("claude,codex"))
+    expect(health.claude).toEqual(CONFIRMED_ABSENT)
+    expect(health.codex).toEqual(CONFIRMED_ABSENT)
+  })
+
+  it("claude alone fakes only Claude — Codex keeps full real detection", () => {
+    const health = getAgentsHealth(authedMachineProbe("claude"))
+    expect(health.claude).toEqual(CONFIRMED_ABSENT)
+    expect(health.codex).toEqual(CODEX_REAL)
+  })
+
+  it("codex alone fakes only Codex — Claude keeps full real detection", () => {
+    const health = getAgentsHealth(authedMachineProbe("codex"))
+    expect(health.codex).toEqual(CONFIRMED_ABSENT)
+    expect(health.claude).toEqual(CLAUDE_REAL)
+  })
+
+  it("unset or empty value leaves real detection untouched", () => {
+    expect(getAgentsHealth(authedMachineProbe())).toEqual({ claude: CLAUDE_REAL, codex: CODEX_REAL })
+    expect(getAgentsHealth(authedMachineProbe(""))).toEqual({ claude: CLAUDE_REAL, codex: CODEX_REAL })
+  })
+
+  it("ignores unknown tokens silently and tolerates whitespace/case", () => {
+    const health = getAgentsHealth(authedMachineProbe(" gemini , CODEX "))
+    expect(health.claude).toEqual(CLAUDE_REAL)
+    expect(health.codex).toEqual(CONFIRMED_ABSENT)
+  })
+
+  it("never invokes which/version/keychain/readFile for a faked CLI — detection is short-circuited", () => {
+    const calls: string[] = []
+    const base = authedMachineProbe("claude,codex")
+    const probe: HealthProbe = {
+      ...base,
+      which: (bin) => {
+        calls.push(`which:${bin}`)
+        return base.which(bin)
+      },
+      version: (bin) => {
+        calls.push(`version:${bin}`)
+        return base.version(bin)
+      },
+      readFile: (file) => {
+        calls.push(`readFile:${file}`)
+        return base.readFile(file)
+      },
+      keychain: (service) => {
+        calls.push(`keychain:${service}`)
+        return base.keychain(service)
+      },
+    }
+    getAgentsHealth(probe)
+    expect(calls).toEqual([])
+  })
+})
+
 describe("resolveOnPath (cross-platform presence, no real spawn)", () => {
   function recordingExec(reply: (bin: string, args: string[]) => string | null) {
     const calls: Array<{ bin: string; args: string[] }> = []
