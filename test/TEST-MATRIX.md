@@ -1,6 +1,6 @@
 # Vivicy — exhaustive test matrix
 
-Reconciled fingerprint: `c281fc84c77fd7767d24b65e8886a2de401de9d3fc069c58f6bde094335b345b` @ commit `3c20e8bec912f7104d3e72a9444150856c1a4ade`
+Reconciled fingerprint: `c281fc84c77fd7767d24b65e8886a2de401de9d3fc069c58f6bde094335b345b` @ commit `62fe395cd1ce79b2c5c1879bd5d4748d9aa502bc`
 
 
 This file is the exhaustive, always-current inventory of every test case for Vivicy — every behavior the system has, whether it is covered by a test today or is a known GAP. It is **committed and machine-guarded**: the `Reconciled fingerprint` line above hashes the behavior-bearing source tree and records the HEAD commit at reconciliation time, and `scripts/test-matrix.test.ts` fails the vitest suite when code changes without this file being reconciled and re-stamped (`npm run matrix:stamp`). `git log test/TEST-MATRIX.md` is the audit trail of reconciliations. It is the single source of truth for "what should be tested" across the app (`app/`, `components/`, `lib/`) and the factory (`factory/`). It was assembled from a full per-area audit pass plus three adversarial cross-matrices (user journeys, parallel/merge chaos, process/crash chaos).
@@ -24,13 +24,13 @@ This file is the exhaustive, always-current inventory of every test case for Viv
 | e2e-test-infra-rehearsal | 313 | 108 | 205 |
 | extraction-gates | 293 | 159 | 134 |
 | map-ui-data-viewer | 287 | 187 | 100 |
-| onboarding-project-scaffold | 313 | 221 | 92 |
+| onboarding-project-scaffold | 313 | 219 | 94 |
 | pipeline-notifications-agents-ui | 196 | 128 | 68 |
-| upload-vivi-chat | 398 | 249 | 149 |
+| upload-vivi-chat | 401 | 249 | 152 |
 | cross-journeys | 87 | 70 | 17 |
 | cross-chaos-parallel-merge | 47 | 33 | 14 |
 | cross-chaos-process | 46 | 43 | 3 |
-| **TOTAL** | **3763** | **2291** | **1472** |
+| **TOTAL** | **3766** | **2289** | **1477** |
 
 ---
 
@@ -43,7 +43,7 @@ This file is the exhaustive, always-current inventory of every test case for Viv
 - [app-shell-sidebar-ui-kit.1] Initial mount calls `GET /api/map` with `cache: "no-store"` and shows the loading spinner + "loading" text until it resolves. | Loading state renders `Loader2` spin icon and `t("loading")`. | unit | GAP
 - [app-shell-sidebar-ui-kit.2] `/api/map` responds non-ok (e.g. 500) on the initial (foreground) load. | State becomes `error`; message resolves from `body.detail` ?? `body.error` ?? generic "request failed" fallback, translated via `errorText(tErrors, "route.<code>")` when `body.code` is present. | unit | GAP
 - [app-shell-sidebar-ui-kit.3] `/api/map` throws/network-fails on the initial load. | Catch branch sets `error` state with `err.message` or the generic-failure fallback. | unit | GAP
-- [app-shell-sidebar-ui-kit.4] `/api/map` returns `{ empty: true, reason: "no_target" }`. | State becomes `empty` with reason `no_target`; renders `OnboardingEmptyState` (the calm no-target onboarding state that auto-opens the Vivi panel once — no `PipelineWidget`, no `MapEmptyState`, no full-screen chooser). | unit | GAP
+- [app-shell-sidebar-ui-kit.4] `/api/map` returns `{ empty: true, reason: "no_target" }`. | State becomes `empty` with reason `no_target`; renders `OnboardingEmptyState` (the calm no-target onboarding state — the Vivi panel stays closed until user action; no `PipelineWidget`, no `MapEmptyState`, no full-screen chooser). | unit | GAP
 - [app-shell-sidebar-ui-kit.5] `/api/map` returns `{ empty: true, reason: <anything but "no_target"> }` (e.g. `"empty_canonical"`). | Renders `MapEmptyState` AND `PipelineWidget` together (pipeline widget must render pre-map). | unit | GAP
 - [app-shell-sidebar-ui-kit.6] `/api/map` returns a full `ArchitectureMapData` payload (no `empty` flag, or `empty !== true`). | State becomes `ready`; renders `ArchitectureMap` + `PipelineWidget` (overlay) + `VivicySidebar`, and `PanelToggle` appears. | unit | GAP
 - [app-shell-sidebar-ui-kit.7] Component unmounts while `loadMap` is in flight (fetch not yet resolved). | `mountedRef.current` guards every subsequent `setState` call; no "update on unmounted component" warning/crash. | unit | GAP
@@ -2433,8 +2433,8 @@ Scope: the Playwright e2e specs and their shared infra (config, global-setup, he
 ### e2e/onboarding.spec.ts
 
 - [e2e-test-infra-rehearsal.45] Suite runs serial; `beforeEach` deletes `current-project.json` from the onboarding server's runtime dir so every test (and every serial-mode retry) starts from the pristine `no_target` state | reset is deterministic independent of run/retry order | e2e-process | e2e/onboarding.spec.ts
-- [e2e-test-infra-rehearsal.46] Target has NO `.vivicy/` at all (unresolved target) | `/api/map` returns `no_target`; the calm map-area empty state renders AND the Vivi panel AUTO-OPENS hosting the onboarding view | e2e-ui | e2e/onboarding.spec.ts ("no_target auto-opens the Vivi panel with the three start choices")
-- [e2e-test-infra-rehearsal.47] The panel's three acquisition choices render: "Open an existing project", "Start a new project", "Import documents" — plus the "Start a project" welcome header; NO chat composer exists without a target | heading + all 3 buttons visible within 30s, `Message Vivi` count 0 | e2e-ui | e2e/onboarding.spec.ts
+- [e2e-test-infra-rehearsal.46] Target has NO `.vivicy/` at all (unresolved target) | `/api/map` returns `no_target`; the calm map-area empty state renders with the Vivi panel CLOSED (no panel heading in the a11y tree) — the empty-state "Open Vivi" CTA (scoped to `main`, disambiguating from the launcher bubble) opens the onboarding view | e2e-ui | e2e/onboarding.spec.ts ("no_target keeps the Vivi panel closed until the empty-state CTA opens the start choices")
+- [e2e-test-infra-rehearsal.47] After the user opens the panel, its three acquisition choices render: "Open an existing project", "Start a new project", "Import documents" — plus the "Start a project" welcome header; NO chat composer exists without a target | heading + all 3 buttons visible, `Message Vivi` count 0 | e2e-ui | e2e/onboarding.spec.ts
 - [e2e-test-infra-rehearsal.48] Cross-browser capture of the pristine panel onboarding (first test in the serial file, so it precedes the scaffold mutation) | screenshot written to `/tmp/vivicy-xbrowser/06-onboarding--<project>.png` | e2e-ui | e2e/onboarding.spec.ts
 - [e2e-test-infra-rehearsal.49] The scaffold choice expands the IN-PANEL scaffold form (no dialog) | "Project name" field visible after the click | e2e-ui | e2e/onboarding.spec.ts ("the scaffold choice creates a new project and lands on the no-map state")
 - [e2e-test-infra-rehearsal.50] Filling "Project name" and an absolute "target path" then clicking "Scaffold project" | `POST /api/project/scaffold` succeeds; success toast "Project scaffolded" visible within 30s | e2e-integration | e2e/onboarding.spec.ts
@@ -3594,8 +3594,8 @@ Area: extraction-gates. Scope: `factory/extract-issues.ts`, `factory/semantic-ex
 
 ### components/project/onboarding-empty-state.tsx
 
-- [onboarding-project-scaffold.322] | First `no_target` render mounts the calm empty state | The Vivi panel AUTO-OPENS exactly once (mount-scoped ref guard) — closing the panel does not re-trigger it while the state stays mounted (P7: no further automatism) | unit | GAP
-- [onboarding-project-scaffold.323] | The centered content renders: icon, one i18n sentence (`project.onboardingEmptyState.description`), and an "Open Vivi" Button | Clicking the button calls `useViviPanel().openPanel()` (works again after the user closed the panel) | unit | GAP
+- [onboarding-project-scaffold.322] | First `no_target` render mounts the calm empty state | The Vivi panel does NOT auto-open — it stays closed until user action (P7: no automatism left of the boundary) | unit | onboarding-empty-state.test.tsx ("mounting never opens the panel; the Open Vivi button does, and again after a close")
+- [onboarding-project-scaffold.323] | The centered content renders: icon, one i18n sentence (`project.onboardingEmptyState.description`), and an "Open Vivi" Button | Clicking the button calls `useViviPanel().openPanel()` (works again after the user closed the panel) | unit | onboarding-empty-state.test.tsx ("mounting never opens the panel; the Open Vivi button does, and again after a close")
 - [onboarding-project-scaffold.324] | Rendered outside a `ViviPanelProvider` | `useViviPanel` throws its explicit provider error (never a silent no-op) | unit | GAP
 
 ### components/chat/vivi-onboarding.tsx (ViviOnboarding — the panel-hosted onboarding view)
@@ -4495,6 +4495,9 @@ Scope: `lib/upload.ts`, `lib/upload.test.ts`, `app/api/upload/route.ts`, `app/ap
 ### components/chat/vivi-panel.tsx (+ vivi-panel-context.tsx)
 
 - [upload-vivi-chat.205] Renders closed (`open=false` in the panel context) | panel stays mounted but off-canvas (`-translate-x-full`), `aria-hidden` + `inert`, excluded from the a11y tree; only the launcher bubble is reachable | e2e-ui | vivi-panel.test.tsx ("renders the bubble in every state; the panel stays hidden until clicked" — `queryByRole("complementary")` is null while closed)
+- [upload-vivi-chat.406] Cold start — no `vivicy:vivi-panel-open` key in localStorage | `ViviPanelProvider` mounts closed (`open=false`); nothing opens the panel without user action | unit | vivi-panel-context.test.tsx ("cold start with no stored key mounts closed")
+- [upload-vivi-chat.407] A stored `vivicy:vivi-panel-open` value exists on mount | `"true"` restores the panel open; any other value stays closed — the stored choice is respected across reloads | unit | vivi-panel-context.test.tsx ("a stored open state is respected on mount" + "a stored non-true value stays closed")
+- [upload-vivi-chat.408] `openPanel`/`closePanel`/`togglePanel` invoked | each persists the resulting state under `vivicy:vivi-panel-open` (via `usePersistedBoolean`) so the user's choice survives a reload | unit | vivi-panel-context.test.tsx ("open, close, and toggle persist the choice")
 - [upload-vivi-chat.206] On open, GET /api/vivi fails (network error/non-JSON) | engine badge simply never appears (no toast, "non-fatal" per comment) — silently degrades | e2e-ui | GAP
 - [upload-vivi-chat.207] On open, GET /api/vivi succeeds but response body has no `engine` key | badge not shown (falsy check) | boundary | GAP
 - [upload-vivi-chat.208] Effect cleanup: if the panel closes/reopens rapidly, the `cancelled` flag prevents a stale GET response from setting engine state after unmount/reopen | no stale-state bug | e2e-ui | GAP
@@ -4624,7 +4627,7 @@ Format: `[id] | scenario | expected outcome | kind | covered-today`
 
 ### 1. Onboarding — panel-hosted (was the four-card chooser)
 
-- [cross.journeys.1] | Fresh target with no `.vivicy/` at all: app boots into the calm `no_target` empty state and the Vivi panel AUTO-OPENS hosting the onboarding view (`components/chat/vivi-onboarding.tsx`) with the three acquisition choices (Open existing / Start new / Import documents). | Empty-state sentence + panel heading + all 3 choice buttons visible; no chat composer. | e2e-ui | `e2e/onboarding.spec.ts` ("no_target auto-opens the Vivi panel with the three start choices")
+- [cross.journeys.1] | Fresh target with no `.vivicy/` at all: app boots into the calm `no_target` empty state with the Vivi panel CLOSED; the user opens it (empty-state "Open Vivi" CTA or launcher bubble) to reach the onboarding view (`components/chat/vivi-onboarding.tsx`) with the three acquisition choices (Open existing / Start new / Import documents). | Empty-state sentence visible with no panel heading until the click; then panel heading + all 3 choice buttons visible; no chat composer. | e2e-ui | `e2e/onboarding.spec.ts` ("no_target keeps the Vivi panel closed until the empty-state CTA opens the start choices")
 - [cross.journeys.2] | "Open an existing project": expands the shared `OpenProjectForm` in-panel — the SAME form the setup bar's switcher dialog wraps. | Selecting a folder persists `current-project.json` and reports up via `onAcquired`. | e2e-ui | `e2e/setup.spec.ts` (breadcrumb navigation + manual path fallback) — exercises the picker generically, not from the panel onboarding view
 - [cross.journeys.3] | "Start a new project": the in-panel scaffold form collects a project name + absolute target path, POSTs scaffold, and on success the app lands on the freshly scaffolded project's `no_map` state while the panel flips to chat mode. | Toast "Project scaffolded", `[data-empty-reason="no_map"]` card renders, "No issues extracted yet" visible, composer visible, 0 map nodes, no page errors. | e2e-ui | `e2e/onboarding.spec.ts` ("the scaffold choice creates a new project and lands on the no-map state")
 - [cross.journeys.4] | "Import documents": routes through the in-panel `OpenProjectForm` FIRST (imports need a target to land in), then chains into the staged `ImportDocsFlow`. The acquired target is reported up IMMEDIATELY on pick (parity with open/scaffold); the import view stays open to keep staging because a freshly-acquired empty target still reports `no_target` (no `.vivicy/` map yet), so the panel does not flip to chat until the applied docs produce a spec (`vivi-onboarding.tsx`). | The import flow stays mounted through stage→verify→apply; closing the panel mid-import no longer loses the (already-reported) acquisition. | e2e-ui | GAP — no e2e drives the panel's acquire-then-import chain; `ImportDocsFlow` has zero component test file

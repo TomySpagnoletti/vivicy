@@ -6,6 +6,7 @@ import type { ViviTurn } from "@/lib/vivi"
 import type { Notification } from "@/lib/notifications"
 import { ViviPanel } from "@/components/chat/vivi-panel"
 import { ViviPanelProvider } from "@/components/chat/vivi-panel-context"
+import { __resetPersistedBooleanStoresForTests } from "@/hooks/use-persisted-boolean"
 import { renderWithIntl } from "@/test/render"
 
 const SESSION_A = "11111111-1111-1111-1111-111111111111"
@@ -195,10 +196,14 @@ function renderPanel(props?: {
 beforeEach(() => {
   vi.stubGlobal("EventSource", FakeEventSource as unknown as typeof EventSource)
   FakeEventSource.last = null
+  __resetPersistedBooleanStoresForTests()
+  window.localStorage.clear()
 })
 
 afterEach(() => {
   vi.unstubAllGlobals()
+  __resetPersistedBooleanStoresForTests()
+  window.localStorage.clear()
 })
 
 describe("ViviPanel — launcher bubble", () => {

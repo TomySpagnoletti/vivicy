@@ -288,7 +288,6 @@ export default function Page() {
               ) : null}
 
               {state.kind === "empty" && state.reason === "no_target" ? (
-                // Actual onboarding UI lives in the Vivi panel — this just signals the empty state and auto-opens the panel once.
                 <OnboardingEmptyState />
               ) : null}
 
