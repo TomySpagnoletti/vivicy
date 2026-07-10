@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback } from "react"
-import { CheckCircle2, Copy, HelpCircle, XCircle } from "lucide-react"
+import { CheckCircle2, Copy, ExternalLink, HelpCircle, XCircle } from "lucide-react"
 import { useTranslations } from "next-intl"
 import { toast } from "sonner"
 
@@ -40,6 +40,31 @@ export function AgentStatusBadge({
       )}
       {ok ? okLabel : badLabel}
     </Badge>
+  )
+}
+
+export function InstallDocsLink({
+  hint,
+  href,
+  label,
+}: {
+  hint: string
+  href: string
+  label: string
+}) {
+  const t = useTranslations("agents")
+  return (
+    <div className="flex flex-col gap-1.5">
+      <Separator />
+      <p className="text-xs text-muted-foreground">{hint}</p>
+      <Button asChild variant="link" className="h-auto w-fit gap-1.5 px-0 text-sm">
+        <a href={href} target="_blank" rel="noopener noreferrer">
+          {label}
+          <ExternalLink aria-hidden className="size-3.5" />
+          <span className="sr-only">{t("opensInNewTab")}</span>
+        </a>
+      </Button>
+    </div>
   )
 }
 

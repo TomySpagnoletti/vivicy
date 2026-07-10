@@ -19,7 +19,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
-import { AgentStatusBadge, CopyableCommand } from "@/components/agents/agent-status"
+import { AgentStatusBadge, InstallDocsLink } from "@/components/agents/agent-status"
 
 export function agentsGateBlocked(health: AgentsHealth): boolean {
   return !health.claude.present || !health.codex.present
@@ -119,10 +119,10 @@ function GateAgentCard({ agentKey, health }: { agentKey: AgentKey; health: Agent
           ) : null}
         </div>
         {!health.present ? (
-          <CopyableCommand
+          <InstallDocsLink
             hint={guidance.installHint}
-            command={guidance.installCommand}
-            label={t("install", { label: guidance.label })}
+            href={guidance.docsUrl}
+            label={t("installGuide", { label: guidance.label })}
           />
         ) : null}
       </CardContent>

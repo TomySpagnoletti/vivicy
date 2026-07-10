@@ -22,7 +22,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog"
-import { AgentStatusBadge, CopyableCommand } from "@/components/agents/agent-status"
+import { AgentStatusBadge, CopyableCommand, InstallDocsLink } from "@/components/agents/agent-status"
 
 type ChipState = "ok" | "warn" | "loading"
 
@@ -187,10 +187,10 @@ function AgentCard({
       )}
 
       {!loading && !present ? (
-        <CopyableCommand
+        <InstallDocsLink
           hint={guidance.installHint}
-          command={guidance.installCommand}
-          label={t("install", { label: guidance.label })}
+          href={guidance.docsUrl}
+          label={t("installGuide", { label: guidance.label })}
         />
       ) : null}
       {!loading && present && auth === false ? (
