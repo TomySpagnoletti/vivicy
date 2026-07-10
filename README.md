@@ -19,7 +19,7 @@ Four rules keep an autonomous build honest:
 3. **Code is the result** — never the reference.
 4. **Gates + traceability are the proof.** The orchestrator re-runs every verification gate itself; it never trusts an agent's "done".
 
-The reviewer never authored the code it reviews: the loop runs two distinct agent CLIs (implementer = Claude Code, reviewer = Codex), each invoked per issue as a fresh conversation.
+The reviewer never authored the code it reviews: the loop runs two distinct agent CLIs — Claude Code and Codex — each invoked per issue as a fresh conversation.
 
 ## How a build runs
 
@@ -51,7 +51,7 @@ node factory/cli.ts start   --target /abs/path/to/your/project   # resumable sup
 node factory/cli.ts status  --target /abs/path/to/your/project --json
 ```
 
-**Requirements:** Node 20+, git. Real runs need the two agent CLIs installed and authenticated: [Claude Code](https://claude.com/claude-code) (implementer) and Codex (reviewer). No agents installed? See the rehearsal below.
+**Requirements:** Node 20+, git. Real runs need the two agent CLIs installed and authenticated: [Claude Code](https://code.claude.com/docs/en/quickstart) and [Codex](https://learn.chatgpt.com/docs/codex/cli). No agents installed? See the rehearsal below.
 
 ### Try it end to end — no agents, no target needed
 
