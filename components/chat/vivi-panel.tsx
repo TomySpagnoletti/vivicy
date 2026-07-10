@@ -1,14 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useId, useRef, useState } from "react"
-import {
-  CircleAlert,
-  Loader2,
-  Plus,
-  SendHorizontal,
-  TerminalSquare,
-  X,
-} from "lucide-react"
+import { CircleAlert, Loader2, Plus, SendHorizontal, X } from "lucide-react"
 import { useTranslations } from "next-intl"
 
 import type { ViviCardAction, ViviTurn } from "@/lib/vivi"
@@ -75,12 +68,10 @@ export function ViviPanel({
   onActivity,
   hasTarget,
   projectRoot,
-  agentsMissing = false,
 }: {
   onActivity?: () => void
   hasTarget?: boolean
   projectRoot?: string | null
-  agentsMissing?: boolean
 }) {
   const t = useTranslations("chat")
   const tNotifications = useTranslations("notifications")
@@ -126,7 +117,7 @@ export function ViviPanel({
   const attentionCount =
     visibleNotifications(notifications).length + pendingCrs(crs).length
 
-  const chatUsable = !agentsMissing && hasTarget !== false
+  const chatUsable = hasTarget !== false
 
   useEffect(() => {
     if (!open) return
@@ -195,7 +186,7 @@ export function ViviPanel({
     }
   }, [open, projectRoot, hasTarget])
 
-  // Focus follows the panel (inert would otherwise drop it to body on close); falls back to the close button when the composer doesn't exist yet (onboarding / agents-missing).
+  // Focus follows the panel (inert would otherwise drop it to body on close); falls back to the close button when the composer doesn't exist yet (onboarding).
   const prevOpenRef = useRef(open)
   useEffect(() => {
     if (open) (textareaRef.current ?? closeRef.current)?.focus()
@@ -476,12 +467,7 @@ export function ViviPanel({
           </div>
 
           <TabsContent value="chat" className="flex min-h-0 flex-1 flex-col">
-            {agentsMissing ? (
-              <div className="flex items-start gap-2 p-4 text-xs/relaxed text-muted-foreground">
-                <TerminalSquare className="mt-0.5 size-4 shrink-0" aria-hidden />
-                <p>{t("agentsMissingHint")}</p>
-              </div>
-            ) : hasTarget === false ? (
+            {hasTarget === false ? (
               <div className="min-h-0 flex-1 overflow-y-auto">
                 <ViviOnboarding onAcquired={onAcquired} />
               </div>
