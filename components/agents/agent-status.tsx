@@ -8,6 +8,7 @@ import { toast } from "sonner"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
+import { cn } from "@/lib/utils"
 
 export function AgentStatusBadge({
   ok,
@@ -47,14 +48,16 @@ export function InstallDocsLink({
   hint,
   href,
   label,
+  className,
 }: {
   hint: string
   href: string
   label: string
+  className?: string
 }) {
   const t = useTranslations("agents")
   return (
-    <div className="flex flex-col gap-1.5">
+    <div className={cn("flex flex-col gap-1.5", className)}>
       <Separator />
       <p className="text-xs text-muted-foreground">{hint}</p>
       <Button asChild variant="link" className="h-auto w-fit gap-1.5 px-0 text-sm">
