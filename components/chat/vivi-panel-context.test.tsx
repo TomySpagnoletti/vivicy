@@ -17,6 +17,14 @@ function Probe() {
       <button onClick={openPanel}>open</button>
       <button onClick={closePanel}>close</button>
       <button onClick={togglePanel}>toggle</button>
+      <button
+        onClick={() => {
+          togglePanel()
+          togglePanel()
+        }}
+      >
+        double-toggle
+      </button>
     </div>
   )
 }
@@ -72,5 +80,15 @@ describe("ViviPanelProvider — persisted open state", () => {
     await user.click(screen.getByRole("button", { name: "toggle" }))
     expect(screen.getByTestId("open")).toHaveTextContent("true")
     expect(window.localStorage.getItem(VIVI_PANEL_OPEN_KEY)).toBe("true")
+  })
+
+  test("two toggles in one tick flip twice and return to the original state", async () => {
+    const user = userEvent.setup()
+    renderProbe()
+    expect(screen.getByTestId("open")).toHaveTextContent("false")
+
+    await user.click(screen.getByRole("button", { name: "double-toggle" }))
+    expect(screen.getByTestId("open")).toHaveTextContent("false")
+    expect(window.localStorage.getItem(VIVI_PANEL_OPEN_KEY)).toBe("false")
   })
 })

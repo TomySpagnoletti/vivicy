@@ -36,7 +36,10 @@ test.describe("Vivicy onboarding (panel-hosted)", () => {
 
     await expect(page.getByRole("heading", { name: "Start a project" })).toHaveCount(0)
 
-    await page.getByRole("main").getByRole("button", { name: "Open Vivi" }).click()
+    await page
+      .locator('[data-empty-reason="no_target"]')
+      .getByRole("button", { name: "Open Vivi" })
+      .click()
 
     await expect(page.getByRole("heading", { name: "Start a project" })).toBeVisible()
     await expect(
@@ -69,7 +72,10 @@ test.describe("Vivicy onboarding (panel-hosted)", () => {
     await expect(page.getByText(/No project yet — Vivi sets one up/)).toBeVisible({
       timeout: 30_000,
     })
-    await page.getByRole("main").getByRole("button", { name: "Open Vivi" }).click()
+    await page
+      .locator('[data-empty-reason="no_target"]')
+      .getByRole("button", { name: "Open Vivi" })
+      .click()
     await expect(
       page.getByRole("button", { name: /Start a new project/i })
     ).toBeVisible()
