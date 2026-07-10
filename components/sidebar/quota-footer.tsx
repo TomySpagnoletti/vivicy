@@ -6,18 +6,13 @@ import { createTranslator, useTranslations } from "next-intl"
 
 import type { AgentQuota, QuotaWindow } from "@/lib/control"
 import { LOCALE } from "@/lib/i18n"
-import { DEFAULT_SETTINGS, type AgentSettings, type AgentsSettings, type Role } from "@/lib/settings"
+import { DEFAULT_SETTINGS, isProvider, PROVIDERS, type AgentSettings, type AgentsSettings } from "@/lib/settings"
 import { cn } from "@/lib/utils"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Progress } from "@/components/ui/progress"
 import { Separator } from "@/components/ui/separator"
 import sidebarMessages from "@/messages/en/sidebar.json"
-
-const AGENT_ROLE: Record<string, Role> = {
-  claude: "implementer",
-  codex: "reviewer",
-}
 
 const WINDOW_KEYS: Array<{
   key: "5h" | "weekly"
@@ -88,8 +83,8 @@ export function QuotaFooter({
   }
 
   const agents = quota?.agents ?? {}
-  const knownNames = Object.keys(AGENT_ROLE).filter((name) => name in agents)
-  const extraNames = Object.keys(agents).filter((name) => !(name in AGENT_ROLE))
+  const knownNames = PROVIDERS.filter((name) => name in agents)
+  const extraNames = Object.keys(agents).filter((name) => !isProvider(name))
   const names = [...knownNames, ...extraNames]
   const hasAgents = names.length > 0
 
@@ -120,7 +115,7 @@ export function QuotaFooter({
             <CollapsedRow
               key={name}
               agent={agents[name]}
-              config={AGENT_ROLE[name] ? settings[AGENT_ROLE[name]] : undefined}
+              config={configForAgent(settings, name)}
               fallbackName={name}
             />
           ))}
@@ -131,7 +126,7 @@ export function QuotaFooter({
             <ExpandedAgent
               key={name}
               agent={agents[name]}
-              config={AGENT_ROLE[name] ? settings[AGENT_ROLE[name]] : undefined}
+              config={configForAgent(settings, name)}
               fallbackName={name}
             />
           ))}
@@ -139,6 +134,10 @@ export function QuotaFooter({
       )}
     </div>
   )
+}
+
+function configForAgent(settings: AgentsSettings, name: string): AgentSettings | undefined {
+  return [settings.implementer, settings.reviewer].find((agent) => agent.provider === name)
 }
 
 function agentLabel(config: AgentSettings | undefined, agent: AgentQuota, fallbackName: string): string {

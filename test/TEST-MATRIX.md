@@ -1,6 +1,6 @@
 # Vivicy — exhaustive test matrix
 
-Reconciled fingerprint: `fb00f2d58b652a08b49cae91c9b9df363ffa00dfaf67b09d3e118f9a60f756ea` @ commit `9552b0d91e6ec2a71900cc5eac6c40777dd47bbe`
+Reconciled fingerprint: `cae5daeadbf3f6fa1a81df2726d1fd84da663812eaca4865c5a93d22cd0f2bc6` @ commit `d780ae018060c92783124a3834d844579e519148`
 
 
 This file is the exhaustive, always-current inventory of every test case for Vivicy — every behavior the system has, whether it is covered by a test today or is a known GAP. It is **committed and machine-guarded**: the `Reconciled fingerprint` line above hashes the behavior-bearing source tree and records the HEAD commit at reconciliation time, and `scripts/test-matrix.test.ts` fails the vitest suite when code changes without this file being reconciled and re-stamped (`npm run matrix:stamp`). `git log test/TEST-MATRIX.md` is the audit trail of reconciliations. It is the single source of truth for "what should be tested" across the app (`app/`, `components/`, `lib/`) and the factory (`factory/`). It was assembled from a full per-area audit pass plus three adversarial cross-matrices (user journeys, parallel/merge chaos, process/crash chaos).
@@ -16,7 +16,7 @@ This file is the exhaustive, always-current inventory of every test case for Viv
 
 | Area | Cases | Gaps | Covered |
 |---|---:|---:|---:|
-| app-shell-sidebar-ui-kit | 363 | 272 | 91 |
+| app-shell-sidebar-ui-kit | 364 | 271 | 93 |
 | baselines-change-requests | 260 | 203 | 57 |
 | cli-supervisor-process-infra | 402 | 243 | 159 |
 | control-plane-api-routes | 474 | 233 | 241 |
@@ -30,7 +30,7 @@ This file is the exhaustive, always-current inventory of every test case for Viv
 | cross-journeys | 87 | 70 | 17 |
 | cross-chaos-parallel-merge | 47 | 33 | 14 |
 | cross-chaos-process | 46 | 43 | 3 |
-| **TOTAL** | **3767** | **2287** | **1480** |
+| **TOTAL** | **3768** | **2286** | **1482** |
 
 ---
 
@@ -137,13 +137,13 @@ This file is the exhaustive, always-current inventory of every test case for Viv
 - [app-shell-sidebar-ui-kit.70] SSE frame carries `{ error }`. | Ignored — `quota` state is untouched (stays at whatever it was, including `null`). | unit | GAP
 - [app-shell-sidebar-ui-kit.71] SSE frame is malformed JSON. | Caught silently; last good `quota` state is kept. | unit | GAP
 - [app-shell-sidebar-ui-kit.72] SSE frame has `quota: undefined`/missing `quota` key entirely (but no `error`). | Falls back to `{ agents: {} }` — `hasAgents` becomes false, not a crash. | unit | GAP
-- [app-shell-sidebar-ui-kit.73] Collapsed view, both known agents present (claude + codex) plus one UNKNOWN extra agent name. | Known agents render first in the fixed `AGENT_ROLE` order, unknown ones appended after (`extraNames`). | unit | GAP
+- [app-shell-sidebar-ui-kit.73] Collapsed view, both known CLIs present (claude + codex) plus one UNKNOWN extra agent name. | Known CLIs render first in the canonical `PROVIDERS` order (stable regardless of role assignment), unknown names appended after (`extraNames`). | unit | quota-footer.test.tsx ("swapped assignment: each CLI row shows its own settings entry, matched by live provider")
 - [app-shell-sidebar-ui-kit.74] A window (`5h` or `weekly`) has `used_pct: null`. | Renders `"—"` (honest unknown), never a fabricated percentage; no `Progress` bar rendered for that window when expanded. | unit | quota-footer.test.tsx
 - [app-shell-sidebar-ui-kit.75] A window has a real numeric `used_pct` (e.g. 38). | Renders `"38%"` and (expanded) a `Progress` bar at that value. | unit | quota-footer.test.tsx
 - [app-shell-sidebar-ui-kit.76] `agent.status === "throttled"`. | Expanded view shows a `destructive` Badge "throttled"; collapsed row percentages render in destructive/medium-weight text. | unit | quota-footer.test.tsx
 - [app-shell-sidebar-ui-kit.77] `friendlyModel` given a known id (`claude-opus-4-8`, `gpt-5.5`). | Returns "Opus 4.8" / "GPT 5.5" respectively. | unit | GAP (only exercised indirectly via component tests)
 - [app-shell-sidebar-ui-kit.78] `friendlyModel` given an unrecognized id (e.g. `"claude-internal-x"`). | Returns the raw string unchanged — never fabricates a friendly name. | unit | quota-footer.test.tsx (indirect, via settings-dialog custom-model scenario, not quota-footer's own tests)
-- [app-shell-sidebar-ui-kit.79] `agentLabel` — a role has explicit `settings` config for it. | The settings-configured model wins over the live quota-state-reported model (settings > reported). | unit | quota-footer.test.tsx
+- [app-shell-sidebar-ui-kit.79] `agentLabel` — a CLI has a `settings` entry whose live `provider` matches it. | The settings-configured model wins over the live quota-state-reported model (settings > reported); the entry is found by provider match (`configForAgent`), never a hardcoded CLI→role map. | unit | quota-footer.test.tsx
 - [app-shell-sidebar-ui-kit.80] Toggle collapse/expand button clicked. | `collapsed` flips; `localStorage["vivicy:quota-footer-collapsed"]` persists `"true"`/`"false"`; `aria-expanded` mirrors `!collapsed`. | unit | quota-footer.test.tsx
 - [app-shell-sidebar-ui-kit.81] `readCollapsed()` when `localStorage` throws (private-mode/disabled storage). | Falls back to `true` (collapsed) rather than throwing. | unit | GAP
 - [app-shell-sidebar-ui-kit.82] `readCollapsed()` server-side (`typeof window === "undefined"`). | Returns `true` (hydration-safe default). | unit | GAP
@@ -155,6 +155,7 @@ This file is the exhaustive, always-current inventory of every test case for Viv
 - [app-shell-sidebar-ui-kit.88] `ResetCountdown`'s internal 60s timer ticks while mounted. | The countdown label re-derives from the new `Date.now()` on each tick (verifies the label actually decrements over time, not just at mount). | unit | GAP
 - [app-shell-sidebar-ui-kit.89] `ResetCountdown` unmounts. | `clearInterval` cleans up the 60s timer — no leak. | unit | GAP
 - [app-shell-sidebar-ui-kit.90] No agents exist yet, but `collapsed` was previously persisted `false` from an earlier session. | Toggle button itself still doesn't render (`hasAgents` false gates it) even though `collapsed` state is `false` — no dead expand/collapse control shown for an empty state. | unit | GAP
+- [app-shell-sidebar-ui-kit.354] Settings assign implementer=codex / reviewer=claude (swapped from default). | Each CLI row shows its OWN settings entry's model + effort (join derived from the live `provider` fields, `configForAgent`); a CLI never displays the other CLI's config, and an unknown extra agent falls back to its quota-reported model with no effort suffix. | unit | quota-footer.test.tsx ("swapped assignment: each CLI row shows its own settings entry, matched by live provider")
 
 ### components/sidebar/section-details.tsx
 

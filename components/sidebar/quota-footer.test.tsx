@@ -210,4 +210,40 @@ describe("QuotaFooter — real % where available, honest — where not", () => {
     expect(screen.queryByText("claude-old")).toBeNull()
     expect(screen.queryByText("gpt-old")).toBeNull()
   })
+
+  test("swapped assignment: each CLI row shows its own settings entry, matched by live provider", async () => {
+    const user = userEvent.setup()
+    renderWithIntl(
+      <QuotaFooter
+        settings={{
+          implementer: { provider: "codex", model: "gpt-5.4", effort: "high", fast: false },
+          reviewer: { provider: "claude", model: "claude-opus-4-7", effort: "max", fast: false },
+          maxParallel: 1,
+          allowUnsafeSkills: false,
+        }}
+      />
+    )
+    act(() => {
+      FakeEventSource.last?.emit({
+        quota: {
+          agents: {
+            claude: { model: "claude-old", status: "available", reset_at: null, last_message: null },
+            codex: { model: "gpt-old", status: "available", reset_at: null, last_message: null },
+            gemini: { model: "gemini-x", status: "available", reset_at: null, last_message: null },
+          },
+        },
+      })
+    })
+
+    await waitFor(() => expect(screen.getByText("claude-opus-4-7")).toBeInTheDocument())
+    const labels = screen.getAllByText(/^(claude-opus-4-7|gpt-5\.4|gemini-x)$/).map((el) => el.textContent)
+    expect(labels).toEqual(["claude-opus-4-7", "gpt-5.4", "gemini-x"])
+
+    await user.click(screen.getByRole("button", { name: /expand quota details/i }))
+    expect(screen.getByText("claude-opus-4-7")).toHaveTextContent("· max")
+    expect(screen.getByText("gpt-5.4")).toHaveTextContent("· high")
+    expect(screen.getByText("gemini-x")).not.toHaveTextContent("·")
+    expect(screen.queryByText("claude-old")).toBeNull()
+    expect(screen.queryByText("gpt-old")).toBeNull()
+  })
 })
