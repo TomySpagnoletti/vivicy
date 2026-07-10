@@ -5,9 +5,19 @@ import { existsSync, readFileSync } from "node:fs"
 import { homedir } from "node:os"
 import path from "node:path"
 
-import type { AgentHealth, AgentsHealth, AuthMethod } from "@/lib/agents-health-types"
+import type { AgentHealth, AgentKey, AgentsHealth, AuthMethod } from "@/lib/agents-health-types"
 
 const CLAUDE_KEYCHAIN_SERVICE = "Claude Code-credentials"
+
+const FAKE_MISSING_CLI_ENV = "VIVICY_FAKE_MISSING_CLI"
+
+const CONFIRMED_ABSENT: AgentHealth = {
+  present: false,
+  version: null,
+  authenticated: false,
+  authMethod: null,
+  plan: null,
+}
 
 const KEYCHAIN_TIMEOUT_MS = 2_000
 
@@ -273,9 +283,20 @@ function detectClaude(probe: HealthProbe): AgentHealth {
   return { present, version, ...auth }
 }
 
+function fakeMissingClis(probe: HealthProbe): Set<AgentKey> {
+  const raw = probe.env(FAKE_MISSING_CLI_ENV)
+  if (!raw) return new Set()
+  const keys = raw
+    .split(",")
+    .map((token) => token.trim().toLowerCase())
+    .filter((token): token is AgentKey => token === "claude" || token === "codex")
+  return new Set(keys)
+}
+
 export function getAgentsHealth(probe: HealthProbe = nodeHealthProbe): AgentsHealth {
+  const faked = fakeMissingClis(probe)
   return {
-    claude: detectClaude(probe),
-    codex: detectCodex(probe),
+    claude: faked.has("claude") ? { ...CONFIRMED_ABSENT } : detectClaude(probe),
+    codex: faked.has("codex") ? { ...CONFIRMED_ABSENT } : detectCodex(probe),
   }
 }

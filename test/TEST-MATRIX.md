@@ -1,6 +1,6 @@
 # Vivicy — exhaustive test matrix
 
-Reconciled fingerprint: `6f8736d5b1d875d827e34e91c18d84b209a2e0a4e5cd5a6b56f866379fc3698e` @ commit `6d879593e19f3b7d2f9e4f4e8d448b647b277c7a`
+Reconciled fingerprint: `c281fc84c77fd7767d24b65e8886a2de401de9d3fc069c58f6bde094335b345b` @ commit `3c20e8bec912f7104d3e72a9444150856c1a4ade`
 
 
 This file is the exhaustive, always-current inventory of every test case for Vivicy — every behavior the system has, whether it is covered by a test today or is a known GAP. It is **committed and machine-guarded**: the `Reconciled fingerprint` line above hashes the behavior-bearing source tree and records the HEAD commit at reconciliation time, and `scripts/test-matrix.test.ts` fails the vitest suite when code changes without this file being reconciled and re-stamped (`npm run matrix:stamp`). `git log test/TEST-MATRIX.md` is the audit trail of reconciliations. It is the single source of truth for "what should be tested" across the app (`app/`, `components/`, `lib/`) and the factory (`factory/`). It was assembled from a full per-area audit pass plus three adversarial cross-matrices (user journeys, parallel/merge chaos, process/crash chaos).
@@ -19,7 +19,7 @@ This file is the exhaustive, always-current inventory of every test case for Viv
 | app-shell-sidebar-ui-kit | 362 | 274 | 88 |
 | baselines-change-requests | 260 | 203 | 57 |
 | cli-supervisor-process-infra | 402 | 243 | 159 |
-| control-plane-api-routes | 469 | 233 | 236 |
+| control-plane-api-routes | 474 | 233 | 241 |
 | dev-loop-worktrees-merge | 285 | 140 | 145 |
 | e2e-test-infra-rehearsal | 313 | 108 | 205 |
 | extraction-gates | 293 | 159 | 134 |
@@ -30,7 +30,7 @@ This file is the exhaustive, always-current inventory of every test case for Viv
 | cross-journeys | 87 | 70 | 17 |
 | cross-chaos-parallel-merge | 47 | 33 | 14 |
 | cross-chaos-process | 46 | 43 | 3 |
-| **TOTAL** | **3758** | **2291** | **1467** |
+| **TOTAL** | **3763** | **2291** | **1472** |
 
 ---
 
@@ -1722,6 +1722,11 @@ Out of this area's primary concern (prompt content, not CLI/process infra) but i
 - [control-plane-api-routes.225] `nodeKeychain` step 2 an unexpected exit code (neither 0 nor 44) → null (undetectable) | null | unit | GAP
 - [control-plane-api-routes.226] `nodeKeychain` step 2 times out → null | null | unit | GAP
 - [control-plane-api-routes.227] `safeExec`/real `resolveOnPath`/`nodeHealthProbe.which`/`.version` — the REAL exec-based implementations (not the injected fakes) have no direct test coverage; only `resolveOnPath`'s platform branching is tested via an injected `exec` | GAP — real spawn behavior (timeout, non-zero exit, multi-line stdout trimming) untested | unit | GAP
+- [control-plane-api-routes.470] `getAgentsHealth` with `VIVICY_FAKE_MISSING_CLI=claude,codex` (dev override, read via `probe.env`, comma-separated) forces BOTH agents' ENTIRE health to confirmed-absent — `present:false, version:null, authenticated:false, authMethod:null, plan:null` — even on a machine where both CLIs are installed and authenticated; no auth/keychain signal leaks into the faked snapshot | both confirmed-absent | unit | agents-health.test.ts ("claude,codex forces BOTH to confirmed-absent on a fully installed+authed machine — no auth/keychain leak")
+- [control-plane-api-routes.471] `VIVICY_FAKE_MISSING_CLI` with a single token (`claude` or `codex`) fakes only that CLI; the other keeps full real detection (present, version, auth) | one faked, one real | unit | agents-health.test.ts ("claude alone fakes only Claude — Codex keeps full real detection" + "codex alone fakes only Codex — Claude keeps full real detection")
+- [control-plane-api-routes.472] `VIVICY_FAKE_MISSING_CLI` unset or empty string → detection identical to real behavior (the override parses to an empty set; `nodeHealthProbe.env` already maps empty env values to null) | real detection untouched | unit | agents-health.test.ts ("unset or empty value leaves real detection untouched")
+- [control-plane-api-routes.473] `VIVICY_FAKE_MISSING_CLI` unknown tokens (e.g. `gemini`) are ignored silently; tokens are trimmed and lowercased before matching against the closed `claude`/`codex` set | tolerant parse, no throw | unit | agents-health.test.ts ("ignores unknown tokens silently and tolerates whitespace/case")
+- [control-plane-api-routes.474] a faked CLI's detection is short-circuited BEFORE any probe — `which`/`version`/`keychain`/`readFile` are never invoked for it, so the real detection paths carry zero override logic | zero probe calls | unit | agents-health.test.ts ("never invokes which/version/keychain/readFile for a faked CLI — detection is short-circuited")
 
 ### lib/agents-health-types.ts
 
