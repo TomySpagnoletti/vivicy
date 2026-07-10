@@ -68,7 +68,7 @@ function renderWidget() {
   )
 }
 
-describe("PipelineWidget — renders the full §3 stage strip", () => {
+describe("PipelineWidget — renders the full stage strip", () => {
   test("renders all 14 stages (incl. SK), expanded while active", async () => {
     renderWidget()
     await act(() => FakeEventSource.last?.emit({ ...IDLE_STATUS, run_active: true, issues_total: 8, issues_done: 2 }))

@@ -79,7 +79,7 @@ describe("describeProject (validation)", () => {
     expect(describeProject(`  ${projectDir}  `).root).toBe(projectDir)
   })
 
-  it("canonicalizes a symlink-spelled root to ONE spelling (the W8 runtime key hashes it)", () => {
+  it("canonicalizes a symlink-spelled root to ONE spelling (the per-project runtime key hashes it)", () => {
     const alias = path.join(tmpCwd, "alias-root")
     symlinkSync(projectDir, alias)
     const described = describeProject(alias)

@@ -31,7 +31,7 @@ beforeEach(() => {
   vi.clearAllMocks()
 })
 
-describe("GET /api/agents/health — once-per-process memo (W4a)", () => {
+describe("GET /api/agents/health — once-per-process memo", () => {
   it("probes on the first call and serves the memo on the second", async () => {
     const { GET } = await freshRoute()
     getAgentsHealth.mockReturnValue(health(false))

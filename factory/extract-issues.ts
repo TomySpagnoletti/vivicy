@@ -572,7 +572,7 @@ function extractorContext({ manifestPath, baselineId, attempt, checkOutput, isFi
     `- Frozen baseline manifest: \`${manifestPath}\` (baseline_id \`${baselineId}\`). ` +
     `Read it for the exact corpus files + hashes to pin.\n` +
     (specKind
-      ? `- Spec kind (W7a): **${specKind}** — ` +
+      ? `- Spec kind: **${specKind}** — ` +
         (specKind === "feature"
           ? `this repository already carries product code; the spec is an EVOLUTION of it. Scope issues to what the spec changes, respect the existing codebase's structure/conventions in issue plans, and never generate issues that re-specify what already exists outside the frozen canonical.\n`
           : `this repository carries no product code; the spec defines the whole product from scratch.\n`)

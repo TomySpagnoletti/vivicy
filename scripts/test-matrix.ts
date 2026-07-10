@@ -11,7 +11,7 @@ export const FINGERPRINT_RE = /^Reconciled fingerprint: `([0-9a-f]{64})` @ commi
 
 // Test files (.test/.spec) are deliberately excluded from the fingerprint — adding a test alone must not force a re-stamp.
 const BEHAVIOR_DIRS = ["app", "components", "lib", "factory", "hooks", "scripts", "e2e"]
-const BEHAVIOR_ROOT_FILES = ["playwright.config.ts", "vitest.config.ts", "vitest.setup.ts", "next.config.ts", "package.json"]
+const BEHAVIOR_ROOT_FILES = ["playwright.config.ts", "vitest.config.ts", "vitest.setup.ts", "next.config.ts", "eslint.config.mjs", "package.json"]
 
 // Regenerated gitignored artifacts must stay excluded from the fingerprint, or every rehearsal run would invalidate a freshly-stamped matrix.
 const ARTIFACT_PATHS = ["factory/rehearsal/reports/"]
@@ -19,7 +19,7 @@ const ARTIFACT_PATHS = ["factory/rehearsal/reports/"]
 function isBehaviorFile(rel: string): boolean {
   if (/\.(test|spec)\.(ts|tsx)$/.test(rel)) return false
   if (ARTIFACT_PATHS.some((p) => rel.startsWith(p))) return false
-  return /\.(ts|tsx|md|json)$/.test(rel)
+  return /\.(ts|tsx|mjs|md|json)$/.test(rel)
 }
 
 function walk(dir: string, out: string[]): void {

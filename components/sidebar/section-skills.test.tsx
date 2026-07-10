@@ -114,7 +114,7 @@ describe("SectionSkills — installed list", () => {
   })
 })
 
-describe("SectionSkills — find skills action (G8 confirm)", () => {
+describe("SectionSkills — find skills action (confirm flow)", () => {
   test("confirming Find skills POSTs /api/control/skills; cancelling does not", async () => {
     const user = userEvent.setup()
     const fetchMock = stubFetch(null)

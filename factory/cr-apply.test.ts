@@ -297,7 +297,7 @@ describe("applyChangeRequest — retires the disproven spike(s) the CR folds (fa
     assert.equal(commits.length, 2, "the fold commit and the retirement commit both ran");
   });
 
-  it("a deferred spike does NOT count as unverified-blocking in the G13 path (transitivelyVerifiedGates)", async () => {
+  it("a deferred spike does NOT count as unverified-blocking (transitivelyVerifiedGates)", async () => {
     seedPreviousBaseline();
     seedCanonical();
     const target = seedSpike("s01-argon2id-node-crypto.md", { status: "failed" });
@@ -310,7 +310,7 @@ describe("applyChangeRequest — retires the disproven spike(s) the CR folds (fa
     const blockingBefore = readSpikes(temp)
       .filter((s) => s.status !== "deferred" && !transitivelyVerifiedGates(temp).has(s.gate_id))
       .map((s) => s.gate_id);
-    assert.deepEqual(blockingBefore, [target.gate_id], "the failed spike blocks G13 before the fold");
+    assert.deepEqual(blockingBefore, [target.gate_id], "the failed spike is blocking before the fold");
 
     await applyChangeRequest({
       repoRoot: temp, id: "CR-0001",
@@ -322,7 +322,7 @@ describe("applyChangeRequest — retires the disproven spike(s) the CR folds (fa
     const blockingAfter = readSpikes(temp)
       .filter((s) => s.status !== "deferred" && !transitivelyVerifiedGates(temp).has(s.gate_id))
       .map((s) => s.gate_id);
-    assert.deepEqual(blockingAfter, [], "the retired (deferred) spike is non-blocking in G13");
+    assert.deepEqual(blockingAfter, [], "the retired (deferred) spike is non-blocking after the fold");
   });
 
   it("leaves a spike alone when the CR names its gate but the spike is NOT failed (no verified/pending downgrade)", async () => {

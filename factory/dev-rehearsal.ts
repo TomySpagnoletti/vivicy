@@ -702,7 +702,7 @@ ${rows}
 - Isolation: throwaway temp repo at run time; the committed fixture holds only inputs.
 - Gates exercised end to end: baseline freeze + verify, semantic-extraction:check,
   traceability:check, viewer-data generation, the two-agent dev loop, gate-run
-  evidence, the verified progress overlay, and the W7b feature cycle (cycle open ->
+  evidence, the verified progress overlay, and the feature spec cycle (cycle open ->
   canonical evolution -> minor-bump re-freeze carrying the cycle id as approval_ref
   and closing the cycle).
 `;

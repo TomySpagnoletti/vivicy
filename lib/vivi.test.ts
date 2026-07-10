@@ -631,7 +631,7 @@ describe("runViviTurn — action protocol (the governess loop)", () => {
   })
 })
 
-describe("runViviTurn — whole-target no-code enforcement (W2)", () => {
+describe("runViviTurn — whole-target no-code enforcement", () => {
   it("rejects a net-new code file outside .vivicy, removes it, and rolls the turn back", async () => {
     const { spawner } = makeFakeSpawner((o) => {
       writeInTarget(targetRoot, path.join("src", "index.ts"), "console.log('sneaky')\n")
@@ -771,7 +771,7 @@ describe("runViviTurn — skills directive (explicit installs via chat)", () => 
   })
 })
 
-describe("decision cards (W3/D6 — server contracts)", () => {
+describe("decision cards (server contracts)", () => {
   it("appendCardTurn mints a session; decideCardAction executes a control action, stamps, and refuses a second decide", async () => {
     const sessionId = appendCardTurn({
       id: "card-1",
@@ -867,7 +867,7 @@ describe("decision cards (W3/D6 — server contracts)", () => {
   })
 })
 
-describe("listViviSessions (W3 rehydration index)", () => {
+describe("listViviSessions (rehydration index)", () => {
   it("lists sessions newest-first with a human preview", async () => {
     const a = makeFakeSpawner((o) => writeReply(o, "reply A"))
     const first = await runViviTurn(a.spawner, { message: "First project conversation" })
@@ -883,7 +883,7 @@ describe("listViviSessions (W3 rehydration index)", () => {
   })
 })
 
-describe("runViviTurn — drafting spec cycle (W7b)", () => {
+describe("runViviTurn — drafting spec cycle", () => {
   it("an OPEN cycle reopens the pre-freeze allowlist on a frozen target", async () => {
     seedFrozenBaseline(targetRoot)
     writeInTarget(
@@ -954,7 +954,7 @@ describe("runViviTurn — action side effects are orchestrator state, never Vivi
   })
 })
 
-describe("runViviTurn — pending CRs become in-chat decision cards (D6 producer)", () => {
+describe("runViviTurn — pending CRs become in-chat decision cards", () => {
   it("appends one card per pending CR after a crs.list action, idempotently", async () => {
     seedFrozenBaseline(targetRoot)
     writeInTarget(targetRoot, path.join(CHANGE_REQUESTS, "CR-0001-add-csv.md"), wellFormedCr("CR-0001"))

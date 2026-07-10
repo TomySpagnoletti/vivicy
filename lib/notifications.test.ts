@@ -26,7 +26,7 @@ afterEach(() => {
   else process.env.VIVICY_RUNTIME_DIR = prevRuntimeEnv
 })
 
-describe("readNotifications (G14 read contract)", () => {
+describe("readNotifications (shared read contract)", () => {
   it("returns [] when the log is missing", () => {
     expect(readNotifications()).toEqual([])
   })
@@ -61,7 +61,7 @@ describe("readNotifications (G14 read contract)", () => {
   })
 })
 
-describe("appendNotification (G9 writer)", () => {
+describe("appendNotification (writer)", () => {
   it("creates the runtime dir and log on the first call, stamping id + ts", () => {
     const before = Date.now()
     const written = appendNotification({
@@ -109,7 +109,7 @@ describe("appendNotification (G9 writer)", () => {
   })
 })
 
-describe("dismissNotifications (G9 dismissal mechanism: rewrite dismissed in place, keyed on id)", () => {
+describe("dismissNotifications (dismissal mechanism: rewrite dismissed in place, keyed on id)", () => {
   it("flips dismissed:true on the referenced id and leaves the rest untouched", () => {
     const first = appendNotification({ level: "info", stage: "extract", event: "started", message: "a" })
     const second = appendNotification({ level: "info", stage: "extract", event: "green", message: "b" })

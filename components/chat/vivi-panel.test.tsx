@@ -752,7 +752,7 @@ describe("ViviPanel — notifications tab", () => {
   })
 })
 
-describe("ViviPanel — closed-panel attention badge (F6)", () => {
+describe("ViviPanel — closed-panel attention badge", () => {
   test("the launcher badge sums undismissed notifications + pending CRs, hidden while open", async () => {
     vi.stubGlobal(
       "fetch",
@@ -778,8 +778,8 @@ describe("ViviPanel — closed-panel attention badge (F6)", () => {
   })
 })
 
-describe("ViviPanel — turn resilience (F1–F5)", () => {
-  test("the composer stays enabled through the turn and regains focus when it completes (F3)", async () => {
+describe("ViviPanel — turn resilience", () => {
+  test("the composer stays enabled through the turn and regains focus when it completes", async () => {
     const afterTurns: ViviTurn[] = [
       { role: "user", text: "Add auth.", ts: "2026-07-08T11:00:00Z" },
       { role: "vivi", text: "Done — magic links.", ts: "2026-07-08T11:01:00Z" },
@@ -828,7 +828,7 @@ describe("ViviPanel — turn resilience (F1–F5)", () => {
     await waitFor(() => expect(composer).toHaveFocus())
   })
 
-  test("a rehydration cancelled by a dep flip retries instead of latching hydrated (F2)", async () => {
+  test("a rehydration cancelled by a dep flip retries instead of latching hydrated", async () => {
     let indexCalls = 0
     const firstGate = deferred() // never resolved: the cancelled first attempt
     const fetchMock = vi.fn(
@@ -873,7 +873,7 @@ describe("ViviPanel — turn resilience (F1–F5)", () => {
     expect(await screen.findByText("I want a todo app.")).toBeInTheDocument()
   })
 
-  test("a card resync landing after New conversation does not resurrect the cleared thread (F5)", async () => {
+  test("a card resync landing after New conversation does not resurrect the cleared thread", async () => {
     let turnsCalls = 0
     const resyncGate = deferred()
     const fetchMock = vi.fn(
@@ -932,7 +932,7 @@ describe("ViviPanel — turn resilience (F1–F5)", () => {
     expect(screen.getByText(/a sentence is enough to start/)).toBeInTheDocument()
   })
 
-  test("a project switch mid-send discards the stale reply instead of writing it into the new project (F1)", async () => {
+  test("a project switch mid-send discards the stale reply instead of writing it into the new project", async () => {
     const staleTurns: ViviTurn[] = [
       { role: "user", text: "Add auth.", ts: "2026-07-08T11:00:00Z" },
       { role: "vivi", text: "Stale reply.", ts: "2026-07-08T11:01:00Z" },
@@ -1005,7 +1005,7 @@ describe("ViviPanel — turn resilience (F1–F5)", () => {
   })
 })
 
-describe("ViviPanel — mid-turn resume (F4)", () => {
+describe("ViviPanel — mid-turn resume", () => {
   test("a reload whose last turn is the user's shows the pending marker and polls until the reply lands", async () => {
     vi.useFakeTimers()
     try {

@@ -2242,7 +2242,7 @@ function hermeticLegs() {
   };
 }
 
-test("G6 conflict -> resolver resolved + worktree gate green -> merge retried once -> success", async () => {
+test("merge conflict -> resolver resolved + worktree gate green -> merge retried once -> success", async () => {
   const issues = [{ id: "ISS-A", depends_on: [], graph_refs: ["node:a"] }];
   const { dir, cfg } = buildParallelScratch({ issues });
   let mergeCalls = 0;
@@ -2286,7 +2286,7 @@ test("G6 conflict -> resolver resolved + worktree gate green -> merge retried on
   }
 });
 
-test("G6 resolver CLAIMS resolved but the orchestrator's worktree gate re-run is RED -> blocked (trust nothing)", async () => {
+test("the resolver CLAIMS resolved but the orchestrator's worktree gate re-run is RED -> blocked (trust nothing)", async () => {
   const issues = [{ id: "ISS-A", depends_on: [], graph_refs: ["node:a"] }];
   const { dir, cfg } = buildParallelScratch({ issues });
   let mergeCalls = 0;
@@ -2318,7 +2318,7 @@ test("G6 resolver CLAIMS resolved but the orchestrator's worktree gate re-run is
   }
 });
 
-test("G6 post-merge re-gate RED -> integration reset to pre-merge sha + issue blocked + others continue", async () => {
+test("post-merge re-gate RED -> integration reset to pre-merge sha + issue blocked + others continue", async () => {
   const issues = [
     { id: "ISS-A", depends_on: [], graph_refs: ["node:a"] },
     { id: "ISS-C", depends_on: [], graph_refs: ["node:c"] },

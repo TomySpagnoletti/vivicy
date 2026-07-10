@@ -76,13 +76,17 @@ Repo skills live under `.agents/skills/` (committed, standard SKILL.md format �
 
 - **matrix-reconcile** ([.agents/skills/matrix-reconcile/SKILL.md](./.agents/skills/matrix-reconcile/SKILL.md)) — reconcile `test/TEST-MATRIX.md` from the git delta; trigger: the matrix guard is red, a behavior change is about to be committed, or the matrix is being updated for any reason.
 
-## Code comments (owner rule — enforced on every contribution)
+## Code comments and time-fixed references (owner rule — enforced on every contribution)
 
 This codebase is written and read by AI agents. Comments cost tokens on every read, and they rot into lies. The default is **zero comments**: the code, its names, and its tests are the documentation.
 
 A comment may exist ONLY when it states a structural invariant, constraint, or danger that is **not derivable from the code itself** — the "this breaks if you change it" class: a cross-process byte-compatibility contract, a deliberately non-obvious ordering, a platform trap, a security boundary. One dense line, no story. The canonical set of such invariants lives in the "Structural invariants" section below — prefer pointing there over repeating them inline.
 
 Never write: narration or paraphrase of the next line, JSDoc/docstrings that restate names and types, module-header essays, session or history references, plan/sprint codes, version markers, decorative banners. Tool directives (`eslint-disable`, `@ts-expect-error`, `"use client"`, shebangs) are not comments — keep them. When editing a file that still carries legacy comments, delete them as you pass.
+
+The ban on time-fixed references extends beyond comments to the code itself. Code is a flow — it states what the system IS, never when or in which batch a piece was written. Do not encode version markers, plan/workstream/sprint/phase codes, "new/old/legacy/added in vX" wording, or session references in identifiers, strings, file names, comments, or docs. Version data a machine reads is functional, not a marker (dependency manifests, protocol/schema version fields, the semver in `package.json`) — it stays.
+
+`npm run lint` enforces this mechanically: a custom rule (`scripts/eslint-comment-density.ts`, wired in `eslint.config.mjs`) caps per-file comment density across the whole repo including `factory/`, calibrated to the invariant-only baseline — narration-level commenting fails the gate.
 
 ## Structural invariants (the non-derivable "why"s — the only sanctioned comment content)
 

@@ -399,7 +399,7 @@ describe("runExtract", () => {
   })
 })
 
-describe("getExtractionStatus (G8 pipeline widget read)", () => {
+describe("getExtractionStatus (pipeline widget read)", () => {
   it("returns null when extraction has never run", () => {
     expect(getExtractionStatus()).toBeNull()
   })
@@ -510,7 +510,7 @@ describe("startSkillsInstall", () => {
     expect(calls.spawnDetached).toHaveLength(1)
   })
 
-  it("removeSkills runs install-skills.ts --remove to completion and returns the final report (W6)", async () => {
+  it("removeSkills runs install-skills.ts --remove to completion and returns the final report", async () => {
     const { spawner, calls } = makeFakeSpawner()
     spawner.run = async (options) => {
       calls.run.push({ args: options.args, env: options.env })
@@ -556,7 +556,7 @@ describe("startSkillsInstall", () => {
 })
 
 describe("path safety", () => {
-  it("keeps the lock inside the PROJECT's runtime namespace (W8)", () => {
+  it("keeps the lock inside the PROJECT's runtime namespace", () => {
     const { spawner } = makeFakeSpawner()
     startSupervisor(spawner)
     // Lock path derives from the shared lib/project-runtime.ts helper (app + CLI) — same target, same file.
@@ -701,7 +701,7 @@ describe("decideCr", () => {
   })
 })
 
-describe("spec cycles (W7b — open/cancel guards)", () => {
+describe("spec cycles (open/cancel guards)", () => {
   function seedFrozenBaseline(): void {
     const dir = path.join(targetRoot, ".vivicy", "baselines")
     mkdirSync(dir, { recursive: true })

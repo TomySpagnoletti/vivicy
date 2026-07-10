@@ -23,7 +23,7 @@ function status(overrides: Partial<RunStatus> = {}): RunStatus {
   }
 }
 
-describe("PIPELINE_STAGES — §3 stage list + SK", () => {
+describe("PIPELINE_STAGES — full stage list + SK", () => {
   it("has exactly the 14 stages S0..S12 with SK between S7 and S8, in order", () => {
     expect(PIPELINE_STAGES.map((s) => s.id)).toEqual([
       "S0", "S1", "S2", "S3", "S4", "S5", "S6", "S7", "SK", "S8", "S9", "S10", "S11", "S12",
@@ -38,7 +38,7 @@ describe("PIPELINE_STAGES — §3 stage list + SK", () => {
     expect(sides.S12).toBe("dev_loop")
   })
 
-  it("assigns the honest G14 retry set (S6 extract, SK skills, S9 dev) and nothing else", () => {
+  it("assigns the honest retry set (S6 extract, SK skills, S9 dev) and nothing else", () => {
     const retryable = PIPELINE_STAGES.filter((s) => s.retryStage).map((s) => s.id)
     expect(retryable).toEqual(["S6", "SK", "S9"])
     expect(PIPELINE_STAGES.find((s) => s.id === "SK")?.retryStage).toBe("skills")
@@ -48,7 +48,7 @@ describe("PIPELINE_STAGES — §3 stage list + SK", () => {
     expect(PIPELINE_STAGES.every((s) => !("label" in s))).toBe(true)
   })
 
-  it("maps P8 stage typing per §3", () => {
+  it("maps P8 stage typing", () => {
     const marker = Object.fromEntries(PIPELINE_STAGES.map((s) => [s.id, s.marker]))
     expect(marker).toEqual({
       S0: "user",
@@ -103,7 +103,7 @@ describe("deriveStageStates — honest state truth, no fake progress", () => {
     expect(states.S6).toBe("red")
   })
 
-  it("blocked_on_unverified_spikes marks S3 red (G13 ordering) and leaves S4-S6 pending", () => {
+  it("blocked_on_unverified_spikes marks S3 red (proving-before-freeze order) and leaves S4-S6 pending", () => {
     const states = deriveStageStates(null, {
       phase: "blocked_on_unverified_spikes",
       unverified_spike_gate_ids: ["SPIKE-01"],
