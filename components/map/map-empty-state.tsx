@@ -47,9 +47,9 @@ export function MapEmptyState({
       <div className="flex h-svh w-full items-center justify-center p-6">
         <p
           data-empty-reason="empty_canonical"
-          className="max-w-md text-balance text-center text-xs/relaxed text-muted-foreground"
+          className="max-w-md text-center text-xs/relaxed text-muted-foreground"
         >
-          {t("emptyState.emptyCanonical")}
+          {t.rich("emptyState.emptyCanonical", { br: () => <br /> })}
         </p>
       </div>
     )
