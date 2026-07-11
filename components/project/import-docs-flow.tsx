@@ -8,37 +8,12 @@ import { toast } from "sonner"
 import { BRAND } from "@/lib/brand"
 import { errorTextAcrossFamilies } from "@/lib/i18n-errors"
 import type { CurrentProject, DirListing } from "@/lib/project-types"
+import { IMPORT_ACCEPT_ATTR, IMPORT_ACCEPT_EXTENSIONS } from "@/lib/supported-extensions"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { FolderBrowser } from "@/components/project/folder-browser"
 import { cn } from "@/lib/utils"
-
-// Mirrors lib/import-docs.ts SUPPORTED_EXTENSIONS (+ .zip transport); client-side preview only — the server is the authority that reconciles zips and per-file results.
-const ACCEPTED_EXTENSIONS = [
-  ".md",
-  ".markdown",
-  ".txt",
-  ".rtf",
-  ".docx",
-  ".odt",
-  ".pdf",
-  ".html",
-  ".htm",
-  ".csv",
-  ".tsv",
-  ".json",
-  ".yaml",
-  ".yml",
-  ".xml",
-  ".adoc",
-  ".asciidoc",
-  ".rst",
-  ".tex",
-  ".eml",
-  ".zip",
-]
-const ACCEPT_ATTR = ACCEPTED_EXTENSIONS.join(",")
 
 interface SelectedEntry {
   file: File
@@ -201,7 +176,7 @@ export function ImportDocsFlow({
           </span>
           <p className="text-sm text-foreground">{t("dropzone.prompt")}</p>
           <p className="text-xs text-muted-foreground">
-            {t("dropzone.accepted", { extensions: ACCEPTED_EXTENSIONS.join(", ") })}
+            {t("dropzone.accepted", { extensions: IMPORT_ACCEPT_EXTENSIONS.join(", ") })}
           </p>
           <Button
             type="button"
@@ -217,7 +192,7 @@ export function ImportDocsFlow({
             ref={fileInputRef}
             type="file"
             multiple
-            accept={ACCEPT_ATTR}
+            accept={IMPORT_ACCEPT_ATTR}
             className="hidden"
             onChange={(event) => {
               onFilesPicked(event.target.files)
@@ -394,7 +369,7 @@ function normalizeRel(rel: string, name: string): string {
 
 function isAcceptedFilename(name: string): boolean {
   const lower = name.toLowerCase()
-  return ACCEPTED_EXTENSIONS.some((ext) => lower.endsWith(ext))
+  return IMPORT_ACCEPT_EXTENSIONS.some((ext) => lower.endsWith(ext))
 }
 
 function languageName(code: string | undefined, locale: string): string | null {

@@ -4,6 +4,8 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest"
 import { toast } from "sonner"
 
 import { ImportDocsFlow } from "@/components/project/import-docs-flow"
+import { SUPPORTED_EXTENSIONS } from "@/lib/import-docs"
+import { ZIP_TRANSPORT_EXTENSION } from "@/lib/supported-extensions"
 import { renderWithIntl } from "@/test/render"
 
 vi.mock("sonner", () => ({
@@ -75,17 +77,17 @@ describe("ImportDocsFlow — docs first, folder second", () => {
     expect(screen.getByRole("button", { name: "Import documents" })).toBeDisabled()
   })
 
-  test("a single file picker carries the server allowlist including .zip", () => {
+  test("the single file picker's accept-list is exactly the server allowlist plus the .zip transport", () => {
     vi.stubGlobal("fetch", stubFetch())
     const { container } = renderWithIntl(<ImportDocsFlow active onImported={vi.fn()} />)
 
     const inputs = container.querySelectorAll('input[type="file"]')
     expect(inputs).toHaveLength(1)
-    const accept = fileInput(container).getAttribute("accept") ?? ""
-    expect(accept).toContain(".md")
-    expect(accept).toContain(".docx")
-    expect(accept).toContain(".zip")
     expect(inputs[0].hasAttribute("webkitdirectory")).toBe(false)
+
+    const rendered = (fileInput(container).getAttribute("accept") ?? "").split(",")
+    const serverAllowlist = [...SUPPORTED_EXTENSIONS, ZIP_TRANSPORT_EXTENSION]
+    expect([...rendered].sort()).toEqual([...serverAllowlist].sort())
   })
 
   test("an accepted document unlocks step 2 and the import CTA once a folder is browsed", async () => {
