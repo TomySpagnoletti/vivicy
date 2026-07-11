@@ -106,7 +106,7 @@ export interface ArchitectureMapData {
   development?: DevelopmentBlock
 }
 
-export type MapEmptyReason = "no_target" | "no_map" | "empty_map"
+export type MapEmptyReason = "no_target" | "no_map" | "empty_map" | "empty_canonical"
 
 export interface MapEmptyState {
   empty: true

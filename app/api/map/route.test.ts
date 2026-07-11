@@ -7,6 +7,7 @@ const {
   getTargetRoot,
   getArchitectureDataPath,
   getProgressLedgerPath,
+  canonicalHasSpecDoc,
   normalizeMapData,
   applyLiveOverlay,
   readFile,
@@ -15,6 +16,7 @@ const {
   getTargetRoot: vi.fn(),
   getArchitectureDataPath: vi.fn(),
   getProgressLedgerPath: vi.fn(),
+  canonicalHasSpecDoc: vi.fn(),
   normalizeMapData: vi.fn(),
   applyLiveOverlay: vi.fn(),
   readFile: vi.fn(),
@@ -29,6 +31,7 @@ vi.mock("@/lib/target", () => ({
   getTargetRoot,
   getArchitectureDataPath,
   getProgressLedgerPath,
+  canonicalHasSpecDoc,
 }))
 vi.mock("@/lib/map-data", () => ({ normalizeMapData, applyLiveOverlay }))
 
@@ -59,6 +62,7 @@ beforeEach(() => {
   getTargetRoot.mockReturnValue(TARGET_ROOT)
   getArchitectureDataPath.mockReturnValue(MAP_PATH)
   getProgressLedgerPath.mockReturnValue(LEDGER_PATH)
+  canonicalHasSpecDoc.mockReturnValue(true)
   applyLiveOverlay.mockImplementation((data: ArchitectureMapData) => data)
 })
 
@@ -75,8 +79,9 @@ describe("GET /api/map", () => {
     expect(normalizeMapData).not.toHaveBeenCalled()
   })
 
-  it("returns the no_map empty state when the map file cannot be read (200)", async () => {
+  it("returns the no_map empty state when the map is absent but the canonical holds a spec (200)", async () => {
     isTargetResolved.mockReturnValue(true)
+    canonicalHasSpecDoc.mockReturnValue(true)
     readFile.mockRejectedValue(Object.assign(new Error("ENOENT"), { code: "ENOENT" }))
 
     const res = await GET()
@@ -84,7 +89,22 @@ describe("GET /api/map", () => {
     const body = await res.json()
 
     expect(body).toEqual({ empty: true, reason: "no_map", targetRoot: TARGET_ROOT })
+    expect(canonicalHasSpecDoc).toHaveBeenCalledWith(TARGET_ROOT)
     expect(readFile).toHaveBeenCalledWith(MAP_PATH, "utf8")
+    expect(normalizeMapData).not.toHaveBeenCalled()
+  })
+
+  it("returns the empty_canonical empty state when the map is absent and the canonical has no spec (fresh scaffold, 200)", async () => {
+    isTargetResolved.mockReturnValue(true)
+    canonicalHasSpecDoc.mockReturnValue(false)
+    readFile.mockRejectedValue(Object.assign(new Error("ENOENT"), { code: "ENOENT" }))
+
+    const res = await GET()
+    expect(res.status).toBe(200)
+    const body = await res.json()
+
+    expect(body).toEqual({ empty: true, reason: "empty_canonical", targetRoot: TARGET_ROOT })
+    expect(canonicalHasSpecDoc).toHaveBeenCalledWith(TARGET_ROOT)
     expect(normalizeMapData).not.toHaveBeenCalled()
   })
 

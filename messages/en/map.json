@@ -12,6 +12,7 @@
       "title": "Architecture map is empty",
       "body": "A map was generated but it has no nodes yet. Import docs that describe at least one component, then re-run Extract."
     },
+    "emptyCanonical": "← Talk to Vivi to get grilled — your answers turn into the spec.",
     "extractButton": "Extract from docs",
     "extractButtonPending": "Extracting…",
     "importButton": "Import docs"

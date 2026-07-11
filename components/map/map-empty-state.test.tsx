@@ -80,6 +80,18 @@ describe("MapEmptyState — guidance per empty reason", () => {
     expect(screen.queryByRole("button", { name: /Import docs/ })).toBeNull()
   })
 
+  test("empty_canonical renders one bare muted sentence — no card, border, icon, title, or buttons", () => {
+    renderEmptyState(<MapEmptyState reason="empty_canonical" onExtract={vi.fn()} onImported={vi.fn()} />)
+    const sentence = screen.getByText(map.emptyState.emptyCanonical)
+    expect(sentence.tagName).toBe("P")
+    expect(sentence.textContent?.startsWith("←")).toBe(true)
+    expect(sentence).toHaveClass("text-muted-foreground")
+    expect(screen.queryByRole("button")).toBeNull()
+    expect(screen.queryByText("No issues extracted yet")).toBeNull()
+    expect(document.querySelector('[data-empty-reason="empty_canonical"]')).toBe(sentence)
+    expect(document.querySelector('[data-slot="card"]')).toBeNull()
+  })
+
   test("empty-canonical extractError shows the guard message and highlights Import", () => {
     renderEmptyState(
       <MapEmptyState

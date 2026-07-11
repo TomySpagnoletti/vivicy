@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest"
 
 import {
   ARCHITECTURE_DATA_RELATIVE_PATH,
+  canonicalHasSpecDoc,
   getArchitectureDataPath,
   getTargetRoot,
   isTargetResolved,
@@ -93,5 +94,29 @@ describe("isTargetResolved", () => {
     writeFileSync(docsAsFile, "not a dir")
     process.env.VIVICY_TARGET_ROOT = tmp
     expect(isTargetResolved()).toBe(false)
+  })
+})
+
+describe("canonicalHasSpecDoc", () => {
+  const canonicalDir = () => path.join(tmp, ".vivicy", "canonical")
+
+  it("is true when a non-README .md spec doc exists, even nested in a subdirectory", () => {
+    mkdirSync(path.join(canonicalDir(), "areas"), { recursive: true })
+    writeFileSync(path.join(canonicalDir(), "areas", "01-core.md"), "# Core\n")
+    expect(canonicalHasSpecDoc(tmp)).toBe(true)
+  })
+
+  it("is false when the canonical holds only the scaffold seed (.gitkeep + README.md)", () => {
+    mkdirSync(canonicalDir(), { recursive: true })
+    writeFileSync(path.join(canonicalDir(), ".gitkeep"), "")
+    writeFileSync(path.join(canonicalDir(), "README.md"), "# placeholder\n")
+    expect(canonicalHasSpecDoc(tmp)).toBe(false)
+  })
+
+  it("is false without throwing when the canonical directory cannot be read (readdir error is swallowed, never propagated — the predicate is total so its /api/map caller never 500s)", () => {
+    mkdirSync(path.join(tmp, ".vivicy"), { recursive: true })
+    writeFileSync(canonicalDir(), "not a dir")
+    expect(() => canonicalHasSpecDoc(tmp)).not.toThrow()
+    expect(canonicalHasSpecDoc(tmp)).toBe(false)
   })
 })
