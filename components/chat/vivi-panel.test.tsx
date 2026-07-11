@@ -290,7 +290,7 @@ describe("ViviPanel — launcher bubble", () => {
     ).not.toBeInTheDocument()
   })
 
-  test("clicking the bubble opens the panel with header controls and tabs, no engine badge", async () => {
+  test("clicking the bubble opens the panel with header controls and tabs, no engine badge, no new-conversation button", async () => {
     vi.stubGlobal("fetch", stubFetch({}))
     const user = userEvent.setup()
     renderPanel()
@@ -301,8 +301,8 @@ describe("ViviPanel — launcher bubble", () => {
       await screen.findByRole("complementary", { name: "Vivi" })
     ).toBeInTheDocument()
     expect(
-      screen.getByRole("button", { name: "New conversation" })
-    ).toBeInTheDocument()
+      screen.queryByRole("button", { name: "New conversation" })
+    ).not.toBeInTheDocument()
     expect(
       screen.getByRole("button", { name: "Close Vivi" })
     ).toBeInTheDocument()
@@ -383,7 +383,8 @@ describe("ViviPanel — rehydration", () => {
     await waitFor(() =>
       expect(screen.queryByText("I want a todo app.")).not.toBeInTheDocument()
     )
-    expect(screen.getByText(/a sentence is enough to start/)).toBeInTheDocument()
+    // The new project has no sessions: a bare composer, no dead hint sentence.
+    expect(screen.getByLabelText("Message Vivi")).toBeInTheDocument()
   })
 })
 
@@ -602,9 +603,76 @@ describe("ViviPanel — onboarding view (no target project)", () => {
 
     const composer = await screen.findByLabelText("Message Vivi")
     await waitFor(() => expect(composer).toHaveFocus())
-    expect(screen.getByText(/Tell Vivi what you want to build/)).toBeInTheDocument()
+    // No dead hint sentence above the composer — an empty non-scaffold chat is composer-only.
+    expect(
+      screen.queryByText(/Tell Vivi what you want to build/)
+    ).not.toBeInTheDocument()
     expect(screen.queryByText("Start a project")).not.toBeInTheDocument()
   })
+
+  test("scaffold success re-opens the panel even after the user closes it mid-scaffold", async () => {
+    const scaffoldGate = deferred()
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url.includes("/api/project/scaffold")) {
+        await scaffoldGate.promise
+        return jsonResponse({
+          ok: true,
+          project: {
+            root: "/tmp/acme-app",
+            name: "acme-app",
+            hasCanonicalSpec: true,
+          },
+        })
+      }
+      if (url.includes("/api/fs/list")) {
+        return jsonResponse({
+          ok: true,
+          path: "/home/dev",
+          parent: "/home",
+          crumbs: [
+            { label: "/", path: "/" },
+            { label: "home", path: "/home" },
+            { label: "dev", path: "/home/dev" },
+          ],
+          entries: [],
+        })
+      }
+      if (url.startsWith("/api/vivi/sessions/"))
+        return jsonResponse({ ok: true, sessionId: SESSION_A, turns: [] })
+      if (url.startsWith("/api/vivi/sessions"))
+        return jsonResponse({ ok: true, sessions: [] })
+      if (url.includes("/api/control/notifications"))
+        return jsonResponse({ ok: true, notifications: [] })
+      if (url.includes("/api/control/crs"))
+        return jsonResponse({ ok: true, crs: [] })
+      return jsonResponse({ ok: true })
+    })
+    vi.stubGlobal("fetch", fetchMock)
+    const user = userEvent.setup()
+    renderPanelWithOpener({ hasTarget: false, projectRoot: null })
+
+    await user.click(screen.getByTestId("vivi-cta"))
+    await user.click(
+      await screen.findByRole("button", { name: /Start a new project/ })
+    )
+    const folderInput = screen.getByLabelText("New folder name")
+    await waitFor(() => expect(folderInput).toBeEnabled(), { timeout: 5_000 })
+    await user.type(screen.getByLabelText("Project name"), "Acme App")
+    await user.type(folderInput, "acme-app")
+    const submit = screen.getByRole("button", { name: /Scaffold project/ })
+    await waitFor(() => expect(submit).toBeEnabled())
+    await user.click(submit)
+
+    // The user closes the panel while the scaffold POST is still in flight.
+    const aside = screen.getByRole("complementary", { name: "Vivi", hidden: true })
+    await user.click(screen.getByRole("button", { name: "Close Vivi" }))
+    await waitFor(() => expect(aside).toHaveAttribute("aria-hidden", "true"))
+
+    // Scaffold completes → the panel re-opens on its own to greet with the seeded welcome.
+    scaffoldGate.resolve()
+    await waitFor(() => expect(aside).toHaveAttribute("aria-hidden", "false"))
+  }, 15_000)
 })
 
 describe("ViviPanel — notifications tab", () => {
@@ -941,8 +1009,9 @@ describe("ViviPanel — turn resilience", () => {
     expect(await screen.findByText("I want a todo app.")).toBeInTheDocument()
   })
 
-  test("a card resync landing after New conversation does not resurrect the cleared thread", async () => {
+  test("a card resync landing after a project switch does not resurrect the cleared thread", async () => {
     let turnsCalls = 0
+    let sessionsCalls = 0
     const resyncGate = deferred()
     const fetchMock = vi.fn(
       async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -960,16 +1029,21 @@ describe("ViviPanel — turn resilience", () => {
           return jsonResponse({ ok: true, sessionId: SESSION_A, turns: HISTORY })
         }
         if (url.startsWith("/api/vivi/sessions")) {
+          sessionsCalls += 1
+          // The first project owns session A; the project we switch to has none.
           return jsonResponse({
             ok: true,
-            sessions: [
-              {
-                sessionId: SESSION_A,
-                updated_at: "2026-07-08T10:04:00Z",
-                preview: "I want a todo app.",
-                turns: 5,
-              },
-            ],
+            sessions:
+              sessionsCalls === 1
+                ? [
+                    {
+                      sessionId: SESSION_A,
+                      updated_at: "2026-07-08T10:04:00Z",
+                      preview: "I want a todo app.",
+                      turns: 5,
+                    },
+                  ]
+                : [],
           })
         }
         if (url.includes("/api/control/notifications"))
@@ -981,13 +1055,19 @@ describe("ViviPanel — turn resilience", () => {
     )
     vi.stubGlobal("fetch", fetchMock)
     const user = userEvent.setup()
-    renderPanel({ projectRoot: "/proj/x", hasTarget: true })
+    const view = renderPanel({ projectRoot: "/proj/x", hasTarget: true })
 
     await user.click(screen.getByRole("button", { name: "Open Vivi" }))
     expect(await screen.findByText("I want a todo app.")).toBeInTheDocument()
 
+    // Deciding the card fires a gated resync of session A.
     await user.click(screen.getByRole("button", { name: "Freeze it" }))
-    await user.click(screen.getByRole("button", { name: "New conversation" }))
+    // Switching project resets the thread underneath that in-flight resync.
+    view.rerender(
+      <ViviPanelProvider>
+        <ViviPanel projectRoot="/proj/y" hasTarget />
+      </ViviPanelProvider>
+    )
     await waitFor(() =>
       expect(screen.queryByText("I want a todo app.")).not.toBeInTheDocument()
     )
@@ -997,7 +1077,7 @@ describe("ViviPanel — turn resilience", () => {
       await Promise.resolve()
     })
     expect(screen.queryByText("I want a todo app.")).not.toBeInTheDocument()
-    expect(screen.getByText(/a sentence is enough to start/)).toBeInTheDocument()
+    expect(screen.getByLabelText("Message Vivi")).toBeInTheDocument()
   })
 
   test("a project switch mid-send discards the stale reply instead of writing it into the new project", async () => {
@@ -1069,7 +1149,7 @@ describe("ViviPanel — turn resilience", () => {
       await Promise.resolve()
     })
     expect(screen.queryByText("Stale reply.")).not.toBeInTheDocument()
-    expect(screen.getByText(/a sentence is enough to start/)).toBeInTheDocument()
+    expect(screen.getByLabelText("Message Vivi")).toBeInTheDocument()
   })
 })
 

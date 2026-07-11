@@ -148,6 +148,19 @@ export function appendCardTurn(card: ViviCard, sessionId?: string): string {
   return id
 }
 
+export const VIVI_WELCOME_MESSAGE =
+  "Ciao, I'm Vivi — I run Vivicy's kitchen. My job is to turn your idea into a spec so exact the factory can build it with nothing left to guess, and I get there by asking you the questions you didn't think to answer. Allora, let's start: what do you want to build?"
+
+export function seedViviWelcome(): string {
+  const sessionId = randomUUID()
+  appendTurn(sessionId, {
+    role: "vivi",
+    text: VIVI_WELCOME_MESSAGE,
+    ts: new Date().toISOString(),
+  })
+  return sessionId
+}
+
 // mirrors the feed's own status filter — keep both in sync.
 const PENDING_CR_STATUSES = new Set(["idea", "under_review"])
 

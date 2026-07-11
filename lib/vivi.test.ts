@@ -6,7 +6,7 @@ import path from "node:path"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 
 import { ControlError, type RunOptions, type RunResult, type Spawner } from "@/lib/control"
-import { appendCardTurn, decideCardAction, listViviSessions, parseSkillsDirective, readTranscript, runViviTurn, type ViviTurn } from "@/lib/vivi"
+import { appendCardTurn, decideCardAction, listViviSessions, parseSkillsDirective, readTranscript, runViviTurn, seedViviWelcome, VIVI_WELCOME_MESSAGE, type ViviTurn } from "@/lib/vivi"
 
 function makeFakeSpawner(onRun: (options: RunOptions) => Partial<RunResult> | void = () => {}) {
   const calls = {
@@ -864,6 +864,37 @@ describe("decision cards (server contracts)", () => {
     const turns = readTranscript(sessionId)
     expect(turns[0].decided?.actionId).toBe("reject")
     expect(turns.at(-1)?.text).toContain("cr.decide")
+  })
+})
+
+describe("seedViviWelcome (deterministic first turn)", () => {
+  it("mints a session with a single persisted vivi welcome turn and surfaces it in the rehydration index", () => {
+    const sessionId = seedViviWelcome()
+    expect(sessionId).toMatch(/[0-9a-f-]{36}/)
+
+    const turns = readTranscript(sessionId)
+    expect(turns).toHaveLength(1)
+    expect(turns[0]).toMatchObject({ role: "vivi", text: VIVI_WELCOME_MESSAGE })
+    expect(turns[0].ts).toBeTruthy()
+
+    // Persists like any real transcript message — a fresh read (what rehydration does) returns it.
+    expect(readTranscript(sessionId)).toEqual(turns)
+    const listed = listViviSessions().find((s) => s.sessionId === sessionId)
+    expect(listed?.turns).toBe(1)
+    expect(listed?.preview).toContain("I'm Vivi")
+  })
+
+  it("appends a decision card onto the seeded welcome session (the card ride-along seam)", () => {
+    const sessionId = seedViviWelcome()
+    appendCardTurn(
+      {
+        id: "welcome-card",
+        title: "Pick a stack",
+        actions: [{ id: "no", label: "Later", variant: "outline", action: { kind: "dismiss" } }],
+      },
+      sessionId
+    )
+    expect(readTranscript(sessionId).map((t) => t.role)).toEqual(["vivi", "card"])
   })
 })
 
