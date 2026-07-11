@@ -172,6 +172,7 @@ function stubFetch(opts: {
       const post = opts.post?.() ?? { body: { ok: true } }
       return jsonResponse(post.body, post.status)
     }
+    // Engine data is load-bearing, not dead: it makes the "no engine badge" test discriminating — a regressed on-open engine fetch would render the badge and turn the assertion red.
     return jsonResponse({
       ok: true,
       engine: {
@@ -279,7 +280,7 @@ describe("ViviPanel — launcher bubble", () => {
     ).not.toBeInTheDocument()
   })
 
-  test("clicking the bubble opens the panel with header controls, tabs, and the engine badge", async () => {
+  test("clicking the bubble opens the panel with header controls and tabs, no engine badge", async () => {
     vi.stubGlobal("fetch", stubFetch({}))
     const user = userEvent.setup()
     renderPanel()
@@ -297,11 +298,9 @@ describe("ViviPanel — launcher bubble", () => {
     ).toBeInTheDocument()
     expect(screen.getByRole("tab", { name: "Chat" })).toBeInTheDocument()
     expect(screen.getByRole("tab", { name: /Notifications/ })).toBeInTheDocument()
-    await waitFor(() =>
-      expect(
-        screen.getByText(/Claude Code · claude-opus-4-8/)
-      ).toBeInTheDocument()
-    )
+    expect(
+      screen.queryByText(/claude-opus-4-8/)
+    ).not.toBeInTheDocument()
   })
 })
 
@@ -518,7 +517,12 @@ describe("ViviPanel — onboarding view (no target project)", () => {
 
     await user.click(screen.getByTestId("vivi-cta"))
 
-    expect(await screen.findByText("Start a project")).toBeInTheDocument()
+    const heading = await screen.findByText("Start a project")
+    expect(heading).toBeInTheDocument()
+    expect(heading).toHaveClass("text-center")
+    expect(
+      screen.queryByText(/develops one project from its canonical spec/)
+    ).not.toBeInTheDocument()
     expect(
       screen.getByRole("button", { name: /Open an existing project/ })
     ).toBeInTheDocument()
@@ -911,7 +915,7 @@ describe("ViviPanel — turn resilience", () => {
         if (url.includes("/api/control/crs"))
           return jsonResponse({ ok: true, crs: [] })
         if (init?.method === "POST") return jsonResponse({ ok: true })
-        return jsonResponse({ ok: true, engine: null })
+        return jsonResponse({ ok: true })
       }
     )
     vi.stubGlobal("fetch", fetchMock)
@@ -962,7 +966,7 @@ describe("ViviPanel — turn resilience", () => {
           return jsonResponse({ ok: true, notifications: [] })
         if (url.includes("/api/control/crs"))
           return jsonResponse({ ok: true, crs: [] })
-        return jsonResponse({ ok: true, engine: null })
+        return jsonResponse({ ok: true })
       }
     )
     vi.stubGlobal("fetch", fetchMock)
@@ -1027,7 +1031,7 @@ describe("ViviPanel — turn resilience", () => {
           return jsonResponse({ ok: true, notifications: [] })
         if (url.includes("/api/control/crs"))
           return jsonResponse({ ok: true, crs: [] })
-        return jsonResponse({ ok: true, engine: null })
+        return jsonResponse({ ok: true })
       }
     )
     vi.stubGlobal("fetch", fetchMock)
@@ -1095,7 +1099,7 @@ describe("ViviPanel — mid-turn resume", () => {
           if (url.includes("/api/control/crs"))
             return jsonResponse({ ok: true, crs: [] })
           if (init?.method === "POST") return jsonResponse({ ok: true })
-          return jsonResponse({ ok: true, engine: null })
+          return jsonResponse({ ok: true })
         }
       )
       vi.stubGlobal("fetch", fetchMock)

@@ -5,7 +5,6 @@
   },
   "viviOnboarding": {
     "heading": "Start a project",
-    "description": "{brandName} develops one project from its canonical spec. Choose how to begin — Vivi takes it from there.",
     "back": "Back",
     "importPickTargetHint": "Docs are imported into a project's .vivicy/ — choose the folder they belong to first.",
     "choices": {

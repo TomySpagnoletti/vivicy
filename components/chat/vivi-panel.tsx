@@ -22,9 +22,9 @@ import {
 } from "@/components/ui/message-scroller"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
+import { ViviAvatar } from "@/components/brand/vivi-avatar"
 import { DecisionCard } from "@/components/chat/decision-card"
 import { MessageBubble } from "@/components/chat/message-bubble"
-import { NonnaIcon } from "@/components/chat/nonna-icon"
 import { useViviPanel } from "@/components/chat/vivi-panel-context"
 import { ViviOnboarding } from "@/components/chat/vivi-onboarding"
 import {
@@ -33,12 +33,6 @@ import {
   useNotificationsFeed,
   visibleNotifications,
 } from "@/components/chat/vivi-notifications"
-
-interface ViviEngine {
-  provider: string
-  providerLabel: string
-  model: string
-}
 
 type PanelTab = "chat" | "notifications"
 
@@ -84,7 +78,6 @@ export function ViviPanel({
   const [sessionId, setSessionId] = useState<string | undefined>(undefined)
   const [draft, setDraft] = useState("")
   const [sending, setSending] = useState(false)
-  const [engine, setEngine] = useState<ViviEngine | null>(null)
   const [sendError, setSendError] = useState<string | null>(null)
 
   const bubbleRef = useRef<HTMLButtonElement | null>(null)
@@ -118,24 +111,6 @@ export function ViviPanel({
     visibleNotifications(notifications).length + pendingCrs(crs).length
 
   const chatUsable = hasTarget !== false
-
-  useEffect(() => {
-    if (!open) return
-    let cancelled = false
-    void (async () => {
-      try {
-        const res = await fetch("/api/vivi", { cache: "no-store" })
-        const body = (await res.json().catch(() => ({}))) as {
-          engine?: ViviEngine
-        }
-        if (!cancelled && body.engine) setEngine(body.engine)
-      } catch {
-      }
-    })()
-    return () => {
-      cancelled = true
-    }
-  }, [open])
 
   // Sessions are per-project on the server; the initial undefined→known transition is a resolution, not a switch, so it skips the reset below.
   const prevRootRef = useRef(projectRoot)
@@ -371,13 +346,13 @@ export function ViviPanel({
             aria-expanded={open}
             aria-label={t("openAriaLabel")}
             className={cn(
-              "size-12 rounded-full shadow-lg transition-all duration-200",
+              "size-12 overflow-hidden rounded-full p-0 shadow-lg transition-all duration-200",
               open
                 ? "pointer-events-none scale-75 opacity-0"
                 : "pointer-events-auto scale-100 opacity-100"
             )}
           >
-            <NonnaIcon className="size-6" />
+            <ViviAvatar className="size-full" />
           </Button>
           {!open && attentionCount > 0 ? (
             <Badge
@@ -401,20 +376,11 @@ export function ViviPanel({
           open ? "translate-x-0" : "-translate-x-full"
         )}
       >
-        <header className="flex items-center gap-1.5 border-b border-border p-3">
-          <NonnaIcon className="size-5" />
+        <header className="flex items-center gap-2 border-b border-border p-3">
+          <ViviAvatar className="size-6" />
           <h2 id={titleId} className="font-heading text-sm font-medium">
             {t("panelHeading")}
           </h2>
-          {engine ? (
-            <Badge
-              variant="outline"
-              className="ml-1"
-              title={t("engineBadgeTitle")}
-            >
-              {engine.providerLabel} · {engine.model}
-            </Badge>
-          ) : null}
           <div className="ml-auto flex items-center">
             {chatUsable ? (
               <Button
