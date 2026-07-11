@@ -51,7 +51,7 @@
     "toast": {
       "errorTitle": "Cannot scaffold project",
       "successTitle": "Project scaffolded",
-      "successDescription": "{root} — write your canonical docs, then extract.",
+      "successDescription": "Congrats — your project is ready at {root}. Talk to Vivi to get grilled.",
       "networkError": "network error",
       "httpError": "HTTP {status}"
     }

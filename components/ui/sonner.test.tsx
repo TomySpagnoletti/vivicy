@@ -51,18 +51,20 @@ describe("typed toasts", () => {
       const el = document.querySelector(`[data-sonner-toast][data-type="${variant}"]`)
       expect(el).not.toBeNull()
       expect(el?.getAttribute("data-rich-colors")).toBe("true")
-      expect(el?.querySelector(`svg.${iconClass}`)).not.toBeNull()
+      const icon = el?.querySelector(`svg.${iconClass}`)
+      expect(icon?.classList.contains("size-6")).toBe(true)
+      expect(el?.querySelector("[data-icon]")?.classList.contains("size-6!")).toBe(true)
       expect(el?.querySelector("[data-close-button]")).not.toBeNull()
     })
   })
 
-  test("loading toast shows the spinning loader icon", async () => {
+  test("loading toast shows the spinning loader icon, sized like the typed icons", async () => {
     render(<Toaster />)
     toast.loading("working")
     await waitFor(() => {
       const el = document.querySelector(`[data-sonner-toast][data-type="loading"]`)
       expect(el).not.toBeNull()
-      expect(el?.querySelector("svg.lucide-loader-circle")).not.toBeNull()
+      expect(el?.querySelector("svg.lucide-loader-circle")?.classList.contains("size-6")).toBe(true)
     })
   })
 })
