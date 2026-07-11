@@ -32,7 +32,7 @@ export class ProjectError extends Error {
   }
 }
 
-function isGovernedRoot(root: string): boolean {
+export function isGovernedRoot(root: string): boolean {
   try {
     return statSync(path.join(root, ".vivicy")).isDirectory()
   } catch {

@@ -55,6 +55,20 @@ export function validateProjectName(input: unknown): string {
   return name
 }
 
+const DERIVED_NAME_FALLBACK = "Imported project"
+
+export function deriveProjectName(target: string): string {
+  const candidate = path
+    .basename(path.normalize(String(target)))
+    .replace(/[^A-Za-z0-9 ._-]+/g, " ")
+    .replace(/^[^A-Za-z0-9]+/, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 64)
+    .trim()
+  return PROJECT_NAME_RE.test(candidate) ? candidate : DERIVED_NAME_FALLBACK
+}
+
 export type ScaffoldMode = "from_scratch" | "existing_project"
 
 export function resolveTargetDir(candidate: unknown): { target: string; mode: ScaffoldMode } {
