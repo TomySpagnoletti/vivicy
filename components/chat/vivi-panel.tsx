@@ -424,12 +424,12 @@ export function ViviPanel({
               </div>
             ) : (
               <>
-                <MessageScrollerProvider>
+                <MessageScrollerProvider autoScroll>
                   <MessageScroller className="flex-1">
                     <MessageScrollerViewport>
                       <MessageScrollerContent className="gap-3 p-4">
                         {turns.map((turn, i) => (
-                          <MessageScrollerItem key={i}>
+                          <MessageScrollerItem key={i} messageId={String(i)}>
                             <TurnView
                               turn={turn}
                               sessionId={sessionId}
@@ -438,12 +438,12 @@ export function ViviPanel({
                           </MessageScrollerItem>
                         ))}
                         {sending || awaitingReply ? (
-                          <MessageScrollerItem scrollAnchor>
+                          <MessageScrollerItem messageId="pending">
                             <PendingMarker />
                           </MessageScrollerItem>
                         ) : null}
                         {sendError ? (
-                          <MessageScrollerItem scrollAnchor>
+                          <MessageScrollerItem messageId="error">
                             <Marker className="text-destructive">
                               <MarkerIcon>
                                 <CircleAlert />
@@ -458,31 +458,31 @@ export function ViviPanel({
                   </MessageScroller>
                 </MessageScrollerProvider>
 
-                <div className="flex items-end gap-2 border-t border-border p-3">
-                  {/* Not disabled while sending: a turn can run minutes, so locking the composer would strand the user mid-draft. */}
-                  <Textarea
-                    ref={composerRef}
-                    value={draft}
-                    onChange={(event) => setDraft(event.target.value)}
-                    onKeyDown={onKeyDown}
-                    placeholder={t("inputPlaceholder")}
-                    rows={2}
-                    aria-label={t("inputAriaLabel")}
-                    className="max-h-40 flex-1 resize-none"
-                  />
-                  {/* aria-disabled, not native disabled: a natively-disabled button would drop focus to body the instant sending starts. send() itself no-ops when sending or empty either way. */}
-                  <Button
-                    type="button"
-                    size="icon-sm"
-                    onClick={() => void send()}
-                    aria-disabled={sending || draft.trim().length === 0}
-                    className={cn(
-                      (sending || draft.trim().length === 0) && "opacity-60"
-                    )}
-                    aria-label={t("sendAriaLabel")}
-                  >
-                    <SendHorizontal />
-                  </Button>
+                <div className="border-t border-border p-3">
+                  <div className="relative rounded-none border border-input bg-transparent transition-colors focus-within:border-ring focus-within:ring-1 focus-within:ring-ring/50 dark:bg-input/30">
+                    <Textarea
+                      ref={composerRef}
+                      value={draft}
+                      onChange={(event) => setDraft(event.target.value)}
+                      onKeyDown={onKeyDown}
+                      placeholder={t("inputPlaceholder")}
+                      aria-label={t("inputAriaLabel")}
+                      className="max-h-40 resize-none border-0 bg-transparent pr-11 focus-visible:ring-0 dark:bg-transparent"
+                    />
+                    <Button
+                      type="button"
+                      size="icon-sm"
+                      onClick={() => void send()}
+                      aria-disabled={sending || draft.trim().length === 0}
+                      aria-label={t("sendAriaLabel")}
+                      className={cn(
+                        "absolute right-1.5 bottom-1.5",
+                        (sending || draft.trim().length === 0) && "opacity-60"
+                      )}
+                    >
+                      <SendHorizontal />
+                    </Button>
+                  </div>
                 </div>
               </>
             )}

@@ -520,6 +520,69 @@ describe("ViviPanel — send flow", () => {
   })
 })
 
+describe("ViviPanel — composer & scroller contract", () => {
+  test("the send button is inert while the draft is empty and live once text is typed", async () => {
+    vi.stubGlobal("fetch", stubFetch({ sessions: [] }))
+    const user = userEvent.setup()
+    renderPanel()
+
+    await user.click(screen.getByRole("button", { name: "Open Vivi" }))
+    const send = screen.getByRole("button", { name: "Send message" })
+    expect(send).toHaveAttribute("aria-disabled", "true")
+
+    await user.type(screen.getByLabelText("Message Vivi"), "hi")
+    expect(send).toHaveAttribute("aria-disabled", "false")
+
+    await user.clear(screen.getByLabelText("Message Vivi"))
+    expect(send).toHaveAttribute("aria-disabled", "true")
+  })
+
+  test("the composer nests the send button inside the input's own border", async () => {
+    vi.stubGlobal("fetch", stubFetch({ sessions: [] }))
+    const user = userEvent.setup()
+    renderPanel()
+
+    await user.click(screen.getByRole("button", { name: "Open Vivi" }))
+    const composer = screen.getByLabelText("Message Vivi")
+    const send = screen.getByRole("button", { name: "Send message" })
+    const frame = composer.parentElement as HTMLElement
+    expect(frame).toContainElement(send)
+    expect(composer.className).toContain("border-0")
+    expect(frame.className).toContain("border")
+    expect(frame.className).not.toContain("border-t")
+    expect(send.className).toContain("absolute")
+  })
+
+  test("the chat wires a scroll-to-bottom affordance and an accessible transcript region", async () => {
+    vi.stubGlobal(
+      "fetch",
+      stubFetch({
+        sessions: [
+          {
+            sessionId: SESSION_A,
+            updated_at: "2026-07-08T10:04:00Z",
+            preview: "I want a todo app.",
+            turns: 5,
+          },
+        ],
+        turnsBySession: { [SESSION_A]: HISTORY },
+      })
+    )
+    const user = userEvent.setup()
+    const { container } = renderPanel()
+
+    await user.click(screen.getByRole("button", { name: "Open Vivi" }))
+    await screen.findByText("I want a todo app.")
+
+    expect(
+      container.querySelector('[data-slot="message-scroller-button"]')
+    ).not.toBeNull()
+    expect(
+      container.querySelector('[data-slot="message-scroller-viewport"]')
+    ).not.toBeNull()
+  })
+})
+
 describe("ViviPanel — onboarding view (no target project)", () => {
   test("hasTarget=false hosts the three acquisition choices instead of the chat", async () => {
     vi.stubGlobal("fetch", stubFetch({}))

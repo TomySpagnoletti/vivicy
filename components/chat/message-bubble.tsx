@@ -23,16 +23,23 @@ export interface ChatMessage {
 
 export function MessageBubble({ message }: { message: ChatMessage }) {
   const isUser = message.role === "user"
-  const align = isUser ? "end" : "start"
   const wrote = message.wrote ?? []
   const hasFooter = Boolean(message.rejected) || (!isUser && wrote.length > 0)
 
   return (
-    <Message align={align}>
+    <Message align={isUser ? "end" : "start"}>
       <MessageContent>
-        <Bubble variant={isUser ? "muted" : "outline"} align={align}>
-          <BubbleContent className="whitespace-pre-wrap">{message.text}</BubbleContent>
-        </Bubble>
+        {isUser ? (
+          <Bubble variant="muted" align="end">
+            <BubbleContent className="whitespace-pre-wrap">
+              {message.text}
+            </BubbleContent>
+          </Bubble>
+        ) : (
+          <div className="text-xs leading-relaxed wrap-break-word whitespace-pre-wrap">
+            {message.text}
+          </div>
+        )}
 
         {hasFooter ? (
           <MessageFooter className="flex-col items-start gap-1.5">

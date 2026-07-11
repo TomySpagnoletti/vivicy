@@ -10,13 +10,14 @@ if (typeof globalThis.ResizeObserver === "undefined") {
   globalThis.ResizeObserver = ResizeObserverPolyfill as unknown as typeof ResizeObserver
 }
 
-// jsdom lacks pointer-capture/scrollIntoView; Radix Select calls them on open and throws without these no-ops.
+// jsdom lacks pointer-capture/scroll methods; Radix Select and the message-scroller call them on mount/scroll and throw without these no-ops.
 if (typeof Element !== "undefined") {
   const proto = Element.prototype as unknown as Record<string, unknown>
   if (!proto.hasPointerCapture) proto.hasPointerCapture = () => false
   if (!proto.setPointerCapture) proto.setPointerCapture = () => {}
   if (!proto.releasePointerCapture) proto.releasePointerCapture = () => {}
   if (!proto.scrollIntoView) proto.scrollIntoView = () => {}
+  if (!proto.scrollTo) proto.scrollTo = () => {}
 }
 
 // jsdom's default about:blank origin is opaque, so window.localStorage throws SecurityError without this in-memory shim.
