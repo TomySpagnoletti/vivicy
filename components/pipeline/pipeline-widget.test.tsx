@@ -58,18 +58,18 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-function renderWidget() {
+function renderWidget({ open = true }: { open?: boolean } = {}) {
   return render(
     <NextIntlClientProvider locale="en" messages={{ pipeline }}>
       <TooltipProvider>
-        <PipelineWidget />
+        <PipelineWidget open={open} />
       </TooltipProvider>
     </NextIntlClientProvider>
   )
 }
 
 describe("PipelineWidget — renders the full stage strip", () => {
-  test("renders all 14 stages (incl. SK), expanded while active", async () => {
+  test("renders all 14 stages (incl. SK) when open", async () => {
     renderWidget()
     await act(() => FakeEventSource.last?.emit({ ...IDLE_STATUS, run_active: true, issues_total: 8, issues_done: 2 }))
 
@@ -91,16 +91,10 @@ describe("PipelineWidget — renders the full stage strip", () => {
     expect(order[boundaryIndex + 1]).toBe("S2")
   })
 
-  test("collapsed by default when idle (no active run, no extraction status)", async () => {
-    renderWidget()
-    await act(() => FakeEventSource.last?.emit(IDLE_STATUS))
-    await waitFor(() => expect(document.querySelector('[data-stage="S9"]')).toBeNull())
-  })
-
-  test("expanded by default when a run is active", async () => {
-    renderWidget()
-    await act(() => FakeEventSource.last?.emit({ ...IDLE_STATUS, run_active: true }))
-    await waitFor(() => expect(document.querySelector('[data-stage="S9"]')).toBeTruthy())
+  test("trigger-less: renders nothing and opens no status stream when not open", async () => {
+    renderWidget({ open: false })
+    await waitFor(() => expect(document.querySelector("[data-pipeline-widget]")).toBeNull())
+    expect(FakeEventSource.last).toBeNull()
   })
 })
 
