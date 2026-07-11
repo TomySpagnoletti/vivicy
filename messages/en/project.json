@@ -6,7 +6,6 @@
   "viviOnboarding": {
     "heading": "Start a project",
     "back": "Back",
-    "importPickTargetHint": "Docs are imported into a project's .vivicy/ — choose the folder they belong to first.",
     "choices": {
       "open": {
         "title": "Open an existing project",
@@ -18,7 +17,7 @@
       },
       "import": {
         "title": "Import documents",
-        "description": "Bring spec docs you already have — verified before anything is placed."
+        "description": "Bring the spec docs you already have — {brandName} stores them and prepares them when the pipeline runs."
       }
     }
   },
@@ -59,47 +58,42 @@
   },
   "importDocsDialog": {
     "title": "Import your docs",
-    "description": "Drop files, a folder, or a .zip. {brandName} checks the corpus for drift or contradictions before placing anything — nothing lands in <code>.vivicy/</code> until the check is green.",
+    "description": "Add the spec docs you already have. {brandName} stores them under <code>.vivicy/uploads/</code> in the folder you choose and prepares them when the pipeline runs — nothing is rewritten, nothing is overwritten.",
+    "step1": {
+      "label": "Add your documents"
+    },
+    "step2": {
+      "label": "Choose the working folder",
+      "hint": "Pick an empty folder, an existing repository, or create a new one — {brandName} will govern it.",
+      "lockedHint": "Add at least one document above to choose where it lands.",
+      "targetPreview": "Imports into <target>{targetDir}</target>"
+    },
     "dropzone": {
       "prompt": "Drag files, a folder, or a .zip here",
       "accepted": "Accepted: {extensions}",
-      "chooseFiles": "Choose files",
-      "chooseFolder": "Choose folder",
-      "chooseZip": "Choose .zip"
+      "choose": "Choose files"
     },
-    "staged": {
-      "count": "Staged {count, plural, one {# file} other {# files}}"
+    "selected": {
+      "accepted": "{count, plural, one {# document} other {# documents}} ready",
+      "rejected": "{count, plural, one {# file} other {# files}} skipped",
+      "unsupportedBadge": "unsupported",
+      "clear": "Clear"
     },
-    "verifying": "Checking for drift or contradictions…",
-    "verified": {
-      "green": "Verified — ready to apply",
-      "red": "Verification failed",
-      "collisionsIntro": "Apply refused — these destinations already exist and were not touched:"
-    },
-    "applying": "Placing the verified corpus into .vivicy/…",
-    "placed": {
-      "count": "Placed {count, plural, one {# file} other {# files}}"
+    "submit": {
+      "idle": "Import documents",
+      "importing": "Importing…"
     },
     "footer": {
-      "startOver": "Start over",
-      "cancel": "Cancel",
-      "close": "Close",
-      "verify": "Verify",
-      "retry": "Retry",
-      "apply": "Apply"
+      "close": "Close"
     },
     "toast": {
-      "unsupportedTitle": "Unsupported file type",
-      "unsupportedDescription": "{files} — accepted: {extensions}",
-      "stageErrorTitle": "Cannot stage upload",
-      "verifyErrorTitle": "Verify failed",
-      "verifyProblemsTitle": "Verification found problems",
-      "verifyProblemsFallback": "See the problem list below.",
-      "applyErrorTitle": "Cannot place import",
-      "importedTitle": "Docs imported",
-      "importedDescription": "{count} file(s) placed into .vivicy/",
+      "importErrorTitle": "Cannot import documents",
+      "importedTitle": "Documents imported",
+      "importedCount": "{count, plural, one {# document} other {# documents}} imported.",
+      "importedLang": "Detected {language}.",
+      "importedSkipped": "{count, plural, one {# file} other {# files}} skipped as unsupported.",
       "folderReadErrorTitle": "Could not read the dropped folder",
-      "folderReadErrorDescription": "This browser can't read folder contents from a drop. Use “Choose folder” instead.",
+      "folderReadErrorDescription": "This browser can't read folder contents from a drop. Drop the files directly, or add them with Choose files.",
       "networkError": "network error",
       "httpError": "HTTP {status}"
     }

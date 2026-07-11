@@ -8,16 +8,14 @@
     "spawn_failed": "the script failed to run",
     "unknown_cr": "unknown change request",
     "cr_not_decidable": "this change request cannot be decided right now",
-    "unknown_staging": "this import staging session is unknown or expired — restage the documents",
     "cycle_state": "the spec-cycle state does not allow this — check the cycle status (open/closed) and retry the matching action"
   },
-  "upload": {
-    "no_files": "no files were uploaded",
-    "unsupported_type": "unsupported file type",
-    "zip_unsupported": "could not expand zip",
-    "bad_staging": "unknown staging id",
-    "not_verified": "this upload has not been verified yet",
-    "would_overwrite": "placing these files would overwrite existing ones"
+  "import": {
+    "no_files": "no documents were added",
+    "no_supported_files": "none of these files are a supported document type",
+    "already_governed": "This folder is already governed by Vivicy — importing here would overwrite it.",
+    "zip_slip": "this .zip contains an unsafe path and was rejected",
+    "zip_unreadable": "this .zip could not be read"
   },
   "scaffold": {
     "not_absolute": "target path must be absolute",

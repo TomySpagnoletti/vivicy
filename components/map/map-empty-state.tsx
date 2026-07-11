@@ -102,7 +102,13 @@ export function MapEmptyState({
               })}
             </DialogDescription>
           </DialogHeader>
-          <ImportDocsFlow active={importOpen} onApplied={() => onImported?.()} />
+          <ImportDocsFlow
+            active={importOpen}
+            onImported={() => {
+              setImportOpen(false)
+              onImported?.()
+            }}
+          />
           <DialogFooter>
             <DialogClose asChild>
               <Button type="button" variant="ghost" size="sm">
