@@ -3,14 +3,17 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { ScaffoldResult } from "@/lib/scaffold"
 
 // ScaffoldError stays the real class (not mocked) so the route's instanceof check still holds.
-const { scaffoldProject } = vi.hoisted(() => ({
+const { scaffoldProject, seedViviWelcome } = vi.hoisted(() => ({
   scaffoldProject: vi.fn(),
+  seedViviWelcome: vi.fn(),
 }))
 
 vi.mock("@/lib/scaffold", async () => {
   const actual = await vi.importActual<typeof import("@/lib/scaffold")>("@/lib/scaffold")
   return { ...actual, scaffoldProject }
 })
+
+vi.mock("@/lib/vivi", () => ({ seedViviWelcome }))
 
 import { ScaffoldError } from "@/lib/scaffold"
 
@@ -54,6 +57,30 @@ describe("POST /api/project/scaffold", () => {
       written: RESULT.written,
       git: RESULT.git,
     })
+    expect(seedViviWelcome).toHaveBeenCalledTimes(1)
+  })
+
+  it("does not seed the welcome when scaffolding fails", async () => {
+    scaffoldProject.mockImplementation(() => {
+      throw new ScaffoldError("rejected", "invalid_name")
+    })
+
+    const res = await POST(postJson({ targetDir: "/abs/new", projectName: "" }))
+    expect(res.status).toBe(400)
+    expect(seedViviWelcome).not.toHaveBeenCalled()
+  })
+
+  it("still returns the scaffolded project when seeding the welcome throws (best-effort)", async () => {
+    scaffoldProject.mockReturnValue(RESULT)
+    seedViviWelcome.mockImplementationOnce(() => {
+      throw new Error("no runtime dir")
+    })
+
+    const res = await POST(postJson({ targetDir: "/abs/new", projectName: "My App" }))
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.ok).toBe(true)
+    expect(body.project).toEqual(RESULT.project)
   })
 
   it("forwards undefined fields verbatim (the lib validates, not the route)", async () => {

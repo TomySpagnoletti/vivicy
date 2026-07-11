@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useId, useRef, useState } from "react"
-import { CircleAlert, Loader2, Plus, SendHorizontal, X } from "lucide-react"
+import { CircleAlert, Loader2, SendHorizontal, X } from "lucide-react"
 import { useTranslations } from "next-intl"
 
 import type { ViviCardAction, ViviTurn } from "@/lib/vivi"
@@ -70,7 +70,7 @@ export function ViviPanel({
   const t = useTranslations("chat")
   const tNotifications = useTranslations("notifications")
   const tErrors = useTranslations("errors")
-  const { open, togglePanel, closePanel } = useViviPanel()
+  const { open, openPanel, togglePanel, closePanel } = useViviPanel()
   const titleId = useId()
 
   const [tab, setTab] = useState<PanelTab>("chat")
@@ -85,7 +85,7 @@ export function ViviPanel({
   const closeRef = useRef<HTMLButtonElement | null>(null)
   const hydratedRef = useRef(false)
 
-  // Bumps on thread-identity reset (project switch / New conversation); an in-flight response captured before the bump is discarded instead of written into the wrong thread.
+  // Bumps on thread-identity reset (project switch); an in-flight response captured before the bump is discarded instead of written into the wrong thread.
   const epochRef = useRef(0)
   const sessionIdRef = useRef(sessionId)
   useEffect(() => {
@@ -109,8 +109,6 @@ export function ViviPanel({
   const { notifications, crs, reload: reloadFeed } = useNotificationsFeed()
   const attentionCount =
     visibleNotifications(notifications).length + pendingCrs(crs).length
-
-  const chatUsable = hasTarget !== false
 
   // Sessions are per-project on the server; the initial undefined→known transition is a resolution, not a switch, so it skips the reset below.
   const prevRootRef = useRef(projectRoot)
@@ -264,16 +262,6 @@ export function ViviPanel({
     [send]
   )
 
-  const startNewConversation = useCallback(() => {
-    // Bumps the era (invalidates any in-flight send/resync); sending is reset here too since the stale send's epoch-guarded finally won't clear it.
-    epochRef.current += 1
-    setSessionId(undefined)
-    setTurns([])
-    setSendError(null)
-    setSending(false)
-    textareaRef.current?.focus()
-  }, [])
-
   // A decided card re-syncs the thread from the transcript (the decided stamp and any appended turns live there); a dismiss doesn't count as activity.
   const onCardDecided = useCallback(
     (action: ViviCardAction) => {
@@ -282,7 +270,7 @@ export function ViviPanel({
         const epoch = epochRef.current
         void (async () => {
           const restored = await fetchSessionTurns(cardSession)
-          // Discard if the thread moved on mid-resync: an epoch bump (project switch) or the live sessionId changed underneath this card (New conversation).
+          // Discard if the thread moved on mid-resync: an epoch bump or the live sessionId changed underneath this card (project switch).
           if (
             epoch !== epochRef.current ||
             sessionIdRef.current !== cardSession ||
@@ -331,6 +319,11 @@ export function ViviPanel({
   const onAcquired = useCallback(() => {
     onActivity?.()
   }, [onActivity])
+
+  const onScaffolded = useCallback(() => {
+    openPanel()
+    onActivity?.()
+  }, [openPanel, onActivity])
 
   return (
     <>
@@ -381,30 +374,17 @@ export function ViviPanel({
           <h2 id={titleId} className="font-heading text-sm font-medium">
             {t("panelHeading")}
           </h2>
-          <div className="ml-auto flex items-center">
-            {chatUsable ? (
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon-sm"
-                onClick={startNewConversation}
-                disabled={sending}
-                aria-label={t("newConversation")}
-              >
-                <Plus />
-              </Button>
-            ) : null}
-            <Button
-              ref={closeRef}
-              type="button"
-              variant="ghost"
-              size="icon-sm"
-              onClick={closePanel}
-              aria-label={t("closeAriaLabel")}
-            >
-              <X />
-            </Button>
-          </div>
+          <Button
+            ref={closeRef}
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            onClick={closePanel}
+            aria-label={t("closeAriaLabel")}
+            className="ml-auto"
+          >
+            <X />
+          </Button>
         </header>
 
         <Tabs
@@ -437,7 +417,10 @@ export function ViviPanel({
           <TabsContent value="chat" className="flex min-h-0 flex-1 flex-col">
             {hasTarget === false ? (
               <div className="min-h-0 flex-1 overflow-y-auto">
-                <ViviOnboarding onAcquired={onAcquired} />
+                <ViviOnboarding
+                  onAcquired={onAcquired}
+                  onScaffolded={onScaffolded}
+                />
               </div>
             ) : (
               <>
@@ -445,11 +428,6 @@ export function ViviPanel({
                   <MessageScroller className="flex-1">
                     <MessageScrollerViewport>
                       <MessageScrollerContent className="gap-3 p-4">
-                        {turns.length === 0 && !sending ? (
-                          <p className="text-xs text-muted-foreground">
-                            {t("emptyState")}
-                          </p>
-                        ) : null}
                         {turns.map((turn, i) => (
                           <MessageScrollerItem key={i}>
                             <TurnView

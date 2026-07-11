@@ -63,7 +63,7 @@ test.describe("Vivicy onboarding (panel-hosted)", () => {
     })
   })
 
-  test("the scaffold choice creates a new project and lands on the no-map state", async ({
+  test("the scaffold choice creates a new project and lands on the empty-canonical map state", async ({
     page,
   }, testInfo) => {
     const scaffoldTarget = scaffoldTargetFor(testInfo.project.name)
@@ -103,16 +103,24 @@ test.describe("Vivicy onboarding (panel-hosted)", () => {
       timeout: 30_000,
     })
 
-    const card = page.locator('[data-empty-reason="no_map"]')
-    await expect(card).toBeVisible({ timeout: 30_000 })
-    await expect(
-      page.getByText("No issues extracted yet", { exact: true })
-    ).toBeVisible()
+    // A freshly scaffolded project has an empty canonical (only the scaffold seed), so the map shows the bare empty-canonical arrow sentence, not the no_map Extract card.
+    const canonicalHint = page.locator('[data-empty-reason="empty_canonical"]')
+    await expect(canonicalHint).toBeVisible({ timeout: 30_000 })
+    await expect(canonicalHint).toContainText("Talk to Vivi to get grilled")
 
     await expect(page.getByLabel("Message Vivi")).toBeVisible({ timeout: 15_000 })
     await expect(
       page.getByRole("button", { name: /Start a new project/i })
     ).toHaveCount(0)
+
+    await expect(page.getByText(/what do you want to build/i)).toBeVisible({
+      timeout: 15_000,
+    })
+
+    await page.reload()
+    await expect(page.getByText(/what do you want to build/i)).toBeVisible({
+      timeout: 30_000,
+    })
 
     await expect(page.locator(".react-flow__node")).toHaveCount(0)
     await expect(page.getByText(/Request failed/i)).toHaveCount(0)

@@ -19,8 +19,10 @@ type OnboardingView = "choices" | "open" | "scaffold" | "import"
 
 export function ViviOnboarding({
   onAcquired,
+  onScaffolded,
 }: {
   onAcquired: (project: CurrentProject) => void
+  onScaffolded: (project: CurrentProject) => void
 }) {
   const t = useTranslations("project.viviOnboarding")
   const [view, setView] = useState<OnboardingView>("choices")
@@ -74,7 +76,7 @@ export function ViviOnboarding({
 
       {view === "open" ? <OpenProjectForm active onChanged={onAcquired} /> : null}
 
-      {view === "scaffold" ? <ScaffoldForm onScaffolded={onAcquired} /> : null}
+      {view === "scaffold" ? <ScaffoldForm onScaffolded={onScaffolded} /> : null}
 
       {view === "import" ? <ImportDocsFlow active onImported={onAcquired} /> : null}
     </div>
