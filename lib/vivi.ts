@@ -15,6 +15,8 @@ import {
 import path from "node:path"
 
 import { ControlError, decideCr, getExtractionStatus, getFactoryRoot, isRunActive, readSkillsReport, startSkillsInstall, type Spawner } from "@/lib/control"
+import { importIntoGoverned, type ManifestFile, type RawEntry, type RejectedFile } from "@/lib/import-docs"
+import { languageDisplayName } from "@/lib/language"
 import { getProjectRuntimeDir } from "@/lib/project-runtime"
 import { getRuntimeDir } from "@/lib/runtime-dir"
 import { settingsToEnv } from "@/lib/settings"
@@ -57,6 +59,7 @@ export interface ViviCardAction {
     | { kind: "control"; tool: string; args?: Record<string, unknown> }
     | { kind: "cr_decide"; crId: string; decision: "approved" | "rejected" }
     | { kind: "vivi_message"; message: string }
+    | { kind: "import_docs" }
     | { kind: "dismiss" }
 }
 
@@ -161,6 +164,14 @@ export function seedViviWelcome(): string {
   return sessionId
 }
 
+// The one decision card that rides on the seeded welcome: a last chance to hand Vivi existing docs before the grill begins. Its single action opens a native file picker client-side; the upload lands in the CURRENT governed project.
+export const WELCOME_IMPORT_CARD: ViviCard = {
+  id: "welcome-import-docs",
+  title: "Already wrote some of this down?",
+  body: "A brief, notes, a spec, a PDF — if you've got documents, hand them over now and I'll bring them into the kitchen before we start grilling. Nothing to import? Just answer above and we'll build the spec from scratch.",
+  actions: [{ id: "import", label: "I have docs to import", action: { kind: "import_docs" } }],
+}
+
 // mirrors the feed's own status filter — keep both in sync.
 const PENDING_CR_STATUSES = new Set(["idea", "under_review"])
 
@@ -239,49 +250,66 @@ export interface CardDecisionResult {
   reply?: ViviReply
 }
 
+function findCardAction(
+  sessionId: string,
+  cardId: string,
+  actionId: string
+): { turn: ViviTurn; action: ViviCardAction } {
+  const turn = readTranscript(sessionId).find((t) => t.role === "card" && t.card?.id === cardId)
+  if (!turn) {
+    throw new ControlError(`unknown card "${cardId}" in session ${sessionId}`, "missing_target")
+  }
+  const action = turn.card?.actions.find((a) => a.id === actionId)
+  if (!action) {
+    throw new ControlError(`unknown action "${actionId}" on card "${cardId}"`, "missing_target")
+  }
+  return { turn, action }
+}
+
+// Stamps against a fresh read every time — turns appended concurrently (another Vivi turn, the action turns below) must survive the rewrite. A same-action re-stamp keeps the original `at`; only a DIFFERENT already-decided action reports back as a lost claim.
+function stampCardDecision(
+  sessionId: string,
+  cardId: string,
+  actionId: string,
+  summary: string
+): { alreadyDecided: ViviCardDecision | null } {
+  const fresh = readTranscript(sessionId)
+  const index = fresh.findIndex((t) => t.role === "card" && t.card?.id === cardId)
+  if (index === -1) return { alreadyDecided: null }
+  const existing = fresh[index].decided
+  if (existing && existing.actionId !== actionId) return { alreadyDecided: existing }
+  fresh[index] = { ...fresh[index], decided: { actionId, at: existing?.at ?? new Date().toISOString(), summary } }
+  rewriteTranscript(sessionId, fresh)
+  return { alreadyDecided: null }
+}
+
+function alreadyDecidedResult(decided: ViviCardDecision): CardDecisionResult {
+  return {
+    ok: false,
+    summary: `this card was already decided (${decided.actionId} at ${decided.at})`,
+    decided,
+  }
+}
+
 export async function decideCardAction(
   spawner: Spawner,
   input: { sessionId: string; cardId: string; actionId: string }
 ): Promise<CardDecisionResult> {
   assertSessionId(input.sessionId)
-  const turns = readTranscript(input.sessionId)
-  const initial = turns.find((t) => t.role === "card" && t.card?.id === input.cardId)
-  if (!initial) {
-    throw new ControlError(`unknown card "${input.cardId}" in session ${input.sessionId}`, "missing_target")
-  }
-  const action = initial.card?.actions.find((a) => a.id === input.actionId)
-  if (!action) {
-    throw new ControlError(`unknown action "${input.actionId}" on card "${input.cardId}"`, "missing_target")
+  const { turn: initial, action } = findCardAction(input.sessionId, input.cardId, input.actionId)
+  if (action.action.kind === "import_docs") {
+    throw new ControlError(
+      `action "${input.actionId}" imports documents — use the document upload path, not the decision endpoint`,
+      "missing_target"
+    )
   }
 
-  // stamps against a fresh read every time — turns appended concurrently (another Vivi turn, the action turns below) must survive the rewrite.
-  const stamp = (summary: string): { alreadyDecided: ViviCardDecision | null } => {
-    const fresh = readTranscript(input.sessionId)
-    const index = fresh.findIndex((t) => t.role === "card" && t.card?.id === input.cardId)
-    if (index === -1) return { alreadyDecided: null }
-    const existing = fresh[index].decided
-    if (existing && existing.actionId !== action.id) return { alreadyDecided: existing }
-    fresh[index] = { ...fresh[index], decided: { actionId: action.id, at: existing?.at ?? new Date().toISOString(), summary } }
-    rewriteTranscript(input.sessionId, fresh)
-    return { alreadyDecided: null }
-  }
+  const stamp = (summary: string) => stampCardDecision(input.sessionId, input.cardId, action.id, summary)
 
   // initial.decided is a stale read; stamp() below does the real read-check-write claim, so two concurrent clicks can't both execute the action.
-  if (initial.decided) {
-    return {
-      ok: false,
-      summary: `this card was already decided (${initial.decided.actionId} at ${initial.decided.at})`,
-      decided: initial.decided,
-    }
-  }
+  if (initial.decided) return alreadyDecidedResult(initial.decided)
   const claim = stamp("deciding…")
-  if (claim.alreadyDecided) {
-    return {
-      ok: false,
-      summary: `this card was already decided (${claim.alreadyDecided.actionId} at ${claim.alreadyDecided.at})`,
-      decided: claim.alreadyDecided,
-    }
-  }
+  if (claim.alreadyDecided) return alreadyDecidedResult(claim.alreadyDecided)
   const decidedAs = (summary: string): ViviCardDecision => ({
     actionId: action.id,
     at: new Date().toISOString(),
@@ -329,6 +357,78 @@ export async function decideCardAction(
         reply,
       }
     }
+  }
+}
+
+export interface CardImportResult {
+  ok: boolean
+  summary: string
+  decided?: ViviCardDecision
+  batchId?: string
+  language?: string
+  accepted?: ManifestFile[]
+  rejected?: RejectedFile[]
+}
+
+// Server-authored, deterministic — mentions the count and detected language, closes back onto the grill. Zero LLM in the render (P2): the click is the owner's, the words are ours.
+export function viviImportAck(count: number, language: string): string {
+  const noun = count === 1 ? "1 document" : `${count} documents`
+  const verb = count === 1 ? "is" : "are"
+  const them = count === 1 ? "it" : "them"
+  const name = languageDisplayName(language)
+  const langClause = name ? `, in ${name},` : ""
+  return (
+    `Perfetto — ${noun}${langClause} ${verb} now in the kitchen. I'll fold ${them} into the spec ` +
+    `when the pipeline runs, so there's nothing for you to check right now. Now, tell me: what are you building?`
+  )
+}
+
+function importDecisionSummary(count: number, skipped: number, language: string): string {
+  const parts = [count === 1 ? "1 document imported" : `${count} documents imported`]
+  const name = languageDisplayName(language)
+  if (name) parts.push(name)
+  if (skipped > 0) parts.push(`${skipped} skipped`)
+  return parts.join(" · ")
+}
+
+// The multipart counterpart to decideCardAction: the file upload IS the decision, so the card is stamped only once the import lands. A failed import throws BEFORE stamping, leaving the card undecided for a clean retry.
+export function decideCardImport(input: {
+  sessionId: string
+  cardId: string
+  actionId: string
+  entries: RawEntry[]
+}): CardImportResult {
+  assertSessionId(input.sessionId)
+  const { turn, action } = findCardAction(input.sessionId, input.cardId, input.actionId)
+  if (action.action.kind !== "import_docs") {
+    throw new ControlError(
+      `action "${input.actionId}" on card "${input.cardId}" is not a document import`,
+      "missing_target"
+    )
+  }
+  if (turn.decided) return alreadyDecidedResult(turn.decided)
+
+  const targetRoot = resolveTarget()
+  const batch = importIntoGoverned({ root: targetRoot, entries: input.entries })
+
+  appendTurn(input.sessionId, {
+    role: "vivi",
+    text: viviImportAck(batch.accepted.length, batch.language),
+    ts: new Date().toISOString(),
+  })
+
+  const summary = importDecisionSummary(batch.accepted.length, batch.rejected.length, batch.language)
+  const claim = stampCardDecision(input.sessionId, input.cardId, action.id, summary)
+  if (claim.alreadyDecided) return alreadyDecidedResult(claim.alreadyDecided)
+
+  return {
+    ok: true,
+    summary,
+    decided: { actionId: action.id, at: new Date().toISOString(), summary },
+    batchId: batch.batchId,
+    language: batch.language,
+    accepted: batch.accepted,
+    rejected: batch.rejected,
   }
 }
 

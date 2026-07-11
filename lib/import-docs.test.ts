@@ -4,6 +4,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  readdirSync,
   realpathSync,
   rmSync,
   writeFileSync,
@@ -17,6 +18,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import {
   dominantLanguage,
   importDocuments,
+  importIntoGoverned,
   mintBatchId,
   UPLOADS_DIR,
   type BatchManifest,
@@ -267,3 +269,71 @@ describe("notification", () => {
     expect(events[0].message).toContain("eng")
   })
 })
+
+function governedRoot(name: string): string {
+  const root = importDocuments({ targetDir: targetPath(name), entries: [fileEntry("seed.md", ENGLISH)] }).targetPath
+  return root
+}
+
+describe("importIntoGoverned (import into the current governed project)", () => {
+  it("writes a fresh batch into an already-governed root without scaffolding or refusing it", () => {
+    const root = governedRoot("gov-happy")
+    const before = readdirBatches(root)
+
+    const result = importIntoGoverned({
+      root,
+      entries: [fileEntry("brief.md", ENGLISH), fileEntry("data.csv", "a,b\n1,2\n"), fileEntry("skip.exe", "x")],
+    })
+
+    expect(result.accepted.map((f) => f.path).sort()).toEqual(["brief.md", "data.csv"])
+    expect(result.rejected).toEqual([{ path: "skip.exe", code: "unsupported_type" }])
+    expect(result.language).toBe("eng")
+    const batchDir = path.join(root, UPLOADS_DIR, result.batchId)
+    expect(existsSync(path.join(batchDir, "brief.md"))).toBe(true)
+    const manifest = readManifest(root, result.batchId)
+    expect(manifest.files).toEqual(result.accepted)
+    expect(readdirBatches(root)).toEqual([...before, result.batchId].sort())
+  })
+
+  it("explodes a zip and preserves its structure, same as the acquisition route", () => {
+    const root = governedRoot("gov-zip")
+    const zip = zipSync({ "docs/a.md": strToU8(ENGLISH), "b.txt": strToU8("hello"), "skip.exe": strToU8("x") })
+    const result = importIntoGoverned({ root, entries: [{ rel: "bundle.zip", name: "bundle.zip", bytes: zip }] })
+    expect(result.accepted.map((f) => f.path).sort()).toEqual(["b.txt", "docs/a.md"])
+    expect(existsSync(path.join(root, UPLOADS_DIR, result.batchId, "docs", "a.md"))).toBe(true)
+  })
+
+  it("refuses a non-governed root with not_governed and writes nothing", () => {
+    const root = targetPath("ungoverned")
+    mkdirSync(root, { recursive: true })
+    expect(() => importIntoGoverned({ root, entries: [fileEntry("a.md", ENGLISH)] })).toThrow(
+      expect.objectContaining({ code: "not_governed" })
+    )
+    expect(existsSync(path.join(root, UPLOADS_DIR))).toBe(false)
+  })
+
+  it("refuses no_files and no_supported_files without minting a batch", () => {
+    const root = governedRoot("gov-refuse")
+    const before = readdirBatches(root)
+    expect(() => importIntoGoverned({ root, entries: [] })).toThrow(
+      expect.objectContaining({ code: "no_files" })
+    )
+    expect(() => importIntoGoverned({ root, entries: [fileEntry("a.exe", "x")] })).toThrow(
+      expect.objectContaining({ code: "no_supported_files" })
+    )
+    expect(readdirBatches(root)).toEqual(before)
+  })
+
+  it("emits its own append-only batch notification", () => {
+    const root = governedRoot("gov-notify")
+    const result = importIntoGoverned({ root, entries: [fileEntry("a.md", ENGLISH)] })
+    const events = readNotifications().filter((n) => n.stage === "import" && n.event === "batch")
+    expect(events.at(-1)?.message).toContain(result.batchId)
+  })
+})
+
+function readdirBatches(root: string): string[] {
+  const dir = path.join(root, UPLOADS_DIR)
+  if (!existsSync(dir)) return []
+  return readdirSync(dir).sort()
+}

@@ -3,9 +3,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { ScaffoldResult } from "@/lib/scaffold"
 
 // ScaffoldError stays the real class (not mocked) so the route's instanceof check still holds.
-const { scaffoldProject, seedViviWelcome } = vi.hoisted(() => ({
+const { scaffoldProject, seedViviWelcome, appendCardTurn, WELCOME_IMPORT_CARD } = vi.hoisted(() => ({
   scaffoldProject: vi.fn(),
   seedViviWelcome: vi.fn(),
+  appendCardTurn: vi.fn(),
+  WELCOME_IMPORT_CARD: { id: "welcome-import-docs", title: "T", actions: [] },
 }))
 
 vi.mock("@/lib/scaffold", async () => {
@@ -13,7 +15,7 @@ vi.mock("@/lib/scaffold", async () => {
   return { ...actual, scaffoldProject }
 })
 
-vi.mock("@/lib/vivi", () => ({ seedViviWelcome }))
+vi.mock("@/lib/vivi", () => ({ seedViviWelcome, appendCardTurn, WELCOME_IMPORT_CARD }))
 
 import { ScaffoldError } from "@/lib/scaffold"
 
@@ -39,8 +41,9 @@ beforeEach(() => {
 })
 
 describe("POST /api/project/scaffold", () => {
-  it("returns the described project + written files on the happy path (200)", async () => {
+  it("returns the described project + written files on the happy path (200) and rides the import card on the seeded welcome", async () => {
     scaffoldProject.mockReturnValue(RESULT)
+    seedViviWelcome.mockReturnValue("session-1")
 
     const res = await POST(postJson({ targetDir: "/abs/new", projectName: "My App" }))
     expect(res.status).toBe(200)
@@ -58,6 +61,7 @@ describe("POST /api/project/scaffold", () => {
       git: RESULT.git,
     })
     expect(seedViviWelcome).toHaveBeenCalledTimes(1)
+    expect(appendCardTurn).toHaveBeenCalledWith(WELCOME_IMPORT_CARD, "session-1")
   })
 
   it("does not seed the welcome when scaffolding fails", async () => {

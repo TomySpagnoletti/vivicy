@@ -9,32 +9,12 @@ import { appendNotification } from "@/lib/notifications"
 import { isGovernedRoot } from "@/lib/project"
 import type { CurrentProject } from "@/lib/project-types"
 import { deriveProjectName, resolveTargetDir, scaffoldProject, type ScaffoldMode } from "@/lib/scaffold"
+import { SUPPORTED_DOC_EXTENSIONS, ZIP_TRANSPORT_EXTENSION } from "@/lib/supported-extensions"
 
 export const UPLOADS_DIR = path.join(".vivicy", "uploads")
 export const MANIFEST_FILE = "manifest.json"
 
-export const SUPPORTED_EXTENSIONS = new Set([
-  ".md",
-  ".markdown",
-  ".txt",
-  ".rtf",
-  ".docx",
-  ".odt",
-  ".pdf",
-  ".html",
-  ".htm",
-  ".csv",
-  ".tsv",
-  ".json",
-  ".yaml",
-  ".yml",
-  ".xml",
-  ".adoc",
-  ".asciidoc",
-  ".rst",
-  ".tex",
-  ".eml",
-])
+export const SUPPORTED_EXTENSIONS = new Set<string>(SUPPORTED_DOC_EXTENSIONS)
 
 const TEXT_LANGUAGE_EXTENSIONS = new Set([
   ".md",
@@ -55,7 +35,7 @@ const TEXT_LANGUAGE_EXTENSIONS = new Set([
   ".eml",
 ])
 
-const ZIP_EXTENSION = ".zip"
+const ZIP_EXTENSION = ZIP_TRANSPORT_EXTENSION
 const MAX_ZIP_DEPTH = 2
 const UNDETERMINED_LANGUAGE = "und"
 
@@ -63,6 +43,7 @@ export type ImportErrorCode =
   | "no_files"
   | "no_supported_files"
   | "already_governed"
+  | "not_governed"
   | "zip_slip"
   | "zip_unreadable"
 
@@ -101,12 +82,15 @@ export interface BatchManifest {
   files: ManifestFile[]
 }
 
-export interface ImportResult {
+export interface BatchResult {
   batchId: string
   targetPath: string
   language: string
   accepted: ManifestFile[]
   rejected: RejectedFile[]
+}
+
+export interface ImportResult extends BatchResult {
   mode: ScaffoldMode
   project: CurrentProject
 }
@@ -263,33 +247,24 @@ function writeBatchFile(batchDir: string, rel: string, bytes: Uint8Array): void 
   writeFileSync(abs, bytes)
 }
 
-export function importDocuments(input: { targetDir: unknown; entries: RawEntry[] }): ImportResult {
-  if (!input.entries || input.entries.length === 0) {
-    throw new ImportError("no files were uploaded", "no_files")
-  }
-
-  const { target } = resolveTargetDir(input.targetDir)
-  if (isGovernedRoot(target)) {
-    throw new ImportError(
-      `this folder is already governed by Vivicy — importing would overwrite it: ${target}`,
-      "already_governed"
-    )
-  }
-
-  const { accepted, rejected } = explode(input.entries)
-  if (accepted.length === 0) {
+// Explode is done ONCE by the caller (before any write) so an all-unsupported batch never scaffolds/touches the target; no_supported_files is a whole-batch refusal.
+function explodeOrThrow(entries: RawEntry[]): { accepted: AcceptedEntry[]; rejected: RejectedFile[] } {
+  const exploded = explode(entries)
+  if (exploded.accepted.length === 0) {
     throw new ImportError(
       "none of the uploaded files are a supported document type",
       "no_supported_files",
-      { rejected }
+      { rejected: exploded.rejected }
     )
   }
+  return exploded
+}
 
-  const scaffold = scaffoldProject({ targetDir: target, projectName: deriveProjectName(target) })
-  const root = scaffold.project.root
+// Guard-less core shared by both entry points: mint → write → summarize → manifest → notify. A batch only ever lands under an already-governed root.
+function persistBatch(root: string, exploded: { accepted: AcceptedEntry[]; rejected: RejectedFile[] }): BatchResult {
   const batchId = mintBatchId(root)
   const batchDir = path.join(root, UPLOADS_DIR, batchId)
-  for (const file of accepted) writeBatchFile(batchDir, file.rel, file.bytes)
+  for (const file of exploded.accepted) writeBatchFile(batchDir, file.rel, file.bytes)
 
   const { files, language } = summarizeBatch(batchDir)
   const manifest: BatchManifest = {
@@ -307,15 +282,39 @@ export function importDocuments(input: { targetDir: unknown; entries: RawEntry[]
     message: `imported ${files.length} file(s) as batch ${batchId} (language: ${language})`,
   })
 
-  return {
-    batchId,
-    targetPath: root,
-    language,
-    accepted: files,
-    rejected,
-    mode: scaffold.mode,
-    project: scaffold.project,
+  return { batchId, targetPath: root, language, accepted: files, rejected: exploded.rejected }
+}
+
+export function importDocuments(input: { targetDir: unknown; entries: RawEntry[] }): ImportResult {
+  if (!input.entries || input.entries.length === 0) {
+    throw new ImportError("no files were uploaded", "no_files")
   }
+
+  const { target } = resolveTargetDir(input.targetDir)
+  if (isGovernedRoot(target)) {
+    throw new ImportError(
+      `this folder is already governed by Vivicy — importing would overwrite it: ${target}`,
+      "already_governed"
+    )
+  }
+
+  const exploded = explodeOrThrow(input.entries)
+  const scaffold = scaffoldProject({ targetDir: target, projectName: deriveProjectName(target) })
+  const batch = persistBatch(scaffold.project.root, exploded)
+  return { ...batch, mode: scaffold.mode, project: scaffold.project }
+}
+
+export function importIntoGoverned(input: { root: string; entries: RawEntry[] }): BatchResult {
+  if (!input.entries || input.entries.length === 0) {
+    throw new ImportError("no files were uploaded", "no_files")
+  }
+  if (!isGovernedRoot(input.root)) {
+    throw new ImportError(
+      `this folder is not governed by Vivicy: no .vivicy directory in ${input.root}`,
+      "not_governed"
+    )
+  }
+  return persistBatch(input.root, explodeOrThrow(input.entries))
 }
 
 // manifest.json is the batch-complete marker: it is the LAST write of an import, so a batch dir lacking it is an interrupted, non-consumable batch the pipeline must skip.

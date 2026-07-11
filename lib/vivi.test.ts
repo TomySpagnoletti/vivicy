@@ -6,7 +6,8 @@ import path from "node:path"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 
 import { ControlError, type RunOptions, type RunResult, type Spawner } from "@/lib/control"
-import { appendCardTurn, decideCardAction, listViviSessions, parseSkillsDirective, readTranscript, runViviTurn, seedViviWelcome, VIVI_WELCOME_MESSAGE, type ViviTurn } from "@/lib/vivi"
+import { UPLOADS_DIR, type RawEntry } from "@/lib/import-docs"
+import { appendCardTurn, decideCardAction, decideCardImport, listViviSessions, parseSkillsDirective, readTranscript, runViviTurn, seedViviWelcome, VIVI_WELCOME_MESSAGE, WELCOME_IMPORT_CARD, type ViviTurn } from "@/lib/vivi"
 
 function makeFakeSpawner(onRun: (options: RunOptions) => Partial<RunResult> | void = () => {}) {
   const calls = {
@@ -864,6 +865,102 @@ describe("decision cards (server contracts)", () => {
     const turns = readTranscript(sessionId)
     expect(turns[0].decided?.actionId).toBe("reject")
     expect(turns.at(-1)?.text).toContain("cr.decide")
+  })
+
+  it("refuses to decide an import_docs action on the JSON path (it needs the upload route)", async () => {
+    const sessionId = appendCardTurn(WELCOME_IMPORT_CARD)
+    const { spawner } = makeFakeSpawner()
+    await expect(
+      decideCardAction(spawner, { sessionId, cardId: WELCOME_IMPORT_CARD.id, actionId: "import" })
+    ).rejects.toThrow(/imports documents/)
+    // Nothing stamped — the card stays live for the upload path.
+    expect(readTranscript(sessionId)[0].decided).toBeUndefined()
+  })
+})
+
+const IMPORT_ENGLISH =
+  "The quick brown fox jumps over the lazy dog near the riverbank every single morning without fail. ".repeat(6)
+
+function docEntry(rel: string, text: string): RawEntry {
+  return { rel, name: path.basename(rel), bytes: new Uint8Array(Buffer.from(text, "utf8")) }
+}
+
+describe("decideCardImport (welcome-card document import into the current project)", () => {
+  it("imports the batch, appends a deterministic Vivi acknowledgment, and stamps the card decided", () => {
+    const sessionId = seedViviWelcome()
+    appendCardTurn(WELCOME_IMPORT_CARD, sessionId)
+
+    const result = decideCardImport({
+      sessionId,
+      cardId: WELCOME_IMPORT_CARD.id,
+      actionId: "import",
+      entries: [docEntry("brief.md", IMPORT_ENGLISH), docEntry("data.csv", "a,b\n1,2\n"), docEntry("skip.exe", "x")],
+    })
+
+    expect(result.ok).toBe(true)
+    expect(result.language).toBe("eng")
+    expect(result.accepted?.map((f) => f.path).sort()).toEqual(["brief.md", "data.csv"])
+    expect(result.rejected).toEqual([{ path: "skip.exe", code: "unsupported_type" }])
+    expect(result.summary).toBe("2 documents imported · English · 1 skipped")
+
+    const batchDir = path.join(targetRoot, UPLOADS_DIR, result.batchId!)
+    expect(existsSync(path.join(batchDir, "brief.md"))).toBe(true)
+    expect(existsSync(path.join(batchDir, "manifest.json"))).toBe(true)
+
+    const turns = readTranscript(sessionId)
+    expect(turns.map((t) => t.role)).toEqual(["vivi", "card", "vivi"])
+    expect(turns[1].decided?.actionId).toBe("import")
+    expect(turns[1].decided?.summary).toBe(result.summary)
+    expect(turns[2].text).toContain("2 documents")
+    expect(turns[2].text).toContain("English")
+    expect(turns[2].text).toMatch(/what are you building/i)
+  })
+
+  it("names a single document and omits the language clause when nothing is scannable", () => {
+    const sessionId = seedViviWelcome()
+    appendCardTurn(WELCOME_IMPORT_CARD, sessionId)
+    const result = decideCardImport({
+      sessionId,
+      cardId: WELCOME_IMPORT_CARD.id,
+      actionId: "import",
+      entries: [docEntry("scan.pdf", "%PDF-1.4 binary-ish")],
+    })
+    expect(result.summary).toBe("1 document imported")
+    const ack = readTranscript(sessionId).at(-1)!.text
+    expect(ack).toContain("1 document is now in the kitchen")
+    expect(ack).not.toContain(", in ")
+  })
+
+  it("refuses a second import (the card is already decided) and refuses a non-import action", () => {
+    const sessionId = seedViviWelcome()
+    appendCardTurn(WELCOME_IMPORT_CARD, sessionId)
+    decideCardImport({ sessionId, cardId: WELCOME_IMPORT_CARD.id, actionId: "import", entries: [docEntry("a.md", IMPORT_ENGLISH)] })
+
+    const again = decideCardImport({ sessionId, cardId: WELCOME_IMPORT_CARD.id, actionId: "import", entries: [docEntry("b.md", IMPORT_ENGLISH)] })
+    expect(again.ok).toBe(false)
+    expect(again.summary).toContain("already decided")
+
+    const controlSession = appendCardTurn({
+      id: "control-card",
+      title: "T",
+      actions: [{ id: "list", label: "List", action: { kind: "control", tool: "crs.list" } }],
+    })
+    expect(() =>
+      decideCardImport({ sessionId: controlSession, cardId: "control-card", actionId: "list", entries: [docEntry("a.md", IMPORT_ENGLISH)] })
+    ).toThrow(/not a document import/)
+  })
+
+  it("leaves the card undecided when the upload has no supported file, so the owner can retry", () => {
+    const sessionId = seedViviWelcome()
+    appendCardTurn(WELCOME_IMPORT_CARD, sessionId)
+    expect(() =>
+      decideCardImport({ sessionId, cardId: WELCOME_IMPORT_CARD.id, actionId: "import", entries: [docEntry("a.exe", "x")] })
+    ).toThrow(expect.objectContaining({ code: "no_supported_files" }))
+
+    const turns = readTranscript(sessionId)
+    expect(turns.map((t) => t.role)).toEqual(["vivi", "card"])
+    expect(turns[1].decided).toBeUndefined()
+    expect(existsSync(path.join(targetRoot, UPLOADS_DIR))).toBe(false)
   })
 })
 
