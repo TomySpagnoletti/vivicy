@@ -1,4 +1,4 @@
-import { existsSync, statSync } from "node:fs"
+import { existsSync, readdirSync, statSync } from "node:fs"
 import path from "node:path"
 
 import { readCurrentProjectRoot } from "@/lib/project"
@@ -35,6 +35,28 @@ export const PROGRESS_LEDGER_RELATIVE_PATH = path.join(
 export function getProgressLedgerPath(): string | null {
   const root = getTargetRoot()
   return root === null ? null : path.join(root, PROGRESS_LEDGER_RELATIVE_PATH)
+}
+
+// The single witness that the canonical holds an authored spec, not just the scaffold seed (.gitkeep/README.md); shared by the extract guard and the map's empty-canonical reason so both agree on "there is something to extract".
+export function canonicalHasSpecDoc(root: string): boolean {
+  const stack = [path.join(root, ".vivicy", "canonical")]
+  while (stack.length > 0) {
+    const dir = stack.pop() as string
+    let entries
+    try {
+      entries = readdirSync(dir, { withFileTypes: true })
+    } catch {
+      continue
+    }
+    for (const entry of entries) {
+      if (entry.isDirectory()) {
+        stack.push(path.join(dir, entry.name))
+      } else if (entry.isFile() && entry.name.endsWith(".md") && entry.name !== "README.md") {
+        return true
+      }
+    }
+  }
+  return false
 }
 
 // Distinct from getArchitectureDataPath()'s null case: a target can have .vivicy/canonical/ but no generated map yet.

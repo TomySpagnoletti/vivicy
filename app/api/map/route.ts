@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises"
 
 import { applyLiveOverlay, normalizeMapData } from "@/lib/map-data"
 import {
+  canonicalHasSpecDoc,
   getArchitectureDataPath,
   getProgressLedgerPath,
   getTargetRoot,
@@ -37,7 +38,10 @@ export async function GET() {
   try {
     contents = await readFile(filePath, "utf8")
   } catch {
-    return emptyState("no_map")
+    const targetRoot = getTargetRoot()
+    return emptyState(
+      targetRoot !== null && canonicalHasSpecDoc(targetRoot) ? "no_map" : "empty_canonical"
+    )
   }
 
   let parsed: unknown

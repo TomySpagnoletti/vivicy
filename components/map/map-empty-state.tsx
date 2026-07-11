@@ -40,13 +40,26 @@ export function MapEmptyState({
 }) {
   const t = useTranslations("map")
   const t2 = useTranslations("project.importDocsDialog")
+  const [importOpen, setImportOpen] = useState(false)
+
+  if (reason === "empty_canonical") {
+    return (
+      <div className="flex h-svh w-full items-center justify-center p-6">
+        <p
+          data-empty-reason="empty_canonical"
+          className="max-w-md text-balance text-center text-xs/relaxed text-muted-foreground"
+        >
+          {t("emptyState.emptyCanonical")}
+        </p>
+      </div>
+    )
+  }
+
   const copy = COPY[reason]
   const Icon = copy.icon
-  const showExtract = reason !== "no_target" && onExtract
+  const showExtract = onExtract && reason !== "no_target"
   const showImport = reason !== "no_target"
   const emptyCanonical = extractError?.code === "empty_canonical"
-
-  const [importOpen, setImportOpen] = useState(false)
 
   return (
     <div className="flex h-svh w-full items-center justify-center p-6">
@@ -90,7 +103,6 @@ export function MapEmptyState({
         ) : null}
       </Card>
 
-      {/* The import flow also lives in the Vivi panel's onboarding view for first-time acquisition; this dialog reuses it here since a target already exists in no_map/empty_map. */}
       <Dialog open={importOpen} onOpenChange={setImportOpen}>
         <DialogContent className="sm:max-w-xl">
           <DialogHeader>
@@ -123,7 +135,7 @@ export function MapEmptyState({
 }
 
 const COPY: Record<
-  MapEmptyReason,
+  Exclude<MapEmptyReason, "empty_canonical">,
   { icon: typeof FolderSearch; titleKey: string; bodyKey: string }
 > = {
   no_target: {

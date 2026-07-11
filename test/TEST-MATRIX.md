@@ -1,6 +1,6 @@
 # Vivicy — exhaustive test matrix
 
-Reconciled fingerprint: `47d9a2de2cb41b9c104975c8b12a3284080c91e8a2d2c348f88c2bfcfd334269` @ commit `682d6a10a21752195ec69b989f35efa1fe0c9608`
+Reconciled fingerprint: `57f4c1248e681a16c31f630f575c52ec3691b1e73eced747acfbdf57ff1e40c2` @ commit `52e0cd4a77ca5a93cbfefe8fdeba3b06c55be49e`
 
 
 This file is the exhaustive, always-current inventory of every test case for Vivicy — every behavior the system has, whether it is covered by a test today or is a known GAP. It is **committed and machine-guarded**: the `Reconciled fingerprint` line above hashes the behavior-bearing source tree and records the HEAD commit at reconciliation time, and `scripts/test-matrix.test.ts` fails the vitest suite when code changes without this file being reconciled and re-stamped (`npm run matrix:stamp`). `git log test/TEST-MATRIX.md` is the audit trail of reconciliations. It is the single source of truth for "what should be tested" across the app (`app/`, `components/`, `lib/`) and the factory (`factory/`). It was assembled from a full per-area audit pass plus three adversarial cross-matrices (user journeys, parallel/merge chaos, process/crash chaos).
@@ -23,14 +23,14 @@ This file is the exhaustive, always-current inventory of every test case for Viv
 | dev-loop-worktrees-merge | 285 | 140 | 145 |
 | e2e-test-infra-rehearsal | 281 | 101 | 180 |
 | extraction-gates | 293 | 159 | 134 |
-| map-ui-data-viewer | 287 | 187 | 100 |
-| onboarding-project-scaffold | 302 | 187 | 115 |
+| map-ui-data-viewer | 289 | 187 | 102 |
+| onboarding-project-scaffold | 305 | 187 | 118 |
 | pipeline-notifications-agents-ui | 192 | 123 | 69 |
 | upload-vivi-chat | 326 | 178 | 148 |
 | cross-journeys | 82 | 65 | 17 |
 | cross-chaos-parallel-merge | 47 | 33 | 14 |
 | cross-chaos-process | 46 | 43 | 3 |
-| **TOTAL** | **3637** | **2155** | **1482** |
+| **TOTAL** | **3642** | **2155** | **1487** |
 
 ---
 
@@ -3168,6 +3168,7 @@ Area: extraction-gates. Scope: `factory/extract-issues.ts`, `factory/semantic-ex
 - [map-ui-data-viewer.78] CardContent (button row) is omitted entirely when neither showExtract nor showImport apply (only reachable for no_target, where both are false) — confirmed no CardContent renders for no_target | GAP (test only asserts individual buttons absent, not that CardContent itself is unrendered)
 - [map-ui-data-viewer.79] Icon per reason: FolderSearch for no_target, Workflow for no_map, MapPin for empty_map | GAP (icon identity is not asserted by any test — only text copy is)
 - [map-ui-data-viewer.80] Boundary: extractError with an empty-string message (falsy-ish but object truthy) — still renders the alert row wrapper since extractError itself is truthy | GAP
+- [map-ui-data-viewer.278] reason="empty_canonical": renders ONE bare muted sentence (a `<p>` with `data-empty-reason="empty_canonical"`, `text-muted-foreground`, starting with the left arrow ←) and NO Card/border/icon/title/Extract/Import buttons — the passive twin of the auto-opened Vivi panel for a freshly scaffolded project | covered | map-empty-state.test.tsx
 
 ### components/map/status-dot.tsx
 
@@ -3287,7 +3288,8 @@ Area: extraction-gates. Scope: `factory/extract-issues.ts`, `factory/semantic-ex
 
 - [map-ui-data-viewer.182] GET returns 200 no_target empty state when isTargetResolved() is false; never reads any file | covered | route.test.ts
 - [map-ui-data-viewer.183] GET returns 200 no_target when isTargetResolved() true but getArchitectureDataPath() returns null (defensive double-check) | GAP — untested; route.test.ts only covers the isTargetResolved=false path for no_target, not the "resolved but path still null" defensive branch
-- [map-ui-data-viewer.184] GET returns 200 no_map when readFile of the architecture-data.json rejects (any reason, e.g. ENOENT) | covered | route.test.ts
+- [map-ui-data-viewer.184] GET returns 200 no_map when readFile of the architecture-data.json rejects (e.g. ENOENT) AND `canonicalHasSpecDoc(targetRoot)` is true (an authored spec exists, extraction just hasn't run) | covered | route.test.ts
+- [map-ui-data-viewer.277] GET returns 200 empty_canonical when the map is absent (readFile rejects) AND `canonicalHasSpecDoc(targetRoot)` is false — the fresh-scaffold case where only the scaffold seed (.gitkeep) sits under `.vivicy/canonical/`, so Extract would be meaningless | covered | route.test.ts
 - [map-ui-data-viewer.185] GET returns 200 empty_map when the map parses/normalizes but nodes.length===0 | covered | route.test.ts
 - [map-ui-data-viewer.186] GET returns 422 map_not_json when JSON.parse of file contents throws, with detail citing the file path; normalizeMapData never called | covered | route.test.ts
 - [map-ui-data-viewer.187] GET returns 422 map_bad_shape when normalizeMapData returns null, with detail citing the file path | covered | route.test.ts
@@ -3697,6 +3699,9 @@ Area: extraction-gates. Scope: `factory/extract-issues.ts`, `factory/semantic-ex
 - [onboarding-project-scaffold.245] | `isTargetResolved()` when root exists but no `.vivicy/canonical` dir | False | unit | target.test.ts
 - [onboarding-project-scaffold.246] | `isTargetResolved()` when root exists and `.vivicy/canonical` is a real directory | True | unit | target.test.ts
 - [onboarding-project-scaffold.247] | `isTargetResolved()` when `.vivicy/canonical` exists but is a FILE | False | unit | target.test.ts
+- [onboarding-project-scaffold.360] | `canonicalHasSpecDoc(root)` when `.vivicy/canonical/` holds a non-README `.md`, even nested in a subdirectory | True (the single witness of an authored spec, shared by the extract guard and the map's empty-canonical reason) | unit | target.test.ts ("is true when a non-README .md spec doc exists, even nested in a subdirectory")
+- [onboarding-project-scaffold.361] | `canonicalHasSpecDoc(root)` when the canonical holds only the scaffold seed (`.gitkeep` + `README.md`) | False (README.md and non-.md files never count as authored spec) | unit | target.test.ts ("is false when the canonical holds only the scaffold seed (.gitkeep + README.md)") |
+- [onboarding-project-scaffold.362] | `canonicalHasSpecDoc(root)` when the canonical directory cannot be read (readdir throws, e.g. ENOTDIR/EACCES/race ENOENT) | Returns False WITHOUT throwing — the predicate is total so its `/api/map` caller never 500s and the extract guard degrades to a loud actionable refusal, not a raw fs error | unit | target.test.ts ("is false without throwing when the canonical directory cannot be read") |
 
 ### lib/target.test.ts
 

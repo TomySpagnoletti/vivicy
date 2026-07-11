@@ -20,7 +20,7 @@ import {
   SKILLS_REPORT_FILE,
   type SkillsReport,
 } from "@/lib/skills-report"
-import { getTargetRoot } from "@/lib/target"
+import { canonicalHasSpecDoc, getTargetRoot } from "@/lib/target"
 
 export interface DetachedHandle {
   pid: number
@@ -483,23 +483,12 @@ function assertRealCanonical(targetRoot: string): void {
       "empty_canonical"
     )
   }
-  const stack = [canonicalDir]
-  while (stack.length > 0) {
-    const dir = stack.pop() as string
-    for (const entry of readdirSync(dir, { withFileTypes: true })) {
-      if (entry.isDirectory()) {
-        stack.push(path.join(dir, entry.name))
-        continue
-      }
-      if (entry.isFile() && entry.name.endsWith(".md") && entry.name !== "README.md") {
-        return
-      }
-    }
+  if (!canonicalHasSpecDoc(targetRoot)) {
+    throw new ControlError(
+      "canonical is empty (only the scaffold README) — write or import canonical docs (01-<area>.md, ...) before extracting",
+      "empty_canonical"
+    )
   }
-  throw new ControlError(
-    "canonical is empty (only the scaffold README) — write or import canonical docs (01-<area>.md, ...) before extracting",
-    "empty_canonical"
-  )
 }
 
 function readExtractionStatus(targetRoot: string): ExtractionStatus | null {
