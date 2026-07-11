@@ -1,23 +1,9 @@
 import { ControlError } from "@/lib/control"
-import { PROVIDER_LABEL } from "@/lib/settings"
-import { readSettings } from "@/lib/settings-store"
 import { getSpawner } from "@/lib/spawner"
 import { runViviTurn } from "@/lib/vivi"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
-
-export async function GET() {
-  const { implementer } = readSettings()
-  return Response.json({
-    ok: true,
-    engine: {
-      provider: implementer.provider,
-      providerLabel: PROVIDER_LABEL[implementer.provider],
-      model: implementer.model,
-    },
-  })
-}
 
 export async function POST(request: Request) {
   try {

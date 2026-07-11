@@ -31,12 +31,9 @@ export function ViviOnboarding({
   if (view === "choices") {
     return (
       <div className="flex flex-col gap-4 p-4">
-        <div className="flex flex-col gap-1">
-          <h3 className="font-heading text-sm font-medium text-foreground">{t("heading")}</h3>
-          <p className="text-xs text-muted-foreground">
-            {t("description", { brandName: BRAND.name })}
-          </p>
-        </div>
+        <h3 className="text-center font-heading text-base font-medium text-foreground">
+          {t("heading")}
+        </h3>
         <div className="flex flex-col gap-2">
           <ChoiceButton
             icon={<FolderOpen className="size-4" />}

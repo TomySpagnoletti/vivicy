@@ -8,7 +8,6 @@
   "launcherBadgeAriaLabel": "{count, plural, one {# item needs your attention} other {# items need your attention}}",
   "launcherBadgeOverflow": "9+",
   "askViviTemplate": "Explain this notification and what I should do: «{message}»",
-  "engineBadgeTitle": "Set in Agent settings — not editable here",
   "emptyState": "Tell Vivi what you want to build — a sentence is enough to start. Vivi will ask the questions that turn it into a complete spec.",
   "pending": "Vivi is thinking…",
   "inputPlaceholder": "Message Vivi…  (Enter to send, Shift+Enter for a new line)",
