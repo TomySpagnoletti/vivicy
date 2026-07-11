@@ -1,6 +1,4 @@
 {
-  "statusButtonAriaLabel": "Agent CLI status",
-  "statusButtonLabel": "Agents",
   "dialogTitle": "Agent CLIs",
   "dialogDescription": "The development loop needs both the Claude Code and Codex CLIs installed and signed in. Detection is read-only — it never runs the agents.",
   "checking": "Checking…",

@@ -114,10 +114,6 @@ test.describe("Vivicy onboarding (panel-hosted)", () => {
       page.getByRole("button", { name: /Start a new project/i })
     ).toHaveCount(0)
 
-    await expect(
-      page.getByRole("button", { name: "Change project" }).getByText("e2e-scaffolded")
-    ).toBeVisible({ timeout: 15_000 })
-
     await expect(page.locator(".react-flow__node")).toHaveCount(0)
     await expect(page.getByText(/Request failed/i)).toHaveCount(0)
     expect(pageErrors).toEqual([])

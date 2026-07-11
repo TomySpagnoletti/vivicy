@@ -26,34 +26,8 @@ async function expectNoPageOverflow(page: Page, label: string) {
   ).toBeLessThanOrEqual(overflow.innerWidth + TOLERANCE)
 }
 
-async function expectContainedInParent(page: Page, selector: string, label: string) {
-  const offenders = await page.evaluate(
-    ({ selector, tolerance }) => {
-      const out: Array<{ text: string; childRight: number; parentRight: number }> = []
-      for (const el of Array.from(document.querySelectorAll(selector))) {
-        const parent = el.parentElement
-        if (!parent) continue
-        const c = el.getBoundingClientRect()
-        const p = parent.getBoundingClientRect()
-        if (c.right > p.right + tolerance) {
-          out.push({
-            text: (el.textContent ?? "").slice(0, 60),
-            childRight: Math.round(c.right),
-            parentRight: Math.round(p.right),
-          })
-        }
-      }
-      return out
-    },
-    { selector, tolerance: TOLERANCE }
-  )
-  expect(offenders, `${label}: elements overflowing their parent: ${JSON.stringify(offenders)}`).toEqual(
-    []
-  )
-}
-
 test.describe("No horizontal overflow anywhere", () => {
-  // afterAll (not per-test): restores the demo target so the main phase starts from the canonical project — otherwise setup.spec's demo re-select becomes a real switch racing control.spec.
+  // afterAll (not per-test): restores the demo target so the main phase starts from the canonical project — otherwise the long-target switch below leaks into control.spec's run.
   test.afterAll(async ({ request }) => {
     const restored = await request.post("/api/project", {
       data: { root: DEMO_TARGET_ROOT },
@@ -61,7 +35,7 @@ test.describe("No horizontal overflow anywhere", () => {
     expect(restored.ok()).toBe(true)
   })
 
-  test("demo target: map, Open-project modal, Details, and transcript modal all fit", async ({
+  test("demo target: map, Details, Tasks, and transcript modal all fit", async ({
     page,
   }) => {
     await page.setViewportSize({ width: 1320, height: 820 })
@@ -70,25 +44,7 @@ test.describe("No horizontal overflow anywhere", () => {
     await expect(page.locator(".react-flow__node").first()).toBeVisible({ timeout: 30_000 })
     await expectNoPageOverflow(page, "demo map (initial)")
 
-    await page.getByRole("button", { name: "Change project" }).click()
-    const dialog = page.getByRole("dialog")
-    await expect(dialog.getByText("Open project")).toBeVisible()
-
-    await expectNoPageOverflow(page, "Open-project modal (default)")
-    await expect(dialog.getByRole("button", { name: "Cancel" })).toBeVisible()
-    await expect(dialog.getByRole("button", { name: /Select this folder/ })).toBeVisible()
-    await expect(dialog.getByLabel("Current path")).toBeVisible({ timeout: 15_000 })
-    await expectNoPageOverflow(page, "Open-project modal (browser loaded)")
-    const dialogBox = await dialog.boundingBox()
-    expect(dialogBox).not.toBeNull()
-    if (dialogBox) {
-      expect(dialogBox.x).toBeGreaterThanOrEqual(-TOLERANCE)
-      expect(dialogBox.x + dialogBox.width).toBeLessThanOrEqual(1320 + TOLERANCE)
-    }
-    await dialog.getByRole("button", { name: "Cancel" }).click()
-    await expect(dialog).toBeHidden({ timeout: 15_000 })
-
-    // The absolute-path input is gone; switch to the long-rooted (governed) project via the API to exercise the long root across the chrome — tooltip, project button, and panels.
+    // Switch to the long-rooted (governed) project via the API to exercise the long root across the chrome — map and panels.
     const switched = await page.request.post("/api/project", {
       data: { root: LONG_TARGET_ROOT, requireGoverned: true },
     })
@@ -97,14 +53,6 @@ test.describe("No horizontal overflow anywhere", () => {
 
     await expect(page.locator(".react-flow__node").first()).toBeVisible({ timeout: 30_000 })
     await expectNoPageOverflow(page, "long target: map")
-
-    await page.getByRole("button", { name: "Change project" }).hover()
-    await expectNoPageOverflow(page, "long target: project tooltip")
-    await expectContainedInParent(
-      page,
-      '[data-slot="tooltip-content"]',
-      "long target: project tooltip content"
-    )
 
     await page.locator(".react-flow__node").first().click()
     await page.getByRole("button", { name: "Details" }).click()
@@ -133,20 +81,12 @@ test.describe("No horizontal overflow anywhere", () => {
     }
   })
 
-  test("narrow viewport: the Open-project modal still fits and keeps its actions", async ({
+  test("narrow viewport: the map fits with no horizontal overflow", async ({
     page,
   }) => {
     await page.setViewportSize({ width: 760, height: 720 })
     await page.goto("/")
     await expect(page.locator(".react-flow__node").first()).toBeVisible({ timeout: 30_000 })
     await expectNoPageOverflow(page, "narrow: map")
-
-    await page.getByRole("button", { name: "Change project" }).click()
-    const dialog = page.getByRole("dialog")
-    await expect(dialog.getByText("Open project")).toBeVisible()
-    await expect(dialog.getByLabel("Current path")).toBeVisible({ timeout: 15_000 })
-    await expectNoPageOverflow(page, "narrow: Open-project modal")
-    await expect(dialog.getByRole("button", { name: "Cancel" })).toBeVisible()
-    await expect(dialog.getByRole("button", { name: /Select this folder/ })).toBeVisible()
   })
 })

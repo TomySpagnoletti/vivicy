@@ -57,9 +57,7 @@ afterEach(() => {
 
 async function openDialog() {
   const user = userEvent.setup()
-  renderWithIntl(<AgentsHealthDialog />)
-  const trigger = await screen.findByRole("button", { name: "Agent CLI status" })
-  await user.click(trigger)
+  renderWithIntl(<AgentsHealthDialog open onOpenChange={() => {}} />)
   await screen.findByText("Agent CLIs")
   return user
 }
