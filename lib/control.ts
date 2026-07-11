@@ -21,13 +21,6 @@ import {
   type SkillsReport,
 } from "@/lib/skills-report"
 import { getTargetRoot } from "@/lib/target"
-import {
-  getStagingDir,
-  normalizeStaging,
-  readReport,
-  type NormalizedFile,
-  type NormalizationProblem,
-} from "@/lib/upload"
 
 export interface DetachedHandle {
   pid: number
@@ -130,7 +123,6 @@ export class ControlError extends Error {
       | "empty_canonical"
       | "spawn_failed"
       | "unknown_cr"
-      | "unknown_staging"
       | "cr_not_decidable"
       | "cycle_state"
   ) {
@@ -145,7 +137,6 @@ const LOG_FILE = "supervisor.log"
 const SUPERVISOR_SCRIPT = "dev-loop-supervised.ts"
 const STATUS_SCRIPT = "dev-status.ts"
 const EXTRACT_SCRIPT = "extract-issues.ts"
-const UPLOAD_VERIFY_SCRIPT = "verify-upload.ts"
 const CHANGE_CONTROL_SCRIPT = "change-control.ts"
 const CR_APPLY_SCRIPT = "cr-apply.ts"
 const SKILLS_SCRIPT = "install-skills.ts"
@@ -694,62 +685,6 @@ export async function removeSkills(
   } finally {
     clearSkillsLock(targetRoot)
   }
-}
-
-export interface UploadVerifyResult {
-  ok: boolean
-  verdict: "green" | "red"
-  problems: Array<{ file: string; kind: string; detail: string }>
-  summary: string
-  normalized: NormalizedFile[]
-}
-
-export async function runUploadVerify(
-  spawner: Spawner,
-  stagingId: string
-): Promise<UploadVerifyResult> {
-  const { factoryRoot, targetRoot } = resolveContext()
-  if (!existsSync(targetRoot)) {
-    throw new ControlError(`target root does not exist: ${targetRoot}`, "missing_target")
-  }
-  const stagingDir = getStagingDir(stagingId)
-  if (!existsSync(stagingDir)) {
-    throw new ControlError(`unknown staging id: ${stagingId}`, "unknown_staging")
-  }
-  const command = resolveScript(factoryRoot, UPLOAD_VERIFY_SCRIPT)
-
-  const { normalized, problems: normProblems } = normalizeStaging(stagingId)
-
-  const result = await spawner.run({
-    command: process.execPath,
-    args: [command, "--staging", stagingDir],
-    cwd: factoryRoot,
-    env: devEnv(targetRoot),
-  })
-
-  const report = readReport(stagingId)
-  const lastLine =
-    result.lastLine || result.stderr.trim().split("\n").filter(Boolean).at(-1) || ""
-
-  const reportGreen = result.code === 0 && report?.verdict === "green"
-  const verdict: "green" | "red" =
-    reportGreen && normProblems.length === 0 ? "green" : "red"
-
-  return {
-    ok: verdict === "green",
-    verdict,
-    problems: mergeUploadProblems(normProblems, report),
-    summary: report?.summary ?? lastLine ?? "upload verification produced no report",
-    normalized,
-  }
-}
-
-function mergeUploadProblems(
-  normProblems: NormalizationProblem[],
-  report: { problems?: Array<{ file: string; kind: string; detail: string }> } | null
-): Array<{ file: string; kind: string; detail: string }> {
-  const fromReport = Array.isArray(report?.problems) ? report.problems : []
-  return [...normProblems, ...fromReport]
 }
 
 const CHANGE_REQUESTS_DIR = ".vivicy/change-requests"
