@@ -28,6 +28,7 @@ import {
   frozenIntegrationPaths,
   detectRateLimit,
   footprintDistance,
+  gateCommandDirective,
   issueClaim,
   issueFootprint,
   issuesIndependent,
@@ -531,10 +532,73 @@ test("POLYGLOT: runLoop resolves a NON-NODE gate from the project's vivicy.json 
   }
 });
 
-test("POLYGLOT: runLoop fails loudly when NO gate is configured (no silent npm fallback)", () => {
+test("GATE-COMMAND: the stack-setup implementer establishes the null sentinel -> gate resolves and the issue verifies", () => {
+  const configPath = resolve(repoRoot, "vivicy.json");
+  writeFileSync(configPath, JSON.stringify({ gateCommand: null }));
   const { dir, cfg } = buildScratch(undefined, { perIssueGate: false });
   try {
-    assert.throws(() => runLoop(cfg, stubSteps), /gate command/i);
+    const steps = {
+      ...stubLifecycle,
+      runReviewer: () => {},
+      commit: () => {},
+      runImplementer: () => {
+        writeFileSync(configPath, JSON.stringify({ gateCommand: "true" }));
+      },
+    };
+    const processed = runLoop({ ...cfg, claudeQuotaProbeEnabled: false }, steps);
+    assert.deepEqual(processed, [
+      { id: "ISS-A", status: "verified" },
+      { id: "ISS-B", status: "verified" },
+    ]);
+    const ev = JSON.parse(readFileSync(resolve(repoRoot, `${cfg.gatesDir}/ISS-A-gate.json`), "utf8"));
+    assert.equal(ev.command, "true");
+    assert.equal(ev.status, "pass");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+    rmSync(configPath, { force: true });
+  }
+});
+
+test("GATE-COMMAND: the sentinel stands after the owing issue -> gate refuses loudly, issue blocks, never marked done", () => {
+  const configPath = resolve(repoRoot, "vivicy.json");
+  writeFileSync(configPath, JSON.stringify({ gateCommand: null }));
+  const { dir, cfg } = buildScratch(undefined, { perIssueGate: false });
+  try {
+    const processed = runLoop({ ...cfg, claudeQuotaProbeEnabled: false }, stubSteps);
+    assert.deepEqual(processed, [{ id: "ISS-A", status: "blocked" }]);
+
+    const block = JSON.parse(readFileSync(resolve(repoRoot, `${cfg.reportsDir}/ISS-A-blocked.json`), "utf8"));
+    assert.equal(block.kind, "gate_command_unset");
+    assert.match(block.reason, /not established/i);
+
+    const ev = JSON.parse(readFileSync(resolve(repoRoot, `${cfg.gatesDir}/ISS-A-gate.json`), "utf8"));
+    assert.equal(ev.command, null);
+    assert.equal(ev.status, "fail");
+    assert.match(ev.reason, /not established/i);
+
+    assert.ok(!existsSync(resolve(repoRoot, `${cfg.doneDir}/ISS-A.md`)), "blocked issue must NOT move to done/");
+    assert.ok(existsSync(resolve(repoRoot, `${cfg.issuesDir}/ISS-A.md`)));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+    rmSync(configPath, { force: true });
+  }
+});
+
+test("GATE-COMMAND: while the sentinel stands, the implementer/reviewer prompt carries the establish-it directive; once established it does not", () => {
+  const dir = mkdtempSync(resolve(repoRoot, "_tmp-gate-directive-"));
+  try {
+    const scratchCfg = { execRoot: dir } as unknown as Config;
+    writeFileSync(resolve(dir, "vivicy.json"), JSON.stringify({ gateCommand: null }));
+    const whileSentinel = gateCommandDirective(scratchCfg, undefined);
+    assert.match(whileSentinel, /Establish the verification gate command/);
+    assert.match(whileSentinel, /must NOT be reverted/i, "directive must tell the reviewer not to revert the establishment");
+    assert.match(whileSentinel, /never invent a placeholder or an `echo`/i);
+
+    const composedImplementer = composePrompt("gate:\n{{gate_command_directive}}", { id: "ISS-A" }, { gate_command_directive: whileSentinel });
+    assert.match(composedImplementer, /Establish the verification gate command/);
+
+    writeFileSync(resolve(dir, "vivicy.json"), JSON.stringify({ gateCommand: "npm test" }));
+    assert.equal(gateCommandDirective(scratchCfg, undefined), "", "no directive once a real command is established");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

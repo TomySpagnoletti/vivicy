@@ -80,7 +80,7 @@ The target stays lean by design: no method docs, no templates, no framework assu
 
 ## Any language, any stack
 
-Nothing in the factory assumes a stack for the target. The per-issue verification gate is the target's own command (`gateCommand` in `vivicy.json`): `go test ./...`, `cargo test`, `pytest -q`, `phpunit`, `swift test`, `npm test` — whatever your runner is. No hidden default: if no gate command is supplied, the loop fails loudly rather than assuming one. Point Vivicy at a Rust crate, a Python service, a Go binary, or a monorepo — the loop, the map, and the gates are the same.
+Nothing in the factory assumes a stack for the target. The per-issue verification gate is the target's own command (`gateCommand` in `vivicy.json`): `go test ./...`, `cargo test`, `pytest -q`, `phpunit`, `swift test`, `npm test` — whatever your runner is. No hidden default and no human edit: the scaffold writes a `null` sentinel and the pipeline establishes the real command mechanically — from the frozen canonical when the spec states one, otherwise the stack-setup issue — and the loop refuses to verify while the sentinel still stands rather than assuming a runner. Point Vivicy at a Rust crate, a Python service, a Go binary, or a monorepo — the loop, the map, and the gates are the same.
 
 ## Under the hood
 

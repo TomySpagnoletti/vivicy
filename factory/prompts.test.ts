@@ -31,6 +31,20 @@ test("implementer.md is self-contained: declares it carries the discipline, list
   assert.match(text, /review sub-agents/i);
 });
 
+test("the gate-command lifecycle is pinned across the implementer/reviewer/extractor prompts", () => {
+  const implementer = readPrompt("implementer.md");
+  const reviewer = readPrompt("reviewer.md");
+  assert.match(implementer, /\{\{gate_command_directive\}\}/, "implementer.md must carry the gate-command directive injection point");
+  assert.match(reviewer, /\{\{gate_command_directive\}\}/, "reviewer.md must carry the gate-command directive injection point");
+  assert.match(implementer, /UNLESS the directive below tells you to establish it/i, "implementer.md must defer the vivicy.json rule to the injected directive");
+  assert.match(reviewer, /never change `vivicy\.json` or the gate command yourself/i);
+
+  const extractor = readPrompt("extractor.md");
+  assert.match(extractor, /extraction-gate-command\.json/, "extractor.md must record a canonical-stated gate command as structured output");
+  assert.match(extractor, /sentinel `null`/, "extractor.md must name the null sentinel");
+  assert.match(extractor, /if the canonical does not state a gate command, do NOT write this file/i, "extractor must never guess the gate command");
+});
+
 test("extractor.md is self-contained: carries the corpus schemas without a target method doc", () => {
   const text = readPrompt("extractor.md");
   assert.match(text, /SELF-CONTAINED/, "extractor.md must declare it is self-contained");

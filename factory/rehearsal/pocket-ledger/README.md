@@ -17,7 +17,7 @@ pocket-ledger/
   README.md                                  this file
   .gitignore                                 ignores the regenerable tool outputs below
   package.json                               npm scaffold; `npm test` runs node --test
-  vivicy.json                                project gate config (`gateCommand`: `npm test`)
+  vivicy.json                                project gate config (`gateCommand`: `null` sentinel; the stack-setup issue establishes `npm test`)
   src/index.js                               placeholder module (agents fill src/ in)
   test/scaffold.test.js                      trivial green test so the gate exists
   .vivicy/
