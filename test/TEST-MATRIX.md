@@ -1,6 +1,6 @@
 # Vivicy — exhaustive test matrix
 
-Reconciled fingerprint: `9bac8a8da95ec8749153698586f7f9b4c955e5aa1e5491a9e9f1ec692f03f630` @ commit `747efca8489e06c21c03c63ea883263972a73f64`
+Reconciled fingerprint: `a0694d5b280d5225ae0d81a6671df1c4816f58b1f8848396406cf169ae76aeaf` @ commit `e9307356238c2fe611a64993fc4de7db32ee107c`
 
 
 This file is the exhaustive, always-current inventory of every test case for Vivicy — every behavior the system has, whether it is covered by a test today or is a known GAP. It is **committed and machine-guarded**: the `Reconciled fingerprint` line above hashes the behavior-bearing source tree and records the HEAD commit at reconciliation time, and `scripts/test-matrix.test.ts` fails the vitest suite when code changes without this file being reconciled and re-stamped (`npm run matrix:stamp`). `git log test/TEST-MATRIX.md` is the audit trail of reconciliations. It is the single source of truth for "what should be tested" across the app (`app/`, `components/`, `lib/`) and the factory (`factory/`). It was assembled from a full per-area audit pass plus three adversarial cross-matrices (user journeys, parallel/merge chaos, process/crash chaos).
@@ -16,7 +16,7 @@ This file is the exhaustive, always-current inventory of every test case for Viv
 
 | Area | Cases | Gaps | Covered |
 |---|---:|---:|---:|
-| app-shell-sidebar-ui-kit | 365 | 271 | 94 |
+| app-shell-sidebar-ui-kit | 368 | 268 | 100 |
 | baselines-change-requests | 260 | 203 | 57 |
 | cli-supervisor-process-infra | 402 | 243 | 159 |
 | control-plane-api-routes | 474 | 233 | 241 |
@@ -30,7 +30,7 @@ This file is the exhaustive, always-current inventory of every test case for Viv
 | cross-journeys | 87 | 70 | 17 |
 | cross-chaos-parallel-merge | 47 | 33 | 14 |
 | cross-chaos-process | 46 | 43 | 3 |
-| **TOTAL** | **3771** | **2286** | **1485** |
+| **TOTAL** | **3774** | **2283** | **1491** |
 
 ---
 
@@ -443,10 +443,13 @@ This file is the exhaustive, always-current inventory of every test case for Viv
 
 ### components/ui/sonner.tsx
 
-- [app-shell-sidebar-ui-kit.270] `toast.success(...)` rendered. | Uses `CircleCheckIcon`; theme forced `"light"` regardless of system dark-mode preference (an explicit, deliberate choice worth a regression test). | unit | GAP
-- [app-shell-sidebar-ui-kit.271] `toast.error(...)` / `.warning(...)` / `.info(...)` / a loading toast. | Correct icon per type (OctagonX/TriangleAlert/Info/spinning Loader2). | unit | GAP
-- [app-shell-sidebar-ui-kit.272] `closeButton` prop. | Every toast gets an explicit close (X) affordance, not just auto-dismiss. | unit | GAP
-- [app-shell-sidebar-ui-kit.273] CSS vars (`--normal-bg`, `--normal-text`, `--normal-border`) map to the app's `popover`/`border` tokens. | Toasts are visually consistent with the rest of the design system (not sonner's own default palette). | unit | GAP
+- [app-shell-sidebar-ui-kit.270] `toast.success(...)` rendered. | Uses `CircleCheckIcon`; theme forced `"light"` regardless of system dark-mode preference (an explicit, deliberate choice worth a regression test). | unit | sonner.test.tsx (`Toaster mount > anchors top-right, forced light theme`; `typed toasts > success ...`)
+- [app-shell-sidebar-ui-kit.271] `toast.error(...)` / `.warning(...)` / `.info(...)` / a loading toast. | Correct icon per type (OctagonX/TriangleAlert/Info/spinning Loader2). | unit | sonner.test.tsx (`typed toasts` each variant + `loading toast shows the spinning loader icon`)
+- [app-shell-sidebar-ui-kit.272] `closeButton` prop. | Every toast gets an explicit close (X) affordance, not just auto-dismiss. | unit | sonner.test.tsx (`typed toasts` asserts `[data-close-button]` per variant)
+- [app-shell-sidebar-ui-kit.273] CSS vars for the neutral toast (`--normal-bg`/`--normal-text`/`--normal-border`) AND the four typed variants (`--{success,error,warning,info}-{bg,border,text}`) map to the app's design tokens — the neutral trio to `popover`/`border`, each typed trio derived from `--success`/`--destructive`/`--warning`/`--info` via `color-mix` in `oklab` (12% bg tint, 38% border, 70% text — oklab, not oklch, so the white/near-black neutral endpoint's undefined hue cannot drag the mix across the hue wheel). | Toasts are visually consistent with the design system, and typed toasts are colored by the repo tokens, not sonner's own default rich-color palette. | unit | sonner.test.tsx (`Toaster mount > typed colors derive from the design tokens, not sonner's own palette`)
+- [app-shell-sidebar-ui-kit.356] Toaster `position="top-right"`. | The toaster anchors to the top-right (`data-x-position="right"`, `data-y-position="top"`), where descending alerts are conventional — not sonner's bottom-right default. | unit | sonner.test.tsx (`Toaster mount > anchors top-right, forced light theme`)
+- [app-shell-sidebar-ui-kit.357] `richColors` enabled — a typed toast (`toast.success`/`.error`/`.warning`/`.info`) is fired. | Each toast carries `data-rich-colors="true"` and `data-type="<variant>"`, so sonner applies the per-type colored treatment (distinct color per success/error/warning/info) rather than a uniform neutral card. | unit | sonner.test.tsx (`typed toasts` per-variant `data-rich-colors`/`data-type` assertions)
+- [app-shell-sidebar-ui-kit.358] Default display `duration={5000}`. | Toasts linger 5s — one second longer than sonner's 4s default — so alerts are easier to read before auto-dismiss; still dismissible early via the close button. | unit | GAP (duration is a JS prop with no cheap DOM/timing assertion; enforced at the single mount point)
 
 ### components/ui/switch.tsx
 

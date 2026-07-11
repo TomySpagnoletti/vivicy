@@ -29,6 +29,8 @@
     --color-border: var(--border);
     --color-destructive: var(--destructive);
     --color-warning: var(--warning);
+    --color-success: var(--success);
+    --color-info: var(--info);
     --color-accent-foreground: var(--accent-foreground);
     --color-accent: var(--accent);
     --color-muted-foreground: var(--muted-foreground);
@@ -69,6 +71,8 @@
     --accent-foreground: oklch(0.228 0.013 107.4);
     --destructive: oklch(0.577 0.245 27.325);
     --warning: oklch(0.666 0.179 58.318);
+    --success: oklch(0.52 0.14 152);
+    --info: oklch(0.55 0.15 248);
     --border: oklch(0.93 0.007 106.5);
     --input: oklch(0.93 0.007 106.5);
     --ring: oklch(0.737 0.021 106.9);
@@ -87,10 +91,6 @@
     --sidebar-border: oklch(0.93 0.007 106.5);
     --sidebar-ring: oklch(0.737 0.021 106.9);
 
-    /* Development-status accents. The one product semantic shadcn does not
-       cover natively. Muted, tasteful values tuned to read on the light
-       card/sidebar surfaces above. `not_started` recedes to the neutral
-       border token. Used via text-/bg-/border-status-* utilities. */
     --status-not-started: var(--border);
     --status-in-progress: oklch(0.6 0.13 248);
     --status-reviewing: oklch(0.56 0.15 300);
