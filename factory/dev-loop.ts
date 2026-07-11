@@ -30,7 +30,7 @@ import { runTraceabilityCheck } from "./traceability-check.ts";
 import { runSpikeCheck, transitivelyVerifiedGates } from "./spike-check.ts";
 import { runReferenceCheck } from "./reference-check.ts";
 import { resolveTargetRoot, FACTORY_DIR, FACTORY_PROMPTS_DIR } from "./target-root.ts";
-import { resolveGateCommand } from "./project-config.ts";
+import { resolveGateCommand, ProjectConfigError } from "./project-config.ts";
 import {
   combinedOutput,
   runClaudeLeg as sharedRunClaudeLeg,
@@ -89,6 +89,7 @@ export interface GateResult {
   pass: boolean;
   evidenceRel: string;
   exitCode: number;
+  reason?: string;
 }
 
 interface GateEvidenceSnapshot {
@@ -672,6 +673,24 @@ export function composePrompt(template: string, issue: Issue, extra: Record<stri
   return template.replace(/\{\{(\w+)\}\}/g, (match, key) => (key in values ? String(values[key]) : match));
 }
 
+const GATE_COMMAND_DIRECTIVE = [
+  "## Establish the verification gate command (this issue owes it)",
+  "",
+  "`vivicy.json#gateCommand` is still the not-yet-established sentinel (`null`): the pipeline cannot verify any issue until it is a real command. Establishing it is IN SCOPE here and overrides the general rule against editing `vivicy.json`.",
+  "",
+  "As part of completing this issue, the implementer MUST set `vivicy.json#gateCommand` (preserving every other field) to this project's real verification command — the exact runner its tests execute under (for example `go test ./...`, `cargo test`, `pytest -q`, `phpunit`, `swift test`, or `npm test`). This is the single legitimate `gateCommand` edit; it must NOT be reverted by the reviewer. Never invent a placeholder or an `echo`; use the project's genuine test runner. The orchestrator refuses to mark this issue done while the sentinel stands.",
+].join("\n");
+
+export function gateCommandDirective(cfg: Config, issue: Issue | undefined): string {
+  try {
+    resolveGateCommand({ issue, targetRoot: execRootOf(cfg), explicitDefault: cfg.defaultGateCommand });
+    return "";
+  } catch (error) {
+    if (error instanceof ProjectConfigError && error.code === "invalid_gate_command") return GATE_COMMAND_DIRECTIVE;
+    return "";
+  }
+}
+
 export function agentCliArgs(
   provider: string,
   { model, effort, fast }: { model?: string; effort?: string; fast?: boolean } = {},
@@ -1117,8 +1136,9 @@ function runCodexLeg(leg: Leg, issue: Issue, cfg: Config): LegResult {
 
 function legDeps(cfg: Config, issue: Issue | undefined): LegDeps {
   const root = execRootOf(cfg);
+  const directive = gateCommandDirective(cfg, issue);
   return {
-    composePrompt,
+    composePrompt: (template, iss) => composePrompt(template, iss, { gate_command_directive: directive }),
     agentCliArgs,
     abs,
     execRoot: root,
@@ -1183,26 +1203,29 @@ export function defaultRunMergeResolverAsync(issue: Issue, cfg: Config): Promise
   return runAssignedLegAsync(mergeResolverLeg(cfg), issue, cfg);
 }
 
+function resolveGateCommandForRun(issue: Issue, cfg: Config): { command: string } | { unresolved: string } {
+  try {
+    return {
+      command: resolveGateCommand({ issue, targetRoot: execRootOf(cfg), explicitDefault: cfg.defaultGateCommand }),
+    };
+  } catch (error) {
+    if (error instanceof ProjectConfigError && error.code === "invalid_gate_command") return { unresolved: error.message };
+    throw error;
+  }
+}
+
 export function defaultRunGate(issue: Issue, cfg: Config): GateResult {
-  const execRoot = execRootOf(cfg);
-  const gateCommand = resolveGateCommand({
-    issue,
-    targetRoot: execRoot,
-    explicitDefault: cfg.defaultGateCommand,
-  });
-  const result = spawnSync(gateCommand, { cwd: execRoot, encoding: "utf8", shell: true });
-  return writeGateEvidence(issue, cfg, gateCommand, result.status ?? 1);
+  const resolved = resolveGateCommandForRun(issue, cfg);
+  if ("unresolved" in resolved) return writeGateEvidence(issue, cfg, null, 1, resolved.unresolved);
+  const result = spawnSync(resolved.command, { cwd: execRootOf(cfg), encoding: "utf8", shell: true });
+  return writeGateEvidence(issue, cfg, resolved.command, result.status ?? 1);
 }
 
 export async function defaultRunGateAsync(issue: Issue, cfg: Config): Promise<GateResult> {
-  const execRoot = execRootOf(cfg);
-  const gateCommand = resolveGateCommand({
-    issue,
-    targetRoot: execRoot,
-    explicitDefault: cfg.defaultGateCommand,
-  });
-  const result = await spawnShellAsync(gateCommand, { cwd: execRoot });
-  return writeGateEvidence(issue, cfg, gateCommand, result.status ?? 1);
+  const resolved = resolveGateCommandForRun(issue, cfg);
+  if ("unresolved" in resolved) return writeGateEvidence(issue, cfg, null, 1, resolved.unresolved);
+  const result = await spawnShellAsync(resolved.command, { cwd: execRootOf(cfg) });
+  return writeGateEvidence(issue, cfg, resolved.command, result.status ?? 1);
 }
 
 function spawnShellAsync(command: string, options: { cwd?: string } = {}): Promise<LegProcessResult> {
@@ -1233,7 +1256,7 @@ function spawnShellAsync(command: string, options: { cwd?: string } = {}): Promi
   });
 }
 
-function writeGateEvidence(issue: Issue, cfg: Config, gateCommand: string, exitCode: number): GateResult {
+function writeGateEvidence(issue: Issue, cfg: Config, gateCommand: string | null, exitCode: number, reason?: string): GateResult {
   const gateId = (issue.verification_gate_ids ?? [])[0] ?? `gate:issue:${issue.id}`;
   mkdirSync(abs(cfg.gatesDir!), { recursive: true });
   const evidenceRel = `${cfg.gatesDir}/${issue.id}-gate.json`;
@@ -1243,11 +1266,12 @@ function writeGateEvidence(issue: Issue, cfg: Config, gateCommand: string, exitC
     command: gateCommand,
     exit_code: exitCode,
     status: exitCode === 0 ? "pass" : "fail",
+    ...(reason ? { reason } : {}),
     finished_at: nowIso(cfg),
     baseline_id: cfg.baselineId ?? readIndexBaselineId(cfg),
   };
   writeFileSync(abs(evidenceRel), `${JSON.stringify(record, null, 2)}\n`);
-  return { pass: exitCode === 0, evidenceRel, exitCode };
+  return { pass: exitCode === 0, evidenceRel, exitCode, ...(reason ? { reason } : {}) };
 }
 
 function readIndexBaselineId(cfg: Config): string {
@@ -1870,6 +1894,7 @@ export function runIssueCycle(issue: Issue, cfg: Config, steps: CycleSteps): Cyc
   const { runImplementer, runReviewer, runGate } = steps;
   const allTranscripts: string[] = [];
   let lastTimeoutReason: string | null = null;
+  let lastGateReason: string | null = null;
   for (let attempt = 1; attempt <= cfg.maxRetries!; attempt += 1) {
     emit(cfg, {
       event_type: "issue_started",
@@ -1905,6 +1930,7 @@ export function runIssueCycle(issue: Issue, cfg: Config, steps: CycleSteps): Cyc
     allTranscripts.push(...transcripts);
 
     const gate = runGate(issue, cfg);
+    lastGateReason = gate.reason ?? lastGateReason;
     if (gate.pass) {
       if (!cfg.deferVerified) {
         emit(cfg, {
@@ -1940,7 +1966,7 @@ export function runIssueCycle(issue: Issue, cfg: Config, steps: CycleSteps): Cyc
     graph_refs: issue.graph_refs,
     actor: cfg.implementer.actor,
     role: cfg.implementer.role,
-    evidence_refs: [writeBlockedEvidence(issue, cfg, lastTimeoutReason)],
+    evidence_refs: [writeBlockedEvidence(issue, cfg, lastTimeoutReason, lastGateReason)],
     transcript_refs: allTranscripts,
   });
   return { status: "blocked", attempts: cfg.maxRetries!, transcripts: allTranscripts };
@@ -1950,6 +1976,7 @@ export async function runIssueCycleAsync(issue: Issue, cfg: Config, steps: Async
   const { runImplementer, runReviewer, runGate } = steps;
   const allTranscripts: string[] = [];
   let lastTimeoutReason: string | null = null;
+  let lastGateReason: string | null = null;
   for (let attempt = 1; attempt <= cfg.maxRetries!; attempt += 1) {
     emit(cfg, {
       event_type: "issue_started",
@@ -1985,6 +2012,7 @@ export async function runIssueCycleAsync(issue: Issue, cfg: Config, steps: Async
     allTranscripts.push(...transcripts);
 
     const gate = await runGate(issue, cfg);
+    lastGateReason = gate.reason ?? lastGateReason;
     if (gate.pass) {
       if (!cfg.deferVerified) {
         emit(cfg, {
@@ -2020,7 +2048,7 @@ export async function runIssueCycleAsync(issue: Issue, cfg: Config, steps: Async
     graph_refs: issue.graph_refs,
     actor: cfg.implementer.actor,
     role: cfg.implementer.role,
-    evidence_refs: [writeBlockedEvidence(issue, cfg, lastTimeoutReason)],
+    evidence_refs: [writeBlockedEvidence(issue, cfg, lastTimeoutReason, lastGateReason)],
     transcript_refs: allTranscripts,
   });
   return { status: "blocked", attempts: cfg.maxRetries!, transcripts: allTranscripts };
@@ -2030,15 +2058,23 @@ function legTimeoutReason(legResult: LegResult): string | null {
   return legResult?.result?.timedOut ? legResult.result.timeoutReason || "leg timed out" : null;
 }
 
-function writeBlockedEvidence(issue: Issue, cfg: Config, timeoutReason: string | null = null): string {
+function writeBlockedEvidence(
+  issue: Issue,
+  cfg: Config,
+  timeoutReason: string | null = null,
+  gateReason: string | null = null,
+): string {
   mkdirSync(abs(cfg.reportsDir!), { recursive: true });
   const rel = `${cfg.reportsDir}/${issue.id}-blocked.json`;
   const reason = timeoutReason
     ? `${timeoutReason}; still red after ${cfg.maxRetries} attempts`
-    : `gate red after ${cfg.maxRetries} attempts`;
+    : gateReason
+      ? `${gateReason} (still unresolved after ${cfg.maxRetries} attempts)`
+      : `gate red after ${cfg.maxRetries} attempts`;
+  const kind = timeoutReason ? "timeout" : gateReason ? "gate_command_unset" : null;
   writeFileSync(
     abs(rel),
-    `${JSON.stringify({ issue_id: issue.id, reason, ...(timeoutReason ? { kind: "timeout" } : {}), at: nowIso(cfg) }, null, 2)}\n`,
+    `${JSON.stringify({ issue_id: issue.id, reason, ...(kind ? { kind } : {}), at: nowIso(cfg) }, null, 2)}\n`,
   );
   return rel;
 }

@@ -151,6 +151,10 @@ Author every file below into the **target repo**, all pinned to the frozen basel
 
    The spike is an evidence gate: the loop will not start a spike-gated issue until the spike's `status` is `verified`. Gate **per dependency** — an issue waits only on the spikes whose behaviour it actually uses. When nothing depends on unproven external behaviour and the owner provided no spikes, author none and leave every `spike_gates` list empty.
 
+## Verification gate command (only if the canonical STATES it)
+
+`vivicy.json#gateCommand` is the command Vivicy runs as the per-issue verification gate. The scaffold leaves it as the sentinel `null` (not yet established). If — and ONLY if — the frozen canonical EXPLICITLY states the project's test/verification command (e.g. a doc line that says the project is verified with `go test ./...`, `pytest -q`, `npm test`, …), record it so the orchestrator can establish it: write `{ "gateCommand": "<the exact command the canonical states>" }` to `.vivicy/development/reports/extraction-gate-command.json`. Never guess, never infer from the stack, never invent a placeholder or an `echo` — if the canonical does not state a gate command, do NOT write this file; the sentinel stays and the stack-setup issue's implementer establishes it. Do not touch `vivicy.json` yourself.
+
 ## File shapes
 
 You author these shapes; they live in this prompt, not the target repo. Reproduce the `##` headings verbatim — the deterministic checkers locate blocks by heading.

@@ -6,7 +6,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, it } from "node:test";
 
-import { extractIssues, findFrozenManifest, formatCheckOutput, formatFixContext, formatMapError, resolveFreezeVersion } from "./extract-issues.ts";
+import { extractIssues, findFrozenManifest, formatCheckOutput, formatFixContext, formatMapError, recordExtractedGateCommand, resolveFreezeVersion } from "./extract-issues.ts";
 import { readSpikes } from "./spike-check.ts";
 
 const FACTORY_DIR = dirname(fileURLToPath(import.meta.url));
@@ -1185,5 +1185,52 @@ describe("scaffold + fixture gitignore the COMPLETE never-commit set, and ONLY t
       assert.ok(!scaffoldSrc.includes(`\n${out}`) && !scaffoldSrc.includes(`${out}\n`), `scaffold gitignore() must NOT ignore ${out}`);
     }
     assert.doesNotMatch(scaffoldSrc, /\n\s*\.vivicy\/development\/reports\/\s*\n/, "scaffold must not ignore the whole reports/ dir");
+  });
+});
+
+describe("recordExtractedGateCommand — machine-fills gateCommand from the extractor's structured output", () => {
+  const GATE_REPORT_REL = ".vivicy/development/reports/extraction-gate-command.json";
+  let dir: string;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "vivicy-extract-gate-"));
+  });
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  const writeReport = (payload: unknown) => {
+    const abs = join(dir, GATE_REPORT_REL);
+    mkdirSync(dirname(abs), { recursive: true });
+    writeFileSync(abs, `${JSON.stringify(payload, null, 2)}\n`);
+  };
+  const readGate = () => JSON.parse(readFileSync(join(dir, "vivicy.json"), "utf8")).gateCommand;
+
+  it("fills the sentinel when the extractor stated a canonical command", () => {
+    writeFileSync(join(dir, "vivicy.json"), JSON.stringify({ gateCommand: null, requiredSkills: ["a/b@c"] }));
+    writeReport({ gateCommand: "go test ./..." });
+    assert.equal(recordExtractedGateCommand(dir), true);
+    assert.equal(readGate(), "go test ./...");
+    assert.deepEqual(JSON.parse(readFileSync(join(dir, "vivicy.json"), "utf8")).requiredSkills, ["a/b@c"]);
+  });
+
+  it("preserves the sentinel when the extractor stated nothing (no report)", () => {
+    writeFileSync(join(dir, "vivicy.json"), JSON.stringify({ gateCommand: null }));
+    assert.equal(recordExtractedGateCommand(dir), false);
+    assert.equal(readGate(), null);
+  });
+
+  it("preserves the sentinel when the extractor explicitly stated null", () => {
+    writeFileSync(join(dir, "vivicy.json"), JSON.stringify({ gateCommand: null }));
+    writeReport({ gateCommand: null });
+    assert.equal(recordExtractedGateCommand(dir), false);
+    assert.equal(readGate(), null);
+  });
+
+  it("never overrides an already-established gate command", () => {
+    writeFileSync(join(dir, "vivicy.json"), JSON.stringify({ gateCommand: "pytest -q" }));
+    writeReport({ gateCommand: "go test ./..." });
+    assert.equal(recordExtractedGateCommand(dir), false);
+    assert.equal(readGate(), "pytest -q");
   });
 });

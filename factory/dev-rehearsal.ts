@@ -80,9 +80,36 @@ function readJson<T = unknown>(path: string): T {
   return JSON.parse(readFileSync(path, "utf8")) as T;
 }
 
+// The pocket-ledger fixture ships gateCommand as the `null` sentinel; the dry implementer establishes it on the stack-setup issue exactly as a real one would, exercising the machine-fill path.
+const FIXTURE_GATE_COMMAND = "npm test";
+
+function readGateCommand(root: string): string | null {
+  try {
+    return (JSON.parse(readFileSync(join(root, "vivicy.json"), "utf8")) as { gateCommand?: string | null }).gateCommand ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function fillGateCommandIfSentinel(root: string): void {
+  const abs = join(root, "vivicy.json");
+  let config: Record<string, unknown> = {};
+  try {
+    config = JSON.parse(readFileSync(abs, "utf8"));
+  } catch {
+    return;
+  }
+  if (typeof config.gateCommand === "string" && config.gateCommand.length > 0) return;
+  config.gateCommand = FIXTURE_GATE_COMMAND;
+  writeFileSync(abs, `${JSON.stringify(config, null, 2)}\n`);
+}
+
 // runIssueCycle (sequential) calls legs synchronously; runIssueCycleAsync (parallel) awaits them — dry legs must match or the sequential path breaks.
 function dryImplementer(temp: string) {
-  return (issue: LegIssue) => writeFakeTranscript(temp, issue, "claude-implementer");
+  return (issue: LegIssue) => {
+    fillGateCommandIfSentinel(temp);
+    return writeFakeTranscript(temp, issue, "claude-implementer");
+  };
 }
 function dryReviewer(temp: string) {
   return (issue: LegIssue) => writeFakeTranscript(temp, issue, "codex-reviewer");
@@ -91,6 +118,7 @@ function dryImplementerParallel(temp: string) {
   return async (issue: LegIssue, cfg?: LegCfg) => {
     await delay(15);
     if (cfg?.execRoot) writeWorktreeMarker(cfg.execRoot, issue, "implementer");
+    fillGateCommandIfSentinel(cfg?.execRoot ?? temp);
     return writeFakeTranscript(temp, issue, "claude-implementer");
   };
 }
@@ -193,6 +221,7 @@ async function main(): Promise<void> {
       ? { runImplementer: dryImplementerParallel(temp), runReviewer: dryReviewerParallel(temp) }
       : { runImplementer: dryImplementer(temp), runReviewer: dryReviewer(temp) }
     : {};
+  const preLoopGateCommand = readGateCommand(temp);
   let processed: ProcessedIssue[] = [];
   try {
     // No defaultGateCommand: exercises the real polyglot-gate resolution from the fixture's own vivicy.json.
@@ -201,6 +230,12 @@ async function main(): Promise<void> {
   } catch (error) {
     record("dev-loop two-agent run", false, String((error as Error)?.message ?? error));
   }
+  const postLoopGateCommand = readGateCommand(temp);
+  record(
+    "machine-fill: gateCommand starts as the null sentinel, established by the stack-setup issue (never a human)",
+    preLoopGateCommand === null && postLoopGateCommand === FIXTURE_GATE_COMMAND,
+    `sentinel(${preLoopGateCommand === null ? "null" : String(preLoopGateCommand)}) -> ${String(postLoopGateCommand)}`,
+  );
   if (concurrency > 1) {
     const order = processed.map((p) => p.id);
     const doneOnce = new Set(order).size === order.length;

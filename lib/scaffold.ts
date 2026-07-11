@@ -22,9 +22,6 @@ const PROJECT_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9 ._-]{0,63}$/
 
 const VIVICY_CONFIG_FILENAME = "vivicy.json"
 
-// A real exit-0 command, never a language guess — the gate needs green from commit one.
-const DEFAULT_GATE_COMMAND = "echo 'Replace this with your project test command in vivicy.json'"
-
 export class ScaffoldError extends Error {
   constructor(
     message: string,
@@ -92,7 +89,7 @@ export function resolveTargetDir(candidate: unknown): { target: string; mode: Sc
 
 // Also consumed by the factory's pruneGitkeeps (lib/skeleton.ts) — the same set drives both directory creation here and pruning there.
 
-function vivicyConfig(gateCommand: string): string {
+function vivicyConfig(gateCommand: string | null): string {
   return `${JSON.stringify({ gateCommand }, null, 2)}\n`
 }
 
@@ -316,8 +313,8 @@ export function scaffoldProject(input: { targetDir: unknown; projectName: unknow
   const written: string[] = []
   const at = (rel: string) => path.join(target, rel)
 
-  const gateCommand =
-    (mode === "existing_project" ? detectGateCommand(target) : null) ?? DEFAULT_GATE_COMMAND
+  // null is the sentinel: the gate command is established mechanically (extraction, else the stack-setup issue), never by a human editing this file.
+  const gateCommand = mode === "existing_project" ? detectGateCommand(target) : null
 
   for (const dir of SKELETON_DIRS) {
     mkdirSync(at(dir), { recursive: true })

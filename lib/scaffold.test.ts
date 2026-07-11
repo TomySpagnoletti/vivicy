@@ -167,8 +167,8 @@ describe("scaffoldProject — from scratch (lean, language-agnostic)", () => {
     expect(agents).not.toContain("docs/governance/")
 
     const vivicy = JSON.parse(readFileSync(path.join(target, "vivicy.json"), "utf8"))
-    expect(typeof vivicy.gateCommand).toBe("string")
-    expect(vivicy.gateCommand.length).toBeGreaterThan(0)
+    expect("gateCommand" in vivicy).toBe(true)
+    expect(vivicy.gateCommand).toBeNull()
 
     const gitignore = readFileSync(path.join(target, ".gitignore"), "utf8")
     for (const ignored of [

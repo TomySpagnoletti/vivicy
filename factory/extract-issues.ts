@@ -23,11 +23,13 @@ import { FACTORY_DIR, FACTORY_PROMPTS_DIR, resolveTargetRoot } from "./target-ro
 import { pruneGitkeeps } from "../lib/skeleton.ts";
 import { clearSpecCycle, readSpecCycle } from "../lib/spec-cycle.ts";
 import { detectSpecKind, type SpecKind } from "../lib/spec-kind.ts";
+import { isGateCommandEstablished, loadProjectConfig, normalizeGateCommand, setGateCommand } from "./project-config.ts";
 
 const BASELINE_DIR = ".vivicy/baselines";
 const ISSUE_INDEX_REL = ".vivicy/development/issue-index.json";
 const EXTRACTION_STATUS_REL = ".vivicy/development/reports/extraction-status.json";
 const VERDICT_REL = ".vivicy/development/reports/extraction-fidelity-verdict.json";
+const GATE_COMMAND_REL = ".vivicy/development/reports/extraction-gate-command.json";
 const DEFAULT_FREEZE_VERSION = "1.0.0";
 
 export function resolveFreezeVersion(repoRoot: string): string {
@@ -451,6 +453,7 @@ export async function extractIssues(options: ExtractIssuesOptions = {}): Promise
       summary: `extraction green after ${attempt} attempt(s): ${countIssues(repoRoot)} issue(s); deterministic checks pass; map regenerated; verifier faithful:true; map review clean${reopened.length ? `; reopened ${reopened.length} impacted issue(s)` : ""}; corpus committed`,
     };
     record({ phase: "green", attempt, spike_mode: spikeMode, map_mode: mapMode, summary: status.summary });
+    recordExtractedGateCommand(repoRoot);
     const commit = commitCorpus({ repoRoot, baselineId });
     status.committed = commit?.committed ?? false;
     return status;
@@ -735,6 +738,27 @@ function defaultEmitStatus(status: StatusEvent, repoRoot: string): void {
   pruneGitkeeps(repoRoot);
   const mapped = NOTIFY_BY_PHASE[status?.phase];
   if (mapped) notify({ ...mapped, event: `extraction_${status.phase}` });
+}
+
+// If the extractor stated the project's real gate command from the canonical, fill vivicy.json — but only while it is the sentinel; never override an established command, never guess when the extractor stated nothing.
+export function recordExtractedGateCommand(repoRoot: string): boolean {
+  const reportAbs = resolve(repoRoot, GATE_COMMAND_REL);
+  if (!existsSync(reportAbs)) return false;
+  let stated: string | null;
+  try {
+    const parsed = JSON.parse(readFileSync(reportAbs, "utf8")) as { gateCommand?: unknown };
+    stated = normalizeGateCommand(parsed?.gateCommand, GATE_COMMAND_REL);
+  } catch {
+    return false;
+  }
+  if (stated === null) return false;
+  try {
+    if (isGateCommandEstablished(loadProjectConfig(repoRoot))) return false;
+    setGateCommand(repoRoot, stated);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function defaultCommitCorpus({ repoRoot, baselineId }: { repoRoot: string; baselineId: string }): { committed: boolean } {
