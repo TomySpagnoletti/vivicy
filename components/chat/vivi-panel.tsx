@@ -346,7 +346,7 @@ export function ViviPanel({
             aria-expanded={open}
             aria-label={t("openAriaLabel")}
             className={cn(
-              "size-12 overflow-hidden rounded-full p-0 shadow-lg transition-all duration-200",
+              "size-12 overflow-hidden rounded-full p-1.5 shadow-lg transition-all duration-200",
               open
                 ? "pointer-events-none scale-75 opacity-0"
                 : "pointer-events-auto scale-100 opacity-100"
