@@ -20,9 +20,6 @@
     "devLoop": "Development loop (autonomous)"
   },
   "widget": {
-    "title": "Pipeline",
-    "collapseLabel": "Collapse pipeline",
-    "expandLabel": "Expand pipeline",
     "drivenAutomatically": "{label} — driven automatically",
     "retryButtonLabel": "Retry {stageId}",
     "retryPendingTooltip": "Retrying…",

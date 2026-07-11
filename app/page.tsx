@@ -303,7 +303,6 @@ export default function Page() {
                       void loadMap(true)
                     }}
                   />
-                  {/* Intentionally duplicated with the ready-state PipelineWidget below — this one covers the pre-map (first extraction) state. */}
                   <PipelineWidget />
                 </>
               ) : null}

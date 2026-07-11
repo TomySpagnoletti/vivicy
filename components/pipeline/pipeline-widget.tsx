@@ -1,7 +1,7 @@
 "use client"
 
-import { useCallback, useEffect, useRef, useState } from "react"
-import { ChevronDown, ChevronRight, RotateCcw } from "lucide-react"
+import { useCallback, useEffect, useState } from "react"
+import { ChevronRight, RotateCcw } from "lucide-react"
 import { useTranslations } from "next-intl"
 import { toast } from "sonner"
 
@@ -21,7 +21,6 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import {
   deriveStageStates,
@@ -45,7 +44,6 @@ const STAGE_DOT_CLASS: Record<StageState, string> = {
   red: "bg-destructive",
 }
 
-export const PIPELINE_WIDGET_OPEN_KEY = "vivicy:pipeline-widget-open"
 const POLL_INTERVAL_MS = 10_000
 
 interface ExtractStatusResponse {
@@ -61,15 +59,13 @@ interface SkillsReportResponse {
 type RetryableStage = NonNullable<(typeof PIPELINE_STAGES)[number]["retryStage"]>
 
 // Polls /api/control/extract and /api/control/skills — a second read of already-existing state files, never a new source of truth.
-export function PipelineWidget() {
+export function PipelineWidget({ open = false }: { open?: boolean } = {}) {
   const t = useTranslations("pipeline")
   const tErrors = useTranslations("errors")
   const [status, setStatus] = useState<RunStatus | null>(null)
   const [extraction, setExtraction] = useState<ExtractionStatusLike | null>(null)
   const [skills, setSkills] = useState<SkillsReport | null>(null)
-  const [open, setOpen] = useState<boolean | null>(null)
   const [retryPending, setRetryPending] = useState<RetryableStage | null>(null)
-  const userToggledRef = useRef(false)
 
   const fetchReports = useCallback(async () => {
     try {
@@ -85,14 +81,16 @@ export function PipelineWidget() {
   }, [])
 
   useEffect(() => {
+    if (!open) return
     void (async () => {
       await fetchReports()
     })()
     const timer = setInterval(() => void fetchReports(), POLL_INTERVAL_MS)
     return () => clearInterval(timer)
-  }, [fetchReports])
+  }, [open, fetchReports])
 
   useEffect(() => {
+    if (!open) return
     const source = new EventSource("/api/status/stream")
     source.onmessage = (event) => {
       try {
@@ -103,17 +101,7 @@ export function PipelineWidget() {
       } catch {}
     }
     return () => source.close()
-  }, [fetchReports])
-
-  const states = deriveStageStates(status, extraction, skills)
-  const active =
-    Boolean(status?.run_active) ||
-    Object.values(states).some((s) => s === "running" || s === "red")
-
-  useEffect(() => {
-    if (userToggledRef.current) return
-    setOpen(active)
-  }, [active])
+  }, [open, fetchReports])
 
   const runRetry = useCallback(async (stage: RetryableStage) => {
     setRetryPending(stage)
@@ -146,33 +134,18 @@ export function PipelineWidget() {
     }
   }, [t, tErrors])
 
-  const isOpen = open ?? active
+  if (!open) return null
+
+  const states = deriveStageStates(status, extraction, skills)
 
   return (
     <div
       className="pointer-events-auto absolute top-2 left-1/2 z-10 w-fit max-w-[calc(100%-1rem)] -translate-x-1/2"
       data-pipeline-widget
     >
-      <Collapsible
-        open={isOpen}
-        onOpenChange={(next) => {
-          userToggledRef.current = true
-          setOpen(next)
-        }}
-        className="flex flex-col items-center gap-1 rounded-md border border-border bg-card/95 px-2 py-1.5 shadow-sm backdrop-blur-sm"
-      >
-        <CollapsibleTrigger asChild>
-          <button
-            type="button"
-            className="flex w-full items-center justify-center gap-1 text-xs font-medium text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
-            aria-label={isOpen ? t("widget.collapseLabel") : t("widget.expandLabel")}
-          >
-            {isOpen ? <ChevronDown className="size-3.5" /> : <ChevronRight className="size-3.5" />}
-            {t("widget.title")}
-          </button>
-        </CollapsibleTrigger>
+      <div className="flex flex-col items-center gap-1 rounded-md border border-border bg-card/95 px-2 py-1.5 shadow-sm backdrop-blur-sm">
         {/* max-w-full is load-bearing: the shrink-0 chips' ~1100px min-content width would otherwise size this flex item past the card (intrinsic sizing ignores descendants' max-width), and on mobile Chromium that overflow expands the layout viewport (412->768), flipping md: into desktop mode. */}
-        <CollapsibleContent className="max-w-full">
+        <div className="max-w-full">
           <div className="flex items-center gap-0.5 overflow-x-auto py-1">
             {PIPELINE_STAGES.map((stage, index) => {
               const previousSide = PIPELINE_STAGES[index - 1]?.side
@@ -206,8 +179,8 @@ export function PipelineWidget() {
             <span>{t("sides.nonLoop")}</span>
             <span>{t("sides.devLoop")}</span>
           </div>
-        </CollapsibleContent>
-      </Collapsible>
+        </div>
+      </div>
     </div>
   )
 }

@@ -54,27 +54,4 @@ test.describe("Vivicy control plane", () => {
     await expect(sidebar.getByText("ISS-0001", { exact: true })).toBeVisible()
     await expect(nodes.first()).toBeVisible()
   })
-
-  // Guards against unconstrained min-content width enlarging the mobile layout viewport (breaks useIsMobile()).
-  test("an auto-expanded pipeline widget keeps the layout viewport at device width", async ({
-    page,
-  }, testInfo) => {
-    await page.goto("/")
-    await expect(page.locator(".react-flow__node").first()).toBeVisible({ timeout: 30_000 })
-
-    const started = await page.request.post("/api/control/start")
-    expect(started.ok()).toBe(true)
-    try {
-      await expect(
-        page.locator('[data-pipeline-widget] [data-stage="S9"]')
-      ).toBeVisible({ timeout: 15_000 })
-
-      const innerWidth = await page.evaluate(() => window.innerWidth)
-      expect(innerWidth).toBe(page.viewportSize()!.width)
-
-      await ensurePanelOpen(page, testInfo)
-    } finally {
-      await page.request.post("/api/control/stop")
-    }
-  })
 })
