@@ -1,6 +1,6 @@
 # Vivicy — exhaustive test matrix
 
-Reconciled fingerprint: `dbff82b29260d8fde41fe511bba156c3b0070c0c0d4d54a0290db978da932e3f` @ commit `f6003ba5232dd0c48002c0d150015622e2b3279c`
+Reconciled fingerprint: `520a7dc1a0b3087e0195bcd5fc0ce2cf69fc4c021988e4f246fe7a8d90aeb876` @ commit `24cce91e363dda50f7f9852ec7bb07a8eaa9f4bb`
 
 
 This file is the exhaustive, always-current inventory of every test case for Vivicy — every behavior the system has, whether it is covered by a test today or is a known GAP. It is **committed and machine-guarded**: the `Reconciled fingerprint` line above hashes the behavior-bearing source tree and records the HEAD commit at reconciliation time, and `scripts/test-matrix.test.ts` fails the vitest suite when code changes without this file being reconciled and re-stamped (`npm run matrix:stamp`). `git log test/TEST-MATRIX.md` is the audit trail of reconciliations. It is the single source of truth for "what should be tested" across the app (`app/`, `components/`, `lib/`) and the factory (`factory/`). It was assembled from a full per-area audit pass plus three adversarial cross-matrices (user journeys, parallel/merge chaos, process/crash chaos).
@@ -3167,7 +3167,7 @@ Area: extraction-gates. Scope: `factory/extract-issues.ts`, `factory/semantic-ex
 - [map-ui-data-viewer.78] CardContent (button row) is omitted entirely when neither showExtract nor showImport apply (only reachable for no_target, where both are false) — confirmed no CardContent renders for no_target | GAP (test only asserts individual buttons absent, not that CardContent itself is unrendered)
 - [map-ui-data-viewer.79] Icon per reason: FolderSearch for no_target, Workflow for no_map, MapPin for empty_map | GAP (icon identity is not asserted by any test — only text copy is)
 - [map-ui-data-viewer.80] Boundary: extractError with an empty-string message (falsy-ish but object truthy) — still renders the alert row wrapper since extractError itself is truthy | GAP
-- [map-ui-data-viewer.278] reason="empty_canonical": renders ONE bare muted sentence (a `<p>` with `data-empty-reason="empty_canonical"`, `text-muted-foreground`, starting with the left arrow ←) and NO Card/border/icon/title/Extract/Import buttons — the passive twin of the auto-opened Vivi panel for a freshly scaffolded project | covered | map-empty-state.test.tsx
+- [map-ui-data-viewer.278] reason="empty_canonical": renders ONE bare muted centered `<p>` (`data-empty-reason="empty_canonical"`, `text-muted-foreground`, `text-center`) split into TWO deliberate viewport-independent lines by a `<br>` — line 1 starts with the left arrow ← ("Talk to Vivi to get grilled"), line 2 is the capitalized consequence ("Your answers turn into the spec.", no em-dash) — and NO Card/border/icon/title/Extract/Import buttons — the passive twin of the auto-opened Vivi panel for a freshly scaffolded project | covered | map-empty-state.test.tsx
 
 ### components/map/status-dot.tsx
 
