@@ -8,7 +8,7 @@
   "launcherBadgeOverflow": "9+",
   "askViviTemplate": "Explain this notification and what I should do: «{message}»",
   "pending": "Vivi is thinking…",
-  "inputPlaceholder": "Message Vivi…  (Enter to send, Shift+Enter for a new line)",
+  "inputPlaceholder": "Message Vivi…",
   "inputAriaLabel": "Message Vivi",
   "sendAriaLabel": "Send message",
   "actionsTitle": "Actions",
