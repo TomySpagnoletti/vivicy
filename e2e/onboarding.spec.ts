@@ -117,10 +117,28 @@ test.describe("Vivicy onboarding (panel-hosted)", () => {
       timeout: 15_000,
     })
 
+    const panel = page.getByRole("complementary")
+    await expect(panel.getByText("Already wrote some of this down?")).toBeVisible({ timeout: 15_000 })
+    const importButton = panel.getByRole("button", { name: "I have docs to import" })
+    await expect(importButton).toBeEnabled()
+    const fileChooserPromise = page.waitForEvent("filechooser")
+    await importButton.click()
+    const fileChooser = await fileChooserPromise
+    await fileChooser.setFiles({
+      name: "brief.md",
+      mimeType: "text/markdown",
+      buffer: Buffer.from("The quick brown fox jumps over the lazy dog by the river every morning. ".repeat(8)),
+    })
+    await expect(panel.getByText(/document.*imported/i)).toBeVisible({ timeout: 15_000 })
+    await expect(importButton).toHaveAttribute("aria-disabled", "true")
+    await expect(panel.getByText(/in the kitchen/i)).toBeVisible()
+
     await page.reload()
     await expect(page.getByText(/what do you want to build/i)).toBeVisible({
       timeout: 30_000,
     })
+    await expect(page.getByText(/document.*imported/i)).toBeVisible({ timeout: 15_000 })
+    await expect(page.getByText(/in the kitchen/i)).toBeVisible()
 
     await expect(page.locator(".react-flow__node")).toHaveCount(0)
     await expect(page.getByText(/Request failed/i)).toHaveCount(0)

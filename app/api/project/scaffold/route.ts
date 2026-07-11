@@ -1,5 +1,5 @@
 import { ScaffoldError, scaffoldProject } from "@/lib/scaffold"
-import { seedViviWelcome } from "@/lib/vivi"
+import { appendCardTurn, seedViviWelcome, WELCOME_IMPORT_CARD } from "@/lib/vivi"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -15,7 +15,8 @@ export async function POST(request: Request) {
       projectName: body?.projectName,
     })
     try {
-      seedViviWelcome()
+      const sessionId = seedViviWelcome()
+      appendCardTurn(WELCOME_IMPORT_CARD, sessionId)
     } catch {}
     return Response.json({
       ok: true,
