@@ -8,9 +8,11 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import { existsSync, statSync } from "node:fs"
 
 import {
+  browseParent,
   createDirectory,
   FsBrowseError,
   listDirectories,
+  pathCrumbs,
   resolveBrowsePath,
   validateFolderName,
 } from "@/lib/fs-browser"
@@ -104,6 +106,61 @@ describe("listDirectories", () => {
     const listing = listDirectories("/")
     expect(listing.parent).toBe(null)
     expect(listing.path).toBe("/")
+  })
+
+  it("returns breadcrumb segments from the filesystem root down to the listed dir", () => {
+    const listing = listDirectories(path.join(root, "alpha"))
+    expect(listing.crumbs[0]).toEqual({ label: "/", path: "/" })
+    expect(listing.crumbs.at(-1)).toEqual({ label: "alpha", path: path.join(root, "alpha") })
+  })
+})
+
+describe("pathCrumbs (platform-correct segments, no client-side split)", () => {
+  it("builds POSIX crumbs from the root down", () => {
+    expect(pathCrumbs("/Users/tomy", path.posix)).toEqual([
+      { label: "/", path: "/" },
+      { label: "Users", path: "/Users" },
+      { label: "tomy", path: "/Users/tomy" },
+    ])
+  })
+
+  it("returns a single crumb at the POSIX root", () => {
+    expect(pathCrumbs("/", path.posix)).toEqual([{ label: "/", path: "/" }])
+  })
+
+  it("builds Windows crumbs from the drive root with backslash separators", () => {
+    expect(pathCrumbs("C:\\Users\\tomy", path.win32)).toEqual([
+      { label: "C:\\", path: "C:\\" },
+      { label: "Users", path: "C:\\Users" },
+      { label: "tomy", path: "C:\\Users\\tomy" },
+    ])
+  })
+
+  it("returns a single crumb at a Windows drive root", () => {
+    expect(pathCrumbs("C:\\", path.win32)).toEqual([{ label: "C:\\", path: "C:\\" }])
+  })
+
+  it("keeps the UNC share as the root crumb", () => {
+    expect(pathCrumbs("\\\\srv\\share\\proj", path.win32)).toEqual([
+      { label: "\\\\srv\\share\\", path: "\\\\srv\\share\\" },
+      { label: "proj", path: "\\\\srv\\share\\proj" },
+    ])
+  })
+})
+
+describe("browseParent (up-navigation stops at every OS root)", () => {
+  it("returns the POSIX parent and null at the root", () => {
+    expect(browseParent("/Users/tomy", path.posix)).toBe("/Users")
+    expect(browseParent("/", path.posix)).toBe(null)
+  })
+
+  it("returns the Windows parent and null at the drive root", () => {
+    expect(browseParent("C:\\Users", path.win32)).toBe("C:\\")
+    expect(browseParent("C:\\", path.win32)).toBe(null)
+  })
+
+  it("returns null at a UNC share root (cannot climb above the share)", () => {
+    expect(browseParent("\\\\srv\\share", path.win32)).toBe(null)
   })
 })
 

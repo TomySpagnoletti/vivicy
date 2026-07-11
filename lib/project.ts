@@ -25,10 +25,18 @@ export function readCurrentProjectRoot(): string | null {
 export class ProjectError extends Error {
   constructor(
     message: string,
-    readonly code: "not_absolute" | "not_found" | "not_a_directory"
+    readonly code: "not_absolute" | "not_found" | "not_a_directory" | "not_governed"
   ) {
     super(message)
     this.name = "ProjectError"
+  }
+}
+
+function isGovernedRoot(root: string): boolean {
+  try {
+    return statSync(path.join(root, ".vivicy")).isDirectory()
+  } catch {
+    return false
   }
 }
 
@@ -61,8 +69,17 @@ export function describeProject(candidate: string): CurrentProject {
   return { root, name: path.basename(root), hasCanonicalSpec }
 }
 
-export function setCurrentProject(candidate: string): CurrentProject {
+export function setCurrentProject(
+  candidate: string,
+  opts: { requireGoverned?: boolean } = {}
+): CurrentProject {
   const described = describeProject(candidate)
+  if (opts.requireGoverned && !isGovernedRoot(described.root)) {
+    throw new ProjectError(
+      `this folder is not governed by Vivicy: no .vivicy directory in ${described.root}`,
+      "not_governed"
+    )
+  }
   mkdirSync(getRuntimeDir(), { recursive: true })
   writeFileSync(
     getCurrentProjectPath(),

@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useId, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 import { FolderOpen } from "lucide-react"
 import { useTranslations } from "next-intl"
 import { toast } from "sonner"
@@ -8,36 +8,28 @@ import { toast } from "sonner"
 import { errorText } from "@/lib/i18n-errors"
 import type { CurrentProject, DirListing } from "@/lib/project-types"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
 import { FolderBrowser } from "@/components/project/folder-browser"
 
 export function OpenProjectForm({
   active,
   disabled = false,
+  allowCreate = false,
+  requireGoverned = true,
   onChanged,
   onSelectingChange,
 }: {
   active: boolean
   disabled?: boolean
+  allowCreate?: boolean
+  requireGoverned?: boolean
   onChanged: (project: CurrentProject) => void
   onSelectingChange?: (selecting: boolean) => void
 }) {
   const t = useTranslations("project.openProjectDialog")
   const tErrors = useTranslations("errors")
-  const manualPathId = useId()
   const [listing, setListing] = useState<DirListing | null>(null)
   const [browserBusy, setBrowserBusy] = useState(false)
   const [selecting, setSelecting] = useState(false)
-  const [manualPath, setManualPath] = useState("")
-
-  // The setState lives inside an async closure, not the effect body, so it doesn't read as a cascading-render (setState-in-effect) pattern.
-  useEffect(() => {
-    if (!active) return
-    void (async () => {
-      setManualPath("")
-    })()
-  }, [active])
 
   useEffect(() => {
     onSelectingChange?.(selecting)
@@ -51,7 +43,7 @@ export function OpenProjectForm({
         const res = await fetch("/api/project", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ root }),
+          body: JSON.stringify({ root, requireGoverned }),
         })
         const body = (await res.json().catch(() => ({}))) as {
           ok?: boolean
@@ -80,7 +72,7 @@ export function OpenProjectForm({
         setSelecting(false)
       }
     },
-    [onChanged, t, tErrors]
+    [onChanged, requireGoverned, t, tErrors]
   )
 
   const busy = disabled || browserBusy || selecting
@@ -89,61 +81,22 @@ export function OpenProjectForm({
     <div className="flex flex-col gap-3">
       <FolderBrowser
         open={active}
-        allowCreate
+        allowCreate={allowCreate}
         disabled={disabled || selecting}
         onListingChange={setListing}
         onBusyChange={setBrowserBusy}
       />
 
-      {/* min-w-0 + truncate on the path span (with shrink-0 on the icon/label) keeps a long absolute path from pushing the button past the container edge. */}
       <Button
-        variant="outline"
-        size="sm"
+        variant="default"
         disabled={busy || !listing}
         onClick={() => listing && void select(listing.path)}
         title={listing ? listing.path : undefined}
-        className="w-full min-w-0 justify-start"
+        className="w-full"
       >
         <FolderOpen />
-        <span className="shrink-0">
-          {selecting ? t("selectFolder.selecting") : t("selectFolder.idle")}
-        </span>
-        {listing ? (
-          <span className="min-w-0 flex-1 truncate text-left text-muted-foreground">
-            · {listing.path}
-          </span>
-        ) : null}
+        {selecting ? t("selectFolder.selecting") : t("selectFolder.idle")}
       </Button>
-
-      <form
-        className="flex flex-col gap-1.5"
-        onSubmit={(event) => {
-          event.preventDefault()
-          const path = manualPath.trim()
-          if (path.length > 0) void select(path)
-        }}
-      >
-        <Label htmlFor={manualPathId}>{t("manualPath.label")}</Label>
-        <div className="flex items-center gap-2">
-          <Input
-            id={manualPathId}
-            value={manualPath}
-            spellCheck={false}
-            autoComplete="off"
-            placeholder={t("manualPath.placeholder")}
-            disabled={busy}
-            onChange={(event) => setManualPath(event.target.value)}
-          />
-          <Button
-            type="submit"
-            variant="secondary"
-            size="sm"
-            disabled={busy || manualPath.trim().length === 0}
-          >
-            {t("manualPath.submit")}
-          </Button>
-        </div>
-      </form>
     </div>
   )
 }

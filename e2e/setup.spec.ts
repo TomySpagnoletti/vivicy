@@ -28,10 +28,11 @@ test.describe("Vivicy setup surface (project picker + agent health)", () => {
       await row.click()
     }
 
-    // macOS realpath's /tmp to /private/tmp, so assert the stable basename, not the full path.
-    const selectBtn = dialog.getByRole("button", { name: /Select this folder/ })
-    await expect(selectBtn).toContainText(TARGET_NAME)
-    await selectBtn.click()
+    // macOS realpath's /tmp to /private/tmp; the active breadcrumb (not the button) carries the folder, so assert the stable basename there.
+    await expect(
+      dialog.getByLabel("Current path").getByRole("button", { name: TARGET_NAME, exact: true })
+    ).toBeVisible({ timeout: 15_000 })
+    await dialog.getByRole("button", { name: /Select this folder/ }).click()
 
     await expect(dialog).toBeHidden({ timeout: 15_000 })
     await expect(
@@ -39,23 +40,6 @@ test.describe("Vivicy setup surface (project picker + agent health)", () => {
     ).toBeVisible({ timeout: 15_000 })
 
     await expect(page.locator(".react-flow__node").first()).toBeVisible({ timeout: 30_000 })
-  })
-
-  test("the manual absolute-path fallback selects a project", async ({ page }) => {
-    await page.goto("/")
-    await expect(page.locator(".react-flow__node").first()).toBeVisible({ timeout: 30_000 })
-
-    await page.getByRole("button", { name: "Change project" }).click()
-    const dialog = page.getByRole("dialog")
-    await expect(dialog.getByText("Open project")).toBeVisible()
-
-    await dialog.getByLabel("Or paste an absolute path").fill(DEMO_TARGET_ROOT)
-    await dialog.getByRole("button", { name: "Use", exact: true }).click()
-
-    await expect(dialog).toBeHidden({ timeout: 15_000 })
-    await expect(
-      page.getByRole("button", { name: "Change project" }).getByText(TARGET_NAME)
-    ).toBeVisible({ timeout: 15_000 })
   })
 
   test("the agent-CLI health chip renders with a definite state", async ({ page }) => {

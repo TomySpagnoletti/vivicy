@@ -155,7 +155,17 @@ function stubFetch(opts: {
       return jsonResponse(scaffold.body, scaffold.status)
     }
     if (url.includes("/api/fs/list")) {
-      return jsonResponse({ ok: true, path: "/home/dev", parent: "/home", entries: [] })
+      return jsonResponse({
+        ok: true,
+        path: "/home/dev",
+        parent: "/home",
+        crumbs: [
+          { label: "/", path: "/" },
+          { label: "home", path: "/home" },
+          { label: "dev", path: "/home/dev" },
+        ],
+        entries: [],
+      })
     }
     if (url.startsWith("/api/vivi/sessions/")) {
       const id = url.slice("/api/vivi/sessions/".length)
@@ -551,11 +561,11 @@ describe("ViviPanel — onboarding view (no target project)", () => {
       await screen.findByRole("button", { name: /Start a new project/ })
     )
 
-    // Inputs stay disabled until the folder listing settles; typing into a disabled input is a silent no-op, so wait for enabled first.
-    const pathInput = screen.getByLabelText(/absolute target path/i)
-    await waitFor(() => expect(pathInput).toBeEnabled(), { timeout: 5_000 })
+    // Inputs stay disabled until the folder listing settles; typing into a disabled input is a silent no-op, so wait for enabled first. The target is the browsed location (mocked "/home/dev") joined with the new-folder name — there is no absolute-path field.
+    const folderInput = screen.getByLabelText("New folder name")
+    await waitFor(() => expect(folderInput).toBeEnabled(), { timeout: 5_000 })
     await user.type(screen.getByLabelText("Project name"), "Acme App")
-    await user.type(pathInput, "/tmp/acme-app")
+    await user.type(folderInput, "acme-app")
     const submit = screen.getByRole("button", { name: /Scaffold project/ })
     await waitFor(() => expect(submit).toBeEnabled())
     await user.click(submit)
@@ -568,7 +578,7 @@ describe("ViviPanel — onboarding view (no target project)", () => {
       )
       expect(post).toBeDefined()
       expect(JSON.parse((post?.[1] as RequestInit).body as string)).toEqual({
-        targetDir: "/tmp/acme-app",
+        targetDir: "/home/dev/acme-app",
         projectName: "Acme App",
       })
     })

@@ -24,15 +24,10 @@
   },
   "openProjectDialog": {
     "title": "Open project",
-    "description": "Choose the local repository {brandName} should develop. Navigate to a folder and select it, or paste an absolute path.",
+    "description": "Choose the local repository {brandName} should develop. Navigate to the folder and select it.",
     "selectFolder": {
       "selecting": "Selecting…",
       "idle": "Select this folder"
-    },
-    "manualPath": {
-      "label": "Or paste an absolute path",
-      "placeholder": "/Users/you/code/your-project",
-      "submit": "Use"
     },
     "cancel": "Cancel",
     "toast": {
@@ -49,8 +44,6 @@
     "locationLabel": "Location",
     "folderLabel": "New folder name",
     "folderPlaceholder": "acme-app",
-    "absoluteLabel": "Or an absolute target path",
-    "absolutePlaceholder": "/Users/you/code/acme-app",
     "targetPreview": "Scaffolds into <target>{targetDir}</target>",
     "submit": {
       "idle": "Scaffold project",

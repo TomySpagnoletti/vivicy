@@ -81,8 +81,22 @@ describe("POST /api/project", () => {
     expect(res.status).toBe(200)
     const body = await res.json()
 
-    expect(setCurrentProject).toHaveBeenCalledWith("/abs/proj/../proj")
+    expect(setCurrentProject).toHaveBeenCalledWith("/abs/proj/../proj", { requireGoverned: false })
     expect(body).toEqual({ ok: true, project: PROJECT })
+  })
+
+  it("forwards requireGoverned and maps a not_governed rejection to 400", async () => {
+    setCurrentProject.mockImplementation(() => {
+      throw new ProjectError("no .vivicy directory in /bare", "not_governed")
+    })
+
+    const res = await POST(postJson({ root: "/bare", requireGoverned: true }))
+    expect(res.status).toBe(400)
+    const body = await res.json()
+
+    expect(setCurrentProject).toHaveBeenCalledWith("/bare", { requireGoverned: true })
+    expect(body.ok).toBe(false)
+    expect(body.code).toBe("not_governed")
   })
 
   it("maps a ProjectError to 400 with its typed code", async () => {

@@ -36,7 +36,8 @@
   "project": {
     "not_absolute": "project path must be absolute",
     "not_found": "path does not exist",
-    "not_a_directory": "path is not a directory"
+    "not_a_directory": "path is not a directory",
+    "not_governed": "This folder doesn't seem to be governed by Vivicy — it has no .vivicy directory."
   },
   "layoutSave": {
     "read_only": "the architecture map is read-only",

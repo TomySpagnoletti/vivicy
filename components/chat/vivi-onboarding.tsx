@@ -80,9 +80,11 @@ export function ViviOnboarding({
       {view === "import" && importTarget === null ? (
         <>
           <p className="text-xs text-muted-foreground">{t("importPickTargetHint")}</p>
-          {/* Fires onAcquired immediately on persistence (before staging), so closing mid-import never loses the acquired target. */}
+          {/* Fires onAcquired immediately on persistence (before staging), so closing mid-import never loses the acquired target. Import targets are ungoverned by design — the docs are what will govern them — so no .vivicy gate here, and a new destination folder is allowed. */}
           <OpenProjectForm
             active
+            allowCreate
+            requireGoverned={false}
             onChanged={(project) => {
               setImportTarget(project)
               onAcquired(project)
@@ -138,19 +140,15 @@ function ScaffoldForm({ onScaffolded }: { onScaffolded: (project: CurrentProject
   const [scaffolding, setScaffolding] = useState(false)
   const [projectName, setProjectName] = useState("")
   const [folderName, setFolderName] = useState("")
-  const [absoluteOverride, setAbsoluteOverride] = useState("")
 
   useEffect(() => {
     void (async () => {
       setProjectName("")
       setFolderName("")
-      setAbsoluteOverride("")
     })()
   }, [])
 
   const targetDir = (() => {
-    const override = absoluteOverride.trim()
-    if (override.length > 0) return override
     const folder = folderName.trim()
     if (!listing || folder.length === 0) return ""
     return `${listing.path.replace(/\/$/, "")}/${folder}`
@@ -235,21 +233,8 @@ function ScaffoldForm({ onScaffolded }: { onScaffolded: (project: CurrentProject
           spellCheck={false}
           autoComplete="off"
           placeholder={t("folderPlaceholder")}
-          disabled={busy || absoluteOverride.trim().length > 0}
-          onChange={(event) => setFolderName(event.target.value)}
-        />
-      </div>
-
-      <div className="flex flex-col gap-1.5">
-        <Label htmlFor="scaffold-abs">{t("absoluteLabel")}</Label>
-        <Input
-          id="scaffold-abs"
-          value={absoluteOverride}
-          spellCheck={false}
-          autoComplete="off"
-          placeholder={t("absolutePlaceholder")}
           disabled={busy}
-          onChange={(event) => setAbsoluteOverride(event.target.value)}
+          onChange={(event) => setFolderName(event.target.value)}
         />
       </div>
 
@@ -262,7 +247,7 @@ function ScaffoldForm({ onScaffolded }: { onScaffolded: (project: CurrentProject
         </p>
       ) : null}
 
-      <Button type="submit" size="sm" disabled={!canScaffold} className="self-end">
+      <Button type="submit" variant="default" disabled={!canScaffold} className="w-full">
         <FolderPlus />
         {scaffolding ? t("submit.scaffolding") : t("submit.idle")}
       </Button>

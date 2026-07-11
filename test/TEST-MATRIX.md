@@ -1,6 +1,6 @@
 # Vivicy — exhaustive test matrix
 
-Reconciled fingerprint: `fec0479a8ffc9e9212fbfb0ed0635733aa4828eea48a82b3599d7e7d7d743b65` @ commit `4c5628197f44f6bcc3c2a6163d01cdf6e3dd7a9d`
+Reconciled fingerprint: `71eb1f7599f0fd639577c3bf750caf0a58b7fee2d5e6dadd14b18b9f92334492` @ commit `0bad5d67ae753f681f95598d391e9aa19fe988e5`
 
 
 This file is the exhaustive, always-current inventory of every test case for Vivicy — every behavior the system has, whether it is covered by a test today or is a known GAP. It is **committed and machine-guarded**: the `Reconciled fingerprint` line above hashes the behavior-bearing source tree and records the HEAD commit at reconciliation time, and `scripts/test-matrix.test.ts` fails the vitest suite when code changes without this file being reconciled and re-stamped (`npm run matrix:stamp`). `git log test/TEST-MATRIX.md` is the audit trail of reconciliations. It is the single source of truth for "what should be tested" across the app (`app/`, `components/`, `lib/`) and the factory (`factory/`). It was assembled from a full per-area audit pass plus three adversarial cross-matrices (user journeys, parallel/merge chaos, process/crash chaos).
@@ -21,16 +21,16 @@ This file is the exhaustive, always-current inventory of every test case for Viv
 | cli-supervisor-process-infra | 402 | 243 | 159 |
 | control-plane-api-routes | 474 | 233 | 241 |
 | dev-loop-worktrees-merge | 285 | 140 | 145 |
-| e2e-test-infra-rehearsal | 313 | 108 | 205 |
+| e2e-test-infra-rehearsal | 308 | 107 | 201 |
 | extraction-gates | 293 | 159 | 134 |
 | map-ui-data-viewer | 287 | 187 | 100 |
-| onboarding-project-scaffold | 314 | 219 | 95 |
+| onboarding-project-scaffold | 322 | 217 | 105 |
 | pipeline-notifications-agents-ui | 196 | 128 | 68 |
 | upload-vivi-chat | 398 | 244 | 154 |
 | cross-journeys | 87 | 70 | 17 |
 | cross-chaos-parallel-merge | 47 | 33 | 14 |
 | cross-chaos-process | 46 | 43 | 3 |
-| **TOTAL** | **3770** | **2278** | **1492** |
+| **TOTAL** | **3773** | **2275** | **1498** |
 
 ---
 
@@ -2443,14 +2443,14 @@ Scope: the Playwright e2e specs and their shared infra (config, global-setup, he
 - [e2e-test-infra-rehearsal.47] After the user opens the panel, its three acquisition choices render: "Open an existing project", "Start a new project", "Import documents" — plus the "Start a project" welcome header; NO chat composer exists without a target | heading + all 3 buttons visible, `Message Vivi` count 0 | e2e-ui | e2e/onboarding.spec.ts
 - [e2e-test-infra-rehearsal.48] Cross-browser capture of the pristine panel onboarding (first test in the serial file, so it precedes the scaffold mutation) | screenshot written to `/tmp/vivicy-xbrowser/06-onboarding--<project>.png` | e2e-ui | e2e/onboarding.spec.ts
 - [e2e-test-infra-rehearsal.49] The scaffold choice expands the IN-PANEL scaffold form (no dialog) | "Project name" field visible after the click | e2e-ui | e2e/onboarding.spec.ts ("the scaffold choice creates a new project and lands on the no-map state")
-- [e2e-test-infra-rehearsal.50] Filling "Project name" and an absolute "target path" then clicking "Scaffold project" | `POST /api/project/scaffold` succeeds; success toast "Project scaffolded" visible within 30s | e2e-integration | e2e/onboarding.spec.ts
+- [e2e-test-infra-rehearsal.50] Filling "Project name", navigating the folder browser to the scaffold parent, and naming the new folder ("New folder name"), then clicking "Scaffold project" | `POST /api/project/scaffold` succeeds; success toast "Project scaffolded" visible within 30s | e2e-integration | e2e/onboarding.spec.ts
 - [e2e-test-infra-rehearsal.51] Per-browser isolation: each browser project scaffolds into its OWN parent dir (`onboardScaffoldParent(browserKey)`), so parallel browser projects never race the same scaffold target | scaffold succeeds independently per browser | e2e-process | e2e/onboarding.spec.ts + playwright.config.ts
 - [e2e-test-infra-rehearsal.52] After scaffolding, the app re-fetches map + project and lands on the fresh project's no-map onboarding state (`.vivicy/canonical/` exists, no generated map yet) | `[data-empty-reason="no_map"]` card visible; "No issues extracted yet" visible | e2e-ui | e2e/onboarding.spec.ts
 - [e2e-test-infra-rehearsal.53] Current-project affordance shows the scaffolded project's basename | "Change project" button contains text "e2e-scaffolded" within 15s | e2e-ui | e2e/onboarding.spec.ts
 - [e2e-test-infra-rehearsal.54] No graph, no raw "Request failed" text, and no page-level runtime throw after scaffolding | all three assertions hold | e2e-ui | e2e/onboarding.spec.ts
 - [e2e-test-infra-rehearsal.55] The open-an-existing-project choice (in-panel `OpenProjectForm` from the `no_target` state) | GAP: never driven from the panel onboarding view in e2e (only the change-project picker is covered elsewhere, from an ALREADY-resolved project) | e2e-ui | GAP
 - [e2e-test-infra-rehearsal.56] The import-documents choice end-to-end (acquire target in-panel, then stage → verify → apply) | GAP: button presence only; no e2e drives the panel import flow | e2e-process | GAP
-- [e2e-test-infra-rehearsal.58] Scaffold validation errors: empty project name, relative (non-absolute) path, path that already exists and is non-empty, path with no write permission | GAP: no negative-path test for the panel scaffold form's own field validation | e2e-ui | GAP
+- [e2e-test-infra-rehearsal.58] Scaffold validation errors: empty project name, a new-folder name colliding with an existing non-empty directory, a target with no write permission | GAP: no negative-path test for the panel scaffold form's own field validation | e2e-ui | GAP
 - [e2e-test-infra-rehearsal.59] Backing out of an expanded choice (the Back affordance) without acquiring | GAP: not exercised in e2e | e2e-ui | GAP
 - [e2e-test-infra-rehearsal.60] Re-running the first (choices) test after a prior scaffold in the SAME serial run (retry semantics) | covered implicitly by the `beforeEach` reset rationale in the file's own comment, but no assertion actually forces a retry to prove it | e2e-process | GAP (partial — the `beforeEach` exists specifically for this, un-exercised by a deliberate forced-retry test)
 - [e2e-test-infra-rehearsal.292] After the scaffold acquisition the panel flips from the onboarding view to CHAT mode: the composer renders, the choice buttons are gone | `Message Vivi` visible within 15s; "Start a new project" count 0 | e2e-ui | e2e/onboarding.spec.ts
@@ -2462,17 +2462,14 @@ Scope: the Playwright e2e specs and their shared infra (config, global-setup, he
 - [e2e-test-infra-rehearsal.62] `expectNoPageOverflow` helper: `document.documentElement.scrollWidth` and `body.scrollWidth` never exceed `innerWidth + 2px` tolerance | assertion helper used at every step below | unit-of-helper (inline) | e2e/overflow.spec.ts
 - [e2e-test-infra-rehearsal.63] `expectContainedInParent` helper: every element matching a selector has its right edge within its offsetParent's right edge (+2px tolerance) | offenders array is empty | unit-of-helper (inline) | e2e/overflow.spec.ts
 - [e2e-test-infra-rehearsal.64] At 1320x820 on the demo target: initial map render has no page-level horizontal overflow | assertion passes | e2e-ui | e2e/overflow.spec.ts
-- [e2e-test-infra-rehearsal.65] Open-project modal (default state): no page overflow; Cancel, Use, and "Select this folder" all visible; dialog box itself fits within the 1320px viewport (x + width <= 1320+tolerance) | all assertions pass | e2e-ui | e2e/overflow.spec.ts
-- [e2e-test-infra-rehearsal.66] Typing the very long target path into "Or paste an absolute path" | no page overflow; Cancel/Use still visible | e2e-ui | e2e/overflow.spec.ts
-- [e2e-test-infra-rehearsal.67] Opening the inline "New folder" form inside the picker | placeholder + Create button visible; no page overflow | e2e-ui | e2e/overflow.spec.ts
-- [e2e-test-infra-rehearsal.68] Cancelling the new-folder form via "Cancel new folder" | form closes | e2e-ui | e2e/overflow.spec.ts
-- [e2e-test-infra-rehearsal.69] Selecting the long target via the manual-path "Use" fallback | dialog hides within 15s; map reloads for the long target within 30s with no page overflow | e2e-integration | e2e/overflow.spec.ts
+- [e2e-test-infra-rehearsal.65] Open-project modal (default state, browser loaded): no page overflow; Cancel and "Select this folder" visible (no manual-path "Use" button — that input is gone); dialog box itself fits within the 1320px viewport (x + width <= 1320+tolerance) | all assertions pass | e2e-ui | e2e/overflow.spec.ts
+- [e2e-test-infra-rehearsal.69] Switching to the long-rooted (governed) project via `POST /api/project {root, requireGoverned:true}` then reloading (the absolute-path input is gone) | map reloads for the long target within 30s with no page overflow | e2e-integration | e2e/overflow.spec.ts
 - [e2e-test-infra-rehearsal.70] Hovering "Change project" with the long path selected shows/doesn't-show a tooltip, but in either case no overflow is introduced, and the tooltip content itself (if rendered) stays contained in its parent | both assertions pass | e2e-ui | e2e/overflow.spec.ts
 - [e2e-test-infra-rehearsal.71] Details panel with long source refs/paths (after clicking a node then "Details") | "Source refs" visible within 15s; no page overflow | e2e-ui | e2e/overflow.spec.ts
 - [e2e-test-infra-rehearsal.72] Tasks panel with long-path issue cards | "ISS-0001" exact text visible within 15s; no page overflow | e2e-ui | e2e/overflow.spec.ts
 - [e2e-test-infra-rehearsal.73] Transcript modal opened via a retry loop (`toPass` up to 30s) that force-clicks past SSE-driven re-renders that can detach the button mid-click | dialog visible within 3s per attempt; no page overflow; dialog box fits within 1320px width | e2e-ui | e2e/overflow.spec.ts
 - [e2e-test-infra-rehearsal.74] If NO transcript button exists on the demo issues (conditional `if (await transcriptButton.count())`), the transcript-modal overflow check is silently skipped | GAP: a demo fixture regression that drops all transcript refs would silently skip this coverage rather than fail loudly | e2e-ui | GAP
-- [e2e-test-infra-rehearsal.75] Narrow viewport (760x720): map has no overflow, then Open-project modal with the long path typed in still has no overflow and keeps Cancel/Use/"Select this folder" visible | all assertions pass | e2e-ui | e2e/overflow.spec.ts
+- [e2e-test-infra-rehearsal.75] Narrow viewport (760x720): map has no overflow, then the Open-project modal (browser loaded) has no overflow and keeps Cancel and "Select this folder" visible (no manual-path "Use") | all assertions pass | e2e-ui | e2e/overflow.spec.ts
 - [e2e-test-infra-rehearsal.76] Overflow at true mobile widths (< 400px, e.g. the Pixel 7 project's 412px) | GAP: overflow.spec.ts only tests 1320px and 760px fixed sizes — it is NOT excluded from the mobile project by playwright.config's DESKTOP_ONLY regex, so it DOES run on chromium-mobile at the device's native (412x915) viewport, but no test explicitly sets/asserts THAT narrowest width scenario — the two explicit sizes (1320, 760) both override the mobile device's real viewport | e2e-ui | GAP
 - [e2e-test-infra-rehearsal.77] Overflow inside the Agent CLIs modal / Agent Settings dialog with long strings (long model names, long CLI version strings) | GAP: overflow.spec.ts never opens these two modals; only cli-modal-screenshot.spec.ts and settings.spec.ts touch them, and neither asserts overflow | e2e-ui | GAP
 
@@ -2510,19 +2507,17 @@ Scope: the Playwright e2e specs and their shared infra (config, global-setup, he
 
 - [e2e-test-infra-rehearsal.105] Opening the picker, jumping to filesystem root via breadcrumb, then walking DOWN into the demo target one folder-row click at a time (exercises the server-side directory browser at every level) | each folder row visible within 15s and clickable | e2e-integration | e2e/setup.spec.ts
 - [e2e-test-infra-rehearsal.106] Breadcrumb only populates once the first `/api/fs/list` call resolves (can be slow for a large home dir) | "Current path" visible within 15s (not the 5s default) | e2e-ui | e2e/setup.spec.ts
-- [e2e-test-infra-rehearsal.107] "Select this folder" button reflects the now-open demo target's basename before commit | button text contains target basename | e2e-ui | e2e/setup.spec.ts
+- [e2e-test-infra-rehearsal.107] The active breadcrumb reflects the navigated-to demo target's basename before commit (the "Select this folder" button no longer echoes the path) | the "Current path" crumb for the target basename is visible | e2e-ui | e2e/setup.spec.ts
 - [e2e-test-infra-rehearsal.108] Selecting persists the choice; dialog closes; "Change project" affordance updates to the new project name; map reloads | dialog hidden within 15s; button text updates within 15s; nodes visible within 30s | e2e-integration | e2e/setup.spec.ts
 - [e2e-test-infra-rehearsal.109] macOS path canonicalization (`/tmp` -> `/private/tmp`) is worked around by asserting only the stable basename, never the pre-realpath full path | assertion is basename-only | e2e-ui / platform-quirk | e2e/setup.spec.ts
-- [e2e-test-infra-rehearsal.110] Manual absolute-path fallback: pasting the demo root into "Or paste an absolute path" then clicking "Use" | dialog hides; project name updates within 15s | e2e-integration | e2e/setup.spec.ts
 - [e2e-test-infra-rehearsal.111] Agent-CLI health chip resolves to a definite `ok`/`warn` state (never stuck loading) | attribute matches within 15s | e2e-ui | e2e/setup.spec.ts
 - [e2e-test-infra-rehearsal.112] Opening the dialog renders exactly 2 `fieldset` elements (one per agent) with at least one definite Installed/Not-found badge | count is 2; badge visible within 15s | e2e-ui | e2e/setup.spec.ts
 - [e2e-test-infra-rehearsal.113] Version-line normalization: redundant product name is stripped — neither "(Claude Code)" nor "codex-cli " prefix leaks into the displayed string | both text counts are 0 | e2e-ui | e2e/setup.spec.ts
 - [e2e-test-infra-rehearsal.114] Each installed CLI (soft-checked per label, skipped gracefully if genuinely absent on the dev machine) offers a per-agent "Update {label}" button | button visible when installed | e2e-ui | e2e/setup.spec.ts
-- [e2e-test-infra-rehearsal.115] Selecting a folder that does NOT resolve to a valid target (no `.vivicy/`, or a file rather than a directory, or a path with no read permission) via the picker | GAP: setup.spec.ts always selects the known-good demo target; no negative/error picker path is exercised | e2e-ui | GAP
-- [e2e-test-infra-rehearsal.116] Typing a non-existent or malformed manual absolute path into "Or paste an absolute path" then clicking "Use" | GAP: only the valid-path manual-fallback case is tested | e2e-ui | GAP
+- [e2e-test-infra-rehearsal.115] Selecting a folder with no `.vivicy/` in the governed open/change-project picker is now REJECTED (code `not_governed`, error toast, no switch) — the reject/persist contract is unit-covered (onboarding-project-scaffold.336/.338); GAP: no e2e drives this negative picker path (setup.spec.ts always selects the known-good demo target) | e2e-ui | GAP
 - [e2e-test-infra-rehearsal.117] Clicking "Update {label}" actually triggers the CLI self-update flow | GAP: button presence only; the update action itself (spawn, success/failure feedback) is never driven | e2e-process | GAP
 - [e2e-test-infra-rehearsal.118] Directory listing of a folder with 0 entries (empty dir) or a very large number of entries (thousands) in the picker's folder browser | GAP: not exercised — only the demo target's fixed folder chain is walked | e2e-ui, boundary=0/huge | GAP
-- [e2e-test-infra-rehearsal.119] "New folder" creation from within the picker actually creating a directory on disk (only exercised for overflow purposes in overflow.spec.ts, which cancels rather than commits) | GAP: no test actually clicks "Create" to make a real new folder and confirms it appears in the listing | e2e-integration/filesystem | GAP
+- [e2e-test-infra-rehearsal.119] "New folder" creation from within the picker actually creating a directory on disk (the affordance now lives only in the import target-pick — the governed open/change-project browser hides it) | GAP: no test clicks "Create" to make a real new folder and confirm it appears in the listing | e2e-integration/filesystem | GAP
 
 ### e2e/sidebar-legend-minimap.spec.ts
 
@@ -3479,9 +3474,9 @@ Area: extraction-gates. Scope: `factory/extract-issues.ts`, `factory/semantic-ex
 - [onboarding-project-scaffold.7] | `res.json()` throws (malformed JSON) | Caught via `.catch(() => ({}))`, falls into `!res.ok || body.ok === false` branch with generic httpError fallback | unit | GAP
 - [onboarding-project-scaffold.8] | Breadcrumb row clicked mid-fetch (`busy`=true) | Breadcrumb buttons are `disabled` — click has no effect | e2e-ui | GAP
 - [onboarding-project-scaffold.9] | Breadcrumb clicked for a non-root crumb | `browse(crumb.path)` called with that crumb's reconstructed absolute path | integration | GAP
-- [onboarding-project-scaffold.10] | `toCrumbs("/")` (filesystem root) | Returns exactly `[{label:"/", path:"/"}]` | unit | GAP
-- [onboarding-project-scaffold.11] | `toCrumbs("/a/b/c")` | Returns `/`, `a` (path `/a`), `b` (path `/a/b`), `c` (path `/a/b/c`) | unit | GAP
-- [onboarding-project-scaffold.12] | `allowCreate=false` (the scaffold form's browser instance for the parent picker) | "New folder" button and inline form never render regardless of state | unit | GAP
+- [onboarding-project-scaffold.10] | Breadcrumb renders the server-provided `listing.crumbs` verbatim — no client-side path splitting, so segments are separator-correct on every OS | one `ghost xs` crumb button per segment, tight chevron separators (`px-1` crumbs, no inter-item gap) between them | integration | GAP
+- [onboarding-project-scaffold.11] | Click a non-root crumb | `browse(crumb.path)` navigates to that crumb's absolute path | integration | GAP
+- [onboarding-project-scaffold.12] | `allowCreate=false` (the scaffold form's parent picker AND the governed open-existing / change-project browser) | "New folder" button and inline form never render regardless of state | unit | GAP
 - [onboarding-project-scaffold.13] | `allowCreate=true` and `newFolderOpen=false` and no listing yet (`listing===null`) | "New folder" button renders but is `disabled` (no current dir to create into) | e2e-ui | GAP
 - [onboarding-project-scaffold.14] | Click "New folder" button | `newFolderOpen=true`; inline form (name input, Create, X-cancel) renders, autofocused | e2e-ui | GAP
 - [onboarding-project-scaffold.15] | Press Escape inside the new-folder name input | Form closes (`newFolderOpen=false`) and name resets to "" without submitting | e2e-ui | GAP
@@ -3502,7 +3497,7 @@ Area: extraction-gates. Scope: `factory/extract-issues.ts`, `factory/semantic-ex
 - [onboarding-project-scaffold.30] | Listing has N subdirectory entries | Each renders as a `FolderRow` with Folder icon, name truncated, keyed by absolute path | e2e-ui | GAP
 - [onboarding-project-scaffold.31] | Click a subdirectory row | `browse(entry.path)` navigates into it | integration | GAP
 - [onboarding-project-scaffold.32] | Row `disabled` while `busy` | Row has `disabled:pointer-events-none disabled:opacity-50`, click has no effect | e2e-ui | GAP
-- [onboarding-project-scaffold.33] | Deep path breadcrumb overflow | Breadcrumb `<nav>` wraps within `min-w-0 flex-1` so it never pushes the New-folder button off-screen | e2e-ui | GAP
+- [onboarding-project-scaffold.33] | Deep path breadcrumb overflow | Breadcrumb `<nav>` wraps within `min-w-0 flex-1` (multi-segment paths reflow onto new lines) so it never pushes the browser off-screen; separators are tightened so long paths stay legible and linear | e2e-ui | GAP
 
 ### components/project/import-docs-flow.tsx (extracted from the retired import-docs-dialog; hosted by the map empty state's inline dialog AND the Vivi panel's onboarding view)
 
@@ -3561,29 +3556,26 @@ Area: extraction-gates. Scope: `factory/extract-issues.ts`, `factory/semantic-ex
 
 ### components/project/open-project-form.tsx (+ open-project-dialog.tsx, now a thin Dialog wrapper for the setup bar's switcher)
 
-- [onboarding-project-scaffold.101] | The form (re)activates (`active` flips true — dialog open, or the panel's open-existing view mounting) | `manualPath` resets to "" (browser resets itself via its own `open` prop) | integration | GAP
-- [onboarding-project-scaffold.102] | `FolderBrowser` reports a listing via `onListingChange` | "Select this folder" button becomes enabled (was disabled while `!listing`), shows the listed path | e2e-ui | GAP
-- [onboarding-project-scaffold.103] | Click "Select this folder" with a listing present | `select(listing.path)` fires: `POST /api/project {root}` | integration | GAP
+- [onboarding-project-scaffold.101] | The form (re)activates (`active` flips true — dialog open, or the panel's open-existing view mounting) | The `FolderBrowser` re-browses from its default root via its own `open` prop; the form holds no manual-path field of its own to reset | integration | GAP
+- [onboarding-project-scaffold.102] | `FolderBrowser` reports a listing via `onListingChange` | "Select this folder" button becomes enabled (was disabled while `!listing`); it shows only its label — the current path lives in the breadcrumb — and carries the path in `title` for hover | e2e-ui | GAP
+- [onboarding-project-scaffold.103] | Click "Select this folder" with a listing present | `select(listing.path)` fires: `POST /api/project {root, requireGoverned}` (requireGoverned=true in the governed open/change-project contexts, false for the import target-pick) | integration | GAP
 - [onboarding-project-scaffold.104] | Click "Select this folder" with `listing===null` | Button is disabled — no-op | unit | GAP
 - [onboarding-project-scaffold.105] | `select` succeeds (200, ok, `project` present) | Toast success (description = root if `hasCanonicalSpec`, else "selectedNoSpec" text); `onChanged(project)` fires; the DIALOG wrapper additionally closes itself in its own onChanged (the panel host does not) | integration | GAP
 - [onboarding-project-scaffold.106] | `select` fails (non-ok/ok:false/no project) | Toast error mapped via `errorText(tErrors,"project.<code>",fallback)`; dialog stays open; `onChanged` never called | integration | GAP
 - [onboarding-project-scaffold.107] | `select` fetch throws | Toast error w/ message/networkError fallback; dialog stays open | unit | GAP
-- [onboarding-project-scaffold.108] | `select` in flight | `selecting=true`; all controls with `disabled={busy}` are disabled (browser, select button, manual-path input/submit); `onSelectingChange` reports the transition so the dialog wrapper freezes its Cancel | e2e-ui | GAP
-- [onboarding-project-scaffold.109] | Manual-path form submitted with non-empty trimmed path | `select(path)` fires with the manually typed absolute path | integration | GAP
-- [onboarding-project-scaffold.110] | Manual-path form submitted with blank/whitespace-only path | No-op (guard `path.length > 0`) | unit | GAP
-- [onboarding-project-scaffold.111] | Manual-path submit button disabled state | Disabled when `busy` or trimmed manualPath is empty | e2e-ui | GAP
+- [onboarding-project-scaffold.108] | `select` in flight | `selecting=true`; the browser and the "Select this folder" button (both `disabled={busy}`) are disabled; `onSelectingChange` reports the transition so the dialog wrapper freezes its Cancel | e2e-ui | GAP
 - [onboarding-project-scaffold.112] | `browserBusy` toggles from the child `FolderBrowser` | `busy = browserBusy || selecting` recomputes, affecting all dependent disabled states | unit | GAP
-- [onboarding-project-scaffold.113] | Long absolute path selected | Button truncates the path with `title` attribute carrying the full value (no overflow of dialog width) | e2e-ui | GAP
+- [onboarding-project-scaffold.113] | Long selected path | The current path is shown by the wrapping breadcrumb, not the button; the button stays a full-width CTA carrying the path in `title` — no dialog-width overflow | e2e-ui | GAP
 - [onboarding-project-scaffold.114] | Cancel (DialogClose) clicked on the dialog wrapper | Dialog closes without calling `onChanged`; disabled while `selecting` (via `onSelectingChange`) | e2e-ui | GAP
+- [onboarding-project-scaffold.335] | `allowCreate` (default false) is forwarded to the child `FolderBrowser`; `requireGoverned` (default true) is the selection gate. The governed open-existing view and the setup-bar change-project dialog use the defaults (no New-folder, governed); the import target-pick passes `allowCreate requireGoverned={false}` (New-folder shown, ungoverned target allowed — the docs are what will govern it) | New-folder affordance present only in the import target-pick; governance enforced only in the open/change contexts | integration | GAP
+- [onboarding-project-scaffold.336] | Governed open/change-project: `select` on a folder with no `.vivicy` returns code `not_governed` → error toast (title "Cannot select project", body the `project.not_governed` copy), `onChanged` never fires, nothing acquired, no runtime project switch (the server never persisted) — nothing half-selected | error toast shown; onboarding/dialog stays open on the same listing | integration | GAP
 
 ### ScaffoldForm (components/chat/vivi-onboarding.tsx — ported from the retired scaffold-dialog)
 
-- [onboarding-project-scaffold.115] | The form mounts (the scaffold choice expands) | `projectName`, `folderName`, `absoluteOverride` all reset to "" | integration | GAP
-- [onboarding-project-scaffold.116] | `targetDir` computed with `absoluteOverride` non-empty | Override wins outright regardless of `listing`/`folderName` | unit | GAP
-- [onboarding-project-scaffold.117] | `targetDir` computed with override empty, `listing` present, `folderName` non-empty | `${listing.path with trailing slash stripped}/${folderName}` | unit | GAP
-- [onboarding-project-scaffold.118] | `targetDir` computed with override empty and either `listing===null` or `folderName` empty | Empty string ("" — no preview, `canScaffold` false) | unit | GAP
+- [onboarding-project-scaffold.115] | The form mounts (the scaffold choice expands) | `projectName` and `folderName` reset to "" (there is no absolute-target field) | integration | GAP
+- [onboarding-project-scaffold.117] | `targetDir` computed with `listing` present and `folderName` non-empty | `${listing.path with trailing slash stripped}/${folderName}` (the new project directory is named in the dedicated field and created under the browsed location) | unit | GAP
+- [onboarding-project-scaffold.118] | `targetDir` computed with either `listing===null` or `folderName` empty | Empty string ("" — no preview, `canScaffold` false) | unit | GAP
 - [onboarding-project-scaffold.119] | `listing.path` ends with a trailing slash (e.g. root "/") | Regex strips exactly one trailing slash before joining, avoiding a double-slash | unit | GAP
-- [onboarding-project-scaffold.120] | `folderName` input while `absoluteOverride` is non-empty | Folder-name input is `disabled` (mutually exclusive with the override) | e2e-ui | GAP
 - [onboarding-project-scaffold.121] | `canScaffold` computed: name empty | False regardless of targetDir | unit | GAP
 - [onboarding-project-scaffold.122] | `canScaffold` computed: targetDir empty | False regardless of name | unit | GAP
 - [onboarding-project-scaffold.123] | `canScaffold` computed: `scaffolding` true | False (submit disabled mid-request) | unit | GAP
@@ -3594,8 +3586,9 @@ Area: extraction-gates. Scope: `factory/extract-issues.ts`, `factory/semantic-ex
 - [onboarding-project-scaffold.128] | `scaffold()` succeeds (200, ok, `project` present) | Toast success with root; `onScaffolded(project)` → the panel reports the acquisition up (the flip to chat mode follows from the page's re-fetched state) | integration | e2e/onboarding.spec.ts "the scaffold choice creates a new project and lands on the no-map state" + vivi-panel.test.tsx ("the scaffold choice POSTs /api/project/scaffold and reports the acquisition up")
 - [onboarding-project-scaffold.129] | `scaffold()` fails (non-ok/ok:false/no project) | Toast error mapped via `errorText(tErrors,"scaffold.<code>",fallback)`; the form stays put for a retry | integration | GAP
 - [onboarding-project-scaffold.130] | `scaffold()` fetch throws | Toast error w/ message/networkError fallback | unit | GAP
-- [onboarding-project-scaffold.131] | `scaffold()` in flight | `scaffolding=true`; all inputs (name, folder, absolute), FolderBrowser (`disabled={scaffolding}` — NOT the combined `busy`), submit disabled | integration | GAP
+- [onboarding-project-scaffold.131] | `scaffold()` in flight | `scaffolding=true`; both inputs (name, folder), FolderBrowser (`disabled={scaffolding}` — NOT the combined `busy`), submit disabled | integration | GAP
 - [onboarding-project-scaffold.132] | Note: `FolderBrowser`'s `disabled` prop here is `scaffolding` alone, not `busy` (`browserBusy||scaffolding`) | Browser rows disable only while scaffolding submits, not merely while the browser itself loads (its own `ownBusy` already covers that) — confirms no redundant self-disable double-count | unit | GAP
+- [onboarding-project-scaffold.337] | The three terminal CTAs — "Select this folder" (open + import) and "Scaffold project" (start-new) — are one uniform primary action: `variant=default` (the green primary), default size (one step up from `sm`), and `w-full` across the explorer/form column, since all three advance the flow | the trio renders identically green, full-width, one size up | e2e-ui | GAP
 - [onboarding-project-scaffold.134] | Very long project name (boundary: 64 chars accepted client-side, no client truncation) | Client sends the raw string; validation is server-side only (`validateProjectName`) — a 65-char name round-trips to the API and gets rejected there | integration | GAP
 
 ### components/project/onboarding-empty-state.tsx
@@ -3611,7 +3604,7 @@ Area: extraction-gates. Scope: `factory/extract-issues.ts`, `factory/semantic-ex
 - [onboarding-project-scaffold.326] | Clicking a choice swaps the view IN-PANEL to that flow with a Back affordance + the choice's title as the sub-view heading | view swap, no dialog | unit | vivi-panel.test.tsx (scaffold choice expands to the form)
 - [onboarding-project-scaffold.327] | Back from "open"/"scaffold" (nothing acquired) | returns to the choices view; nothing reported up | unit | GAP
 - [onboarding-project-scaffold.328] | The open-existing view hosts the shared `OpenProjectForm`; a successful selection calls `onAcquired(project)` IMMEDIATELY | acquisition reported; the page round-trip flips the panel to chat | unit | GAP
-- [onboarding-project-scaffold.329] | The import view runs acquisition FIRST (`OpenProjectForm` + hint — imports need a target to land in); only once a target is acquired does the staged `ImportDocsFlow` replace it | two-step in-panel chain | unit | GAP
+- [onboarding-project-scaffold.329] | The import view runs acquisition FIRST (`OpenProjectForm` with `allowCreate requireGoverned={false}` — the import destination may be a new, not-yet-governed folder; the hint explains docs land in its `.vivicy/`); only once a target is acquired does the staged `ImportDocsFlow` replace it | two-step in-panel chain; New-folder available and no `.vivicy` gate on the target pick | unit | GAP
 - [onboarding-project-scaffold.330] | Import leg reports `onAcquired` IMMEDIATELY when the target is picked (parity with open/scaffold), then keeps the `ImportDocsFlow` view open to continue staging — a freshly-acquired empty target still reports `no_target` (no `.vivicy/` map yet), so the panel does NOT flip to chat until the applied docs produce a spec; the old Apply/Back-deferred plumbing (and the `back` special-case) is deleted. Reporting immediately is what makes closing the panel mid-import safe — the acquisition is already on record | onAcquired fires at pick, not at flow end; import view stays mounted; a mid-import close no longer loses the target | unit | GAP
 - [onboarding-project-scaffold.331] | Back from the import view (before OR after acquiring) simply returns to the choices view — the acquisition, if any, was already reported at pick, so Back never re-reports | returns to choices; no `onAcquired` on Back | unit | GAP
 
@@ -3637,6 +3630,10 @@ Area: extraction-gates. Scope: `factory/extract-issues.ts`, `factory/semantic-ex
 - [onboarding-project-scaffold.151] | `getCurrentProject()` with a persisted root that no longer resolves (deleted/moved) | Returns null (never throws) rather than surfacing the stale path | unit | project.test.ts
 - [onboarding-project-scaffold.152] | `getCurrentProject()` with a persisted root that DOES resolve | Returns the fresh describing record (re-validated each call, not cached) | unit | project.test.ts
 - [onboarding-project-scaffold.153] | `setCurrentProject` runtime dir mkdir uses `recursive:true` — nested runtime dir path that doesn't exist yet | Succeeds without a pre-existing parent | unit | GAP
+- [onboarding-project-scaffold.338] | `setCurrentProject(candidate, { requireGoverned: true })` on a folder with no `.vivicy` directory | Throws `ProjectError` code `not_governed` BEFORE any persist — the current project is never switched (no orphan runtime state) | unit | project.test.ts ("rejects a folder with no .vivicy directory (not_governed) without persisting")
+- [onboarding-project-scaffold.339] | `setCurrentProject(candidate, { requireGoverned: true })` on a folder that holds a `.vivicy` directory | Persists and returns the described record (governance satisfied) | unit | project.test.ts ("accepts a folder that holds a .vivicy directory and persists it")
+- [onboarding-project-scaffold.340] | `setCurrentProject(candidate)` with no `requireGoverned` option on an ungoverned folder | Persists as before — the `.vivicy` gate is opt-in per call (scaffold and import legitimately select ungoverned folders through the same store) | unit | project.test.ts ("persists an ungoverned folder when governance is not required")
+- [onboarding-project-scaffold.341] | `ProjectError.code` union carries `not_governed` alongside `not_absolute`/`not_found`/`not_a_directory` | typed error code, never a raw throw | unit | project.test.ts (governance cases assert the code)
 
 ### lib/project.test.ts
 
@@ -3644,7 +3641,7 @@ Area: extraction-gates. Scope: `factory/extract-issues.ts`, `factory/semantic-ex
 
 ### lib/project-types.ts
 
-- [onboarding-project-scaffold.154] | Pure type definitions (`CurrentProject`, `DirEntry`, `DirListing`) — no runtime logic | No behavior to test directly; validated transitively via consumers (route/tsc) | unit | GAP (type-only, compile-time check via `tsc`/build is the only "test")
+- [onboarding-project-scaffold.154] | Pure type definitions (`CurrentProject`, `DirEntry`, `DirCrumb`, `DirListing` — the latter carrying `crumbs: DirCrumb[]`) — no runtime logic | No behavior to test directly; validated transitively via consumers (route/tsc) | unit | GAP (type-only, compile-time check via `tsc`/build is the only "test")
 
 ### lib/scaffold.ts
 
@@ -3720,8 +3717,9 @@ Area: extraction-gates. Scope: `factory/extract-issues.ts`, `factory/semantic-ex
 - [onboarding-project-scaffold.217] | `listDirectories` with a symlink entry pointing to a FILE | Excluded (statSync says not a directory) | unit | GAP
 - [onboarding-project-scaffold.218] | `listDirectories` with a broken/dangling symlink entry | Excluded (statSync throws, caught, filtered out — never fatal) | unit | GAP
 - [onboarding-project-scaffold.219] | `listDirectories` with an unreadable child (permission error during stat) | Excluded, listing still succeeds for the rest | unit | GAP
-- [onboarding-project-scaffold.220] | `listDirectories` surfaces the canonical parent for a non-root dir | `parent` = `path.dirname(dir)` | unit | fs-browser.test.ts
-- [onboarding-project-scaffold.221] | `listDirectories` at the filesystem root ("/") | `parent: null` | unit | fs-browser.test.ts
+- [onboarding-project-scaffold.220] | `listDirectories` surfaces the canonical parent (via `browseParent`) for a non-root dir | `parent` = `path.dirname(dir)` | unit | fs-browser.test.ts
+- [onboarding-project-scaffold.221] | `listDirectories` at the filesystem root ("/") | `parent: null` (via `browseParent`) | unit | fs-browser.test.ts
+- [onboarding-project-scaffold.342] | `listDirectories` returns `crumbs` from the filesystem root down to the listed dir | `crumbs[0] = {label:"/", path:"/"}`, `crumbs.at(-1) = {label: basename, path: dir}` | unit | fs-browser.test.ts ("returns breadcrumb segments from the filesystem root down to the listed dir")
 - [onboarding-project-scaffold.222] | `listDirectories` sorting with mixed-case names (e.g. "Beta" vs "alpha") | Sorted case-insensitively (`sensitivity:"base"`), not by raw char code | unit | GAP (test data is already lowercase, doesn't exercise case-insensitive comparator distinctly)
 - [onboarding-project-scaffold.223] | `validateFolderName` accepts a clean single-segment name and trims whitespace | Accepted, trimmed | unit | fs-browser.test.ts
 - [onboarding-project-scaffold.224] | `validateFolderName` rejects: empty, whitespace-only, ".", "..", "../escape", "a/b", "/abs", ".hidden", "bad*name", "semi;colon", "new\nline" | All throw `invalid_name` | unit | fs-browser.test.ts (parameterized `it.each`)
@@ -3736,6 +3734,10 @@ Area: extraction-gates. Scope: `factory/extract-issues.ts`, `factory/semantic-ex
 - [onboarding-project-scaffold.233] | `createDirectory` canonicalizes a symlinked parent, writing into the REAL directory | Confirmed the created path is under the symlink's target, not the symlink itself | unit | fs-browser.test.ts
 - [onboarding-project-scaffold.234] | `createDirectory` defense-in-depth: `path.dirname(target) !== dir` assertion | Documented as theoretically unreachable for a validated single segment — no test exercises the `unsafe` code path directly (dead code / can't construct a failing input given validateFolderName's regex) | unit | GAP
 - [onboarding-project-scaffold.235] | `createDirectory` uses non-recursive `mkdirSync` (no `{recursive:true}`) | If somehow the target were nested (can't happen given validation) it would throw ENOENT rather than silently creating a chain — no direct test of this defense | unit | GAP
+- [onboarding-project-scaffold.343] | `pathCrumbs(dir, path.posix)` for a deep POSIX path and for the root | Deep: `/`, then one crumb per segment accumulating the absolute path; root "/": a single `{label:"/", path:"/"}` crumb | unit | fs-browser.test.ts ("builds POSIX crumbs from the root down" / "returns a single crumb at the POSIX root")
+- [onboarding-project-scaffold.344] | `pathCrumbs(dir, path.win32)` for a Windows drive path and a bare drive root | Root crumb is the drive (`C:\`) and segments accumulate with backslash separators; a bare `C:\` yields a single crumb | unit | fs-browser.test.ts ("builds Windows crumbs from the drive root with backslash separators" / "returns a single crumb at a Windows drive root")
+- [onboarding-project-scaffold.345] | `pathCrumbs("\\\\srv\\share\\proj", path.win32)` (UNC) | The whole `\\srv\share\` share is the root crumb; `proj` is the next segment | unit | fs-browser.test.ts ("keeps the UNC share as the root crumb")
+- [onboarding-project-scaffold.346] | `browseParent(dir, p)` up-navigation stops at every OS root | POSIX: parent of `/x/y` is `/x`, of `/` is null; Windows: parent of `C:\Users` is `C:\`, of `C:\` is null; UNC: parent of a `\\srv\share` share root is null (cannot climb above the share) | unit | fs-browser.test.ts ("returns the POSIX parent and null at the root" / "returns the Windows parent and null at the drive root" / "returns null at a UNC share root")
 
 ### lib/fs-browser.test.ts
 
@@ -3768,8 +3770,9 @@ Area: extraction-gates. Scope: `factory/extract-issues.ts`, `factory/semantic-ex
 - [onboarding-project-scaffold.250] | `POST` with missing `root` field | 400, code `not_absolute`, store never called | integration | route.test.ts
 - [onboarding-project-scaffold.251] | `POST` with `root` present but whitespace-only | 400, code `not_absolute` | integration | route.test.ts
 - [onboarding-project-scaffold.252] | `POST` with `root` non-string (e.g. number, object) | Coerced to "" (guard `typeof body?.root === "string"`) -> 400 `not_absolute` | integration | GAP
-- [onboarding-project-scaffold.253] | `POST` succeeds | 200, echoes the store's DESCRIBED project (never the raw input body) | integration | route.test.ts
+- [onboarding-project-scaffold.253] | `POST` succeeds | 200, echoes the store's DESCRIBED project (never the raw input body); the store is called with `(root, { requireGoverned })` where `requireGoverned` is `body.requireGoverned === true` (absent/false ⇒ ungated) | integration | route.test.ts
 - [onboarding-project-scaffold.254] | `POST` where the store throws `ProjectError` | 400 with the error's typed code + message | integration | route.test.ts
+- [onboarding-project-scaffold.347] | `POST {root, requireGoverned:true}` on an ungoverned folder | the flag is forwarded to `setCurrentProject`, which throws `ProjectError` `not_governed` → 400 code `not_governed` | integration | route.test.ts ("forwards requireGoverned and maps a not_governed rejection to 400")
 - [onboarding-project-scaffold.255] | `POST` where the store throws a generic `Error` | 500, `{ok:false, error: message}`, no `code` field | integration | route.test.ts
 - [onboarding-project-scaffold.256] | `POST` with a malformed JSON body (unparsable) | `request.json().catch(()=>null)` yields null -> `root=""` -> 400 `not_absolute` | integration | GAP
 - [onboarding-project-scaffold.257] | `POST` where the store throws a non-Error thrown value (e.g. a string or plain object thrown) | Falls to the generic 500 branch with fallback message `"failed to set project"` (since `instanceof Error` is false) | integration | GAP
@@ -3792,7 +3795,7 @@ Area: extraction-gates. Scope: `factory/extract-issues.ts`, `factory/semantic-ex
 
 ### app/api/fs/list/route.ts
 
-- [onboarding-project-scaffold.263] | `GET` happy path with `?path=` present | 200, spreads the listing + `ok:true`; forwards the exact `path` query string | integration | route.test.ts
+- [onboarding-project-scaffold.263] | `GET` happy path with `?path=` present | 200, spreads the listing (`path`, `parent`, `crumbs`, `entries`) + `ok:true`; forwards the exact `path` query string | integration | route.test.ts
 - [onboarding-project-scaffold.264] | `GET` with no `?path` query param | Forwards `null` (defaults to home in the lib) | integration | route.test.ts
 - [onboarding-project-scaffold.265] | `GET` where `listDirectories` throws `FsBrowseError` | 400 with `{code, error, default: getDefaultBrowseRoot()}` | integration | route.test.ts
 - [onboarding-project-scaffold.266] | `GET` where `listDirectories` throws a generic `Error` | 500, no `code`/`default` fields | integration | route.test.ts
@@ -3836,7 +3839,7 @@ Area: extraction-gates. Scope: `factory/extract-issues.ts`, `factory/semantic-ex
 ### Area cross-notes
 
 - **Onboarding-chooser deferred-report pattern (card 3 only) is the most behaviorally subtle piece of this whole area.** `ImportDocsDialog` is opened by an *acquisition* `OpenProjectDialog` whose `onChanged` does NOT call the top-level `onProjectChanged` directly — it stashes the acquired project and opens the import dialog; only that dialog's `onOpenChange(false)` triggers the deferred report. If this contract is ever violated (e.g. someone "simplifies" by wiring `onChanged` straight to `onProjectChanged`), the parent's map re-fetch flips `reason` off `"no_target"`, unmounting `OnboardingChooser` mid-import. (Card 4 no longer needs the pattern: it reports immediately and opens the page-level Vivi panel, which survives the chooser's unmount.) There is currently no automated test (unit, integration, or e2e) proving this ordering — it is entirely load-bearing on the comment text. This is the single highest-value GAP in the whole area (see GAP #1 below).
-- **FolderBrowser is reused by three different parents with three different `disabled`/`allowCreate` wiring choices** (OpenProjectDialog: `allowCreate` + `disabled=selecting`; ScaffoldDialog: no `allowCreate`, `disabled=scaffolding`) — no test asserts that ScaffoldDialog's browser correctly omits the New-folder affordance while OpenProjectDialog's includes it, which is the entire reason the two dialogs share one component instead of forking it.
+- **FolderBrowser is reused by four contexts with different `disabled`/`allowCreate` wiring** (governed open-existing + setup-bar change-project: no `allowCreate`, `disabled=selecting`; import target-pick: `allowCreate` + `requireGoverned={false}`; ScaffoldForm: no `allowCreate`, `disabled=scaffolding`) — no test asserts that only the import target-pick shows the New-folder affordance while the governed-open and scaffold browsers omit it, which is the entire reason the contexts share one component instead of forking it.
 - **Scaffold-then-select-current-project chain**: `scaffoldProject` calls `setCurrentProject` internally (lib/scaffold.ts step 5), coupling scaffold.ts to project.ts. No test in scaffold.test.ts mocks `setCurrentProject` to fail (e.g. a describeProject race where the just-created dir vanished between steps) — an unlikely but real TOCTOU gap between scaffold writing files and `setCurrentProject` re-validating the same path.
 - **fs-browser.ts and project.ts both implement "must be absolute, existing, real directory" validation independently** (`resolveBrowsePath` vs `describeProject`) with different error-code enums (`FsBrowseError` vs `ProjectError`) — not literally duplicated logic (different concerns: browse-anywhere vs is-a-project-root) but no cross-test proves the two never diverge in what "a directory" means (e.g. one resolving symlinks and the other not: `describeProject` does NOT realpath/resolve symlinks the way `resolveBrowsePath` does — a symlinked project root would describe/persist the SYMLINK path, not the canonical one, which is inconsistent with the browser's canonicalization guarantee). This is a real, non-obvious asymmetry — flagged as a GAP.
 - **The scaffold API route trusts the lib entirely for validation ordering** (name validated before target dir, per `scaffoldProject` source order) — the route-level test only proves the codes map correctly, not the actual precedence, which lives untested at the route/integration boundary (only implicitly at the lib level, and not even explicitly there either — see GAP list).

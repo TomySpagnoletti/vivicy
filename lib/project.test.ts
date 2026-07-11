@@ -127,3 +127,29 @@ describe("setCurrentProject / readCurrentProjectRoot / getCurrentProject", () =>
     expect(readCurrentProjectRoot()).toBe(null)
   })
 })
+
+describe("setCurrentProject governance gate (requireGoverned)", () => {
+  it("rejects a folder with no .vivicy directory (not_governed) without persisting", () => {
+    try {
+      setCurrentProject(projectDir, { requireGoverned: true })
+      expect.unreachable("should have thrown")
+    } catch (error) {
+      expect(error).toBeInstanceOf(ProjectError)
+      expect((error as ProjectError).code).toBe("not_governed")
+    }
+    expect(existsSync(getCurrentProjectPath())).toBe(false)
+  })
+
+  it("accepts a folder that holds a .vivicy directory and persists it", () => {
+    mkdirSync(path.join(projectDir, ".vivicy"), { recursive: true })
+    const described = setCurrentProject(projectDir, { requireGoverned: true })
+    expect(described.root).toBe(projectDir)
+    expect(readCurrentProjectRoot()).toBe(projectDir)
+  })
+
+  it("persists an ungoverned folder when governance is not required", () => {
+    const described = setCurrentProject(projectDir)
+    expect(described.root).toBe(projectDir)
+    expect(readCurrentProjectRoot()).toBe(projectDir)
+  })
+})

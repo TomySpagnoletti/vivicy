@@ -22,6 +22,12 @@ const DEFAULT_ROOT = "/home/me"
 const LISTING: DirListing = {
   path: "/home/me/projects",
   parent: "/home/me",
+  crumbs: [
+    { label: "/", path: "/" },
+    { label: "home", path: "/home" },
+    { label: "me", path: "/home/me" },
+    { label: "projects", path: "/home/me/projects" },
+  ],
   entries: [
     { name: "alpha", path: "/home/me/projects/alpha" },
     { name: "beta", path: "/home/me/projects/beta" },
