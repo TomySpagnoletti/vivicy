@@ -5,7 +5,10 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest"
 import type { ViviTurn } from "@/lib/vivi"
 import type { Notification } from "@/lib/notifications"
 import { ViviPanel } from "@/components/chat/vivi-panel"
-import { ViviPanelProvider } from "@/components/chat/vivi-panel-context"
+import {
+  useViviPanel,
+  ViviPanelProvider,
+} from "@/components/chat/vivi-panel-context"
 import { __resetPersistedBooleanStoresForTests } from "@/hooks/use-persisted-boolean"
 import { renderWithIntl } from "@/test/render"
 
@@ -192,6 +195,28 @@ function renderPanel(props?: {
   )
 }
 
+function CtaOpener() {
+  const { openPanel } = useViviPanel()
+  return (
+    <button type="button" data-testid="vivi-cta" onClick={openPanel}>
+      open
+    </button>
+  )
+}
+
+function renderPanelWithOpener(props?: {
+  onActivity?: () => void
+  hasTarget?: boolean
+  projectRoot?: string | null
+}) {
+  return renderWithIntl(
+    <ViviPanelProvider>
+      <ViviPanel {...props} />
+      <CtaOpener />
+    </ViviPanelProvider>
+  )
+}
+
 beforeEach(() => {
   vi.stubGlobal("EventSource", FakeEventSource as unknown as typeof EventSource)
   FakeEventSource.last = null
@@ -206,13 +231,52 @@ afterEach(() => {
 })
 
 describe("ViviPanel — launcher bubble", () => {
-  test("renders the bubble in every state; the panel stays hidden until clicked", () => {
+  test("renders the launcher bubble when not on the no_target screen; the panel stays hidden until clicked", () => {
     vi.stubGlobal("fetch", stubFetch({}))
     renderPanel()
     expect(
       screen.getByRole("button", { name: "Open Vivi" })
     ).toBeInTheDocument()
     expect(screen.queryByRole("complementary")).not.toBeInTheDocument()
+  })
+
+  test("hasTarget=true keeps the launcher bubble present", () => {
+    vi.stubGlobal("fetch", stubFetch({}))
+    renderPanel({ hasTarget: true })
+    expect(
+      screen.getByRole("button", { name: "Open Vivi" })
+    ).toBeInTheDocument()
+  })
+
+  test("hasTarget=false hides the launcher bubble; the CTA opens the panel, which still closes and reopens", async () => {
+    vi.stubGlobal("fetch", stubFetch({}))
+    const user = userEvent.setup()
+    renderPanelWithOpener({ hasTarget: false, projectRoot: null })
+
+    expect(
+      screen.queryByRole("button", { name: "Open Vivi" })
+    ).not.toBeInTheDocument()
+
+    await user.click(screen.getByTestId("vivi-cta"))
+    expect(
+      await screen.findByRole("complementary", { name: "Vivi" })
+    ).toBeInTheDocument()
+
+    await user.click(screen.getByRole("button", { name: "Close Vivi" }))
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("complementary", { name: "Vivi" })
+      ).not.toBeInTheDocument()
+    )
+
+    await user.click(screen.getByTestId("vivi-cta"))
+    expect(
+      await screen.findByRole("complementary", { name: "Vivi" })
+    ).toBeInTheDocument()
+
+    expect(
+      screen.queryByRole("button", { name: "Open Vivi" })
+    ).not.toBeInTheDocument()
   })
 
   test("clicking the bubble opens the panel with header controls, tabs, and the engine badge", async () => {
@@ -450,9 +514,9 @@ describe("ViviPanel — onboarding view (no target project)", () => {
   test("hasTarget=false hosts the three acquisition choices instead of the chat", async () => {
     vi.stubGlobal("fetch", stubFetch({}))
     const user = userEvent.setup()
-    renderPanel({ hasTarget: false, projectRoot: null })
+    renderPanelWithOpener({ hasTarget: false, projectRoot: null })
 
-    await user.click(screen.getByRole("button", { name: "Open Vivi" }))
+    await user.click(screen.getByTestId("vivi-cta"))
 
     expect(await screen.findByText("Start a project")).toBeInTheDocument()
     expect(
@@ -476,9 +540,9 @@ describe("ViviPanel — onboarding view (no target project)", () => {
     vi.stubGlobal("fetch", fetchMock)
     const onActivity = vi.fn()
     const user = userEvent.setup()
-    renderPanel({ hasTarget: false, projectRoot: null, onActivity })
+    renderPanelWithOpener({ hasTarget: false, projectRoot: null, onActivity })
 
-    await user.click(screen.getByRole("button", { name: "Open Vivi" }))
+    await user.click(screen.getByTestId("vivi-cta"))
     await user.click(
       await screen.findByRole("button", { name: /Start a new project/ })
     )
@@ -511,9 +575,9 @@ describe("ViviPanel — onboarding view (no target project)", () => {
   test("acquisition flips the panel to chat mode with the composer focused", async () => {
     vi.stubGlobal("fetch", stubFetch({ sessions: [] }))
     const user = userEvent.setup()
-    const view = renderPanel({ hasTarget: false, projectRoot: null })
+    const view = renderPanelWithOpener({ hasTarget: false, projectRoot: null })
 
-    await user.click(screen.getByRole("button", { name: "Open Vivi" }))
+    await user.click(screen.getByTestId("vivi-cta"))
     expect(await screen.findByText("Start a project")).toBeInTheDocument()
 
     view.rerender(

@@ -41,7 +41,7 @@ test("renders the insieme brand illustration above the copy, not a decorative ic
   ).toBeInTheDocument()
 })
 
-test("mounting never opens the panel; the Open Vivi button does, and again after a close", async () => {
+test("mounting never opens the panel; the icon-free Talk to Vivi button does, and again after a close", async () => {
   const user = userEvent.setup()
   renderWithIntl(
     <ViviPanelProvider>
@@ -50,15 +50,20 @@ test("mounting never opens the panel; the Open Vivi button does, and again after
     </ViviPanelProvider>
   )
 
-  expect(screen.getByText(/No project yet/)).toBeInTheDocument()
+  expect(
+    screen.getByText(/turns your spec into working software/)
+  ).toBeInTheDocument()
   expect(screen.getByTestId("panel-open")).toHaveTextContent("false")
 
-  await user.click(screen.getByRole("button", { name: "Open Vivi" }))
+  const cta = screen.getByRole("button", { name: "Talk to Vivi" })
+  expect(cta.querySelector("svg")).toBeNull()
+
+  await user.click(cta)
   expect(screen.getByTestId("panel-open")).toHaveTextContent("true")
 
   await user.click(screen.getByRole("button", { name: "close panel" }))
   expect(screen.getByTestId("panel-open")).toHaveTextContent("false")
 
-  await user.click(screen.getByRole("button", { name: "Open Vivi" }))
+  await user.click(screen.getByRole("button", { name: "Talk to Vivi" }))
   expect(screen.getByTestId("panel-open")).toHaveTextContent("true")
 })
