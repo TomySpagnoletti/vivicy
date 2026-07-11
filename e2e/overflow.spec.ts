@@ -76,29 +76,24 @@ test.describe("No horizontal overflow anywhere", () => {
 
     await expectNoPageOverflow(page, "Open-project modal (default)")
     await expect(dialog.getByRole("button", { name: "Cancel" })).toBeVisible()
-    await expect(dialog.getByRole("button", { name: "Use", exact: true })).toBeVisible()
     await expect(dialog.getByRole("button", { name: /Select this folder/ })).toBeVisible()
+    await expect(dialog.getByLabel("Current path")).toBeVisible({ timeout: 15_000 })
+    await expectNoPageOverflow(page, "Open-project modal (browser loaded)")
     const dialogBox = await dialog.boundingBox()
     expect(dialogBox).not.toBeNull()
     if (dialogBox) {
       expect(dialogBox.x).toBeGreaterThanOrEqual(-TOLERANCE)
       expect(dialogBox.x + dialogBox.width).toBeLessThanOrEqual(1320 + TOLERANCE)
     }
-
-    await dialog.getByLabel("Or paste an absolute path").fill(LONG_TARGET_ROOT)
-    await expectNoPageOverflow(page, "Open-project modal (long path typed)")
-    await expect(dialog.getByRole("button", { name: "Cancel" })).toBeVisible()
-    await expect(dialog.getByRole("button", { name: "Use", exact: true })).toBeVisible()
-
-    await dialog.getByRole("button", { name: "New folder" }).click()
-    await expect(dialog.getByPlaceholder("new-folder-name")).toBeVisible()
-    await expect(dialog.getByRole("button", { name: "Create" })).toBeVisible()
-    await expectNoPageOverflow(page, "Open-project modal (new-folder form)")
-    await dialog.getByRole("button", { name: "Cancel new folder" }).click()
-
-    await dialog.getByLabel("Or paste an absolute path").fill(LONG_TARGET_ROOT)
-    await dialog.getByRole("button", { name: "Use", exact: true }).click()
+    await dialog.getByRole("button", { name: "Cancel" }).click()
     await expect(dialog).toBeHidden({ timeout: 15_000 })
+
+    // The absolute-path input is gone; switch to the long-rooted (governed) project via the API to exercise the long root across the chrome — tooltip, project button, and panels.
+    const switched = await page.request.post("/api/project", {
+      data: { root: LONG_TARGET_ROOT, requireGoverned: true },
+    })
+    expect(switched.ok()).toBe(true)
+    await page.reload()
 
     await expect(page.locator(".react-flow__node").first()).toBeVisible({ timeout: 30_000 })
     await expectNoPageOverflow(page, "long target: map")
@@ -149,10 +144,9 @@ test.describe("No horizontal overflow anywhere", () => {
     await page.getByRole("button", { name: "Change project" }).click()
     const dialog = page.getByRole("dialog")
     await expect(dialog.getByText("Open project")).toBeVisible()
-    await dialog.getByLabel("Or paste an absolute path").fill(LONG_TARGET_ROOT)
-    await expectNoPageOverflow(page, "narrow: Open-project modal with long path")
+    await expect(dialog.getByLabel("Current path")).toBeVisible({ timeout: 15_000 })
+    await expectNoPageOverflow(page, "narrow: Open-project modal")
     await expect(dialog.getByRole("button", { name: "Cancel" })).toBeVisible()
-    await expect(dialog.getByRole("button", { name: "Use", exact: true })).toBeVisible()
     await expect(dialog.getByRole("button", { name: /Select this folder/ })).toBeVisible()
   })
 })

@@ -2,7 +2,9 @@ import { existsSync, mkdirSync, readdirSync, realpathSync, statSync } from "node
 import { homedir } from "node:os"
 import path from "node:path"
 
-import type { DirListing } from "@/lib/project-types"
+import type { DirCrumb, DirListing } from "@/lib/project-types"
+
+type PlatformPath = typeof path.posix
 
 export class FsBrowseError extends Error {
   constructor(
@@ -26,7 +28,6 @@ export function getDefaultBrowseRoot(): string {
   return homedir()
 }
 
-// Chokepoint: every filesystem browse/create request in the app resolves its path through this function (2 callers: app/api/fs/list, app/api/fs/mkdir).
 export function resolveBrowsePath(requested: string | null | undefined): string {
   const raw = (requested ?? "").trim()
   if (raw.length === 0) return realpathSync(getDefaultBrowseRoot())
@@ -43,6 +44,25 @@ export function resolveBrowsePath(requested: string | null | undefined): string 
     throw new FsBrowseError(`path is not a directory: ${real}`, "not_a_directory")
   }
   return real
+}
+
+// path.dirname of a filesystem/drive root returns the root itself; surface null so the UI hides the parent-up entry there (posix "/", Windows "C:\\", UNC share root).
+export function browseParent(dir: string, p: PlatformPath = path): string | null {
+  const parent = p.dirname(dir)
+  return parent === dir ? null : parent
+}
+
+// The client renders these instead of splitting the path itself, so the segments stay separator-correct on every OS (posix, Windows drive/UNC roots).
+export function pathCrumbs(dir: string, p: PlatformPath = path): DirCrumb[] {
+  const { root } = p.parse(dir)
+  const crumbs: DirCrumb[] = [{ label: root, path: root }]
+  let acc = root
+  for (const part of dir.slice(root.length).split(p.sep)) {
+    if (part.length === 0) continue
+    acc = p.join(acc, part)
+    crumbs.push({ label: part, path: acc })
+  }
+  return crumbs
 }
 
 export function listDirectories(requested: string | null | undefined): DirListing {
@@ -63,11 +83,7 @@ export function listDirectories(requested: string | null | undefined): DirListin
     .map((dirent) => ({ name: dirent.name, path: path.join(dir, dirent.name) }))
     .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }))
 
-  const parentCandidate = path.dirname(dir)
-  // path.dirname of the filesystem root returns the root itself; surface null so the UI hides the parent-up entry there.
-  const parent = parentCandidate === dir ? null : parentCandidate
-
-  return { path: dir, parent, entries }
+  return { path: dir, parent: browseParent(dir), crumbs: pathCrumbs(dir), entries }
 }
 
 export function validateFolderName(input: unknown): string {

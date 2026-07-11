@@ -85,9 +85,18 @@ test.describe("Vivicy onboarding (panel-hosted)", () => {
     await page.getByRole("button", { name: /Start a new project/i }).click()
     await expect(page.getByLabel("Project name")).toBeVisible()
 
-    // Absolute target path avoids browser-specific relative-path canonicalization differences.
     await page.getByLabel("Project name").fill("E2E Scaffolded")
-    await page.getByLabel(/absolute target path/i).fill(scaffoldTarget)
+
+    // Navigate the folder browser to the scaffold parent, then name the new folder — there is no absolute-path field. The "tmp" crumb resolves the macOS /tmp -> /private/tmp symlink for us.
+    const parentSegments = path.dirname(scaffoldTarget).split("/").filter(Boolean)
+    await page.getByLabel("Current path").getByRole("button", { name: "/" }).click()
+    const folders = page.getByRole("group", { name: "Folders" })
+    for (const segment of parentSegments) {
+      const row = folders.getByRole("button", { name: segment, exact: true })
+      await expect(row).toBeVisible({ timeout: 15_000 })
+      await row.click()
+    }
+    await page.getByLabel("New folder name").fill(path.basename(scaffoldTarget))
 
     await page.getByRole("button", { name: /Scaffold project/i }).click()
     await expect(page.getByText(/Project scaffolded/i).first()).toBeVisible({

@@ -11,8 +11,14 @@ export interface DirEntry {
   path: string
 }
 
+export interface DirCrumb {
+  label: string
+  path: string
+}
+
 export interface DirListing {
   path: string
   parent: string | null
+  crumbs: DirCrumb[]
   entries: DirEntry[]
 }

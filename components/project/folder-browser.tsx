@@ -120,23 +120,25 @@ export function FolderBrowser({
 
   const busy = disabled || ownBusy
 
-  const crumbs = listing ? toCrumbs(listing.path) : []
+  const crumbs = listing?.crumbs ?? []
 
   return (
     <div className={className}>
       <div className="flex items-start justify-between gap-2">
         <nav aria-label={t("currentPathLabel")} className="min-w-0 flex-1">
-          <ol className="flex flex-wrap items-center gap-0.5 text-xs text-muted-foreground">
+          <ol className="flex flex-wrap items-center text-xs text-muted-foreground">
             {crumbs.map((crumb, i) => (
-              <li key={crumb.path} className="flex items-center gap-0.5">
-                {i > 0 ? <ChevronRight aria-hidden className="size-3" /> : null}
+              <li key={crumb.path} className="flex items-center">
+                {i > 0 ? (
+                  <ChevronRight aria-hidden className="size-3 shrink-0 text-muted-foreground/50" />
+                ) : null}
                 <Button
                   type="button"
                   variant="ghost"
                   size="xs"
                   disabled={busy}
                   onClick={() => void browse(crumb.path)}
-                  className="font-normal text-muted-foreground hover:text-foreground"
+                  className="px-1 font-normal text-muted-foreground hover:text-foreground"
                 >
                   {crumb.label}
                 </Button>
@@ -272,15 +274,4 @@ function FolderRow({
       <span className="truncate">{label}</span>
     </button>
   )
-}
-
-function toCrumbs(absolute: string): Array<{ label: string; path: string }> {
-  const parts = absolute.split("/").filter((p) => p.length > 0)
-  const crumbs: Array<{ label: string; path: string }> = [{ label: "/", path: "/" }]
-  let acc = ""
-  for (const part of parts) {
-    acc += `/${part}`
-    crumbs.push({ label: part, path: acc })
-  }
-  return crumbs
 }

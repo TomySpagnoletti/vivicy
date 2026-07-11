@@ -9,7 +9,9 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
-    const body = (await request.json().catch(() => null)) as { root?: unknown } | null
+    const body = (await request.json().catch(() => null)) as
+      | { root?: unknown; requireGoverned?: unknown }
+      | null
     const root = typeof body?.root === "string" ? body.root : ""
     if (root.trim().length === 0) {
       return Response.json(
@@ -17,7 +19,7 @@ export async function POST(request: Request) {
         { status: 400 }
       )
     }
-    const project = setCurrentProject(root)
+    const project = setCurrentProject(root, { requireGoverned: body?.requireGoverned === true })
     return Response.json({ ok: true, project })
   } catch (error) {
     if (error instanceof ProjectError) {
