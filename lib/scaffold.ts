@@ -17,7 +17,6 @@ import type { CurrentProject } from "@/lib/project-types"
 import { SKELETON_DIRS } from "@/lib/skeleton"
 
 const PROJECT_NAME_TOKEN = "{{PROJECT_NAME}}"
-const GATE_COMMAND_TOKEN = "{{GATE_COMMAND}}"
 
 const PROJECT_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9 ._-]{0,63}$/
 
@@ -119,29 +118,137 @@ export function detectGateCommand(targetRoot: string): string | null {
   return null
 }
 
-// Must be the COMPLETE never-commit set, and only that — the orchestrator runs `git add -A` every checkpoint and relies on this being exhaustive.
+// Must be the COMPLETE never-commit set, and only that — the orchestrator runs `git add -A` every checkpoint and relies on this being exhaustive; anything wrongly ignored here silently never gets committed.
 function gitignore(): string {
-  return `# Dependencies / build output / OS noise
+  return `# Vivicy factory (method-specific — keep these)
+# Factory runtime: lock, logs, settings, current-project selection.
+.vivicy-runtime/
+# Per-issue parallel worktrees; content integrates onto main, the dir itself never lands in history.
+.vivicy-worktrees/
+# Transient integration mutex, created and removed during a merge.
+.vivicy/development/gates/.integration.lock
+# Agent session logs; the progress ledger links them, they never enter git history.
+.vivicy/development/transcripts/
+
+# macOS
+.DS_Store
+.DS_Store?
+._*
+.AppleDouble
+.LSOverride
+.Spotlight-V100
+.Trashes
+.DocumentRevisions-V100
+.fseventsd
+.TemporaryItems
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+
+# Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+Desktop.ini
+$RECYCLE.BIN/
+*.lnk
+*.stackdump
+
+# Linux
+*~
+.directory
+.Trash-*
+.nfs*
+
+# Editors / IDEs
+.idea/
+*.swp
+*.swo
+*.swn
+Session.vim
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+
+# Logs, caches, temp, coverage (any language)
+*.log
+*.tmp
+.cache/
+tmp/
+coverage/
+*.lcov
+.nyc_output/
+
+# Environment / secrets (commit an .env.example, never real values)
+.env
+.env.*
+!.env.example
+!.env.sample
+
+# Lockfiles and vendored deps (vendor/, bin/) are deliberately NOT ignored: committed for reproducible builds and because those dir names carry committed source in some ecosystems.
+
+# Node / JavaScript / TypeScript
 node_modules/
 dist/
-*.log
-.DS_Store
+.next/
+out/
+.turbo/
+*.tsbuildinfo
+.npm/
+.yarn/cache/
+.pnp.*
 
-# Vivicy factory runtime (lock, logs, settings, current-project selection).
-.vivicy-runtime/
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+.venv/
+venv/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.tox/
+.coverage
+htmlcov/
 
-# Per-issue parallel worktrees (the dev-loop branches each concurrent issue here);
-# their content integrates onto the main branch, the worktree dir itself is never
-# committed.
-.vivicy-worktrees/
+# JVM (Java / Kotlin — Maven, Gradle)
+target/
+build/
+.gradle/
+*.class
+hs_err_pid*
 
-# The parallel loop's transient integration mutex — created/removed during a merge,
-# never part of history (committing its churn would dirty the tree).
-.vivicy/development/gates/.integration.lock
+# Go
+*.exe
+*.exe~
+*.test
+*.prof
 
-# TRANSCRIPTS ARE NEVER COMMITTED. The full agent session JSONL for every leg; the
-# progress ledger links to them, but they never enter git history.
-.vivicy/development/transcripts/
+# Rust
+**/*.rs.bk
+
+# PHP (Composer)
+composer.phar
+.phpunit.result.cache
+.phpunit.cache/
+
+# Ruby (Bundler)
+.bundle/
+/vendor/bundle
+*.gem
+
+# .NET
+obj/
+*.user
+*.suo
+
+# C / C++
+*.o
+*.gch
+*.pch
 `
 }
 
@@ -221,10 +328,7 @@ export function scaffoldProject(input: { targetDir: unknown; projectName: unknow
   const templateFiles: Array<[string, string]> = [
     ["AGENTS.md", renderTemplate("AGENTS.md", { [PROJECT_NAME_TOKEN]: projectName })],
     ["CLAUDE.md", renderTemplate("CLAUDE.md", { [PROJECT_NAME_TOKEN]: projectName })],
-    [
-      "README.md",
-      renderTemplate("README.md", { [PROJECT_NAME_TOKEN]: projectName, [GATE_COMMAND_TOKEN]: gateCommand }),
-    ],
+    ["README.md", renderTemplate("README.md", { [PROJECT_NAME_TOKEN]: projectName })],
   ]
   for (const [rel, contents] of templateFiles) {
     const w = writeIfMissing(at(rel), contents)

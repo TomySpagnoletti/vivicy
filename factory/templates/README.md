@@ -1,14 +1,17 @@
 # {{PROJECT_NAME}}
 
-This repository is built with the **Vivicy development factory**: you write the canonical product/architecture spec under `.vivicy/canonical/**`, Vivicy freezes and hashes it into a documentation baseline, extracts a traceable issue set, and runs a two-agent loop (an implementer agent and an independent reviewer agent) that implements, reviews, and verifies each slice against a real gate.
+{{PROJECT_NAME}} is built with **Vivicy**, an autonomous development factory. You write the product intention as a canonical spec; Vivicy freezes it into a hashed baseline, extracts a traceable set of issues, and runs a two-agent loop — one agent implements each slice, an independent agent reviews it — verifying every change against a real test gate and drawing the result live on an architecture map.
 
-## Where things live
+**Vivi** is the governess of this repository: she grills your idea into that canonical spec, drives the pipeline, keeps the architecture map tidy, and turns any later ask into a change request. You talk to her; she runs the build. Approving or rejecting a change request is the one human decision the loop waits for — everything else is autonomous.
 
-- `.vivicy/canonical/**` — **the product truth you write.** Start here: one Markdown file per coherent product/architecture decision area, one source of truth per fact. Until at least one canonical doc exists and a baseline is frozen, there is nothing to extract and the architecture map is empty.
-- `.vivicy/development/` — the extracted issue set, progress ledger, and reports (development OUTPUT; created/updated by the factory).
-- `vivicy.json` — the project gate config. `gateCommand` is the test command Vivicy runs as the per-issue verification gate; set it to YOUR runner (currently: `{{GATE_COMMAND}}`).
-- `AGENTS.md` — the lean development operating guide and entrypoint for any development agent. `CLAUDE.md` includes it.
+## The project's truth lives in `.vivicy/`
 
-## Build, test, validate
+`.vivicy/` is to autonomous development what `.git` is to version control: the single home for this project's intention, plan, and proof. Vivicy operates on this repository from the outside — it is never vendored in.
 
-The verification gate is whatever `gateCommand` in `vivicy.json` runs. Replace the default with your project's real test command (e.g. `go test ./...`, `cargo test`, `pytest -q`, `phpunit`, `swift test`, `npm test`).
+- `.vivicy/canonical/**` — **the product truth you write.** One Markdown file per decision area; nothing is built until at least one canonical doc is frozen into a baseline.
+- `.vivicy/development/` — the extracted issues, progress ledger, and reports the factory produces.
+- `.vivicy/uploads/` — source documents you imported as raw material for the spec.
+- `vivicy.json` — the gate config; `gateCommand` is the test command Vivicy runs to verify every issue.
+- `AGENTS.md` — the technical operating guide for any development agent working in this repo.
+
+The code in this repository is the *result* of the build, never its reference. The reference is always the frozen canonical spec plus accepted change requests.
