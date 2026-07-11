@@ -1,7 +1,7 @@
 {
   "onboardingEmptyState": {
-    "description": "No project yet — Vivi sets one up with you: open a repository, start fresh, or import the docs you already have.",
-    "openVivi": "Open Vivi"
+    "description": "{brandName} turns your spec into working software — built and reviewed live on a map. Vivi sets up your project to begin.",
+    "talkToVivi": "Talk to Vivi"
   },
   "viviOnboarding": {
     "heading": "Start a project",

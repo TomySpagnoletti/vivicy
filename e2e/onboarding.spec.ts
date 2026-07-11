@@ -30,15 +30,17 @@ test.describe("Vivicy onboarding (panel-hosted)", () => {
   }, testInfo) => {
     await page.goto("/")
 
-    await expect(page.getByText(/No project yet — Vivi sets one up/)).toBeVisible({
+    await expect(page.getByText(/turns your spec into working software/)).toBeVisible({
       timeout: 30_000,
     })
 
     await expect(page.getByRole("heading", { name: "Start a project" })).toHaveCount(0)
 
+    await expect(page.getByRole("button", { name: "Open Vivi" })).toHaveCount(0)
+
     await page
       .locator('[data-empty-reason="no_target"]')
-      .getByRole("button", { name: "Open Vivi" })
+      .getByRole("button", { name: "Talk to Vivi" })
       .click()
 
     await expect(page.getByRole("heading", { name: "Start a project" })).toBeVisible()
@@ -69,12 +71,12 @@ test.describe("Vivicy onboarding (panel-hosted)", () => {
     page.on("pageerror", (err) => pageErrors.push(err.message))
 
     await page.goto("/")
-    await expect(page.getByText(/No project yet — Vivi sets one up/)).toBeVisible({
+    await expect(page.getByText(/turns your spec into working software/)).toBeVisible({
       timeout: 30_000,
     })
     await page
       .locator('[data-empty-reason="no_target"]')
-      .getByRole("button", { name: "Open Vivi" })
+      .getByRole("button", { name: "Talk to Vivi" })
       .click()
     await expect(
       page.getByRole("button", { name: /Start a new project/i })

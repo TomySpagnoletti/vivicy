@@ -1,6 +1,5 @@
 "use client"
 
-import { Sparkles } from "lucide-react"
 import { useTranslations } from "next-intl"
 
 import { BRAND } from "@/lib/brand"
@@ -22,8 +21,7 @@ export function OnboardingEmptyState() {
         {t("description", { brandName: BRAND.name })}
       </p>
       <Button size="sm" onClick={openPanel}>
-        <Sparkles />
-        {t("openVivi")}
+        {t("talkToVivi")}
       </Button>
     </div>
   )

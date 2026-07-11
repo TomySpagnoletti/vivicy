@@ -359,35 +359,37 @@ export function ViviPanel({
 
   return (
     <>
-      <div className="pointer-events-none fixed bottom-4 left-4 z-50">
-        <Button
-          ref={bubbleRef}
-          type="button"
-          size="icon"
-          onClick={togglePanel}
-          inert={open}
-          aria-hidden={open}
-          aria-expanded={open}
-          aria-label={t("openAriaLabel")}
-          className={cn(
-            "size-12 rounded-full shadow-lg transition-all duration-200",
-            open
-              ? "pointer-events-none scale-75 opacity-0"
-              : "pointer-events-auto scale-100 opacity-100"
-          )}
-        >
-          <NonnaIcon className="size-6" />
-        </Button>
-        {!open && attentionCount > 0 ? (
-          <Badge
-            variant="destructive"
-            aria-label={t("launcherBadgeAriaLabel", { count: attentionCount })}
-            className="pointer-events-none absolute -top-1 -right-1 h-5 min-w-5 justify-center rounded-full px-1 text-[10px]"
+      {hasTarget !== false ? (
+        <div className="pointer-events-none fixed bottom-4 left-4 z-50">
+          <Button
+            ref={bubbleRef}
+            type="button"
+            size="icon"
+            onClick={togglePanel}
+            inert={open}
+            aria-hidden={open}
+            aria-expanded={open}
+            aria-label={t("openAriaLabel")}
+            className={cn(
+              "size-12 rounded-full shadow-lg transition-all duration-200",
+              open
+                ? "pointer-events-none scale-75 opacity-0"
+                : "pointer-events-auto scale-100 opacity-100"
+            )}
           >
-            {attentionCount > 9 ? t("launcherBadgeOverflow") : attentionCount}
-          </Badge>
-        ) : null}
-      </div>
+            <NonnaIcon className="size-6" />
+          </Button>
+          {!open && attentionCount > 0 ? (
+            <Badge
+              variant="destructive"
+              aria-label={t("launcherBadgeAriaLabel", { count: attentionCount })}
+              className="pointer-events-none absolute -top-1 -right-1 h-5 min-w-5 justify-center rounded-full px-1 text-[10px]"
+            >
+              {attentionCount > 9 ? t("launcherBadgeOverflow") : attentionCount}
+            </Badge>
+          ) : null}
+        </div>
+      ) : null}
 
       <aside
         role="complementary"
