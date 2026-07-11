@@ -1,294 +1,196 @@
 "use client"
 
-import { useCallback, useEffect, useRef, useState } from "react"
-import {
-  CircleCheck,
-  CircleX,
-  File as FileIcon,
-  FileArchive,
-  FolderInput,
-  Loader2,
-  Upload,
-} from "lucide-react"
-import { useTranslations } from "next-intl"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { Ban, Check, FileText, FileUp, Loader2, Upload, X } from "lucide-react"
+import { useLocale, useTranslations } from "next-intl"
 import { toast } from "sonner"
 
-import { errorText, errorTextAcrossFamilies } from "@/lib/i18n-errors"
+import { BRAND } from "@/lib/brand"
+import { errorTextAcrossFamilies } from "@/lib/i18n-errors"
+import type { CurrentProject, DirListing } from "@/lib/project-types"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { ScrollArea } from "@/components/ui/scroll-area"
+import { FolderBrowser } from "@/components/project/folder-browser"
 import { cn } from "@/lib/utils"
 
-type UploadKind = "canonical" | "spike" | "map" | "unknown"
-
-/** Mirrors `lib/upload.ts` `StagedFile` — the client never imports the server module. */
-interface StagedFile {
-  name: string
-  rel: string
-  bytes: number
-  kind: UploadKind
-}
-
-/** Mirrors `lib/upload.ts` `NormalizedFile`. */
-interface NormalizedFile {
-  from: string
-  to: string
-  kind: UploadKind
-}
-
-/** Mirrors the agent CHECK's per-file problem shape (verify + normalization). */
-interface UploadProblem {
-  file: string
-  kind: string
-  detail: string
-}
-
-/** Mirrors `lib/upload.ts` `PlacedFile`. */
-interface PlacedFile {
-  to: string
-  kind: UploadKind
-}
-
-const ACCEPTED_EXTENSIONS = [".md", ".markdown", ".txt", ".doc", ".docx", ".yml", ".yaml", ".zip"]
+// Mirrors lib/import-docs.ts SUPPORTED_EXTENSIONS (+ .zip transport); client-side preview only — the server is the authority that reconciles zips and per-file results.
+const ACCEPTED_EXTENSIONS = [
+  ".md",
+  ".markdown",
+  ".txt",
+  ".rtf",
+  ".docx",
+  ".odt",
+  ".pdf",
+  ".html",
+  ".htm",
+  ".csv",
+  ".tsv",
+  ".json",
+  ".yaml",
+  ".yml",
+  ".xml",
+  ".adoc",
+  ".asciidoc",
+  ".rst",
+  ".tex",
+  ".eml",
+  ".zip",
+]
 const ACCEPT_ATTR = ACCEPTED_EXTENSIONS.join(",")
 
-type Step =
-  | { phase: "idle" }
-  | { phase: "staged"; stagingId: string; staged: StagedFile[] }
-  | { phase: "verifying"; stagingId: string; staged: StagedFile[] }
-  | {
-      phase: "verified"
-      stagingId: string
-      staged: StagedFile[]
-      verdict: "green" | "red"
-      problems: UploadProblem[]
-      summary: string
-      normalized: NormalizedFile[]
-      applyCollisions?: string[]
-    }
-  | { phase: "applying"; stagingId: string; staged: StagedFile[]; verdict: "green" | "red" }
-  | { phase: "done"; placed: PlacedFile[] }
+interface SelectedEntry {
+  file: File
+  rel: string
+  accepted: boolean
+}
+
+interface RawEntry {
+  file: File
+  rel: string
+}
 
 export function ImportDocsFlow({
   active,
-  onApplied,
+  onImported,
 }: {
   active: boolean
-  onApplied: () => void
+  onImported: (project: CurrentProject) => void
 }) {
   const t = useTranslations("project.importDocsDialog")
   const tErrors = useTranslations("errors")
-  const [step, setStep] = useState<Step>({ phase: "idle" })
+  const locale = useLocale()
+  const [entries, setEntries] = useState<SelectedEntry[]>([])
+  const [listing, setListing] = useState<DirListing | null>(null)
+  const [browserBusy, setBrowserBusy] = useState(false)
+  const [importing, setImporting] = useState(false)
   const [dragActive, setDragActive] = useState(false)
 
-  const filesInputRef = useRef<HTMLInputElement>(null)
-  const folderInputRef = useRef<HTMLInputElement>(null)
-  const zipInputRef = useRef<HTMLInputElement>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
-  // State writes run inside the async closure, not the effect body, so they don't fire synchronously during the render commit.
   useEffect(() => {
     if (!active) return
     void (async () => {
-      setStep({ phase: "idle" })
+      setEntries([])
+      setListing(null)
+      setBrowserBusy(false)
+      setImporting(false)
       setDragActive(false)
     })()
   }, [active])
 
-  const busy = step.phase === "verifying" || step.phase === "applying"
+  const acceptedEntries = useMemo(() => entries.filter((entry) => entry.accepted), [entries])
+  const rejectedEntries = useMemo(() => entries.filter((entry) => !entry.accepted), [entries])
+  const step1Ready = acceptedEntries.length > 0
+  const canImport = step1Ready && listing !== null && !importing && !browserBusy
 
-  const stageFiles = useCallback(async (entries: Array<{ file: File; rel: string }>) => {
-    if (entries.length === 0) return
-    const form = new FormData()
-    for (const { file, rel } of entries) {
-      form.append("files", file)
-      form.append("paths", rel)
-    }
-    try {
-      const res = await fetch("/api/upload", { method: "POST", body: form })
-      const body = (await res.json().catch(() => ({}))) as {
-        ok?: boolean
-        stagingId?: string
-        staged?: StagedFile[]
-        error?: string
-        code?: string
+  const addRaw = useCallback((raw: RawEntry[]) => {
+    if (raw.length === 0) return
+    setEntries((prev) => {
+      const byRel = new Map(prev.map((entry) => [entry.rel, entry]))
+      for (const { file, rel } of raw) {
+        const key = normalizeRel(rel, file.name)
+        byRel.set(key, { file, rel: key, accepted: isAcceptedFilename(key) })
       }
-      if (!res.ok || body.ok === false || !body.stagingId || !body.staged) {
-        const fallback = body.error ?? t("toast.httpError", { status: res.status })
-        toast.error(t("toast.stageErrorTitle"), {
-          description: body.code ? errorText(tErrors, `upload.${body.code}`, fallback) : fallback,
-        })
-        return
-      }
-      setStep({ phase: "staged", stagingId: body.stagingId, staged: body.staged })
-    } catch (error) {
-      toast.error(t("toast.stageErrorTitle"), {
-        description: error instanceof Error ? error.message : t("toast.networkError"),
-      })
-    }
-  }, [t, tErrors])
-
-  const verify = useCallback(async () => {
-    if (step.phase !== "staged") return
-    const { stagingId, staged } = step
-    setStep({ phase: "verifying", stagingId, staged })
-    try {
-      const res = await fetch("/api/upload/verify", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ stagingId }),
-      })
-      const body = (await res.json().catch(() => ({}))) as {
-        ok?: boolean
-        verdict?: "green" | "red"
-        problems?: UploadProblem[]
-        summary?: string
-        normalized?: NormalizedFile[]
-        error?: string
-        code?: string
-      }
-      // Red verdict is still HTTP 200 (runUploadVerify never throws for it); only a thrown ControlError omits `verdict` AND returns non-2xx — both must hold to tell "ran, said red" from "never ran".
-      if (!res.ok && !body.verdict) {
-        const fallback = body.error ?? t("toast.httpError", { status: res.status })
-        toast.error(t("toast.verifyErrorTitle"), {
-          description: body.code
-            ? errorTextAcrossFamilies(tErrors, ["control", "upload"], body.code, fallback)
-            : fallback,
-        })
-        setStep({ phase: "staged", stagingId, staged })
-        return
-      }
-      const verdict = body.verdict ?? "red"
-      setStep({
-        phase: "verified",
-        stagingId,
-        staged,
-        verdict,
-        problems: body.problems ?? [],
-        summary: body.summary ?? "",
-        normalized: body.normalized ?? [],
-      })
-      if (verdict === "red") {
-        toast.error(t("toast.verifyProblemsTitle"), {
-          description: body.summary ?? t("toast.verifyProblemsFallback"),
-        })
-      }
-    } catch (error) {
-      toast.error(t("toast.verifyErrorTitle"), {
-        description: error instanceof Error ? error.message : t("toast.networkError"),
-      })
-      setStep({ phase: "staged", stagingId, staged })
-    }
-  }, [step, t, tErrors])
-
-  const apply = useCallback(async () => {
-    if (step.phase !== "verified" || step.verdict !== "green") return
-    const { stagingId, staged, verdict } = step
-    setStep({ phase: "applying", stagingId, staged, verdict })
-    try {
-      const res = await fetch("/api/upload/apply", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ stagingId }),
-      })
-      const body = (await res.json().catch(() => ({}))) as {
-        ok?: boolean
-        placed?: PlacedFile[]
-        error?: string
-        code?: string
-        collisions?: string[]
-      }
-      if (!res.ok || body.ok === false || !body.placed) {
-        const fallback = body.error ?? t("toast.httpError", { status: res.status })
-        toast.error(t("toast.applyErrorTitle"), {
-          description: body.code
-            ? errorTextAcrossFamilies(tErrors, ["control", "upload"], body.code, fallback)
-            : fallback,
-        })
-        setStep({
-          phase: "verified",
-          stagingId,
-          staged,
-          verdict,
-          problems: [],
-          summary: "",
-          normalized: [],
-          applyCollisions: body.code === "would_overwrite" ? body.collisions : undefined,
-        })
-        return
-      }
-      toast.success(t("toast.importedTitle"), {
-        description: t("toast.importedDescription", { count: body.placed.length }),
-      })
-      setStep({ phase: "done", placed: body.placed })
-      onApplied()
-    } catch (error) {
-      toast.error(t("toast.applyErrorTitle"), {
-        description: error instanceof Error ? error.message : t("toast.networkError"),
-      })
-      setStep({ phase: "verified", stagingId, staged, verdict, problems: [], summary: "", normalized: [] })
-    }
-  }, [step, onApplied, t, tErrors])
-
-  const acceptSelection = useCallback(
-    (entries: Array<{ file: File; rel: string }>) => {
-      const rejected = entries.filter(({ file, rel }) => !isAcceptedFilename(rel || file.name))
-      if (rejected.length > 0) {
-        toast.error(t("toast.unsupportedTitle"), {
-          description: t("toast.unsupportedDescription", {
-            files: rejected.map(({ file, rel }) => rel || file.name).join(", "),
-            extensions: ACCEPTED_EXTENSIONS.join(", "),
-          }),
-        })
-        return
-      }
-      void stageFiles(entries)
-    },
-    [stageFiles, t]
-  )
+      return [...byRel.values()].sort((a, b) => a.rel.localeCompare(b.rel))
+    })
+  }, [])
 
   const onFilesPicked = useCallback(
     (fileList: FileList | null) => {
       if (!fileList || fileList.length === 0) return
-      const entries = Array.from(fileList).map((file) => ({
-        file,
-        rel: (file as File & { webkitRelativePath?: string }).webkitRelativePath || "",
-      }))
-      acceptSelection(entries)
+      addRaw(
+        Array.from(fileList).map((file) => ({
+          file,
+          rel: (file as File & { webkitRelativePath?: string }).webkitRelativePath || file.name,
+        }))
+      )
     },
-    [acceptSelection]
+    [addRaw]
   )
 
   const onDrop = useCallback(
     async (event: React.DragEvent<HTMLDivElement>) => {
       event.preventDefault()
       setDragActive(false)
-      if (busy) return
-      const hadItems = event.dataTransfer.items.length > 0 || event.dataTransfer.files.length > 0
-      const entries = await entriesFromDataTransfer(event.dataTransfer)
-      if (hadItems && entries.length === 0) {
+      if (importing) return
+      const hadItems =
+        event.dataTransfer.items.length > 0 || event.dataTransfer.files.length > 0
+      const raw = await entriesFromDataTransfer(event.dataTransfer)
+      if (hadItems && raw.length === 0) {
         toast.error(t("toast.folderReadErrorTitle"), {
           description: t("toast.folderReadErrorDescription"),
         })
         return
       }
-      acceptSelection(entries)
+      addRaw(raw)
     },
-    [acceptSelection, busy, t]
+    [addRaw, importing, t]
   )
 
+  const submit = useCallback(async () => {
+    if (!canImport || listing === null) return
+    setImporting(true)
+    const form = new FormData()
+    form.append("targetDir", listing.path)
+    for (const entry of acceptedEntries) {
+      form.append("files", entry.file)
+      form.append("paths", entry.rel)
+    }
+    try {
+      const res = await fetch("/api/project/import", { method: "POST", body: form })
+      const body = (await res.json().catch(() => ({}))) as {
+        ok?: boolean
+        project?: CurrentProject
+        language?: string
+        accepted?: unknown[]
+        rejected?: unknown[]
+        error?: string
+        code?: string
+      }
+      if (!res.ok || body.ok === false || !body.project || !body.accepted) {
+        const fallback = body.error ?? t("toast.httpError", { status: res.status })
+        toast.error(t("toast.importErrorTitle"), {
+          description: body.code
+            ? errorTextAcrossFamilies(tErrors, ["import", "scaffold"], body.code, fallback)
+            : fallback,
+        })
+        return
+      }
+      const langName = languageName(body.language, locale)
+      const skipped = rejectedEntries.length + (body.rejected?.length ?? 0)
+      const parts = [t("toast.importedCount", { count: body.accepted.length })]
+      if (langName) parts.push(t("toast.importedLang", { language: langName }))
+      if (skipped > 0) parts.push(t("toast.importedSkipped", { count: skipped }))
+      toast.success(t("toast.importedTitle"), { description: parts.join(" ") })
+      onImported(body.project)
+    } catch (error) {
+      toast.error(t("toast.importErrorTitle"), {
+        description: error instanceof Error ? error.message : t("toast.networkError"),
+      })
+    } finally {
+      setImporting(false)
+    }
+  }, [acceptedEntries, canImport, listing, locale, onImported, rejectedEntries.length, t, tErrors])
+
+  const targetDir = listing?.path ?? ""
+
   return (
-    <div className="flex flex-col gap-3">
-      {step.phase === "idle" || step.phase === "staged" ? (
+    <div className="flex flex-col gap-4">
+      <section className="flex flex-col gap-2">
+        <StepHeader index={1} label={t("step1.label")} state={step1Ready ? "done" : "active"} />
+
         <div
           onDragOver={(event) => {
             event.preventDefault()
-            if (!busy) setDragActive(true)
+            if (!importing) setDragActive(true)
           }}
           onDragLeave={() => setDragActive(false)}
           onDrop={(event) => void onDrop(event)}
           className={cn(
             "flex flex-col items-center gap-3 border border-dashed border-border p-6 text-center transition-colors",
-            dragActive && "border-foreground/40 bg-muted"
+            dragActive && "border-primary/50 bg-muted"
           )}
         >
           <span
@@ -301,38 +203,18 @@ export function ImportDocsFlow({
           <p className="text-xs text-muted-foreground">
             {t("dropzone.accepted", { extensions: ACCEPTED_EXTENSIONS.join(", ") })}
           </p>
-          <div className="flex flex-wrap items-center justify-center gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => filesInputRef.current?.click()}
-            >
-              <FileIcon />
-              {t("dropzone.chooseFiles")}
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => folderInputRef.current?.click()}
-            >
-              <FolderInput />
-              {t("dropzone.chooseFolder")}
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => zipInputRef.current?.click()}
-            >
-              <FileArchive />
-              {t("dropzone.chooseZip")}
-            </Button>
-          </div>
-
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={importing}
+            onClick={() => fileInputRef.current?.click()}
+          >
+            <FileText />
+            {t("dropzone.choose")}
+          </Button>
           <input
-            ref={filesInputRef}
+            ref={fileInputRef}
             type="file"
             multiple
             accept={ACCEPT_ATTR}
@@ -342,205 +224,126 @@ export function ImportDocsFlow({
               event.target.value = ""
             }}
           />
-          <input
-            ref={folderInputRef}
-            type="file"
-            multiple
-            // @ts-expect-error -- webkitdirectory is a real, widely-supported attribute with no React/DOM typing
-            webkitdirectory=""
-            className="hidden"
-            onChange={(event) => {
-              onFilesPicked(event.target.files)
-              event.target.value = ""
-            }}
-          />
-          <input
-            ref={zipInputRef}
-            type="file"
-            accept=".zip"
-            className="hidden"
-            onChange={(event) => {
-              onFilesPicked(event.target.files)
-              event.target.value = ""
-            }}
-          />
         </div>
-      ) : null}
 
-      {step.phase === "staged" || step.phase === "verifying" ? (
-        <StagedList staged={step.staged} />
-      ) : null}
+        {entries.length > 0 ? (
+          <SelectedList
+            accepted={acceptedEntries}
+            rejected={rejectedEntries}
+            disabled={importing}
+            onClear={() => setEntries([])}
+          />
+        ) : null}
+      </section>
 
-      {step.phase === "verifying" ? (
-        <div className="flex items-center gap-2 text-xs text-muted-foreground">
-          <Loader2 className="size-4 animate-spin" />
-          {t("verifying")}
-        </div>
-      ) : null}
-
-      {step.phase === "verified" ? (
-        <VerifiedPanel
-          verdict={step.verdict}
-          summary={step.summary}
-          problems={step.problems}
-          staged={step.staged}
-          applyCollisions={step.applyCollisions}
+      <section className="flex flex-col gap-2">
+        <StepHeader
+          index={2}
+          label={t("step2.label")}
+          state={!step1Ready ? "locked" : listing ? "done" : "active"}
         />
-      ) : null}
 
-      {step.phase === "applying" ? (
-        <div className="flex items-center gap-2 text-xs text-muted-foreground">
-          <Loader2 className="size-4 animate-spin" />
-          {t("applying")}
+        {step1Ready ? (
+          <p className="text-xs text-muted-foreground">
+            {t("step2.hint", { brandName: BRAND.name })}
+          </p>
+        ) : (
+          <p className="text-xs text-muted-foreground">{t("step2.lockedHint")}</p>
+        )}
+
+        <div className={cn(!step1Ready && "pointer-events-none opacity-50")}>
+          <FolderBrowser
+            open={active}
+            allowCreate
+            disabled={!step1Ready || importing}
+            onListingChange={setListing}
+            onBusyChange={setBrowserBusy}
+          />
         </div>
-      ) : null}
 
-      {step.phase === "done" ? <PlacedList placed={step.placed} /> : null}
+        {step1Ready && targetDir.length > 0 ? (
+          <p className="text-xs break-all text-muted-foreground">
+            {t.rich("step2.targetPreview", {
+              target: (chunks) => <span className="text-foreground">{chunks}</span>,
+              targetDir,
+            })}
+          </p>
+        ) : null}
+      </section>
 
-      {step.phase === "staged" || step.phase === "verified" ? (
-        <div className="flex items-center justify-end gap-2">
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            disabled={busy}
-            onClick={() => setStep({ phase: "idle" })}
-          >
-            {t("footer.startOver")}
-          </Button>
-          {step.phase === "staged" ? (
-            <Button type="button" size="sm" onClick={() => void verify()}>
-              {t("footer.verify")}
-            </Button>
-          ) : null}
-          {step.phase === "verified" && step.verdict === "red" ? (
-            <Button type="button" size="sm" onClick={() => setStep({ phase: "idle" })}>
-              {t("footer.retry")}
-            </Button>
-          ) : null}
-          {step.phase === "verified" && step.verdict === "green" ? (
-            <Button type="button" size="sm" onClick={() => void apply()}>
-              {t("footer.apply")}
-            </Button>
-          ) : null}
-        </div>
-      ) : null}
+      <Button
+        type="button"
+        variant="default"
+        disabled={!canImport}
+        onClick={() => void submit()}
+        title={targetDir || undefined}
+        className="w-full"
+      >
+        {importing ? <Loader2 className="animate-spin" /> : <FileUp />}
+        {importing ? t("submit.importing") : t("submit.idle")}
+      </Button>
     </div>
   )
 }
 
-function StagedList({ staged }: { staged: StagedFile[] }) {
-  const t = useTranslations("project.importDocsDialog")
-  return (
-    <div className="flex flex-col gap-1.5">
-      <p className="text-xs text-muted-foreground">
-        {t("staged.count", { count: staged.length })}
-      </p>
-      <ScrollArea className="h-48 border border-border">
-        <div className="flex flex-col p-1">
-          {staged.map((file) => (
-            <div
-              key={file.rel}
-              className="flex items-center justify-between gap-2 px-2 py-1.5 text-sm"
-            >
-              <span className="min-w-0 flex-1 truncate text-foreground" title={file.rel}>
-                {file.rel}
-              </span>
-              <span className="shrink-0 text-xs text-muted-foreground">{formatBytes(file.bytes)}</span>
-              <KindBadge kind={file.kind} />
-            </div>
-          ))}
-        </div>
-      </ScrollArea>
-    </div>
-  )
-}
-
-function VerifiedPanel({
-  verdict,
-  summary,
-  problems,
-  staged,
-  applyCollisions,
+function StepHeader({
+  index,
+  label,
+  state,
 }: {
-  verdict: "green" | "red"
-  summary: string
-  problems: UploadProblem[]
-  staged: StagedFile[]
-  applyCollisions?: string[]
+  index: number
+  label: string
+  state: "locked" | "active" | "done"
+}) {
+  return (
+    <div className={cn("flex items-center gap-2", state === "locked" && "opacity-50")}>
+      <span
+        aria-hidden
+        className={cn(
+          "flex size-5 shrink-0 items-center justify-center rounded-full text-xs font-medium",
+          state === "done"
+            ? "bg-primary text-primary-foreground"
+            : "bg-muted text-muted-foreground"
+        )}
+      >
+        {state === "done" ? <Check className="size-3" /> : index}
+      </span>
+      <h4 className="text-sm font-medium text-foreground">{label}</h4>
+    </div>
+  )
+}
+
+function SelectedList({
+  accepted,
+  rejected,
+  disabled,
+  onClear,
+}: {
+  accepted: SelectedEntry[]
+  rejected: SelectedEntry[]
+  disabled: boolean
+  onClear: () => void
 }) {
   const t = useTranslations("project.importDocsDialog")
   return (
-    <div className="flex flex-col gap-2">
-      <div className="flex items-center gap-2 text-sm">
-        {verdict === "green" ? (
-          <CircleCheck className="size-4 text-foreground" />
-        ) : (
-          <CircleX className="size-4 text-destructive" />
-        )}
-        <span className="font-medium text-foreground">
-          {verdict === "green" ? t("verified.green") : t("verified.red")}
-        </span>
-      </div>
-      {summary ? <p className="text-xs text-muted-foreground">{summary}</p> : null}
-
-      {verdict === "red" && problems.length > 0 ? (
-        <ScrollArea className="h-40 border border-border">
-          <div className="flex flex-col p-1">
-            {problems.map((problem, i) => (
-              <div key={`${problem.file}-${i}`} className="flex flex-col gap-0.5 px-2 py-1.5 text-sm">
-                <div className="flex items-center gap-2">
-                  <span className="min-w-0 flex-1 truncate text-foreground" title={problem.file}>
-                    {problem.file}
-                  </span>
-                  <Badge variant="outline">{problem.kind}</Badge>
-                </div>
-                <p className="text-xs text-muted-foreground">{problem.detail}</p>
-              </div>
-            ))}
-          </div>
-        </ScrollArea>
-      ) : null}
-
-      {verdict === "green" && applyCollisions && applyCollisions.length > 0 ? (
-        <div className="flex flex-col gap-1.5">
-          <p className="text-xs text-destructive">{t("verified.collisionsIntro")}</p>
-          <ScrollArea className="h-32 border border-border">
-            <div className="flex flex-col p-1">
-              {applyCollisions.map((collision) => (
-                <div key={collision} className="px-2 py-1.5 text-sm text-foreground">
-                  {collision}
-                </div>
-              ))}
-            </div>
-          </ScrollArea>
-        </div>
-      ) : null}
-
-      {verdict === "green" ? <StagedList staged={staged} /> : null}
-    </div>
-  )
-}
-
-function PlacedList({ placed }: { placed: PlacedFile[] }) {
-  const t = useTranslations("project.importDocsDialog")
-  return (
     <div className="flex flex-col gap-1.5">
-      <div className="flex items-center gap-2 text-sm">
-        <CircleCheck className="size-4 text-foreground" />
-        <span className="font-medium text-foreground">
-          {t("placed.count", { count: placed.length })}
-        </span>
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-xs text-muted-foreground">
+          {t("selected.accepted", { count: accepted.length })}
+          {rejected.length > 0 ? ` · ${t("selected.rejected", { count: rejected.length })}` : ""}
+        </p>
+        <Button type="button" variant="ghost" size="xs" disabled={disabled} onClick={onClear}>
+          <X />
+          {t("selected.clear")}
+        </Button>
       </div>
-      <ScrollArea className="h-48 border border-border">
+      <ScrollArea className="h-40 border border-border">
         <div className="flex flex-col p-1">
-          {placed.map((file) => (
-            <div key={file.to} className="flex items-center justify-between gap-2 px-2 py-1.5 text-sm">
-              <span className="min-w-0 flex-1 truncate text-foreground" title={file.to}>
-                {file.to}
-              </span>
-              <KindBadge kind={file.kind} />
-            </div>
+          {accepted.map((entry) => (
+            <FileRow key={entry.rel} rel={entry.rel} bytes={entry.file.size} />
+          ))}
+          {rejected.map((entry) => (
+            <FileRow key={entry.rel} rel={entry.rel} bytes={entry.file.size} rejected />
           ))}
         </div>
       </ScrollArea>
@@ -548,17 +351,61 @@ function PlacedList({ placed }: { placed: PlacedFile[] }) {
   )
 }
 
-function KindBadge({ kind }: { kind: UploadKind }) {
+function FileRow({
+  rel,
+  bytes,
+  rejected = false,
+}: {
+  rel: string
+  bytes: number
+  rejected?: boolean
+}) {
+  const t = useTranslations("project.importDocsDialog")
   return (
-    <Badge variant={kind === "unknown" ? "outline" : "secondary"} className="shrink-0">
-      {kind}
-    </Badge>
+    <div className="flex items-center justify-between gap-2 px-2 py-1.5 text-sm">
+      <span
+        className={cn(
+          "min-w-0 flex-1 truncate",
+          rejected ? "text-muted-foreground line-through" : "text-foreground"
+        )}
+        title={rel}
+      >
+        {rel}
+      </span>
+      <span className="shrink-0 text-xs text-muted-foreground">{formatBytes(bytes)}</span>
+      {rejected ? (
+        <Badge variant="outline" className="shrink-0 gap-1 text-muted-foreground">
+          <Ban className="size-3" />
+          {t("selected.unsupportedBadge")}
+        </Badge>
+      ) : null}
+    </div>
   )
+}
+
+function normalizeRel(rel: string, name: string): string {
+  const candidate = (rel && rel.length > 0 ? rel : name).replace(/\\/g, "/")
+  const normalized = candidate
+    .split("/")
+    .filter((seg) => seg.length > 0 && seg !== "." && seg !== "..")
+    .join("/")
+  return normalized.length > 0 ? normalized : name
 }
 
 function isAcceptedFilename(name: string): boolean {
   const lower = name.toLowerCase()
   return ACCEPTED_EXTENSIONS.some((ext) => lower.endsWith(ext))
+}
+
+function languageName(code: string | undefined, locale: string): string | null {
+  if (!code || code === "und") return null
+  try {
+    const name = new Intl.DisplayNames([locale], { type: "language" }).of(code)
+    if (!name || name === code || name.toLowerCase() === "root") return null
+    return name
+  } catch {
+    return null
+  }
 }
 
 function formatBytes(bytes: number): string {
@@ -568,29 +415,23 @@ function formatBytes(bytes: number): string {
 }
 
 // Platform trap: `DataTransfer.files` is never populated for a dropped directory, so without `webkitGetAsEntry` a folder drop yields zero files, not a flat listing of its contents.
-async function entriesFromDataTransfer(
-  dataTransfer: DataTransfer
-): Promise<Array<{ file: File; rel: string }>> {
+async function entriesFromDataTransfer(dataTransfer: DataTransfer): Promise<RawEntry[]> {
   const items = Array.from(dataTransfer.items || [])
   const getAsEntry = items[0]?.webkitGetAsEntry
   if (typeof getAsEntry !== "function") {
-    return Array.from(dataTransfer.files).map((file) => ({ file, rel: "" }))
+    return Array.from(dataTransfer.files).map((file) => ({ file, rel: file.name }))
   }
 
   const entries = items
     .map((item) => item.webkitGetAsEntry())
     .filter((entry): entry is FileSystemEntry => entry !== null)
 
-  const out: Array<{ file: File; rel: string }> = []
+  const out: RawEntry[] = []
   await Promise.all(entries.map((entry) => walkEntry(entry, entry.name, out)))
   return out
 }
 
-async function walkEntry(
-  entry: FileSystemEntry,
-  rel: string,
-  out: Array<{ file: File; rel: string }>
-): Promise<void> {
+async function walkEntry(entry: FileSystemEntry, rel: string, out: RawEntry[]): Promise<void> {
   if (entry.isFile) {
     const file = await new Promise<File>((resolve, reject) => {
       ;(entry as FileSystemFileEntry).file(resolve, reject)

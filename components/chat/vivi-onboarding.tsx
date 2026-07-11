@@ -24,7 +24,6 @@ export function ViviOnboarding({
 }) {
   const t = useTranslations("project.viviOnboarding")
   const [view, setView] = useState<OnboardingView>("choices")
-  const [importTarget, setImportTarget] = useState<CurrentProject | null>(null)
 
   const back = useCallback(() => setView("choices"), [])
 
@@ -77,25 +76,7 @@ export function ViviOnboarding({
 
       {view === "scaffold" ? <ScaffoldForm onScaffolded={onAcquired} /> : null}
 
-      {view === "import" && importTarget === null ? (
-        <>
-          <p className="text-xs text-muted-foreground">{t("importPickTargetHint")}</p>
-          {/* Fires onAcquired immediately on persistence (before staging), so closing mid-import never loses the acquired target. Import targets are ungoverned by design — the docs are what will govern them — so no .vivicy gate here, and a new destination folder is allowed. */}
-          <OpenProjectForm
-            active
-            allowCreate
-            requireGoverned={false}
-            onChanged={(project) => {
-              setImportTarget(project)
-              onAcquired(project)
-            }}
-          />
-        </>
-      ) : null}
-
-      {view === "import" && importTarget !== null ? (
-        <ImportDocsFlow active onApplied={() => onAcquired(importTarget)} />
-      ) : null}
+      {view === "import" ? <ImportDocsFlow active onImported={onAcquired} /> : null}
     </div>
   )
 }
