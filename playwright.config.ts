@@ -17,22 +17,19 @@ export const LONG_TARGET_ROOT = `/tmp/vivicy-long/${LONG_PATH_SEGMENT}/${LONG_PA
 type BrowserShape = {
   key: string
   device: (typeof devices)[string]
-  mobile: boolean
 }
 
 const BROWSERS: BrowserShape[] = [
-  { key: "chromium-desktop", device: devices["Desktop Chrome"], mobile: false },
-  { key: "chromium-mobile", device: devices["Pixel 7"], mobile: true },
-  { key: "firefox-desktop", device: devices["Desktop Firefox"], mobile: false },
-  { key: "webkit-desktop", device: devices["Desktop Safari"], mobile: false },
+  { key: "chromium-desktop", device: devices["Desktop Chrome"] },
+  { key: "chromium-mobile", device: devices["Pixel 7"] },
+  { key: "firefox-desktop", device: devices["Desktop Firefox"] },
+  { key: "webkit-desktop", device: devices["Desktop Safari"] },
 ]
 
 export const RUNTIME_DIR = (shape: string, browserKey: string) =>
   `/tmp/vivicy-rt-${shape}-${browserKey}`
 export const onboardScaffoldParent = (browserKey: string) =>
   `/tmp/vivicy-onboard-scaffold-${browserKey}`
-
-const DESKTOP_ONLY = /cli-modal-screenshot\.spec\.ts/
 
 // layout-edit writes the SHARED demo target's on-disk architecture-map.yml — concurrent browsers would race that file.
 const CHROMIUM_DESKTOP_ONLY = /layout-edit\.spec\.ts/
@@ -59,7 +56,6 @@ function projectsForShape(
     const testIgnore = [
       options.testIgnore,
       shape === "demo" ? OVERFLOW_SPEC : undefined,
-      browser.mobile ? DESKTOP_ONLY : undefined,
       browser.key === "chromium-desktop" ? undefined : CHROMIUM_DESKTOP_ONLY,
     ].filter(Boolean) as RegExp[]
     const main: Project = {

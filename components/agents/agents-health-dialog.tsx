@@ -20,27 +20,21 @@ import {
   DialogDescription,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from "@/components/ui/dialog"
 import { AgentStatusBadge, CopyableCommand, InstallDocsLink } from "@/components/agents/agent-status"
 
-type ChipState = "ok" | "warn" | "loading"
-
 const MAX_LOG_LINES = 500
 
-function overallState(health: AgentsHealth | null): ChipState {
-  if (!health) return "loading"
-  const ready = (a: AgentHealth) => a.present && a.authenticated === true
-  return ready(health.claude) && ready(health.codex) ? "ok" : "warn"
-}
-
 export function AgentsHealthDialog({
+  open = false,
+  onOpenChange,
   onWarning,
 }: {
+  open?: boolean
+  onOpenChange?: (open: boolean) => void
   onWarning?: (message: string) => void
 }) {
   const t = useTranslations("agents")
-  const [open, setOpen] = useState(false)
   const [health, setHealth] = useState<AgentsHealth | null>(null)
   const [loading, setLoading] = useState(false)
 
@@ -68,7 +62,7 @@ export function AgentsHealthDialog({
     [onWarning, t]
   )
 
-  // Two effects, deliberately not merged: mount always loads (drives the closed-dialog chip); open re-probes with fresh=1 to catch a CLI just installed/logged into.
+  // Two effects, deliberately not merged: mount always loads (fires the onWarning side-effect even while the dialog stays closed); open re-probes with fresh=1 to catch a CLI just installed/logged into.
   useEffect(() => {
     void (async () => {
       await load()
@@ -81,31 +75,8 @@ export function AgentsHealthDialog({
     })()
   }, [open, load])
 
-  const state = overallState(health)
-
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        <Button
-          variant="ghost"
-          size="xs"
-          aria-label={t("statusButtonAriaLabel")}
-          data-agents-state={state}
-          className="gap-1.5"
-        >
-          <span
-            aria-hidden
-            className={`size-1.5 rounded-full ${
-              state === "ok"
-                ? "bg-primary"
-                : state === "loading"
-                  ? "bg-muted-foreground"
-                  : "bg-destructive"
-            }`}
-          />
-          {t("statusButtonLabel")}
-        </Button>
-      </DialogTrigger>
+    <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
           <DialogTitle>{t("dialogTitle")}</DialogTitle>

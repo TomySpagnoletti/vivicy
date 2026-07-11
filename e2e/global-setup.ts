@@ -66,7 +66,7 @@ export default function globalSetup() {
     }
   }
 
-  // Only demo is seeded: /api/project never falls back to VIVICY_TARGET_ROOT, so an unseeded demo server would never show "Change project"; empty/onboarding stay unseeded so their no_map/no_target states come from the env target alone. realpath matches macOS's /tmp -> /private/tmp mapping so getCurrentProject()'s re-stat resolves it.
+  // Only demo is seeded: /api/project never falls back to VIVICY_TARGET_ROOT, so an unseeded demo server would report no current project; empty/onboarding stay unseeded so their no_map/no_target states come from the env target alone. realpath matches macOS's /tmp -> /private/tmp mapping so getCurrentProject()'s re-stat resolves it.
   const demoRoot = realpathSync(DEMO_TARGET_ROOT)
   for (const browserKey of BROWSER_KEYS) {
     const runtimeDir = RUNTIME_DIR("demo", browserKey)

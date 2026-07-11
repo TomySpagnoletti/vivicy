@@ -34,37 +34,18 @@ test.describe("cross-browser screenshots — main app (demo shape)", () => {
     await page.waitForTimeout(300)
     await page.screenshot({ path: shot(project, "02-sidebar-expanded") })
 
-    // Close the Sheet on mobile first — modals must open over the map, not inside it.
+    // Close the Sheet on mobile first — the Settings modal must open over the map, not inside it.
     if (isMobileProject(testInfo)) {
       await page.keyboard.press("Escape")
       await expect(page.locator('[data-mobile="true"]')).toBeHidden({ timeout: 10_000 })
     }
-
-    await page.getByRole("button", { name: "Change project" }).click()
-    const picker = page.getByRole("dialog")
-    await expect(picker.getByText("Open project")).toBeVisible()
-    await page.waitForTimeout(300)
-    await page.screenshot({ path: shot(project, "03-open-project-modal") })
-    await page.keyboard.press("Escape")
-    await expect(picker).toBeHidden({ timeout: 10_000 })
-
-    const chip = page.getByRole("button", { name: "Agent CLI status" })
-    await expect(chip).toHaveAttribute("data-agents-state", /ok|warn/, { timeout: 15_000 })
-    await chip.click()
-    const cliModal = page.getByRole("dialog")
-    await expect(cliModal.getByText("Agent CLIs")).toBeVisible()
-    await expect(cliModal.getByText(/Installed|Not found/).first()).toBeVisible({ timeout: 15_000 })
-    await page.waitForTimeout(300)
-    await page.screenshot({ path: shot(project, "04-agent-clis-modal") })
-    await page.keyboard.press("Escape")
-    await expect(cliModal).toBeHidden({ timeout: 10_000 })
 
     await ensurePanelOpen(page, testInfo)
     await page.getByRole("button", { name: "Settings" }).click()
     const settings = page.getByRole("dialog", { name: "Agent settings" })
     await expect(settings.getByText("Agent settings")).toBeVisible()
     await page.waitForTimeout(300)
-    await page.screenshot({ path: shot(project, "05-agent-settings") })
+    await page.screenshot({ path: shot(project, "03-agent-settings") })
     await page.keyboard.press("Escape")
     await expect(settings).toBeHidden({ timeout: 10_000 })
   })
