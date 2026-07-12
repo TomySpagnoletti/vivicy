@@ -244,13 +244,13 @@ describe("retry-stage", () => {
     assert.equal(r.code, 2);
     assert.equal(r.json.ok, false);
     assert.equal(r.json.code, "unsupported_stage");
-    assert.deepEqual(r.json.supported, ["extract", "skills", "dev"]);
+    assert.deepEqual(r.json.supported, ["prepare", "extract", "skills", "dev"]);
   });
 
   test("no stage given exits 2 with the supported list", () => {
     const r = runCli(["retry-stage", "--json"]);
     assert.equal(r.code, 2);
-    assert.deepEqual(r.json.supported, ["extract", "skills", "dev"]);
+    assert.deepEqual(r.json.supported, ["prepare", "extract", "skills", "dev"]);
   });
 });
 
@@ -276,6 +276,113 @@ describe("notifications --json", () => {
     assert.equal(r.json.notifications.length, 2);
     assert.equal(r.json.notifications[0].event, "green");
     assert.equal(r.json.notifications[1].stage, "dev");
+  });
+});
+
+describe("prepare verbs", () => {
+  function writePrepReport(dir: string, report: Record<string, unknown>): void {
+    writeFileSync(
+      join(dir, ".vivicy/development/reports/doc-prep-report.json"),
+      JSON.stringify({ updated_at: "2026-07-05T09:00:00Z", ...report })
+    );
+  }
+
+  test("prepare --json prints the report verbatim, exit 0 on green", () => {
+    writePrepReport(target, {
+      phase: "green",
+      batch_id: "2026-07-05T08-00-00-000Z",
+      language: "eng",
+      placed: [{ target: "canonical/spec.md", route: "canonical", translated: false }],
+      rejected: [{ source: "junk.bin", reason: "extract_failed" }],
+      summary: "doc-prep green: 1 placed, 1 rejected",
+    });
+    const r = runCli(["prepare", "--dir", target, "--json"]);
+    assert.equal(r.code, 0);
+    assert.equal(r.json.ok, true);
+    assert.equal(r.json.report.phase, "green");
+    assert.equal(r.json.report.batch_id, "2026-07-05T08-00-00-000Z");
+    assert.equal(r.json.report.placed[0].target, "canonical/spec.md");
+  });
+
+  test("prepare --json exits 1 (refusal) when the last run failed", () => {
+    writePrepReport(target, { phase: "failed", batch_id: "b1", language: "eng", placed: [], rejected: [], summary: "leg produced nothing" });
+    const r = runCli(["prepare", "--dir", target, "--json"]);
+    assert.equal(r.code, 1);
+    assert.equal(r.json.ok, false);
+    assert.equal(r.json.report.phase, "failed");
+  });
+
+  test("prepare --json with no report is an honest null, exit 0", () => {
+    const r = runCli(["prepare", "--dir", target, "--json"]);
+    assert.equal(r.code, 0);
+    assert.deepEqual(r.json, { ok: true, report: null });
+  });
+
+  test("prepare with no target is a usage error (exit 2)", () => {
+    const r = runCli(["prepare", "--json"], { env: { VIVICY_TARGET_ROOT: "" } });
+    assert.equal(r.code, 2);
+    assert.equal(r.json.code, "missing_target");
+  });
+
+  describe("prepare run against a stub factory", () => {
+    let stubFactory: string;
+    before(() => {
+      stubFactory = mkdtempSync(join(tmpdir(), "vivicy-stub-prep-"));
+      writeFileSync(
+        join(stubFactory, "prepare-docs.ts"),
+        [
+          "import { mkdirSync, writeFileSync } from 'node:fs';",
+          "import { join } from 'node:path';",
+          "const root = process.env.VIVICY_TARGET_ROOT;",
+          "const phase = process.env.STUB_PREP_PHASE || 'green';",
+          "const dir = join(root, '.vivicy/development/reports');",
+          "mkdirSync(dir, { recursive: true });",
+          "writeFileSync(join(dir, 'doc-prep-report.json'), JSON.stringify({ phase, batch_id: 'b1', language: 'eng', placed: [{ target: 'canonical/spec.md', route: 'explode', translated: true }], rejected: [], summary: `${phase}: 1 placed`, updated_at: new Date().toISOString() }));",
+          "console.log(`doc-prep ${phase}`);",
+          "process.exit(phase === 'failed' ? 1 : 0);",
+        ].join("\n")
+      );
+    });
+    after(() => rmSync(stubFactory, { recursive: true, force: true }));
+
+    test("prepare run green: exit 0, phase green, placements surfaced", () => {
+      const r = runCli(["prepare", "run", "--dir", target, "--json"], {
+        env: { VIVICY_FACTORY_ROOT: stubFactory, STUB_PREP_PHASE: "green" },
+      });
+      assert.equal(r.code, 0);
+      assert.equal(r.json.ok, true);
+      assert.equal(r.json.phase, "green");
+      assert.equal(r.json.placed[0].target, "canonical/spec.md");
+    });
+
+    test("prepare run failed: exit 1 (refusal)", () => {
+      const r = runCli(["prepare", "run", "--dir", target, "--json"], {
+        env: { VIVICY_FACTORY_ROOT: stubFactory, STUB_PREP_PHASE: "failed" },
+      });
+      assert.equal(r.code, 1);
+      assert.equal(r.json.ok, false);
+      assert.equal(r.json.phase, "failed");
+    });
+
+    test("retry-stage prepare dispatches to a prepare run", () => {
+      const r = runCli(["retry-stage", "prepare", "--dir", target, "--json"], {
+        env: { VIVICY_FACTORY_ROOT: stubFactory, STUB_PREP_PHASE: "green" },
+      });
+      assert.equal(r.code, 0);
+      assert.equal(r.json.ok, true);
+      assert.equal(r.json.phase, "green");
+    });
+
+    test("a live doc-prep lock refuses a second prepare run (already_running)", () => {
+      const projectRuntime = getProjectRuntimeDir(isolatedRuntimeRoot, target);
+      mkdirSync(projectRuntime, { recursive: true });
+      writeFileSync(join(projectRuntime, "doc-prep.lock"), JSON.stringify({ pid: process.pid, started_at: new Date().toISOString() }));
+      const r = runCli(["prepare", "run", "--dir", target, "--json"], {
+        env: { VIVICY_FACTORY_ROOT: stubFactory, STUB_PREP_PHASE: "green" },
+      });
+      assert.equal(r.code, 1);
+      assert.equal(r.json.code, "already_running");
+    });
   });
 });
 

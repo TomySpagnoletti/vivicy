@@ -42,10 +42,12 @@ const EXTRACT_SCRIPT = "extract-issues.ts";
 const CHANGE_CONTROL_SCRIPT = "change-control.ts";
 const CR_APPLY_SCRIPT = "cr-apply.ts";
 const SKILLS_SCRIPT = "install-skills.ts";
+const PREPARE_SCRIPT = "prepare-docs.ts";
 
 // Repo-relative state files the app reads too — the CLI reads the SAME ones.
 const EXTRACTION_STATUS_REL = ".vivicy/development/reports/extraction-status.json";
 const SKILLS_REPORT_REL = ".vivicy/development/reports/skills-report.json";
+const DOC_PREP_REPORT_REL = ".vivicy/development/reports/doc-prep-report.json";
 const CHANGE_REQUESTS_DIR = ".vivicy/change-requests";
 const REPORTS_DIR = ".vivicy/development/reports";
 // Notification log format: NDJSON, one { ts, level, stage, event, message, dismissed? } per line; a missing/empty file reads as [] (never an error).
@@ -56,6 +58,7 @@ const HELP = `Vivicy — a visual autonomous dev factory (agent-drivable control
 
 Usage:
   vivicy status        [--dir <d>] [--json]        merged run/dev/extraction health
+  vivicy prepare       [--dir <d>] [--json]        prepare imported docs into canonical (sync); no args reads the report
   vivicy extract       [--dir <d>]                 author issues from canonical (sync)
   vivicy start         [--dir <d>]                 launch the resumable supervisor (detached)
   vivicy resume        [--dir <d>]                 relaunch the supervisor (resumes)
@@ -66,7 +69,7 @@ Usage:
   vivicy skills        [--dir <d>] [--json]        read the project-skills report
   vivicy skills install [ids...] [--dir <d>]       select/audit/install project skills (sync)
   vivicy skills remove <ids...> [--dir <d>]        uninstall project skills (deterministic)
-  vivicy retry-stage <stage>                       re-run a retryable stage (extract|skills|dev)
+  vivicy retry-stage <stage>                       re-run a retryable stage (prepare|extract|skills|dev)
   vivicy cycle <open|cancel|status> [--dir <d>]    spec-cycle transitions (extraction closes cycles)
   vivicy notifications [--dir <d>] [--json]        read the notification log (per-project)
   vivicy app           [--target <d>] [--port <n>] start the visual control plane
@@ -128,6 +131,17 @@ interface SkillsReport {
   baseline_id?: string | null;
   mode?: string;
   installed?: unknown[];
+  rejected?: unknown[];
+  summary?: string;
+  updated_at?: string;
+}
+
+// Schema of record is prepare-docs.ts's writer — this is a partial read-only projection.
+interface DocPrepReport {
+  phase?: string;
+  batch_id?: string | null;
+  language?: string;
+  placed?: unknown[];
   rejected?: unknown[];
   summary?: string;
   updated_at?: string;
@@ -834,9 +848,85 @@ function cmdSkills(argv: string[], opts: Opts = {}): Promise<void> | void {
   return cmdSkillsReport(argv);
 }
 
-// Byte-compatible with lib/control.ts's skills lock — the app patches its installer's pid into the same file, so a live install from either client refuses the other (no cross-client double-spawn).
+function cmdPrepare(argv: string[], opts: Opts = {}): Promise<void> | void {
+  if (argv[0] === "run") {
+    argv.shift();
+    return cmdPrepareRun(argv, opts);
+  }
+  return cmdPrepareReport(argv);
+}
+
+function cmdPrepareReport(argv: string[]): void {
+  const json = takeBool(argv, "--json");
+  const target = resolveTarget(argv);
+  if (!target) {
+    return fail(json, EXIT_USAGE, "no target project — pass --dir <path> or set VIVICY_TARGET_ROOT", { code: "missing_target" });
+  }
+  if (!existsSync(target)) {
+    return fail(json, EXIT_USAGE, `target root does not exist: ${target}`, { code: "missing_target" });
+  }
+  const report = readJsonFile<DocPrepReport>(join(target, DOC_PREP_REPORT_REL));
+  const failed = report?.phase === "failed";
+  if (json) {
+    emitJson({ ok: !failed, report: report ?? null });
+  } else if (!report) {
+    note("(no doc-prep report — the stage has not run yet)");
+  } else {
+    note(`doc-prep: ${report.phase ?? "?"} (batch ${report.batch_id ?? "none"}, language ${report.language ?? "?"}) — ${report.summary ?? ""}`);
+    for (const entry of Array.isArray(report.placed) ? report.placed : []) {
+      const p = entry as { target?: string; route?: string; translated?: boolean };
+      note(`  + ${p.target ?? "?"}  ${p.route ?? ""}${p.translated ? "  [translated]" : ""}`);
+    }
+    for (const entry of Array.isArray(report.rejected) ? report.rejected : []) {
+      const r = entry as { source?: string; reason?: string };
+      note(`  - ${r.source ?? "?"}  rejected: ${r.reason ?? ""}`);
+    }
+  }
+  process.exit(failed ? EXIT_REFUSAL : EXIT_OK);
+}
+
+async function cmdPrepareRun(argv: string[], opts: Opts = {}): Promise<void> {
+  const json = takeBool(argv, "--json");
+  const target = resolveTarget(argv);
+  if (!target) {
+    return fail(json, EXIT_USAGE, "no target project — pass --dir <path> or set VIVICY_TARGET_ROOT", { code: "missing_target" });
+  }
+  if (!existsSync(target)) {
+    return fail(json, EXIT_USAGE, `target root does not exist: ${target}`, { code: "missing_target" });
+  }
+  const release = claimCliLock(opts, target, "doc-prep.lock");
+  if (!release) {
+    return fail(json, EXIT_REFUSAL, "document preparation is already in flight", { code: "already_running" });
+  }
+  note("vivicy: preparing imported documents into canonical form…");
+  let res;
+  try {
+    res = await runScript(process.execPath, [scriptPath(PREPARE_SCRIPT)], { cwd: factoryDir, env: childEnv(target, opts) });
+  } finally {
+    release();
+  }
+  const report = readJsonFile<DocPrepReport>(join(target, DOC_PREP_REPORT_REL));
+  const phase = report?.phase ?? "error";
+  const ok = res.code === 0 && phase !== "failed";
+  emitJsonOrHuman(json, {
+    ok,
+    phase,
+    batch_id: report?.batch_id ?? null,
+    language: report?.language ?? null,
+    placed: report?.placed ?? [],
+    rejected: report?.rejected ?? [],
+    summary: report?.summary ?? lastLine(res.stdout) ?? "document preparation produced no report",
+  });
+  process.exit(ok ? EXIT_OK : EXIT_REFUSAL);
+}
+
 function claimCliSkillsLock(opts: Opts, target: string): (() => void) | null {
-  const file = join(projectDir(opts, target), "skills-install.lock");
+  return claimCliLock(opts, target, "skills-install.lock");
+}
+
+// Byte-compatible with lib/control.ts's per-stage lock — the app patches its process's pid into the same file, so a live stage from either client refuses the other (no cross-client double-spawn).
+function claimCliLock(opts: Opts, target: string, lockFileName: string): (() => void) | null {
+  const file = join(projectDir(opts, target), lockFileName);
   mkdirSync(projectDir(opts, target), { recursive: true });
   const body = `${JSON.stringify({ pid: process.pid, started_at: new Date().toISOString() }, null, 2)}\n`;
   const tryClaim = (): boolean => {
@@ -907,8 +997,8 @@ async function cmdSkillsRemove(argv: string[], opts: Opts = {}): Promise<void> {
   process.exit(ok ? EXIT_OK : EXIT_REFUSAL);
 }
 
-// Only extract/skills/dev are retryable — map generation lives inside extraction, so there's no standalone map stage; POST /api/control/retry-stage must dispatch the same three.
-const RETRYABLE_STAGES: Record<string, string> = { extract: "extract", skills: "skills", dev: "resume" };
+// Only prepare/extract/skills/dev are retryable — map generation lives inside extraction, so there's no standalone map stage; POST /api/control/retry-stage must dispatch the same set.
+const RETRYABLE_STAGES: Record<string, string> = { prepare: "prepare", extract: "extract", skills: "skills", dev: "resume" };
 
 async function cmdRetryStage(argv: string[], opts: Opts): Promise<void> {
   const json = argv.includes("--json"); // peek only — the dispatched sub-verb consumes it via its own takeBool
@@ -922,6 +1012,7 @@ async function cmdRetryStage(argv: string[], opts: Opts): Promise<void> {
       { code: "unsupported_stage", supported: Object.keys(RETRYABLE_STAGES) }
     );
   }
+  if (action === "prepare") return cmdPrepareRun(argv, opts);
   if (action === "extract") return cmdExtract(argv, opts);
   if (action === "skills") return cmdSkillsInstall(argv, opts);
   return startSupervisor(argv, opts, "resume");
@@ -1083,6 +1174,8 @@ async function main(): Promise<void> {
       return cmdCr(argv, opts);
     case "skills":
       return cmdSkills(argv, opts);
+    case "prepare":
+      return cmdPrepare(argv, opts);
     case "retry-stage":
       return cmdRetryStage(argv, opts);
     case "cycle":

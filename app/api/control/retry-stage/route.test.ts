@@ -5,15 +5,16 @@ import path from "node:path"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 // ControlError stays real (not mocked) — the route's `instanceof` check on it depends on referential identity.
-const { runExtract, startSkillsInstall, startSupervisor } = vi.hoisted(() => ({
+const { runExtract, startSkillsInstall, startSupervisor, startDocPrep } = vi.hoisted(() => ({
   runExtract: vi.fn(),
   startSkillsInstall: vi.fn(),
   startSupervisor: vi.fn(),
+  startDocPrep: vi.fn(),
 }))
 
 vi.mock("@/lib/control", async () => {
   const actual = await vi.importActual<typeof import("@/lib/control")>("@/lib/control")
-  return { ...actual, runExtract, startSkillsInstall, startSupervisor }
+  return { ...actual, runExtract, startSkillsInstall, startSupervisor, startDocPrep }
 })
 
 vi.mock("@/lib/spawner", () => ({ getSpawner: () => ({}) }))
@@ -75,6 +76,19 @@ describe("POST /api/control/retry-stage", () => {
     expect(body.blocked).toBe(true)
   })
 
+  it("dispatches stage=prepare to a detached document-preparation run", async () => {
+    startDocPrep.mockReturnValue({ pid: 909 })
+
+    const res = await POST(postJson({ stage: "prepare" }))
+    expect(res.status).toBe(200)
+    const body = await res.json()
+
+    expect(body).toEqual({ ok: true, stage: "prepare", run: { pid: 909 } })
+    expect(startDocPrep).toHaveBeenCalledOnce()
+    expect(runExtract).not.toHaveBeenCalled()
+    expect(startSupervisor).not.toHaveBeenCalled()
+  })
+
   it("dispatches stage=dev to a resume (startSupervisor 'resume')", async () => {
     startSupervisor.mockReturnValue({ pid: 4242, mode: "resume" })
 
@@ -117,10 +131,11 @@ describe("POST /api/control/retry-stage", () => {
     const body = await res.json()
 
     expect(body.ok).toBe(false)
-    expect(body.supported).toEqual(["extract", "skills", "dev"])
+    expect(body.supported).toEqual(["prepare", "extract", "skills", "dev"])
     expect(runExtract).not.toHaveBeenCalled()
     expect(startSkillsInstall).not.toHaveBeenCalled()
     expect(startSupervisor).not.toHaveBeenCalled()
+    expect(startDocPrep).not.toHaveBeenCalled()
   })
 
   it("rejects a missing/invalid body with 400", async () => {

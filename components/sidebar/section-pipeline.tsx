@@ -13,6 +13,7 @@ import {
 import { Badge } from "@/components/ui/badge"
 import type { RunStatus } from "@/lib/run-status"
 import type { SkillsReport } from "@/lib/skills-report"
+import type { DocPrepReport } from "@/lib/doc-prep-report"
 import { cn } from "@/lib/utils"
 
 const STATE_BADGE_VARIANT: Record<StageState, "outline" | "secondary" | "default" | "destructive"> = {
@@ -39,14 +40,26 @@ interface SkillsReportResponse {
   report?: SkillsReport | null
 }
 
+interface DocPrepReportResponse {
+  ok?: boolean
+  report?: DocPrepReport | null
+}
+
 export function SectionPipeline() {
   const [status, setStatus] = useState<RunStatus | null>(null)
   const [extraction, setExtraction] = useState<ExtractionStatusLike | null>(null)
   const [skills, setSkills] = useState<SkillsReport | null>(null)
+  const [docPrep, setDocPrep] = useState<DocPrepReport | null>(null)
 
   useEffect(() => {
     let cancelled = false
     const loadReports = async () => {
+      try {
+        const res = await fetch("/api/control/prepare", { cache: "no-store" })
+        const body = (await res.json().catch(() => ({}))) as DocPrepReportResponse
+        if (!cancelled && res.ok && body.ok !== false) setDocPrep(body.report ?? null)
+      } catch {
+      }
       try {
         const res = await fetch("/api/control/extract", { cache: "no-store" })
         const body = (await res.json().catch(() => ({}))) as ExtractStatusResponse
@@ -82,7 +95,7 @@ export function SectionPipeline() {
 
   const t = useTranslations("sidebar.pipeline")
   const tPipeline = useTranslations("pipeline")
-  const states = deriveStageStates(status, extraction, skills)
+  const states = deriveStageStates(status, extraction, skills, docPrep)
 
   return (
     <ul className="flex flex-col gap-2 text-xs">
@@ -105,7 +118,7 @@ export function SectionPipeline() {
               {t(STATE_LABEL_KEY[states[stage.id]])}
             </Badge>
           </div>
-          <StageEvidence stageId={stage.id} extraction={extraction} skills={skills} status={status} />
+          <StageEvidence stageId={stage.id} extraction={extraction} skills={skills} docPrep={docPrep} status={status} />
         </li>
       ))}
     </ul>
@@ -116,15 +129,23 @@ function StageEvidence({
   stageId,
   extraction,
   skills,
+  docPrep,
   status,
 }: {
   stageId: string
   extraction: ExtractionStatusLike | null
   skills: SkillsReport | null
+  docPrep: DocPrepReport | null
   status: RunStatus | null
 }) {
   const t = useTranslations("sidebar.pipeline")
   const lines: string[] = []
+
+  if (stageId === "SP" && docPrep) {
+    if (docPrep.phase) lines.push(t("phaseEvidence", { phase: docPrep.phase }))
+    if (typeof docPrep.summary === "string" && docPrep.summary) lines.push(docPrep.summary)
+    if (typeof docPrep.updated_at === "string") lines.push(docPrep.updated_at)
+  }
 
   if (["S2", "S3", "S4", "S5", "S6"].includes(stageId) && extraction) {
     if (extraction.phase) lines.push(t("phaseEvidence", { phase: extraction.phase }))

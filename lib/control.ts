@@ -20,6 +20,11 @@ import {
   SKILLS_REPORT_FILE,
   type SkillsReport,
 } from "@/lib/skills-report"
+import {
+  DOC_PREP_IN_FLIGHT_PHASES,
+  DOC_PREP_REPORT_FILE,
+  type DocPrepReport,
+} from "@/lib/doc-prep-report"
 import { canonicalHasSpecDoc, getTargetRoot } from "@/lib/target"
 
 export interface DetachedHandle {
@@ -141,6 +146,8 @@ const CHANGE_CONTROL_SCRIPT = "change-control.ts"
 const CR_APPLY_SCRIPT = "cr-apply.ts"
 const SKILLS_SCRIPT = "install-skills.ts"
 const SKILLS_LOG_FILE = "skills-install.log"
+const PREPARE_SCRIPT = "prepare-docs.ts"
+const DOC_PREP_LOG_FILE = "doc-prep.log"
 
 export function getFactoryRoot(): string {
   const fromEnv = process.env.VIVICY_FACTORY_ROOT
@@ -674,6 +681,127 @@ export async function removeSkills(
   } finally {
     clearSkillsLock(targetRoot)
   }
+}
+
+const DOC_PREP_STALE_MS = 30 * 60 * 1000
+
+const DOC_PREP_IN_FLIGHT = new Set<string>(DOC_PREP_IN_FLIGHT_PHASES)
+
+const DOC_PREP_LOCK_FILE = "doc-prep.lock"
+
+interface DocPrepLock {
+  pid: number
+  started_at: string
+}
+
+function readDocPrepReportFrom(targetRoot: string): DocPrepReport | null {
+  const file = path.join(targetRoot, DOC_PREP_REPORT_FILE)
+  if (!existsSync(file)) return null
+  try {
+    return JSON.parse(readFileSync(file, "utf8")) as DocPrepReport
+  } catch {
+    return null
+  }
+}
+
+export function readDocPrepReport(): DocPrepReport | null {
+  const { targetRoot } = resolveContext()
+  if (!existsSync(targetRoot)) {
+    throw new ControlError(`target root does not exist: ${targetRoot}`, "missing_target")
+  }
+  return readDocPrepReportFrom(targetRoot)
+}
+
+function isDocPrepInFlight(targetRoot: string): boolean {
+  const report = readDocPrepReportFrom(targetRoot)
+  if (!report?.phase || !DOC_PREP_IN_FLIGHT.has(report.phase)) return false
+  const updated = Date.parse(report.updated_at ?? "")
+  if (!Number.isFinite(updated)) return true
+  return Date.now() - updated < DOC_PREP_STALE_MS
+}
+
+function docPrepLockPath(targetRoot: string): string {
+  return path.join(projectRuntimeDir(targetRoot), DOC_PREP_LOCK_FILE)
+}
+
+function readDocPrepLock(targetRoot: string): DocPrepLock | null {
+  try {
+    const raw = JSON.parse(readFileSync(docPrepLockPath(targetRoot), "utf8")) as DocPrepLock
+    return typeof raw?.pid === "number" ? raw : null
+  } catch {
+    return null
+  }
+}
+
+function clearDocPrepLock(targetRoot: string): void {
+  rmSync(docPrepLockPath(targetRoot), { force: true })
+}
+
+function isDocPrepLockLive(spawner: Spawner, targetRoot: string): boolean {
+  const lock = readDocPrepLock(targetRoot)
+  if (!lock) return false
+  if (spawner.isAlive(lock.pid)) return true
+  clearDocPrepLock(targetRoot)
+  return false
+}
+
+// Same TOCTOU-safe wx-claim as the run/skills locks — the report file alone can't stop two callers from double-spawning the leg.
+function claimDocPrepLock(spawner: Spawner, targetRoot: string): void {
+  mkdirSync(path.dirname(docPrepLockPath(targetRoot)), { recursive: true })
+  const body = `${JSON.stringify({ pid: process.pid, started_at: new Date().toISOString() }, null, 2)}\n`
+  try {
+    writeFileSync(docPrepLockPath(targetRoot), body, { flag: "wx" })
+    return
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error
+  }
+  if (isDocPrepLockLive(spawner, targetRoot)) {
+    throw new ControlError("document preparation is already in flight", "already_running")
+  }
+  try {
+    writeFileSync(docPrepLockPath(targetRoot), body, { flag: "wx" })
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "EEXIST") {
+      throw new ControlError("document preparation is already in flight", "already_running")
+    }
+    throw error
+  }
+}
+
+export interface DocPrepStart {
+  pid: number
+}
+
+export function startDocPrep(spawner: Spawner): DocPrepStart {
+  const { factoryRoot, targetRoot } = resolveContext()
+  if (!existsSync(targetRoot)) {
+    throw new ControlError(`target root does not exist: ${targetRoot}`, "missing_target")
+  }
+  if (isDocPrepInFlight(targetRoot)) {
+    throw new ControlError("document preparation is already in flight", "already_running")
+  }
+  claimDocPrepLock(spawner, targetRoot)
+  const command = resolveScript(factoryRoot, PREPARE_SCRIPT)
+  const logFile = path.join(projectRuntimeDir(targetRoot), DOC_PREP_LOG_FILE)
+
+  let handle: DetachedHandle
+  try {
+    handle = spawner.spawnDetached({
+      command: process.execPath,
+      args: [command],
+      cwd: factoryRoot,
+      env: { ...devEnv(targetRoot), ...settingsToEnv(readSettings()) },
+      logFile,
+    })
+  } catch (error) {
+    clearDocPrepLock(targetRoot)
+    throw new ControlError(
+      `failed to spawn document preparation: ${error instanceof Error ? error.message : String(error)}`,
+      "spawn_failed"
+    )
+  }
+  writeFileSync(docPrepLockPath(targetRoot), `${JSON.stringify({ pid: handle.pid, started_at: new Date().toISOString() }, null, 2)}\n`)
+  return { pid: handle.pid }
 }
 
 const CHANGE_REQUESTS_DIR = ".vivicy/change-requests"

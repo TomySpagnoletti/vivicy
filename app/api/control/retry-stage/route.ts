@@ -1,4 +1,4 @@
-import { ControlError, runExtract, startSkillsInstall, startSupervisor } from "@/lib/control"
+import { ControlError, runExtract, startDocPrep, startSkillsInstall, startSupervisor } from "@/lib/control"
 import { appendNotification } from "@/lib/notifications"
 import { getSpawner } from "@/lib/spawner"
 
@@ -7,7 +7,7 @@ export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 
 // map generation lives inside extraction (no standalone stage); dev is a resume via done/ + the ledger — the CLI's dispatcher matches this list exactly.
-const RETRYABLE_STAGES = ["extract", "skills", "dev"] as const
+const RETRYABLE_STAGES = ["prepare", "extract", "skills", "dev"] as const
 type RetryableStage = (typeof RETRYABLE_STAGES)[number]
 
 function isRetryable(stage: unknown): stage is RetryableStage {
@@ -41,6 +41,16 @@ export async function POST(request: Request) {
   })
 
   try {
+    if (stage === "prepare") {
+      const run = startDocPrep(getSpawner())
+      appendNotification({
+        level: "info",
+        stage: "retry",
+        event: "retry_prepare_started",
+        message: `document preparation retried (pid ${run.pid})`,
+      })
+      return Response.json({ ok: true, stage, run })
+    }
     if (stage === "extract") {
       const result = await runExtract(getSpawner())
       appendNotification({

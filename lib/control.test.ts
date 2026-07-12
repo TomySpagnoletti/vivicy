@@ -14,9 +14,11 @@ import {
   listChangeRequests,
   openSpecCycle,
   readDevStatus,
+  readDocPrepReport,
   readRunState,
   readSkillsReport,
   removeSkills,
+  startDocPrep,
   runExtract,
   startSkillsInstall,
   startSupervisor,
@@ -71,6 +73,7 @@ function scaffoldFactory(root: string) {
     "change-control.ts",
     "cr-apply.ts",
     "install-skills.ts",
+    "prepare-docs.ts",
     "doc-baseline.ts",
   ]) {
     writeFileSync(path.join(root, rel), "// stub\n")
@@ -552,6 +555,57 @@ describe("startSkillsInstall", () => {
     rmSync(path.join(factoryRoot, "install-skills.ts"))
     const { spawner } = makeFakeSpawner()
     expect(() => startSkillsInstall(spawner)).toThrow(/not found/)
+  })
+})
+
+function writeDocPrepReport(report: Record<string, unknown>) {
+  const file = path.join(targetRoot, ".vivicy", "development", "reports", "doc-prep-report.json")
+  mkdirSync(path.dirname(file), { recursive: true })
+  writeFileSync(file, JSON.stringify(report, null, 2))
+}
+
+describe("startDocPrep", () => {
+  it("spawns prepare-docs.ts detached and claims the doc-prep lock under the project runtime namespace", () => {
+    const { spawner, calls } = makeFakeSpawner()
+
+    const started = startDocPrep(spawner)
+
+    expect(started.pid).toBeGreaterThan(0)
+    expect(calls.spawnDetached).toHaveLength(1)
+    const call = calls.spawnDetached[0]
+    expect(call.args.some((a) => a.endsWith("prepare-docs.ts"))).toBe(true)
+    expect(call.cwd).toBe(factoryRoot)
+    expect(call.env.VIVICY_TARGET_ROOT).toBe(targetRoot)
+    expect(call.env.VIVICY_RUNTIME_DIR).toBeTruthy()
+    const lock = path.join(getProjectRuntimeDir(getRuntimeDir(), targetRoot), "doc-prep.lock")
+    expect(existsSync(lock)).toBe(true)
+  })
+
+  it("refuses while a fresh in-flight report says preparation is running", () => {
+    writeDocPrepReport({ phase: "extracting", updated_at: new Date().toISOString() })
+    const { spawner, calls } = makeFakeSpawner()
+
+    expect(() => startDocPrep(spawner)).toThrow(ControlError)
+    try {
+      startDocPrep(spawner)
+    } catch (error) {
+      expect((error as ControlError).code).toBe("already_running")
+    }
+    expect(calls.spawnDetached).toHaveLength(0)
+  })
+
+  it("allows a start over a STALE in-flight report (the preparer died)", () => {
+    writeDocPrepReport({ phase: "placing", updated_at: new Date(Date.now() - 60 * 60 * 1000).toISOString() })
+    const { spawner, calls } = makeFakeSpawner()
+    startDocPrep(spawner)
+    expect(calls.spawnDetached).toHaveLength(1)
+  })
+
+  it("readDocPrepReport returns null when the stage has not run and the report verbatim otherwise", () => {
+    expect(readDocPrepReport()).toBeNull()
+    writeDocPrepReport({ phase: "green", batch_id: "b1", language: "eng", placed: [], rejected: [], summary: "ok", updated_at: "2026-07-05T09:00:00Z" })
+    expect(readDocPrepReport()?.phase).toBe("green")
+    expect(readDocPrepReport()?.batch_id).toBe("b1")
   })
 })
 

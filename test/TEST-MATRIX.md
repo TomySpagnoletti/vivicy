@@ -1,6 +1,6 @@
 # Vivicy — exhaustive test matrix
 
-Reconciled fingerprint: `793d3db6238b9c69d86094c14755204e6919b517c8069bdf1fe5fe9542951df8` @ commit `3174d7b391159887e8d0462b81459f89c1a18830`
+Reconciled fingerprint: `f86067d5e6fe0e45409aa29cb05221b05986923657e5971280b0f1b18bf848df` @ commit `ff557794d0efa6e09aff63945252c90750c822e8`
 
 
 This file is the exhaustive, always-current inventory of every test case for Vivicy — every behavior the system has, whether it is covered by a test today or is a known GAP. It is **committed and machine-guarded**: the `Reconciled fingerprint` line above hashes the behavior-bearing source tree and records the HEAD commit at reconciliation time, and `scripts/test-matrix.test.ts` fails the vitest suite when code changes without this file being reconciled and re-stamped (`npm run matrix:stamp`). `git log test/TEST-MATRIX.md` is the audit trail of reconciliations. It is the single source of truth for "what should be tested" across the app (`app/`, `components/`, `lib/`) and the factory (`factory/`). It was assembled from a full per-area audit pass plus three adversarial cross-matrices (user journeys, parallel/merge chaos, process/crash chaos).
@@ -16,21 +16,21 @@ This file is the exhaustive, always-current inventory of every test case for Viv
 
 | Area | Cases | Gaps | Covered |
 |---|---:|---:|---:|
-| app-shell-sidebar-ui-kit | 368 | 268 | 100 |
+| app-shell-sidebar-ui-kit | 370 | 269 | 101 |
 | baselines-change-requests | 260 | 203 | 57 |
-| cli-supervisor-process-infra | 407 | 243 | 164 |
-| control-plane-api-routes | 466 | 225 | 241 |
+| cli-supervisor-process-infra | 440 | 246 | 194 |
+| control-plane-api-routes | 477 | 227 | 250 |
 | dev-loop-worktrees-merge | 287 | 140 | 147 |
-| e2e-test-infra-rehearsal | 283 | 102 | 181 |
-| extraction-gates | 294 | 159 | 135 |
+| e2e-test-infra-rehearsal | 284 | 102 | 182 |
+| extraction-gates | 295 | 160 | 135 |
 | map-ui-data-viewer | 289 | 187 | 102 |
 | onboarding-project-scaffold | 306 | 186 | 120 |
-| pipeline-notifications-agents-ui | 186 | 119 | 67 |
+| pipeline-notifications-agents-ui | 196 | 120 | 76 |
 | upload-vivi-chat | 344 | 175 | 169 |
 | cross-journeys | 82 | 65 | 17 |
 | cross-chaos-parallel-merge | 47 | 33 | 14 |
 | cross-chaos-process | 46 | 43 | 3 |
-| **TOTAL** | **3665** | **2148** | **1517** |
+| **TOTAL** | **3723** | **2156** | **1567** |
 
 ---
 
@@ -215,7 +215,7 @@ This file is the exhaustive, always-current inventory of every test case for Viv
 
 ### components/sidebar/section-pipeline.tsx
 
-- [app-shell-sidebar-ui-kit.134] Mount with no data yet (all fetches pending / SSE not yet emitted). | All 14 stages (S0–S12 + SK) render with `pending` badges; no evidence lines shown anywhere. | unit | section-pipeline.test.tsx
+- [app-shell-sidebar-ui-kit.134] Mount with no data yet (all fetches pending / SSE not yet emitted). | All 15 stages (S0–S12 + SP + SK) render with `pending` badges; no evidence lines shown anywhere. | unit | section-pipeline.test.tsx
 - [app-shell-sidebar-ui-kit.135] `GET /api/control/extract` returns `ok:false` or throws. | `extraction` stays `null` (best-effort) — no crash, S2–S6 show no evidence. | unit | GAP
 - [app-shell-sidebar-ui-kit.136] `GET /api/control/skills` returns `ok:false` or throws. | `skills` stays `null` (best-effort); SK shows no evidence. | unit | GAP
 - [app-shell-sidebar-ui-kit.137] SSE frame arrives with a valid status. | `status` updates AND triggers a re-fetch of both extraction + skills reports (`loadReports()` re-invoked on every SSE frame). | unit | GAP
@@ -225,6 +225,8 @@ This file is the exhaustive, always-current inventory of every test case for Viv
 - [app-shell-sidebar-ui-kit.141] Extraction status has `phase`, `summary`, and `updated_at` all present, for stage S2–S6. | All three lines render as evidence text under the stage. | unit | section-pipeline.test.tsx
 - [app-shell-sidebar-ui-kit.142] Extraction status present but `summary` is an empty string / non-string. | Summary line is omitted (guarded by `typeof === "string" && truthy`), never renders an empty `<dd>`. | unit | GAP
 - [app-shell-sidebar-ui-kit.143] Skills report has phase/summary/updated_at for SK stage. | Same evidence rendering pattern as S2–S6 applies to SK specifically. | unit | section-pipeline.test.tsx
+- [app-shell-sidebar-ui-kit.359] Doc-prep report has phase/summary/updated_at for the SP stage (fetched from /api/control/prepare, fed as the 4th `deriveStageStates` arg). | Same evidence rendering pattern as S2–S6/SK applies to SP specifically (phase evidence line, summary, timestamp). | unit | section-pipeline.test.tsx
+- [app-shell-sidebar-ui-kit.360] `GET /api/control/prepare` returns `ok:false` or throws. | `docPrep` stays `null` (best-effort); SP shows no evidence, no crash. | unit | GAP
 - [app-shell-sidebar-ui-kit.144] S9 with `issues_total=0` (no issues extracted yet). | Evidence line shows `done/"?"` fallback (mirrors ProcessControlBar's convention) rather than `0/0`. | unit | GAP
 - [app-shell-sidebar-ui-kit.145] S9 with `gates.fail > 0`. | An extra "N gate(s) failing" evidence line appears in addition to the issues-verified line. | unit | section-pipeline.test.tsx
 - [app-shell-sidebar-ui-kit.146] S9 with `gates.fail === 0`. | Only the issues-verified line renders, no gates-failing line. | unit | GAP
@@ -1031,6 +1033,19 @@ Every file below was read in full, line by line.
 - [cli-supervisor-process-infra.372] `claimCliSkillsLock` reclaims a stale lock (pid dead) and proceeds; the release fn removes the lock file after the run | run proceeds, lock cleared | e2e-process | GAP
 - [cli-supervisor-process-infra.373] the CLI skills lock is byte-compatible with lib/control.ts `skillsLockPath` (per-project `skills-install.lock`) — an app-held live install blocks a CLI remove and vice versa | cross-client mutual exclusion | e2e-process | GAP
 
+### verb: prepare (cmdPrepare)
+
+- [cli-supervisor-process-infra.409] `prepare --json` reads an existing doc-prep report verbatim, phase green | ok true, report echoed (batch_id, placed), exit 0 | integration | factory/cli.test.ts ("prepare --json prints the report verbatim")
+- [cli-supervisor-process-infra.410] `prepare --json` with phase "failed" | ok false, exit 1 (refusal) | unit | factory/cli.test.ts ("prepare --json exits 1 (refusal) when the last run failed")
+- [cli-supervisor-process-infra.411] `prepare --json` with no report file | `{ok:true, report:null}`, exit 0 | unit | factory/cli.test.ts ("prepare --json with no report is an honest null")
+- [cli-supervisor-process-infra.412] `prepare` missing target | exit 2 missing_target | unit | factory/cli.test.ts ("prepare with no target is a usage error")
+- [cli-supervisor-process-infra.413] `prepare non-JSON` mode prints phase/batch/language line + per-placed/per-rejected lines | correct human formatting | e2e-process | GAP
+- [cli-supervisor-process-infra.414] `prepare run` (sync) against a stub factory, phase green | ok true, phase green, placements surfaced, exit 0 | e2e-process | factory/cli.test.ts ("prepare run green")
+- [cli-supervisor-process-infra.415] `prepare run` phase "failed" | ok false, exit 1 | e2e-process | factory/cli.test.ts ("prepare run failed: exit 1 (refusal)")
+- [cli-supervisor-process-infra.416] `cmdPrepare` dispatch: first arg "run" routes to cmdPrepareRun (shifted off), anything else (including none) routes to cmdPrepareReport | correct routing | unit | factory/cli.test.ts (implicit via both suites)
+- [cli-supervisor-process-infra.417] `claimCliLock` for `doc-prep.lock` refuses a second `prepare run` when a live run holds the lock (pid alive) | exit 1, `already_running` | e2e-process | factory/cli.test.ts ("a live doc-prep lock refuses a second prepare run")
+- [cli-supervisor-process-infra.418] the CLI doc-prep lock is byte-compatible with lib/control.ts `docPrepLockPath` (per-project `doc-prep.lock`) — an app-held live run blocks a CLI run and vice versa | cross-client mutual exclusion | e2e-process | GAP
+
 ### verb: cycle (cmdCycle)
 
 - [cli-supervisor-process-infra.387] `cycle open` refuses without a frozen baseline (pre-freeze IS drafting) | exit 1, `cycle_state` | e2e-process | cli.test.ts ("open refuses without a frozen baseline (pre-freeze IS drafting)")
@@ -1052,8 +1067,9 @@ Every file below was read in full, line by line.
 - [cli-supervisor-process-infra.122] `retry-stage extract` dispatches to cmdExtract with remaining argv | same behavior as calling `extract` directly | integration | GAP (no direct test; only skills and the unsupported-stage cases are tested)
 - [cli-supervisor-process-infra.123] `retry-stage skills` dispatches to cmdSkillsInstall | same as `skills install` | e2e-process | factory/cli.test.ts ("retry-stage skills dispatches to the installer")
 - [cli-supervisor-process-infra.124] `retry-stage dev` dispatches to startSupervisor(..., "resume") | same as `resume` | integration | GAP
-- [cli-supervisor-process-infra.125] `retry-stage <unsupported>` (e.g. "S6") | exit 2, code unsupported_stage, supported list `[extract,skills,dev]` | unit | factory/cli.test.ts ("an unsupported stage exits 2...")
+- [cli-supervisor-process-infra.125] `retry-stage <unsupported>` (e.g. "S6") | exit 2, code unsupported_stage, supported list `[prepare,extract,skills,dev]` | unit | factory/cli.test.ts ("an unsupported stage exits 2...")
 - [cli-supervisor-process-infra.126] `retry-stage` with no stage argument at all | exit 2, same supported list | unit | factory/cli.test.ts ("no stage given exits 2...")
+- [cli-supervisor-process-infra.408] `retry-stage prepare` dispatches to `cmdPrepareRun` (parity with `POST /api/control/retry-stage` prepare) | same behavior as `prepare run`; exit 0 phase green against a stub factory | e2e-process | factory/cli.test.ts ("retry-stage prepare dispatches to a prepare run")
 - [cli-supervisor-process-infra.127] `retry-stage` peeks `--json` via `argv.includes` (not consuming it) BEFORE the sub-verb's own `takeBool` consumes it — verify no double-consumption bug leaves `--json` stuck in argv passed to the sub-verb | sub-verb still correctly detects/removes --json itself | unit | GAP (subtle: the peek doesn't remove the flag, relies on the sub-handler's own takeBool; correctness assumed, not explicitly tested)
 
 ### verb: notifications
@@ -1099,6 +1115,33 @@ Every file below was read in full, line by line.
 - [cli-supervisor-process-infra.364] `pruneDanglingSkillLinks` removes now-dangling symlinks under `.claude/skills` and `.codex/skills`, best-effort (never throws) | dangling links gone, live entries kept | boundary | GAP
 - [cli-supervisor-process-infra.365] install-skills.ts CLI entry parses `--remove <ids>` / `--remove=<ids>` and dispatches `removeSkills` instead of `installSkills` | remove run executed | e2e-process | GAP
 - [cli-supervisor-process-infra.366] install-skills.ts CLI entry rejects `--ids` + `--remove` together as mutually exclusive (usage error, exit 2) | exit 2, "mutually exclusive" | e2e-process | GAP
+
+### factory/prepare-docs.ts (document-preparation stage)
+
+- [cli-supervisor-process-infra.419] `docPrepStageNeeded(batch, report)` staleness truth table: no batch → false; no report → true; settled (green/skipped) same batch id → false; stale batch id or non-settled phase → true (mirrors `skillsStageNeeded`) | correct boolean per row | unit | prepare-docs.test.ts ("docPrepStageNeeded: ...")
+- [cli-supervisor-process-infra.420] `routeByLocation` maps an upload rel sitting under a canonical dir marker (canonical/architecture-map/spikes/requirements) with a valid extension to its mirrored target; a wrapping folder is tolerated; a wrong extension or a loose file returns null (→ path b) | target rel or null | unit | prepare-docs.test.ts ("routeByLocation maps canonical-shaped upload paths...")
+- [cli-supervisor-process-infra.421] `latestCompleteBatch` selects the lexicographically-largest batch dir that carries a `manifest.json` and skips a manifest-less (interrupted) batch even when it is the max id | latest complete batch id | unit | prepare-docs.test.ts ("latestCompleteBatch picks the lexicographically-largest batch that carries a manifest")
+- [cli-supervisor-process-infra.422] Refusal — no upload batch at all → phase "skipped" (the pipeline proceeds on the owner-authored canonical), report written, leg never spawned | phase skipped, batch_id null | unit | prepare-docs.test.ts ("no batch -> skipped")
+- [cli-supervisor-process-infra.423] Refusal — a complete batch whose manifest lists zero files → phase "skipped" | phase skipped | unit | prepare-docs.test.ts ("empty batch -> skipped")
+- [cli-supervisor-process-infra.424] Idempotence — a batch already settled (prior green, same batch id) → phase "skipped" without spawning the leg | phase skipped, leg not called | unit | prepare-docs.test.ts ("already-settled batch -> skipped without spawning the leg")
+- [cli-supervisor-process-infra.425] Happy path (mixed batch) — a clean dominant-language canonical doc is placed untouched-in-content (route canonical) and a messy doc is exploded via the leg and placed from its scratch output (route explode); scratch is cleaned; the leg receives the manifest language | phase green, both placements present, scratch gone | unit | prepare-docs.test.ts ("happy path: a clean dominant-language canonical doc is placed untouched...")
+- [cli-supervisor-process-infra.426] Language law — a canonical-located doc in a NON-dominant language is NOT placed directly; it is sent to the leg with a `vivicy:doc-prep translate` banner naming its target, to be translated into the dominant language | no route-canonical placement; leg input carries the translate banner | unit | prepare-docs.test.ts ("language law: a canonical-located doc in a non-dominant language...")
+- [cli-supervisor-process-infra.427] Path-(a) light check — an empty canonical-located doc and a non-JSON requirements file are rejected `invalid_canonical`; a valid sibling is still placed | rejected reasons present, valid one placed | unit | prepare-docs.test.ts ("path-(a) light check rejects an empty canonical doc and non-JSON requirements")
+- [cli-supervisor-process-infra.428] Placement validation (W2, P5) — a leg output outside a canonical target (root file or disallowed extension) is rejected `outside_target` and never written into `.vivicy/`; a valid one is placed | outside_target rejected, escape file absent, valid placed | unit | prepare-docs.test.ts ("placement validation: leg output outside a canonical target is rejected")
+- [cli-supervisor-process-infra.429] Leg failure — no placeable output after the bounded 2-attempt re-prompt → phase "failed", each source recorded `leg_no_output`, AND the leg scratch dir is cleared on the failure path too (no leftover for extraction's next `git add -A` spec snapshot) | phase failed, 2 attempts, leg_no_output rejections, scratch dir absent | unit | prepare-docs.test.ts ("leg failure: no output after the bounded re-prompt")
+- [cli-supervisor-process-infra.430] Platform-safe nested paths — a deep canonical upload path places at the mirrored nested target under `.vivicy/canonical/...` | nested target placed | unit | prepare-docs.test.ts ("nested platform-safe paths")
+- [cli-supervisor-process-infra.431] Report shape carries phase, batch_id, language (= manifest dominant language), placed[], rejected[], summary, updated_at | all keys present, language echoes the manifest | unit | prepare-docs.test.ts ("report shape carries phase, batch_id, language, placed, rejected, summary, updated_at")
+- [cli-supervisor-process-infra.432] The leg binds a single implementer-role leg through the `agent-spawn.ts` seam with a per-run context (input/output dirs, language) appended to the composed prompt (`makeDefaultSpawnLeg`, mirrors `makeDefaultSpawnScout`); the injected `spawnLeg` seam is the test double | leg spawned via the shared seam | unit | prepare-docs.test.ts (via the injected spawnLeg across the happy/translate/placement/failure cases)
+- [cli-supervisor-process-infra.433] `prepare-docs.ts` CLI entry: no target → exit 2; runs `prepareDocs`, prints summary (or `--json` the report), exit 1 only on phase "failed" | correct exit codes | e2e-process | GAP (CLI entry exercised indirectly via `vivicy prepare run` against the stub; the real prepare-docs.ts entry is covered by the rehearsal's in-process import)
+
+### factory/text-extract.ts (deterministic binary-doc text extraction)
+
+- [cli-supervisor-process-infra.434] `extractDocxText` unzips an OOXML docx (fflate), pulls `<w:t>` runs with a newline per `</w:p>`, and decodes XML entities (named + numeric) | paragraph text with breaks, entities decoded | unit | text-extract.test.ts ("docx extraction pulls paragraph text with breaks and decodes entities")
+- [cli-supervisor-process-infra.435] `extractOdtText` unzips an ODF odt (fflate) and pulls `<text:p>`/`<text:h>` paragraph text from `content.xml` | paragraph text | unit | text-extract.test.ts ("odt extraction pulls paragraph text")
+- [cli-supervisor-process-infra.436] `extractRtfText` keeps literal runs, drops control words and non-text destinations (fonttbl…), maps `\par`→newline/`\tab`→tab, decodes `\'hh` hex escapes | clean text, no control noise | unit | text-extract.test.ts ("rtf extraction keeps literal runs, drops control words and font tables, decodes escapes")
+- [cli-supervisor-process-infra.437] `extractRtfText` decodes `\uN` unicode and skips its single fallback char | unicode char present, no stray fallback | unit | text-extract.test.ts ("rtf extraction decodes \\uN unicode and skips its fallback char")
+- [cli-supervisor-process-infra.438] `extractPdfText` extracts page text via `unpdf` (bundled pdf.js, zero installed deps) from a minimal PDF | page text returned | unit | text-extract.test.ts ("pdf extraction returns the page text via unpdf")
+- [cli-supervisor-process-infra.439] `extractBinaryDocText` dispatches by extension (.docx/.odt/.rtf/.pdf) and rejects an unknown type with a clear error | dispatch correct; throws on unknown | unit | text-extract.test.ts ("extractBinaryDocText dispatches by extension and rejects unknown types")
 
 ### factory/dev-status.ts
 
@@ -1310,9 +1353,10 @@ Every file below was read in full, line by line.
 
 Out of this area's primary concern (prompt content, not CLI/process infra) but in scope per the file list; cases noted for completeness since the harness reads FACTORY_PROMPTS_DIR from target-root.ts.
 
-- [cli-supervisor-process-infra.299] no prompt file references `docs/governance/**` | regex assertion across all 10 listed prompt files | unit | prompts.test.ts ("no prompt references a docs/governance/** method doc")
+- [cli-supervisor-process-infra.299] no prompt file references `docs/governance/**` | regex assertion across all 11 listed prompt files (incl. doc-prep.md) | unit | prompts.test.ts ("no prompt references a docs/governance/** method doc")
 - [cli-supervisor-process-infra.300] no prompt cites a stale `governance/0X-...` doc number | regex assertion | unit | prompts.test.ts (same test)
 - [cli-supervisor-process-infra.301] implementer.md/extractor.md/spike-prover.md/spike-verifier.md/skill-scout.md declare themselves SELF-CONTAINED and carry their specific required content blocks (gate-first steps, corpus schemas, evidence fields, propose-only discipline, etc.) | content assertions per prompt | unit | prompts.test.ts (multiple dedicated tests)
+- [cli-supervisor-process-infra.440] doc-prep.md declares itself SELF-CONTAINED and LEAN and carries the document-preparation contract: the language law (dominant language governs, non-dominant is TRANSLATED), scratch-output-only writes, uploads immutability, and the prepare-don't-judge boundary (no drift/coherence analysis) | content assertions on doc-prep.md | unit | prompts.test.ts ("doc-prep.md is self-contained and carries the language law, scratch-only writes, and the prepare-don't-judge boundary")
 - [cli-supervisor-process-infra.302] a prompt referenced by PROMPTS array is missing on disk entirely | `readFileSync` throws ENOENT, failing the whole test file | unit | GAP (no test for a missing prompt file specifically — implicit/negative)
 - [cli-supervisor-process-infra.303] vivi.md pins the strict spike filename/gate_id grammar (no leading S, gate_id slug == filename stem) | regex assertions | unit | prompts.test.ts ("vivi.md pins the strict spike filename/gate_id grammar")
 
@@ -1570,11 +1614,12 @@ Out of this area's primary concern (prompt content, not CLI/process infra) but i
 ### app/api/control/retry-stage/route.ts
 
 - [control-plane-api-routes.115] `POST /api/control/retry-stage` rejects invalid JSON body with 400 | 400 | integration | retry-stage/route.test.ts ("rejects a missing/invalid body with 400")
-- [control-plane-api-routes.116] `POST /api/control/retry-stage` rejects an unsupported/unknown `stage` value with 400 and the `supported` list, calling none of the three verbs | 400, body.supported == ["extract","skills","dev"] | integration | retry-stage/route.test.ts ("rejects an unsupported stage with 400 and the supported list")
+- [control-plane-api-routes.116] `POST /api/control/retry-stage` rejects an unsupported/unknown `stage` value with 400 and the `supported` list, calling none of the four verbs | 400, body.supported == ["prepare","extract","skills","dev"] | integration | retry-stage/route.test.ts ("rejects an unsupported stage with 400 and the supported list")
 - [control-plane-api-routes.117] `POST /api/control/retry-stage` `stage: "extract"` dispatches to `runExtract`, returns 200 with the result fields when ok | 200 | integration | retry-stage/route.test.ts ("dispatches stage=extract to runExtract...")
 - [control-plane-api-routes.118] `POST /api/control/retry-stage` `stage: "extract"` blocked outcome returns 422 with `blocked:true`, matching parity with the extract route | 422 | integration | retry-stage/route.test.ts ("surfaces a blocked extraction honestly")
 - [control-plane-api-routes.119] `POST /api/control/retry-stage` `stage: "dev"` dispatches to `startSupervisor(spawner, "resume")` (never "start") | startSupervisor called with "resume" | integration | retry-stage/route.test.ts ("dispatches stage=dev to a resume")
 - [control-plane-api-routes.120] `POST /api/control/retry-stage` `stage: "skills"` dispatches to `startSkillsInstall` in auto mode, returns 200 with the run info | 200 | integration | retry-stage/route.test.ts ("dispatches stage=skills to a detached auto-mode skills install")
+- [control-plane-api-routes.475] `POST /api/control/retry-stage` `stage: "prepare"` dispatches to `startDocPrep`, returns 200 with `{stage:"prepare", run:{pid}}` and calls none of the other verbs | 200, startDocPrep called once | integration | retry-stage/route.test.ts ("dispatches stage=prepare to a detached document-preparation run")
 - [control-plane-api-routes.121] `POST /api/control/retry-stage` `stage: "skills"` already-running skills install maps to 409 | 409 | integration | retry-stage/route.test.ts ("maps an already_running skills install to 409")
 - [control-plane-api-routes.122] `POST /api/control/retry-stage` `stage: "dev"` already-running supervisor maps to 409 | 409 | integration | retry-stage/route.test.ts ("maps an already_running ControlError from a resume to 409")
 - [control-plane-api-routes.123] `POST /api/control/retry-stage` a non-already_running ControlError (e.g. missing_script) from any of the three dispatches maps to 422 | 422 | integration | GAP (only already_running is exercised for the error-mapping branch; missing_script/missing_target not tested at the route level)
@@ -1647,6 +1692,22 @@ Out of this area's primary concern (prompt content, not CLI/process infra) but i
 - [control-plane-api-routes.459] POST remove ControlError with any other code | 422, code echoed | integration | GAP
 - [control-plane-api-routes.460] POST remove non-ControlError throw | 500 with the message | integration | GAP
 - [control-plane-api-routes.461] POST remove emits `remove_started` (info) before and `remove_failed` (error) on failure via appendNotification | notifications appended | integration | GAP
+
+### app/api/control/prepare/route.ts
+
+- [control-plane-api-routes.476] `GET /api/control/prepare` returns `{ok:true, report: readDocPrepReport()}` verbatim, and `report:null` when the stage has not run | 200 with the report or null | integration | prepare/route.test.ts ("returns the report verbatim, and null when the stage has not run")
+- [control-plane-api-routes.477] `GET /api/control/prepare` maps a ControlError (e.g. missing_target) to 422 with its code, any other error to 500 | 422 with code | integration | prepare/route.test.ts ("maps a ControlError (no target) to 422 with its code")
+- [control-plane-api-routes.478] `POST /api/control/prepare` calls `startDocPrep(getSpawner())`, appends a `prepare/started` info notification, returns `{ok:true, pid}` | 200, startDocPrep called once | integration | prepare/route.test.ts ("starts document preparation and returns the pid")
+- [control-plane-api-routes.479] `POST /api/control/prepare` an `already_running` ControlError maps to 409 (+ a `prepare/failed` error notification) | 409, code already_running | integration | prepare/route.test.ts ("maps an already_running refusal to 409")
+- [control-plane-api-routes.480] `POST /api/control/prepare` any other ControlError maps to 422; a non-ControlError throw maps to 500, each with a `prepare/failed` notification | correct status split | integration | prepare/route.test.ts ("maps other ControlErrors ... to 422")
+
+### lib/control.ts (document preparation)
+
+- [control-plane-api-routes.481] `readDocPrepReport` reads `.vivicy/development/reports/doc-prep-report.json`, returns null when absent, surfaces the report verbatim otherwise | report or null | unit | control.test.ts ("readDocPrepReport returns null when the stage has not run and the report verbatim otherwise")
+- [control-plane-api-routes.482] `startDocPrep` spawns `prepare-docs.ts` detached with the target + runtime + settings env, claims the byte-compatible `doc-prep.lock` (wx), returns `{pid}` | spawnDetached called with prepare-docs.ts; lock under `projects/<key>/` | unit | control.test.ts ("startDocPrep spawns prepare-docs.ts detached and claims the doc-prep lock")
+- [control-plane-api-routes.483] `startDocPrep` refuses `already_running` while a fresh in-flight report (classifying/extracting/placing, updated within DOC_PREP_STALE_MS) exists, without calling spawnDetached | throws already_running; 0 spawnDetached calls | unit | control.test.ts ("startDocPrep refuses while a fresh in-flight report says preparation is running")
+- [control-plane-api-routes.484] `startDocPrep` refuses via the separate `doc-prep.lock` file (TOCTOU wx guard) even when the report is stale/absent, and clears a dead-pid lock to let a fresh claim succeed | second concurrent caller throws already_running from the lock; stale lock reclaimed | unit | GAP (mirrors the skills-lock TOCTOU gap .74/.75)
+- [control-plane-api-routes.485] `startDocPrep` throws `missing_target` when targetRoot doesn't exist and `missing_script` when `prepare-docs.ts` is absent | throws the mapped code | unit | GAP (mirrors startSkillsInstall .77/.78)
 
 ### app/api/control/cycle/route.ts
 
@@ -2730,6 +2791,7 @@ Scope: the Playwright e2e specs and their shared infra (config, global-setup, he
 - [e2e-test-infra-rehearsal.295] Re-extraction over the evolved canonical with FAKE agent legs + REAL gates | `status green`, `uncovered_lines===0`, the new doc covered, committed, clean tree | e2e-process | dev-rehearsal.ts ("feature-cycle: re-extraction green over the EVOLVED canonical (fake agents, real gates)")
 - [e2e-test-infra-rehearsal.296] The re-freeze is a MINOR bump, `approval_ref === cycle.id`, and the prior baseline is SUPERSEDED (never overwritten) | version bumped, approval_ref matches, prior `superseded.by_baseline_id === new id` | e2e-process | dev-rehearsal.ts ("feature-cycle: freeze is a MINOR bump, approval_ref = cycle id, prior baseline superseded")
 - [e2e-test-infra-rehearsal.297] The freeze CLOSED the cycle mechanically (P1) — the state file is gone | `spec-cycle.json` absent, `isSpecCycleOpen` false | e2e-process | dev-rehearsal.ts ("feature-cycle: freeze CLOSED the cycle mechanically (state file gone)")
+- [e2e-test-infra-rehearsal.310] Document-preparation scenario (the FIRST pipeline stage) on an isolated governed temp with a mixed import batch (one clean English `canonical/spec.md` + one French `cahier.txt`, manifest language `eng`): `prepareDocs` with a fake leg places the clean canonical untouched-in-content, explodes/translates the messy doc into `canonical/` via the leg, keeps the uploads byte-immutable, cleans the scratch dir, and reports phase green with the leg receiving the manifest language | phase green; clean+exploded placed; uploads immutable; scratch gone | e2e-process | dev-rehearsal.ts ("doc-prep (first stage): mixed batch prepared — clean canonical placed, messy doc exploded/translated via the leg, uploads immutable, scratch cleaned")
 
 ### Area cross-notes
 
@@ -2858,6 +2920,7 @@ Area: extraction-gates. Scope: `factory/extract-issues.ts`, `factory/semantic-ex
 - [extraction-gates.291] NEVER a reuse-close: a still-valid reused baseline with an open cycle does NOT clear the cycle (closure is gated on `froze`) — instead it takes the refuse-if-unchanged throw | cycle stays open on the reuse path | integration | GAP
 - [extraction-gates.292] refreeze path closes the cycle: mid-loop `verifyFrozenManifest` fail → re-freeze with `resolveFreezeVersion` + `approvalRef=openCycle.id`; if still open afterward, `clearSpecCycle` + `cycle_closed_by_freeze` | cycle cleared on the refreeze branch too | integration | GAP
 - [extraction-gates.293] `defaultRunFreeze` passes `approvalRef` through to `--approval-ref`, falling back to `vivicy-extract-<ISO>` when absent | correct arg on cycle and non-cycle freezes | unit | GAP
+- [extraction-gates.295] `maybeRunDocPrep` at the extract-issues.ts CLI entry auto-runs the document-preparation stage BEFORE `extractIssues()` (so prep's canonical outputs land before `commitSpecSnapshot`+freeze), staleness-gated via `docPrepStageNeeded(latestCompleteBatch, report)`, non-fatal on a failed/absent prep; it is the shared spawn point both `runExtract` (app) and `cmdExtract` (CLI) hit | prep spawned before the freeze when the latest batch is unprepared; skipped otherwise | integration | GAP (the staleness predicate `docPrepStageNeeded` is unit-covered in prepare-docs.test.ts; the CLI-entry spawn wiring itself is not directly asserted, mirroring the supervisor's skills-spawn GAP)
 - [extraction-gates.294] `recordExtractedGateCommand` (run on green before commitCorpus): fills the vivicy.json `null` sentinel from the extractor's structured `.vivicy/development/reports/extraction-gate-command.json` when it states a real command (preserving other fields); preserves the sentinel when there is no report or an explicit `null`; NEVER overrides an already-established command | fills / preserves / never overrides | unit | extract-issues.test.ts ("recordExtractedGateCommand — machine-fills gateCommand from the extractor's structured output")
 
 ### factory/semantic-extraction-check.ts
@@ -3867,13 +3930,13 @@ Area: extraction-gates. Scope: `factory/extract-issues.ts`, `factory/semantic-ex
 
 ### components/pipeline/pipeline-stages.ts
 
-- [pipeline-notifications-agents-ui.1] PIPELINE_STAGES contains exactly the 14 stages S0..S12 with SK inserted between S7 and S8, in that order | array equals the fixed id sequence | unit | pipeline-stages.test.ts
-- [pipeline-notifications-agents-ui.2] The non_loop/dev_loop boundary sits exactly between S1 and S2 | S0,S1 side=non_loop; S2..S12 side=dev_loop | unit | pipeline-stages.test.ts
-- [pipeline-notifications-agents-ui.3] Only S6, SK, S9 carry a `retryStage` (extract/skills/dev respectively), nothing else | retryable stage id list equals ["S6","SK","S9"] | unit | pipeline-stages.test.ts
+- [pipeline-notifications-agents-ui.1] PIPELINE_STAGES contains exactly the 15 stages: SP inserted first in the dev-loop (between S1 and S2) and SK between S7 and S8, in that order | array equals the fixed id sequence | unit | pipeline-stages.test.ts
+- [pipeline-notifications-agents-ui.2] The non_loop/dev_loop boundary sits exactly between S1 and SP (the first prepared stage) | S0,S1 side=non_loop; SP,S2..S12 side=dev_loop | unit | pipeline-stages.test.ts
+- [pipeline-notifications-agents-ui.3] Only SP, S6, SK, S9 carry a `retryStage` (prepare/extract/skills/dev respectively), nothing else | retryable stage id list equals ["SP","S6","SK","S9"] | unit | pipeline-stages.test.ts
 - [pipeline-notifications-agents-ui.4] No stage object carries a `label` property (labels live in i18n catalog, not this module) | `"label" in stage` is false for every stage | unit | pipeline-stages.test.ts
-- [pipeline-notifications-agents-ui.5] Each stage's `marker` matches the stage typing table exactly (user/agent/mixed per stage) | full marker map equals expected dict | unit | pipeline-stages.test.ts
+- [pipeline-notifications-agents-ui.5] Each stage's `marker` matches the stage typing table exactly (user/agent/mixed per stage, SP=mixed) | full marker map equals expected dict | unit | pipeline-stages.test.ts
 - [pipeline-notifications-agents-ui.6] MARKER_GLYPH has an entry for every marker kind (user 🖥️, agent 🤖, mixed 🖥️🤖) | glyph lookup never undefined for a valid marker | unit | pipeline-stages.test.ts
-- [pipeline-notifications-agents-ui.7] deriveStageStates(null, null) with no skills arg returns every stage "pending" | all 14 values === "pending" | unit | pipeline-stages.test.ts
+- [pipeline-notifications-agents-ui.7] deriveStageStates(null, null) with no skills arg returns every stage "pending" | all 15 values === "pending" | unit | pipeline-stages.test.ts
 - [pipeline-notifications-agents-ui.8] deriveStageStates(null, null, null) explicit-null skills also returns all pending (no crash on null third arg) | no throw, SK "pending" | unit | GAP (only the 2-arg null/null case and the explicit-null-third-arg-with-non-null-extraction case are tested, not null/null/null together)
 - [pipeline-notifications-agents-ui.9] reachedDevLoop is true and S0/S1 flip green when extraction is non-null even with phase absent (e.g. `{}`) | S0/S1 green even if `.phase` is undefined | unit | GAP (test only exercises `{ phase: "green" }`, not an extraction object with no phase key)
 - [pipeline-notifications-agents-ui.10] reachedDevLoop is true when extraction is null but status.issues_total > 0 (dev status outlived extraction file) | S0/S1 green from status alone | unit | GAP (only extraction-driven branch of `reachedDevLoop` is tested; the `status?.issues_total ?? 0) > 0` OR-branch has no direct test)
@@ -3908,6 +3971,13 @@ Area: extraction-gates. Scope: `factory/extract-issues.ts`, `factory/semantic-ex
 - [pipeline-notifications-agents-ui.39] S11 (CRs) is NEVER set by deriveStageStates under any input combination — it has no observable signal in this derivation | S11 always "pending" regardless of status/extraction/skills | unit | pipeline-stages.test.ts (asserted for the done>=total case; not asserted across other branches, e.g. red/running paths — minor gap)
 - [pipeline-notifications-agents-ui.40] done === total === 0 (total is 0, so hasIssues is false) never reaches the S12 green branch (`total > 0` guard) | S12 stays "pending" | unit | GAP (explicit 0/0 boundary for the S12 guard is untested; only exercised implicitly via "no status" cases)
 - [pipeline-notifications-agents-ui.41] Huge issue counts (e.g. issues_total: 100000, issues_done: 100000) still resolve done>=total correctly (no overflow/precision issue) | S8,S9,S10,S12 green | unit | GAP
+- [pipeline-notifications-agents-ui.242] SP stays "pending" with no doc-prep report (fourth arg omitted or explicit null) | SP === "pending" | unit | pipeline-stages.test.ts
+- [pipeline-notifications-agents-ui.243] SP pulses "running" for each of the 3 DOC_PREP_RUNNING_PHASES individually (classifying, extracting, placing) | SP === "running" for all three | unit | pipeline-stages.test.ts
+- [pipeline-notifications-agents-ui.244] SP is "green" on docPrep.phase === "green" AND on "skipped" (honest "nothing to prepare", not a failure) | SP === "green" for both | unit | pipeline-stages.test.ts
+- [pipeline-notifications-agents-ui.245] SP is "red" on docPrep.phase === "failed" | SP === "red" | unit | pipeline-stages.test.ts
+- [pipeline-notifications-agents-ui.246] An unrecognized docPrep.phase string leaves SP "pending" rather than guessing | SP === "pending" | unit | pipeline-stages.test.ts
+- [pipeline-notifications-agents-ui.247] A doc-prep report with any phase counts as reaching the dev-loop: S0/S1 flip green even with null extraction and no issues | S0 === S1 === "green" | unit | pipeline-stages.test.ts
+- [pipeline-notifications-agents-ui.248] applyDocPrepStates is a no-op (early return) when docPrep is null or docPrep.phase is falsy | SP unchanged ("pending") | unit | pipeline-stages.test.ts (covered via the "everything pending" and null-fourth-arg cases)
 
 ### components/pipeline/pipeline-stages.test.ts
 
@@ -3915,8 +3985,8 @@ Area: extraction-gates. Scope: `factory/extract-issues.ts`, `factory/semantic-ex
 
 ### components/pipeline/pipeline-widget.tsx
 
-- [pipeline-notifications-agents-ui.43] Widget renders all 14 stage nodes (`[data-stage="…"]`) including SK when `open` | all 14 `data-stage` nodes present | e2e-ui | pipeline-widget.test.tsx
-- [pipeline-notifications-agents-ui.44] The non_loop/dev_loop boundary marker (`[data-boundary]`) renders exactly between the S1 and S2 nodes in DOM order | order[boundaryIndex-1]==="S1", order[boundaryIndex+1]==="S2" | e2e-ui | pipeline-widget.test.tsx
+- [pipeline-notifications-agents-ui.43] Widget renders all 15 stage nodes (`[data-stage="…"]`) including SP and SK when `open` | all 15 `data-stage` nodes present | e2e-ui | pipeline-widget.test.tsx
+- [pipeline-notifications-agents-ui.44] The non_loop/dev_loop boundary marker (`[data-boundary]`) renders exactly between the S1 and SP nodes in DOM order | order[boundaryIndex-1]==="S1", order[boundaryIndex+1]==="SP" | e2e-ui | pipeline-widget.test.tsx
 - [pipeline-notifications-agents-ui.236] The opened strip is clamped to the card (`max-w-full` on the inner content div): the strip's `shrink-0` chips have a ~1100px min-content width which would otherwise size the item PAST the outer `max-w` (intrinsic sizing ignores descendants' max-width) — on a phone that overflow makes mobile Chromium ENLARGE the layout viewport (innerWidth 412 → 768) and flip `useIsMobile()`/`md:` to desktop mid-session | opened strip scrolls inside `overflow-x-auto`; `window.innerWidth` stays at device width | e2e-ui | GAP (the widget is trigger-less/dormant in the app so this real-browser viewport guard is no longer reachable in-app; the clamp + its invariant comment survive for a future host that mounts the widget `open`, and must be re-covered by an e2e then)
 - [pipeline-notifications-agents-ui.45] No boundary marker renders anywhere else in the strip (only one dashed separator, between S1/S2) | exactly one `[data-boundary]` node | e2e-ui | GAP (test checks position of the one boundary found, not that there is exactly one / none elsewhere)
 - [pipeline-notifications-agents-ui.46] ChevronRight separator renders between consecutive non-boundary stages (index>0 && !boundary) | chevrons present between stage pairs other than the boundary pair | e2e-ui | GAP
@@ -3924,6 +3994,9 @@ Area: extraction-gates. Scope: `factory/extract-issues.ts`, `factory/semantic-ex
 - [pipeline-notifications-agents-ui.52] `[data-stage-state]` reflects "running" for S6 during an authoring extraction phase | attribute === "running" | e2e-ui | pipeline-widget.test.tsx
 - [pipeline-notifications-agents-ui.53] `[data-stage-state]` reflects "red" for S6 on extraction_blocked | attribute === "red" | e2e-ui | pipeline-widget.test.tsx
 - [pipeline-notifications-agents-ui.54] SK reflects running (auditing) then red (failed) as the skills report is repolled/re-emitted | sequential attribute transitions | e2e-ui | pipeline-widget.test.tsx
+- [pipeline-notifications-agents-ui.249] SP reflects running (classifying) then red (failed) as the doc-prep report is repolled/re-emitted from /api/control/prepare | sequential attribute transitions | e2e-ui | pipeline-widget.test.tsx
+- [pipeline-notifications-agents-ui.250] Clicking Retry on SP opens the confirm dialog and POSTs `{stage:"prepare"}` to /api/control/retry-stage | POST body === `{stage:"prepare"}` | e2e-ui | GAP (SP retry dialog description is wired in i18n and the retry POST path is covered generically; an SP-specific click flow is not yet asserted)
+- [pipeline-notifications-agents-ui.251] While `open`, the widget also fetches /api/control/prepare alongside extract and skills, and feeds the report as the 4th arg of deriveStageStates | prepare endpoint hit; SP state derived from it | e2e-ui | pipeline-widget.test.tsx
 - [pipeline-notifications-agents-ui.55] S9 shows red on a failing gate mid-run (not running, done<total, gates.fail>0) | attribute === "red" | e2e-ui | pipeline-widget.test.tsx
 - [pipeline-notifications-agents-ui.56] While `open`, the widget fires fetchReports for BOTH /api/control/extract and /api/control/skills as soon as the effect engages, before any SSE frame arrives | both endpoints hit at least once once open | integration | GAP (fetch calls are stubbed/asserted only for retry-stage POSTs and only indirectly for the report fetches; no test explicitly counts the initial fetchReports calls)
 - [pipeline-notifications-agents-ui.57] While `open`, fetchReports is polled every POLL_INTERVAL_MS (10s) via setInterval, independent of SSE activity | fetch call count increases over fake-timer advances | integration | GAP (no fake-timer test advances 10s+ to prove the poll interval fires)
