@@ -232,3 +232,18 @@ describe("save guard", () => {
     expect(screen.getByText(/must run different agents/i)).toBeInTheDocument()
   })
 })
+
+describe("role legend faces", () => {
+  test("the implementer legend shows the nonna face and the reviewer legend the nonno face", async () => {
+    const user = userEvent.setup()
+    renderWithIntl(<SettingsDialog />)
+    await openDialog(user)
+
+    const legends = [...screen.getByRole("dialog").querySelectorAll("legend")]
+    const implementer = legends.find((l) => l.textContent?.includes("Implementer"))
+    const reviewer = legends.find((l) => l.textContent?.includes("Reviewer"))
+
+    expect(implementer?.querySelector("img")?.getAttribute("src")).toContain("la_nonna_on")
+    expect(reviewer?.querySelector("img")?.getAttribute("src")).toContain("il_nonno_on")
+  })
+})

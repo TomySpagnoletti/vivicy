@@ -884,7 +884,7 @@ describe("ViviPanel — notifications tab", () => {
 
   test("Ask Vivi lands on the Chat tab with the composer pre-filled — the user presses send", async () => {
     const fetchMock = stubFetch({
-      notifications: notificationRows({ message: "extraction blocked after retries" }),
+      notifications: notificationRows({ level: "error", message: "extraction blocked after retries" }),
     })
     vi.stubGlobal("fetch", fetchMock)
     const user = userEvent.setup()

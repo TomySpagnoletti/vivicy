@@ -8,6 +8,7 @@ import {
   GitPullRequestArrow,
   Info,
   Loader2,
+  Sparkles,
   TriangleAlert,
   X,
 } from "lucide-react"
@@ -37,7 +38,6 @@ import {
   CardTitle,
 } from "@/components/ui/card"
 import { Marker, MarkerContent, MarkerIcon } from "@/components/ui/marker"
-import { NonnaIcon } from "@/components/chat/nonna-icon"
 
 const POLL_INTERVAL_MS = 10_000
 
@@ -47,6 +47,12 @@ const LEVEL_ICON: Record<string, React.ReactNode> = {
   warn: <TriangleAlert className="size-3.5 text-warning" />,
   success: <CircleCheck className="size-3.5 text-primary" />,
   info: <Info className="size-3.5 text-muted-foreground" />,
+}
+
+const ACTIONABLE_LEVELS = new Set(["error", "warning", "warn"])
+
+export function isActionableNotification(notification: Notification): boolean {
+  return ACTIONABLE_LEVELS.has(notification.level ?? "")
 }
 
 /** Sole visible-list filter; badge counts reuse it too, so it must stay the one source of truth. */
@@ -296,15 +302,17 @@ function NotificationRow({
         ) : null}
       </div>
       <p className="break-words text-foreground">{text}</p>
-      <Button
-        variant="ghost"
-        size="xs"
-        onClick={() => onAskVivi(text)}
-        className="self-start text-muted-foreground hover:text-foreground"
-      >
-        <NonnaIcon className="size-4" />
-        {t("askVivi")}
-      </Button>
+      {isActionableNotification(notification) ? (
+        <Button
+          variant="default"
+          size="xs"
+          onClick={() => onAskVivi(text)}
+          className="self-start rounded-full"
+        >
+          <Sparkles />
+          {t("askVivi")}
+        </Button>
+      ) : null}
     </li>
   )
 }
