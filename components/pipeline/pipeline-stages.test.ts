@@ -23,24 +23,26 @@ function status(overrides: Partial<RunStatus> = {}): RunStatus {
   }
 }
 
-describe("PIPELINE_STAGES — full stage list + SK", () => {
-  it("has exactly the 14 stages S0..S12 with SK between S7 and S8, in order", () => {
+describe("PIPELINE_STAGES — full stage list + SP + SK", () => {
+  it("has exactly the 15 stages with SP first in the dev-loop (before S2) and SK between S7 and S8, in order", () => {
     expect(PIPELINE_STAGES.map((s) => s.id)).toEqual([
-      "S0", "S1", "S2", "S3", "S4", "S5", "S6", "S7", "SK", "S8", "S9", "S10", "S11", "S12",
+      "S0", "S1", "SP", "S2", "S3", "S4", "S5", "S6", "S7", "SK", "S8", "S9", "S10", "S11", "S12",
     ])
   })
 
-  it("puts the P7 boundary exactly between S1 (non_loop) and S2 (dev_loop)", () => {
+  it("puts the P7 boundary exactly between S1 (non_loop) and SP (dev_loop, the first prepared stage)", () => {
     const sides = Object.fromEntries(PIPELINE_STAGES.map((s) => [s.id, s.side]))
     expect(sides.S0).toBe("non_loop")
     expect(sides.S1).toBe("non_loop")
+    expect(sides.SP).toBe("dev_loop")
     expect(sides.S2).toBe("dev_loop")
     expect(sides.S12).toBe("dev_loop")
   })
 
-  it("assigns the honest retry set (S6 extract, SK skills, S9 dev) and nothing else", () => {
+  it("assigns the honest retry set (SP prepare, S6 extract, SK skills, S9 dev) and nothing else", () => {
     const retryable = PIPELINE_STAGES.filter((s) => s.retryStage).map((s) => s.id)
-    expect(retryable).toEqual(["S6", "SK", "S9"])
+    expect(retryable).toEqual(["SP", "S6", "SK", "S9"])
+    expect(PIPELINE_STAGES.find((s) => s.id === "SP")?.retryStage).toBe("prepare")
     expect(PIPELINE_STAGES.find((s) => s.id === "SK")?.retryStage).toBe("skills")
   })
 
@@ -53,6 +55,7 @@ describe("PIPELINE_STAGES — full stage list + SK", () => {
     expect(marker).toEqual({
       S0: "user",
       S1: "mixed",
+      SP: "mixed",
       S2: "agent",
       S3: "agent",
       S4: "user",
@@ -191,6 +194,36 @@ describe("deriveStageStates — honest state truth, no fake progress", () => {
 
   it("an unknown skills phase leaves SK pending rather than guessing", () => {
     expect(deriveStageStates(null, null, { phase: "someday-phase" }).SK).toBe("pending")
+  })
+
+  it("SP stays pending when no doc-prep report exists", () => {
+    expect(deriveStageStates(null, null).SP).toBe("pending")
+    expect(deriveStageStates(null, null, null, null).SP).toBe("pending")
+  })
+
+  it("SP pulses running for every in-flight doc-prep phase", () => {
+    for (const phase of ["classifying", "extracting", "placing"]) {
+      expect(deriveStageStates(null, null, null, { phase }).SP).toBe("running")
+    }
+  })
+
+  it("SP is green on a green prep AND on skipped (honest 'nothing to prepare')", () => {
+    expect(deriveStageStates(null, null, null, { phase: "green" }).SP).toBe("green")
+    expect(deriveStageStates(null, null, null, { phase: "skipped" }).SP).toBe("green")
+  })
+
+  it("SP is red on a failed prep", () => {
+    expect(deriveStageStates(null, null, null, { phase: "failed" }).SP).toBe("red")
+  })
+
+  it("a doc-prep report on its own flips S0/S1 green (the pipeline was reached without extraction yet)", () => {
+    const states = deriveStageStates(null, null, null, { phase: "green" })
+    expect(states.S0).toBe("green")
+    expect(states.S1).toBe("green")
+  })
+
+  it("an unknown doc-prep phase leaves SP pending rather than guessing", () => {
+    expect(deriveStageStates(null, null, null, { phase: "someday-phase" }).SP).toBe("pending")
   })
 
   it("a paused mid-way run (0 < done < total, not running, no failing gate) leaves S8-S10 pending — never a fabricated green (P1; resolveRunPhase calls this exact condition 'idle')", () => {

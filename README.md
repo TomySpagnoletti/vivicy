@@ -57,10 +57,10 @@ node factory/cli.ts status  --target /abs/path/to/your/project --json
 
 ```sh
 node factory/cli.ts rehearsal --dry
-# → REHEARSAL PASSED (18/18 stages)
+# → REHEARSAL PASSED (all stages green)
 ```
 
-The rehearsal exercises the whole chain (freeze → extract → gates → loop → ledger → map) against an isolated throwaway fixture with real tooling and fake agents — a fast proof the factory is wired correctly on your machine.
+The rehearsal exercises the whole chain (prepare docs → freeze → extract → gates → loop → ledger → map) against an isolated throwaway fixture with real tooling and fake agents — a fast proof the factory is wired correctly on your machine.
 
 ### Fake missing agent CLIs — even when they're installed
 

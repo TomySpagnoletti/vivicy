@@ -31,9 +31,12 @@ const IDLE_STATUS = {
   gates: { pass: 0, fail: 0 },
 }
 
-function stubFetch(extractionStatus: unknown = null, skillsReport: unknown = null) {
+function stubFetch(extractionStatus: unknown = null, skillsReport: unknown = null, docPrepReport: unknown = null) {
   return vi.fn<typeof fetch>(async (input) => {
     const url = String(input)
+    if (url.includes("/api/control/prepare")) {
+      return new Response(JSON.stringify({ ok: true, report: docPrepReport }), { status: 200 })
+    }
     if (url.includes("/api/control/extract") && !url.includes("retry-stage")) {
       return new Response(JSON.stringify({ ok: true, status: extractionStatus }), { status: 200 })
     }
@@ -69,16 +72,16 @@ function renderWidget({ open = true }: { open?: boolean } = {}) {
 }
 
 describe("PipelineWidget — renders the full stage strip", () => {
-  test("renders all 14 stages (incl. SK) when open", async () => {
+  test("renders all 15 stages (incl. SP and SK) when open", async () => {
     renderWidget()
     await act(() => FakeEventSource.last?.emit({ ...IDLE_STATUS, run_active: true, issues_total: 8, issues_done: 2 }))
 
-    for (const id of ["S0", "S1", "S2", "S3", "S4", "S5", "S6", "S7", "SK", "S8", "S9", "S10", "S11", "S12"]) {
+    for (const id of ["S0", "S1", "SP", "S2", "S3", "S4", "S5", "S6", "S7", "SK", "S8", "S9", "S10", "S11", "S12"]) {
       await waitFor(() => expect(document.querySelector(`[data-stage="${id}"]`)).toBeTruthy())
     }
   })
 
-  test("renders the non-loop/dev-loop boundary between S1 and S2", async () => {
+  test("renders the non-loop/dev-loop boundary between S1 and SP (the first prepared stage)", async () => {
     renderWidget()
     await act(() => FakeEventSource.last?.emit({ ...IDLE_STATUS, run_active: true }))
     await waitFor(() => expect(document.querySelector("[data-boundary]")).toBeTruthy())
@@ -88,7 +91,7 @@ describe("PipelineWidget — renders the full stage strip", () => {
     const order = children.map((el) => el.getAttribute("data-stage") ?? "BOUNDARY")
     const boundaryIndex = order.indexOf("BOUNDARY")
     expect(order[boundaryIndex - 1]).toBe("S1")
-    expect(order[boundaryIndex + 1]).toBe("S2")
+    expect(order[boundaryIndex + 1]).toBe("SP")
   })
 
   test("trigger-less: renders nothing and opens no status stream when not open", async () => {
@@ -131,6 +134,21 @@ describe("PipelineWidget — state classes reflect the derived truth", () => {
     await act(() => FakeEventSource.last?.emit({ ...IDLE_STATUS, run_active: true }))
     await waitFor(() =>
       expect(document.querySelector('[data-stage="SK"]')).toHaveAttribute("data-stage-state", "red")
+    )
+  })
+
+  test("SP reflects the doc-prep report: running while classifying, red on failed", async () => {
+    vi.stubGlobal("fetch", stubFetch(null, null, { phase: "classifying" }))
+    renderWidget()
+    await act(() => FakeEventSource.last?.emit({ ...IDLE_STATUS, run_active: true }))
+    await waitFor(() =>
+      expect(document.querySelector('[data-stage="SP"]')).toHaveAttribute("data-stage-state", "running")
+    )
+
+    vi.stubGlobal("fetch", stubFetch(null, null, { phase: "failed" }))
+    await act(() => FakeEventSource.last?.emit({ ...IDLE_STATUS, run_active: true }))
+    await waitFor(() =>
+      expect(document.querySelector('[data-stage="SP"]')).toHaveAttribute("data-stage-state", "red")
     )
   })
 

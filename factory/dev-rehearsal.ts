@@ -325,6 +325,7 @@ async function main(): Promise<void> {
   record("closure: clean tree (only gitignored untracked)", porcelain === "", porcelain ? `dirty:\n${porcelain}` : "clean");
 
   await runFeatureCycleStages(temp);
+  await runDocPrepScenario();
 
   writeReport({ dry, temp, processed, verified, blocked, totalIssues, doneCount, verifiedStates: verifiedStates.length, passingGates });
   record("write method-rehearsal-report.md", existsSync(reportPath), reportPath);
@@ -466,6 +467,62 @@ interface CycleIssueIndex {
   manifest_hash: string;
   document_set_hash: string;
   issues: CycleIssueEntry[];
+}
+
+// The FIRST pipeline stage on a fresh mixed import batch: a clean canonical doc is placed untouched, a messy non-dominant doc is exploded/translated through the (faked) leg into canonical form, uploads stay immutable.
+async function runDocPrepScenario(): Promise<void> {
+  const prep = mkdtempSync(join(tmpdir(), "vivicy-rehearsal-prep-"));
+  try {
+    const batchId = "2026-07-05T08-00-00-000Z";
+    const batchDir = join(prep, ".vivicy/uploads", batchId);
+    mkdirSync(join(batchDir, "canonical"), { recursive: true });
+    const cleanDoc = "# Catalog\n\nThe product lets a user manage a catalog of items with search and pagination across the whole dataset.\n";
+    const messyDoc = "Le produit permet à un utilisateur de gérer un catalogue d'articles avec recherche et pagination sur tout le jeu de données.";
+    writeFileSync(join(batchDir, "canonical", "spec.md"), cleanDoc);
+    writeFileSync(join(batchDir, "cahier.txt"), messyDoc);
+    writeFileSync(
+      join(batchDir, "manifest.json"),
+      JSON.stringify(
+        {
+          batchId,
+          createdAt: new Date().toISOString(),
+          language: "eng",
+          files: [
+            { path: "cahier.txt", size: messyDoc.length, sha256: "x" },
+            { path: "canonical/spec.md", size: cleanDoc.length, sha256: "y" },
+          ],
+        },
+        null,
+        2,
+      ),
+    );
+
+    const prepMod = await import(pathToFileURL(factoryScript("prepare-docs.ts")).href);
+    let legLanguage = "";
+    const report = await prepMod.prepareDocs({
+      repoRoot: prep,
+      spawnLeg: async ({ inputDir, outputDir, language }: { inputDir: string; outputDir: string; language: string }) => {
+        legLanguage = language;
+        void inputDir;
+        mkdirSync(join(outputDir, "canonical"), { recursive: true });
+        writeFileSync(join(outputDir, "canonical", "produit.md"), "# Product\n\nExploded and translated canonical document.\n");
+      },
+    });
+
+    const cleanPlaced = existsSync(join(prep, ".vivicy/canonical/spec.md"));
+    const explodedPlaced = existsSync(join(prep, ".vivicy/canonical/produit.md"));
+    const uploadsImmutable =
+      readFileSync(join(batchDir, "canonical", "spec.md"), "utf8") === cleanDoc &&
+      readFileSync(join(batchDir, "cahier.txt"), "utf8") === messyDoc;
+    const scratchGone = !existsSync(join(prep, ".vivicy/development/reports/doc-prep-scratch"));
+    record(
+      "doc-prep (first stage): mixed batch prepared — clean canonical placed, messy doc exploded/translated via the leg, uploads immutable, scratch cleaned",
+      report?.phase === "green" && legLanguage === "eng" && cleanPlaced && explodedPlaced && uploadsImmutable && scratchGone,
+      `phase ${report?.phase ?? "?"}; leg lang ${legLanguage}; placed clean=${cleanPlaced} exploded=${explodedPlaced}; uploads immutable=${uploadsImmutable}`,
+    );
+  } finally {
+    rmSync(prep, { recursive: true, force: true });
+  }
 }
 
 async function runFeatureCycleStages(temp: string): Promise<void> {

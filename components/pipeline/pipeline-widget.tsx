@@ -7,6 +7,7 @@ import { toast } from "sonner"
 
 import type { RunStatus } from "@/lib/run-status"
 import type { SkillsReport } from "@/lib/skills-report"
+import type { DocPrepReport } from "@/lib/doc-prep-report"
 import { errorText } from "@/lib/i18n-errors"
 import { cn } from "@/lib/utils"
 import {
@@ -56,18 +57,29 @@ interface SkillsReportResponse {
   report?: SkillsReport | null
 }
 
+interface DocPrepReportResponse {
+  ok?: boolean
+  report?: DocPrepReport | null
+}
+
 type RetryableStage = NonNullable<(typeof PIPELINE_STAGES)[number]["retryStage"]>
 
-// Polls /api/control/extract and /api/control/skills — a second read of already-existing state files, never a new source of truth.
+// Polls /api/control/prepare, /api/control/extract and /api/control/skills — a second read of already-existing state files, never a new source of truth.
 export function PipelineWidget({ open = false }: { open?: boolean } = {}) {
   const t = useTranslations("pipeline")
   const tErrors = useTranslations("errors")
   const [status, setStatus] = useState<RunStatus | null>(null)
   const [extraction, setExtraction] = useState<ExtractionStatusLike | null>(null)
   const [skills, setSkills] = useState<SkillsReport | null>(null)
+  const [docPrep, setDocPrep] = useState<DocPrepReport | null>(null)
   const [retryPending, setRetryPending] = useState<RetryableStage | null>(null)
 
   const fetchReports = useCallback(async () => {
+    try {
+      const res = await fetch("/api/control/prepare", { cache: "no-store" })
+      const body = (await res.json().catch(() => ({}))) as DocPrepReportResponse
+      if (res.ok && body.ok !== false) setDocPrep(body.report ?? null)
+    } catch {}
     try {
       const res = await fetch("/api/control/extract", { cache: "no-store" })
       const body = (await res.json().catch(() => ({}))) as ExtractStatusResponse
@@ -136,7 +148,7 @@ export function PipelineWidget({ open = false }: { open?: boolean } = {}) {
 
   if (!open) return null
 
-  const states = deriveStageStates(status, extraction, skills)
+  const states = deriveStageStates(status, extraction, skills, docPrep)
 
   return (
     <div

@@ -1,5 +1,6 @@
 import type { RunStatus } from "@/lib/run-status"
 import type { SkillsReport } from "@/lib/skills-report"
+import type { DocPrepReport } from "@/lib/doc-prep-report"
 
 export type StageMarker = "user" | "agent" | "mixed"
 export type StageSide = "non_loop" | "dev_loop"
@@ -9,12 +10,13 @@ export interface PipelineStage {
   id: string
   marker: StageMarker
   side: StageSide
-  retryStage?: "extract" | "skills" | "dev"
+  retryStage?: "prepare" | "extract" | "skills" | "dev"
 }
 
 export const PIPELINE_STAGES: PipelineStage[] = [
   { id: "S0", marker: "user", side: "non_loop" },
   { id: "S1", marker: "mixed", side: "non_loop" },
+  { id: "SP", marker: "mixed", side: "dev_loop", retryStage: "prepare" },
   { id: "S2", marker: "agent", side: "dev_loop" },
   { id: "S3", marker: "agent", side: "dev_loop" },
   { id: "S4", marker: "user", side: "dev_loop" },
@@ -58,23 +60,37 @@ export interface ExtractionStatusLike {
 export function deriveStageStates(
   status: RunStatus | null,
   extraction: ExtractionStatusLike | null,
-  skills: SkillsReport | null = null
+  skills: SkillsReport | null = null,
+  docPrep: DocPrepReport | null = null
 ): Record<string, StageState> {
   const states: Record<string, StageState> = {}
   for (const stage of PIPELINE_STAGES) states[stage.id] = "pending"
 
-  // S0/S1 have no observable automatism; reaching the dev-loop is the only honest signal that they completed.
-  const reachedDevLoop = extraction !== null || (status?.issues_total ?? 0) > 0
+  // S0/S1 have no observable automatism; reaching the dev-loop (or having prepared docs) is the only honest signal that they completed.
+  const reachedDevLoop = extraction !== null || (status?.issues_total ?? 0) > 0 || Boolean(docPrep?.phase)
   if (reachedDevLoop) {
     states.S0 = "green"
     states.S1 = "green"
   }
 
+  applyDocPrepStates(states, docPrep)
   applyExtractionStates(states, extraction)
   applySkillsStates(states, skills)
   applyDevStates(states, status)
 
   return states
+}
+
+const DOC_PREP_RUNNING_PHASES = new Set(["classifying", "extracting", "placing"])
+
+function applyDocPrepStates(
+  states: Record<string, StageState>,
+  docPrep: DocPrepReport | null
+): void {
+  if (!docPrep?.phase) return
+  if (DOC_PREP_RUNNING_PHASES.has(docPrep.phase)) states.SP = "running"
+  else if (docPrep.phase === "green" || docPrep.phase === "skipped") states.SP = "green"
+  else if (docPrep.phase === "failed") states.SP = "red"
 }
 
 // New extraction phases must be added to EXTRACTION_RUNNING_PHASES and phaseToRunningStage, or they silently render as "pending".

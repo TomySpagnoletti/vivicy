@@ -24,6 +24,7 @@ import { pruneGitkeeps } from "../lib/skeleton.ts";
 import { clearSpecCycle, readSpecCycle } from "../lib/spec-cycle.ts";
 import { detectSpecKind, type SpecKind } from "../lib/spec-kind.ts";
 import { isGateCommandEstablished, loadProjectConfig, normalizeGateCommand, setGateCommand } from "./project-config.ts";
+import { DOC_PREP_REPORT_REL, docPrepStageNeeded, latestCompleteBatch } from "./prepare-docs.ts";
 
 const BASELINE_DIR = ".vivicy/baselines";
 const ISSUE_INDEX_REL = ".vivicy/development/issue-index.json";
@@ -929,6 +930,21 @@ function countIssues(repoRoot: string): number {
   }
 }
 
+// Document preparation is the FIRST pipeline stage: it turns the latest upload batch into canonical docs the freeze then snapshots, so it must run before extractIssues() (never after). Staleness-gated like the supervisor's skills auto-run; non-fatal.
+function maybeRunDocPrep(repoRoot: string): void {
+  const report = readJsonOrNull(resolve(repoRoot, DOC_PREP_REPORT_REL)) as { phase?: unknown; batch_id?: unknown } | null;
+  if (!docPrepStageNeeded(latestCompleteBatch(repoRoot), report)) return;
+  process.stdout.write("extract-issues: running the document-preparation stage (prepare-docs.ts) before the freeze\n");
+  const prep = spawnSync("node", [resolve(FACTORY_DIR, "prepare-docs.ts")], {
+    cwd: repoRoot,
+    stdio: "inherit",
+    env: { ...process.env, VIVICY_TARGET_ROOT: repoRoot },
+  });
+  if ((prep.status ?? 1) !== 0) {
+    process.stdout.write("extract-issues: document preparation did not go green (non-fatal, retryable); extraction proceeds on the canonical as-is\n");
+  }
+}
+
 const cliEntry = process.argv[1] ? resolve(process.argv[1]) : null;
 if (cliEntry === fileURLToPath(import.meta.url)) {
   const repoRoot = resolveTargetRoot();
@@ -938,6 +954,7 @@ if (cliEntry === fileURLToPath(import.meta.url)) {
     );
     process.exit(2);
   }
+  maybeRunDocPrep(repoRoot);
   extractIssues({ repoRoot })
     .then((result) => {
       console.log(result.summary);

@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { FACTORY_DIR, FACTORY_PROMPTS_DIR } from "./target-root.ts";
 
-const PROMPTS = ["implementer.md", "reviewer.md", "extractor.md", "extraction-verifier.md", "map-review.md", "change-request.md", "spike-prover.md", "spike-verifier.md", "cr-applier.md", "skill-scout.md"];
+const PROMPTS = ["implementer.md", "reviewer.md", "extractor.md", "extraction-verifier.md", "map-review.md", "change-request.md", "spike-prover.md", "spike-verifier.md", "cr-applier.md", "skill-scout.md", "doc-prep.md"];
 
 function readPrompt(name: string) {
   return readFileSync(join(FACTORY_PROMPTS_DIR, name), "utf8");
@@ -19,6 +19,17 @@ test("no prompt references a docs/governance/** method doc (target is lean)", ()
     );
     assert.ok(!/governance\/0[0-9]-/.test(text), `${name} cites a stale governance doc number`);
   }
+});
+
+test("doc-prep.md is self-contained and carries the language law, scratch-only writes, and the prepare-don't-judge boundary", () => {
+  const text = readPrompt("doc-prep.md");
+  assert.match(text, /SELF-CONTAINED/, "doc-prep.md must declare it is self-contained");
+  assert.match(text, /LEAN/, "doc-prep.md must note the target is lean");
+  assert.match(text, /dominant language/i, "doc-prep.md must state the manifest-language law");
+  assert.match(text, /TRANSLATE/, "doc-prep.md must instruct translation into the dominant language");
+  assert.match(text, /output directory/i, "doc-prep.md must confine writes to the leg's scratch output directory");
+  assert.match(text, /NOT.*modify.*uploads|uploads.*immutable|never.*uploads/i, "doc-prep.md must forbid touching uploads");
+  assert.match(text, /drift|coherence|contradiction/i, "doc-prep.md must state it does not judge corpus coherence");
 });
 
 test("implementer.md is self-contained: declares it carries the discipline, lists the gate-first steps", () => {
