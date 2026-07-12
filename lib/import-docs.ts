@@ -10,30 +10,12 @@ import { isGovernedRoot } from "@/lib/project"
 import type { CurrentProject } from "@/lib/project-types"
 import { deriveProjectName, resolveTargetDir, scaffoldProject, type ScaffoldMode } from "@/lib/scaffold"
 import { SUPPORTED_DOC_EXTENSIONS, ZIP_TRANSPORT_EXTENSION } from "@/lib/supported-extensions"
+import { extractScannableText } from "@/lib/text-extract"
 
 export const UPLOADS_DIR = path.join(".vivicy", "uploads")
 export const MANIFEST_FILE = "manifest.json"
 
 export const SUPPORTED_EXTENSIONS = new Set<string>(SUPPORTED_DOC_EXTENSIONS)
-
-const TEXT_LANGUAGE_EXTENSIONS = new Set([
-  ".md",
-  ".markdown",
-  ".txt",
-  ".html",
-  ".htm",
-  ".csv",
-  ".tsv",
-  ".json",
-  ".yaml",
-  ".yml",
-  ".xml",
-  ".adoc",
-  ".asciidoc",
-  ".rst",
-  ".tex",
-  ".eml",
-])
 
 const ZIP_EXTENSION = ZIP_TRANSPORT_EXTENSION
 const MAX_ZIP_DEPTH = 2
@@ -206,7 +188,9 @@ function walkFiles(dir: string): string[] {
   return out
 }
 
-function summarizeBatch(batchDir: string): { files: ManifestFile[]; language: string } {
+// Binary docs (docx/pdf/odt/rtf) carry no scannable text in their raw bytes; extract first, then detect, so a batch of
+// French .docx files never collapses to 'und'. Undetectable files add no weight, so any real language dominates noise.
+async function summarizeBatch(batchDir: string): Promise<{ files: ManifestFile[]; language: string }> {
   const files: ManifestFile[] = []
   const weights = new Map<string, number>()
   for (const abs of walkFiles(batchDir)) {
@@ -214,10 +198,10 @@ function summarizeBatch(batchDir: string): { files: ManifestFile[]; language: st
     if (rel === MANIFEST_FILE) continue
     const bytes = readFileSync(abs)
     files.push({ path: rel, size: bytes.length, sha256: sha256(bytes) })
-    if (TEXT_LANGUAGE_EXTENSIONS.has(extLower(rel))) {
-      const lang = franc(bytes.toString("utf8"))
-      weights.set(lang, (weights.get(lang) ?? 0) + bytes.length)
-    }
+    const text = await extractScannableText(extLower(rel), bytes)
+    if (text.trim().length === 0) continue
+    const lang = franc(text)
+    if (lang !== UNDETERMINED_LANGUAGE) weights.set(lang, (weights.get(lang) ?? 0) + text.length)
   }
   files.sort((a, b) => a.path.localeCompare(b.path))
   return { files, language: dominantLanguage(weights) }
@@ -261,12 +245,12 @@ function explodeOrThrow(entries: RawEntry[]): { accepted: AcceptedEntry[]; rejec
 }
 
 // Guard-less core shared by both entry points: mint → write → summarize → manifest → notify. A batch only ever lands under an already-governed root.
-function persistBatch(root: string, exploded: { accepted: AcceptedEntry[]; rejected: RejectedFile[] }): BatchResult {
+async function persistBatch(root: string, exploded: { accepted: AcceptedEntry[]; rejected: RejectedFile[] }): Promise<BatchResult> {
   const batchId = mintBatchId(root)
   const batchDir = path.join(root, UPLOADS_DIR, batchId)
   for (const file of exploded.accepted) writeBatchFile(batchDir, file.rel, file.bytes)
 
-  const { files, language } = summarizeBatch(batchDir)
+  const { files, language } = await summarizeBatch(batchDir)
   const manifest: BatchManifest = {
     batchId,
     createdAt: new Date().toISOString(),
@@ -285,7 +269,7 @@ function persistBatch(root: string, exploded: { accepted: AcceptedEntry[]; rejec
   return { batchId, targetPath: root, language, accepted: files, rejected: exploded.rejected }
 }
 
-export function importDocuments(input: { targetDir: unknown; entries: RawEntry[] }): ImportResult {
+export async function importDocuments(input: { targetDir: unknown; entries: RawEntry[] }): Promise<ImportResult> {
   if (!input.entries || input.entries.length === 0) {
     throw new ImportError("no files were uploaded", "no_files")
   }
@@ -300,11 +284,11 @@ export function importDocuments(input: { targetDir: unknown; entries: RawEntry[]
 
   const exploded = explodeOrThrow(input.entries)
   const scaffold = scaffoldProject({ targetDir: target, projectName: deriveProjectName(target) })
-  const batch = persistBatch(scaffold.project.root, exploded)
+  const batch = await persistBatch(scaffold.project.root, exploded)
   return { ...batch, mode: scaffold.mode, project: scaffold.project }
 }
 
-export function importIntoGoverned(input: { root: string; entries: RawEntry[] }): BatchResult {
+export async function importIntoGoverned(input: { root: string; entries: RawEntry[] }): Promise<BatchResult> {
   if (!input.entries || input.entries.length === 0) {
     throw new ImportError("no files were uploaded", "no_files")
   }

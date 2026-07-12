@@ -34,6 +34,8 @@ let prevFactoryRoot: string | undefined
 let prevTarget: string | undefined
 
 const ENGLISH = "The quick brown fox jumps over the lazy dog near the riverbank every single morning. ".repeat(6)
+const FRENCH =
+  "Le cahier des charges décrit précisément les exigences fonctionnelles du système de gestion des utilisateurs et des commandes pour chaque client. ".repeat(6)
 
 function u8(text: string): Uint8Array {
   return new Uint8Array(Buffer.from(text, "utf8"))
@@ -41,6 +43,16 @@ function u8(text: string): Uint8Array {
 
 function fileEntry(rel: string, text: string): RawEntry {
   return { rel, name: path.basename(rel), bytes: u8(text) }
+}
+
+function docx(paragraphs: string[]): Uint8Array {
+  const body = paragraphs.map((p) => `<w:p><w:r><w:t xml:space="preserve">${p}</w:t></w:r></w:p>`).join("")
+  const document = `<?xml version="1.0"?><w:document xmlns:w="x"><w:body>${body}</w:body></w:document>`
+  return zipSync({ "[Content_Types].xml": strToU8("<Types/>"), "word/document.xml": strToU8(document) })
+}
+
+function docxEntry(rel: string, paragraphs: string[]): RawEntry {
+  return { rel, name: path.basename(rel), bytes: docx(paragraphs) }
 }
 
 function targetPath(name: string): string {
@@ -78,21 +90,21 @@ afterEach(() => {
 })
 
 describe("governance guard", () => {
-  it("refuses a target that is already governed, before any write", () => {
+  it("refuses a target that is already governed, before any write", async () => {
     const target = targetPath("governed")
     mkdirSync(path.join(target, ".vivicy", "canonical"), { recursive: true })
     writeFileSync(path.join(target, ".vivicy", "canonical", "product.md"), "# untouched\n")
 
-    expect(() => importDocuments({ targetDir: target, entries: [fileEntry("a.md", "# hi\n")] })).toThrow(
-      expect.objectContaining({ code: "already_governed" })
-    )
+    await expect(importDocuments({ targetDir: target, entries: [fileEntry("a.md", "# hi\n")] })).rejects.toMatchObject({
+      code: "already_governed",
+    })
     expect(existsSync(path.join(target, UPLOADS_DIR))).toBe(false)
     expect(readFileSync(path.join(target, ".vivicy", "canonical", "product.md"), "utf8")).toBe("# untouched\n")
   })
 
-  it("governs and imports into a brand-new (non-existent) directory", () => {
+  it("governs and imports into a brand-new (non-existent) directory", async () => {
     const target = targetPath("fresh")
-    const result = importDocuments({ targetDir: target, entries: [fileEntry("spec.md", ENGLISH)] })
+    const result = await importDocuments({ targetDir: target, entries: [fileEntry("spec.md", ENGLISH)] })
 
     expect(isGovernedRoot(result.targetPath)).toBe(true)
     expect(existsSync(path.join(result.targetPath, ".vivicy", "canonical"))).toBe(true)
@@ -102,12 +114,12 @@ describe("governance guard", () => {
     expect(existsSync(path.join(result.targetPath, UPLOADS_DIR, result.batchId, "spec.md"))).toBe(true)
   })
 
-  it("governs and imports into an existing non-governed directory without clobbering its files", () => {
+  it("governs and imports into an existing non-governed directory without clobbering its files", async () => {
     const target = targetPath("existing")
     mkdirSync(target, { recursive: true })
     writeFileSync(path.join(target, "README.md"), "# mine\n")
 
-    const result = importDocuments({ targetDir: target, entries: [fileEntry("docs/intro.md", ENGLISH)] })
+    const result = await importDocuments({ targetDir: target, entries: [fileEntry("docs/intro.md", ENGLISH)] })
 
     expect(result.mode).toBe("existing_project")
     expect(readFileSync(path.join(target, "README.md"), "utf8")).toBe("# mine\n")
@@ -115,19 +127,19 @@ describe("governance guard", () => {
     expect(existsSync(path.join(result.targetPath, UPLOADS_DIR, result.batchId, "docs", "intro.md"))).toBe(true)
   })
 
-  it("lays the skeleton exactly once — a second import is refused as already_governed", () => {
+  it("lays the skeleton exactly once — a second import is refused as already_governed", async () => {
     const target = targetPath("once")
-    importDocuments({ targetDir: target, entries: [fileEntry("a.md", ENGLISH)] })
-    expect(() => importDocuments({ targetDir: target, entries: [fileEntry("b.md", ENGLISH)] })).toThrow(
-      expect.objectContaining({ code: "already_governed" })
-    )
+    await importDocuments({ targetDir: target, entries: [fileEntry("a.md", ENGLISH)] })
+    await expect(importDocuments({ targetDir: target, entries: [fileEntry("b.md", ENGLISH)] })).rejects.toMatchObject({
+      code: "already_governed",
+    })
   })
 })
 
 describe("batch layout and ids", () => {
-  it("writes the batch under .vivicy/uploads/<id>/ preserving nested structure", () => {
+  it("writes the batch under .vivicy/uploads/<id>/ preserving nested structure", async () => {
     const target = targetPath("nested")
-    const result = importDocuments({
+    const result = await importDocuments({
       targetDir: target,
       entries: [fileEntry("a/b/deep.md", ENGLISH), fileEntry("top.txt", "notes")],
     })
@@ -151,9 +163,9 @@ describe("batch layout and ids", () => {
 })
 
 describe("per-file type filtering", () => {
-  it("accepts supported types and rejects unknown ones per-file, not the whole batch", () => {
+  it("accepts supported types and rejects unknown ones per-file, not the whole batch", async () => {
     const target = targetPath("mixed")
-    const result = importDocuments({
+    const result = await importDocuments({
       targetDir: target,
       entries: [fileEntry("good.md", ENGLISH), fileEntry("bad.exe", "MZ"), fileEntry("data.csv", "a,b\n1,2\n")],
     })
@@ -161,26 +173,26 @@ describe("per-file type filtering", () => {
     expect(result.rejected).toEqual([{ path: "bad.exe", code: "unsupported_type" }])
   })
 
-  it("refuses the whole import when no file is a supported type, before governing", () => {
+  it("refuses the whole import when no file is a supported type, before governing", async () => {
     const target = targetPath("all-bad")
-    expect(() =>
+    await expect(
       importDocuments({ targetDir: target, entries: [fileEntry("a.exe", "x"), fileEntry("b.bin", "y")] })
-    ).toThrow(expect.objectContaining({ code: "no_supported_files" }))
+    ).rejects.toMatchObject({ code: "no_supported_files" })
     expect(existsSync(target)).toBe(false)
   })
 
-  it("refuses an empty upload with no_files", () => {
-    expect(() => importDocuments({ targetDir: targetPath("empty"), entries: [] })).toThrow(
-      expect.objectContaining({ code: "no_files" })
-    )
+  it("refuses an empty upload with no_files", async () => {
+    await expect(importDocuments({ targetDir: targetPath("empty"), entries: [] })).rejects.toMatchObject({
+      code: "no_files",
+    })
   })
 })
 
 describe("zip explosion", () => {
-  it("explodes a zip into the batch preserving its internal structure", () => {
+  it("explodes a zip into the batch preserving its internal structure", async () => {
     const zip = zipSync({ "canon/a.md": strToU8(ENGLISH), "b.txt": strToU8("hello"), "skip.exe": strToU8("x") })
     const target = targetPath("zipped")
-    const result = importDocuments({
+    const result = await importDocuments({
       targetDir: target,
       entries: [{ rel: "bundle.zip", name: "bundle.zip", bytes: zip }],
     })
@@ -190,28 +202,28 @@ describe("zip explosion", () => {
     expect(existsSync(path.join(batchDir, "canon", "a.md"))).toBe(true)
   })
 
-  it("rejects a zip-slip (../) entry as a security boundary", () => {
+  it("rejects a zip-slip (../) entry as a security boundary", async () => {
     const zip = zipSync({ "../escape.md": strToU8(ENGLISH) })
-    expect(() =>
+    await expect(
       importDocuments({ targetDir: targetPath("slip"), entries: [{ rel: "evil.zip", name: "evil.zip", bytes: zip }] })
-    ).toThrow(expect.objectContaining({ code: "zip_slip" }))
+    ).rejects.toMatchObject({ code: "zip_slip" })
   })
 
-  it("throws zip_unreadable on a corrupt archive", () => {
-    expect(() =>
+  it("throws zip_unreadable on a corrupt archive", async () => {
+    await expect(
       importDocuments({
         targetDir: targetPath("corrupt"),
         entries: [{ rel: "x.zip", name: "x.zip", bytes: u8("not a real zip") }],
       })
-    ).toThrow(expect.objectContaining({ code: "zip_unreadable" }))
+    ).rejects.toMatchObject({ code: "zip_unreadable" })
   })
 
-  it("explodes one level of nesting but rejects a zip nested deeper", () => {
+  it("explodes one level of nesting but rejects a zip nested deeper", async () => {
     const inner = zipSync({ "deep.md": strToU8(ENGLISH) })
     const tooDeep = zipSync({ "deeper.md": strToU8(ENGLISH) })
     const wrap = zipSync({ "toodeep.zip": tooDeep })
     const outer = zipSync({ "inner.zip": inner, "wrap.zip": wrap })
-    const result = importDocuments({
+    const result = await importDocuments({
       targetDir: targetPath("nested-zip"),
       entries: [{ rel: "outer.zip", name: "outer.zip", bytes: outer }],
     })
@@ -221,10 +233,10 @@ describe("zip explosion", () => {
 })
 
 describe("manifest", () => {
-  it("records relative path, byte size, and sha256 for every batch file, sorted", () => {
+  it("records relative path, byte size, and sha256 for every batch file, sorted", async () => {
     const target = targetPath("manifest")
     const csv = "id,name\n1,alpha\n2,beta\n"
-    const result = importDocuments({
+    const result = await importDocuments({
       targetDir: target,
       entries: [fileEntry("z/last.md", ENGLISH), fileEntry("first.csv", csv)],
     })
@@ -238,21 +250,30 @@ describe("manifest", () => {
     expect(manifest.files).toEqual(result.accepted)
   })
 
-  it("sets the dominant language by byte weight and states 'und' when nothing is scannable", () => {
-    const eng = importDocuments({
+  it("sets the dominant language by weight and states 'und' when nothing is scannable", async () => {
+    const eng = await importDocuments({
       targetDir: targetPath("lang-eng"),
       entries: [fileEntry("big.md", ENGLISH), fileEntry("tiny.txt", "oui")],
     })
     expect(eng.language).toBe("eng")
 
-    const binary = importDocuments({
+    const binary = await importDocuments({
       targetDir: targetPath("lang-und"),
       entries: [fileEntry("scan.pdf", "%PDF-1.4 binary-ish bytes")],
     })
     expect(binary.language).toBe("und")
   })
 
-  it("dominantLanguage weights by byte count and breaks ties lexicographically", () => {
+  it("detects the language of a binary .docx batch deterministically, without any leg", async () => {
+    const result = await importDocuments({
+      targetDir: targetPath("lang-docx"),
+      entries: [docxEntry("cahier.docx", [FRENCH])],
+    })
+    expect(result.language).toBe("fra")
+    expect(readManifest(result.targetPath, result.batchId).language).toBe("fra")
+  })
+
+  it("dominantLanguage weights by count and breaks ties lexicographically", () => {
     expect(dominantLanguage(new Map())).toBe("und")
     expect(dominantLanguage(new Map([["fra", 200], ["eng", 100]]))).toBe("fra")
     expect(dominantLanguage(new Map([["fra", 100], ["eng", 100]]))).toBe("eng")
@@ -260,9 +281,9 @@ describe("manifest", () => {
 })
 
 describe("notification", () => {
-  it("emits an append-only import batch notification", () => {
+  it("emits an append-only import batch notification", async () => {
     const target = targetPath("notify")
-    const result = importDocuments({ targetDir: target, entries: [fileEntry("a.md", ENGLISH)] })
+    const result = await importDocuments({ targetDir: target, entries: [fileEntry("a.md", ENGLISH)] })
     const events = readNotifications().filter((n) => n.stage === "import" && n.event === "batch")
     expect(events).toHaveLength(1)
     expect(events[0].message).toContain(result.batchId)
@@ -270,17 +291,18 @@ describe("notification", () => {
   })
 })
 
-function governedRoot(name: string): string {
-  const root = importDocuments({ targetDir: targetPath(name), entries: [fileEntry("seed.md", ENGLISH)] }).targetPath
+async function governedRoot(name: string): Promise<string> {
+  const root = (await importDocuments({ targetDir: targetPath(name), entries: [fileEntry("seed.md", ENGLISH)] }))
+    .targetPath
   return root
 }
 
 describe("importIntoGoverned (import into the current governed project)", () => {
-  it("writes a fresh batch into an already-governed root without scaffolding or refusing it", () => {
-    const root = governedRoot("gov-happy")
+  it("writes a fresh batch into an already-governed root without scaffolding or refusing it", async () => {
+    const root = await governedRoot("gov-happy")
     const before = readdirBatches(root)
 
-    const result = importIntoGoverned({
+    const result = await importIntoGoverned({
       root,
       entries: [fileEntry("brief.md", ENGLISH), fileEntry("data.csv", "a,b\n1,2\n"), fileEntry("skip.exe", "x")],
     })
@@ -295,38 +317,36 @@ describe("importIntoGoverned (import into the current governed project)", () => 
     expect(readdirBatches(root)).toEqual([...before, result.batchId].sort())
   })
 
-  it("explodes a zip and preserves its structure, same as the acquisition route", () => {
-    const root = governedRoot("gov-zip")
+  it("explodes a zip and preserves its structure, same as the acquisition route", async () => {
+    const root = await governedRoot("gov-zip")
     const zip = zipSync({ "docs/a.md": strToU8(ENGLISH), "b.txt": strToU8("hello"), "skip.exe": strToU8("x") })
-    const result = importIntoGoverned({ root, entries: [{ rel: "bundle.zip", name: "bundle.zip", bytes: zip }] })
+    const result = await importIntoGoverned({ root, entries: [{ rel: "bundle.zip", name: "bundle.zip", bytes: zip }] })
     expect(result.accepted.map((f) => f.path).sort()).toEqual(["b.txt", "docs/a.md"])
     expect(existsSync(path.join(root, UPLOADS_DIR, result.batchId, "docs", "a.md"))).toBe(true)
   })
 
-  it("refuses a non-governed root with not_governed and writes nothing", () => {
+  it("refuses a non-governed root with not_governed and writes nothing", async () => {
     const root = targetPath("ungoverned")
     mkdirSync(root, { recursive: true })
-    expect(() => importIntoGoverned({ root, entries: [fileEntry("a.md", ENGLISH)] })).toThrow(
-      expect.objectContaining({ code: "not_governed" })
-    )
+    await expect(importIntoGoverned({ root, entries: [fileEntry("a.md", ENGLISH)] })).rejects.toMatchObject({
+      code: "not_governed",
+    })
     expect(existsSync(path.join(root, UPLOADS_DIR))).toBe(false)
   })
 
-  it("refuses no_files and no_supported_files without minting a batch", () => {
-    const root = governedRoot("gov-refuse")
+  it("refuses no_files and no_supported_files without minting a batch", async () => {
+    const root = await governedRoot("gov-refuse")
     const before = readdirBatches(root)
-    expect(() => importIntoGoverned({ root, entries: [] })).toThrow(
-      expect.objectContaining({ code: "no_files" })
-    )
-    expect(() => importIntoGoverned({ root, entries: [fileEntry("a.exe", "x")] })).toThrow(
-      expect.objectContaining({ code: "no_supported_files" })
-    )
+    await expect(importIntoGoverned({ root, entries: [] })).rejects.toMatchObject({ code: "no_files" })
+    await expect(importIntoGoverned({ root, entries: [fileEntry("a.exe", "x")] })).rejects.toMatchObject({
+      code: "no_supported_files",
+    })
     expect(readdirBatches(root)).toEqual(before)
   })
 
-  it("emits its own append-only batch notification", () => {
-    const root = governedRoot("gov-notify")
-    const result = importIntoGoverned({ root, entries: [fileEntry("a.md", ENGLISH)] })
+  it("emits its own append-only batch notification", async () => {
+    const root = await governedRoot("gov-notify")
+    const result = await importIntoGoverned({ root, entries: [fileEntry("a.md", ENGLISH)] })
     const events = readNotifications().filter((n) => n.stage === "import" && n.event === "batch")
     expect(events.at(-1)?.message).toContain(result.batchId)
   })

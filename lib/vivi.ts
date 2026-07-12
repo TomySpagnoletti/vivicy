@@ -392,12 +392,12 @@ function importDecisionSummary(count: number, skipped: number, language: string)
 }
 
 // The multipart counterpart to decideCardAction: the file upload IS the decision, so the card is stamped only once the import lands. A failed import throws BEFORE stamping, leaving the card undecided for a clean retry.
-export function decideCardImport(input: {
+export async function decideCardImport(input: {
   sessionId: string
   cardId: string
   actionId: string
   entries: RawEntry[]
-}): CardImportResult {
+}): Promise<CardImportResult> {
   assertSessionId(input.sessionId)
   const { turn, action } = findCardAction(input.sessionId, input.cardId, input.actionId)
   if (action.action.kind !== "import_docs") {
@@ -409,7 +409,7 @@ export function decideCardImport(input: {
   if (turn.decided) return alreadyDecidedResult(turn.decided)
 
   const targetRoot = resolveTarget()
-  const batch = importIntoGoverned({ root: targetRoot, entries: input.entries })
+  const batch = await importIntoGoverned({ root: targetRoot, entries: input.entries })
 
   appendTurn(input.sessionId, {
     role: "vivi",
