@@ -8,16 +8,12 @@
     "back": "Back",
     "choices": {
       "open": {
-        "title": "Open an existing project",
-        "description": "Point {brandName} at a repository already on disk."
+        "title": "Open a governed project",
+        "description": "Reopen a repository {brandName} already governs."
       },
-      "scaffold": {
-        "title": "Start a new project",
-        "description": "Name it and {brandName} scaffolds a lean method skeleton."
-      },
-      "import": {
-        "title": "Import documents",
-        "description": "Bring the spec docs you already have — {brandName} stores them and prepares them when the pipeline runs."
+      "govern": {
+        "title": "Start governance",
+        "description": "Point {brandName} at a folder — new, empty, or existing code. Docs optional; Vivi takes it from there."
       }
     }
   },
@@ -37,23 +33,47 @@
       "httpError": "HTTP {status}"
     }
   },
-  "scaffoldForm": {
+  "startGovernance": {
+    "targetLabel": "Folder to govern",
+    "targetHint": "Point {brandName} at an empty folder, a new one, or existing code — it governs the folder in place and never overwrites your files.",
+    "targetPreview": "Governs <target>{targetDir}</target>",
     "nameLabel": "Project name",
-    "namePlaceholder": "Acme App",
-    "locationLabel": "Location",
-    "folderLabel": "New folder name",
-    "folderPlaceholder": "acme-app",
-    "targetPreview": "Scaffolds into <target>{targetDir}</target>",
+    "namePlaceholder": "Named after the folder",
+    "optional": "optional",
+    "docsLabel": "Documents",
+    "docsHint": "Got a brief, notes, a spec, a PDF? Add them and Vivi brings them into the kitchen. Or start empty and build the spec together.",
     "submit": {
-      "idle": "Scaffold project",
-      "scaffolding": "Scaffolding…"
+      "idle": "Start governance",
+      "idleWithDocs": "Govern & import {count, plural, one {# document} other {# documents}}",
+      "working": "Laying governance…"
     },
     "toast": {
-      "errorTitle": "Cannot scaffold project",
-      "successTitle": "Project scaffolded",
-      "successDescription": "Congrats — your project is ready at {root}. Talk to Vivi to get grilled.",
+      "errorTitle": "Cannot start governance",
+      "governedTitle": "Governance laid",
+      "governedDescription": "Your project is ready at {root}. Talk to Vivi to get grilled.",
+      "importedTitle": "Governance laid — docs in the kitchen",
+      "importedCount": "{count, plural, one {# document} other {# documents}} imported.",
+      "importedLang": "Detected {language}.",
+      "importedSkipped": "{count, plural, one {# file} other {# files}} skipped as unsupported.",
       "networkError": "network error",
       "httpError": "HTTP {status}"
+    }
+  },
+  "docPicker": {
+    "dropzone": {
+      "prompt": "Drag files, a folder, or a .zip here",
+      "accepted": "Accepted: {extensions}",
+      "choose": "Choose files"
+    },
+    "selected": {
+      "accepted": "{count, plural, one {# document} other {# documents}} ready",
+      "rejected": "{count, plural, one {# file} other {# files}} skipped",
+      "unsupportedBadge": "unsupported",
+      "clear": "Clear"
+    },
+    "toast": {
+      "folderReadErrorTitle": "Could not read the dropped folder",
+      "folderReadErrorDescription": "This browser can't read folder contents from a drop. Drop the files directly, or add them with Choose files."
     }
   },
   "importDocsDialog": {
@@ -68,17 +88,6 @@
       "lockedHint": "Add at least one document above to choose where it lands.",
       "targetPreview": "Imports into <target>{targetDir}</target>"
     },
-    "dropzone": {
-      "prompt": "Drag files, a folder, or a .zip here",
-      "accepted": "Accepted: {extensions}",
-      "choose": "Choose files"
-    },
-    "selected": {
-      "accepted": "{count, plural, one {# document} other {# documents}} ready",
-      "rejected": "{count, plural, one {# file} other {# files}} skipped",
-      "unsupportedBadge": "unsupported",
-      "clear": "Clear"
-    },
     "submit": {
       "idle": "Import documents",
       "importing": "Importing…"
@@ -92,8 +101,6 @@
       "importedCount": "{count, plural, one {# document} other {# documents}} imported.",
       "importedLang": "Detected {language}.",
       "importedSkipped": "{count, plural, one {# file} other {# files}} skipped as unsupported.",
-      "folderReadErrorTitle": "Could not read the dropped folder",
-      "folderReadErrorDescription": "This browser can't read folder contents from a drop. Drop the files directly, or add them with Choose files.",
       "networkError": "network error",
       "httpError": "HTTP {status}"
     }

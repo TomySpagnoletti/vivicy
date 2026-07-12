@@ -1,28 +1,23 @@
 "use client"
 
-import { useCallback, useEffect, useState } from "react"
-import { ArrowLeft, FileUp, FolderOpen, FolderPlus, Sparkles } from "lucide-react"
+import { useCallback, useState } from "react"
+import { ArrowLeft, FolderOpen, Sparkles } from "lucide-react"
 import { useTranslations } from "next-intl"
-import { toast } from "sonner"
 
 import { BRAND } from "@/lib/brand"
-import { errorText } from "@/lib/i18n-errors"
-import type { CurrentProject, DirListing } from "@/lib/project-types"
+import type { CurrentProject } from "@/lib/project-types"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { FolderBrowser } from "@/components/project/folder-browser"
-import { ImportDocsFlow } from "@/components/project/import-docs-flow"
 import { OpenProjectForm } from "@/components/project/open-project-form"
+import { StartGovernanceForm } from "@/components/project/start-governance-form"
 
-type OnboardingView = "choices" | "open" | "scaffold" | "import"
+type OnboardingView = "choices" | "open" | "govern"
 
 export function ViviOnboarding({
   onAcquired,
-  onScaffolded,
+  onGoverned,
 }: {
   onAcquired: (project: CurrentProject) => void
-  onScaffolded: (project: CurrentProject) => void
+  onGoverned: (project: CurrentProject) => void
 }) {
   const t = useTranslations("project.viviOnboarding")
   const [view, setView] = useState<OnboardingView>("choices")
@@ -44,15 +39,9 @@ export function ViviOnboarding({
           />
           <ChoiceButton
             icon={<Sparkles className="size-4" />}
-            title={t("choices.scaffold.title")}
-            description={t("choices.scaffold.description", { brandName: BRAND.name })}
-            onClick={() => setView("scaffold")}
-          />
-          <ChoiceButton
-            icon={<FileUp className="size-4" />}
-            title={t("choices.import.title")}
-            description={t("choices.import.description", { brandName: BRAND.name })}
-            onClick={() => setView("import")}
+            title={t("choices.govern.title")}
+            description={t("choices.govern.description", { brandName: BRAND.name })}
+            onClick={() => setView("govern")}
           />
         </div>
       </div>
@@ -66,19 +55,13 @@ export function ViviOnboarding({
           <ArrowLeft />
         </Button>
         <h3 className="font-heading text-sm font-medium text-foreground">
-          {view === "open"
-            ? t("choices.open.title")
-            : view === "scaffold"
-              ? t("choices.scaffold.title")
-              : t("choices.import.title")}
+          {view === "open" ? t("choices.open.title") : t("choices.govern.title")}
         </h3>
       </div>
 
       {view === "open" ? <OpenProjectForm active onChanged={onAcquired} /> : null}
 
-      {view === "scaffold" ? <ScaffoldForm onScaffolded={onScaffolded} /> : null}
-
-      {view === "import" ? <ImportDocsFlow active onImported={onAcquired} /> : null}
+      {view === "govern" ? <StartGovernanceForm active onGoverned={onGoverned} /> : null}
     </div>
   )
 }
@@ -112,128 +95,5 @@ function ChoiceButton({
         <span className="text-xs font-normal text-muted-foreground">{description}</span>
       </span>
     </Button>
-  )
-}
-
-function ScaffoldForm({ onScaffolded }: { onScaffolded: (project: CurrentProject) => void }) {
-  const t = useTranslations("project.scaffoldForm")
-  const tErrors = useTranslations("errors")
-  const [listing, setListing] = useState<DirListing | null>(null)
-  const [browserBusy, setBrowserBusy] = useState(false)
-  const [scaffolding, setScaffolding] = useState(false)
-  const [projectName, setProjectName] = useState("")
-  const [folderName, setFolderName] = useState("")
-
-  useEffect(() => {
-    void (async () => {
-      setProjectName("")
-      setFolderName("")
-    })()
-  }, [])
-
-  const targetDir = (() => {
-    const folder = folderName.trim()
-    if (!listing || folder.length === 0) return ""
-    return `${listing.path.replace(/\/$/, "")}/${folder}`
-  })()
-
-  const name = projectName.trim()
-  const canScaffold = name.length > 0 && targetDir.length > 0 && !scaffolding && !browserBusy
-
-  const scaffold = useCallback(async () => {
-    if (!canScaffold) return
-    setScaffolding(true)
-    try {
-      const res = await fetch("/api/project/scaffold", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ targetDir, projectName: name }),
-      })
-      const body = (await res.json().catch(() => ({}))) as {
-        ok?: boolean
-        error?: string
-        code?: string
-        project?: CurrentProject
-      }
-      if (!res.ok || body.ok === false || !body.project) {
-        const fallback = body.error ?? t("toast.httpError", { status: res.status })
-        toast.error(t("toast.errorTitle"), {
-          description: body.code ? errorText(tErrors, `scaffold.${body.code}`, fallback) : fallback,
-        })
-        return
-      }
-      toast.success(t("toast.successTitle"), {
-        description: t("toast.successDescription", { root: body.project.root }),
-      })
-      onScaffolded(body.project)
-    } catch (error) {
-      toast.error(t("toast.errorTitle"), {
-        description: error instanceof Error ? error.message : t("toast.networkError"),
-      })
-    } finally {
-      setScaffolding(false)
-    }
-  }, [canScaffold, targetDir, name, onScaffolded, t, tErrors])
-
-  const busy = browserBusy || scaffolding
-
-  return (
-    <form
-      className="flex flex-col gap-3"
-      onSubmit={(event) => {
-        event.preventDefault()
-        void scaffold()
-      }}
-    >
-      <div className="flex flex-col gap-1.5">
-        <Label htmlFor="scaffold-name">{t("nameLabel")}</Label>
-        <Input
-          id="scaffold-name"
-          value={projectName}
-          spellCheck={false}
-          autoComplete="off"
-          placeholder={t("namePlaceholder")}
-          disabled={busy}
-          onChange={(event) => setProjectName(event.target.value)}
-        />
-      </div>
-
-      <div className="flex flex-col gap-1.5">
-        <Label>{t("locationLabel")}</Label>
-        <FolderBrowser
-          open
-          disabled={scaffolding}
-          onListingChange={setListing}
-          onBusyChange={setBrowserBusy}
-        />
-      </div>
-
-      <div className="flex flex-col gap-1.5">
-        <Label htmlFor="scaffold-folder">{t("folderLabel")}</Label>
-        <Input
-          id="scaffold-folder"
-          value={folderName}
-          spellCheck={false}
-          autoComplete="off"
-          placeholder={t("folderPlaceholder")}
-          disabled={busy}
-          onChange={(event) => setFolderName(event.target.value)}
-        />
-      </div>
-
-      {targetDir.length > 0 ? (
-        <p className="text-xs break-all text-muted-foreground">
-          {t.rich("targetPreview", {
-            target: (chunks) => <span className="text-foreground">{chunks}</span>,
-            targetDir,
-          })}
-        </p>
-      ) : null}
-
-      <Button type="submit" variant="default" disabled={!canScaffold} className="w-full">
-        <FolderPlus />
-        {scaffolding ? t("submit.scaffolding") : t("submit.idle")}
-      </Button>
-    </form>
   )
 }

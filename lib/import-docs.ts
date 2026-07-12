@@ -76,9 +76,10 @@ export interface BatchResult {
   rejected: RejectedFile[]
 }
 
-export interface ImportResult extends BatchResult {
+export interface GovernanceResult {
   mode: ScaffoldMode
   project: CurrentProject
+  batch: BatchResult | null
 }
 
 interface AcceptedEntry {
@@ -266,11 +267,11 @@ async function persistBatch(root: string, exploded: { accepted: AcceptedEntry[];
   return { batchId, targetPath: root, language, cycle, accepted: files, rejected: exploded.rejected }
 }
 
-export async function importDocuments(input: { targetDir: unknown; entries: RawEntry[] }): Promise<ImportResult> {
-  if (!input.entries || input.entries.length === 0) {
-    throw new ImportError("no files were uploaded", "no_files")
-  }
-
+export async function startGovernance(input: {
+  targetDir: unknown
+  projectName?: unknown
+  entries: RawEntry[]
+}): Promise<GovernanceResult> {
   const { target } = resolveTargetDir(input.targetDir)
   if (isGovernedRoot(target)) {
     throw new ImportError(
@@ -279,10 +280,14 @@ export async function importDocuments(input: { targetDir: unknown; entries: RawE
     )
   }
 
-  const exploded = explodeOrThrow(input.entries)
-  const scaffold = scaffoldProject({ targetDir: target, projectName: deriveProjectName(target) })
-  const batch = await persistBatch(scaffold.project.root, exploded)
-  return { ...batch, mode: scaffold.mode, project: scaffold.project }
+  const exploded = input.entries.length > 0 ? explodeOrThrow(input.entries) : null
+  const projectName =
+    typeof input.projectName === "string" && input.projectName.trim().length > 0
+      ? input.projectName
+      : deriveProjectName(target)
+  const scaffold = scaffoldProject({ targetDir: target, projectName })
+  const batch = exploded ? await persistBatch(scaffold.project.root, exploded) : null
+  return { mode: scaffold.mode, project: scaffold.project, batch }
 }
 
 export async function importIntoGoverned(input: { root: string; entries: RawEntry[] }): Promise<BatchResult> {

@@ -320,7 +320,7 @@ export function ViviPanel({
     onActivity?.()
   }, [onActivity])
 
-  const onScaffolded = useCallback(() => {
+  const onGoverned = useCallback(() => {
     openPanel()
     onActivity?.()
   }, [openPanel, onActivity])
@@ -419,7 +419,7 @@ export function ViviPanel({
               <div className="min-h-0 flex-1 overflow-y-auto">
                 <ViviOnboarding
                   onAcquired={onAcquired}
-                  onScaffolded={onScaffolded}
+                  onGoverned={onGoverned}
                 />
               </div>
             ) : (
