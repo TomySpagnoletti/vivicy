@@ -64,6 +64,10 @@ test.describe("No horizontal overflow anywhere", () => {
     await expect(sidebar.getByText("ISS-0001", { exact: true })).toBeVisible({ timeout: 15_000 })
     await expectNoPageOverflow(page, "long target: Tasks panel")
 
+    await page.getByRole("button", { name: "Cycles" }).click()
+    await expect(sidebar.getByText("Active cycle")).toBeVisible({ timeout: 15_000 })
+    await expectNoPageOverflow(page, "long target: Cycles panel")
+
     const transcriptButton = sidebar.locator('button[title*="/transcripts/"]').first()
     if (await transcriptButton.count()) {
       // Retries with a re-resolved, force-clicked button: background SSE-driven map refreshes can re-render/detach the row mid-click. No networkidle wait — the page holds a persistent SSE connection so network never idles.

@@ -22,6 +22,7 @@ import {
 } from "@/components/ui/sidebar"
 import { ProcessControlBar } from "@/components/sidebar/process-control-bar"
 import { QuotaFooter } from "@/components/sidebar/quota-footer"
+import { SectionCycles } from "@/components/sidebar/section-cycles"
 import { SectionDetails } from "@/components/sidebar/section-details"
 import { SectionFilters } from "@/components/sidebar/section-filters"
 import { SectionInformation } from "@/components/sidebar/section-information"
@@ -139,6 +140,13 @@ export function VivicySidebar({
             <AccordionTrigger>{t("sections.details")}</AccordionTrigger>
             <AccordionContent>
               <SectionDetails selected={selected} data={data} />
+            </AccordionContent>
+          </AccordionItem>
+
+          <AccordionItem value="cycles">
+            <AccordionTrigger>{t("sections.cycles")}</AccordionTrigger>
+            <AccordionContent>
+              <SectionCycles />
             </AccordionContent>
           </AccordionItem>
 

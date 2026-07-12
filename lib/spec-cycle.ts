@@ -108,3 +108,84 @@ export function batchMatchesActiveCycle(storedBinding: unknown, currentActiveCyc
   if (!binding) return true
   return binding.binding === "seed" || binding.id === currentActiveCycleId
 }
+
+export const UPLOADS_REL = ".vivicy/uploads"
+const MANIFEST_FILE = "manifest.json"
+const UNDETERMINED = "und"
+
+export interface ManifestFile {
+  path: string
+  size: number
+  sha256: string
+}
+
+export interface BatchManifest {
+  batchId: string
+  createdAt: string
+  language: string
+  cycle?: unknown
+  files: ManifestFile[]
+}
+
+export interface Batch {
+  batchId: string
+  batchDir: string
+  manifest: BatchManifest
+}
+
+interface ConsumedSource {
+  batches_consumed?: string[]
+  batch_id?: unknown
+}
+
+function readBatchManifest(abs: string): BatchManifest | null {
+  if (!existsSync(abs)) return null
+  let parsed: Partial<BatchManifest> | null
+  try {
+    parsed = JSON.parse(readFileSync(abs, "utf8")) as Partial<BatchManifest>
+  } catch {
+    return null
+  }
+  if (!parsed || typeof parsed !== "object" || !Array.isArray(parsed.files)) return null
+  return {
+    batchId: String(parsed.batchId ?? ""),
+    createdAt: String(parsed.createdAt ?? ""),
+    language: typeof parsed.language === "string" && parsed.language.length > 0 ? parsed.language : UNDETERMINED,
+    cycle: parsed.cycle,
+    files: parsed.files.filter(
+      (f): f is ManifestFile => Boolean(f) && typeof f === "object" && typeof (f as ManifestFile).path === "string",
+    ),
+  }
+}
+
+// The batch-complete marker is manifest.json (written LAST by import); a batch dir without it is an interrupted, non-consumable batch.
+export function completeBatches(repoRoot: string): Batch[] {
+  const uploadsDir = path.resolve(repoRoot, UPLOADS_REL)
+  if (!existsSync(uploadsDir)) return []
+  const batches: Batch[] = []
+  for (const entry of readdirSync(uploadsDir, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue
+    const batchDir = path.join(uploadsDir, entry.name)
+    const manifest = readBatchManifest(path.join(batchDir, MANIFEST_FILE))
+    if (manifest) batches.push({ batchId: entry.name, batchDir, manifest })
+  }
+  return batches.sort((a, b) => a.batchId.localeCompare(b.batchId))
+}
+
+// Never-reset ledger of every batch a prep run has fully placed: a batch is added only after all its files land, so a mid-run crash never marks an unconsumed batch consumed.
+export function consumedSet(report: ConsumedSource | null): Set<string> {
+  const legacyBatchId = report?.batch_id
+  const legacy = typeof legacyBatchId === "string" ? [legacyBatchId] : []
+  return new Set([...(Array.isArray(report?.batches_consumed) ? report!.batches_consumed : []), ...legacy])
+}
+
+// The batches the active cycle's prep must consume: complete + bound to (or seeding) the active cycle + not yet consumed by a prior run.
+// Empty when the canonical is frozen (no active cycle) — seed batches then wait for the cycle they seed to open.
+export function unconsumedActiveCycleBatches(repoRoot: string, report: ConsumedSource | null): Batch[] {
+  const cycleId = activeCycleId(repoRoot)
+  if (cycleId === null) return []
+  const consumed = consumedSet(report)
+  return completeBatches(repoRoot).filter(
+    (b) => batchMatchesActiveCycle(b.manifest.cycle, cycleId) && !consumed.has(b.batchId),
+  )
+}

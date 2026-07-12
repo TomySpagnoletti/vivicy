@@ -6,13 +6,19 @@ import path from "node:path"
 import { getProjectRuntimeDir } from "@/lib/project-runtime"
 import { getRuntimeDir } from "@/lib/runtime-dir"
 import {
+  activeCycleId,
+  activeCycleKind,
   clearSpecCycle,
   hasActiveFrozenBaseline,
+  isCanonicalFrozen,
   isSpecCycleOpen,
   readSpecCycle,
+  unconsumedActiveCycleBatches,
   writeSpecCycle,
   type SpecCycle,
 } from "@/lib/spec-cycle"
+import type { ActiveCycle, CyclesView, PastCycle } from "@/lib/cycles"
+import type { CycleKind } from "@/lib/doc-prep-report"
 import { settingsToEnv } from "@/lib/settings"
 import { readSettings } from "@/lib/settings-store"
 import {
@@ -395,6 +401,93 @@ function findActiveFrozenManifestRel(targetRoot: string): string | null {
 export function getSpecCycle(): SpecCycle | null {
   const { targetRoot } = resolveContext()
   return readSpecCycle(targetRoot)
+}
+
+interface FrozenManifestLite {
+  baseline_id: string
+  version?: unknown
+  spec_kind?: unknown
+  generated_at?: unknown
+  approval?: { approved_at?: unknown; approval_ref?: unknown }
+  superseded?: unknown
+}
+
+function toCycleKind(value: unknown): CycleKind | null {
+  return value === "project" || value === "feature" ? value : null
+}
+
+function readFrozenBaselineManifests(targetRoot: string): FrozenManifestLite[] {
+  const dir = path.join(targetRoot, ".vivicy", "baselines")
+  if (!existsSync(dir)) return []
+  const out: FrozenManifestLite[] = []
+  for (const entry of readdirSync(dir)) {
+    if (!entry.toLowerCase().endsWith(".json")) continue
+    try {
+      const manifest = JSON.parse(readFileSync(path.join(dir, entry), "utf8")) as FrozenManifestLite & { status?: unknown }
+      if (manifest?.status === "frozen" && typeof manifest.baseline_id === "string" && manifest.baseline_id.length > 0) {
+        out.push(manifest)
+      }
+    } catch {
+      continue
+    }
+  }
+  return out
+}
+
+function toPastCycle(manifest: FrozenManifestLite): PastCycle {
+  const approvedAt = manifest.approval?.approved_at
+  const generatedAt = manifest.generated_at
+  return {
+    baseline_id: manifest.baseline_id,
+    version: typeof manifest.version === "string" ? manifest.version : "",
+    kind: toCycleKind(manifest.spec_kind),
+    approval_ref: typeof manifest.approval?.approval_ref === "string" ? manifest.approval.approval_ref : null,
+    closed_at:
+      typeof approvedAt === "string" ? approvedAt : typeof generatedAt === "string" ? generatedAt : null,
+    superseded: Boolean(manifest.superseded),
+  }
+}
+
+function byClosedDesc(a: PastCycle, b: PastCycle): number {
+  const at = a.closed_at ?? ""
+  const bt = b.closed_at ?? ""
+  if (at !== bt) return at < bt ? 1 : -1
+  return a.baseline_id < b.baseline_id ? 1 : -1
+}
+
+export function getCycles(): CyclesView {
+  const { targetRoot } = resolveContext()
+  if (!existsSync(targetRoot)) {
+    throw new ControlError(`target root does not exist: ${targetRoot}`, "missing_target")
+  }
+
+  const editable = !isCanonicalFrozen(targetRoot)
+  const manifests = readFrozenBaselineManifests(targetRoot)
+  const current = manifests.find((manifest) => !manifest.superseded) ?? null
+
+  let active: ActiveCycle | null = null
+  if (editable) {
+    active = {
+      id: isSpecCycleOpen(targetRoot) ? activeCycleId(targetRoot) : null,
+      kind: toCycleKind(activeCycleKind(targetRoot)),
+      editable: true,
+      pending_batches: unconsumedActiveCycleBatches(targetRoot, readDocPrepReportFrom(targetRoot)).length,
+    }
+  } else if (current) {
+    active = {
+      id: typeof current.approval?.approval_ref === "string" ? current.approval.approval_ref : null,
+      kind: toCycleKind(current.spec_kind),
+      editable: false,
+      pending_batches: 0,
+    }
+  }
+
+  const history = manifests
+    .filter((manifest) => editable || manifest.baseline_id !== current?.baseline_id)
+    .map(toPastCycle)
+    .sort(byClosedDesc)
+
+  return { active, history }
 }
 
 export function stopSupervisor(spawner: Spawner): { pid: number } {

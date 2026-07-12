@@ -6,9 +6,28 @@
     "information": "Information",
     "filters": "Filters",
     "details": "Details",
+    "cycles": "Cycles",
     "tasks": "Tasks",
     "pipeline": "Pipeline",
     "skills": "Skills"
+  },
+  "cycles": {
+    "activeTitle": "Active cycle",
+    "historyTitle": "Past cycles",
+    "kindProject": "Project",
+    "kindFeature": "Feature",
+    "phaseEditable": "Pre-freeze · editable",
+    "phaseFrozen": "Frozen",
+    "phaseBuilding": "Building",
+    "phaseDone": "Done",
+    "pendingBatches": "{count, plural, one {# batch pending} other {# batches pending}}",
+    "issuesVerified": "{done}/{total} issues verified",
+    "gatesFailing": "{count} gate(s) failing",
+    "outcomeFrozen": "frozen",
+    "outcomeSuperseded": "superseded",
+    "closedAt": "closed {date}",
+    "historyEmpty": "No past cycles yet — the first extraction freeze records one here.",
+    "emptyState": "No active cycle yet. Once a project is governed, its cycle and history appear here."
   },
   "information": {
     "nameLabel": "Name",
