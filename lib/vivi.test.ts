@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest"
 
 import { ControlError, type RunOptions, type RunResult, type Spawner } from "@/lib/control"
 import { UPLOADS_DIR, type RawEntry } from "@/lib/import-docs"
-import { appendCardTurn, decideCardAction, decideCardImport, listViviSessions, parseSkillsDirective, readTranscript, runViviTurn, seedViviWelcome, VIVI_WELCOME_MESSAGE, WELCOME_IMPORT_CARD, type ViviTurn } from "@/lib/vivi"
+import { appendCardTurn, decideCardAction, decideCardImport, importDocsIntoSession, listViviSessions, parseSkillsDirective, readTranscript, runViviTurn, seedViviWelcome, VIVI_WELCOME_MESSAGE, WELCOME_IMPORT_CARD, type ViviTurn } from "@/lib/vivi"
 
 function makeFakeSpawner(onRun: (options: RunOptions) => Partial<RunResult> | void = () => {}) {
   const calls = {
@@ -960,6 +960,72 @@ describe("decideCardImport (welcome-card document import into the current projec
     const turns = readTranscript(sessionId)
     expect(turns.map((t) => t.role)).toEqual(["vivi", "card"])
     expect(turns[1].decided).toBeUndefined()
+    expect(existsSync(path.join(targetRoot, UPLOADS_DIR))).toBe(false)
+  })
+})
+
+describe("importDocsIntoSession (standing composer import into the current project)", () => {
+  it("imports into the active cycle pre-freeze, appends variant A ack (no reprompt), and reuses the passed session", async () => {
+    const sessionId = seedViviWelcome()
+
+    const result = await importDocsIntoSession({
+      sessionId,
+      entries: [docEntry("brief.md", IMPORT_ENGLISH), docEntry("data.csv", "a,b\n1,2\n"), docEntry("skip.exe", "x")],
+    })
+
+    expect(result.ok).toBe(true)
+    expect(result.sessionId).toBe(sessionId)
+    expect(result.cycle).toEqual({ binding: "active", id: "project" })
+    expect(result.language).toBe("eng")
+    expect(result.accepted.map((f) => f.path).sort()).toEqual(["brief.md", "data.csv"])
+    expect(result.rejected).toEqual([{ path: "skip.exe", code: "unsupported_type" }])
+    expect(result.summary).toBe("2 documents imported · English · 1 skipped")
+
+    const batchDir = path.join(targetRoot, UPLOADS_DIR, result.batchId)
+    expect(existsSync(path.join(batchDir, "manifest.json"))).toBe(true)
+
+    const turns = readTranscript(sessionId)
+    expect(turns.map((t) => t.role)).toEqual(["vivi", "vivi"])
+    const ack = turns.at(-1)!.text
+    expect(ack).toContain("2 documents, in English, are now in the kitchen")
+    expect(ack).toContain("fold them into the spec")
+    expect(ack).not.toMatch(/what are you building/i)
+  })
+
+  it("seeds the NEXT cycle when the canonical is frozen and says so honestly (variant B)", async () => {
+    seedFrozenBaseline(targetRoot)
+    const sessionId = seedViviWelcome()
+
+    const result = await importDocsIntoSession({
+      sessionId,
+      entries: [docEntry("notes.md", IMPORT_ENGLISH)],
+    })
+
+    expect(result.ok).toBe(true)
+    expect(result.cycle).toEqual({ binding: "seed" })
+
+    const ack = readTranscript(sessionId).at(-1)!.text
+    expect(ack).toContain("1 document, in English, is now in the kitchen")
+    expect(ack).toContain("frozen")
+    expect(ack).toContain("NEXT cycle")
+    expect(ack).not.toMatch(/what are you building/i)
+  })
+
+  it("mints a session the client adopts when none is passed", async () => {
+    const result = await importDocsIntoSession({ entries: [docEntry("a.md", IMPORT_ENGLISH)] })
+    expect(result.sessionId).toMatch(/[0-9a-f-]{36}/)
+    const turns = readTranscript(result.sessionId)
+    expect(turns.map((t) => t.role)).toEqual(["vivi"])
+    expect(turns[0].text).toContain("in the kitchen")
+  })
+
+  it("throws before writing anything when the upload has no supported file", async () => {
+    const sessionId = seedViviWelcome()
+    await expect(
+      importDocsIntoSession({ sessionId, entries: [docEntry("a.exe", "x")] })
+    ).rejects.toMatchObject({ code: "no_supported_files" })
+
+    expect(readTranscript(sessionId).map((t) => t.role)).toEqual(["vivi"])
     expect(existsSync(path.join(targetRoot, UPLOADS_DIR))).toBe(false)
   })
 })

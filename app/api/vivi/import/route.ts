@@ -1,7 +1,7 @@
 import { ControlError } from "@/lib/control"
 import { ImportError } from "@/lib/import-docs"
 import { IMPORT_STATUS_BY_CODE, readUploadEntries } from "@/lib/upload-form"
-import { decideCardImport } from "@/lib/vivi"
+import { importDocsIntoSession } from "@/lib/vivi"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -15,19 +15,14 @@ export async function POST(request: Request) {
   }
 
   const sessionId = form.get("sessionId")
-  const cardId = form.get("cardId")
-  const actionId = form.get("actionId")
-  if (typeof sessionId !== "string" || typeof cardId !== "string" || typeof actionId !== "string") {
-    return Response.json(
-      { ok: false, error: "sessionId, cardId, and actionId are required strings" },
-      { status: 400 }
-    )
-  }
 
   try {
     const entries = await readUploadEntries(form)
-    const result = await decideCardImport({ sessionId, cardId, actionId, entries })
-    return Response.json(result, { status: result.ok ? 200 : 422 })
+    const result = await importDocsIntoSession({
+      sessionId: typeof sessionId === "string" && sessionId.length > 0 ? sessionId : undefined,
+      entries,
+    })
+    return Response.json(result, { status: 200 })
   } catch (error) {
     if (error instanceof ImportError) {
       return Response.json(
