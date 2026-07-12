@@ -13,7 +13,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { getProjectRuntimeDir } from "../lib/project-runtime.ts";
-import { clearSpecCycle, hasActiveFrozenBaseline, isSpecCycleOpen, readSpecCycle, writeSpecCycle } from "../lib/spec-cycle.ts";
+import { clearSpecCycle, featureCycleOpenRefusal, isSpecCycleOpen, readSpecCycle, writeSpecCycle } from "../lib/spec-cycle.ts";
 
 // cli.ts and lib/control.ts must not import each other — parity comes from both spawning the same factory scripts and reading the same state files, never shared code.
 const cliDir = dirname(fileURLToPath(import.meta.url));
@@ -1041,11 +1041,9 @@ async function cmdCycle(argv: string[], opts: Opts): Promise<void> {
     process.exit(EXIT_OK);
   }
   if (action === "open") {
-    if (!hasActiveFrozenBaseline(target)) {
-      return fail(json, EXIT_REFUSAL, "no frozen baseline — before the first freeze the spec is already editable", { code: "cycle_state" });
-    }
-    if (readSpecCycle(target)) {
-      return fail(json, EXIT_REFUSAL, "a drafting spec cycle is already open", { code: "cycle_state" });
+    const refusal = featureCycleOpenRefusal(target);
+    if (refusal) {
+      return fail(json, EXIT_REFUSAL, refusal.reason, { code: "cycle_state" });
     }
     if (isRunActive(opts, target)) {
       return fail(json, EXIT_REFUSAL, "a supervised run is active — stop it before opening a spec cycle", { code: "already_running" });

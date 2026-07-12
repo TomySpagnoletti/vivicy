@@ -9,7 +9,7 @@ import {
   activeCycleId,
   activeCycleKind,
   clearSpecCycle,
-  hasActiveFrozenBaseline,
+  featureCycleOpenRefusal,
   isCanonicalFrozen,
   isSpecCycleOpen,
   readSpecCycle,
@@ -326,14 +326,9 @@ export function openSpecCycle(spawner: Spawner, openedBy: string): SpecCycle {
   if (!existsSync(targetRoot)) {
     throw new ControlError(`target root does not exist: ${targetRoot}`, "missing_target")
   }
-  if (!hasActiveFrozenBaseline(targetRoot)) {
-    throw new ControlError(
-      "no frozen baseline — before the first freeze the spec is already editable; a cycle is only needed to reopen a FROZEN spec",
-      "cycle_state"
-    )
-  }
-  if (isSpecCycleOpen(targetRoot)) {
-    throw new ControlError("a drafting spec cycle is already open", "cycle_state")
+  const refusal = featureCycleOpenRefusal(targetRoot)
+  if (refusal) {
+    throw new ControlError(refusal.reason, "cycle_state")
   }
   if (isRunActive(spawner)) {
     throw new ControlError(

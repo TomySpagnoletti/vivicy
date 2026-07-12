@@ -93,6 +93,32 @@ export function activeCycleBinding(targetRoot: string): BatchCycleBinding {
   return id === null ? { binding: "seed" } : { binding: "active", id }
 }
 
+export type CycleOpenRefusalCode = "no_frozen_baseline" | "feature_cycle_active"
+
+export interface CycleOpenRefusal {
+  code: CycleOpenRefusalCode
+  reason: string
+}
+
+// The one-active-feature-cycle + project-cycle-singular law (AGENTS.md "Cycle concurrency"): the single gate lib/control.ts and factory/cli.ts must both open a cycle through, so the policy can never drift between them.
+export function featureCycleOpenRefusal(targetRoot: string): CycleOpenRefusal | null {
+  if (!hasActiveFrozenBaseline(targetRoot)) {
+    return {
+      code: "no_frozen_baseline",
+      reason:
+        "no frozen baseline — before the first freeze the spec is already editable; a cycle is only needed to reopen a FROZEN spec",
+    }
+  }
+  if (isSpecCycleOpen(targetRoot)) {
+    return {
+      code: "feature_cycle_active",
+      reason:
+        "a feature cycle is already open — feature cycles run one at a time (parallel feature cycles are not yet enabled); freeze it by extracting, or cancel it, before opening another",
+    }
+  }
+  return null
+}
+
 export function parseCycleBinding(value: unknown): BatchCycleBinding | null {
   if (!value || typeof value !== "object") return null
   const v = value as { binding?: unknown; id?: unknown }

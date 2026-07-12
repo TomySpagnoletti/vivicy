@@ -1,6 +1,6 @@
 # Vivicy — exhaustive test matrix
 
-Reconciled fingerprint: `f5c642c50c36f826e9ec10215f3570520328017ef7fe42b11159bec2393ad3f9` @ commit `51a0bf3fbe2529d6c0072f03768b9f39d6de04ae`
+Reconciled fingerprint: `076ad60d5b81544c0843450bee71641ed5da46f276708f8f743bff641d74cec2` @ commit `e25f519f22460fcc17b53feaea9611089d7a0dd0`
 
 
 This file is the exhaustive, always-current inventory of every test case for Vivicy — every behavior the system has, whether it is covered by a test today or is a known GAP. It is **committed and machine-guarded**: the `Reconciled fingerprint` line above hashes the behavior-bearing source tree and records the HEAD commit at reconciliation time, and `scripts/test-matrix.test.ts` fails the vitest suite when code changes without this file being reconciled and re-stamped (`npm run matrix:stamp`). `git log test/TEST-MATRIX.md` is the audit trail of reconciliations. It is the single source of truth for "what should be tested" across the app (`app/`, `components/`, `lib/`) and the factory (`factory/`). It was assembled from a full per-area audit pass plus three adversarial cross-matrices (user journeys, parallel/merge chaos, process/crash chaos).
@@ -17,7 +17,7 @@ This file is the exhaustive, always-current inventory of every test case for Viv
 | Area | Cases | Gaps | Covered |
 |---|---:|---:|---:|
 | app-shell-sidebar-ui-kit | 378 | 269 | 109 |
-| baselines-change-requests | 262 | 203 | 59 |
+| baselines-change-requests | 263 | 203 | 60 |
 | cli-supervisor-process-infra | 456 | 246 | 210 |
 | control-plane-api-routes | 484 | 227 | 257 |
 | dev-loop-worktrees-merge | 287 | 140 | 147 |
@@ -30,7 +30,7 @@ This file is the exhaustive, always-current inventory of every test case for Viv
 | cross-journeys | 82 | 65 | 17 |
 | cross-chaos-parallel-merge | 47 | 33 | 14 |
 | cross-chaos-process | 46 | 43 | 3 |
-| **TOTAL** | **3802** | **2145** | **1657** |
+| **TOTAL** | **3803** | **2145** | **1658** |
 
 ---
 
@@ -695,6 +695,7 @@ Area covers: factory/doc-baseline.ts, factory/doc-baseline.test.ts, factory/chan
 - [baselines-change-requests.272] `hasActiveFrozenBaseline`: multiple manifests, only one valid-active-frozen → true (any-match, first hit wins) | GAP
 - [baselines-change-requests.273] `activeCycleId`/`activeCycleKind`/`activeCycleBinding` derive the batch↔cycle binding from the single `isCanonicalFrozen` predicate (`hasActiveFrozenBaseline` && !`isSpecCycleOpen`, the one function vivi.ts's write allowlist also gates on): pre-freeze → active with the open feature cycle id, else the `PROJECT_CYCLE_ID` sentinel; frozen → null id / `{seed}` binding | correct binding per phase | unit | lib/import-docs.test.ts ("cycle binding" cases) + prepare-docs.test.ts (selection); `isCanonicalFrozen` itself is exercised transitively here and by lib/vivi.test.ts's frozen-phase allowlist cases
 - [baselines-change-requests.274] `batchMatchesActiveCycle` membership: a `{seed}` matches once a cycle is active, a same-id `{active}` batch matches, a non-current-cycle `{active}` batch is excluded, an unparseable binding falls to the active cycle, and NOTHING matches while frozen (null active id) | correct membership | unit | prepare-docs.test.ts ("a seed batch is ignored…" + "a batch bound to a non-current cycle…")
+- [baselines-change-requests.275] `featureCycleOpenRefusal` — the single-source cycle-concurrency gate both `lib/control.ts#openSpecCycle` and `factory/cli.ts` cycle-open open a cycle through (no policy drift between app and CLI): `no_frozen_baseline` refusal while the singular project cycle is still live (project-never-parallel), `null` (openable) once frozen with no drafting cycle, `feature_cycle_active` refusal on a second concurrent feature cycle (one-active gate, parallel not yet enabled), and a typed refusal (never a crash) on corrupt baseline/cycle state | typed `{code, reason}` refusal or null, never throws | unit | lib/spec-cycle.test.ts ("featureCycleOpenRefusal — the cycle-concurrency gate": project-singular / openable / one-active / corrupt-no-crash)
 
 ### factory/change-control.ts
 
@@ -1061,9 +1062,9 @@ Every file below was read in full, line by line.
 
 ### verb: cycle (cmdCycle)
 
-- [cli-supervisor-process-infra.387] `cycle open` refuses without a frozen baseline (pre-freeze IS drafting) | exit 1, `cycle_state` | e2e-process | cli.test.ts ("open refuses without a frozen baseline (pre-freeze IS drafting)")
+- [cli-supervisor-process-infra.387] `cycle open` refuses without a frozen baseline (pre-freeze IS drafting) — via the same single-source `featureCycleOpenRefusal` guard the app gates on, so the policy never drifts between CLI and UI | exit 1, `cycle_state` | e2e-process | cli.test.ts ("open refuses without a frozen baseline (pre-freeze IS drafting)")
 - [cli-supervisor-process-infra.388] `cycle open` happy path | exit 0, writes `spec-cycle.json`, `cycle.opened_by === "owner:cli"`, status "drafting" | e2e-process | cli.test.ts ("open → status → start refused → cancel round-trip")
-- [cli-supervisor-process-infra.389] `cycle open` refuses a second open | exit 1, `cycle_state` | e2e-process | cli.test.ts ("open → status → start refused → cancel round-trip")
+- [cli-supervisor-process-infra.389] `cycle open` refuses a second open (via `featureCycleOpenRefusal` → `feature_cycle_active`, the one-active gate) | exit 1, `cycle_state` | e2e-process | cli.test.ts ("open → status → start refused → cancel round-trip")
 - [cli-supervisor-process-infra.390] `cycle open` refuses while a supervised run is active (`isRunActive`) | exit 1, `already_running` | e2e-process | GAP (the round-trip test gates start-while-open, not open-while-running)
 - [cli-supervisor-process-infra.391] `cycle status` prints/returns the open cycle | exit 0, `cycle.id` matches the opened id | e2e-process | cli.test.ts ("open → status → start refused → cancel round-trip")
 - [cli-supervisor-process-infra.392] `cycle status` (and bare `cycle`) with no open cycle | exit 0, `cycle:null` / "no spec cycle open" | e2e-process | GAP
@@ -1598,8 +1599,8 @@ Out of this area's primary concern (prompt content, not CLI/process infra) but i
 - [control-plane-api-routes.424] `removeSkills` throws ControlError `missing_target` when the target root does not exist | throws, code missing_target | unit | GAP
 - [control-plane-api-routes.425] `removeSkills` throws ControlError `spawn_failed` when the script exits non-zero OR no report was written (honest verdict) | throws spawn_failed | unit | GAP
 - [control-plane-api-routes.426] `removeSkills` releases the skills lock in `finally` even when the run fails (no leaked lock) | lock cleared after failure | unit | GAP
-- [control-plane-api-routes.427] `openSpecCycle` refuses when there is no active frozen baseline | throws ControlError `cycle_state` (/no frozen baseline/) | unit | control.test.ts ("open requires a frozen baseline, refuses a double open, and start refuses while open")
-- [control-plane-api-routes.428] `openSpecCycle` refuses a double open | throws `cycle_state` (/already open/) | unit | control.test.ts ("open requires a frozen baseline, refuses a double open, and start refuses while open")
+- [control-plane-api-routes.427] `openSpecCycle` refuses when there is no active frozen baseline (via the single-source `featureCycleOpenRefusal` guard → `no_frozen_baseline`) | throws ControlError `cycle_state` (/no frozen baseline/) | unit | control.test.ts ("open requires a frozen baseline, refuses a double open, and start refuses while open")
+- [control-plane-api-routes.428] `openSpecCycle` refuses a double open (via `featureCycleOpenRefusal` → `feature_cycle_active`, the one-active gate) | throws `cycle_state` (/already open/) | unit | control.test.ts ("open requires a frozen baseline, refuses a double open, and start refuses while open")
 - [control-plane-api-routes.429] `openSpecCycle` refuses while a supervised run is active | throws `already_running` | unit | control.test.ts ("open refuses while a supervised run is active")
 - [control-plane-api-routes.430] `openSpecCycle` happy path on a frozen baseline | writes `{status:"drafting", kind:"feature", id, opened_by}`, returns the cycle | unit | control.test.ts ("open requires a frozen baseline, refuses a double open, and start refuses while open")
 - [control-plane-api-routes.431] `openSpecCycle` when the target root does not exist | throws `missing_target` before any write | unit | GAP
