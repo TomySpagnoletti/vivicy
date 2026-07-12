@@ -12,6 +12,15 @@ import {
 import path from "node:path"
 
 import { getFactoryRoot } from "@/lib/control"
+import {
+  ensureManagedBlock,
+  extractManagedBlock,
+  GITIGNORE_MARKERS,
+  ManagedBlockError,
+  METHOD_MARKERS,
+  type ManagedSpec,
+  type MarkerPair,
+} from "@/lib/managed-block"
 import { setCurrentProject } from "@/lib/project"
 import type { CurrentProject } from "@/lib/project-types"
 import { SKELETON_DIRS } from "@/lib/skeleton"
@@ -30,6 +39,7 @@ export class ScaffoldError extends Error {
       | "not_a_directory"
       | "invalid_name"
       | "templates_missing"
+      | "managed_block_corrupt"
   ) {
     super(message)
     this.name = "ScaffoldError"
@@ -115,17 +125,20 @@ export function detectGateCommand(targetRoot: string): string | null {
   return null
 }
 
-// Must be the COMPLETE never-commit set, and only that — the orchestrator runs `git add -A` every checkpoint and relies on this being exhaustive; anything wrongly ignored here silently never gets committed.
-function gitignore(): string {
-  return `# Vivicy factory (method-specific — keep these)
-# Factory runtime: lock, logs, settings, current-project selection.
+// The indispensable never-commit set the governed loop writes — the orchestrator runs `git add -A` every checkpoint and relies on this being exhaustive; anything wrongly excluded silently never gets committed. Single-sourced into both the greenfield .gitignore and the brownfield managed block.
+const VIVICY_ESSENTIAL_IGNORES = `# Factory runtime: lock, logs, settings, current-project selection.
 .vivicy-runtime/
 # Per-issue parallel worktrees; content integrates onto main, the dir itself never lands in history.
 .vivicy-worktrees/
 # Transient integration mutex, created and removed during a merge.
 .vivicy/development/gates/.integration.lock
 # Agent session logs; the progress ledger links them, they never enter git history.
-.vivicy/development/transcripts/
+.vivicy/development/transcripts/`
+
+function gitignore(): string {
+  return `${GITIGNORE_MARKERS.begin}
+${VIVICY_ESSENTIAL_IGNORES}
+${GITIGNORE_MARKERS.end}
 
 # macOS
 .DS_Store
@@ -301,6 +314,27 @@ function writeIfMissing(abs: string, contents: string): string | null {
   return abs
 }
 
+function managedSpec(template: string, markers: MarkerPair): ManagedSpec {
+  return { template, block: extractManagedBlock(template, markers), markers }
+}
+
+function writeManaged(abs: string, spec: ManagedSpec): string | null {
+  const current = existsSync(abs) ? readFileSync(abs, "utf8") : null
+  let next: string
+  try {
+    next = ensureManagedBlock(current, spec)
+  } catch (error) {
+    if (error instanceof ManagedBlockError) {
+      throw new ScaffoldError(`${path.basename(abs)}: ${error.message}`, "managed_block_corrupt")
+    }
+    throw error
+  }
+  if (next === current) return null
+  mkdirSync(path.dirname(abs), { recursive: true })
+  writeFileSync(abs, next)
+  return abs
+}
+
 export function scaffoldProject(input: { targetDir: unknown; projectName: unknown }): ScaffoldResult {
   const projectName = validateProjectName(input.projectName)
   const { target, mode } = resolveTargetDir(input.targetDir)
@@ -322,21 +356,21 @@ export function scaffoldProject(input: { targetDir: unknown; projectName: unknow
     if (written1) written.push(written1)
   }
 
-  const templateFiles: Array<[string, string]> = [
-    ["AGENTS.md", renderTemplate("AGENTS.md", { [PROJECT_NAME_TOKEN]: projectName })],
-    ["CLAUDE.md", renderTemplate("CLAUDE.md", { [PROJECT_NAME_TOKEN]: projectName })],
-    ["README.md", renderTemplate("README.md", { [PROJECT_NAME_TOKEN]: projectName })],
+  const managedFiles: Array<[string, ManagedSpec]> = [
+    ["AGENTS.md", managedSpec(renderTemplate("AGENTS.md", { [PROJECT_NAME_TOKEN]: projectName }), METHOD_MARKERS)],
+    ["CLAUDE.md", managedSpec(renderTemplate("CLAUDE.md", { [PROJECT_NAME_TOKEN]: projectName }), METHOD_MARKERS)],
+    [".gitignore", managedSpec(gitignore(), GITIGNORE_MARKERS)],
   ]
-  for (const [rel, contents] of templateFiles) {
-    const w = writeIfMissing(at(rel), contents)
+  for (const [rel, spec] of managedFiles) {
+    const w = writeManaged(at(rel), spec)
     if (w) written.push(w)
   }
 
-  const generatedFiles: Array<[string, string]> = [
+  const ownerFiles: Array<[string, string]> = [
+    ["README.md", renderTemplate("README.md", { [PROJECT_NAME_TOKEN]: projectName })],
     [VIVICY_CONFIG_FILENAME, vivicyConfig(gateCommand)],
-    [".gitignore", gitignore()],
   ]
-  for (const [rel, contents] of generatedFiles) {
+  for (const [rel, contents] of ownerFiles) {
     const w = writeIfMissing(at(rel), contents)
     if (w) written.push(w)
   }

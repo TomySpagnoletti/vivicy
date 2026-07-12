@@ -1,3 +1,5 @@
-@AGENTS.md
+<!-- vivicy:method:begin -->
+This repository is governed by the **Vivicy** development factory; the operating guide for every agent working here — Claude included — is [AGENTS.md](./AGENTS.md). Read it first.
 
-<!-- Redirector stub: exists only so CLIs that specifically look for the filename CLAUDE.md still find this guide. -->
+@AGENTS.md
+<!-- vivicy:method:end -->

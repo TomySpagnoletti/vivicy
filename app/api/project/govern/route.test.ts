@@ -97,12 +97,17 @@ describe("POST /api/project/govern", () => {
     expect(seedViviWelcome).not.toHaveBeenCalled()
   })
 
-  it("maps ScaffoldError codes: not_absolute → 400, templates_missing → 500", async () => {
+  it("maps ScaffoldError codes: not_absolute → 400, templates_missing → 500, managed_block_corrupt → 409", async () => {
     startGovernance.mockRejectedValueOnce(new ScaffoldError("nope", "not_absolute"))
     expect((await POST(postForm({ targetDir: "x" }))).status).toBe(400)
 
     startGovernance.mockRejectedValueOnce(new ScaffoldError("gone", "templates_missing"))
     expect((await POST(postForm({ targetDir: "/abs" }))).status).toBe(500)
+
+    startGovernance.mockRejectedValueOnce(new ScaffoldError("AGENTS.md: corrupt markers", "managed_block_corrupt"))
+    const res = await POST(postForm({ targetDir: "/abs" }))
+    expect(res.status).toBe(409)
+    expect((await res.json()).code).toBe("managed_block_corrupt")
   })
 
   it("still returns the governed project when seeding the welcome throws (best-effort)", async () => {

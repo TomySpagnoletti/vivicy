@@ -5,6 +5,7 @@ import path from "node:path"
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 
+import { GITIGNORE_MARKERS, METHOD_MARKERS } from "@/lib/managed-block"
 import { getCurrentProject } from "@/lib/project"
 import {
   detectGateCommand,
@@ -13,6 +14,10 @@ import {
   scaffoldProject,
   validateProjectName,
 } from "@/lib/scaffold"
+
+function count(haystack: string, needle: string): number {
+  return haystack.split(needle).length - 1
+}
 
 let workDir: string
 let prevCwd: string
@@ -184,6 +189,12 @@ describe("scaffoldProject — from scratch (lean, language-agnostic)", () => {
     for (const committed of ["architecture-data.json", "source-map.json", "coverage-report"]) {
       expect(gitignore, `expected .gitignore NOT to ignore ${committed}`).not.toContain(committed)
     }
+    expect(gitignore, "greenfield keeps the generalist comfort rules alongside the managed essentials").toContain("# macOS")
+    expect(count(gitignore, GITIGNORE_MARKERS.begin), "greenfield carries exactly one managed block, so re-governance is a fixpoint").toBe(1)
+    expect(gitignore).toContain("__pycache__/")
+    expect(count(agents, METHOD_MARKERS.begin), "greenfield AGENTS.md embeds exactly one managed contract block").toBe(1)
+    expect(agents).toContain("## Working under Vivicy")
+    expect(agents).toContain("## The `.vivicy/` layout")
 
     expect(result.project.root).toBe(target)
     expect(result.project.name).toBe("acme-app")
@@ -203,52 +214,116 @@ describe("scaffoldProject — from scratch (lean, language-agnostic)", () => {
   })
 })
 
-describe("scaffoldProject — existing project (add Vivicy, never clobber)", () => {
-  it("creates ONLY the missing files and leaves every existing file byte-unchanged", () => {
+describe("scaffoldProject — existing project (shared files get a managed block, owner files untouched)", () => {
+  const ownerAgents = "# My own agents guide\nDo not overwrite me.\n"
+  const ownerReadme = "# my-repo\nMy original readme.\n"
+  const ownerGitignore = "node_modules/\nmy-own-ignore/\n"
+  const ownerMain = "print('hello')\n"
+
+  function seedBrownfield(): string {
     const target = path.join(workDir, "my-repo")
     mkdirSync(target, { recursive: true })
-
-    const preexisting: Record<string, string> = {
-      "AGENTS.md": "# My own agents guide\nDo not overwrite me.\n",
-      "README.md": "# my-repo\nMy original readme.\n",
-      ".gitignore": "node_modules/\nmy-own-ignore/\n",
-      "src/main.py": "print('hello')\n",
+    const files: Record<string, string> = {
+      "AGENTS.md": ownerAgents,
+      "README.md": ownerReadme,
+      ".gitignore": ownerGitignore,
+      "src/main.py": ownerMain,
       "package.json": JSON.stringify({ name: "my-repo", scripts: { test: "pytest -q" } }, null, 2),
     }
-    for (const [rel, contents] of Object.entries(preexisting)) {
+    for (const [rel, contents] of Object.entries(files)) {
       const abs = path.join(target, rel)
       mkdirSync(path.dirname(abs), { recursive: true })
       writeFileSync(abs, contents)
     }
+    return target
+  }
 
+  it("appends an editable block to AGENTS.md and .gitignore, leaves README and code byte-unchanged, creates CLAUDE.md/vivicy.json", () => {
+    const target = seedBrownfield()
     const result = scaffoldProject({ targetDir: target, projectName: "My Repo" })
     expect(result.mode).toBe("existing_project")
 
-    for (const [rel, contents] of Object.entries(preexisting)) {
-      expect(readFileSync(path.join(target, rel), "utf8"), `clobbered ${rel}`).toBe(contents)
-    }
+    expect(readFileSync(path.join(target, "README.md"), "utf8"), "README is an owner file — never touched").toBe(ownerReadme)
+    expect(readFileSync(path.join(target, "src/main.py"), "utf8")).toBe(ownerMain)
+    expect(readFileSync(path.join(target, "package.json"), "utf8")).toBe(
+      JSON.stringify({ name: "my-repo", scripts: { test: "pytest -q" } }, null, 2)
+    )
 
-    for (const rel of [
-      "CLAUDE.md",
-      "vivicy.json",
-      ".vivicy/canonical/.gitkeep",
-      ".vivicy/change-requests/.gitkeep",
-      ".vivicy/baselines/.gitkeep",
-      ".vivicy/development/issues/.gitkeep",
-    ]) {
+    const agents = readFileSync(path.join(target, "AGENTS.md"), "utf8")
+    expect(agents.startsWith(ownerAgents), "owner AGENTS.md text stays byte-intact at the head").toBe(true)
+    expect(count(agents, METHOD_MARKERS.begin)).toBe(1)
+    expect(agents).toContain("## Working under Vivicy")
+    expect(agents).toContain(".vivicy/development/transcripts/")
+    expect(agents.endsWith(`${METHOD_MARKERS.end}\n`)).toBe(true)
+
+    const gitignore = readFileSync(path.join(target, ".gitignore"), "utf8")
+    expect(gitignore.startsWith(ownerGitignore), "owner .gitignore text stays byte-intact at the head").toBe(true)
+    expect(count(gitignore, GITIGNORE_MARKERS.begin)).toBe(1)
+    expect(gitignore).toContain(".vivicy-runtime/")
+    expect(gitignore).toContain(".vivicy/development/transcripts/")
+    expect(gitignore.endsWith(`${GITIGNORE_MARKERS.end}\n`)).toBe(true)
+    expect(gitignore, "the brownfield block is the essentials only, not the generalist comfort rules").not.toContain("__pycache__/")
+
+    for (const rel of ["CLAUDE.md", "vivicy.json", ".vivicy/canonical/.gitkeep", ".vivicy/development/issues/.gitkeep"]) {
       expect(existsSync(path.join(target, rel)), `missing ${rel}`).toBe(true)
     }
 
     const writtenRel = new Set(result.written.map((p) => path.relative(target, p)))
-    for (const rel of Object.keys(preexisting)) {
-      expect(writtenRel.has(rel), `should not have rewritten ${rel}`).toBe(false)
-    }
-
-    expect(existsSync(path.join(target, "docs/governance"))).toBe(false)
-    expect(existsSync(path.join(target, "test/scaffold.test.js"))).toBe(false)
+    expect(writtenRel.has("AGENTS.md"), "AGENTS.md was edited in place").toBe(true)
+    expect(writtenRel.has(".gitignore"), ".gitignore was edited in place").toBe(true)
+    expect(writtenRel.has("README.md"), "README stays writeIfMissing — not rewritten").toBe(false)
+    expect(writtenRel.has("src/main.py")).toBe(false)
+    expect(writtenRel.has("package.json")).toBe(false)
 
     const vivicy = JSON.parse(readFileSync(path.join(target, "vivicy.json"), "utf8"))
     expect(vivicy.gateCommand).toBe("npm test")
+  })
+
+  it("is idempotent: a second scaffold pass leaves every shared file byte-identical (block already canonical)", () => {
+    const target = seedBrownfield()
+    scaffoldProject({ targetDir: target, projectName: "My Repo" })
+    const after1 = Object.fromEntries(
+      ["AGENTS.md", "CLAUDE.md", ".gitignore", "README.md"].map((rel) => [rel, readFileSync(path.join(target, rel), "utf8")])
+    )
+    const result2 = scaffoldProject({ targetDir: target, projectName: "My Repo" })
+    for (const rel of Object.keys(after1)) {
+      expect(readFileSync(path.join(target, rel), "utf8"), `second pass changed ${rel}`).toBe(after1[rel])
+    }
+    const writtenRel = new Set(result2.written.map((p) => path.relative(target, p)))
+    expect(writtenRel.has("AGENTS.md"), "canonical block already present — no rewrite").toBe(false)
+    expect(writtenRel.has(".gitignore")).toBe(false)
+  })
+
+  it("restores an owner-mangled managed block while keeping their surrounding edits", () => {
+    const target = seedBrownfield()
+    scaffoldProject({ targetDir: target, projectName: "My Repo" })
+    const gitignorePath = path.join(target, ".gitignore")
+    const governed = readFileSync(gitignorePath, "utf8")
+    const begin = governed.indexOf(GITIGNORE_MARKERS.begin)
+    const end = governed.indexOf(GITIGNORE_MARKERS.end) + GITIGNORE_MARKERS.end.length
+    const mangled = `${governed.slice(0, begin)}${GITIGNORE_MARKERS.begin}\ndist/\n${GITIGNORE_MARKERS.end}${governed.slice(end)}\n# owner note\n`
+    writeFileSync(gitignorePath, mangled)
+
+    scaffoldProject({ targetDir: target, projectName: "My Repo" })
+    const restored = readFileSync(gitignorePath, "utf8")
+    expect(restored).toContain(".vivicy-runtime/")
+    expect(restored, "the essentials the owner deleted are restored").toContain(".vivicy/development/transcripts/")
+    expect(restored.startsWith(ownerGitignore), "owner's own head stays intact").toBe(true)
+    expect(restored.endsWith("# owner note\n"), "owner's edit after the block stays intact").toBe(true)
+    expect(count(restored, GITIGNORE_MARKERS.begin)).toBe(1)
+  })
+
+  it("refuses loudly (typed error, file untouched) when the owner corrupts the managed markers", () => {
+    const target = seedBrownfield()
+    writeFileSync(
+      path.join(target, "AGENTS.md"),
+      `# mine\n${METHOD_MARKERS.begin}\nhalf a block, no end marker\n`
+    )
+    const before = readFileSync(path.join(target, "AGENTS.md"), "utf8")
+    expect(() => scaffoldProject({ targetDir: target, projectName: "My Repo" })).toThrow(
+      expect.objectContaining({ code: "managed_block_corrupt" })
+    )
+    expect(readFileSync(path.join(target, "AGENTS.md"), "utf8"), "the corrupt file is never mutated").toBe(before)
   })
 })
 

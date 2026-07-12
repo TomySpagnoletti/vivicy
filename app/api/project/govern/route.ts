@@ -14,6 +14,7 @@ const STATUS_BY_CODE: Record<string, number> = {
   not_a_directory: 400,
   invalid_name: 400,
   templates_missing: 500,
+  managed_block_corrupt: 409,
 }
 
 export async function POST(request: Request) {

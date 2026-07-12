@@ -1,8 +1,19 @@
 # {{PROJECT_NAME}} Development Operating Guide
 
-This repository is built by the **Vivicy** development factory from the canonical spec under `.vivicy/canonical/**`. This file is the technical entrypoint for any agent working in this repo — read it first. It is not a product specification; the product truth lives in the frozen canonical baseline.
+This file is the technical entrypoint for any agent working in this repo — read it first. It is not a product specification; the product truth lives in the frozen canonical baseline. The sections below the essential contract expand each rule in detail.
 
-Vivicy — the deterministic orchestrator, the documentation-baseline lock, the traceability gates, the progress ledger, and the architecture-map viewer — runs OUTSIDE this repository and points at it, the way `git` operates on a working tree. It is never vendored in. Your job as an agent is to leave the verification gate green on the slice you were handed and touch nothing outside your mandate.
+<!-- vivicy:method:begin -->
+## Working under Vivicy
+
+This repository is governed by the **Vivicy** development factory. The product truth is the frozen canonical spec under `.vivicy/canonical/**`, never this file or memory; Vivicy runs OUTSIDE the repository (the way `git` operates on a working tree) and is never vendored in.
+
+- During implementation the `.vivicy/**` extraction corpus is frozen and read-only: never modify `.vivicy/canonical/**`, `.vivicy/baselines/**`, `.vivicy/requirements/**`, `.vivicy/development/issue-index.json`, the issue files, or `.vivicy/architecture-map/**`.
+- The orchestrator alone performs governance — git commits, the progress ledger, map edits, and moving issues to `done/`. Never commit, never write the ledger, never edit the map yourself. Transcripts under `.vivicy/development/transcripts/` stay on disk and never enter git history.
+- The verification gate is `vivicy.json`'s `gateCommand`; leave it green on the slice you were handed and touch nothing outside your mandate. Never hardcode machine-specific absolute paths.
+- When the intention itself is wrong, or a discovered constraint changes what must be built, raise a change request under `.vivicy/change-requests/` — never a silent code workaround and never a spec edit. Approving or rejecting a change request is the one human decision the loop waits for.
+- Consult and apply any project skill Vivicy has installed (listed in the *Project skills* section Vivicy maintains at the end of this file) whose domain your work touches.
+- All development artifacts are English.
+<!-- vivicy:method:end -->
 
 ## The `.vivicy/` layout
 
