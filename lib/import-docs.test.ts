@@ -16,7 +16,6 @@ import { strToU8, zipSync } from "fflate"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import {
-  dominantLanguage,
   importDocuments,
   importIntoGoverned,
   mintBatchId,
@@ -24,6 +23,7 @@ import {
   type BatchManifest,
   type RawEntry,
 } from "@/lib/import-docs"
+import { dominantLanguage } from "@/lib/dominant-language"
 import { readNotifications } from "@/lib/notifications"
 import { isGovernedRoot } from "@/lib/project"
 
@@ -281,13 +281,53 @@ describe("manifest", () => {
 })
 
 describe("notification", () => {
-  it("emits an append-only import batch notification", async () => {
+  it("emits an append-only import batch notification naming the cycle binding", async () => {
     const target = targetPath("notify")
     const result = await importDocuments({ targetDir: target, entries: [fileEntry("a.md", ENGLISH)] })
     const events = readNotifications().filter((n) => n.stage === "import" && n.event === "batch")
     expect(events).toHaveLength(1)
     expect(events[0].message).toContain(result.batchId)
     expect(events[0].message).toContain("eng")
+    expect(events[0].message).toContain("active cycle project")
+  })
+})
+
+function writeFrozenBaseline(root: string, baselineId = "baseline-v1.0.0"): void {
+  const dir = path.join(root, ".vivicy", "baselines")
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(path.join(dir, `${baselineId}.json`), JSON.stringify({ status: "frozen", baseline_id: baselineId }))
+}
+
+function openFeatureCycle(root: string, id: string): void {
+  const abs = path.join(root, ".vivicy", "development", "reports", "spec-cycle.json")
+  mkdirSync(path.dirname(abs), { recursive: true })
+  writeFileSync(abs, JSON.stringify({ status: "drafting", kind: "feature", id, opened_at: new Date().toISOString(), opened_by: "test" }))
+}
+
+describe("cycle binding", () => {
+  it("binds a first import to the project cycle (pre-freeze, no baseline, no spec cycle)", async () => {
+    const result = await importDocuments({ targetDir: targetPath("bind-project"), entries: [fileEntry("a.md", ENGLISH)] })
+    expect(result.cycle).toEqual({ binding: "active", id: "project" })
+    expect(readManifest(result.targetPath, result.batchId).cycle).toEqual({ binding: "active", id: "project" })
+  })
+
+  it("binds an import while the canonical is FROZEN as a next-cycle seed", async () => {
+    const root = await governedRoot("bind-seed")
+    writeFrozenBaseline(root)
+    const result = await importIntoGoverned({ root, entries: [fileEntry("b.md", ENGLISH)] })
+    expect(result.cycle).toEqual({ binding: "seed" })
+    expect(readManifest(root, result.batchId).cycle).toEqual({ binding: "seed" })
+    const events = readNotifications().filter((n) => n.stage === "import" && n.event === "batch")
+    expect(events.at(-1)?.message).toContain("seeds the next cycle")
+  })
+
+  it("binds an import made while a feature cycle is open to that active cycle", async () => {
+    const root = await governedRoot("bind-feature")
+    writeFrozenBaseline(root)
+    openFeatureCycle(root, "cycle-2026-abc")
+    const result = await importIntoGoverned({ root, entries: [fileEntry("c.md", ENGLISH)] })
+    expect(result.cycle).toEqual({ binding: "active", id: "cycle-2026-abc" })
+    expect(readManifest(root, result.batchId).cycle).toEqual({ binding: "active", id: "cycle-2026-abc" })
   })
 })
 

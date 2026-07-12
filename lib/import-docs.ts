@@ -9,6 +9,8 @@ import { appendNotification } from "@/lib/notifications"
 import { isGovernedRoot } from "@/lib/project"
 import type { CurrentProject } from "@/lib/project-types"
 import { deriveProjectName, resolveTargetDir, scaffoldProject, type ScaffoldMode } from "@/lib/scaffold"
+import { dominantLanguage } from "@/lib/dominant-language"
+import { activeCycleBinding, type BatchCycleBinding } from "@/lib/spec-cycle"
 import { SUPPORTED_DOC_EXTENSIONS, ZIP_TRANSPORT_EXTENSION } from "@/lib/supported-extensions"
 import { extractScannableText } from "@/lib/text-extract"
 
@@ -61,6 +63,7 @@ export interface BatchManifest {
   batchId: string
   createdAt: string
   language: string
+  cycle: BatchCycleBinding
   files: ManifestFile[]
 }
 
@@ -68,6 +71,7 @@ export interface BatchResult {
   batchId: string
   targetPath: string
   language: string
+  cycle: BatchCycleBinding
   accepted: ManifestFile[]
   rejected: RejectedFile[]
 }
@@ -161,17 +165,8 @@ function explode(entries: RawEntry[]): { accepted: AcceptedEntry[]; rejected: Re
   }
 }
 
-export function dominantLanguage(weights: Map<string, number>): string {
-  if (weights.size === 0) return UNDETERMINED_LANGUAGE
-  let best = UNDETERMINED_LANGUAGE
-  let bestWeight = -1
-  for (const [lang, weight] of [...weights.entries()].sort((a, b) => a[0].localeCompare(b[0]))) {
-    if (weight > bestWeight) {
-      best = lang
-      bestWeight = weight
-    }
-  }
-  return best
+function cycleBindingLabel(cycle: BatchCycleBinding): string {
+  return cycle.binding === "seed" ? "→ seeds the next cycle" : `→ active cycle ${cycle.id}`
 }
 
 function walkFiles(dir: string): string[] {
@@ -251,10 +246,12 @@ async function persistBatch(root: string, exploded: { accepted: AcceptedEntry[];
   for (const file of exploded.accepted) writeBatchFile(batchDir, file.rel, file.bytes)
 
   const { files, language } = await summarizeBatch(batchDir)
+  const cycle = activeCycleBinding(root)
   const manifest: BatchManifest = {
     batchId,
     createdAt: new Date().toISOString(),
     language,
+    cycle,
     files,
   }
   writeManifest(batchDir, manifest)
@@ -263,10 +260,10 @@ async function persistBatch(root: string, exploded: { accepted: AcceptedEntry[];
     level: "info",
     stage: "import",
     event: "batch",
-    message: `imported ${files.length} file(s) as batch ${batchId} (language: ${language})`,
+    message: `imported ${files.length} file(s) as batch ${batchId} (language: ${language}) ${cycleBindingLabel(cycle)}`,
   })
 
-  return { batchId, targetPath: root, language, accepted: files, rejected: exploded.rejected }
+  return { batchId, targetPath: root, language, cycle, accepted: files, rejected: exploded.rejected }
 }
 
 export async function importDocuments(input: { targetDir: unknown; entries: RawEntry[] }): Promise<ImportResult> {

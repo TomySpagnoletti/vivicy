@@ -21,7 +21,7 @@ import { getProjectRuntimeDir } from "@/lib/project-runtime"
 import { getRuntimeDir } from "@/lib/runtime-dir"
 import { settingsToEnv } from "@/lib/settings"
 import { pruneGitkeeps } from "@/lib/skeleton"
-import { hasActiveFrozenBaseline, isSpecCycleOpen } from "@/lib/spec-cycle"
+import { isCanonicalFrozen } from "@/lib/spec-cycle"
 import { detectSpecKind } from "@/lib/spec-kind"
 import { readSettings } from "@/lib/settings-store"
 import { getTargetRoot } from "@/lib/target"
@@ -501,10 +501,6 @@ function listMarkdown(dir: string): string[] {
   return out.sort()
 }
 
-function hasFrozenBaseline(targetRoot: string): boolean {
-  return hasActiveFrozenBaseline(targetRoot)
-}
-
 // must mirror change-control's own CR_FILENAME regex — keep both in sync.
 const CR_FILENAME = /^CR-(\d{4})-[a-z0-9-]+\.md$/
 const NON_CR_FILES = new Set(["cr-template.md", "readme.md"])
@@ -868,7 +864,7 @@ export async function runViviTurn(spawner: Spawner, input: {
       : ""
 
   // re-derived every round: an action tool (e.g. pipeline.extract, cycle.open/close) can freeze or reopen the baseline mid-turn.
-  let frozen = hasFrozenBaseline(targetRoot) && !isSpecCycleOpen(targetRoot)
+  let frozen = isCanonicalFrozen(targetRoot)
   // folds in each accepted round's writes so they're never re-judged by a later round's (possibly stricter) allowlist.
   let roundBase = snapshotVivicy(targetRoot)
 
@@ -877,7 +873,7 @@ export async function runViviTurn(spawner: Spawner, input: {
   let wrote: string[] = []
 
   for (let round = 1; ; round++) {
-    frozen = hasFrozenBaseline(targetRoot) && !isSpecCycleOpen(targetRoot)
+    frozen = isCanonicalFrozen(targetRoot)
     const allowedDirs = frozen ? POST_FREEZE_DIRS : CANONICAL_DIRS
     const crId = nextCrId(targetRoot)
     const statusLine = buildStatusLine(spawner, targetRoot, frozen)
@@ -937,7 +933,7 @@ export async function runViviTurn(spawner: Spawner, input: {
         ), allActions)
     }
 
-    if ((frozen || (hasFrozenBaseline(targetRoot) && !isSpecCycleOpen(targetRoot))) && diff.allowedWrites.length > 0) {
+    if ((frozen || isCanonicalFrozen(targetRoot)) && diff.allowedWrites.length > 0) {
       const invalid = await validateChangeControlSafely(spawner, factoryRoot, targetRoot)
       if (invalid) {
         const rollback: DiffResult = {

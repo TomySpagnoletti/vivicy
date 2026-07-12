@@ -6,7 +6,7 @@ import { dirname, join, resolve } from "node:path";
 import type { SpawnSyncReturns } from "node:child_process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { FACTORY_REHEARSAL_DIR } from "./target-root.ts";
-import { hasActiveFrozenBaseline, isSpecCycleOpen, SPEC_CYCLE_REL, writeSpecCycle } from "../lib/spec-cycle.ts";
+import { isCanonicalFrozen, isSpecCycleOpen, SPEC_CYCLE_REL, writeSpecCycle } from "../lib/spec-cycle.ts";
 
 interface Stage {
   name: string;
@@ -326,6 +326,7 @@ async function main(): Promise<void> {
 
   await runFeatureCycleStages(temp);
   await runDocPrepScenario();
+  await runCycleBatchScenarios();
 
   writeReport({ dry, temp, processed, verified, blocked, totalIssues, doneCount, verifiedStates: verifiedStates.length, passingGates });
   record("write method-rehearsal-report.md", existsSync(reportPath), reportPath);
@@ -525,12 +526,81 @@ async function runDocPrepScenario(): Promise<void> {
   }
 }
 
+type RehearsalCycle = { binding: "active"; id: string } | { binding: "seed" };
+
+function writeUploadBatch(root: string, id: string, files: Record<string, string>, language: string, cycle: RehearsalCycle): void {
+  const batchDir = join(root, ".vivicy/uploads", id);
+  const manifestFiles: Array<{ path: string; size: number; sha256: string }> = [];
+  for (const [rel, content] of Object.entries(files)) {
+    const abs = join(batchDir, ...rel.split("/"));
+    mkdirSync(dirname(abs), { recursive: true });
+    writeFileSync(abs, content);
+    manifestFiles.push({ path: rel, size: content.length, sha256: "x" });
+  }
+  mkdirSync(batchDir, { recursive: true });
+  writeFileSync(join(batchDir, "manifest.json"), JSON.stringify({ batchId: id, createdAt: new Date().toISOString(), language, cycle, files: manifestFiles }, null, 2));
+}
+
+function writeFrozenBaselineFixture(root: string): void {
+  const dir = join(root, ".vivicy/baselines");
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, "baseline-v1.0.0.json"), JSON.stringify({ status: "frozen", baseline_id: "baseline-v1.0.0" }, null, 2));
+}
+
+// Batch↔cycle law: an active-cycle prep consumes ALL its unconsumed batches at once; a post-freeze import seeds the NEXT cycle and is never folded into the frozen corpus.
+async function runCycleBatchScenarios(): Promise<void> {
+  const prepMod = await import(pathToFileURL(factoryScript("prepare-docs.ts")).href);
+  const EN = "The product lets a user manage a catalog of items with search and pagination across the whole dataset.";
+
+  const progressive = mkdtempSync(join(tmpdir(), "vivicy-rehearsal-progressive-"));
+  try {
+    writeUploadBatch(progressive, "2026-07-05T09-00-00-000Z", { "canonical/one.md": `# One\n\n${EN}` }, "eng", { binding: "active", id: "project" });
+    writeUploadBatch(progressive, "2026-07-05T09-05-00-000Z", { "canonical/two.md": `# Two\n\n${EN}` }, "eng", { binding: "active", id: "project" });
+    const report = await prepMod.prepareDocs({ repoRoot: progressive });
+    const bothConsumed = Array.isArray(report?.batches_consumed) && report.batches_consumed.length === 2;
+    const bothPlaced = existsSync(join(progressive, ".vivicy/canonical/one.md")) && existsSync(join(progressive, ".vivicy/canonical/two.md"));
+    record(
+      "batch↔cycle: two progressively-imported batches of the active cycle are consumed together in one prep run",
+      report?.phase === "green" && bothConsumed && bothPlaced && (report.batches_pending?.length ?? -1) === 0,
+      `phase ${report?.phase ?? "?"}; consumed ${report?.batches_consumed?.join(",") ?? "?"}`,
+    );
+  } finally {
+    rmSync(progressive, { recursive: true, force: true });
+  }
+
+  const seed = mkdtempSync(join(tmpdir(), "vivicy-rehearsal-seed-"));
+  try {
+    writeFrozenBaselineFixture(seed);
+    writeUploadBatch(seed, "2026-07-05T10-00-00-000Z", { "canonical/next.md": `# Next\n\n${EN}` }, "eng", { binding: "seed" });
+    const whileFrozen = await prepMod.prepareDocs({ repoRoot: seed });
+    record(
+      "batch↔cycle: a post-freeze import seeds the next cycle — deferred, never folded into the frozen corpus",
+      whileFrozen?.phase === "skipped" && whileFrozen?.cycle_id === null && !existsSync(join(seed, ".vivicy/canonical/next.md")),
+      `phase ${whileFrozen?.phase ?? "?"}; cycle ${String(whileFrozen?.cycle_id)}`,
+    );
+    writeSpecCycle(seed, { status: "drafting", kind: "feature", id: "cycle-2026-rehearsal-next", opened_at: new Date().toISOString(), opened_by: "owner:dev-rehearsal" });
+    const afterOpen = await prepMod.prepareDocs({ repoRoot: seed });
+    const claimed =
+      afterOpen?.phase === "green" &&
+      Array.isArray(afterOpen?.batches_consumed) &&
+      afterOpen.batches_consumed.includes("2026-07-05T10-00-00-000Z") &&
+      existsSync(join(seed, ".vivicy/canonical/next.md"));
+    record(
+      "batch↔cycle: the seed batch becomes unconsumed-active and is prepared once its cycle opens",
+      claimed,
+      `phase ${afterOpen?.phase ?? "?"}; consumed ${afterOpen?.batches_consumed?.join(",") ?? "?"}`,
+    );
+  } finally {
+    rmSync(seed, { recursive: true, force: true });
+  }
+}
+
 async function runFeatureCycleStages(temp: string): Promise<void> {
   const git = (a: string[]) => spawnSync("git", a, { cwd: temp, encoding: "utf8" });
   const readJsonIn = <T,>(rel: string): T => readJson<T>(join(temp, rel));
   const clean = () => (git(["status", "--porcelain"]).stdout || "").trim() === "";
 
-  const guardOk = hasActiveFrozenBaseline(temp) && !isSpecCycleOpen(temp);
+  const guardOk = isCanonicalFrozen(temp);
   const cycleId = `cycle-${new Date().toISOString().slice(0, 10)}-rehearsal`;
   if (guardOk) {
     writeSpecCycle(temp, { status: "drafting", kind: "feature", id: cycleId, opened_at: new Date().toISOString(), opened_by: "owner:dev-rehearsal" });

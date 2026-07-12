@@ -15,7 +15,10 @@ export type DocPrepPhase =
 
 export type DocPrepRoute = "canonical" | "explode"
 
+export type CycleKind = "project" | "feature"
+
 export interface PlacedDoc {
+  batch?: string
   target?: string
   source?: string
   route?: DocPrepRoute
@@ -23,6 +26,7 @@ export interface PlacedDoc {
 }
 
 export interface RejectedDoc {
+  batch?: string
   source?: string
   reason?: string
   detail?: string
@@ -30,7 +34,10 @@ export interface RejectedDoc {
 
 export interface DocPrepReport {
   phase?: DocPrepPhase | string
-  batch_id?: string | null
+  cycle_id?: string | null
+  cycle_kind?: CycleKind | null
+  batches_consumed?: string[]
+  batches_pending?: string[]
   language?: string
   placed?: PlacedDoc[]
   rejected?: RejectedDoc[]

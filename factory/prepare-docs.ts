@@ -7,6 +7,7 @@ import { franc } from "franc-min";
 
 import { runClaudeLeg, runCodexLeg } from "./agent-spawn.ts";
 import type { AgentIssue, LegConfig, LegDeps } from "./agent-spawn.ts";
+import { atomicWriteJson } from "./atomic-write.ts";
 import { agentCliArgs, CLI_DEFAULTS, composePrompt, DEFAULT_CONFIG, resolveAgentLegs } from "./dev-loop.ts";
 import type { Leg, LegResult } from "./dev-loop.ts";
 import { notify } from "./notify.ts";
@@ -14,7 +15,10 @@ import { resolveTargetRoot, FACTORY_PROMPTS_DIR } from "./target-root.ts";
 import { resolveBatchLanguage } from "./detect-language.ts";
 import type { LanguageResolution } from "./detect-language.ts";
 import { BINARY_DOC_EXTENSIONS, TEXT_LANGUAGE_EXTENSIONS, extractBinaryDocText } from "../lib/text-extract.ts";
+import { dominantLanguage } from "../lib/dominant-language.ts";
 import { pruneGitkeeps } from "../lib/skeleton.ts";
+import { activeCycleId, activeCycleKind, batchMatchesActiveCycle } from "../lib/spec-cycle.ts";
+import type { SpecKind } from "../lib/spec-kind.ts";
 
 export const DOC_PREP_REPORT_REL = ".vivicy/development/reports/doc-prep-report.json";
 const UPLOADS_REL = ".vivicy/uploads";
@@ -37,16 +41,18 @@ interface BatchManifest {
   batchId: string;
   createdAt: string;
   language: string;
+  cycle?: unknown;
   files: ManifestFile[];
 }
 
-export interface LatestBatch {
+export interface Batch {
   batchId: string;
   batchDir: string;
   manifest: BatchManifest;
 }
 
 export interface PlacedDoc {
+  batch: string;
   target: string;
   source?: string;
   route: DocPrepRoute;
@@ -54,6 +60,7 @@ export interface PlacedDoc {
 }
 
 export interface RejectedDoc {
+  batch: string;
   source: string;
   reason: DocPrepRejectReason;
   detail?: string;
@@ -61,7 +68,10 @@ export interface RejectedDoc {
 
 export interface DocPrepReport {
   phase: DocPrepPhase;
-  batch_id: string | null;
+  cycle_id: string | null;
+  cycle_kind: SpecKind | null;
+  batches_consumed: string[];
+  batches_pending: string[];
   language: string;
   placed: PlacedDoc[];
   rejected: RejectedDoc[];
@@ -101,26 +111,40 @@ export interface PrepareDocsOptions {
   env?: NodeJS.ProcessEnv;
   spawnLeg?: (args: SpawnLegArgs) => Promise<LegResult | void>;
   emitReport?: (report: DocPrepReport, repoRoot: string) => void;
-  findLatestBatch?: (repoRoot: string) => LatestBatch | null;
   resolveLanguage?: (args: { repoRoot: string; batchDir: string }) => Promise<LanguageResolution>;
   now?: () => Date;
 }
 
 // The batch-complete marker is manifest.json (written LAST by import); a batch dir without it is an interrupted, non-consumable batch.
-export function latestCompleteBatch(repoRoot: string): LatestBatch | null {
+export function completeBatches(repoRoot: string): Batch[] {
   const uploadsDir = resolve(repoRoot, UPLOADS_REL);
-  if (!existsSync(uploadsDir)) return null;
-  const ids = readdirSync(uploadsDir, { withFileTypes: true })
-    .filter((e) => e.isDirectory())
-    .map((e) => e.name)
-    .filter((name) => existsSync(join(uploadsDir, name, MANIFEST_FILE)))
-    .sort((a, b) => a.localeCompare(b));
-  for (let i = ids.length - 1; i >= 0; i -= 1) {
-    const batchDir = join(uploadsDir, ids[i]);
+  if (!existsSync(uploadsDir)) return [];
+  const batches: Batch[] = [];
+  for (const entry of readdirSync(uploadsDir, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    const batchDir = join(uploadsDir, entry.name);
     const manifest = readManifest(join(batchDir, MANIFEST_FILE));
-    if (manifest) return { batchId: ids[i], batchDir, manifest };
+    if (manifest) batches.push({ batchId: entry.name, batchDir, manifest });
   }
-  return null;
+  return batches.sort((a, b) => a.batchId.localeCompare(b.batchId));
+}
+
+// The batches the active cycle's prep must consume: complete + bound to (or seeding) the active cycle + not yet consumed by a prior run.
+// Empty when the canonical is frozen (no active cycle) — seed batches then wait for the cycle they seed to open.
+export function unconsumedActiveCycleBatches(repoRoot: string, report: DocPrepReport | null): Batch[] {
+  const cycleId = activeCycleId(repoRoot);
+  if (cycleId === null) return [];
+  const consumed = consumedSet(report);
+  return completeBatches(repoRoot).filter(
+    (b) => batchMatchesActiveCycle(b.manifest.cycle, cycleId) && !consumed.has(b.batchId),
+  );
+}
+
+// Never-reset ledger of every batch a prep run has fully placed: a batch is added only after all its files land, so a mid-run crash never marks an unconsumed batch consumed.
+function consumedSet(report: DocPrepReport | null): Set<string> {
+  const legacyBatchId = (report as { batch_id?: unknown } | null)?.batch_id;
+  const legacy = typeof legacyBatchId === "string" ? [legacyBatchId] : [];
+  return new Set([...(Array.isArray(report?.batches_consumed) ? report!.batches_consumed : []), ...legacy]);
 }
 
 function readManifest(abs: string): BatchManifest | null {
@@ -130,15 +154,13 @@ function readManifest(abs: string): BatchManifest | null {
     batchId: String(parsed.batchId ?? ""),
     createdAt: String(parsed.createdAt ?? ""),
     language: typeof parsed.language === "string" && parsed.language.length > 0 ? parsed.language : UNDETERMINED,
+    cycle: parsed.cycle,
     files: parsed.files.filter((f): f is ManifestFile => Boolean(f) && typeof f === "object" && typeof (f as ManifestFile).path === "string"),
   };
 }
 
-export function docPrepStageNeeded(batch: { batchId: string } | null, report: { phase?: unknown; batch_id?: unknown } | null): boolean {
-  if (!batch) return false;
-  if (!report) return true;
-  const settled = report.phase === "green" || report.phase === "skipped";
-  return !settled || report.batch_id !== batch.batchId;
+export function docPrepStageNeeded(repoRoot: string, report: DocPrepReport | null): boolean {
+  return unconsumedActiveCycleBatches(repoRoot, report).length > 0;
 }
 
 // Deterministic router: an upload whose relative path sits under a canonical dir marker with a valid extension is a path-(a) candidate; everything else is path (b).
@@ -180,17 +202,22 @@ export async function prepareDocs(options: PrepareDocsOptions = {}): Promise<Doc
   }
   const now = options.now ?? (() => new Date());
   const emitReport = options.emitReport ?? defaultEmitReport;
-  const findLatestBatch = options.findLatestBatch ?? latestCompleteBatch;
 
-  const batch = findLatestBatch(repoRoot);
-  const priorReport = readJsonOrNull(resolve(repoRoot, DOC_PREP_REPORT_REL)) as Partial<DocPrepReport> | null;
+  const priorReport = readReport(repoRoot);
+  const cycleId = activeCycleId(repoRoot);
+  const cycleKind = activeCycleKind(repoRoot);
+  const consumed = consumedSet(priorReport);
+  const sameCycle = priorReport?.cycle_id != null && priorReport.cycle_id === cycleId;
 
   const report: DocPrepReport = {
     phase: "classifying",
-    batch_id: batch?.batchId ?? null,
-    language: batch?.manifest.language ?? UNDETERMINED,
-    placed: [],
-    rejected: [],
+    cycle_id: cycleId,
+    cycle_kind: cycleKind,
+    batches_consumed: [...consumed],
+    batches_pending: [],
+    language: UNDETERMINED,
+    placed: carryForward(sameCycle ? priorReport?.placed : undefined, consumed),
+    rejected: carryForward(sameCycle ? priorReport?.rejected : undefined, consumed),
     summary: "",
     updated_at: "",
   };
@@ -199,40 +226,110 @@ export async function prepareDocs(options: PrepareDocsOptions = {}): Promise<Doc
     emitReport(report, repoRoot);
   };
 
-  if (!batch) {
+  if (cycleId === null) {
+    const seeds = completeBatches(repoRoot).length;
     report.phase = "skipped";
-    report.summary = "no upload batch to prepare — the pipeline proceeds on the owner-authored canonical (nothing was imported).";
-    emit();
-    return report;
-  }
-  if (batch.manifest.files.length === 0) {
-    report.phase = "skipped";
-    report.summary = `batch ${batch.batchId} carries no files; nothing to prepare.`;
-    emit();
-    return report;
-  }
-  if (!docPrepStageNeeded(batch, priorReport)) {
-    report.phase = "skipped";
-    report.placed = Array.isArray(priorReport?.placed) ? (priorReport!.placed as PlacedDoc[]) : [];
-    report.summary = `doc-prep already settled for batch ${batch.batchId}; nothing to do. A new import batch re-runs the stage.`;
+    report.summary =
+      seeds > 0
+        ? `the canonical is frozen — ${seeds} imported batch(es) seed the next cycle and will be prepared when it opens.`
+        : "no active cycle and no upload batch to prepare — the pipeline proceeds on the owner-authored canonical.";
     emit();
     return report;
   }
 
-  // Deterministic import detection left the batch language undetermined — fall back to the language leg BEFORE the
-  // dominant-language law governs any placement/translation; it updates the manifest in place or leaves 'und' loudly.
-  if (report.language === UNDETERMINED) {
-    const resolveLanguage =
-      options.resolveLanguage ??
-      ((args) => resolveBatchLanguage({ ...args, env: options.env, cfg: options.cfg, promptsDir: options.promptsDir }));
-    const resolution = await resolveLanguage({ repoRoot, batchDir: batch.batchDir });
-    if (resolution.resolved) {
-      report.language = resolution.language;
-      batch.manifest.language = resolution.language;
+  const pending = unconsumedActiveCycleBatches(repoRoot, priorReport);
+  report.batches_pending = pending.map((b) => b.batchId);
+  if (pending.length === 0) {
+    report.phase = "skipped";
+    report.summary =
+      report.batches_consumed.length > 0
+        ? `doc-prep already settled for cycle ${cycleId}; every active-cycle batch is consumed. A new import re-runs the stage.`
+        : `no upload batch bound to cycle ${cycleId} to prepare — the pipeline proceeds on the owner-authored canonical.`;
+    emit();
+    return report;
+  }
+
+  // The cycle's language is the project's ALREADY-ESTABLISHED canonical language; until one exists (greenfield), the first batch of the run fixes it.
+  let cycleLanguage = establishedCanonicalLanguage(repoRoot);
+  report.language = cycleLanguage;
+  report.summary = `preparing ${pending.length} batch(es) for cycle ${cycleId}`;
+  emit();
+
+  const spawnLeg = options.spawnLeg ?? makeDefaultSpawnLeg(options);
+  for (const batch of pending) {
+    if (cycleLanguage === UNDETERMINED) {
+      cycleLanguage = await batchLanguage(batch, options, repoRoot);
+      report.language = cycleLanguage;
     }
+    const outcome = await prepareBatch({ repoRoot, batch, cycleLanguage, spawnLeg, report, emit });
+    if (!outcome.ok) {
+      report.phase = "failed";
+      report.summary = `document-preparation failed on batch ${batch.batchId} for cycle ${cycleId}: ${outcome.problem}`;
+      emit();
+      return report;
+    }
+    report.batches_consumed.push(batch.batchId);
+    report.batches_pending = report.batches_pending.filter((id) => id !== batch.batchId);
+    emit();
   }
 
-  report.summary = `classifying ${batch.manifest.files.length} file(s) from batch ${batch.batchId} (language: ${report.language})`;
+  report.phase = "green";
+  report.summary =
+    `doc-prep green for cycle ${cycleId}: ${report.placed.length} canonical document(s) placed, ${report.rejected.length} rejected, across ${pending.length} batch(es) (language ${cycleLanguage})` +
+    (report.placed.length === 0 && report.rejected.length === 0 ? " (empty batch is a legitimate outcome)" : "");
+  emit();
+  return report;
+}
+
+// Only the outcomes of fully-consumed batches persist across runs; a failed or in-flight batch leaves no stale placed/rejected entry to retry against.
+function carryForward<T extends { batch?: string }>(prior: T[] | undefined, consumed: Set<string>): T[] {
+  return Array.isArray(prior) ? prior.filter((e) => typeof e.batch === "string" && consumed.has(e.batch)) : [];
+}
+
+async function batchLanguage(batch: Batch, options: PrepareDocsOptions, repoRoot: string): Promise<string> {
+  const declared = typeof batch.manifest.language === "string" ? batch.manifest.language : UNDETERMINED;
+  if (declared !== UNDETERMINED) return declared;
+  const resolveLanguage =
+    options.resolveLanguage ??
+    ((args) => resolveBatchLanguage({ ...args, env: options.env, cfg: options.cfg, promptsDir: options.promptsDir }));
+  const resolution = await resolveLanguage({ repoRoot, batchDir: batch.batchDir });
+  return resolution.resolved ? resolution.language : UNDETERMINED;
+}
+
+// The dominant language already carried by the placed canonical corpus (weighted by text length); UNDETERMINED when the corpus is empty.
+function establishedCanonicalLanguage(repoRoot: string): string {
+  const dir = resolve(repoRoot, ".vivicy", "canonical");
+  if (!existsSync(dir)) return UNDETERMINED;
+  const weights = new Map<string, number>();
+  const walk = (d: string): void => {
+    for (const entry of readdirSync(d, { withFileTypes: true })) {
+      const abs = join(d, entry.name);
+      if (entry.isDirectory()) {
+        walk(abs);
+        continue;
+      }
+      if (!entry.isFile() || !TEXT_LANGUAGE_EXTENSIONS.has(extname(entry.name).toLowerCase())) continue;
+      const text = readFileSync(abs, "utf8");
+      const lang = detectLanguage(text);
+      if (lang !== UNDETERMINED) weights.set(lang, (weights.get(lang) ?? 0) + text.length);
+    }
+  };
+  walk(dir);
+  return dominantLanguage(weights);
+}
+
+async function prepareBatch(args: {
+  repoRoot: string;
+  batch: Batch;
+  cycleLanguage: string;
+  spawnLeg: (a: SpawnLegArgs) => Promise<LegResult | void>;
+  report: DocPrepReport;
+  emit: () => void;
+}): Promise<{ ok: true } | { ok: false; problem: string }> {
+  const { repoRoot, batch, cycleLanguage, spawnLeg, report, emit } = args;
+  const batchId = batch.batchId;
+  report.phase = "classifying";
+  report.summary = `classifying ${batch.manifest.files.length} file(s) from batch ${batchId} (language ${cycleLanguage})`;
   emit();
 
   const legInputs: Array<{ source: string; text: string }> = [];
@@ -241,7 +338,7 @@ export async function prepareDocs(options: PrepareDocsOptions = {}): Promise<Doc
     const ext = extname(rel).toLowerCase();
     const abs = join(batch.batchDir, ...rel.split("/"));
     if (!existsSync(abs)) {
-      report.rejected.push({ source: rel, reason: "extract_failed", detail: "file listed in the manifest is missing on disk" });
+      report.rejected.push({ batch: batchId, source: rel, reason: "extract_failed", detail: "file listed in the manifest is missing on disk" });
       continue;
     }
     const bytes = readFileSync(abs);
@@ -249,16 +346,16 @@ export async function prepareDocs(options: PrepareDocsOptions = {}): Promise<Doc
     if (located) {
       const text = TEXT_LANGUAGE_EXTENSIONS.has(ext) ? bytes.toString("utf8") : "";
       if (text.trim().length === 0) {
-        report.rejected.push({ source: rel, reason: "invalid_canonical", detail: "a document in a canonical location must be non-empty parseable text" });
+        report.rejected.push({ batch: batchId, source: rel, reason: "invalid_canonical", detail: "a document in a canonical location must be non-empty parseable text" });
         continue;
       }
       if (ext === ".json" && !isParseableJson(text)) {
-        report.rejected.push({ source: rel, reason: "invalid_canonical", detail: "requirements .json is not valid JSON" });
+        report.rejected.push({ batch: batchId, source: rel, reason: "invalid_canonical", detail: "requirements .json is not valid JSON" });
         continue;
       }
-      if (isDominant(detectLanguage(text), report.language)) {
+      if (isDominant(detectLanguage(text), cycleLanguage)) {
         placeFile(repoRoot, located.targetRel, bytes);
-        report.placed.push({ target: located.targetRel, source: rel, route: "canonical", translated: false });
+        report.placed.push({ batch: batchId, target: located.targetRel, source: rel, route: "canonical", translated: false });
         continue;
       }
       legInputs.push({ source: rel, text: `${translateBanner(located.targetRel)}\n\n${text}` });
@@ -268,55 +365,49 @@ export async function prepareDocs(options: PrepareDocsOptions = {}): Promise<Doc
     try {
       text = BINARY_DOC_EXTENSIONS.has(ext) ? await extractBinaryDocText(ext, bytes) : bytes.toString("utf8");
     } catch (error) {
-      report.rejected.push({ source: rel, reason: "extract_failed", detail: error instanceof Error ? error.message : String(error) });
+      report.rejected.push({ batch: batchId, source: rel, reason: "extract_failed", detail: error instanceof Error ? error.message : String(error) });
       continue;
     }
     if (text.trim().length === 0) {
-      report.rejected.push({ source: rel, reason: "extract_failed", detail: "extracted text is empty" });
+      report.rejected.push({ batch: batchId, source: rel, reason: "extract_failed", detail: "extracted text is empty" });
       continue;
     }
     legInputs.push({ source: rel, text });
   }
 
-  if (legInputs.length > 0) {
-    report.phase = "extracting";
-    report.summary = `exploding/translating ${legInputs.length} document(s) into canonical form (dominant language ${report.language})`;
-    emit();
-    const spawnLeg = options.spawnLeg ?? makeDefaultSpawnLeg(options);
-    const legOutcome = await runLeg({ repoRoot, language: report.language, inputs: legInputs, spawnLeg });
-    if (!legOutcome.ok) {
-      clearScratch(repoRoot);
-      report.phase = "failed";
-      report.summary = `document-preparation leg produced no valid canonical documents after a bounded re-prompt: ${legOutcome.problems.join("; ")}`;
-      report.rejected.push(...legInputs.map((i) => ({ source: i.source, reason: "leg_no_output" as const, detail: "the leg wrote nothing placeable for this source" })));
-      emit();
-      return report;
-    }
-    report.phase = "placing";
-    report.summary = `placing ${legOutcome.outputs.length} canonical document(s) from the leg`;
-    emit();
-    for (const out of legOutcome.outputs) {
-      const target = targetForOutput(out.rel);
-      if (!target) {
-        report.rejected.push({ source: `leg:${out.rel}`, reason: "outside_target", detail: "leg output is not a valid canonical target path/extension" });
-        continue;
-      }
-      if (out.bytes.length === 0) {
-        report.rejected.push({ source: `leg:${out.rel}`, reason: "empty_output" });
-        continue;
-      }
-      placeFile(repoRoot, out.rel, out.bytes);
-      report.placed.push({ target: out.rel, route: "explode", translated: true });
-    }
-    clearScratch(repoRoot);
-  }
+  if (legInputs.length === 0) return { ok: true };
 
-  report.phase = "green";
-  report.summary =
-    `doc-prep green: ${report.placed.length} canonical document(s) placed, ${report.rejected.length} rejected, from batch ${batch.batchId} (language ${report.language})` +
-    (report.placed.length === 0 && report.rejected.length === 0 ? " (empty batch is a legitimate outcome)" : "");
+  report.phase = "extracting";
+  report.summary = `exploding/translating ${legInputs.length} document(s) from batch ${batchId} into canonical form (dominant language ${cycleLanguage})`;
   emit();
-  return report;
+  const legOutcome = await runLeg({ repoRoot, language: cycleLanguage, inputs: legInputs, spawnLeg });
+  if (!legOutcome.ok) {
+    clearScratch(repoRoot);
+    report.rejected.push(...legInputs.map((i) => ({ batch: batchId, source: i.source, reason: "leg_no_output" as const, detail: "the leg wrote nothing placeable for this source" })));
+    return { ok: false, problem: legOutcome.problems.join("; ") };
+  }
+  report.phase = "placing";
+  report.summary = `placing ${legOutcome.outputs.length} canonical document(s) from batch ${batchId}`;
+  emit();
+  for (const out of legOutcome.outputs) {
+    const target = targetForOutput(out.rel);
+    if (!target) {
+      report.rejected.push({ batch: batchId, source: `leg:${out.rel}`, reason: "outside_target", detail: "leg output is not a valid canonical target path/extension" });
+      continue;
+    }
+    if (out.bytes.length === 0) {
+      report.rejected.push({ batch: batchId, source: `leg:${out.rel}`, reason: "empty_output" });
+      continue;
+    }
+    placeFile(repoRoot, out.rel, out.bytes);
+    report.placed.push({ batch: batchId, target: out.rel, route: "explode", translated: true });
+  }
+  clearScratch(repoRoot);
+  return { ok: true };
+}
+
+function readReport(repoRoot: string): DocPrepReport | null {
+  return readJsonOrNull(resolve(repoRoot, DOC_PREP_REPORT_REL)) as DocPrepReport | null;
 }
 
 function translateBanner(targetRel: string): string {
@@ -437,7 +528,7 @@ const NOTIFY_BY_PHASE: Record<string, { level: "info" | "success" | "warning" | 
 function defaultEmitReport(report: DocPrepReport, repoRoot: string): void {
   const abs = resolve(repoRoot, DOC_PREP_REPORT_REL);
   mkdirSync(dirname(abs), { recursive: true });
-  writeFileSync(abs, `${JSON.stringify(report, null, 2)}\n`);
+  atomicWriteJson(abs, report);
   pruneGitkeeps(repoRoot);
   const mapped = NOTIFY_BY_PHASE[report.phase];
   if (mapped) notify({ ...mapped, event: `doc_prep_${report.phase}` });
