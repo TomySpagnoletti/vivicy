@@ -85,7 +85,7 @@ Nothing in the factory assumes a stack for the target. The per-issue verificatio
 ## Under the hood
 
 - `factory/` — the standalone Node ESM factory: the deterministic orchestrator and resumable supervisor, the spike prover, the issue extractor, the documentation-baseline lock, the semantic-extraction / traceability / spike / change-control gates, the per-issue progress ledger, the agent-leg spawn + timeout infra, the agent prompts (`prompts/`), and the CLI.
-- `app/`, `components/`, `lib/` — the Next.js control plane that drives and visualizes it.
+- `app/`, `components/`, `lib/` — the Next.js control plane that drives and visualizes it. Its UI was bootstrapped from this [shadcn/ui preset](https://ui.shadcn.com/create?preset=b5dMkF7CK&pointer=true): `npx shadcn@latest init --preset b5dMkF7CK --template next --pointer`.
 
 Design choices worth knowing: the orchestrator owns all state transitions (agents only ever do one of a few bounded actions — there is no agent self-reporting seam); the architecture map is generated once at extraction and the live status is a read-time overlay (no per-issue regeneration); transcripts of every agent leg are kept on disk but never committed; every green checkpoint is a real git commit made safe by the scaffolded `.gitignore`.
 
