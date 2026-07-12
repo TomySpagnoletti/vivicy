@@ -12,6 +12,7 @@ import {
 import { Bubble, BubbleContent } from "@/components/ui/bubble"
 import { Marker, MarkerContent, MarkerIcon } from "@/components/ui/marker"
 import { Message, MessageContent, MessageFooter } from "@/components/ui/message"
+import { ChatMarkdown } from "@/components/chat/markdown"
 
 /** Mirrors `lib/vivi.ts`'s `ViviTurn`. */
 export interface ChatMessage {
@@ -36,9 +37,7 @@ export function MessageBubble({ message }: { message: ChatMessage }) {
             </BubbleContent>
           </Bubble>
         ) : (
-          <div className="text-xs leading-relaxed wrap-break-word whitespace-pre-wrap">
-            {message.text}
-          </div>
+          <ChatMarkdown text={message.text} />
         )}
 
         {hasFooter ? (
