@@ -24,8 +24,15 @@ import {
   type RawEntry,
 } from "@/lib/import-docs"
 import { dominantLanguage } from "@/lib/dominant-language"
+import { GITIGNORE_MARKERS, METHOD_MARKERS } from "@/lib/managed-block"
 import { readNotifications } from "@/lib/notifications"
 import { isGovernedRoot } from "@/lib/project"
+import { scaffoldProject } from "@/lib/scaffold"
+
+const METHOD_BLOCK_BEGIN = METHOD_MARKERS.begin
+const METHOD_BLOCK_END = METHOD_MARKERS.end
+const GITIGNORE_BLOCK_BEGIN = GITIGNORE_MARKERS.begin
+const GITIGNORE_BLOCK_END = GITIGNORE_MARKERS.end
 
 let workDir: string
 let prevCwd: string
@@ -160,12 +167,12 @@ describe("govern-only (zero documents)", () => {
     expect(isGovernedRoot(target)).toBe(true)
   })
 
-  it("governs a brownfield code directory in place, leaving its files byte-identical", async () => {
+  it("governs a brownfield directory in place: owner content outside the managed block stays byte-identical, the essential block is appended", async () => {
     const target = targetPath("govern-brownfield")
     mkdirSync(path.join(target, "src"), { recursive: true })
     const before = {
       "README.md": "# Existing project\nMine, do not touch.\n",
-      "AGENTS.md": "# my agents guide\n",
+      "AGENTS.md": "# my agents guide\n\nWe keep a vivicy:method note here by hand — do not touch it.\n",
       "CLAUDE.md": "# my claude guide\n",
       ".gitignore": "node_modules/\n.env\n",
       "src/main.ts": "export const x = 1\n",
@@ -179,8 +186,41 @@ describe("govern-only (zero documents)", () => {
     expect(result.batch).toBeNull()
     expect(result.mode).toBe("existing_project")
     expect(isGovernedRoot(target)).toBe(true)
-    for (const [rel, contents] of Object.entries(before)) {
-      expect(readFileSync(path.join(target, ...rel.split("/")), "utf8")).toBe(contents)
+
+    expect(readFileSync(path.join(target, "README.md"), "utf8"), "README is never touched (writeIfMissing)").toBe(before["README.md"])
+    expect(readFileSync(path.join(target, "src", "main.ts"), "utf8")).toBe(before["src/main.ts"])
+
+    const managed: Array<[string, string, string, string]> = [
+      ["AGENTS.md", before["AGENTS.md"], METHOD_BLOCK_BEGIN, METHOD_BLOCK_END],
+      ["CLAUDE.md", before["CLAUDE.md"], METHOD_BLOCK_BEGIN, METHOD_BLOCK_END],
+      [".gitignore", before[".gitignore"], GITIGNORE_BLOCK_BEGIN, GITIGNORE_BLOCK_END],
+    ]
+    for (const [rel, owner, begin, end] of managed) {
+      const after = readFileSync(path.join(target, rel), "utf8")
+      expect(after.startsWith(owner), `${rel}: owner content outside the block must be byte-identical (overwrite would fail this)`).toBe(true)
+      expect(after.split(begin).length - 1, `${rel}: exactly one managed block`).toBe(1)
+      expect(after, `${rel}: the block must be present (dropping the append would fail this)`).toContain(end)
+      expect(after.endsWith(`${end}\n`), `${rel}: clean trailing newline after the block`).toBe(true)
+    }
+    expect(readFileSync(path.join(target, "AGENTS.md"), "utf8"), "owner prose that merely resembles a marker is preserved verbatim and not treated as a marker").toContain(
+      "We keep a vivicy:method note here by hand — do not touch it."
+    )
+    expect(readFileSync(path.join(target, ".gitignore"), "utf8")).toContain(".vivicy-runtime/")
+  })
+
+  it("second governance pass leaves every managed file byte-identical (idempotent essential block)", async () => {
+    const target = targetPath("govern-idempotent")
+    mkdirSync(target, { recursive: true })
+    writeFileSync(path.join(target, "AGENTS.md"), "# owner agents\n")
+    writeFileSync(path.join(target, ".gitignore"), "dist/\n")
+
+    await startGovernance({ targetDir: target, entries: [] })
+    const after1 = Object.fromEntries(
+      ["AGENTS.md", "CLAUDE.md", ".gitignore"].map((rel) => [rel, readFileSync(path.join(target, rel), "utf8")])
+    )
+    scaffoldProject({ targetDir: target, projectName: "Rerun" })
+    for (const rel of Object.keys(after1)) {
+      expect(readFileSync(path.join(target, rel), "utf8"), `second pass changed ${rel}`).toBe(after1[rel])
     }
   })
 
