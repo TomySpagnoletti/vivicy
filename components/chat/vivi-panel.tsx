@@ -1,11 +1,12 @@
 "use client"
 
 import { useCallback, useEffect, useId, useRef, useState } from "react"
-import { CircleAlert, Loader2, SendHorizontal, X } from "lucide-react"
+import { CircleAlert, Loader2, Paperclip, SendHorizontal, X } from "lucide-react"
 import { useTranslations } from "next-intl"
 
 import type { ViviCardAction, ViviTurn } from "@/lib/vivi"
 import { errorText } from "@/lib/i18n-errors"
+import { IMPORT_ACCEPT_ATTR } from "@/lib/supported-extensions"
 import { cn } from "@/lib/utils"
 import { Badge } from "@/components/ui/badge"
 import { Bubble, BubbleContent } from "@/components/ui/bubble"
@@ -22,6 +23,12 @@ import {
 } from "@/components/ui/message-scroller"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 import { ViviAvatar } from "@/components/brand/vivi-avatar"
 import { DecisionCard } from "@/components/chat/decision-card"
 import { MessageBubble } from "@/components/chat/message-bubble"
@@ -79,9 +86,12 @@ export function ViviPanel({
   const [draft, setDraft] = useState("")
   const [sending, setSending] = useState(false)
   const [sendError, setSendError] = useState<string | null>(null)
+  const [importing, setImporting] = useState(false)
+  const [importNote, setImportNote] = useState<string | null>(null)
 
   const bubbleRef = useRef<HTMLButtonElement | null>(null)
   const textareaRef = useRef<HTMLTextAreaElement | null>(null)
+  const importInputRef = useRef<HTMLInputElement | null>(null)
   const closeRef = useRef<HTMLButtonElement | null>(null)
   const hydratedRef = useRef(false)
 
@@ -122,8 +132,10 @@ export function ViviPanel({
     setSessionId(undefined)
     setTurns([])
     setSendError(null)
-    // Reset here too: the old send's epoch-guarded finally won't clear it, and skipping this would strand the new project "thinking" behind a stale in-flight turn.
+    setImportNote(null)
+    // Reset here too: the old send's/import's epoch-guarded finally won't clear it, and skipping this would strand the new project "thinking" behind a stale in-flight turn.
     setSending(false)
+    setImporting(false)
   }, [projectRoot])
 
   useEffect(() => {
@@ -186,11 +198,13 @@ export function ViviPanel({
 
   const send = useCallback(async () => {
     const message = draft.trim()
-    if (message.length === 0 || sending) return
+    // Gate the action itself, not just the callsites: an in-flight import has no session yet, so a concurrent send would mint a SECOND server session and orphan one of the two (the import ack or the message reply). aria-disabled on the button is only the visual echo of this guard.
+    if (message.length === 0 || sending || importing) return
     // Capture the era before the awaits; every post-await write is guarded on it.
     const epoch = epochRef.current
     setDraft("")
     setSendError(null)
+    setImportNote(null)
     setTurns((prev) => [
       ...prev,
       { role: "user", text: message, ts: new Date().toISOString() },
@@ -250,7 +264,67 @@ export function ViviPanel({
     } finally {
       if (epoch === epochRef.current) setSending(false)
     }
-  }, [draft, sending, sessionId, onActivity, t, tErrors])
+  }, [draft, sending, importing, sessionId, onActivity, t, tErrors])
+
+  // The paperclip beside Send: the file pick IS the whole action (P2), so it uploads straight to the current session — no chat message, the server appends Vivi's deterministic acknowledgment. Epoch-guarded exactly like send so a project switch mid-upload discards the stale result. Gated on `sending` too (the symmetric no-session-yet race): a concurrent send + import would each mint their own session.
+  const importDocs = useCallback(
+    async (files: File[]) => {
+      if (files.length === 0 || importing || sending) return
+      const epoch = epochRef.current
+      setImporting(true)
+      setSendError(null)
+      setImportNote(null)
+      try {
+        const form = new FormData()
+        if (sessionId) form.append("sessionId", sessionId)
+        for (const file of files) {
+          form.append("files", file)
+          form.append(
+            "paths",
+            (file as File & { webkitRelativePath?: string }).webkitRelativePath || file.name
+          )
+        }
+        const res = await fetch("/api/vivi/import", { method: "POST", body: form })
+        const body = (await res.json().catch(() => ({}))) as {
+          ok?: boolean
+          sessionId?: string
+          error?: string
+          code?: string
+          rejected?: { path: string }[]
+        }
+        if (epoch !== epochRef.current) return
+        if (!res.ok || body.ok === false) {
+          const fallback = body.error ?? t("requestFailed", { status: res.status })
+          setSendError(
+            body.code ? errorText(tErrors, `control.${body.code}`, fallback) : fallback
+          )
+          return
+        }
+        if (body.sessionId) setSessionId(body.sessionId)
+        const restored = body.sessionId
+          ? await fetchSessionTurns(body.sessionId)
+          : null
+        if (epoch !== epochRef.current) return
+        if (restored !== null) setTurns(restored)
+        const skipped = body.rejected ?? []
+        if (skipped.length > 0) {
+          setImportNote(
+            t("importSkipped", {
+              count: skipped.length,
+              files: skipped.map((r) => r.path).join(", "),
+            })
+          )
+        }
+        onActivity?.()
+      } catch (error) {
+        if (epoch !== epochRef.current) return
+        setSendError(error instanceof Error ? error.message : t("networkError"))
+      } finally {
+        if (epoch === epochRef.current) setImporting(false)
+      }
+    },
+    [sessionId, importing, sending, onActivity, t, tErrors]
+  )
 
   const onKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -442,6 +516,11 @@ export function ViviPanel({
                             <PendingMarker />
                           </MessageScrollerItem>
                         ) : null}
+                        {importing ? (
+                          <MessageScrollerItem messageId="importing">
+                            <ImportingMarker />
+                          </MessageScrollerItem>
+                        ) : null}
                         {sendError ? (
                           <MessageScrollerItem messageId="error">
                             <Marker className="text-destructive">
@@ -467,22 +546,68 @@ export function ViviPanel({
                       onKeyDown={onKeyDown}
                       placeholder={t("inputPlaceholder")}
                       aria-label={t("inputAriaLabel")}
-                      className="max-h-40 resize-none border-0 bg-transparent pr-11 focus-visible:ring-0 dark:bg-transparent"
+                      className="max-h-40 resize-none border-0 bg-transparent pr-11 pl-11 focus-visible:ring-0 dark:bg-transparent"
                     />
+                    <input
+                      ref={importInputRef}
+                      type="file"
+                      multiple
+                      accept={IMPORT_ACCEPT_ATTR}
+                      className="hidden"
+                      onChange={(event) => {
+                        const files = Array.from(event.target.files ?? [])
+                        event.target.value = ""
+                        if (files.length > 0) void importDocs(files)
+                      }}
+                    />
+                    <TooltipProvider>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon-sm"
+                            onClick={() => {
+                              if (importing || sending) return
+                              importInputRef.current?.click()
+                            }}
+                            aria-disabled={importing || sending}
+                            aria-label={t("attachAriaLabel")}
+                            className={cn(
+                              "absolute bottom-1.5 left-1.5 text-muted-foreground",
+                              (importing || sending) && "opacity-60"
+                            )}
+                          >
+                            {importing ? (
+                              <Loader2 className="animate-spin" />
+                            ) : (
+                              <Paperclip />
+                            )}
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>{t("attachTooltip")}</TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
                     <Button
                       type="button"
                       size="icon-sm"
                       onClick={() => void send()}
-                      aria-disabled={sending || draft.trim().length === 0}
+                      aria-disabled={sending || importing || draft.trim().length === 0}
                       aria-label={t("sendAriaLabel")}
                       className={cn(
                         "absolute right-1.5 bottom-1.5",
-                        (sending || draft.trim().length === 0) && "opacity-60"
+                        (sending || importing || draft.trim().length === 0) &&
+                          "opacity-60"
                       )}
                     >
                       <SendHorizontal />
                     </Button>
                   </div>
+                  {importNote ? (
+                    <p className="mt-1.5 text-xs text-muted-foreground">
+                      {importNote}
+                    </p>
+                  ) : null}
                 </div>
               </>
             )}
@@ -567,6 +692,18 @@ function PendingMarker() {
         <Loader2 className="animate-spin" />
       </MarkerIcon>
       <MarkerContent>{t("pending")}</MarkerContent>
+    </Marker>
+  )
+}
+
+function ImportingMarker() {
+  const t = useTranslations("chat")
+  return (
+    <Marker>
+      <MarkerIcon>
+        <Loader2 className="animate-spin" />
+      </MarkerIcon>
+      <MarkerContent>{t("importing")}</MarkerContent>
     </Marker>
   )
 }

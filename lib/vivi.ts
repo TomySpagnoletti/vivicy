@@ -15,13 +15,13 @@ import {
 import path from "node:path"
 
 import { ControlError, decideCr, getExtractionStatus, getFactoryRoot, isRunActive, readSkillsReport, startSkillsInstall, type Spawner } from "@/lib/control"
-import { importIntoGoverned, type ManifestFile, type RawEntry, type RejectedFile } from "@/lib/import-docs"
+import { importIntoGoverned, type BatchResult, type ManifestFile, type RawEntry, type RejectedFile } from "@/lib/import-docs"
 import { languageDisplayName } from "@/lib/language"
 import { getProjectRuntimeDir } from "@/lib/project-runtime"
 import { getRuntimeDir } from "@/lib/runtime-dir"
 import { settingsToEnv } from "@/lib/settings"
 import { pruneGitkeeps } from "@/lib/skeleton"
-import { isCanonicalFrozen } from "@/lib/spec-cycle"
+import { isCanonicalFrozen, type BatchCycleBinding } from "@/lib/spec-cycle"
 import { detectSpecKind } from "@/lib/spec-kind"
 import { readSettings } from "@/lib/settings-store"
 import { getTargetRoot } from "@/lib/target"
@@ -370,17 +370,25 @@ export interface CardImportResult {
   rejected?: RejectedFile[]
 }
 
-// Server-authored, deterministic — mentions the count and detected language, closes back onto the grill. Zero LLM in the render (P2): the click is the owner's, the words are ours.
-export function viviImportAck(count: number, language: string): string {
+// Server-authored, deterministic — names the count + detected language and reflects the SERVER's cycle binding (active → folded into this cycle; seed → the canonical is frozen so it feeds the next cycle). Zero LLM in the render (P2): the click is the owner's, the words are ours. `reprompt` re-opens the grill question, used only on the first-run welcome; the standing composer path returns the floor without re-asking.
+export function viviImportAck(
+  count: number,
+  language: string,
+  cycle: BatchCycleBinding,
+  opts: { reprompt?: boolean } = {}
+): string {
   const noun = count === 1 ? "1 document" : `${count} documents`
   const verb = count === 1 ? "is" : "are"
   const them = count === 1 ? "it" : "them"
   const name = languageDisplayName(language)
   const langClause = name ? `, in ${name},` : ""
-  return (
-    `Perfetto — ${noun}${langClause} ${verb} now in the kitchen. I'll fold ${them} into the spec ` +
-    `when the pipeline runs, so there's nothing for you to check right now. Now, tell me: what are you building?`
-  )
+  const landed = `Perfetto — ${noun}${langClause} ${verb} now in the kitchen.`
+  const fate =
+    cycle.binding === "seed"
+      ? `The canonical spec is frozen and building right now, so I've set ${them} aside for the NEXT cycle rather than the frozen corpus — nothing for you to check right now.`
+      : `I'll fold ${them} into the spec when the pipeline runs, so there's nothing for you to check right now.`
+  const closer = opts.reprompt ? " Now, tell me: what are you building?" : ""
+  return `${landed} ${fate}${closer}`
 }
 
 function importDecisionSummary(count: number, skipped: number, language: string): string {
@@ -389,6 +397,22 @@ function importDecisionSummary(count: number, skipped: number, language: string)
   if (name) parts.push(name)
   if (skipped > 0) parts.push(`${skipped} skipped`)
   return parts.join(" · ")
+}
+
+// The one import primitive both the welcome card and the standing composer share: import into the current governed project, then append the binding-aware acknowledgment. Single source for the import + ack sequence — neither path forks it.
+async function importAndAcknowledge(
+  sessionId: string,
+  entries: RawEntry[],
+  opts: { reprompt: boolean }
+): Promise<BatchResult> {
+  const targetRoot = resolveTarget()
+  const batch = await importIntoGoverned({ root: targetRoot, entries })
+  appendTurn(sessionId, {
+    role: "vivi",
+    text: viviImportAck(batch.accepted.length, batch.language, batch.cycle, { reprompt: opts.reprompt }),
+    ts: new Date().toISOString(),
+  })
+  return batch
 }
 
 // The multipart counterpart to decideCardAction: the file upload IS the decision, so the card is stamped only once the import lands. A failed import throws BEFORE stamping, leaving the card undecided for a clean retry.
@@ -408,14 +432,7 @@ export async function decideCardImport(input: {
   }
   if (turn.decided) return alreadyDecidedResult(turn.decided)
 
-  const targetRoot = resolveTarget()
-  const batch = await importIntoGoverned({ root: targetRoot, entries: input.entries })
-
-  appendTurn(input.sessionId, {
-    role: "vivi",
-    text: viviImportAck(batch.accepted.length, batch.language),
-    ts: new Date().toISOString(),
-  })
+  const batch = await importAndAcknowledge(input.sessionId, input.entries, { reprompt: true })
 
   const summary = importDecisionSummary(batch.accepted.length, batch.rejected.length, batch.language)
   const claim = stampCardDecision(input.sessionId, input.cardId, action.id, summary)
@@ -427,6 +444,39 @@ export async function decideCardImport(input: {
     decided: { actionId: action.id, at: new Date().toISOString(), summary },
     batchId: batch.batchId,
     language: batch.language,
+    accepted: batch.accepted,
+    rejected: batch.rejected,
+  }
+}
+
+export interface SessionImportResult {
+  ok: boolean
+  sessionId: string
+  summary: string
+  batchId: string
+  language: string
+  cycle: BatchCycleBinding
+  accepted: ManifestFile[]
+  rejected: RejectedFile[]
+}
+
+// The standing-composer counterpart to decideCardImport: the paperclip beside Send imports into the current governed project and appends the acknowledgment to the live session — no card to stamp. A missing sessionId mints one the client then adopts, exactly like the first message of a send.
+export async function importDocsIntoSession(input: {
+  sessionId?: string
+  entries: RawEntry[]
+}): Promise<SessionImportResult> {
+  const sessionId = input.sessionId ?? randomUUID()
+  if (input.sessionId) assertSessionId(input.sessionId)
+
+  const batch = await importAndAcknowledge(sessionId, input.entries, { reprompt: false })
+
+  return {
+    ok: true,
+    sessionId,
+    summary: importDecisionSummary(batch.accepted.length, batch.rejected.length, batch.language),
+    batchId: batch.batchId,
+    language: batch.language,
+    cycle: batch.cycle,
     accepted: batch.accepted,
     rejected: batch.rejected,
   }

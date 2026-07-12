@@ -121,6 +121,7 @@ function stubFetch(opts: {
   crs?: Array<typeof PENDING_CR>
   decide?: () => { body: unknown; status?: number }
   govern?: () => { body: unknown; status?: number }
+  importDocs?: () => { body: unknown; status?: number }
 }) {
   const liveNotifications = (opts.notifications ?? []).slice()
   return vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -168,6 +169,12 @@ function stubFetch(opts: {
         ],
         entries: [],
       })
+    }
+    if (url.includes("/api/vivi/import")) {
+      const imp = opts.importDocs?.() ?? {
+        body: { ok: true, sessionId: SESSION_B, summary: "1 document imported", rejected: [] },
+      }
+      return jsonResponse(imp.body, imp.status)
     }
     if (url.startsWith("/api/vivi/sessions/")) {
       const id = url.slice("/api/vivi/sessions/".length)
@@ -582,6 +589,255 @@ describe("ViviPanel — composer & scroller contract", () => {
     expect(
       container.querySelector('[data-slot="message-scroller-viewport"]')
     ).not.toBeNull()
+  })
+})
+
+describe("ViviPanel — composer document import", () => {
+  const ACTIVE_ACK: ViviTurn[] = [
+    {
+      role: "vivi",
+      text: "Perfetto — 2 documents, in English, are now in the kitchen. I'll fold them into the spec when the pipeline runs, so there's nothing for you to check right now.",
+      ts: "2026-07-08T12:00:00Z",
+    },
+  ]
+
+  function fileInput(container: HTMLElement): HTMLInputElement {
+    return container.querySelector('input[type="file"]') as HTMLInputElement
+  }
+
+  test("a paperclip beside Send opens a hidden multi-file picker accepting documents and .zip", async () => {
+    vi.stubGlobal("fetch", stubFetch({ sessions: [] }))
+    const user = userEvent.setup()
+    const { container } = renderPanel()
+
+    await user.click(screen.getByRole("button", { name: "Open Vivi" }))
+    const attach = await screen.findByRole("button", { name: "Attach documents" })
+    expect(attach).toHaveAttribute("aria-disabled", "false")
+
+    const input = fileInput(container)
+    expect(input).toHaveAttribute("multiple")
+    expect(input.accept).toContain(".md")
+    expect(input.accept).toContain(".zip")
+    expect(input).toHaveClass("hidden")
+  })
+
+  test("choosing files uploads a multipart batch to /api/vivi/import and renders Vivi's acknowledgment", async () => {
+    const fetchMock = stubFetch({
+      sessions: [],
+      turnsBySession: { [SESSION_B]: ACTIVE_ACK },
+      importDocs: () => ({
+        body: { ok: true, sessionId: SESSION_B, summary: "2 documents imported · English", rejected: [] },
+      }),
+    })
+    vi.stubGlobal("fetch", fetchMock)
+    const onActivity = vi.fn()
+    const user = userEvent.setup()
+    const { container } = renderPanel({ onActivity })
+
+    await user.click(screen.getByRole("button", { name: "Open Vivi" }))
+    await user.upload(fileInput(container), [
+      new File(["# brief"], "brief.md", { type: "text/markdown" }),
+      new File(["a,b"], "data.csv", { type: "text/csv" }),
+    ])
+
+    await waitFor(() => {
+      const post = fetchMock.mock.calls.find(
+        (c) =>
+          String(c[0]) === "/api/vivi/import" &&
+          (c[1] as RequestInit | undefined)?.method === "POST"
+      )
+      expect(post).toBeDefined()
+      const form = (post?.[1] as RequestInit).body as FormData
+      expect(form.get("sessionId")).toBeNull()
+      expect(form.getAll("files")).toHaveLength(2)
+      expect(form.getAll("paths")).toEqual(["brief.md", "data.csv"])
+    })
+
+    expect(
+      await screen.findByText(/2 documents, in English, are now in the kitchen/)
+    ).toBeInTheDocument()
+    await waitFor(() => expect(onActivity).toHaveBeenCalled())
+  })
+
+  test("renders the seed-cycle acknowledgment when the server bound the batch to the next cycle", async () => {
+    const seedAck: ViviTurn[] = [
+      {
+        role: "vivi",
+        text: "Perfetto — 1 document, in English, is now in the kitchen. The canonical spec is frozen and building right now, so I've set it aside for the NEXT cycle rather than the frozen corpus — nothing for you to check right now.",
+        ts: "2026-07-08T12:00:00Z",
+      },
+    ]
+    const fetchMock = stubFetch({
+      sessions: [],
+      turnsBySession: { [SESSION_B]: seedAck },
+      importDocs: () => ({
+        body: { ok: true, sessionId: SESSION_B, summary: "1 document imported", rejected: [] },
+      }),
+    })
+    vi.stubGlobal("fetch", fetchMock)
+    const user = userEvent.setup()
+    const { container } = renderPanel()
+
+    await user.click(screen.getByRole("button", { name: "Open Vivi" }))
+    await user.upload(fileInput(container), [new File(["# notes"], "notes.md", { type: "text/markdown" })])
+
+    expect(await screen.findByText(/seed it aside for the NEXT cycle|NEXT cycle rather than the frozen corpus/)).toBeInTheDocument()
+    expect(screen.getByText(/frozen and building/)).toBeInTheDocument()
+  })
+
+  test("per-file rejects surface a skipped note under the composer", async () => {
+    const fetchMock = stubFetch({
+      sessions: [],
+      turnsBySession: { [SESSION_B]: ACTIVE_ACK },
+      importDocs: () => ({
+        body: {
+          ok: true,
+          sessionId: SESSION_B,
+          summary: "1 document imported · 1 skipped",
+          rejected: [{ path: "notes.exe" }],
+        },
+      }),
+    })
+    vi.stubGlobal("fetch", fetchMock)
+    const user = userEvent.setup()
+    const { container } = renderPanel()
+
+    await user.click(screen.getByRole("button", { name: "Open Vivi" }))
+    await user.upload(fileInput(container), [
+      new File(["# brief"], "brief.md", { type: "text/markdown" }),
+      new File(["x"], "notes.exe", { type: "application/octet-stream" }),
+    ])
+
+    expect(
+      await screen.findByText("Skipped 1 unsupported file: notes.exe")
+    ).toBeInTheDocument()
+  })
+
+  test("cancelling the picker (no files) uploads nothing", async () => {
+    const fetchMock = stubFetch({ sessions: [] })
+    vi.stubGlobal("fetch", fetchMock)
+    const user = userEvent.setup()
+    const { container } = renderPanel()
+
+    await user.click(screen.getByRole("button", { name: "Open Vivi" }))
+    await screen.findByRole("button", { name: "Attach documents" })
+    fireEvent.change(fileInput(container), { target: { files: [] } })
+
+    expect(
+      fetchMock.mock.calls.filter((c) => String(c[0]) === "/api/vivi/import")
+    ).toHaveLength(0)
+  })
+
+  test("a refused upload surfaces an inline error and keeps the paperclip live for a retry", async () => {
+    const fetchMock = stubFetch({
+      sessions: [],
+      importDocs: () => ({
+        body: {
+          ok: false,
+          error: "this folder is not governed by Vivicy",
+          code: "not_governed",
+        },
+        status: 409,
+      }),
+    })
+    vi.stubGlobal("fetch", fetchMock)
+    const user = userEvent.setup()
+    const { container } = renderPanel()
+
+    await user.click(screen.getByRole("button", { name: "Open Vivi" }))
+    await user.upload(fileInput(container), [new File(["# brief"], "brief.md", { type: "text/markdown" })])
+
+    expect(
+      await screen.findByText("this folder is not governed by Vivicy")
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole("button", { name: "Attach documents" })
+    ).toHaveAttribute("aria-disabled", "false")
+  })
+
+  test("during an in-flight import, Send is truly inert — click AND Enter fire no /api/vivi turn (guards send(), not just aria); Shift+Enter still adds a newline", async () => {
+    const gate = deferred()
+    const base = stubFetch({ sessions: [], turnsBySession: { [SESSION_B]: ACTIVE_ACK } })
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input) === "/api/vivi/import" && init?.method === "POST") {
+        await gate.promise
+        return jsonResponse({ ok: true, sessionId: SESSION_B, rejected: [] })
+      }
+      return base(input, init)
+    })
+    vi.stubGlobal("fetch", fetchMock)
+    const user = userEvent.setup()
+    const { container } = renderPanel()
+
+    const viviTurnPosts = () =>
+      fetchMock.mock.calls.filter(
+        (c) =>
+          String(c[0]) === "/api/vivi" &&
+          (c[1] as RequestInit | undefined)?.method === "POST"
+      ).length
+
+    await user.click(screen.getByRole("button", { name: "Open Vivi" }))
+    const composer = screen.getByLabelText("Message Vivi")
+    await user.type(composer, "hi")
+    await user.upload(fileInput(container), [new File(["# brief"], "brief.md", { type: "text/markdown" })])
+
+    const attach = screen.getByRole("button", { name: "Attach documents" })
+    const send = screen.getByRole("button", { name: "Send message" })
+    await waitFor(() => expect(send).toHaveAttribute("aria-disabled", "true"))
+    expect(attach).toHaveAttribute("aria-disabled", "true")
+    expect(
+      screen.getByText("Bringing your documents into the kitchen…")
+    ).toBeInTheDocument()
+
+    // The real proof: the guard lives in send() itself, so neither a click nor Enter mints a competing (session-orphaning) turn while the import is in flight.
+    await user.click(send)
+    await user.type(composer, "{Enter}")
+    expect(viviTurnPosts()).toBe(0)
+    expect(composer).toHaveValue("hi")
+
+    // Shift+Enter still composes a newline (import doesn't lock typing) and still sends nothing.
+    await user.type(composer, "{Shift>}{Enter}{/Shift}")
+    expect(composer).toHaveValue("hi\n")
+    expect(viviTurnPosts()).toBe(0)
+
+    gate.resolve()
+    await waitFor(() => expect(send).toHaveAttribute("aria-disabled", "false"))
+    expect(attach).toHaveAttribute("aria-disabled", "false")
+  })
+
+  test("during an in-flight send, choosing files starts no competing import — importDocs() is guarded on `sending`, not just the picker", async () => {
+    const gate = deferred()
+    const base = stubFetch({
+      sessions: [],
+      turnsBySession: { [SESSION_B]: ACTIVE_ACK },
+      post: () => ({ body: { ok: true, sessionId: SESSION_B, reply: "ok", wrote: [] } }),
+    })
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input) === "/api/vivi" && init?.method === "POST") {
+        await gate.promise
+        return jsonResponse({ ok: true, sessionId: SESSION_B, reply: "ok", wrote: [] })
+      }
+      return base(input, init)
+    })
+    vi.stubGlobal("fetch", fetchMock)
+    const user = userEvent.setup()
+    const { container } = renderPanel()
+
+    await user.click(screen.getByRole("button", { name: "Open Vivi" }))
+    await user.type(screen.getByLabelText("Message Vivi"), "hi")
+    await user.click(screen.getByRole("button", { name: "Send message" }))
+
+    const attach = screen.getByRole("button", { name: "Attach documents" })
+    await waitFor(() => expect(attach).toHaveAttribute("aria-disabled", "true"))
+
+    // Bypass the picker's UX guard by dropping files straight onto the hidden input: importDocs() must still refuse while a send holds the (not-yet-minted) session.
+    await user.upload(fileInput(container), [new File(["# brief"], "brief.md", { type: "text/markdown" })])
+    expect(
+      fetchMock.mock.calls.filter((c) => String(c[0]) === "/api/vivi/import")
+    ).toHaveLength(0)
+
+    gate.resolve()
+    await waitFor(() => expect(attach).toHaveAttribute("aria-disabled", "false"))
   })
 })
 
