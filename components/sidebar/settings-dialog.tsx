@@ -6,8 +6,7 @@ import { useTranslations } from "next-intl"
 import { toast } from "sonner"
 
 import { BRAND, DUO } from "@/lib/brand"
-import { NonnaIcon } from "@/components/chat/nonna-icon"
-import { NonnoIcon } from "@/components/chat/nonno-icon"
+import { BrandFace } from "@/components/brand/brand-face"
 import {
   agentDefaultsFor,
   clampMaxParallel,
@@ -290,13 +289,13 @@ function AgentFields({
   const fastOk = modelSupportsFast(provider, agent.model)
   const fastDisabledReason = fastReason(t, provider, agent.model, fastOk)
 
-  const RoleFace = role === "implementer" ? NonnaIcon : NonnoIcon
+  const rolePersona = role === "implementer" ? "nonna" : "nonno"
   const roleBlurb = role === "implementer" ? DUO.nonna.blurb : DUO.nonno.blurb
 
   return (
     <fieldset className="flex flex-col gap-2 border border-border p-3" disabled={disabled}>
       <legend className="flex items-center gap-1.5 px-1 text-xs font-medium text-foreground">
-        <RoleFace className="size-4 text-muted-foreground" aria-hidden />
+        <BrandFace persona={rolePersona} className="size-4" />
         <span title={roleBlurb}>{roleLabel}</span>
       </legend>
 
