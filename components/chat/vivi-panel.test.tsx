@@ -120,7 +120,7 @@ function stubFetch(opts: {
   notifications?: Notification[]
   crs?: Array<typeof PENDING_CR>
   decide?: () => { body: unknown; status?: number }
-  scaffold?: () => { body: unknown; status?: number }
+  govern?: () => { body: unknown; status?: number }
 }) {
   const liveNotifications = (opts.notifications ?? []).slice()
   return vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -145,14 +145,16 @@ function stubFetch(opts: {
     if (url.includes("/api/control/crs")) {
       return jsonResponse({ ok: true, crs: opts.crs ?? [] })
     }
-    if (url.includes("/api/project/scaffold")) {
-      const scaffold = opts.scaffold?.() ?? {
+    if (url.includes("/api/project/govern")) {
+      const govern = opts.govern?.() ?? {
         body: {
           ok: true,
           project: { root: "/tmp/acme-app", name: "acme-app", hasCanonicalSpec: true },
+          mode: "from_scratch",
+          batch: null,
         },
       }
-      return jsonResponse(scaffold.body, scaffold.status)
+      return jsonResponse(govern.body, govern.status)
     }
     if (url.includes("/api/fs/list")) {
       return jsonResponse({
@@ -584,7 +586,7 @@ describe("ViviPanel — composer & scroller contract", () => {
 })
 
 describe("ViviPanel — onboarding view (no target project)", () => {
-  test("hasTarget=false hosts the three acquisition choices instead of the chat", async () => {
+  test("hasTarget=false hosts the two acquisition choices instead of the chat", async () => {
     vi.stubGlobal("fetch", stubFetch({}))
     const user = userEvent.setup()
     renderPanelWithOpener({ hasTarget: false, projectRoot: null })
@@ -598,14 +600,15 @@ describe("ViviPanel — onboarding view (no target project)", () => {
       screen.queryByText(/develops one project from its canonical spec/)
     ).not.toBeInTheDocument()
     expect(
-      screen.getByRole("button", { name: /Open an existing project/ })
+      screen.getByRole("button", { name: /Open a governed project/ })
     ).toBeInTheDocument()
     expect(
-      screen.getByRole("button", { name: /Start a new project/ })
+      screen.getByRole("button", { name: /Start governance/ })
     ).toBeInTheDocument()
+    // The retired third card is gone: the standing import is a post-governance feature, not an entry choice.
     expect(
-      screen.getByRole("button", { name: /Import documents/ })
-    ).toBeInTheDocument()
+      screen.queryByRole("button", { name: /Import documents/ })
+    ).not.toBeInTheDocument()
 
     expect(screen.queryByLabelText("Message Vivi")).not.toBeInTheDocument()
     expect(
@@ -613,7 +616,7 @@ describe("ViviPanel — onboarding view (no target project)", () => {
     ).not.toBeInTheDocument()
   })
 
-  test("the scaffold choice POSTs /api/project/scaffold and reports the acquisition up", async () => {
+  test("the start-governance choice POSTs /api/project/govern (docs optional) and reports the acquisition up", async () => {
     const fetchMock = stubFetch({})
     vi.stubGlobal("fetch", fetchMock)
     const onActivity = vi.fn()
@@ -621,30 +624,23 @@ describe("ViviPanel — onboarding view (no target project)", () => {
     renderPanelWithOpener({ hasTarget: false, projectRoot: null, onActivity })
 
     await user.click(screen.getByTestId("vivi-cta"))
-    await user.click(
-      await screen.findByRole("button", { name: /Start a new project/ })
-    )
+    await user.click(await screen.findByRole("button", { name: /Start governance/ }))
 
-    // Inputs stay disabled until the folder listing settles; typing into a disabled input is a silent no-op, so wait for enabled first. The target is the browsed location (mocked "/home/dev") joined with the new-folder name — there is no absolute-path field.
-    const folderInput = screen.getByLabelText("New folder name")
-    await waitFor(() => expect(folderInput).toBeEnabled(), { timeout: 5_000 })
-    await user.type(screen.getByLabelText("Project name"), "Acme App")
-    await user.type(folderInput, "acme-app")
-    const submit = screen.getByRole("button", { name: /Scaffold project/ })
-    await waitFor(() => expect(submit).toBeEnabled())
+    // The browsed folder (mocked "/home/dev") IS the target — no docs required to govern.
+    const submit = await screen.findByRole("button", { name: /Start governance/ })
+    await waitFor(() => expect(submit).toBeEnabled(), { timeout: 5_000 })
     await user.click(submit)
 
     await waitFor(() => {
       const post = fetchMock.mock.calls.find(
         (c) =>
-          String(c[0]).includes("/api/project/scaffold") &&
+          String(c[0]).includes("/api/project/govern") &&
           (c[1] as RequestInit | undefined)?.method === "POST"
       )
       expect(post).toBeDefined()
-      expect(JSON.parse((post?.[1] as RequestInit).body as string)).toEqual({
-        targetDir: "/home/dev/acme-app",
-        projectName: "Acme App",
-      })
+      const form = (post?.[1] as RequestInit).body as FormData
+      expect(form.get("targetDir")).toBe("/home/dev")
+      expect(form.getAll("files")).toEqual([])
     })
     await waitFor(() => expect(onActivity).toHaveBeenCalled())
     // 15s test timeout must clear the internal 5s waitFor above with headroom, or full-suite contention flakes.
@@ -673,12 +669,12 @@ describe("ViviPanel — onboarding view (no target project)", () => {
     expect(screen.queryByText("Start a project")).not.toBeInTheDocument()
   })
 
-  test("scaffold success re-opens the panel even after the user closes it mid-scaffold", async () => {
-    const scaffoldGate = deferred()
+  test("governance success re-opens the panel even after the user closes it mid-flow", async () => {
+    const governGate = deferred()
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input)
-      if (url.includes("/api/project/scaffold")) {
-        await scaffoldGate.promise
+      if (url.includes("/api/project/govern")) {
+        await governGate.promise
         return jsonResponse({
           ok: true,
           project: {
@@ -686,6 +682,8 @@ describe("ViviPanel — onboarding view (no target project)", () => {
             name: "acme-app",
             hasCanonicalSpec: true,
           },
+          mode: "from_scratch",
+          batch: null,
         })
       }
       if (url.includes("/api/fs/list")) {
@@ -716,24 +714,18 @@ describe("ViviPanel — onboarding view (no target project)", () => {
     renderPanelWithOpener({ hasTarget: false, projectRoot: null })
 
     await user.click(screen.getByTestId("vivi-cta"))
-    await user.click(
-      await screen.findByRole("button", { name: /Start a new project/ })
-    )
-    const folderInput = screen.getByLabelText("New folder name")
-    await waitFor(() => expect(folderInput).toBeEnabled(), { timeout: 5_000 })
-    await user.type(screen.getByLabelText("Project name"), "Acme App")
-    await user.type(folderInput, "acme-app")
-    const submit = screen.getByRole("button", { name: /Scaffold project/ })
-    await waitFor(() => expect(submit).toBeEnabled())
+    await user.click(await screen.findByRole("button", { name: /Start governance/ }))
+    const submit = await screen.findByRole("button", { name: /Start governance/ })
+    await waitFor(() => expect(submit).toBeEnabled(), { timeout: 5_000 })
     await user.click(submit)
 
-    // The user closes the panel while the scaffold POST is still in flight.
+    // The user closes the panel while the govern POST is still in flight.
     const aside = screen.getByRole("complementary", { name: "Vivi", hidden: true })
     await user.click(screen.getByRole("button", { name: "Close Vivi" }))
     await waitFor(() => expect(aside).toHaveAttribute("aria-hidden", "true"))
 
-    // Scaffold completes → the panel re-opens on its own to greet with the seeded welcome.
-    scaffoldGate.resolve()
+    // Governance completes → the panel re-opens on its own to greet with the seeded welcome.
+    governGate.resolve()
     await waitFor(() => expect(aside).toHaveAttribute("aria-hidden", "false"))
   }, 15_000)
 })

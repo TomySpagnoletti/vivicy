@@ -29,7 +29,7 @@ function stubFetch(importResponse?: { body: unknown; status?: number }) {
   return vi.fn(async (input: RequestInfo | URL) => {
     const url = String(input)
     if (url.includes("/api/fs/list")) return json(LISTING)
-    if (url.includes("/api/project/import")) {
+    if (url.includes("/api/project/govern")) {
       const r = importResponse ?? { body: { ok: true } }
       return json(r.body, r.status)
     }
@@ -158,13 +158,15 @@ describe("ImportDocsFlow — docs first, folder second", () => {
       stubFetch({
         body: {
           ok: true,
-          batchId: "2026-07-11T00-00-00-000Z",
-          targetPath: project.root,
-          language: "fra",
-          accepted: [{ path: "spec.md", size: 20, sha256: "x" }],
-          rejected: [],
           mode: "from_scratch",
           project,
+          batch: {
+            batchId: "2026-07-11T00-00-00-000Z",
+            targetPath: project.root,
+            language: "fra",
+            accepted: [{ path: "spec.md", size: 20, sha256: "x" }],
+            rejected: [],
+          },
         },
       })
     )

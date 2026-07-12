@@ -45,14 +45,14 @@ test.describe("Vivicy onboarding (panel-hosted)", () => {
 
     await expect(page.getByRole("heading", { name: "Start a project" })).toBeVisible()
     await expect(
-      page.getByRole("button", { name: /Open an existing project/i })
+      page.getByRole("button", { name: /Open a governed project/i })
     ).toBeVisible()
     await expect(
-      page.getByRole("button", { name: /Start a new project/i })
+      page.getByRole("button", { name: /Start governance/i })
     ).toBeVisible()
     await expect(
       page.getByRole("button", { name: /Import documents/i })
-    ).toBeVisible()
+    ).toHaveCount(0)
 
     await expect(page.getByLabel("Message Vivi")).toHaveCount(0)
 
@@ -63,7 +63,7 @@ test.describe("Vivicy onboarding (panel-hosted)", () => {
     })
   })
 
-  test("the scaffold choice creates a new project and lands on the empty-canonical map state", async ({
+  test("start governance (docs optional) creates a new project and lands on the empty-canonical map state", async ({
     page,
   }, testInfo) => {
     const scaffoldTarget = scaffoldTargetFor(testInfo.project.name)
@@ -79,15 +79,12 @@ test.describe("Vivicy onboarding (panel-hosted)", () => {
       .getByRole("button", { name: "Talk to Vivi" })
       .click()
     await expect(
-      page.getByRole("button", { name: /Start a new project/i })
+      page.getByRole("button", { name: /Start governance/i })
     ).toBeVisible()
 
-    await page.getByRole("button", { name: /Start a new project/i }).click()
-    await expect(page.getByLabel("Project name")).toBeVisible()
+    await page.getByRole("button", { name: /Start governance/i }).click()
 
-    await page.getByLabel("Project name").fill("E2E Scaffolded")
-
-    // Navigate the folder browser to the scaffold parent, then name the new folder — there is no absolute-path field. The "tmp" crumb resolves the macOS /tmp -> /private/tmp symlink for us.
+    // Navigate the folder browser to the scaffold parent, then create + enter the new folder — the created dir IS the target, no absolute-path field. The "tmp" crumb resolves the macOS /tmp -> /private/tmp symlink for us.
     const parentSegments = path.dirname(scaffoldTarget).split("/").filter(Boolean)
     await page.getByLabel("Current path").getByRole("button", { name: "/" }).click()
     const folders = page.getByRole("group", { name: "Folders" })
@@ -96,21 +93,23 @@ test.describe("Vivicy onboarding (panel-hosted)", () => {
       await expect(row).toBeVisible({ timeout: 15_000 })
       await row.click()
     }
+    await page.getByRole("button", { name: "New folder", exact: true }).click()
     await page.getByLabel("New folder name").fill(path.basename(scaffoldTarget))
+    await page.getByRole("button", { name: "Create", exact: true }).click()
 
-    await page.getByRole("button", { name: /Scaffold project/i }).click()
-    await expect(page.getByText(/Project scaffolded/i).first()).toBeVisible({
+    await page.getByRole("button", { name: "Start governance", exact: true }).click()
+    await expect(page.getByText(/Governance laid/i).first()).toBeVisible({
       timeout: 30_000,
     })
 
-    // A freshly scaffolded project has an empty canonical (only the scaffold seed), so the map shows the bare empty-canonical arrow sentence, not the no_map Extract card.
+    // A freshly governed project has an empty canonical (only the skeleton seed), so the map shows the bare empty-canonical arrow sentence, not the no_map Extract card.
     const canonicalHint = page.locator('[data-empty-reason="empty_canonical"]')
     await expect(canonicalHint).toBeVisible({ timeout: 30_000 })
     await expect(canonicalHint).toContainText("Talk to Vivi to get grilled")
 
     await expect(page.getByLabel("Message Vivi")).toBeVisible({ timeout: 15_000 })
     await expect(
-      page.getByRole("button", { name: /Start a new project/i })
+      page.getByRole("button", { name: /Start governance/i })
     ).toHaveCount(0)
 
     await expect(page.getByText(/what do you want to build/i)).toBeVisible({
