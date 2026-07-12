@@ -46,15 +46,7 @@
     "regen_failed": "the map could not be regenerated"
   },
   "route": {
-    "invalid_json_body": "invalid JSON body",
-    "settings_body_not_object": "settings body must be a JSON object",
-    "project_path_required": "a project path is required",
-    "update_agent_body_invalid": "Body must be '{' agent: 'claude' | 'codex' '}'.",
-    "skills_ids_invalid": "ids must be an array of skill id strings",
     "retry_stage_invalid": "stage is not retryable; supported: {supported}",
-    "notifications_body_invalid": "body must be '{' id: string '}' or '{' all: true '}'",
-    "crs_decide_body_invalid": "body must be '{' id: 'CR-####', decision: 'approved' | 'rejected' '}'",
-    "map_layout_invalid_json": "Request body must be valid JSON.",
     "map_not_json": "architecture map is not valid JSON",
     "map_bad_shape": "architecture map has an unexpected shape"
   }

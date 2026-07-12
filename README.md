@@ -29,7 +29,7 @@ The reviewer never authored the code it reviews: the loop runs two distinct agen
 4. **Issues are extracted.** Deterministic gates turn the frozen baseline into a requirement catalog, traceable vertical issues, and the architecture map — with full line coverage: every spec line is covered by an issue, explicitly excluded, or the gate fails.
 5. **The two-agent loop builds it.** For each ready issue: implement (gate-first), independently review and fix, then the orchestrator re-runs the gate as the authoritative verdict, commits the green checkpoint, and retires the issue.
 6. **Changes go through change requests.** Mid-run, you talk to Vivi; post-freeze your asks are drafted as CRs. Approving or rejecting a CR is the **single human touchpoint** — an approved CR folds into the spec, re-freezes the baseline, re-extracts, and reopens exactly the impacted issues.
-7. **You watch all of it.** The control plane shows the 13-stage pipeline, the architecture map with live per-node status, notifications with in-app CR review, per-agent quota, and Run / Stop / Resume controls.
+7. **You watch all of it.** The control plane shows the full pipeline, the architecture map with live per-node status, notifications with in-app CR review, per-agent quota, and Run / Stop / Resume controls.
 
 ## Quick start
 
