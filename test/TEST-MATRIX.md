@@ -1,6 +1,6 @@
 # Vivicy — exhaustive test matrix
 
-Reconciled fingerprint: `fd98504cf00dd82310b0c3233004ec9a7d4efad663162bd06dd9cbf9e8a8f611` @ commit `76da7f6371cff964a5fc5527a6303c47c22d1fc8`
+Reconciled fingerprint: `61e5bca9cfe89bd251ab92b485f73aea8d1fadbc1536b58a61053ade0b2592a6` @ commit `f346818f7f5aec87019bc17d4d7dd9d34bb8f108`
 
 
 This file is the exhaustive, always-current inventory of every test case for Vivicy — every behavior the system has, whether it is covered by a test today or is a known GAP. It is **committed and machine-guarded**: the `Reconciled fingerprint` line above hashes the behavior-bearing source tree and records the HEAD commit at reconciliation time, and `scripts/test-matrix.test.ts` fails the vitest suite when code changes without this file being reconciled and re-stamped (`npm run matrix:stamp`). `git log test/TEST-MATRIX.md` is the audit trail of reconciliations. It is the single source of truth for "what should be tested" across the app (`app/`, `components/`, `lib/`) and the factory (`factory/`). It was assembled from a full per-area audit pass plus three adversarial cross-matrices (user journeys, parallel/merge chaos, process/crash chaos).
@@ -16,10 +16,10 @@ This file is the exhaustive, always-current inventory of every test case for Viv
 
 | Area | Cases | Gaps | Covered |
 |---|---:|---:|---:|
-| app-shell-sidebar-ui-kit | 369 | 267 | 102 |
+| app-shell-sidebar-ui-kit | 378 | 269 | 109 |
 | baselines-change-requests | 262 | 203 | 59 |
 | cli-supervisor-process-infra | 456 | 246 | 210 |
-| control-plane-api-routes | 477 | 227 | 250 |
+| control-plane-api-routes | 484 | 227 | 257 |
 | dev-loop-worktrees-merge | 287 | 140 | 147 |
 | e2e-test-infra-rehearsal | 287 | 102 | 185 |
 | extraction-gates | 295 | 160 | 135 |
@@ -30,7 +30,7 @@ This file is the exhaustive, always-current inventory of every test case for Viv
 | cross-journeys | 82 | 65 | 17 |
 | cross-chaos-parallel-merge | 47 | 33 | 14 |
 | cross-chaos-process | 46 | 43 | 3 |
-| **TOTAL** | **3778** | **2143** | **1635** |
+| **TOTAL** | **3794** | **2145** | **1649** |
 
 ---
 
@@ -86,7 +86,7 @@ This file is the exhaustive, always-current inventory of every test case for Viv
 - [app-shell-sidebar-ui-kit.28] `GET /api/settings` fails/throws on mount. | Catch swallows the error; `settings` stays at `DEFAULT_SETTINGS`; UI never blocks on this fetch. | unit | GAP
 - [app-shell-sidebar-ui-kit.29] Component unmounts before the settings fetch resolves. | `cancelled` flag prevents `setSettings` after unmount. | unit | GAP
 - [app-shell-sidebar-ui-kit.30] `SettingsDialog`'s `onSaved` callback fires with a new settings document. | `setSettings` updates the shared state that also feeds `QuotaFooter` (single source of truth — no duplicated settings state). | unit | GAP
-- [app-shell-sidebar-ui-kit.31] Default render — all six Accordion sections (Information, Filters, Details, Tasks, Pipeline, Skills) render as `AccordionItem`s, and only "tasks" is expanded by default (`defaultValue={["tasks"]}`). | Tasks content visible on first render; other five sections collapsed. | unit | GAP
+- [app-shell-sidebar-ui-kit.31] Default render — all seven Accordion sections (Information, Filters, Details, Cycles, Tasks, Pipeline, Skills) render as `AccordionItem`s in that order (Cycles sits between Details and Tasks, at the head of the process cluster), and only "tasks" is expanded by default (`defaultValue={["tasks"]}`). | Tasks content visible on first render; the other six sections (Cycles included) collapsed. | unit | GAP
 - [app-shell-sidebar-ui-kit.32] Sidebar carries `side="right"`, `collapsible="offcanvas"`, `role="complementary"`, and `aria-label` interpolating `BRAND.name`. | Accessibility landmark + label present and correct on both desktop-docked and mobile-Sheet renders (shared per `Sidebar` primitive's role-hoisting logic). | e2e-ui | GAP
 - [app-shell-sidebar-ui-kit.33] `SectionLegend` receives `view` + `data.nodes` + `data.statusLegend` and renders in the `SidebarFooter` above `QuotaFooter`, each separated visually. | Legend and quota footer both render in the footer region, legend first. | unit | GAP
 - [app-shell-sidebar-ui-kit.SKILLS-GAP] `sidebar.tsx` imports `SectionSkills` from `@/components/sidebar/section-skills`, which is NOT among the files provided for this area's review. | The Skills accordion section's full behavior (fetch, states, gating) is untested by this pass — needs its own file read/case list. | n/a | GAP (out of declared scope — flag only)
@@ -233,6 +233,17 @@ This file is the exhaustive, always-current inventory of every test case for Viv
 - [app-shell-sidebar-ui-kit.147] A stage with genuinely no observed data (e.g. S0/S1/S7/S8/S10/S11/S12 with nothing in `extraction`/`skills`/`status`). | No `<dl>` evidence block rendered at all — never a fabricated placeholder. | unit | section-pipeline.test.tsx
 - [app-shell-sidebar-ui-kit.148] `deriveStageStates` produces each of the 4 `StageState` values (pending/running/green/red) across different stages. | Correct badge variant (`outline`/`secondary`/`default`/`destructive`) and label (`statePending`/`stateRunning`/`stateDone`/`stateBlocked`) per state; `green` state also gets the extra `bg-status-verified text-white` class. | unit | GAP (pipeline-stages.ts itself likely covered elsewhere; the badge-variant mapping in THIS component isn't directly asserted)
 
+### components/sidebar/section-cycles.tsx
+
+- [app-shell-sidebar-ui-kit.361] `GET /api/control/cycles` returns no view (target unresolved / fetch fails) so `cycles` stays null → active null AND empty history. | Only the empty-state guidance renders; no `[data-cycle="active"]` card, no history rows. | unit | section-cycles.test.tsx ("no cycle at all (target unresolved): only the empty-state guidance renders")
+- [app-shell-sidebar-ui-kit.362] Active cycle is pre-freeze editable (`editable:true`). | Active card renders the kind badge (Project/Feature), the "Pre-freeze · editable" phase badge, and the pending-batch count line when `pending_batches>0`. | unit | section-cycles.test.tsx ("active pre-freeze cycle shows kind, editable phase, and the pending-batch count")
+- [app-shell-sidebar-ui-kit.363] Active cycle is frozen (`editable:false`) and the status stream reports an active run (`run_active:true`). | Phase badge shows "Building"; the status-stream issue signal renders ("{done}/{total} issues verified" + "{n} gate(s) failing" when `gates.fail>0`); the cycle id line renders when non-null. | unit | section-cycles.test.tsx ("frozen cycle with an active run shows Building and the status-stream issue signal")
+- [app-shell-sidebar-ui-kit.364] Active cycle is frozen, not running, every issue verified (`issues_done>=issues_total>0`). | Phase badge shows "Done" (with the verified-green accent); the issue-verified signal renders. | unit | section-cycles.test.tsx ("frozen cycle with every issue verified and no active run shows Done")
+- [app-shell-sidebar-ui-kit.365] Active cycle is frozen with no status frame received yet (`status` null). | Phase badge shows "Frozen"; no issue-signal lines fabricated. | unit | section-cycles.test.tsx ("frozen cycle with no status frame yet shows Frozen and no issue signal")
+- [app-shell-sidebar-ui-kit.366] History list present. | Past cycles render most-recent-first, each `[data-cycle="history"]` row showing the kind badge (when known), the version (`v{version}`, else baseline id), the outcome badge (superseded/frozen), and "closed {YYYY-MM-DD}" when a close date exists. | unit | section-cycles.test.tsx ("history lists past cycles with kind, version, outcome, and the closed date")
+- [app-shell-sidebar-ui-kit.367] Conditional rows: the pending-batch line renders only when `editable && pending_batches>0`; the cycle-id line renders only when `id` is non-null; the issue signal renders only in building/done phases. | No empty/fabricated rows; each guarded row appears only when its data warrants. | unit | section-cycles.test.tsx (cross-covered by the editable/building/frozen cases)
+- [app-shell-sidebar-ui-kit.368] SSE wiring — a frame carrying `{error}` is ignored; malformed JSON is caught; on unmount the `cancelled` flag blocks late `setCycles` and `source.close()` is called; every SSE frame re-invokes `loadCycles()` so pending-batch/phase/history stay live. | best-effort, no crash, no leak | unit | GAP (mirrors section-pipeline's untested SSE-lifecycle cases .137–.140)
+
 ### components/sidebar/section-tasks.tsx
 
 - [app-shell-sidebar-ui-kit.149] `development` is `undefined`. | Treated as fully empty: 0 issues, empty-state text, zero metrics, no crash. | unit | section-tasks.test.tsx
@@ -287,7 +298,8 @@ This file is the exhaustive, always-current inventory of every test case for Viv
 
 - [app-shell-sidebar-ui-kit.192] `AccordionTrigger` click toggles expanded/collapsed state; chevron icon swaps (`ChevronDownIcon` visible when collapsed, `ChevronUpIcon` when expanded via `group-aria-expanded` selector). | Icon visibility toggles correctly with `aria-expanded`. | unit | GAP
 - [app-shell-sidebar-ui-kit.193] `type="multiple"` Accordion with several items open simultaneously. | Multiple `AccordionItem`s can be open at once (verifies the `multiple` type is actually wired through, not silently behaving as `single`). | unit | GAP
-- [app-shell-sidebar-ui-kit.194] `AccordionContent` height animation via `data-open`/`data-closed` state and the `--radix-accordion-content-height` CSS var. | Visual regression / computed-height sanity check (low priority, mostly cosmetic). | e2e-ui | GAP
+- [app-shell-sidebar-ui-kit.194] `AccordionContent` open/close height animation via `data-open`/`data-closed` state and the `--radix-accordion-content-height` CSS var (the var drives the animation on the OUTER content element only). | Visual regression / computed-height sanity check (low priority, mostly cosmetic). | e2e-ui | GAP
+- [app-shell-sidebar-ui-kit.369] `AccordionContent`'s inner wrapper is natural-height (NOT pinned to `--radix-accordion-content-height`), so a section whose content grows after it opens — e.g. an async fetch resolving to a taller card than the empty/loading state measured at open time — is shown in full, never clipped to the stale measured height. | inner content overflow-visible at rest; async-loaded section content fully visible | e2e-ui | GAP (no jsdom-layout test; exercised live by SectionCycles' async-loaded card + history)
 
 ### components/ui/alert.tsx
 
@@ -1728,6 +1740,19 @@ Out of this area's primary concern (prompt content, not CLI/process infra) but i
 - [control-plane-api-routes.483] `startDocPrep` refuses `already_running` while a fresh in-flight report (classifying/extracting/placing, updated within DOC_PREP_STALE_MS) exists, without calling spawnDetached | throws already_running; 0 spawnDetached calls | unit | control.test.ts ("startDocPrep refuses while a fresh in-flight report says preparation is running")
 - [control-plane-api-routes.484] `startDocPrep` refuses via the separate `doc-prep.lock` file (TOCTOU wx guard) even when the report is stale/absent, and clears a dead-pid lock to let a fresh claim succeed | second concurrent caller throws already_running from the lock; stale lock reclaimed | unit | GAP (mirrors the skills-lock TOCTOU gap .74/.75)
 - [control-plane-api-routes.485] `startDocPrep` throws `missing_target` when targetRoot doesn't exist and `missing_script` when `prepare-docs.ts` is absent | throws the mapped code | unit | GAP (mirrors startSkillsInstall .77/.78)
+
+### lib/control.ts (cycles reader)
+
+- [control-plane-api-routes.486] `getCycles` greenfield pre-freeze (no frozen baseline, no drafting cycle) | `active = {id:null, kind:"project", editable:true, pending_batches:0}`, empty history | unit | control.test.ts ("greenfield pre-freeze: an implicit editable project cycle with no history")
+- [control-plane-api-routes.487] `getCycles` pre-freeze pending-batch count = the unconsumed COMPLETE upload batches bound to (or seeding) the active cycle (a manifest-less/interrupted dir is not counted) | `active.pending_batches` = complete unconsumed count | unit | control.test.ts ("pre-freeze counts unconsumed, complete, active-cycle upload batches as pending")
+- [control-plane-api-routes.488] `getCycles` frozen (active frozen baseline, no drafting cycle) → active is the frozen manifest: `id = approval.approval_ref`, `kind = spec_kind`, `editable:false`, `pending_batches:0`; the current live baseline is NOT listed in history | correct active from the manifest, empty history | unit | control.test.ts ("a frozen baseline with no drafting cycle is the active (non-editable) cycle and is NOT listed in history")
+- [control-plane-api-routes.489] `getCycles` with a drafting feature cycle open over a frozen baseline → `editable:true`, `kind:"feature"`, `id` = the drafting cycle id; the underlying frozen baseline moves into history as a delivered (non-superseded) past cycle | reopened editable + baseline in history | unit | control.test.ts ("opening a feature cycle reopens editable and moves the frozen baseline into history as a delivered (non-superseded) cycle")
+- [control-plane-api-routes.490] `getCycles` history = frozen baseline manifests ordered most-recent-first by close date, excluding the current live baseline when frozen (so history is the superseded chain); each entry carries baseline_id/version/kind/approval_ref/closed_at/superseded | ordered superseded chain | unit | control.test.ts ("history lists superseded baselines most-recent-first, excluding the current live baseline")
+
+### app/api/control/cycles/route.ts
+
+- [control-plane-api-routes.491] `GET /api/control/cycles` returns `{ok:true, cycles: getCycles()}` verbatim | 200 with the cycles view | integration | cycles/route.test.ts ("returns the cycles view verbatim")
+- [control-plane-api-routes.492] `GET /api/control/cycles` maps a ControlError (e.g. missing_target) to 422 with its code, any other error to 500 | correct status split | integration | cycles/route.test.ts ("maps a ControlError (no target) to 422 with its code, and any other error to 500")
 
 ### app/api/control/cycle/route.ts
 

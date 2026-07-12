@@ -8,6 +8,7 @@ import {
   cancelSpecCycle,
   ControlError,
   decideCr,
+  getCycles,
   getExtractionStatus,
   getSpecCycle,
   isRunActive,
@@ -808,5 +809,78 @@ describe("spec cycles (open/cancel guards)", () => {
     expect(id).toMatch(/^cycle-/)
     expect(getSpecCycle()).toBeNull()
     await expect(cancelSpecCycle(clean.spawner)).rejects.toThrow(/no drafting spec cycle/)
+  })
+})
+
+describe("getCycles (active cycle + history reader)", () => {
+  function seedBaseline(
+    id: string,
+    version: string,
+    opts: { spec_kind?: string; approval_ref?: string; approved_at?: string; superseded?: string } = {}
+  ): void {
+    const dir = path.join(targetRoot, ".vivicy", "baselines")
+    mkdirSync(dir, { recursive: true })
+    const manifest: Record<string, unknown> = {
+      baseline_id: id,
+      version,
+      status: "frozen",
+      spec_kind: opts.spec_kind ?? "feature",
+      generated_at: opts.approved_at ?? "2026-01-01T00:00:00Z",
+      approval: { approval_ref: opts.approval_ref ?? id, approved_at: opts.approved_at ?? "2026-01-01T00:00:00Z" },
+    }
+    if (opts.superseded) manifest.superseded = { by_baseline_id: opts.superseded, at: opts.approved_at ?? "2026-01-01T00:00:00Z" }
+    writeFileSync(path.join(dir, `${id}.json`), JSON.stringify(manifest))
+  }
+
+  function seedBatch(batchId: string, cycle?: unknown): void {
+    const dir = path.join(targetRoot, ".vivicy", "uploads", batchId)
+    mkdirSync(dir, { recursive: true })
+    const manifest: Record<string, unknown> = { batchId, createdAt: "2026-01-01T00:00:00Z", files: [{ path: `${batchId}.md`, size: 1, sha256: "x" }] }
+    if (cycle !== undefined) manifest.cycle = cycle
+    writeFileSync(path.join(dir, "manifest.json"), JSON.stringify(manifest))
+  }
+
+  it("greenfield pre-freeze: an implicit editable project cycle with no history", () => {
+    const view = getCycles()
+    expect(view.active).toEqual({ id: null, kind: "project", editable: true, pending_batches: 0 })
+    expect(view.history).toEqual([])
+  })
+
+  it("pre-freeze counts unconsumed, complete, active-cycle upload batches as pending", () => {
+    seedBatch("b1")
+    seedBatch("b2")
+    mkdirSync(path.join(targetRoot, ".vivicy", "uploads", "interrupted"), { recursive: true })
+    expect(getCycles().active?.pending_batches).toBe(2)
+  })
+
+  it("a frozen baseline with no drafting cycle is the active (non-editable) cycle and is NOT listed in history", () => {
+    seedBaseline("baseline-v1.0.0", "1.0.0", { spec_kind: "project", approval_ref: "project" })
+    const view = getCycles()
+    expect(view.active).toEqual({ id: "project", kind: "project", editable: false, pending_batches: 0 })
+    expect(view.history).toEqual([])
+  })
+
+  it("opening a feature cycle reopens editable and moves the frozen baseline into history as a delivered (non-superseded) cycle", () => {
+    seedBaseline("baseline-v1.0.0", "1.0.0", { spec_kind: "project", approval_ref: "project" })
+    const { spawner } = makeFakeSpawner()
+    openSpecCycle(spawner, "owner:test")
+
+    const view = getCycles()
+    expect(view.active?.editable).toBe(true)
+    expect(view.active?.kind).toBe("feature")
+    expect(view.active?.id).toMatch(/^cycle-/)
+    expect(view.history).toHaveLength(1)
+    expect(view.history[0]).toMatchObject({ version: "1.0.0", kind: "project", superseded: false })
+  })
+
+  it("history lists superseded baselines most-recent-first, excluding the current live baseline", () => {
+    seedBaseline("baseline-v1.0.0", "1.0.0", { spec_kind: "project", approval_ref: "project", approved_at: "2026-02-01T00:00:00Z", superseded: "baseline-v1.1.0" })
+    seedBaseline("baseline-v1.0.5", "1.0.5", { approval_ref: "cycle-mid", approved_at: "2026-03-01T00:00:00Z", superseded: "baseline-v1.1.0" })
+    seedBaseline("baseline-v1.1.0", "1.1.0", { approval_ref: "cycle-latest", approved_at: "2026-04-01T00:00:00Z" })
+
+    const view = getCycles()
+    expect(view.active).toMatchObject({ id: "cycle-latest", kind: "feature", editable: false })
+    expect(view.history.map((c) => c.version)).toEqual(["1.0.5", "1.0.0"])
+    expect(view.history.every((c) => c.superseded)).toBe(true)
   })
 })

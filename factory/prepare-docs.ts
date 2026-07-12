@@ -17,12 +17,20 @@ import type { LanguageResolution } from "./detect-language.ts";
 import { BINARY_DOC_EXTENSIONS, TEXT_LANGUAGE_EXTENSIONS, extractBinaryDocText } from "../lib/text-extract.ts";
 import { dominantLanguage } from "../lib/dominant-language.ts";
 import { pruneGitkeeps } from "../lib/skeleton.ts";
-import { activeCycleId, activeCycleKind, batchMatchesActiveCycle } from "../lib/spec-cycle.ts";
+import {
+  activeCycleId,
+  activeCycleKind,
+  completeBatches,
+  consumedSet,
+  unconsumedActiveCycleBatches,
+} from "../lib/spec-cycle.ts";
+import type { Batch } from "../lib/spec-cycle.ts";
 import type { SpecKind } from "../lib/spec-kind.ts";
 
+export { completeBatches, unconsumedActiveCycleBatches };
+export type { Batch };
+
 export const DOC_PREP_REPORT_REL = ".vivicy/development/reports/doc-prep-report.json";
-const UPLOADS_REL = ".vivicy/uploads";
-const MANIFEST_FILE = "manifest.json";
 const SCRATCH_REL = ".vivicy/development/reports/doc-prep-scratch";
 const PREP_ISSUE_ID = "DOC-PREP";
 const UNDETERMINED = "und";
@@ -30,26 +38,6 @@ const UNDETERMINED = "und";
 export type DocPrepPhase = "classifying" | "extracting" | "placing" | "green" | "failed" | "skipped";
 export type DocPrepRoute = "canonical" | "explode";
 export type DocPrepRejectReason = "invalid_canonical" | "extract_failed" | "outside_target" | "empty_output" | "leg_no_output";
-
-interface ManifestFile {
-  path: string;
-  size: number;
-  sha256: string;
-}
-
-interface BatchManifest {
-  batchId: string;
-  createdAt: string;
-  language: string;
-  cycle?: unknown;
-  files: ManifestFile[];
-}
-
-export interface Batch {
-  batchId: string;
-  batchDir: string;
-  manifest: BatchManifest;
-}
 
 export interface PlacedDoc {
   batch: string;
@@ -113,50 +101,6 @@ export interface PrepareDocsOptions {
   emitReport?: (report: DocPrepReport, repoRoot: string) => void;
   resolveLanguage?: (args: { repoRoot: string; batchDir: string }) => Promise<LanguageResolution>;
   now?: () => Date;
-}
-
-// The batch-complete marker is manifest.json (written LAST by import); a batch dir without it is an interrupted, non-consumable batch.
-export function completeBatches(repoRoot: string): Batch[] {
-  const uploadsDir = resolve(repoRoot, UPLOADS_REL);
-  if (!existsSync(uploadsDir)) return [];
-  const batches: Batch[] = [];
-  for (const entry of readdirSync(uploadsDir, { withFileTypes: true })) {
-    if (!entry.isDirectory()) continue;
-    const batchDir = join(uploadsDir, entry.name);
-    const manifest = readManifest(join(batchDir, MANIFEST_FILE));
-    if (manifest) batches.push({ batchId: entry.name, batchDir, manifest });
-  }
-  return batches.sort((a, b) => a.batchId.localeCompare(b.batchId));
-}
-
-// The batches the active cycle's prep must consume: complete + bound to (or seeding) the active cycle + not yet consumed by a prior run.
-// Empty when the canonical is frozen (no active cycle) — seed batches then wait for the cycle they seed to open.
-export function unconsumedActiveCycleBatches(repoRoot: string, report: DocPrepReport | null): Batch[] {
-  const cycleId = activeCycleId(repoRoot);
-  if (cycleId === null) return [];
-  const consumed = consumedSet(report);
-  return completeBatches(repoRoot).filter(
-    (b) => batchMatchesActiveCycle(b.manifest.cycle, cycleId) && !consumed.has(b.batchId),
-  );
-}
-
-// Never-reset ledger of every batch a prep run has fully placed: a batch is added only after all its files land, so a mid-run crash never marks an unconsumed batch consumed.
-function consumedSet(report: DocPrepReport | null): Set<string> {
-  const legacyBatchId = (report as { batch_id?: unknown } | null)?.batch_id;
-  const legacy = typeof legacyBatchId === "string" ? [legacyBatchId] : [];
-  return new Set([...(Array.isArray(report?.batches_consumed) ? report!.batches_consumed : []), ...legacy]);
-}
-
-function readManifest(abs: string): BatchManifest | null {
-  const parsed = readJsonOrNull(abs) as Partial<BatchManifest> | null;
-  if (!parsed || typeof parsed !== "object" || !Array.isArray(parsed.files)) return null;
-  return {
-    batchId: String(parsed.batchId ?? ""),
-    createdAt: String(parsed.createdAt ?? ""),
-    language: typeof parsed.language === "string" && parsed.language.length > 0 ? parsed.language : UNDETERMINED,
-    cycle: parsed.cycle,
-    files: parsed.files.filter((f): f is ManifestFile => Boolean(f) && typeof f === "object" && typeof (f as ManifestFile).path === "string"),
-  };
 }
 
 export function docPrepStageNeeded(repoRoot: string, report: DocPrepReport | null): boolean {
