@@ -139,7 +139,9 @@ interface SkillsReport {
 // Schema of record is prepare-docs.ts's writer — this is a partial read-only projection.
 interface DocPrepReport {
   phase?: string;
-  batch_id?: string | null;
+  cycle_id?: string | null;
+  batches_consumed?: string[];
+  batches_pending?: string[];
   language?: string;
   placed?: unknown[];
   rejected?: unknown[];
@@ -872,10 +874,12 @@ function cmdPrepareReport(argv: string[]): void {
   } else if (!report) {
     note("(no doc-prep report — the stage has not run yet)");
   } else {
-    note(`doc-prep: ${report.phase ?? "?"} (batch ${report.batch_id ?? "none"}, language ${report.language ?? "?"}) — ${report.summary ?? ""}`);
+    const consumed = Array.isArray(report.batches_consumed) ? report.batches_consumed.length : 0;
+    const pending = Array.isArray(report.batches_pending) ? report.batches_pending.length : 0;
+    note(`doc-prep: ${report.phase ?? "?"} (cycle ${report.cycle_id ?? "none"}, ${consumed} batch(es) consumed, ${pending} pending, language ${report.language ?? "?"}) — ${report.summary ?? ""}`);
     for (const entry of Array.isArray(report.placed) ? report.placed : []) {
-      const p = entry as { target?: string; route?: string; translated?: boolean };
-      note(`  + ${p.target ?? "?"}  ${p.route ?? ""}${p.translated ? "  [translated]" : ""}`);
+      const p = entry as { batch?: string; target?: string; route?: string; translated?: boolean };
+      note(`  + ${p.target ?? "?"}  ${p.route ?? ""}${p.translated ? "  [translated]" : ""}${p.batch ? `  (${p.batch})` : ""}`);
     }
     for (const entry of Array.isArray(report.rejected) ? report.rejected : []) {
       const r = entry as { source?: string; reason?: string };
@@ -911,7 +915,9 @@ async function cmdPrepareRun(argv: string[], opts: Opts = {}): Promise<void> {
   emitJsonOrHuman(json, {
     ok,
     phase,
-    batch_id: report?.batch_id ?? null,
+    cycle_id: report?.cycle_id ?? null,
+    batches_consumed: report?.batches_consumed ?? [],
+    batches_pending: report?.batches_pending ?? [],
     language: report?.language ?? null,
     placed: report?.placed ?? [],
     rejected: report?.rejected ?? [],

@@ -43,7 +43,7 @@ describe("GET /api/control/prepare", () => {
     let body = await (await GET()).json()
     expect(body).toEqual({ ok: true, report: null })
 
-    const report = { phase: "green", batch_id: "b1", language: "eng", placed: [], rejected: [], summary: "ok" }
+    const report = { phase: "green", cycle_id: "project", batches_consumed: ["b1"], batches_pending: [], language: "eng", placed: [], rejected: [], summary: "ok" }
     readDocPrepReport.mockReturnValue(report)
     body = await (await GET()).json()
     expect(body).toEqual({ ok: true, report })

@@ -10,7 +10,7 @@ Read every file in the input directory named in your context. Each is a raw sour
 
 ## Language law (non-negotiable)
 
-The dominant language of this batch — an ISO 639-3 code — is named in your context. **Every** document you write MUST be in that language. A source written in another language is TRANSLATED into the dominant language, preserving its meaning and structure. There is no warning, no human arbitration, no mixed-language output: one language governs the whole prepared corpus.
+The dominant language for this run — an ISO 639-3 code, the project's established canonical language — is named in your context. **Every** document you write MUST be in that language. A source written in another language is TRANSLATED into the dominant language, preserving its meaning and structure. There is no warning, no human arbitration, no mixed-language output: one language governs the whole prepared corpus.
 
 ## How you prepare
 

@@ -603,9 +603,9 @@ describe("startDocPrep", () => {
 
   it("readDocPrepReport returns null when the stage has not run and the report verbatim otherwise", () => {
     expect(readDocPrepReport()).toBeNull()
-    writeDocPrepReport({ phase: "green", batch_id: "b1", language: "eng", placed: [], rejected: [], summary: "ok", updated_at: "2026-07-05T09:00:00Z" })
+    writeDocPrepReport({ phase: "green", cycle_id: "project", batches_consumed: ["b1"], batches_pending: [], language: "eng", placed: [], rejected: [], summary: "ok", updated_at: "2026-07-05T09:00:00Z" })
     expect(readDocPrepReport()?.phase).toBe("green")
-    expect(readDocPrepReport()?.batch_id).toBe("b1")
+    expect(readDocPrepReport()?.cycle_id).toBe("project")
   })
 })
 

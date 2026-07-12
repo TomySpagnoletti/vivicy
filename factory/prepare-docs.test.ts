@@ -4,14 +4,22 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { docPrepStageNeeded, latestCompleteBatch, prepareDocs, routeByLocation } from "./prepare-docs.ts";
-import type { PrepareDocsOptions } from "./prepare-docs.ts";
+import { completeBatches, docPrepStageNeeded, prepareDocs, routeByLocation, unconsumedActiveCycleBatches } from "./prepare-docs.ts";
+import type { DocPrepReport, PrepareDocsOptions } from "./prepare-docs.ts";
 
 function repo(): string {
   return mkdtempSync(join(tmpdir(), "vivicy-prep-"));
 }
 
-function writeBatch(root: string, id: string, files: Record<string, string>, language: string, opts: { manifest?: boolean } = {}): void {
+type Cycle = { binding: "active"; id: string } | { binding: "seed" };
+
+function writeBatch(
+  root: string,
+  id: string,
+  files: Record<string, string>,
+  language: string,
+  opts: { manifest?: boolean; cycle?: Cycle } = {},
+): void {
   const batchDir = join(root, ".vivicy/uploads", id);
   const manifestFiles: Array<{ path: string; size: number; sha256: string }> = [];
   for (const [rel, content] of Object.entries(files)) {
@@ -22,11 +30,26 @@ function writeBatch(root: string, id: string, files: Record<string, string>, lan
   }
   mkdirSync(batchDir, { recursive: true });
   if (opts.manifest !== false) {
-    writeFileSync(join(batchDir, "manifest.json"), JSON.stringify({ batchId: id, createdAt: new Date().toISOString(), language, files: manifestFiles }, null, 2));
+    writeFileSync(
+      join(batchDir, "manifest.json"),
+      JSON.stringify({ batchId: id, createdAt: new Date().toISOString(), language, cycle: opts.cycle ?? { binding: "active", id: "project" }, files: manifestFiles }, null, 2),
+    );
   }
 }
 
-function readReport(root: string): { phase: string; placed: Array<{ target: string; route: string }>; rejected: Array<{ source: string; reason: string }>; batch_id: string | null } {
+function writeFrozenBaseline(root: string, baselineId = "baseline-v1.0.0"): void {
+  const dir = join(root, ".vivicy/baselines");
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, `${baselineId}.json`), JSON.stringify({ status: "frozen", baseline_id: baselineId }, null, 2));
+}
+
+function openCycle(root: string, id: string): void {
+  const abs = join(root, ".vivicy/development/reports/spec-cycle.json");
+  mkdirSync(join(abs, ".."), { recursive: true });
+  writeFileSync(abs, JSON.stringify({ status: "drafting", kind: "feature", id, opened_at: new Date().toISOString(), opened_by: "test" }, null, 2));
+}
+
+function readReport(root: string): DocPrepReport {
   return JSON.parse(readFileSync(join(root, ".vivicy/development/reports/doc-prep-report.json"), "utf8"));
 }
 
@@ -36,14 +59,6 @@ const NEVER_SPAWN: PrepareDocsOptions["spawnLeg"] = async () => {
 
 const ENGLISH = "The product lets a user manage a catalog of items with search and pagination across the whole dataset.";
 const FRENCH = "Le produit permet à un utilisateur de gérer un catalogue d'articles avec recherche et pagination sur tout le jeu de données.";
-
-test("docPrepStageNeeded: no batch -> false; no report -> true; settled-same-batch -> false; stale batch -> true", () => {
-  assert.equal(docPrepStageNeeded(null, null), false);
-  assert.equal(docPrepStageNeeded({ batchId: "b1" }, null), true);
-  assert.equal(docPrepStageNeeded({ batchId: "b1" }, { phase: "green", batch_id: "b1" }), false);
-  assert.equal(docPrepStageNeeded({ batchId: "b2" }, { phase: "green", batch_id: "b1" }), true);
-  assert.equal(docPrepStageNeeded({ batchId: "b1" }, { phase: "failed", batch_id: "b1" }), true);
-});
 
 test("routeByLocation maps canonical-shaped upload paths to their target, rejects wrong extension and loose files", () => {
   assert.deepEqual(routeByLocation("canonical/spec.md"), { targetRel: "canonical/spec.md" });
@@ -55,13 +70,147 @@ test("routeByLocation maps canonical-shaped upload paths to their target, reject
   assert.equal(routeByLocation("canonical/scan.pdf"), null);
 });
 
-test("latestCompleteBatch picks the lexicographically-largest batch that carries a manifest, skipping interrupted ones", () => {
+test("completeBatches returns only manifest-carrying batches, id-sorted, skipping interrupted ones", () => {
   const root = repo();
   try {
-    writeBatch(root, "2026-01-01", { "canonical/a.md": ENGLISH }, "eng");
     writeBatch(root, "2026-02-02", { "b.txt": "loose" }, "eng", { manifest: false });
-    const latest = latestCompleteBatch(root);
-    assert.equal(latest?.batchId, "2026-01-01");
+    writeBatch(root, "2026-01-01", { "canonical/a.md": ENGLISH }, "eng");
+    writeBatch(root, "2026-03-03", { "canonical/c.md": ENGLISH }, "eng");
+    assert.deepEqual(completeBatches(root).map((b) => b.batchId), ["2026-01-01", "2026-03-03"]);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("docPrepStageNeeded: an unconsumed active-cycle batch -> true; consumed -> false", () => {
+  const root = repo();
+  try {
+    writeBatch(root, "b1", { "canonical/a.md": ENGLISH }, "eng");
+    assert.equal(docPrepStageNeeded(root, null), true);
+    assert.equal(docPrepStageNeeded(root, { cycle_id: "project", batches_consumed: ["b1"] } as DocPrepReport), false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("a seed batch is ignored while the canonical is frozen and becomes unconsumed-active when its cycle opens", () => {
+  const root = repo();
+  try {
+    writeFrozenBaseline(root);
+    writeBatch(root, "s1", { "canonical/a.md": ENGLISH }, "eng", { cycle: { binding: "seed" } });
+    assert.equal(docPrepStageNeeded(root, null), false);
+    assert.deepEqual(unconsumedActiveCycleBatches(root, null).map((b) => b.batchId), []);
+    openCycle(root, "cycle-x");
+    assert.equal(docPrepStageNeeded(root, null), true);
+    assert.deepEqual(unconsumedActiveCycleBatches(root, null).map((b) => b.batchId), ["s1"]);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("a batch bound to a non-current cycle is never consumed by another cycle's prep", () => {
+  const root = repo();
+  try {
+    writeFrozenBaseline(root);
+    openCycle(root, "cycle-2");
+    writeBatch(root, "b-old", { "canonical/a.md": ENGLISH }, "eng", { cycle: { binding: "active", id: "cycle-1" } });
+    writeBatch(root, "b-new", { "canonical/b.md": ENGLISH }, "eng", { cycle: { binding: "active", id: "cycle-2" } });
+    assert.deepEqual(unconsumedActiveCycleBatches(root, null).map((b) => b.batchId), ["b-new"]);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("prep consumes ALL unconsumed active-cycle batches in one run, ordered by id, keying each placement by batch", async () => {
+  const root = repo();
+  try {
+    writeBatch(root, "2026-01-01", { "canonical/a.md": `# A\n\n${ENGLISH}` }, "eng");
+    writeBatch(root, "2026-02-02", { "canonical/b.md": `# B\n\n${ENGLISH}` }, "eng");
+    const report = await prepareDocs({ repoRoot: root, spawnLeg: NEVER_SPAWN });
+    assert.equal(report.phase, "green");
+    assert.deepEqual(report.batches_consumed, ["2026-01-01", "2026-02-02"]);
+    assert.deepEqual(report.batches_pending, []);
+    assert.deepEqual(report.placed.map((p) => p.target).sort(), ["canonical/a.md", "canonical/b.md"]);
+    assert.equal(report.placed.find((p) => p.target === "canonical/a.md")?.batch, "2026-01-01");
+    assert.equal(report.placed.find((p) => p.target === "canonical/b.md")?.batch, "2026-02-02");
+    assert.ok(existsSync(join(root, ".vivicy/canonical/a.md")));
+    assert.ok(existsSync(join(root, ".vivicy/canonical/b.md")));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("crash-safe consumption: a failed batch is NOT marked consumed; a re-run retries only it", async () => {
+  const root = repo();
+  try {
+    writeBatch(root, "2026-01-01", { "canonical/a.md": `# A\n\n${ENGLISH}` }, "eng");
+    writeBatch(root, "2026-02-02", { "notes.txt": FRENCH }, "eng");
+    const failed = await prepareDocs({ repoRoot: root, spawnLeg: async () => {} });
+    assert.equal(failed.phase, "failed");
+    assert.deepEqual(failed.batches_consumed, ["2026-01-01"]);
+    assert.deepEqual(unconsumedActiveCycleBatches(root, failed).map((b) => b.batchId), ["2026-02-02"]);
+    const green = await prepareDocs({
+      repoRoot: root,
+      spawnLeg: async ({ outputDir }) => {
+        mkdirSync(join(outputDir, "canonical"), { recursive: true });
+        writeFileSync(join(outputDir, "canonical", "notes.md"), "# Notes\n\nExploded canonical.");
+      },
+    });
+    assert.equal(green.phase, "green");
+    assert.deepEqual(green.batches_consumed, ["2026-01-01", "2026-02-02"]);
+    assert.ok(green.placed.some((p) => p.target === "canonical/a.md" && p.batch === "2026-01-01"));
+    assert.ok(green.placed.some((p) => p.target === "canonical/notes.md" && p.batch === "2026-02-02"));
+    assert.equal(green.rejected.length, 0);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("per-cycle language: the first batch of the project fixes the cycle language; a later divergent batch is translated toward it", async () => {
+  const root = repo();
+  try {
+    writeBatch(root, "2026-01-01", { "canonical/produit.md": FRENCH }, "fra");
+    writeBatch(root, "2026-02-02", { "canonical/product.md": ENGLISH }, "eng");
+    let legLang = "";
+    let legInputCount = -1;
+    const report = await prepareDocs({
+      repoRoot: root,
+      spawnLeg: async ({ inputDir, outputDir, language }) => {
+        const { readdirSync } = await import("node:fs");
+        legLang = language;
+        legInputCount = readdirSync(inputDir).length;
+        mkdirSync(join(outputDir, "canonical"), { recursive: true });
+        writeFileSync(join(outputDir, "canonical", "product.md"), `# Produit\n\n${FRENCH}`);
+      },
+    });
+    assert.equal(report.phase, "green");
+    assert.equal(report.language, "fra");
+    assert.equal(legLang, "fra");
+    assert.equal(legInputCount, 1);
+    assert.ok(report.placed.some((p) => p.target === "canonical/produit.md" && p.route === "canonical"));
+    assert.ok(report.placed.some((p) => p.route === "explode" && p.translated === true));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("per-cycle language: an already-established canonical language governs a later divergent batch's translation", async () => {
+  const root = repo();
+  try {
+    mkdirSync(join(root, ".vivicy/canonical"), { recursive: true });
+    writeFileSync(join(root, ".vivicy/canonical/spec.md"), `# Produit\n\n${FRENCH}`);
+    writeBatch(root, "2026-03-03", { "canonical/product.md": ENGLISH }, "eng");
+    let legLang = "";
+    const report = await prepareDocs({
+      repoRoot: root,
+      spawnLeg: async ({ outputDir, language }) => {
+        legLang = language;
+        mkdirSync(join(outputDir, "canonical"), { recursive: true });
+        writeFileSync(join(outputDir, "canonical", "product.md"), `# Produit\n\n${FRENCH}`);
+      },
+    });
+    assert.equal(report.language, "fra");
+    assert.equal(legLang, "fra");
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -110,19 +259,36 @@ test("no batch -> skipped (the pipeline proceeds on owner-authored canonical)", 
   try {
     const report = await prepareDocs({ repoRoot: root, spawnLeg: NEVER_SPAWN });
     assert.equal(report.phase, "skipped");
-    assert.equal(report.batch_id, null);
+    assert.deepEqual(report.batches_consumed, []);
+    assert.deepEqual(report.batches_pending, []);
     assert.equal(readReport(root).phase, "skipped");
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
 });
 
-test("empty batch -> skipped", async () => {
+test("the canonical is frozen -> skipped, and the imported batch is named as a next-cycle seed", async () => {
+  const root = repo();
+  try {
+    writeFrozenBaseline(root);
+    writeBatch(root, "2026-03-03", { "canonical/a.md": ENGLISH }, "eng", { cycle: { binding: "seed" } });
+    const report = await prepareDocs({ repoRoot: root, spawnLeg: NEVER_SPAWN });
+    assert.equal(report.phase, "skipped");
+    assert.equal(report.cycle_id, null);
+    assert.match(report.summary, /seed the next cycle/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("a zero-file batch is consumed green (a legitimate empty outcome), never left perpetually stale", async () => {
   const root = repo();
   try {
     writeBatch(root, "2026-03-03", {}, "eng");
     const report = await prepareDocs({ repoRoot: root, spawnLeg: NEVER_SPAWN });
-    assert.equal(report.phase, "skipped");
+    assert.equal(report.phase, "green");
+    assert.deepEqual(report.batches_consumed, ["2026-03-03"]);
+    assert.equal(docPrepStageNeeded(root, report), false);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -232,7 +398,7 @@ test("placement validation: leg output outside a canonical target is rejected, a
   }
 });
 
-test("leg failure: no output after the bounded re-prompt -> phase failed, sources recorded as leg_no_output", async () => {
+test("leg failure: no output after the bounded re-prompt -> phase failed, sources recorded as leg_no_output, batch left unconsumed", async () => {
   const root = repo();
   try {
     writeBatch(root, "2026-09-09", { "notes.txt": FRENCH }, "eng");
@@ -246,6 +412,7 @@ test("leg failure: no output after the bounded re-prompt -> phase failed, source
     assert.equal(report.phase, "failed");
     assert.equal(attempts, 2);
     assert.ok(report.rejected.some((r) => r.reason === "leg_no_output"));
+    assert.deepEqual(report.batches_consumed, []);
     assert.equal(existsSync(join(root, ".vivicy/development/reports/doc-prep-scratch")), false, "the failure path must clear the leg scratch dir (no leftover for extraction's git add -A)");
   } finally {
     rmSync(root, { recursive: true, force: true });
@@ -265,16 +432,18 @@ test("nested platform-safe paths: a deep canonical upload path places at the mir
   }
 });
 
-test("report shape carries phase, batch_id, language, placed, rejected, summary, updated_at", async () => {
+test("report shape carries phase, cycle_id, cycle_kind, batches_consumed, batches_pending, language, placed, rejected, summary, updated_at", async () => {
   const root = repo();
   try {
     writeBatch(root, "2026-11-11", { "canonical/a.md": ENGLISH }, "eng");
     await prepareDocs({ repoRoot: root, spawnLeg: NEVER_SPAWN });
-    const report = readReport(root) as Record<string, unknown>;
-    for (const key of ["phase", "batch_id", "language", "placed", "rejected", "summary", "updated_at"]) {
+    const report = readReport(root) as unknown as Record<string, unknown>;
+    for (const key of ["phase", "cycle_id", "cycle_kind", "batches_consumed", "batches_pending", "language", "placed", "rejected", "summary", "updated_at"]) {
       assert.ok(key in report, `report missing ${key}`);
     }
     assert.equal((report as { language: string }).language, "eng");
+    assert.equal((report as { cycle_id: string }).cycle_id, "project");
+    assert.equal((report as { cycle_kind: string }).cycle_kind, "project");
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

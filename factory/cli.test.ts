@@ -290,22 +290,25 @@ describe("prepare verbs", () => {
   test("prepare --json prints the report verbatim, exit 0 on green", () => {
     writePrepReport(target, {
       phase: "green",
-      batch_id: "2026-07-05T08-00-00-000Z",
+      cycle_id: "project",
+      batches_consumed: ["2026-07-05T08-00-00-000Z"],
+      batches_pending: [],
       language: "eng",
-      placed: [{ target: "canonical/spec.md", route: "canonical", translated: false }],
-      rejected: [{ source: "junk.bin", reason: "extract_failed" }],
+      placed: [{ batch: "2026-07-05T08-00-00-000Z", target: "canonical/spec.md", route: "canonical", translated: false }],
+      rejected: [{ batch: "2026-07-05T08-00-00-000Z", source: "junk.bin", reason: "extract_failed" }],
       summary: "doc-prep green: 1 placed, 1 rejected",
     });
     const r = runCli(["prepare", "--dir", target, "--json"]);
     assert.equal(r.code, 0);
     assert.equal(r.json.ok, true);
     assert.equal(r.json.report.phase, "green");
-    assert.equal(r.json.report.batch_id, "2026-07-05T08-00-00-000Z");
+    assert.equal(r.json.report.cycle_id, "project");
+    assert.deepEqual(r.json.report.batches_consumed, ["2026-07-05T08-00-00-000Z"]);
     assert.equal(r.json.report.placed[0].target, "canonical/spec.md");
   });
 
   test("prepare --json exits 1 (refusal) when the last run failed", () => {
-    writePrepReport(target, { phase: "failed", batch_id: "b1", language: "eng", placed: [], rejected: [], summary: "leg produced nothing" });
+    writePrepReport(target, { phase: "failed", cycle_id: "project", batches_consumed: [], batches_pending: ["b1"], language: "eng", placed: [], rejected: [], summary: "leg produced nothing" });
     const r = runCli(["prepare", "--dir", target, "--json"]);
     assert.equal(r.code, 1);
     assert.equal(r.json.ok, false);
@@ -337,7 +340,7 @@ describe("prepare verbs", () => {
           "const phase = process.env.STUB_PREP_PHASE || 'green';",
           "const dir = join(root, '.vivicy/development/reports');",
           "mkdirSync(dir, { recursive: true });",
-          "writeFileSync(join(dir, 'doc-prep-report.json'), JSON.stringify({ phase, batch_id: 'b1', language: 'eng', placed: [{ target: 'canonical/spec.md', route: 'explode', translated: true }], rejected: [], summary: `${phase}: 1 placed`, updated_at: new Date().toISOString() }));",
+          "writeFileSync(join(dir, 'doc-prep-report.json'), JSON.stringify({ phase, cycle_id: 'project', batches_consumed: ['b1'], batches_pending: [], language: 'eng', placed: [{ batch: 'b1', target: 'canonical/spec.md', route: 'explode', translated: true }], rejected: [], summary: `${phase}: 1 placed`, updated_at: new Date().toISOString() }));",
           "console.log(`doc-prep ${phase}`);",
           "process.exit(phase === 'failed' ? 1 : 0);",
         ].join("\n")

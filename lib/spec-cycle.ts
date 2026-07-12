@@ -67,3 +67,44 @@ export function writeSpecCycle(targetRoot: string, cycle: SpecCycle): void {
 export function clearSpecCycle(targetRoot: string): void {
   rmSync(cyclePath(targetRoot), { force: true })
 }
+
+export const PROJECT_CYCLE_ID = "project"
+
+export type BatchCycleBinding = { binding: "active"; id: string } | { binding: "seed" }
+
+// The canonical is immutable ⟺ an active frozen baseline exists AND no drafting cycle reopened it — the single frozen-phase predicate the write allowlist and the batch binding both gate on.
+export function isCanonicalFrozen(targetRoot: string): boolean {
+  return hasActiveFrozenBaseline(targetRoot) && !isSpecCycleOpen(targetRoot)
+}
+
+export function activeCycleId(targetRoot: string): string | null {
+  if (isCanonicalFrozen(targetRoot)) return null
+  const cycle = readSpecCycle(targetRoot)
+  return cycle ? cycle.id : PROJECT_CYCLE_ID
+}
+
+export function activeCycleKind(targetRoot: string): SpecKind | null {
+  if (isCanonicalFrozen(targetRoot)) return null
+  return isSpecCycleOpen(targetRoot) ? "feature" : "project"
+}
+
+export function activeCycleBinding(targetRoot: string): BatchCycleBinding {
+  const id = activeCycleId(targetRoot)
+  return id === null ? { binding: "seed" } : { binding: "active", id }
+}
+
+export function parseCycleBinding(value: unknown): BatchCycleBinding | null {
+  if (!value || typeof value !== "object") return null
+  const v = value as { binding?: unknown; id?: unknown }
+  if (v.binding === "seed") return { binding: "seed" }
+  if (v.binding === "active" && typeof v.id === "string" && v.id.length > 0) return { binding: "active", id: v.id }
+  return null
+}
+
+// A seed matches (its cycle has opened) and a same-id active batch matches; a batch bound to a different, non-current cycle stays out; an unparseable binding falls to the active cycle.
+export function batchMatchesActiveCycle(storedBinding: unknown, currentActiveCycleId: string | null): boolean {
+  if (currentActiveCycleId === null) return false
+  const binding = parseCycleBinding(storedBinding)
+  if (!binding) return true
+  return binding.binding === "seed" || binding.id === currentActiveCycleId
+}
