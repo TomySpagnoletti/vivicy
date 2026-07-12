@@ -42,7 +42,7 @@ export async function POST(request: Request) {
   }
 
   try {
-    const result = decideCardImport({ sessionId, cardId, actionId, entries })
+    const result = await decideCardImport({ sessionId, cardId, actionId, entries })
     return Response.json(result, { status: result.ok ? 200 : 422 })
   } catch (error) {
     if (error instanceof ImportError) {

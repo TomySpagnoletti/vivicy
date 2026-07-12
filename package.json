@@ -26,7 +26,7 @@
     "test:watch": "vitest",
     "e2e": "node scripts/clean-artifacts.ts -- playwright test",
     "factory:typecheck": "tsc --noEmit -p factory/tsconfig.json",
-    "factory:test": "node --test factory/progress-ledger.test.ts factory/semantic-extraction-check.test.ts factory/dev-loop.test.ts factory/traceability-check.test.ts factory/spike-check.test.ts factory/spike-prover.test.ts factory/reference-check.test.ts factory/map-review.test.ts factory/excerpt-drift.test.ts factory/change-control.test.ts factory/reopen.test.ts factory/atomic-write.test.ts factory/doc-baseline.test.ts factory/extract-issues.test.ts factory/install-skills.test.ts factory/leg-timeout.test.ts factory/project-config.test.ts factory/prompts.test.ts factory/cli.test.ts factory/prepare-docs.test.ts factory/text-extract.test.ts",
+    "factory:test": "node --test factory/progress-ledger.test.ts factory/semantic-extraction-check.test.ts factory/dev-loop.test.ts factory/traceability-check.test.ts factory/spike-check.test.ts factory/spike-prover.test.ts factory/reference-check.test.ts factory/map-review.test.ts factory/excerpt-drift.test.ts factory/change-control.test.ts factory/reopen.test.ts factory/atomic-write.test.ts factory/doc-baseline.test.ts factory/extract-issues.test.ts factory/install-skills.test.ts factory/leg-timeout.test.ts factory/project-config.test.ts factory/prompts.test.ts factory/cli.test.ts factory/prepare-docs.test.ts factory/detect-language.test.ts",
     "factory:rehearsal": "node factory/dev-rehearsal.ts",
     "factory:rehearsal:formula": "node factory/dev-rehearsal.ts --fixture=formula",
     "factory:rehearsal:all": "node factory/dev-rehearsal.ts && node factory/dev-rehearsal.ts --fixture=formula"

@@ -11,7 +11,9 @@ import { agentCliArgs, CLI_DEFAULTS, composePrompt, DEFAULT_CONFIG, resolveAgent
 import type { Leg, LegResult } from "./dev-loop.ts";
 import { notify } from "./notify.ts";
 import { resolveTargetRoot, FACTORY_PROMPTS_DIR } from "./target-root.ts";
-import { BINARY_DOC_EXTENSIONS, extractBinaryDocText } from "./text-extract.ts";
+import { resolveBatchLanguage } from "./detect-language.ts";
+import type { LanguageResolution } from "./detect-language.ts";
+import { BINARY_DOC_EXTENSIONS, TEXT_LANGUAGE_EXTENSIONS, extractBinaryDocText } from "../lib/text-extract.ts";
 import { pruneGitkeeps } from "../lib/skeleton.ts";
 
 export const DOC_PREP_REPORT_REL = ".vivicy/development/reports/doc-prep-report.json";
@@ -81,10 +83,6 @@ const CANONICAL_TARGETS: CanonicalTarget[] = [
   { marker: "requirements", dir: "requirements", exts: new Set([".json", ".md", ".yml", ".yaml"]) },
 ];
 
-const TEXT_LANGUAGE_EXTENSIONS = new Set([
-  ".md", ".markdown", ".txt", ".html", ".htm", ".csv", ".tsv", ".json", ".yaml", ".yml", ".xml", ".adoc", ".asciidoc", ".rst", ".tex", ".eml",
-]);
-
 export class DocPrepConfigError extends Error {}
 
 interface SpawnLegArgs {
@@ -104,6 +102,7 @@ export interface PrepareDocsOptions {
   spawnLeg?: (args: SpawnLegArgs) => Promise<LegResult | void>;
   emitReport?: (report: DocPrepReport, repoRoot: string) => void;
   findLatestBatch?: (repoRoot: string) => LatestBatch | null;
+  resolveLanguage?: (args: { repoRoot: string; batchDir: string }) => Promise<LanguageResolution>;
   now?: () => Date;
 }
 
@@ -218,6 +217,19 @@ export async function prepareDocs(options: PrepareDocsOptions = {}): Promise<Doc
     report.summary = `doc-prep already settled for batch ${batch.batchId}; nothing to do. A new import batch re-runs the stage.`;
     emit();
     return report;
+  }
+
+  // Deterministic import detection left the batch language undetermined — fall back to the language leg BEFORE the
+  // dominant-language law governs any placement/translation; it updates the manifest in place or leaves 'und' loudly.
+  if (report.language === UNDETERMINED) {
+    const resolveLanguage =
+      options.resolveLanguage ??
+      ((args) => resolveBatchLanguage({ ...args, env: options.env, cfg: options.cfg, promptsDir: options.promptsDir }));
+    const resolution = await resolveLanguage({ repoRoot, batchDir: batch.batchDir });
+    if (resolution.resolved) {
+      report.language = resolution.language;
+      batch.manifest.language = resolution.language;
+    }
   }
 
   report.summary = `classifying ${batch.manifest.files.length} file(s) from batch ${batch.batchId} (language: ${report.language})`;

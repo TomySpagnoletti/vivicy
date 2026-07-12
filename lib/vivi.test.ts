@@ -886,11 +886,11 @@ function docEntry(rel: string, text: string): RawEntry {
 }
 
 describe("decideCardImport (welcome-card document import into the current project)", () => {
-  it("imports the batch, appends a deterministic Vivi acknowledgment, and stamps the card decided", () => {
+  it("imports the batch, appends a deterministic Vivi acknowledgment, and stamps the card decided", async () => {
     const sessionId = seedViviWelcome()
     appendCardTurn(WELCOME_IMPORT_CARD, sessionId)
 
-    const result = decideCardImport({
+    const result = await decideCardImport({
       sessionId,
       cardId: WELCOME_IMPORT_CARD.id,
       actionId: "import",
@@ -916,10 +916,10 @@ describe("decideCardImport (welcome-card document import into the current projec
     expect(turns[2].text).toMatch(/what are you building/i)
   })
 
-  it("names a single document and omits the language clause when nothing is scannable", () => {
+  it("names a single document and omits the language clause when nothing is scannable", async () => {
     const sessionId = seedViviWelcome()
     appendCardTurn(WELCOME_IMPORT_CARD, sessionId)
-    const result = decideCardImport({
+    const result = await decideCardImport({
       sessionId,
       cardId: WELCOME_IMPORT_CARD.id,
       actionId: "import",
@@ -931,12 +931,12 @@ describe("decideCardImport (welcome-card document import into the current projec
     expect(ack).not.toContain(", in ")
   })
 
-  it("refuses a second import (the card is already decided) and refuses a non-import action", () => {
+  it("refuses a second import (the card is already decided) and refuses a non-import action", async () => {
     const sessionId = seedViviWelcome()
     appendCardTurn(WELCOME_IMPORT_CARD, sessionId)
-    decideCardImport({ sessionId, cardId: WELCOME_IMPORT_CARD.id, actionId: "import", entries: [docEntry("a.md", IMPORT_ENGLISH)] })
+    await decideCardImport({ sessionId, cardId: WELCOME_IMPORT_CARD.id, actionId: "import", entries: [docEntry("a.md", IMPORT_ENGLISH)] })
 
-    const again = decideCardImport({ sessionId, cardId: WELCOME_IMPORT_CARD.id, actionId: "import", entries: [docEntry("b.md", IMPORT_ENGLISH)] })
+    const again = await decideCardImport({ sessionId, cardId: WELCOME_IMPORT_CARD.id, actionId: "import", entries: [docEntry("b.md", IMPORT_ENGLISH)] })
     expect(again.ok).toBe(false)
     expect(again.summary).toContain("already decided")
 
@@ -945,17 +945,17 @@ describe("decideCardImport (welcome-card document import into the current projec
       title: "T",
       actions: [{ id: "list", label: "List", action: { kind: "control", tool: "crs.list" } }],
     })
-    expect(() =>
+    await expect(
       decideCardImport({ sessionId: controlSession, cardId: "control-card", actionId: "list", entries: [docEntry("a.md", IMPORT_ENGLISH)] })
-    ).toThrow(/not a document import/)
+    ).rejects.toThrow(/not a document import/)
   })
 
-  it("leaves the card undecided when the upload has no supported file, so the owner can retry", () => {
+  it("leaves the card undecided when the upload has no supported file, so the owner can retry", async () => {
     const sessionId = seedViviWelcome()
     appendCardTurn(WELCOME_IMPORT_CARD, sessionId)
-    expect(() =>
+    await expect(
       decideCardImport({ sessionId, cardId: WELCOME_IMPORT_CARD.id, actionId: "import", entries: [docEntry("a.exe", "x")] })
-    ).toThrow(expect.objectContaining({ code: "no_supported_files" }))
+    ).rejects.toMatchObject({ code: "no_supported_files" })
 
     const turns = readTranscript(sessionId)
     expect(turns.map((t) => t.role)).toEqual(["vivi", "card"])

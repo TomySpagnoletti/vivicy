@@ -67,6 +67,44 @@ test("latestCompleteBatch picks the lexicographically-largest batch that carries
   }
 });
 
+test("an undetermined batch language is resolved by the language leg before the dominant-language law governs placement", async () => {
+  const root = repo();
+  try {
+    writeBatch(root, "2026-05-05", { "canonical/spec.md": FRENCH }, "und");
+    let seenBatchDir = "";
+    const report = await prepareDocs({
+      repoRoot: root,
+      spawnLeg: NEVER_SPAWN,
+      resolveLanguage: async ({ batchDir }) => {
+        seenBatchDir = batchDir;
+        return { resolved: true, language: "fra" };
+      },
+    });
+    assert.equal(report.language, "fra");
+    assert.equal(report.phase, "green");
+    assert.match(seenBatchDir, /2026-05-05$/);
+    assert.deepEqual(report.placed.map((p) => p.target), ["canonical/spec.md"]);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("an undetermined batch the leg cannot resolve stays 'und' and preparation still runs", async () => {
+  const root = repo();
+  try {
+    writeBatch(root, "2026-06-06", { "canonical/spec.md": FRENCH }, "und");
+    const report = await prepareDocs({
+      repoRoot: root,
+      spawnLeg: NEVER_SPAWN,
+      resolveLanguage: async () => ({ resolved: false, language: "und" }),
+    });
+    assert.equal(report.language, "und");
+    assert.equal(report.phase, "green");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("no batch -> skipped (the pipeline proceeds on owner-authored canonical)", async () => {
   const root = repo();
   try {

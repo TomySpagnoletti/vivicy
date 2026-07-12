@@ -31,7 +31,7 @@ export async function POST(request: Request) {
       entries.push({ rel, name: file.name, bytes: new Uint8Array(await file.arrayBuffer()) })
     }
 
-    const result = importDocuments({ targetDir, entries })
+    const result = await importDocuments({ targetDir, entries })
     return Response.json({ ok: true, ...result })
   } catch (error) {
     if (error instanceof ImportError || error instanceof ScaffoldError) {

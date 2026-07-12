@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { FACTORY_DIR, FACTORY_PROMPTS_DIR } from "./target-root.ts";
 
-const PROMPTS = ["implementer.md", "reviewer.md", "extractor.md", "extraction-verifier.md", "map-review.md", "change-request.md", "spike-prover.md", "spike-verifier.md", "cr-applier.md", "skill-scout.md", "doc-prep.md"];
+const PROMPTS = ["implementer.md", "reviewer.md", "extractor.md", "extraction-verifier.md", "map-review.md", "change-request.md", "spike-prover.md", "spike-verifier.md", "cr-applier.md", "skill-scout.md", "doc-prep.md", "detect-language.md"];
 
 function readPrompt(name: string) {
   return readFileSync(join(FACTORY_PROMPTS_DIR, name), "utf8");
@@ -30,6 +30,16 @@ test("doc-prep.md is self-contained and carries the language law, scratch-only w
   assert.match(text, /output directory/i, "doc-prep.md must confine writes to the leg's scratch output directory");
   assert.match(text, /NOT.*modify.*uploads|uploads.*immutable|never.*uploads/i, "doc-prep.md must forbid touching uploads");
   assert.match(text, /drift|coherence|contradiction/i, "doc-prep.md must state it does not judge corpus coherence");
+});
+
+test("detect-language.md is self-contained and asks for an ISO 639-3 per-file + dominant JSON verdict written to one file", () => {
+  const text = readPrompt("detect-language.md");
+  assert.match(text, /SELF-CONTAINED/, "detect-language.md must declare it is self-contained");
+  assert.match(text, /ISO 639-3/, "detect-language.md must name the ISO 639-3 code system");
+  assert.match(text, /dominant/i, "detect-language.md must ask for the dominant language");
+  assert.match(text, /perFile/, "detect-language.md must specify the per-file verdict shape");
+  assert.match(text, /SINGLE JSON file|single JSON file/, "detect-language.md must confine the write to one JSON file");
+  assert.match(text, /never.*uploads|uploads/i, "detect-language.md must keep uploads untouched");
 });
 
 test("implementer.md is self-contained: declares it carries the discipline, lists the gate-first steps", () => {
