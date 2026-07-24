@@ -1,6 +1,6 @@
 # Vivicy — exhaustive test matrix
 
-Reconciled fingerprint: `3114bba90aa7674ca7d0b0e0687a7e06186f6a38cd0c3bbe93fe079b2a1db95c` @ commit `4bde7c8cc6fa0b3c4e107790f5c8479c5d7e7942`
+Reconciled fingerprint: `4b5e7912458ca4636536233256e250fce6dcdecff94fa90063d80037376ca714` @ commit `36c07c35634749ea037c175c72fd125ebdf2834e`
 
 
 This file is the exhaustive, always-current inventory of every test case for Vivicy — every behavior the system has, whether it is covered by a test today or is a known GAP. It is **committed and machine-guarded**: the `Reconciled fingerprint` line above hashes the behavior-bearing source tree and records the HEAD commit at reconciliation time, and `scripts/test-matrix.test.ts` fails the vitest suite when code changes without this file being reconciled and re-stamped (`npm run matrix:stamp`). `git log test/TEST-MATRIX.md` is the audit trail of reconciliations. It is the single source of truth for "what should be tested" across the app (`app/`, `components/`, `lib/`) and the factory (`factory/`). It was assembled from a full per-area audit pass plus three adversarial cross-matrices (user journeys, parallel/merge chaos, process/crash chaos).
@@ -16,7 +16,7 @@ This file is the exhaustive, always-current inventory of every test case for Viv
 
 | Area | Cases | Gaps | Covered |
 |---|---:|---:|---:|
-| app-shell-sidebar-ui-kit | 378 | 269 | 109 |
+| app-shell-sidebar-ui-kit | 383 | 269 | 114 |
 | baselines-change-requests | 263 | 203 | 60 |
 | cli-supervisor-process-infra | 458 | 246 | 212 |
 | control-plane-api-routes | 484 | 227 | 257 |
@@ -30,7 +30,7 @@ This file is the exhaustive, always-current inventory of every test case for Viv
 | cross-journeys | 82 | 65 | 17 |
 | cross-chaos-parallel-merge | 47 | 33 | 14 |
 | cross-chaos-process | 46 | 43 | 3 |
-| **TOTAL** | **3807** | **2145** | **1662** |
+| **TOTAL** | **3812** | **2145** | **1667** |
 
 ---
 
@@ -293,6 +293,11 @@ This file is the exhaustive, always-current inventory of every test case for Viv
 - [app-shell-sidebar-ui-kit.189] Click Save while `!valid` (should be structurally impossible since Save is disabled, but verify no synthetic-event bypass triggers the POST anyway). | Save button's `disabled` attribute genuinely blocks activation. | unit | GAP
 - [app-shell-sidebar-ui-kit.190] Cancel button clicked (`DialogClose`). | Dialog closes WITHOUT saving; any in-progress draft edits are discarded (next open re-fetches from the server, per case 166). | unit | GAP
 - [app-shell-sidebar-ui-kit.191] Settings trigger button (`aria-label="Settings"`, gear icon) opens the dialog. | `DialogTrigger` opens `Dialog` with `open=true`. | unit | settings-dialog.test.tsx (implicit, via `openDialog` helper)
+- [app-shell-sidebar-ui-kit.370] `recommendedFlags(draft, defaults = DEFAULT_SETTINGS)` derives the per-knob recommended map (each role's provider/model/effort/fast, plus maxParallel and allowUnsafeSkills) and an `all` rollup, reading `DEFAULT_SETTINGS` as the single source. | At `DEFAULT_SETTINGS` every field flag and `all` are true. | unit | settings-dialog.test.tsx
+- [app-shell-sidebar-ui-kit.371] Mutation-honest derivation: `recommendedFlags` is fed a defaults DOUBLE differing from `DEFAULT_SETTINGS` in exactly one field. | Only that field's flag flips to false and `all` becomes false — the marker follows the injected defaults, never an inlined literal. | unit | settings-dialog.test.tsx
+- [app-shell-sidebar-ui-kit.372] Single source enforced in the UI layer: the dialog source is read and asserted to contain none of the `DEFAULT_SETTINGS` model/effort value literals. | The component derives recommendation from `DEFAULT_SETTINGS`, never restating a default value. | unit | settings-dialog.test.tsx
+- [app-shell-sidebar-ui-kit.373] All-default draft: every knob shows the discreet "Recommended" marker, the tuned-defaults line renders, and no reset affordance appears. | Ten "Recommended" markers present; the "change them only if you know why" line present; no "Reset to recommended" button. | unit | settings-dialog.test.tsx
+- [app-shell-sidebar-ui-kit.374] Deviating one knob drops that knob's marker and reveals the single global "Reset to recommended"; clicking it restores every marker and persists `DEFAULT_SETTINGS` through `PUT /api/settings`. | Marker count drops then returns to ten; reset hidden again; the PUT body equals `DEFAULT_SETTINGS`. | unit | settings-dialog.test.tsx
 
 ### components/ui/accordion.tsx
 

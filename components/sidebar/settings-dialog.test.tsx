@@ -1,8 +1,11 @@
+import { readFileSync } from "node:fs"
+import path from "node:path"
+
 import { screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest"
 
-import { SettingsDialog } from "@/components/sidebar/settings-dialog"
+import { recommendedFlags, SettingsDialog } from "@/components/sidebar/settings-dialog"
 import { DEFAULT_SETTINGS, MODEL_IDS, type AgentsSettings } from "@/lib/settings"
 import { renderWithIntl } from "@/test/render"
 
@@ -230,6 +233,94 @@ describe("save guard", () => {
     await openDialog(user)
     expect(screen.getByRole("button", { name: "Save" })).toBeDisabled()
     expect(screen.getByText(/must run different agents/i)).toBeInTheDocument()
+  })
+})
+
+describe("recommendedFlags derivation", () => {
+  test("every knob at DEFAULT_SETTINGS reports recommended", () => {
+    const f = recommendedFlags(DEFAULT_SETTINGS)
+    expect(f.all).toBe(true)
+    expect(f.maxParallel).toBe(true)
+    expect(f.allowUnsafeSkills).toBe(true)
+    for (const role of ["implementer", "reviewer"] as const) {
+      expect(f.agent[role]).toEqual({ provider: true, model: true, effort: true, fast: true })
+    }
+  })
+
+  test("follows a defaults double — mutating a default flips exactly its flag", () => {
+    const doubled: AgentsSettings = { ...DEFAULT_SETTINGS, maxParallel: DEFAULT_SETTINGS.maxParallel + 4 }
+    const f = recommendedFlags(DEFAULT_SETTINGS, doubled)
+    expect(f.maxParallel).toBe(false)
+    expect(f.all).toBe(false)
+    expect(f.allowUnsafeSkills).toBe(true)
+    expect(f.agent.implementer).toEqual({ provider: true, model: true, effort: true, fast: true })
+  })
+
+  test("a mutated per-agent default flips only that agent field", () => {
+    const doubled: AgentsSettings = {
+      ...DEFAULT_SETTINGS,
+      implementer: { ...DEFAULT_SETTINGS.implementer, effort: "not-a-real-default-effort" },
+    }
+    const f = recommendedFlags(DEFAULT_SETTINGS, doubled)
+    expect(f.agent.implementer).toEqual({ provider: true, model: true, effort: false, fast: true })
+    expect(f.agent.reviewer.effort).toBe(true)
+    expect(f.all).toBe(false)
+  })
+})
+
+describe("single source: no restated default literals", () => {
+  test("the dialog never inlines a DEFAULT_SETTINGS value literal", () => {
+    const src = readFileSync(path.join(process.cwd(), "components/sidebar/settings-dialog.tsx"), "utf8")
+    const literals = [
+      DEFAULT_SETTINGS.implementer.model,
+      DEFAULT_SETTINGS.reviewer.model,
+      DEFAULT_SETTINGS.implementer.effort,
+      DEFAULT_SETTINGS.reviewer.effort,
+    ]
+    for (const literal of literals) {
+      expect(src).not.toContain(`"${literal}"`)
+    }
+  })
+})
+
+describe("recommended markers and reset affordance", () => {
+  test("all-default draft marks every knob recommended and hides reset", async () => {
+    const user = userEvent.setup()
+    renderWithIntl(<SettingsDialog />)
+    await openDialog(user)
+
+    expect(screen.getByText(/tuned — change them only if you know why/i)).toBeInTheDocument()
+    expect(screen.getAllByText("Recommended")).toHaveLength(10)
+    expect(screen.queryByRole("button", { name: "Reset to recommended" })).not.toBeInTheDocument()
+  })
+
+  test("deviating one knob drops its marker and reveals reset", async () => {
+    const user = userEvent.setup()
+    renderWithIntl(<SettingsDialog />)
+    await openDialog(user)
+
+    await user.click(screen.getByRole("button", { name: "Increase" }))
+    expect(screen.getAllByText("Recommended")).toHaveLength(9)
+    expect(screen.getByRole("button", { name: "Reset to recommended" })).toBeInTheDocument()
+  })
+
+  test("reset restores every marker and persists DEFAULT_SETTINGS", async () => {
+    const user = userEvent.setup()
+    renderWithIntl(<SettingsDialog />)
+    await openDialog(user)
+
+    await user.click(screen.getByRole("button", { name: "Increase" }))
+    await user.click(screen.getByRole("button", { name: "Reset to recommended" }))
+
+    await waitFor(() => expect(screen.getAllByText("Recommended")).toHaveLength(10))
+    expect(screen.queryByRole("button", { name: "Reset to recommended" })).not.toBeInTheDocument()
+
+    const fetchMock = globalThis.fetch as unknown as ReturnType<typeof vi.fn>
+    const putCall = fetchMock.mock.calls.find(
+      ([, init]) => (init as RequestInit | undefined)?.method === "PUT"
+    )
+    expect(putCall).toBeDefined()
+    expect(JSON.parse((putCall![1] as RequestInit).body as string)).toEqual(DEFAULT_SETTINGS)
   })
 })
 

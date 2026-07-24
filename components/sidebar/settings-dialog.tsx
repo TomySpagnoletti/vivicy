@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useState } from "react"
-import { Settings, ShieldAlert, Zap } from "lucide-react"
+import { Check, RotateCcw, Settings, ShieldAlert, Zap } from "lucide-react"
 import { useTranslations } from "next-intl"
 import { toast } from "sonner"
 
@@ -61,6 +61,53 @@ const OTHER_ROLE: Record<Role, Role> = {
 
 const ROLES: Role[] = ["implementer", "reviewer"]
 
+export type AgentFieldFlags = Record<"provider" | "model" | "effort" | "fast", boolean>
+
+export interface RecommendedFlags {
+  agent: Record<Role, AgentFieldFlags>
+  maxParallel: boolean
+  allowUnsafeSkills: boolean
+  all: boolean
+}
+
+export function recommendedFlags(
+  draft: AgentsSettings,
+  defaults: AgentsSettings = DEFAULT_SETTINGS
+): RecommendedFlags {
+  const forRole = (role: Role): AgentFieldFlags => {
+    const cur = draft[role]
+    const def = defaults[role]
+    return {
+      provider: cur.provider === def.provider,
+      model: cur.model === def.model,
+      effort: cur.effort === def.effort,
+      fast: cur.fast === def.fast,
+    }
+  }
+  const agent: Record<Role, AgentFieldFlags> = {
+    implementer: forRole("implementer"),
+    reviewer: forRole("reviewer"),
+  }
+  const maxParallel = draft.maxParallel === defaults.maxParallel
+  const allowUnsafeSkills = draft.allowUnsafeSkills === defaults.allowUnsafeSkills
+  const agentsAtDefault = ROLES.every((role) => {
+    const f = agent[role]
+    return f.provider && f.model && f.effort && f.fast
+  })
+  return { agent, maxParallel, allowUnsafeSkills, all: maxParallel && allowUnsafeSkills && agentsAtDefault }
+}
+
+function RecommendedMarker({ show }: { show: boolean }) {
+  const t = useTranslations("sidebar.settings")
+  if (!show) return null
+  return (
+    <span className="inline-flex shrink-0 items-center gap-1 text-[10px] font-medium text-muted-foreground">
+      <Check className="size-3" aria-hidden="true" />
+      {t("recommendedBadge")}
+    </span>
+  )
+}
+
 // @/lib/settings is the validation source of truth — this form only mirrors it, never re-implements the rules.
 export function SettingsDialog({
   onSaved,
@@ -117,41 +164,55 @@ export function SettingsDialog({
     })
   }, [])
 
-  const save = useCallback(async () => {
-    setSaving(true)
-    try {
-      const res = await fetch("/api/settings", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(draft),
-      })
-      const body = (await res.json().catch(() => ({}))) as {
-        ok?: boolean
-        error?: string
-        settings?: AgentsSettings
-      }
-      if (!res.ok || body.ok === false || !body.settings) {
-        toast.error(t("toastSaveFailedTitle"), {
-          description: body.error ?? t("toastSaveFailedHttpDescription", { status: res.status }),
+  const persist = useCallback(
+    async (next: AgentsSettings): Promise<AgentsSettings | null> => {
+      setSaving(true)
+      try {
+        const res = await fetch("/api/settings", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(next),
         })
-        return
+        const body = (await res.json().catch(() => ({}))) as {
+          ok?: boolean
+          error?: string
+          settings?: AgentsSettings
+        }
+        if (!res.ok || body.ok === false || !body.settings) {
+          toast.error(t("toastSaveFailedTitle"), {
+            description: body.error ?? t("toastSaveFailedHttpDescription", { status: res.status }),
+          })
+          return null
+        }
+        setDraft(body.settings)
+        onSaved?.(body.settings)
+        return body.settings
+      } catch (error) {
+        toast.error(t("toastSaveFailedTitle"), {
+          description: error instanceof Error ? error.message : t("networkError"),
+        })
+        return null
+      } finally {
+        setSaving(false)
       }
-      // Server may normalize the payload — echo what it actually persisted, not what we sent.
-      setDraft(body.settings)
-      onSaved?.(body.settings)
-      toast.success(t("toastSaveSuccessTitle"), {
-        description: t("toastSaveSuccessDescription"),
-      })
-      setOpen(false)
-    } catch (error) {
-      toast.error(t("toastSaveFailedTitle"), {
-        description: error instanceof Error ? error.message : t("networkError"),
-      })
-    } finally {
-      setSaving(false)
-    }
-  }, [draft, onSaved, t])
+    },
+    [onSaved, t]
+  )
 
+  const save = useCallback(async () => {
+    const saved = await persist(draft)
+    if (!saved) return
+    toast.success(t("toastSaveSuccessTitle"), { description: t("toastSaveSuccessDescription") })
+    setOpen(false)
+  }, [draft, persist, t])
+
+  const resetToRecommended = useCallback(async () => {
+    const saved = await persist(DEFAULT_SETTINGS)
+    if (!saved) return
+    toast.success(t("toastResetTitle"), { description: t("toastResetDescription") })
+  }, [persist, t])
+
+  const flags = recommendedFlags(draft)
   const valid = isSettingsValid(draft)
   const distinct = draft.implementer.provider !== draft.reviewer.provider
 
@@ -170,11 +231,14 @@ export function SettingsDialog({
 
         <TooltipProvider>
           <div className="flex flex-col gap-4">
+            <p className="text-xs text-muted-foreground">{t("tunedDefaultsNote")}</p>
+
             {ROLES.map((role) => (
               <AgentFields
                 key={role}
                 role={role}
                 agent={draft[role]}
+                recommended={flags.agent[role]}
                 disabled={loading || saving}
                 onAssignCli={(provider) => assignCli(role, provider)}
                 onModel={(model) => setModel(role, model)}
@@ -190,7 +254,10 @@ export function SettingsDialog({
                 {t("concurrencyLegend")}
               </legend>
               <div className="flex flex-col gap-1.5">
-                <Label htmlFor="settings-max-parallel">{t("maxParallelLabel")}</Label>
+                <div className="flex items-center justify-between gap-2">
+                  <Label htmlFor="settings-max-parallel">{t("maxParallelLabel")}</Label>
+                  <RecommendedMarker show={flags.maxParallel} />
+                </div>
                 <NumberStepper
                   id="settings-max-parallel"
                   min={MIN_PARALLEL}
@@ -217,10 +284,13 @@ export function SettingsDialog({
               </legend>
               <div className="flex items-start justify-between gap-3">
                 <div className="flex flex-col gap-0.5">
-                  <Label htmlFor="settings-allow-unsafe-skills" className="flex items-center gap-1.5">
-                    <ShieldAlert className="size-3.5" aria-hidden="true" />
-                    {t("allowRiskySkillsLabel")}
-                  </Label>
+                  <div className="flex items-center gap-2">
+                    <Label htmlFor="settings-allow-unsafe-skills" className="flex items-center gap-1.5">
+                      <ShieldAlert className="size-3.5" aria-hidden="true" />
+                      {t("allowRiskySkillsLabel")}
+                    </Label>
+                    <RecommendedMarker show={flags.allowUnsafeSkills} />
+                  </div>
                   <p id="settings-allow-unsafe-skills-help" className="text-xs text-muted-foreground">
                     {t("allowRiskySkillsHelp", { brandName: BRAND.name })}
                   </p>
@@ -244,6 +314,18 @@ export function SettingsDialog({
         ) : null}
 
         <DialogFooter>
+          {!flags.all ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={resetToRecommended}
+              disabled={loading || saving}
+              className="sm:mr-auto"
+            >
+              <RotateCcw aria-hidden="true" />
+              {t("resetToRecommended")}
+            </Button>
+          ) : null}
           <DialogClose asChild>
             <Button variant="outline" disabled={saving}>
               {t("cancel")}
@@ -261,6 +343,7 @@ export function SettingsDialog({
 function AgentFields({
   role,
   agent,
+  recommended,
   disabled,
   onAssignCli,
   onModel,
@@ -268,6 +351,7 @@ function AgentFields({
 }: {
   role: Role
   agent: AgentSettings
+  recommended: AgentFieldFlags
   disabled: boolean
   onAssignCli: (provider: Provider) => void
   onModel: (model: string) => void
@@ -300,7 +384,10 @@ function AgentFields({
       </legend>
 
       <div className="flex flex-col gap-1.5">
-        <Label htmlFor={cliId}>{t("agentLabel")}</Label>
+        <div className="flex items-center justify-between gap-2">
+          <Label htmlFor={cliId}>{t("agentLabel")}</Label>
+          <RecommendedMarker show={recommended.provider} />
+        </div>
         <Select value={provider} onValueChange={(value) => onAssignCli(value as Provider)}>
           <SelectTrigger id={cliId} aria-label={t("agentFieldsAriaLabel", { role: roleLabel })}>
             <SelectValue />
@@ -316,7 +403,10 @@ function AgentFields({
       </div>
 
       <div className="flex flex-col gap-1.5">
-        <Label htmlFor={modelId}>{t("modelLabel")}</Label>
+        <div className="flex items-center justify-between gap-2">
+          <Label htmlFor={modelId}>{t("modelLabel")}</Label>
+          <RecommendedMarker show={recommended.model} />
+        </div>
         <Select value={agent.model} onValueChange={(value) => onModel(value)}>
           <SelectTrigger id={modelId} aria-label={t("modelFieldsAriaLabel", { role: roleLabel })}>
             <SelectValue />
@@ -334,7 +424,10 @@ function AgentFields({
 
       {hasEffort ? (
         <div className="flex flex-col gap-1.5">
-          <Label htmlFor={effortId}>{t("thinkingLevelLabel")}</Label>
+          <div className="flex items-center justify-between gap-2">
+            <Label htmlFor={effortId}>{t("thinkingLevelLabel")}</Label>
+            <RecommendedMarker show={recommended.effort} />
+          </div>
           <Select value={agent.effort} onValueChange={(value) => onChange({ effort: value })}>
             <SelectTrigger id={effortId} aria-label={t("effortFieldsAriaLabel", { role: roleLabel })}>
               <SelectValue />
@@ -356,10 +449,13 @@ function AgentFields({
 
       <div className="flex items-start justify-between gap-3 pt-1">
         <div className="flex flex-col gap-0.5">
-          <Label htmlFor={fastId} className="flex items-center gap-1.5">
-            <Zap className="size-3.5" aria-hidden="true" />
-            {t("fastModeLabel")}
-          </Label>
+          <div className="flex items-center gap-2">
+            <Label htmlFor={fastId} className="flex items-center gap-1.5">
+              <Zap className="size-3.5" aria-hidden="true" />
+              {t("fastModeLabel")}
+            </Label>
+            <RecommendedMarker show={recommended.fast} />
+          </div>
           <p className="text-xs text-muted-foreground">{t("fastModeHelp")}</p>
         </div>
         {fastOk ? (
