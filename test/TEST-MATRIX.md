@@ -1,6 +1,6 @@
 # Vivicy — exhaustive test matrix
 
-Reconciled fingerprint: `48c703c914be2a72cc6eba1bfc9e9b403bc8cdd0b0f39de7a092411d10d9147b` @ commit `c50e4eb8b60a28b241d26f271e4d50940b06c5ed`
+Reconciled fingerprint: `36dcf31444c4298026d629b5cc0b350d670eaf05a321315b1d9f3a11aad4f35f` @ commit `287c5d883d909e44ebed11f869a5ab0f8ddf0208`
 
 
 This file is the exhaustive, always-current inventory of every test case for Vivicy — every behavior the system has, whether it is covered by a test today or is a known GAP. It is **committed and machine-guarded**: the `Reconciled fingerprint` line above hashes the behavior-bearing source tree and records the HEAD commit at reconciliation time, and `scripts/test-matrix.test.ts` fails the vitest suite when code changes without this file being reconciled and re-stamped (`npm run matrix:stamp`). `git log test/TEST-MATRIX.md` is the audit trail of reconciliations. It is the single source of truth for "what should be tested" across the app (`app/`, `components/`, `lib/`) and the factory (`factory/`). It was assembled from a full per-area audit pass plus three adversarial cross-matrices (user journeys, parallel/merge chaos, process/crash chaos).
