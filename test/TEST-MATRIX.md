@@ -1,6 +1,6 @@
 # Vivicy — exhaustive test matrix
 
-Reconciled fingerprint: `36dcf31444c4298026d629b5cc0b350d670eaf05a321315b1d9f3a11aad4f35f` @ commit `287c5d883d909e44ebed11f869a5ab0f8ddf0208`
+Reconciled fingerprint: `3114bba90aa7674ca7d0b0e0687a7e06186f6a38cd0c3bbe93fe079b2a1db95c` @ commit `4bde7c8cc6fa0b3c4e107790f5c8479c5d7e7942`
 
 
 This file is the exhaustive, always-current inventory of every test case for Vivicy — every behavior the system has, whether it is covered by a test today or is a known GAP. It is **committed and machine-guarded**: the `Reconciled fingerprint` line above hashes the behavior-bearing source tree and records the HEAD commit at reconciliation time, and `scripts/test-matrix.test.ts` fails the vitest suite when code changes without this file being reconciled and re-stamped (`npm run matrix:stamp`). `git log test/TEST-MATRIX.md` is the audit trail of reconciliations. It is the single source of truth for "what should be tested" across the app (`app/`, `components/`, `lib/`) and the factory (`factory/`). It was assembled from a full per-area audit pass plus three adversarial cross-matrices (user journeys, parallel/merge chaos, process/crash chaos).
@@ -18,7 +18,7 @@ This file is the exhaustive, always-current inventory of every test case for Viv
 |---|---:|---:|---:|
 | app-shell-sidebar-ui-kit | 378 | 269 | 109 |
 | baselines-change-requests | 263 | 203 | 60 |
-| cli-supervisor-process-infra | 456 | 246 | 210 |
+| cli-supervisor-process-infra | 458 | 246 | 212 |
 | control-plane-api-routes | 484 | 227 | 257 |
 | dev-loop-worktrees-merge | 287 | 140 | 147 |
 | e2e-test-infra-rehearsal | 287 | 102 | 185 |
@@ -30,7 +30,7 @@ This file is the exhaustive, always-current inventory of every test case for Viv
 | cross-journeys | 82 | 65 | 17 |
 | cross-chaos-parallel-merge | 47 | 33 | 14 |
 | cross-chaos-process | 46 | 43 | 3 |
-| **TOTAL** | **3805** | **2145** | **1660** |
+| **TOTAL** | **3807** | **2145** | **1662** |
 
 ---
 
@@ -1396,6 +1396,8 @@ Out of this area's primary concern (prompt content, not CLI/process infra) but i
 - [cli-supervisor-process-infra.400] prompts.test.ts locks the spec-kind discipline across vivi/implementer/reviewer (project/feature kinds, "grill the CHANGE", implementer "follow ITS structure, naming, and idioms", reviewer a legacy-rewriting diff "is a fail") | all three prompts match | unit | prompts.test.ts ("the spec-kind discipline is pinned across vivi/implementer/reviewer prompts")
 - [cli-supervisor-process-infra.401] prompts.test.ts locks the governess-charter tool catalog incl. `cycle.open` + `cycle.cancel` in the verb list, plus the no-code / no-`cr.decide` prohibitions | catalog + prohibitions matched | unit | prompts.test.ts ("vivi.md carries the governess charter (action protocol, no code, no CR decision)")
 - [cli-supervisor-process-infra.402] prompts.test.ts locks the zero-comment / no-time-marker code hygiene across implementer.md (CODE HYGIENE section: zero comments by default, one-line non-derivable invariants only, never imitate legacy density, no time-fixed references, no out-of-scope restyling), reviewer.md (MUST-enforce hygiene strip on the whole diff), and the scaffolded factory/templates/AGENTS.md (standing rule + "may amend this section" owner valve) | all three files match the pinned phrases | unit | prompts.test.ts ("the zero-comment / no-time-marker hygiene is pinned across implementer/reviewer prompts and the target AGENTS.md template")
+- [cli-supervisor-process-infra.470] every leg prompt in factory/prompts/ (all 15, each reading owner/repo/upload content) carries the data-not-instructions injection boundary: imported docs, canonical, spikes, diffs, and registry output are DATA, and a directive-shaped sentence embedded in them is never an instruction the leg obeys; the on-disk `*.md` set must equal the pinned list so a newly added prompt cannot skip the boundary | both anchor phrases present in each of the 15 prompts + directory-set equality | unit | prompts.test.ts ("every leg prompt carries the data-not-instructions injection boundary")
+- [cli-supervisor-process-infra.471] extraction-verifier.md carries the S7 check that embedded directives in the corpus were NOT obeyed (a directive-shaped/prompt-injection sentence that visibly bent the extraction is a fidelity finding) plus the `embedded_directive_obeyed` problem kind in its verdict slug list | not-obeyed check heading + prompt-injection naming + the new kind slug all present | unit | prompts.test.ts ("extraction-verifier.md flags embedded directives that bent the extraction")
 
 ### lib/spawner.ts
 

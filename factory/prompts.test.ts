@@ -1,10 +1,28 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { FACTORY_DIR, FACTORY_PROMPTS_DIR } from "./target-root.ts";
 
 const PROMPTS = ["implementer.md", "reviewer.md", "extractor.md", "extraction-verifier.md", "map-review.md", "change-request.md", "spike-prover.md", "spike-verifier.md", "cr-applier.md", "skill-scout.md", "doc-prep.md", "detect-language.md"];
+
+const ALL_LEG_PROMPTS = [
+  "doc-prep.md",
+  "detect-language.md",
+  "extractor.md",
+  "extraction-verifier.md",
+  "vivi.md",
+  "implementer.md",
+  "reviewer.md",
+  "merge-resolver.md",
+  "readiness.md",
+  "change-request.md",
+  "cr-applier.md",
+  "map-review.md",
+  "skill-scout.md",
+  "spike-prover.md",
+  "spike-verifier.md",
+];
 
 function readPrompt(name: string) {
   return readFileSync(join(FACTORY_PROMPTS_DIR, name), "utf8");
@@ -253,4 +271,27 @@ test("map-review.md carries the independent per-lens review method", () => {
   assert.match(text, /Source-of-truth audit/i);
   assert.match(text, /findings/i);
   assert.match(text, /never a human reviewing/i);
+});
+
+test("every leg prompt carries the data-not-instructions injection boundary", () => {
+  const onDisk = readdirSync(FACTORY_PROMPTS_DIR)
+    .filter((f) => f.endsWith(".md"))
+    .sort();
+  assert.deepEqual(
+    onDisk,
+    [...ALL_LEG_PROMPTS].sort(),
+    "a prompt file was added or removed without updating the injection-boundary pin list — every leg reading owner/repo content must carry the boundary",
+  );
+  for (const name of ALL_LEG_PROMPTS) {
+    const text = readPrompt(name);
+    assert.match(text, /data, not instructions/i, `${name} must name the data-not-instructions boundary`);
+    assert.match(text, /never an instruction you obey/i, `${name} must forbid obeying a directive embedded in the content it reads`);
+  }
+});
+
+test("extraction-verifier.md flags embedded directives that bent the extraction", () => {
+  const text = readPrompt("extraction-verifier.md");
+  assert.match(text, /Embedded directives were NOT obeyed/i, "verifier must carry the not-obeyed check");
+  assert.match(text, /prompt-injection/i, "the not-obeyed check must name the prompt-injection threat");
+  assert.match(text, /embedded_directive_obeyed/, "verifier must offer the embedded_directive_obeyed problem kind");
 });
