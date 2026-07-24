@@ -1,6 +1,6 @@
 # Vivicy — exhaustive test matrix
 
-Reconciled fingerprint: `fb09acc51bea34993f28d5bb4293f04ee80fdcf2b72a65897636f165c1af32ab` @ commit `705bed13efac4e2aeb248ec2cd7da0926fae1f59`
+Reconciled fingerprint: `3107770397b5f8596330023911af8a09d6ad8ee0fd33799fb8e50222343e91f5` @ commit `1f51648cc3d0d665a5c0ac6d4bec5fc2d6dccd19`
 
 
 This file is the exhaustive, always-current inventory of every test case for Vivicy — every behavior the system has, whether it is covered by a test today or is a known GAP. It is **committed and machine-guarded**: the `Reconciled fingerprint` line above hashes the behavior-bearing source tree and records the HEAD commit at reconciliation time, and `scripts/test-matrix.test.ts` fails the vitest suite when code changes without this file being reconciled and re-stamped (`npm run matrix:stamp`). `git log test/TEST-MATRIX.md` is the audit trail of reconciliations. It is the single source of truth for "what should be tested" across the app (`app/`, `components/`, `lib/`) and the factory (`factory/`). It was assembled from a full per-area audit pass plus three adversarial cross-matrices (user journeys, parallel/merge chaos, process/crash chaos).
@@ -16,11 +16,11 @@ This file is the exhaustive, always-current inventory of every test case for Viv
 
 | Area | Cases | Gaps | Covered |
 |---|---:|---:|---:|
-| app-shell-sidebar-ui-kit | 388 | 269 | 119 |
+| app-shell-sidebar-ui-kit | 389 | 269 | 120 |
 | baselines-change-requests | 266 | 203 | 63 |
 | cli-supervisor-process-infra | 472 | 246 | 226 |
 | control-plane-api-routes | 491 | 231 | 260 |
-| dev-loop-worktrees-merge | 307 | 143 | 164 |
+| dev-loop-worktrees-merge | 309 | 143 | 166 |
 | e2e-test-infra-rehearsal | 289 | 102 | 187 |
 | extraction-gates | 296 | 160 | 136 |
 | map-ui-data-viewer | 289 | 187 | 102 |
@@ -30,7 +30,7 @@ This file is the exhaustive, always-current inventory of every test case for Viv
 | cross-journeys | 82 | 65 | 17 |
 | cross-chaos-parallel-merge | 47 | 33 | 14 |
 | cross-chaos-process | 46 | 43 | 3 |
-| **TOTAL** | **3883** | **2153** | **1730** |
+| **TOTAL** | **3886** | **2153** | **1733** |
 
 ---
 
@@ -306,6 +306,7 @@ This file is the exhaustive, always-current inventory of every test case for Viv
 - [app-shell-sidebar-ui-kit.377] `SectionRun` (a right-sidebar accordion section registered after Skills) renders each phase from `GET /api/control/run`: `not_established` (honest empty copy, no button) / `stopped` (command + Run) / `running` (clickable URL link, the "started {time}" line, command, Stop, collapsible log; a command-only URL is flagged a best guess) / `exited` (destructive "stopped on its own" headline, log auto-opened via a phase-keyed remount carrying the reason, Run to retry) | phase-correct render + states | unit | section-run.test.tsx ("SectionRun states")
 - [app-shell-sidebar-ui-kit.378] `SectionRun` actions are the owner's click (P2): Run `POST`s `/api/control/run/start`, Stop `POST`s `/api/control/run/stop`; the section polls `/api/control/run` while mounted | owner-driven start/stop + poll | unit | section-run.test.tsx ("SectionRun actions (the click is the owner's)")
 - [app-shell-sidebar-ui-kit.379] `SectionRun` log auto-opens on the LIVE running→exited transition (the owner watching a crash on one mounted instance), not only on a fresh page-load into exited: `LogBlock` is `key={phase}` so a phase change remounts it with `defaultOpen` (an uncontrolled `defaultOpen` on a persistent mount would stay collapsed) | transition remount opens the log; mutation-proven (revert to no-key → RED) | unit | section-run.test.tsx ("running -> exited transition auto-opens the log on the SAME mounted instance")
+- [app-shell-sidebar-ui-kit.380] `lib/product-run.ts` `commandServesHttp` is the deterministic "this run command boots a browser-facing HTTP server" predicate the reviewer leg's visual duty gates on: true for a framework dev-server (next/vite/flask/rails/`php -S`…), the Node `run dev\|start\|serve` convention, or an explicit http port; false — so a non-UI target's reviewer stays byte-identical — for a compiled/CLI run command (`go run`, `cargo run`, `python x.py`, `java -jar`) or a blank/null value | under-fire-safe web-serve heuristic | unit | product-run.test.ts ("commandServesHttp")
 
 ### components/ui/accordion.tsx
 
@@ -2523,6 +2524,8 @@ No dedicated agent-spawn.test.ts exists. Every behavior below is exercised ONLY 
 - [dev-loop-worktrees-merge.277] `gateCommandDirective`: while the gateCommand is the null sentinel (unresolvable), the implementer/reviewer prompt carries the single role-neutral establish-it directive (the implementer sets vivicy.json#gateCommand, and it must NOT be reverted by the reviewer, never a placeholder/echo); once a real command is resolvable it injects the empty string. | directive text vs "" | unit | dev-loop.test.ts ("GATE-COMMAND: while the sentinel stands, the implementer/reviewer prompt carries the establish-it directive; once established it does not")
 - [dev-loop-worktrees-merge.278] Machine-fill happy path: the stack-setup implementer establishes the sentinel gateCommand in vivicy.json during its leg; the orchestrator's post-issue gate then resolves the new command, runs it, and the issue verifies (and every subsequent issue sees the established command). | verified; evidence command = the established runner | integration | dev-loop.test.ts ("GATE-COMMAND: the stack-setup implementer establishes the null sentinel -> gate resolves and the issue verifies")
 - [dev-loop-worktrees-merge.298] `runCommandDirective` (mirrors `gateCommandDirective`, no per-issue override): while `vivicy.json#runCommand` is the null sentinel the implementer/reviewer prompt carries the establish-it directive (set runCommand, never revert, never a placeholder/echo, never the test runner); "" once a real run command is established; `legDeps` injects BOTH `gate_command_directive` and `run_command_directive` into `composePrompt` for every leg | directive text vs "" | unit | dev-loop.test.ts ("RUN-COMMAND: while the runCommand sentinel stands, the implementer/reviewer prompt carries the establish-it directive; once established it does not")
+- [dev-loop-worktrees-merge.299] `visualReviewDirective`: when the target declares a UI (its established `vivicy.json#runCommand` serves HTTP per `commandServesHttp`) the reviewer prompt carries the visual-verification duty — boot the product the run-story way (the `runCommand`, target root, read the served URL, kill the process tree after), screenshot THIS issue's slice at desktop + mobile-class viewports, judge like a human (balance/spacing/alignment/legibility, nothing clipped/overlapping/unusable), a damaged render OR a boot failure is a `not_faithful` finding, screenshots written under `.vivicy/development/transcripts/<issue.id>/screenshots/` (gitignored, never committed) with honest headless degradation; injects `""` (byte-identical reviewer) while the runCommand is the null sentinel or is a non-UI/CLI command; `legDeps` injects `visual_review_directive` into `composePrompt` alongside the gate/run directives | directive text vs "" | unit | dev-loop.test.ts ("VISUAL-REVIEW: a web-serving runCommand injects the reviewer's boot-and-screenshot duty; an unestablished or non-UI runCommand injects nothing (byte-identical)")
+- [dev-loop-worktrees-merge.300] `reviewer.md` exposes the `{{visual_review_directive}}` slot that `legDeps` fills, so the visual-verification injection wiring cannot be silently dropped from the prompt | placeholder present in reviewer.md | unit | dev-loop.test.ts ("the reviewer prompt carries the visual-review directive placeholder (the injection wiring cannot be silently dropped)")
 
 ### Area cross-notes
 

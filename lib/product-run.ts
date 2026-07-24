@@ -66,3 +66,14 @@ export function deriveProductRunUrl(
 export function normalizeRunCommandValue(raw: unknown): string | null {
   return typeof raw === "string" && raw.trim().length > 0 ? raw.trim() : null
 }
+
+// Under-fire is the safe direction: a compiled/CLI run command must match none of these so a non-UI target's reviewer stays byte-identical; only add tokens that unambiguously boot a browser-facing HTTP server.
+const WEB_SERVE_COMMAND_RE =
+  /(?:\b(?:next|vite|nuxt|astro|remix|gatsby|parcel|storybook|webpack(?:-dev-server)?|http-server|live-server|serve|ng|vue-cli-service|react-scripts|svelte-kit|flask|runserver|rails|puma|rackup|uvicorn|gunicorn|hypercorn|daphne|streamlit)\b|php\s+-S)/i
+
+const NODE_WEB_SCRIPT_RE = /\b(?:npm|pnpm|yarn|bun)\b[^&|;]*\b(?:run\s+)?(?:dev|start|serve)\b/i
+
+export function commandServesHttp(command: string | null | undefined): boolean {
+  if (typeof command !== "string" || command.trim().length === 0) return false
+  return detectPortFromCommand(command) !== null || WEB_SERVE_COMMAND_RE.test(command) || NODE_WEB_SCRIPT_RE.test(command)
+}

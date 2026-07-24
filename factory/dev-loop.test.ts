@@ -30,6 +30,7 @@ import {
   footprintDistance,
   gateCommandDirective,
   runCommandDirective,
+  visualReviewDirective,
   issueClaim,
   issueFootprint,
   issuesIndependent,
@@ -623,6 +624,44 @@ test("RUN-COMMAND: while the runCommand sentinel stands, the implementer/reviewe
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test("VISUAL-REVIEW: a web-serving runCommand injects the reviewer's boot-and-screenshot duty; an unestablished or non-UI runCommand injects nothing (byte-identical)", () => {
+  const dir = mkdtempSync(resolve(repoRoot, "_tmp-visual-directive-"));
+  try {
+    const scratchCfg = { execRoot: dir } as unknown as Config;
+    const issue = { id: "ISS-A" } as unknown as Issue;
+
+    writeFileSync(resolve(dir, "vivicy.json"), JSON.stringify({ gateCommand: "npm test", runCommand: null }));
+    assert.equal(visualReviewDirective(scratchCfg, issue), "", "no visual duty while the runCommand is the null sentinel");
+
+    writeFileSync(resolve(dir, "vivicy.json"), JSON.stringify({ gateCommand: "go test ./...", runCommand: "go run ./..." }));
+    assert.equal(visualReviewDirective(scratchCfg, issue), "", "a compiled/CLI run command declares no UI — byte-identical reviewer");
+
+    writeFileSync(resolve(dir, "vivicy.json"), JSON.stringify({ gateCommand: "npm test", runCommand: "npm run dev" }));
+    const directive = visualReviewDirective(scratchCfg, issue);
+    assert.match(directive, /Visual verification/i, "web-serving runCommand carries the visual-verification duty");
+    assert.match(directive, /vivicy\.json#runCommand/, "boots via the established run command, not a bespoke server");
+    assert.match(directive, /desktop-class AND a mobile-class/i, "screenshots at desktop + mobile-class viewports");
+    assert.match(directive, /clipped, overlapping/i, "names the human-eye defect vocabulary");
+    assert.match(directive, /legibility/i, "judges legibility");
+    assert.match(directive, /not_faithful/, "a damaged render is a review finding");
+    assert.match(directive, /fails to boot[\s\S]*broke the run story/i, "boot failure is itself a loud finding");
+    assert.match(directive, /transcripts\/ISS-A\/screenshots\//, "screenshots land beside the leg's evidence, keyed by issue id, gitignored");
+    assert.match(directive, /never committed/i, "evidence is never committed");
+    assert.match(directive, /playwright|headless/i, "headless screenshot tooling with honest degradation");
+    assert.match(directive, /process tree/i, "kills the product's process tree when done");
+
+    const composed = composePrompt("review:\n{{visual_review_directive}}", { id: "ISS-A" }, { visual_review_directive: directive });
+    assert.match(composed, /Visual verification/i, "legDeps injects the visual duty through composePrompt");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("the reviewer prompt carries the visual-review directive placeholder (the injection wiring cannot be silently dropped)", () => {
+  const text = readFileSync(fileURLToPath(new URL(`./prompts/reviewer.md`, import.meta.url)), "utf8");
+  assert.match(text, /\{\{visual_review_directive\}\}/, "reviewer.md exposes the visual_review_directive slot legDeps fills");
 });
 
 test("runLoop REFUSES to develop on a tampered frozen baseline (integrity gate blocks)", () => {

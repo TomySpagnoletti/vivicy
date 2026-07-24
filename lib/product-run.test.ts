@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 
 import {
+  commandServesHttp,
   detectPortFromCommand,
   detectUrlFromLog,
   deriveProductRunUrl,
@@ -70,6 +71,28 @@ describe("deriveProductRunUrl", () => {
       source: null,
     })
     expect(deriveProductRunUrl(null, null)).toEqual({ url: null, source: null })
+  })
+})
+
+describe("commandServesHttp", () => {
+  it("fires for a browser-facing run command — framework dev-server, node run convention, or explicit http port", () => {
+    expect(commandServesHttp("next dev")).toBe(true)
+    expect(commandServesHttp("vite")).toBe(true)
+    expect(commandServesHttp("flask run")).toBe(true)
+    expect(commandServesHttp("bin/rails server")).toBe(true)
+    expect(commandServesHttp("php -S localhost:8000")).toBe(true)
+    expect(commandServesHttp("npm run dev")).toBe(true)
+    expect(commandServesHttp("pnpm start")).toBe(true)
+    expect(commandServesHttp("node server.js --port 8080")).toBe(true)
+  })
+
+  it("stays off (byte-identical non-UI reviewer) for a compiled/CLI run command or a blank value", () => {
+    expect(commandServesHttp("go run ./...")).toBe(false)
+    expect(commandServesHttp("cargo run")).toBe(false)
+    expect(commandServesHttp("python worker.py")).toBe(false)
+    expect(commandServesHttp("java -jar app.jar")).toBe(false)
+    expect(commandServesHttp("   ")).toBe(false)
+    expect(commandServesHttp(null)).toBe(false)
   })
 })
 

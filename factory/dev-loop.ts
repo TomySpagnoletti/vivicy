@@ -26,6 +26,7 @@ import { recordProgressEvent } from "./progress-ledger.ts";
 import type { ProgressEvent } from "./progress-ledger.ts";
 import { checkSkills } from "./dev-preflight.ts";
 import { pruneGitkeeps } from "../lib/skeleton.ts";
+import { commandServesHttp } from "../lib/product-run.ts";
 import { runTraceabilityCheck } from "./traceability-check.ts";
 import { runSpikeCheck, transitivelyVerifiedGates } from "./spike-check.ts";
 import { runReferenceCheck } from "./reference-check.ts";
@@ -709,6 +710,35 @@ export function runCommandDirective(cfg: Config): string {
   }
 }
 
+function visualReviewDirectiveText(issueId: string): string {
+  const screenshotsDir = `.vivicy/development/transcripts/${issueId}/screenshots/`;
+  return [
+    "## Visual verification — this product renders a UI, so SEE it before you pass",
+    "",
+    "This target declares a UI (its established `vivicy.json#runCommand` boots a browser-facing HTTP server): a diff can satisfy every functional obligation and still ship a damaged, unusable layout that only an eye refuses. For this issue you MUST look at the rendered result, not only read the diff and its tests.",
+    "",
+    "- **Boot it the run story's way.** Start the product with the command in `vivicy.json#runCommand` from the target root — the same run command the owner uses, never a second bespoke server — and read the served URL from its output (a printed loopback URL, else the port the command names). Kill the product's whole process tree when you are done so no server is orphaned.",
+    "- **Boot failure is itself a finding.** If the product fails to boot under that run command at review time, the slice broke the run story: return `not_faithful`, loud and typed, quoting the boot log — never a silent skip.",
+    "- **Drive the issue's slice, not the whole app.** Navigate the screens and flows THIS issue's canonical refs name, and screenshot each at a desktop-class AND a mobile-class viewport.",
+    "- **Judge like a human.** Balance, spacing, whitespace, alignment, size coherence, legibility; nothing clipped, overlapping, cut off, or unusable. A damaged render is a review FAIL exactly like any other finding — return `not_faithful` naming the screen and the visual defect, with the screenshot as the evidence, and hold it to the spec's ambition, not a bare \"it renders\".",
+    `- **Evidence, never committed.** Write screenshots under \`${screenshotsDir}\` (gitignored beside the rest of this leg's evidence) and reference them from your verdict.`,
+    "- **Headless honesty.** Capture with the headless browser tooling available to you (e.g. `npx playwright screenshot <url> <out.png>`, or a headless-chromium equivalent). If NO screenshot tool can run in this environment, degrade honestly: inspect the served HTML/DOM and the boot log for the same defects, and record in your verdict that a pixel capture was impossible and why — never pass a UI change unseen and unmentioned.",
+    "",
+    "If this product — or the slice THIS issue touches — exposes no visual/browser surface (a headless API, a data endpoint, a backend-only change), record that the visual duty does not apply here and continue the rest of your review; do not fabricate a screenshot.",
+  ].join("\n");
+}
+
+export function visualReviewDirective(cfg: Config, issue: Issue | undefined): string {
+  let command: string;
+  try {
+    command = resolveRunCommand({ targetRoot: execRootOf(cfg) });
+  } catch {
+    return "";
+  }
+  if (!commandServesHttp(command)) return "";
+  return visualReviewDirectiveText(issue?.id ?? "<issue_id>");
+}
+
 export function agentCliArgs(
   provider: string,
   { model, effort, fast }: { model?: string; effort?: string; fast?: boolean } = {},
@@ -1156,9 +1186,14 @@ function legDeps(cfg: Config, issue: Issue | undefined): LegDeps {
   const root = execRootOf(cfg);
   const directive = gateCommandDirective(cfg, issue);
   const runDirective = runCommandDirective(cfg);
+  const visualDirective = visualReviewDirective(cfg, issue);
   return {
     composePrompt: (template, iss) =>
-      composePrompt(template, iss, { gate_command_directive: directive, run_command_directive: runDirective }),
+      composePrompt(template, iss, {
+        gate_command_directive: directive,
+        run_command_directive: runDirective,
+        visual_review_directive: visualDirective,
+      }),
     agentCliArgs,
     abs,
     execRoot: root,
