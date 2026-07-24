@@ -1,6 +1,6 @@
 # Vivicy — exhaustive test matrix
 
-Reconciled fingerprint: `9da35f110f5085996aee4b700377239a521e4114aa2c9fbcb4a6bb90328f7546` @ commit `2c0ab85213ce5bd868c7c30e0ef4ce9f053c18d1`
+Reconciled fingerprint: `6ec7bb2497aa48b86593e864c8aabd1d0abba1d1e8bb7339181bc7dd28820221` @ commit `cda305157e530a69945b360346b4a74161a2d618`
 
 
 This file is the exhaustive, always-current inventory of every test case for Vivicy — every behavior the system has, whether it is covered by a test today or is a known GAP. It is **committed and machine-guarded**: the `Reconciled fingerprint` line above hashes the behavior-bearing source tree and records the HEAD commit at reconciliation time, and `scripts/test-matrix.test.ts` fails the vitest suite when code changes without this file being reconciled and re-stamped (`npm run matrix:stamp`). `git log test/TEST-MATRIX.md` is the audit trail of reconciliations. It is the single source of truth for "what should be tested" across the app (`app/`, `components/`, `lib/`) and the factory (`factory/`). It was assembled from a full per-area audit pass plus three adversarial cross-matrices (user journeys, parallel/merge chaos, process/crash chaos).
@@ -18,19 +18,19 @@ This file is the exhaustive, always-current inventory of every test case for Viv
 |---|---:|---:|---:|
 | app-shell-sidebar-ui-kit | 383 | 269 | 114 |
 | baselines-change-requests | 266 | 203 | 63 |
-| cli-supervisor-process-infra | 463 | 246 | 217 |
-| control-plane-api-routes | 484 | 227 | 257 |
-| dev-loop-worktrees-merge | 287 | 140 | 147 |
+| cli-supervisor-process-infra | 465 | 246 | 219 |
+| control-plane-api-routes | 487 | 230 | 257 |
+| dev-loop-worktrees-merge | 306 | 143 | 163 |
 | e2e-test-infra-rehearsal | 287 | 102 | 185 |
 | extraction-gates | 295 | 160 | 135 |
 | map-ui-data-viewer | 289 | 187 | 102 |
 | onboarding-project-scaffold | 320 | 176 | 144 |
-| pipeline-notifications-agents-ui | 199 | 120 | 79 |
+| pipeline-notifications-agents-ui | 207 | 121 | 86 |
 | upload-vivi-chat | 381 | 174 | 207 |
 | cross-journeys | 82 | 65 | 17 |
 | cross-chaos-parallel-merge | 47 | 33 | 14 |
 | cross-chaos-process | 46 | 43 | 3 |
-| **TOTAL** | **3829** | **2145** | **1684** |
+| **TOTAL** | **3861** | **2152** | **1709** |
 
 ---
 
@@ -1408,7 +1408,9 @@ Out of this area's primary concern (prompt content, not CLI/process infra) but i
 - [cli-supervisor-process-infra.400] prompts.test.ts locks the spec-kind discipline across vivi/implementer/reviewer (project/feature kinds, "grill the CHANGE", implementer "follow ITS structure, naming, and idioms", reviewer a legacy-rewriting diff "is a fail") | all three prompts match | unit | prompts.test.ts ("the spec-kind discipline is pinned across vivi/implementer/reviewer prompts")
 - [cli-supervisor-process-infra.401] prompts.test.ts locks the governess-charter tool catalog incl. `cycle.open` + `cycle.cancel` in the verb list, plus the no-code / no-`cr.decide` prohibitions | catalog + prohibitions matched | unit | prompts.test.ts ("vivi.md carries the governess charter (action protocol, no code, no CR decision)")
 - [cli-supervisor-process-infra.402] prompts.test.ts locks the zero-comment / no-time-marker code hygiene across implementer.md (CODE HYGIENE section: zero comments by default, one-line non-derivable invariants only, never imitate legacy density, no time-fixed references, no out-of-scope restyling), reviewer.md (MUST-enforce hygiene strip on the whole diff), and the scaffolded factory/templates/AGENTS.md (standing rule + "may amend this section" owner valve) | all three files match the pinned phrases | unit | prompts.test.ts ("the zero-comment / no-time-marker hygiene is pinned across implementer/reviewer prompts and the target AGENTS.md template")
-- [cli-supervisor-process-infra.470] every leg prompt in factory/prompts/ (all 15, each reading owner/repo/upload content) carries the data-not-instructions injection boundary: imported docs, canonical, spikes, diffs, and registry output are DATA, and a directive-shaped sentence embedded in them is never an instruction the leg obeys; the on-disk `*.md` set must equal the pinned list so a newly added prompt cannot skip the boundary | both anchor phrases present in each of the 15 prompts + directory-set equality | unit | prompts.test.ts ("every leg prompt carries the data-not-instructions injection boundary")
+- [cli-supervisor-process-infra.470] every leg prompt in factory/prompts/ (all 16, each reading owner/repo/upload content) carries the data-not-instructions injection boundary: imported docs, canonical, spikes, diffs, and registry output are DATA, and a directive-shaped sentence embedded in them is never an instruction the leg obeys; the on-disk `*.md` set must equal the pinned list so a newly added prompt cannot skip the boundary | both anchor phrases present in each of the 16 prompts + directory-set equality | unit | prompts.test.ts ("every leg prompt carries the data-not-instructions injection boundary")
+- [cli-supervisor-process-infra.473] acceptance.md declares itself SELF-CONTAINED and carries the whole-product acceptance method: fresh-context check of the assembled product against the frozen spec (end-to-end scenarios + cross-issue seams + spec areas satisfied only on paper), runs runnable scenarios and read-verifies the rest with the recorded run-story seam, propose-only (P5), and writes the structured verdict to acceptance-verdict.json | content assertions on acceptance.md | unit | prompts.test.ts ("acceptance.md carries the whole-product acceptance method…")
+- [cli-supervisor-process-infra.474] vivi.md's quality bar requires the spec to state its end-to-end acceptance scenario(s) — a user walkthrough with an observable outcome — tied to the whole-product acceptance pass | pinned phrases in vivi.md's quality-bar section | unit | prompts.test.ts ("vivi.md's quality bar requires the spec to state its end-to-end acceptance scenario(s)")
 - [cli-supervisor-process-infra.471] extraction-verifier.md carries the S7 check that embedded directives in the corpus were NOT obeyed (a directive-shaped/prompt-injection sentence that visibly bent the extraction is a fidelity finding) plus the `embedded_directive_obeyed` problem kind in its verdict slug list | not-obeyed check heading + prompt-injection naming + the new kind slug all present | unit | prompts.test.ts ("extraction-verifier.md flags embedded directives that bent the extraction")
 - [cli-supervisor-process-infra.472] prompts.test.ts locks vivi.md's "When it burns" red-gate playbook: the on-disk report paths to read (`<issue-id>-blocked.json`, `extraction-status.json`, `<issue-id>-gate.json`, `development/transcripts/`), the four cause classes (transient / environment / spec contradiction / quota), the per-class action (`pipeline.retry` for transient, a Change Request for spec contradiction, `quota-state.json` for quota), and the P2 propose-one-action discipline ("You PROPOSE; the owner clicks") | all pinned substrings present, mutation-honest | unit | prompts.test.ts ("vivi.md carries the red-gate playbook: report paths, the four cause classes, and the propose-one-action discipline")
 
@@ -1749,9 +1751,15 @@ Out of this area's primary concern (prompt content, not CLI/process infra) but i
 - [control-plane-api-routes.479] `POST /api/control/prepare` an `already_running` ControlError maps to 409 (+ a `prepare/failed` error notification) | 409, code already_running | integration | prepare/route.test.ts ("maps an already_running refusal to 409")
 - [control-plane-api-routes.480] `POST /api/control/prepare` any other ControlError maps to 422; a non-ControlError throw maps to 500, each with a `prepare/failed` notification | correct status split | integration | prepare/route.test.ts ("maps other ControlErrors ... to 422")
 
+### app/api/control/acceptance/route.ts
+
+- [control-plane-api-routes.493] `GET /api/control/acceptance` returns `{ok:true, report: readAcceptanceReport()}` verbatim (report:null when acceptance has not run); GET-only — the deterministic re-run path is retry-stage "dev" | 200 with the report or null | integration | GAP (mirrors the prepare-route pattern; no acceptance/route.test.ts)
+- [control-plane-api-routes.494] `GET /api/control/acceptance` maps a ControlError (e.g. missing_target) to 422 with its code, any other error to 500 | correct status split | integration | GAP
+
 ### lib/control.ts (document preparation)
 
 - [control-plane-api-routes.481] `readDocPrepReport` reads `.vivicy/development/reports/doc-prep-report.json`, returns null when absent, surfaces the report verbatim otherwise | report or null | unit | control.test.ts ("readDocPrepReport returns null when the stage has not run and the report verbatim otherwise")
+- [control-plane-api-routes.495] `readAcceptanceReport` reads `.vivicy/development/reports/acceptance-report.json` (single-sourced `ACCEPTANCE_REPORT_FILE`, imported by both the client components and factory/acceptance.ts), returns null when absent/unparseable, surfaces the report verbatim otherwise, and throws `missing_target` when the target root is absent | report or null | unit | GAP (mirrors readDocPrepReport .481)
 - [control-plane-api-routes.482] `startDocPrep` spawns `prepare-docs.ts` detached with the target + runtime + settings env, claims the byte-compatible `doc-prep.lock` (wx), returns `{pid}` | spawnDetached called with prepare-docs.ts; lock under `projects/<key>/` | unit | control.test.ts ("startDocPrep spawns prepare-docs.ts detached and claims the doc-prep lock")
 - [control-plane-api-routes.483] `startDocPrep` refuses `already_running` while a fresh in-flight report (classifying/extracting/placing, updated within DOC_PREP_STALE_MS) exists, without calling spawnDetached | throws already_running; 0 spawnDetached calls | unit | control.test.ts ("startDocPrep refuses while a fresh in-flight report says preparation is running")
 - [control-plane-api-routes.484] `startDocPrep` refuses via the separate `doc-prep.lock` file (TOCTOU wx guard) even when the report is stale/absent, and clears a dead-pid lock to let a fresh claim succeed | second concurrent caller throws already_running from the lock; stale lock reclaimed | unit | GAP (mirrors the skills-lock TOCTOU gap .74/.75)
@@ -2384,6 +2392,28 @@ Files read in full: factory/dev-loop.ts (3602 lines), factory/dev-loop.test.ts (
 - [dev-loop-worktrees-merge.210] main() writes the heartbeat run-state file (`dev-loop-supervisor.json`) on EVERY loop iteration (both "running" before a relaunch and the terminal status), including pid/target/progress_root/updated_at, so `vivicy status` sees liveness across relaunches. | run-state file updated every iteration | e2e-process | GAP
 - [dev-loop-worktrees-merge.211] main() relaunches the child (`node dev-loop.ts` or `dev-rehearsal.ts`) via spawnSync with stdio:"inherit" and logs its exit code/signal, looping until a stop condition fires. | repeated relaunch + logging | e2e-process | GAP
 - [dev-loop-worktrees-merge.212] the stall counter increments only when doneCount is UNCHANGED from the previous iteration, and resets to 0 the moment doneCount increases (progress detection). | stall increments/resets correctly | unit | GAP (this logic lives inline in main(), not exposed as a pure function — the pure decision nextSupervisorAction IS tested, but the stall-tracking loop itself is not)
+- [dev-loop-worktrees-merge.279] main() runs the whole-product acceptance stage (spawns acceptance.ts) at the "done" moment (done>=total) BEFORE writing the terminal "done" state, only when NOT --rehearsal; a non-green outcome writes status `acceptance_findings`/`acceptance_failed` and exits 1 (Done withheld), never a silent 0. | acceptance runs before Done; withheld on non-green | e2e-process | GAP
+- [dev-loop-worktrees-merge.280] runAcceptanceStage maps a written "green" report → "green" (proceed to Done); ANY other outcome — explicit "findings"/"failed", a crashed child, or a missing/unparseable report — → withhold loudly (never a silent Done). | phase→outcome mapping | e2e-process | GAP
+
+### factory/acceptance.ts
+
+- [dev-loop-worktrees-merge.281] doneSetHash is a stable digest of the sorted done/*.md set and changes only when the done set changes | stable hash, changes on a new done file | unit | acceptance.test.ts
+- [dev-loop-worktrees-merge.282] issueTotals reads issue-index.issues.length (total) and the done/*.md count (done), tolerating a missing dir/index | {done,total} correct | unit | acceptance.test.ts
+- [dev-loop-worktrees-merge.283] acceptanceStageNeeded returns false when not applicable (total<=0 or done<total) or when there is no frozen baseline to accept against | false | unit | acceptance.test.ts
+- [dev-loop-worktrees-merge.284] acceptanceStageNeeded returns true with no report yet, on an unsettled ("checking"/"failed") report, or when the baseline_id/done_set_hash drifts; false when the report is settled ("green"/"findings") for the current baseline+done-set | true/false per settlement | unit | acceptance.test.ts
+- [dev-loop-worktrees-merge.285] runAcceptance on a clean verdict (accepted:true, no findings) flips the acceptance report "green", drafts no CR, and records read_only_scenarios (the run-story seam count) | phase "green", drafted_crs empty, read_only count | unit | acceptance.test.ts
+- [dev-loop-worktrees-merge.286] runAcceptance on findings routes EACH finding to a draft CR via createChangeRequest (existing machinery), sets phase "findings", stamps finding.cr_id + drafted_crs, and withholds Done (phase never "green") | one idea CR per finding, phase "findings" | unit | acceptance.test.ts
+- [dev-loop-worktrees-merge.287] a finding's invalid/absent classification is coerced to minor_product_change (P5 — the leg proposes, the orchestrator enforces the CR classification) | CR classification minor_product_change | unit | acceptance.test.ts
+- [dev-loop-worktrees-merge.288] findings present override an accepted:true flag (the findings are ground truth) — they are still routed and phase is "findings" | phase "findings" despite accepted:true | unit | acceptance.test.ts
+- [dev-loop-worktrees-merge.289] runAcceptance refuses loudly (phase "failed") and never spawns the leg when the product is not fully assembled (done<total) | phase "failed", leg not run | unit | acceptance.test.ts
+- [dev-loop-worktrees-merge.290] runAcceptance refuses loudly (phase "failed") when no active frozen baseline exists to accept against | phase "failed" | unit | acceptance.test.ts
+- [dev-loop-worktrees-merge.291] a timed-out acceptance leg (result.timedOut) is a typed refusal (phase "failed"), never a green Done; the summary names the timeout and the retry-dev path | phase "failed", never "green" | unit | acceptance.test.ts
+- [dev-loop-worktrees-merge.292] a missing or malformed acceptance-verdict.json (no boolean `accepted`) is a failure (phase "failed"), not a green Done | phase "failed" | unit | acceptance.test.ts
+- [dev-loop-worktrees-merge.293] a not-accepted verdict with NO actionable findings is unusable → phase "failed" (P1, no vague verdict) | phase "failed" | unit | acceptance.test.ts
+- [dev-loop-worktrees-merge.294] a routing failure (createChangeRequest throws for a finding) fails loudly (phase "failed") and never reports green — findings are never silently dropped | phase "failed" | unit | acceptance.test.ts
+- [dev-loop-worktrees-merge.295] a settled acceptance report is not re-run unless forced (idempotent, no duplicate CRs); force:true re-runs the leg (the retry-dev path) | leg call count 1 then 2 with force | unit | acceptance.test.ts
+- [dev-loop-worktrees-merge.296] findings route to draft CRs ONLY; reopening is reached downstream via the owner's CR acceptance → cr-apply → re-extraction (which reopens impacted issues) — acceptance never autonomously reopens (P2; runReopen is drift-driven with no id+reason API) | CR-draft path asserted; no autonomous reopen by construction | unit | acceptance.test.ts (the CR-draft path) + design decision
+- [dev-loop-worktrees-merge.297] the acceptance CLI entry resolves the target root (exit 2 if unset), runs runAcceptance, prints the summary/JSON, and exits 0 on "green" else 1 (loud, retryable via dev) | exit codes 0/1/2 | e2e-process | GAP
 
 ### factory/leg-supervisor.ts
 
@@ -4011,13 +4041,13 @@ Area: extraction-gates. Scope: `factory/extract-issues.ts`, `factory/semantic-ex
 
 ### components/pipeline/pipeline-stages.ts
 
-- [pipeline-notifications-agents-ui.1] PIPELINE_STAGES contains exactly the 15 stages: SP inserted first in the dev-loop (between S1 and S2) and SK between S7 and S8, in that order | array equals the fixed id sequence | unit | pipeline-stages.test.ts
+- [pipeline-notifications-agents-ui.1] PIPELINE_STAGES contains exactly the 16 stages: SP inserted first in the dev-loop (between S1 and S2), SK between S7 and S8, and SA (whole-product acceptance) between S11 and S12, in that order | array equals the fixed id sequence | unit | pipeline-stages.test.ts
 - [pipeline-notifications-agents-ui.2] The non_loop/dev_loop boundary sits exactly between S1 and SP (the first prepared stage) | S0,S1 side=non_loop; SP,S2..S12 side=dev_loop | unit | pipeline-stages.test.ts
-- [pipeline-notifications-agents-ui.3] Only SP, S6, SK, S9 carry a `retryStage` (prepare/extract/skills/dev respectively), nothing else | retryable stage id list equals ["SP","S6","SK","S9"] | unit | pipeline-stages.test.ts
+- [pipeline-notifications-agents-ui.3] Only SP, S6, SK, S9, SA carry a `retryStage` (prepare/extract/skills/dev/dev respectively — SA re-runs via the dev supervisor, which re-triggers acceptance), nothing else | retryable stage id list equals ["SP","S6","SK","S9","SA"] | unit | pipeline-stages.test.ts
 - [pipeline-notifications-agents-ui.4] No stage object carries a `label` property (labels live in i18n catalog, not this module) | `"label" in stage` is false for every stage | unit | pipeline-stages.test.ts
-- [pipeline-notifications-agents-ui.5] Each stage's `marker` matches the stage typing table exactly (user/agent/mixed per stage, SP=mixed) | full marker map equals expected dict | unit | pipeline-stages.test.ts
+- [pipeline-notifications-agents-ui.5] Each stage's `marker` matches the stage typing table exactly (user/agent/mixed per stage, SP=mixed, SA=agent) | full marker map equals expected dict | unit | pipeline-stages.test.ts
 - [pipeline-notifications-agents-ui.6] MARKER_GLYPH has an entry for every marker kind (user 🖥️, agent 🤖, mixed 🖥️🤖) | glyph lookup never undefined for a valid marker | unit | pipeline-stages.test.ts
-- [pipeline-notifications-agents-ui.7] deriveStageStates(null, null) with no skills arg returns every stage "pending" | all 15 values === "pending" | unit | pipeline-stages.test.ts
+- [pipeline-notifications-agents-ui.7] deriveStageStates(null, null) with no skills arg returns every stage "pending" | all 16 values === "pending" | unit | pipeline-stages.test.ts
 - [pipeline-notifications-agents-ui.8] deriveStageStates(null, null, null) explicit-null skills also returns all pending (no crash on null third arg) | no throw, SK "pending" | unit | GAP (only the 2-arg null/null case and the explicit-null-third-arg-with-non-null-extraction case are tested, not null/null/null together)
 - [pipeline-notifications-agents-ui.9] reachedDevLoop is true and S0/S1 flip green when extraction is non-null even with phase absent (e.g. `{}`) | S0/S1 green even if `.phase` is undefined | unit | GAP (test only exercises `{ phase: "green" }`, not an extraction object with no phase key)
 - [pipeline-notifications-agents-ui.10] reachedDevLoop is true when extraction is null but status.issues_total > 0 (dev status outlived extraction file) | S0/S1 green from status alone | unit | GAP (only extraction-driven branch of `reachedDevLoop` is tested; the `status?.issues_total ?? 0) > 0` OR-branch has no direct test)
@@ -4047,11 +4077,11 @@ Area: extraction-gates. Scope: `factory/extract-issues.ts`, `factory/semantic-ex
 - [pipeline-notifications-agents-ui.34] run_active true with issues_done > 0 marks S10 "green" | S10 === "green" | unit | pipeline-stages.test.ts (done:2 case asserts S8/S9 running but does not explicitly assert S10 green in that test — verify)
 - [pipeline-notifications-agents-ui.35] Not running, gates.fail > 0, and done < total marks S9 "red" (S8/S10 untouched/pending) | S9==="red" | unit | pipeline-stages.test.ts
 - [pipeline-notifications-agents-ui.36] Not running, gates.fail > 0, but done >= total does NOT mark S9 red (the "done < total" guard) — falls through to the done>=total green branch instead | S9 === "green", not "red" | unit | GAP (boundary interaction between the two mutually-exclusive-looking conditions is untested)
-- [pipeline-notifications-agents-ui.37] Not running, no failing gate, done >= total (total>0) marks S8,S9,S10 green and S12 green | exact set | unit | pipeline-stages.test.ts
+- [pipeline-notifications-agents-ui.37] Not running, no failing gate, done >= total (total>0) marks S8,S9,S10 green — but S12 is WITHHELD (stays pending) until the whole-product acceptance report (5th arg) is green; done>=total alone no longer flips Done | S8/S9/S10 green, S12 pending with no acceptance report | unit | pipeline-stages.test.ts
 - [pipeline-notifications-agents-ui.38] Partial completion, not running, no failing gate (0 < done < total) leaves S8,S9,S10,S12 all pending — never fabricated green (P1, "idle" state) | all pending | unit | pipeline-stages.test.ts
 - [pipeline-notifications-agents-ui.39] S11 (CRs) is NEVER set by deriveStageStates under any input combination — it has no observable signal in this derivation | S11 always "pending" regardless of status/extraction/skills | unit | pipeline-stages.test.ts (asserted for the done>=total case; not asserted across other branches, e.g. red/running paths — minor gap)
 - [pipeline-notifications-agents-ui.40] done === total === 0 (total is 0, so hasIssues is false) never reaches the S12 green branch (`total > 0` guard) | S12 stays "pending" | unit | GAP (explicit 0/0 boundary for the S12 guard is untested; only exercised implicitly via "no status" cases)
-- [pipeline-notifications-agents-ui.41] Huge issue counts (e.g. issues_total: 100000, issues_done: 100000) still resolve done>=total correctly (no overflow/precision issue) | S8,S9,S10,S12 green | unit | GAP
+- [pipeline-notifications-agents-ui.41] Huge issue counts (e.g. issues_total: 100000, issues_done: 100000) still resolve done>=total correctly (no overflow/precision issue) | S8,S9,S10 green; S12 green only with a green acceptance report | unit | GAP
 - [pipeline-notifications-agents-ui.242] SP stays "pending" with no doc-prep report (fourth arg omitted or explicit null) | SP === "pending" | unit | pipeline-stages.test.ts
 - [pipeline-notifications-agents-ui.243] SP pulses "running" for each of the 3 DOC_PREP_RUNNING_PHASES individually (classifying, extracting, placing) | SP === "running" for all three | unit | pipeline-stages.test.ts
 - [pipeline-notifications-agents-ui.244] SP is "green" on docPrep.phase === "green" AND on "skipped" (honest "nothing to prepare", not a failure) | SP === "green" for both | unit | pipeline-stages.test.ts
@@ -4059,6 +4089,14 @@ Area: extraction-gates. Scope: `factory/extract-issues.ts`, `factory/semantic-ex
 - [pipeline-notifications-agents-ui.246] An unrecognized docPrep.phase string leaves SP "pending" rather than guessing | SP === "pending" | unit | pipeline-stages.test.ts
 - [pipeline-notifications-agents-ui.247] A doc-prep report with any phase counts as reaching the dev-loop: S0/S1 flip green even with null extraction and no issues | S0 === S1 === "green" | unit | pipeline-stages.test.ts
 - [pipeline-notifications-agents-ui.248] applyDocPrepStates is a no-op (early return) when docPrep is null or docPrep.phase is falsy | SP unchanged ("pending") | unit | pipeline-stages.test.ts (covered via the "everything pending" and null-fourth-arg cases)
+- [pipeline-notifications-agents-ui.255] SA (whole-product acceptance) sits between S11 and S12 with marker=agent, side=dev_loop, retryStage="dev" | stage list/marker/retry pins include SA | unit | pipeline-stages.test.ts
+- [pipeline-notifications-agents-ui.256] applyAcceptanceStates pulses SA "running" for each ACCEPTANCE_IN_FLIGHT_PHASES phase (checking) | SA === "running" | unit | pipeline-stages.test.ts
+- [pipeline-notifications-agents-ui.257] SA is "green" on acceptance.phase "green", "red" on "findings" AND on "failed", and stays "pending" when the acceptance report is absent | SA state per phase | unit | pipeline-stages.test.ts
+- [pipeline-notifications-agents-ui.258] S12 (Done) flips green ONLY when done>=total AND acceptance.phase === "green" (the whole-product pass is clean) | S12 === "green" only in that combination | unit | pipeline-stages.test.ts
+- [pipeline-notifications-agents-ui.259] S12 is WITHHELD (stays pending) when done>=total but acceptance is absent, "checking", "findings", or "failed" — a build with a broken cross-issue seam never reads as Done (P1/P3) | S12 === "pending" | unit | pipeline-stages.test.ts
+- [pipeline-notifications-agents-ui.260] The allDone gate holds: a green acceptance report while issues are still unfinished (done<total) never fabricates S12 green | S12 === "pending" | unit | pipeline-stages.test.ts
+- [pipeline-notifications-agents-ui.261] The widget fetches /api/control/acceptance and renders the SA node; a green acceptance flips SA and S12 green, findings marks SA red and holds S12 pending | data-stage/data-stage-state for SA + S12 | e2e-ui | pipeline-widget.test.tsx
+- [pipeline-notifications-agents-ui.262] SectionPipeline fetches /api/control/acceptance and StageEvidence for SA shows the acceptance phase/summary/updated_at lines (mirroring SP/SK evidence) | SA evidence lines rendered | e2e-ui | GAP (section-pipeline.tsx has no direct test — same GAP class as the other stage-evidence branches)
 
 ### components/pipeline/pipeline-stages.test.ts
 
@@ -4066,7 +4104,7 @@ Area: extraction-gates. Scope: `factory/extract-issues.ts`, `factory/semantic-ex
 
 ### components/pipeline/pipeline-widget.tsx
 
-- [pipeline-notifications-agents-ui.43] Widget renders all 15 stage nodes (`[data-stage="…"]`) including SP and SK when `open` | all 15 `data-stage` nodes present | e2e-ui | pipeline-widget.test.tsx
+- [pipeline-notifications-agents-ui.43] Widget renders all 16 stage nodes (`[data-stage="…"]`) including SP, SK and SA when `open` | all 16 `data-stage` nodes present | e2e-ui | pipeline-widget.test.tsx
 - [pipeline-notifications-agents-ui.44] The non_loop/dev_loop boundary marker (`[data-boundary]`) renders exactly between the S1 and SP nodes in DOM order | order[boundaryIndex-1]==="S1", order[boundaryIndex+1]==="SP" | e2e-ui | pipeline-widget.test.tsx
 - [pipeline-notifications-agents-ui.236] The opened strip is clamped to the card (`max-w-full` on the inner content div): the strip's `shrink-0` chips have a ~1100px min-content width which would otherwise size the item PAST the outer `max-w` (intrinsic sizing ignores descendants' max-width) — on a phone that overflow makes mobile Chromium ENLARGE the layout viewport (innerWidth 412 → 768) and flip `useIsMobile()`/`md:` to desktop mid-session | opened strip scrolls inside `overflow-x-auto`; `window.innerWidth` stays at device width | e2e-ui | GAP (the widget is trigger-less/dormant in the app so this real-browser viewport guard is no longer reachable in-app; the clamp + its invariant comment survive for a future host that mounts the widget `open`, and must be re-covered by an e2e then)
 - [pipeline-notifications-agents-ui.45] No boundary marker renders anywhere else in the strip (only one dashed separator, between S1/S2) | exactly one `[data-boundary]` node | e2e-ui | GAP (test checks position of the one boundary found, not that there is exactly one / none elsewhere)

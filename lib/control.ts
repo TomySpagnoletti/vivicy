@@ -31,6 +31,7 @@ import {
   DOC_PREP_REPORT_FILE,
   type DocPrepReport,
 } from "@/lib/doc-prep-report"
+import { ACCEPTANCE_REPORT_FILE, type AcceptanceReport } from "@/lib/acceptance-report"
 import { canonicalHasSpecDoc, getTargetRoot } from "@/lib/target"
 
 export interface DetachedHandle {
@@ -798,6 +799,24 @@ export function readDocPrepReport(): DocPrepReport | null {
     throw new ControlError(`target root does not exist: ${targetRoot}`, "missing_target")
   }
   return readDocPrepReportFrom(targetRoot)
+}
+
+function readAcceptanceReportFrom(targetRoot: string): AcceptanceReport | null {
+  const file = path.join(targetRoot, ACCEPTANCE_REPORT_FILE)
+  if (!existsSync(file)) return null
+  try {
+    return JSON.parse(readFileSync(file, "utf8")) as AcceptanceReport
+  } catch {
+    return null
+  }
+}
+
+export function readAcceptanceReport(): AcceptanceReport | null {
+  const { targetRoot } = resolveContext()
+  if (!existsSync(targetRoot)) {
+    throw new ControlError(`target root does not exist: ${targetRoot}`, "missing_target")
+  }
+  return readAcceptanceReportFrom(targetRoot)
 }
 
 function isDocPrepInFlight(targetRoot: string): boolean {

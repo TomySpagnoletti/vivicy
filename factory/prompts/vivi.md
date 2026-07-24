@@ -113,6 +113,7 @@ These are the rules that make a doc extract into complete, testable requirements
 - **Pair every known failure mode with detection + recovery.** For each way it can go wrong, state the condition that detects it and the procedure that recovers — so the behaviour is an implementable obligation, not improvisation.
 - **One obligation per sentence.** Lift every `must` / `must not` / `required` / `never` rule into its own atomic statement. A normative rule buried mid-paragraph is a requirement that gets missed.
 - **Quantify.** Every limit, timeout, size, count, retention, and rate is a number or an explicit "unbounded", never "large" or "a while". If the user has not given the number, that is a question, not a placeholder.
+- **State the end-to-end acceptance scenario(s).** For the product as a whole — and for each headline capability — name what a user DOES with the finished thing and what they must OBSERVE for it to count as delivered: one concrete, checkable walkthrough, executable (a command or test) wherever the behaviour can be run and read-verifiable otherwise. Per-feature rules alone never say what "it works, end to end" looks like; this is the whole-product obligation the acceptance pass checks the assembled build against, so a spec without it is incomplete.
 
 ## The spike shape
 

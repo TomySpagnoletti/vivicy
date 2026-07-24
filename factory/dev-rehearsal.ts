@@ -327,6 +327,7 @@ async function main(): Promise<void> {
   await runFeatureCycleStages(temp);
   await runDocPrepScenario();
   await runCycleBatchScenarios();
+  await runAcceptanceScenarios();
 
   writeReport({ dry, temp, processed, verified, blocked, totalIssues, doneCount, verifiedStates: verifiedStates.length, passingGates });
   record("write method-rehearsal-report.md", existsSync(reportPath), reportPath);
@@ -592,6 +593,70 @@ async function runCycleBatchScenarios(): Promise<void> {
     );
   } finally {
     rmSync(seed, { recursive: true, force: true });
+  }
+}
+
+// The final stage before Done: at done==total the whole-product acceptance leg re-checks the assembled product against the frozen spec. A clean verdict flips Done; a planted cross-issue defect is found, routed to a draft CR, and Done is withheld. Both scenarios run in isolated fixtures with a faked leg (the gate/chain/CR machinery is real).
+function writeAcceptanceFixture(root: string): void {
+  const write = (rel: string, content: string): void => {
+    const abs = join(root, ...rel.split("/"));
+    mkdirSync(dirname(abs), { recursive: true });
+    writeFileSync(abs, content);
+  };
+  write(".vivicy/development/issue-index.json", JSON.stringify({ issues: [{ id: "ISS-0001" }, { id: "ISS-0002" }] }, null, 2));
+  write(".vivicy/development/issues/done/ISS-0001.md", "# ISS-0001\n");
+  write(".vivicy/development/issues/done/ISS-0002.md", "# ISS-0002\n");
+  write(".vivicy/baselines/baseline-v1.0.0.json", JSON.stringify({ schema_version: 1, baseline_id: "baseline-v1.0.0", version: "1.0.0", status: "frozen", files: [] }, null, 2));
+}
+
+async function runAcceptanceScenarios(): Promise<void> {
+  const acc = await import(pathToFileURL(factoryScript("acceptance.ts")).href);
+
+  const clean = mkdtempSync(join(tmpdir(), "vivicy-rehearsal-accept-clean-"));
+  try {
+    writeAcceptanceFixture(clean);
+    const report = await acc.runAcceptance({
+      repoRoot: clean,
+      spawnLeg: async ({ repoRoot, verdictRel }: { repoRoot: string; verdictRel: string }) => {
+        const abs = join(repoRoot, verdictRel);
+        mkdirSync(dirname(abs), { recursive: true });
+        writeFileSync(abs, JSON.stringify({ accepted: true, scenarios: [{ id: "end-to-end", verification: "read_only", result: "unverifiable_without_run_story" }], findings: [] }));
+      },
+    });
+    const noCrs = !existsSync(join(clean, ".vivicy/change-requests")) || readdirSync(join(clean, ".vivicy/change-requests")).filter((f) => f.endsWith(".md")).length === 0;
+    record(
+      "acceptance (clean): whole-product pass green over the assembled build — Done flips, no CR drafted",
+      report?.phase === "green" && (report.drafted_crs?.length ?? -1) === 0 && noCrs && report.read_only_scenarios === 1,
+      `phase ${report?.phase ?? "?"}; ${report?.read_only_scenarios ?? "?"} read-only-verified scenario(s) (run-story seam)`,
+    );
+  } finally {
+    rmSync(clean, { recursive: true, force: true });
+  }
+
+  const defect = mkdtempSync(join(tmpdir(), "vivicy-rehearsal-accept-defect-"));
+  try {
+    writeAcceptanceFixture(defect);
+    const report = await acc.runAcceptance({
+      repoRoot: defect,
+      spawnLeg: async ({ repoRoot, verdictRel }: { repoRoot: string; verdictRel: string }) => {
+        const abs = join(repoRoot, verdictRel);
+        mkdirSync(dirname(abs), { recursive: true });
+        writeFileSync(abs, JSON.stringify({
+          accepted: false,
+          scenarios: [{ id: "checkout-end-to-end", verification: "executed", result: "fail" }],
+          findings: [{ obligation: ".vivicy/canonical/04-checkout.md:20 (REQ-0012)", gap: "the ISS-0001/ISS-0002 seam drops the tax line, so the checkout total is not tax-inclusive end to end", title: "Checkout total must be tax-inclusive end to end", classification: "minor_product_change", verification: "executed" }],
+        }));
+      },
+    });
+    const crs = existsSync(join(defect, ".vivicy/change-requests")) ? readdirSync(join(defect, ".vivicy/change-requests")).filter((f) => /^CR-\d{4}-.*\.md$/.test(f)) : [];
+    const crId = crs[0]?.match(/^CR-\d{4}/)?.[0];
+    record(
+      "acceptance (planted cross-issue defect): gap found, routed to a draft CR via change-control, Done WITHHELD",
+      report?.phase === "findings" && crs.length === 1 && report.drafted_crs?.[0] === crId && report.phase !== "green",
+      `phase ${report?.phase ?? "?"}; drafted ${report?.drafted_crs?.join(",") ?? "none"}`,
+    );
+  } finally {
+    rmSync(defect, { recursive: true, force: true });
   }
 }
 

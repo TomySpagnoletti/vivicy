@@ -1,6 +1,7 @@
 import type { RunStatus } from "@/lib/run-status"
 import type { SkillsReport } from "@/lib/skills-report"
 import type { DocPrepReport } from "@/lib/doc-prep-report"
+import { ACCEPTANCE_IN_FLIGHT_PHASES, type AcceptanceReport } from "@/lib/acceptance-report"
 
 export type StageMarker = "user" | "agent" | "mixed"
 export type StageSide = "non_loop" | "dev_loop"
@@ -28,6 +29,7 @@ export const PIPELINE_STAGES: PipelineStage[] = [
   { id: "S9", marker: "agent", side: "dev_loop", retryStage: "dev" },
   { id: "S10", marker: "mixed", side: "dev_loop" },
   { id: "S11", marker: "mixed", side: "dev_loop" },
+  { id: "SA", marker: "agent", side: "dev_loop", retryStage: "dev" },
   { id: "S12", marker: "user", side: "dev_loop" },
 ]
 
@@ -61,7 +63,8 @@ export function deriveStageStates(
   status: RunStatus | null,
   extraction: ExtractionStatusLike | null,
   skills: SkillsReport | null = null,
-  docPrep: DocPrepReport | null = null
+  docPrep: DocPrepReport | null = null,
+  acceptance: AcceptanceReport | null = null
 ): Record<string, StageState> {
   const states: Record<string, StageState> = {}
   for (const stage of PIPELINE_STAGES) states[stage.id] = "pending"
@@ -77,6 +80,7 @@ export function deriveStageStates(
   applyExtractionStates(states, extraction)
   applySkillsStates(states, skills)
   applyDevStates(states, status)
+  applyAcceptanceStates(states, status, acceptance)
 
   return states
 }
@@ -181,5 +185,27 @@ function applyDevStates(
   // Stopped mid-way with no failing gate: S8-S10 stay pending, not green — resolveRunPhase treats this as "idle", not "done", and marking them green would fabricate completion.
 
   // S11 has no signal here (the widget doesn't poll the CR registry) — left pending rather than fabricating a CR-free "green".
-  if (done >= total && total > 0) states.S12 = "green"
+  // S12 (Done) is NOT flipped here: it is withheld until the whole-product acceptance pass reports clean (applyAcceptanceStates).
+}
+
+const ACCEPTANCE_RUNNING_PHASES = new Set<string>(ACCEPTANCE_IN_FLIGHT_PHASES)
+
+// SA is the whole-product acceptance leg; Done (S12) flips only once SA is green, so an all-issues-done build with a broken cross-issue seam never reads as delivered.
+function applyAcceptanceStates(
+  states: Record<string, StageState>,
+  status: RunStatus | null,
+  acceptance: AcceptanceReport | null
+): void {
+  const total = status?.issues_total ?? 0
+  const done = status?.issues_done ?? 0
+  const allDone = total > 0 && done >= total
+
+  const phase = acceptance?.phase
+  if (phase) {
+    if (ACCEPTANCE_RUNNING_PHASES.has(phase)) states.SA = "running"
+    else if (phase === "green") states.SA = "green"
+    else if (phase === "findings" || phase === "failed") states.SA = "red"
+  }
+
+  if (allDone && phase === "green") states.S12 = "green"
 }

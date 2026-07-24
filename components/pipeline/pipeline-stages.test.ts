@@ -23,10 +23,10 @@ function status(overrides: Partial<RunStatus> = {}): RunStatus {
   }
 }
 
-describe("PIPELINE_STAGES — full stage list + SP + SK", () => {
-  it("has exactly the 15 stages with SP first in the dev-loop (before S2) and SK between S7 and S8, in order", () => {
+describe("PIPELINE_STAGES — full stage list + SP + SK + SA", () => {
+  it("has exactly the 16 stages with SP before S2, SK between S7 and S8, and SA (acceptance) between S11 and S12, in order", () => {
     expect(PIPELINE_STAGES.map((s) => s.id)).toEqual([
-      "S0", "S1", "SP", "S2", "S3", "S4", "S5", "S6", "S7", "SK", "S8", "S9", "S10", "S11", "S12",
+      "S0", "S1", "SP", "S2", "S3", "S4", "S5", "S6", "S7", "SK", "S8", "S9", "S10", "S11", "SA", "S12",
     ])
   })
 
@@ -39,11 +39,12 @@ describe("PIPELINE_STAGES — full stage list + SP + SK", () => {
     expect(sides.S12).toBe("dev_loop")
   })
 
-  it("assigns the honest retry set (SP prepare, S6 extract, SK skills, S9 dev) and nothing else", () => {
+  it("assigns the honest retry set (SP prepare, S6 extract, SK skills, S9+SA dev) and nothing else", () => {
     const retryable = PIPELINE_STAGES.filter((s) => s.retryStage).map((s) => s.id)
-    expect(retryable).toEqual(["SP", "S6", "SK", "S9"])
+    expect(retryable).toEqual(["SP", "S6", "SK", "S9", "SA"])
     expect(PIPELINE_STAGES.find((s) => s.id === "SP")?.retryStage).toBe("prepare")
     expect(PIPELINE_STAGES.find((s) => s.id === "SK")?.retryStage).toBe("skills")
+    expect(PIPELINE_STAGES.find((s) => s.id === "SA")?.retryStage).toBe("dev")
   })
 
   it("carries no display label — those live in the pipeline message catalog", () => {
@@ -67,6 +68,7 @@ describe("PIPELINE_STAGES — full stage list + SP + SK", () => {
       S9: "agent",
       S10: "mixed",
       S11: "mixed",
+      SA: "agent",
       S12: "user",
     })
   })
@@ -152,7 +154,7 @@ describe("deriveStageStates — honest state truth, no fake progress", () => {
     expect(states.S9).toBe("red")
   })
 
-  it("all issues done marks S8-S10 and S12 green, S11 stays pending (not observed here)", () => {
+  it("all issues done marks S8-S10 green but WITHHOLDS S12 until the acceptance pass reports (no acceptance report yet)", () => {
     const states = deriveStageStates(
       status({ run_active: false, issues_total: 8, issues_done: 8 }),
       { phase: "green" }
@@ -160,13 +162,76 @@ describe("deriveStageStates — honest state truth, no fake progress", () => {
     expect(states.S8).toBe("green")
     expect(states.S9).toBe("green")
     expect(states.S10).toBe("green")
-    expect(states.S12).toBe("green")
+    expect(states.SA).toBe("pending")
+    expect(states.S12).toBe("pending")
     expect(states.S11).toBe("pending")
+  })
+
+  it("all issues done PLUS a green acceptance pass flips SA and S12 green", () => {
+    const states = deriveStageStates(
+      status({ run_active: false, issues_total: 8, issues_done: 8 }),
+      { phase: "green" },
+      null,
+      null,
+      { phase: "green" }
+    )
+    expect(states.SA).toBe("green")
+    expect(states.S12).toBe("green")
+  })
+
+  it("acceptance in flight (checking) pulses SA running and keeps S12 pending", () => {
+    const states = deriveStageStates(
+      status({ run_active: false, issues_total: 8, issues_done: 8 }),
+      { phase: "green" },
+      null,
+      null,
+      { phase: "checking" }
+    )
+    expect(states.SA).toBe("running")
+    expect(states.S12).toBe("pending")
+  })
+
+  it("acceptance findings mark SA red and WITHHOLD S12 — a build with a routed whole-product gap never reads as Done", () => {
+    const states = deriveStageStates(
+      status({ run_active: false, issues_total: 8, issues_done: 8 }),
+      { phase: "green" },
+      null,
+      null,
+      { phase: "findings", drafted_crs: ["CR-0007"] }
+    )
+    expect(states.SA).toBe("red")
+    expect(states.S12).toBe("pending")
+  })
+
+  it("a failed acceptance leg marks SA red and withholds S12 (never a silent Done)", () => {
+    const states = deriveStageStates(
+      status({ run_active: false, issues_total: 8, issues_done: 8 }),
+      { phase: "green" },
+      null,
+      null,
+      { phase: "failed" }
+    )
+    expect(states.SA).toBe("red")
+    expect(states.S12).toBe("pending")
+  })
+
+  it("a green acceptance report while issues are still unfinished never fabricates S12 (allDone gate)", () => {
+    const states = deriveStageStates(
+      status({ run_active: false, issues_total: 8, issues_done: 5 }),
+      { phase: "green" },
+      null,
+      null,
+      { phase: "green" }
+    )
+    expect(states.S12).toBe("pending")
   })
 
   it("never fabricates S11 green — it has no observed signal in this derivation", () => {
     const states = deriveStageStates(
       status({ run_active: false, issues_total: 8, issues_done: 8 }),
+      { phase: "green" },
+      null,
+      null,
       { phase: "green" }
     )
     expect(states.S11).not.toBe("green")

@@ -31,7 +31,7 @@ const IDLE_STATUS = {
   gates: { pass: 0, fail: 0 },
 }
 
-function stubFetch(extractionStatus: unknown = null, skillsReport: unknown = null, docPrepReport: unknown = null) {
+function stubFetch(extractionStatus: unknown = null, skillsReport: unknown = null, docPrepReport: unknown = null, acceptanceReport: unknown = null) {
   return vi.fn<typeof fetch>(async (input) => {
     const url = String(input)
     if (url.includes("/api/control/prepare")) {
@@ -42,6 +42,9 @@ function stubFetch(extractionStatus: unknown = null, skillsReport: unknown = nul
     }
     if (url.includes("/api/control/skills")) {
       return new Response(JSON.stringify({ ok: true, report: skillsReport }), { status: 200 })
+    }
+    if (url.includes("/api/control/acceptance")) {
+      return new Response(JSON.stringify({ ok: true, report: acceptanceReport }), { status: 200 })
     }
     if (url.includes("/api/control/retry-stage")) {
       return new Response(JSON.stringify({ ok: true, summary: "green" }), { status: 200 })
@@ -72,11 +75,11 @@ function renderWidget({ open = true }: { open?: boolean } = {}) {
 }
 
 describe("PipelineWidget — renders the full stage strip", () => {
-  test("renders all 15 stages (incl. SP and SK) when open", async () => {
+  test("renders all 16 stages (incl. SP, SK, and SA) when open", async () => {
     renderWidget()
     await act(() => FakeEventSource.last?.emit({ ...IDLE_STATUS, run_active: true, issues_total: 8, issues_done: 2 }))
 
-    for (const id of ["S0", "S1", "SP", "S2", "S3", "S4", "S5", "S6", "S7", "SK", "S8", "S9", "S10", "S11", "S12"]) {
+    for (const id of ["S0", "S1", "SP", "S2", "S3", "S4", "S5", "S6", "S7", "SK", "S8", "S9", "S10", "S11", "SA", "S12"]) {
       await waitFor(() => expect(document.querySelector(`[data-stage="${id}"]`)).toBeTruthy())
     }
   })
@@ -167,6 +170,31 @@ describe("PipelineWidget — state classes reflect the derived truth", () => {
 
     await waitFor(() =>
       expect(document.querySelector('[data-stage="S9"]')).toHaveAttribute("data-stage-state", "red")
+    )
+  })
+
+  test("all issues done + green acceptance flips SA and S12 green; findings hold S12 back", async () => {
+    vi.stubGlobal("fetch", stubFetch({ phase: "green" }, null, null, { phase: "green" }))
+    renderWidget()
+    await act(() =>
+      FakeEventSource.last?.emit({ ...IDLE_STATUS, run_active: false, issues_total: 8, issues_done: 8 })
+    )
+    await waitFor(() =>
+      expect(document.querySelector('[data-stage="SA"]')).toHaveAttribute("data-stage-state", "green")
+    )
+    await waitFor(() =>
+      expect(document.querySelector('[data-stage="S12"]')).toHaveAttribute("data-stage-state", "green")
+    )
+
+    vi.stubGlobal("fetch", stubFetch({ phase: "green" }, null, null, { phase: "findings", drafted_crs: ["CR-0007"] }))
+    await act(() =>
+      FakeEventSource.last?.emit({ ...IDLE_STATUS, run_active: false, issues_total: 8, issues_done: 8 })
+    )
+    await waitFor(() =>
+      expect(document.querySelector('[data-stage="SA"]')).toHaveAttribute("data-stage-state", "red")
+    )
+    await waitFor(() =>
+      expect(document.querySelector('[data-stage="S12"]')).toHaveAttribute("data-stage-state", "pending")
     )
   })
 })

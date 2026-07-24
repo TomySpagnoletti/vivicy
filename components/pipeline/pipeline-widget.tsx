@@ -8,6 +8,7 @@ import { toast } from "sonner"
 import type { RunStatus } from "@/lib/run-status"
 import type { SkillsReport } from "@/lib/skills-report"
 import type { DocPrepReport } from "@/lib/doc-prep-report"
+import type { AcceptanceReport } from "@/lib/acceptance-report"
 import { errorText } from "@/lib/i18n-errors"
 import { cn } from "@/lib/utils"
 import {
@@ -62,6 +63,11 @@ interface DocPrepReportResponse {
   report?: DocPrepReport | null
 }
 
+interface AcceptanceReportResponse {
+  ok?: boolean
+  report?: AcceptanceReport | null
+}
+
 type RetryableStage = NonNullable<(typeof PIPELINE_STAGES)[number]["retryStage"]>
 
 // Polls /api/control/prepare, /api/control/extract and /api/control/skills — a second read of already-existing state files, never a new source of truth.
@@ -72,6 +78,7 @@ export function PipelineWidget({ open = false }: { open?: boolean } = {}) {
   const [extraction, setExtraction] = useState<ExtractionStatusLike | null>(null)
   const [skills, setSkills] = useState<SkillsReport | null>(null)
   const [docPrep, setDocPrep] = useState<DocPrepReport | null>(null)
+  const [acceptance, setAcceptance] = useState<AcceptanceReport | null>(null)
   const [retryPending, setRetryPending] = useState<RetryableStage | null>(null)
 
   const fetchReports = useCallback(async () => {
@@ -89,6 +96,11 @@ export function PipelineWidget({ open = false }: { open?: boolean } = {}) {
       const res = await fetch("/api/control/skills", { cache: "no-store" })
       const body = (await res.json().catch(() => ({}))) as SkillsReportResponse
       if (res.ok && body.ok !== false) setSkills(body.report ?? null)
+    } catch {}
+    try {
+      const res = await fetch("/api/control/acceptance", { cache: "no-store" })
+      const body = (await res.json().catch(() => ({}))) as AcceptanceReportResponse
+      if (res.ok && body.ok !== false) setAcceptance(body.report ?? null)
     } catch {}
   }, [])
 
@@ -148,7 +160,7 @@ export function PipelineWidget({ open = false }: { open?: boolean } = {}) {
 
   if (!open) return null
 
-  const states = deriveStageStates(status, extraction, skills, docPrep)
+  const states = deriveStageStates(status, extraction, skills, docPrep, acceptance)
 
   return (
     <div

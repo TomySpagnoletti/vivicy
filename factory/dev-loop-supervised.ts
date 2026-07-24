@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { findFrozenManifest } from "./extract-issues.ts";
 import { SKILLS_REPORT_REL } from "./install-skills.ts";
 import { resolveTargetRoot } from "./target-root.ts";
+import { ACCEPTANCE_REPORT_FILE } from "../lib/acceptance-report.ts";
 
 const STALL_LIMIT = Number(process.env.DEV_LOOP_STALL_LIMIT ?? "3");
 const MAX_RELAUNCHES = Number(process.env.DEV_LOOP_MAX_RELAUNCHES ?? "200");
@@ -46,6 +47,21 @@ export function skillsStageNeeded(
   if (!report) return true;
   const settled = report.phase === "green" || report.phase === "skipped";
   return !settled || report.baseline_id !== baseline.baselineId;
+}
+
+// Any outcome other than a written "green" report (explicit "findings"/"failed", a crashed child, a missing report) withholds Done loudly — never a silent success.
+function runAcceptanceStage(scriptDir: string, repoRoot: string): "green" | "findings" | "failed" {
+  process.stdout.write("supervisor: running the whole-product acceptance stage (acceptance.ts)\n");
+  spawnSync("node", [join(scriptDir, "acceptance.ts")], { cwd: repoRoot, stdio: "inherit", env: process.env });
+  let phase: unknown;
+  try {
+    phase = (JSON.parse(readFileSync(join(repoRoot, ACCEPTANCE_REPORT_FILE), "utf8")) as { phase?: unknown }).phase;
+  } catch {
+    phase = undefined;
+  }
+  if (phase === "green") return "green";
+  if (phase === "findings") return "findings";
+  return "failed";
 }
 
 function main() {
@@ -108,6 +124,14 @@ function main() {
     lastDone = done;
     const { action } = nextSupervisorAction({ done, total, blocked, attempt, stall });
     if (action !== "relaunch") {
+      if (action === "done" && !rehearsal) {
+        const outcome = runAcceptanceStage(scriptDir, repoRoot);
+        if (outcome !== "green") {
+          writeState({ status: `acceptance_${outcome}`, attempt, done, total, blocked });
+          process.stdout.write(`supervisor: acceptance ${outcome} — Done withheld (done ${done}/${total}); see ${ACCEPTANCE_REPORT_FILE}\n`);
+          process.exit(1);
+        }
+      }
       writeState({ status: action, attempt, done, total, blocked });
       const ok = action === "done";
       process.stdout.write(`supervisor: ${action} (done ${done}/${total}, blocked ${blocked}, attempts ${attempt})\n`);

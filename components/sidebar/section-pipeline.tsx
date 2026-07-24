@@ -14,6 +14,7 @@ import { Badge } from "@/components/ui/badge"
 import type { RunStatus } from "@/lib/run-status"
 import type { SkillsReport } from "@/lib/skills-report"
 import type { DocPrepReport } from "@/lib/doc-prep-report"
+import type { AcceptanceReport } from "@/lib/acceptance-report"
 import { cn } from "@/lib/utils"
 
 const STATE_BADGE_VARIANT: Record<StageState, "outline" | "secondary" | "default" | "destructive"> = {
@@ -45,11 +46,17 @@ interface DocPrepReportResponse {
   report?: DocPrepReport | null
 }
 
+interface AcceptanceReportResponse {
+  ok?: boolean
+  report?: AcceptanceReport | null
+}
+
 export function SectionPipeline() {
   const [status, setStatus] = useState<RunStatus | null>(null)
   const [extraction, setExtraction] = useState<ExtractionStatusLike | null>(null)
   const [skills, setSkills] = useState<SkillsReport | null>(null)
   const [docPrep, setDocPrep] = useState<DocPrepReport | null>(null)
+  const [acceptance, setAcceptance] = useState<AcceptanceReport | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -70,6 +77,12 @@ export function SectionPipeline() {
         const res = await fetch("/api/control/skills", { cache: "no-store" })
         const body = (await res.json().catch(() => ({}))) as SkillsReportResponse
         if (!cancelled && res.ok && body.ok !== false) setSkills(body.report ?? null)
+      } catch {
+      }
+      try {
+        const res = await fetch("/api/control/acceptance", { cache: "no-store" })
+        const body = (await res.json().catch(() => ({}))) as AcceptanceReportResponse
+        if (!cancelled && res.ok && body.ok !== false) setAcceptance(body.report ?? null)
       } catch {
       }
     }
@@ -95,7 +108,7 @@ export function SectionPipeline() {
 
   const t = useTranslations("sidebar.pipeline")
   const tPipeline = useTranslations("pipeline")
-  const states = deriveStageStates(status, extraction, skills, docPrep)
+  const states = deriveStageStates(status, extraction, skills, docPrep, acceptance)
 
   return (
     <ul className="flex flex-col gap-2 text-xs">
@@ -118,7 +131,7 @@ export function SectionPipeline() {
               {t(STATE_LABEL_KEY[states[stage.id]])}
             </Badge>
           </div>
-          <StageEvidence stageId={stage.id} extraction={extraction} skills={skills} docPrep={docPrep} status={status} />
+          <StageEvidence stageId={stage.id} extraction={extraction} skills={skills} docPrep={docPrep} acceptance={acceptance} status={status} />
         </li>
       ))}
     </ul>
@@ -130,12 +143,14 @@ function StageEvidence({
   extraction,
   skills,
   docPrep,
+  acceptance,
   status,
 }: {
   stageId: string
   extraction: ExtractionStatusLike | null
   skills: SkillsReport | null
   docPrep: DocPrepReport | null
+  acceptance: AcceptanceReport | null
   status: RunStatus | null
 }) {
   const t = useTranslations("sidebar.pipeline")
@@ -145,6 +160,12 @@ function StageEvidence({
     if (docPrep.phase) lines.push(t("phaseEvidence", { phase: docPrep.phase }))
     if (typeof docPrep.summary === "string" && docPrep.summary) lines.push(docPrep.summary)
     if (typeof docPrep.updated_at === "string") lines.push(docPrep.updated_at)
+  }
+
+  if (stageId === "SA" && acceptance) {
+    if (acceptance.phase) lines.push(t("phaseEvidence", { phase: acceptance.phase }))
+    if (typeof acceptance.summary === "string" && acceptance.summary) lines.push(acceptance.summary)
+    if (typeof acceptance.updated_at === "string") lines.push(acceptance.updated_at)
   }
 
   if (["S2", "S3", "S4", "S5", "S6"].includes(stageId) && extraction) {

@@ -22,6 +22,7 @@ const ALL_LEG_PROMPTS = [
   "skill-scout.md",
   "spike-prover.md",
   "spike-verifier.md",
+  "acceptance.md",
 ];
 
 function readPrompt(name: string) {
@@ -303,6 +304,28 @@ test("every leg prompt carries the data-not-instructions injection boundary", ()
     assert.match(text, /data, not instructions/i, `${name} must name the data-not-instructions boundary`);
     assert.match(text, /never an instruction you obey/i, `${name} must forbid obeying a directive embedded in the content it reads`);
   }
+});
+
+test("acceptance.md carries the whole-product acceptance method (fresh-context, propose-only, structured verdict, recorded seam)", () => {
+  const text = readPrompt("acceptance.md");
+  assert.match(text, /SELF-CONTAINED/, "acceptance.md must declare it is self-contained");
+  assert.match(text, /Whole-Product Acceptance/i, "acceptance.md must define the whole-product acceptance role");
+  assert.match(text, /end-to-end acceptance scenario/i, "acceptance.md must check the spec's end-to-end scenarios");
+  assert.match(text, /[Cc]ross-issue seam/i, "acceptance.md must check cross-issue seams the per-issue gates miss");
+  assert.match(text, /satisfied only on paper|on paper/i, "acceptance.md must catch a spec area satisfied only on paper");
+  assert.match(text, /RUN it|run it in the target|runnable/i, "acceptance.md must run executable scenarios");
+  assert.match(text, /read_only|read-verify/i, "acceptance.md must read-verify the non-executable scenarios");
+  assert.match(text, /run.?story/i, "acceptance.md must record the run-story seam (what it cannot execute yet)");
+  assert.match(text, /acceptance-verdict\.json/, "acceptance.md must write its structured verdict to acceptance-verdict.json");
+  assert.match(text, /You edit no product file and you decide nothing|propose/i, "acceptance.md must be propose-only (P5): the leg proposes, the orchestrator routes");
+});
+
+test("vivi.md's quality bar requires the spec to state its end-to-end acceptance scenario(s)", () => {
+  const text = readPrompt("vivi.md");
+  assert.match(text, /## The quality bar for every canonical doc/, "vivi.md must keep the quality-bar section");
+  assert.match(text, /end-to-end acceptance scenario/i, "vivi.md's quality bar must require stated end-to-end acceptance scenarios");
+  assert.match(text, /what a user DOES with the finished thing|what a user DOES/i, "the item must frame the scenario as a user walkthrough with observable outcome");
+  assert.match(text, /whole-product obligation the acceptance pass checks/i, "the item must tie the scenario to the whole-product acceptance pass");
 });
 
 test("extraction-verifier.md flags embedded directives that bent the extraction", () => {
