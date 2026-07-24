@@ -1,6 +1,6 @@
 # Vivicy — exhaustive test matrix
 
-Reconciled fingerprint: `5742d537e9d0b6700db18c6fc63ed306191fc7411429f6f17c0aa996bb85b524` @ commit `f3c8c5a6a9c1f116bc7c76434f07d3b10a837904`
+Reconciled fingerprint: `0c2728ce605c560fc57ad54e4d60ed84b370ecbdb6a0a28fda7edf75ae8339ed` @ commit `1064249c424632690c3e27dfe9e44f0418c2b03d`
 
 
 This file is the exhaustive, always-current inventory of every test case for Vivicy — every behavior the system has, whether it is covered by a test today or is a known GAP. It is **committed and machine-guarded**: the `Reconciled fingerprint` line above hashes the behavior-bearing source tree and records the HEAD commit at reconciliation time, and `scripts/test-matrix.test.ts` fails the vitest suite when code changes without this file being reconciled and re-stamped (`npm run matrix:stamp`). `git log test/TEST-MATRIX.md` is the audit trail of reconciliations. It is the single source of truth for "what should be tested" across the app (`app/`, `components/`, `lib/`) and the factory (`factory/`). It was assembled from a full per-area audit pass plus three adversarial cross-matrices (user journeys, parallel/merge chaos, process/crash chaos).
@@ -18,7 +18,7 @@ This file is the exhaustive, always-current inventory of every test case for Viv
 |---|---:|---:|---:|
 | app-shell-sidebar-ui-kit | 388 | 269 | 119 |
 | baselines-change-requests | 266 | 203 | 63 |
-| cli-supervisor-process-infra | 469 | 246 | 223 |
+| cli-supervisor-process-infra | 471 | 246 | 225 |
 | control-plane-api-routes | 491 | 231 | 260 |
 | dev-loop-worktrees-merge | 307 | 143 | 164 |
 | e2e-test-infra-rehearsal | 289 | 102 | 187 |
@@ -30,7 +30,7 @@ This file is the exhaustive, always-current inventory of every test case for Viv
 | cross-journeys | 82 | 65 | 17 |
 | cross-chaos-parallel-merge | 47 | 33 | 14 |
 | cross-chaos-process | 46 | 43 | 3 |
-| **TOTAL** | **3880** | **2153** | **1727** |
+| **TOTAL** | **3882** | **2153** | **1729** |
 
 ---
 
@@ -1423,6 +1423,8 @@ Out of this area's primary concern (prompt content, not CLI/process infra) but i
 - [cli-supervisor-process-infra.474] vivi.md's quality bar requires the spec to state its end-to-end acceptance scenario(s) — a user walkthrough with an observable outcome — tied to the whole-product acceptance pass | pinned phrases in vivi.md's quality-bar section | unit | prompts.test.ts ("vivi.md's quality bar requires the spec to state its end-to-end acceptance scenario(s)")
 - [cli-supervisor-process-infra.477] the run-command lifecycle is pinned across the implementer/reviewer/extractor prompts (mirrors the gate-command chain): implementer.md + reviewer.md carry the `{{run_command_directive}}` injection point and the establish-then-never-revert discipline; extractor.md carries the "Run command (only if the canonical STATES it)" section writing `extraction-run-command.json`, never guessing, never the test runner | pinned phrases across three prompts | unit | prompts.test.ts ("the run-command lifecycle is pinned across the implementer/reviewer/extractor prompts")
 - [cli-supervisor-process-infra.478] vivi.md's quality bar requires the spec to state how it runs and ships — the run command + environment, and the deploy target with its rollback expectation (or an explicit none) — never inventing them, tying the run command to `vivicy.json#runCommand` and a named deploy target to ordinary extracted issues | pinned phrases in vivi.md's quality-bar section | unit | prompts.test.ts ("vivi.md's quality bar requires the spec to state how the product runs and ships (run command + deploy story)")
+- [cli-supervisor-process-infra.479] vivi.md's quality bar grills the quality AMBITION — what GOOD looks like for this product (polish standard, the reference products/experiences the owner points at, the moments that must feel effortless/instant, what would make the owner reject the plate at tasting) — and translates a non-technical bar ("like <product>", "it should feel instant", "my mother could use it") into concrete checkable statements, each becoming an obligation the reviewer + acceptance pass judge the assembled build against | pinned phrases in vivi.md's quality-bar section, mutation-honest per dimension | unit | prompts.test.ts ("vivi.md's quality bar grills the quality ambition (what GOOD looks like) and translates non-technical bars into checkable statements")
+- [cli-supervisor-process-infra.480] reviewer.md and acceptance.md judge the build against the spec's STATED ambition, not just its functional letter: reviewer.md returns `not_faithful` when a change ships below the stated bar (a fidelity miss, no new machinery); acceptance.md records a below-ambition build as a whole-product gap and bounds the check to the bar the spec actually stated (never the leg's own taste) | pinned phrases in both prompts, mutation-honest | unit | prompts.test.ts ("reviewer.md and acceptance.md judge the build against the spec's stated ambition, not just its functional letter")
 - [cli-supervisor-process-infra.471] extraction-verifier.md carries the S7 check that embedded directives in the corpus were NOT obeyed (a directive-shaped/prompt-injection sentence that visibly bent the extraction is a fidelity finding) plus the `embedded_directive_obeyed` problem kind in its verdict slug list | not-obeyed check heading + prompt-injection naming + the new kind slug all present | unit | prompts.test.ts ("extraction-verifier.md flags embedded directives that bent the extraction")
 - [cli-supervisor-process-infra.472] prompts.test.ts locks vivi.md's "When it burns" red-gate playbook: the on-disk report paths to read (`<issue-id>-blocked.json`, `extraction-status.json`, `<issue-id>-gate.json`, `development/transcripts/`), the four cause classes (transient / environment / spec contradiction / quota), the per-class action (`pipeline.retry` for transient, a Change Request for spec contradiction, `quota-state.json` for quota), and the P2 propose-one-action discipline ("You PROPOSE; the owner clicks") | all pinned substrings present, mutation-honest | unit | prompts.test.ts ("vivi.md carries the red-gate playbook: report paths, the four cause classes, and the propose-one-action discipline")
 

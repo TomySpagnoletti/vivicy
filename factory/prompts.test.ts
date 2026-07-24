@@ -353,6 +353,30 @@ test("vivi.md's quality bar requires the spec to state how the product runs and 
   assert.match(text, /never invent a run command or a deploy target/i, "the item must forbid inventing run/deploy details the owner did not state");
 });
 
+test("vivi.md's quality bar grills the quality ambition (what GOOD looks like) and translates non-technical bars into checkable statements", () => {
+  const text = readPrompt("vivi.md");
+  assert.match(text, /State the quality ambition — what GOOD looks like/i, "vivi.md's quality bar must carry the ambition item");
+  assert.match(text, /gap between "it runs" and "it's good"/i, "the item must name the mediocre gap the ambition closes");
+  assert.match(text, /reference products or experiences the owner points at/i, "the item must grill the reference products/experiences the owner points at");
+  assert.match(text, /moments that must feel effortless or instant/i, "the item must grill the moments that must feel effortless");
+  assert.match(text, /would make the owner reject the plate at tasting/i, "the item must grill what would make the owner reject the result");
+  assert.match(text, /my mother could use it/, "the item must translate a non-technical ambition example");
+  assert.match(text, /into concrete, checkable statements/i, "the translation duty must produce concrete checkable statements");
+  assert.match(text, /the reviewer and the acceptance pass judge the assembled build against/i, "the ambition must become an obligation the reviewer + acceptance pass judge against");
+});
+
+test("reviewer.md and acceptance.md judge the build against the spec's stated ambition, not just its functional letter", () => {
+  const reviewer = readPrompt("reviewer.md");
+  assert.match(reviewer, /Judge against the spec's ambition, not only its letter/i, "reviewer.md must carry the judge-against-ambition line");
+  assert.match(reviewer, /ships below the stated bar is a fidelity miss/i, "reviewer.md must make a below-ambition result a fidelity miss");
+  assert.match(reviewer, /returned `not_faithful`/, "the reviewer ambition miss must route through its existing not_faithful verdict, no new machinery");
+
+  const acceptance = readPrompt("acceptance.md");
+  assert.match(acceptance, /Ambition, not only the functional letter/i, "acceptance.md must carry the judge-against-ambition check");
+  assert.match(acceptance, /ships below its own stated bar is a whole-product gap/i, "acceptance.md must make a below-ambition build a whole-product gap");
+  assert.match(acceptance, /never an ambition the canonical did not state/i, "acceptance.md must bound the check to the spec's stated bar, not the leg's taste");
+});
+
 test("extraction-verifier.md flags embedded directives that bent the extraction", () => {
   const text = readPrompt("extraction-verifier.md");
   assert.match(text, /Embedded directives were NOT obeyed/i, "verifier must carry the not-obeyed check");
