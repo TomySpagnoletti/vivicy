@@ -1,6 +1,6 @@
 # Vivicy — exhaustive test matrix
 
-Reconciled fingerprint: `d694cf64296a1d9b003bbb165e6a4b0bb8c212c21385df19ee98ea8f03e0a4a1` @ commit `078973a7ed678aab6a4aca78ff6a679a8e02b4a5`
+Reconciled fingerprint: `48c703c914be2a72cc6eba1bfc9e9b403bc8cdd0b0f39de7a092411d10d9147b` @ commit `c50e4eb8b60a28b241d26f271e4d50940b06c5ed`
 
 
 This file is the exhaustive, always-current inventory of every test case for Vivicy — every behavior the system has, whether it is covered by a test today or is a known GAP. It is **committed and machine-guarded**: the `Reconciled fingerprint` line above hashes the behavior-bearing source tree and records the HEAD commit at reconciliation time, and `scripts/test-matrix.test.ts` fails the vitest suite when code changes without this file being reconciled and re-stamped (`npm run matrix:stamp`). `git log test/TEST-MATRIX.md` is the audit trail of reconciliations. It is the single source of truth for "what should be tested" across the app (`app/`, `components/`, `lib/`) and the factory (`factory/`). It was assembled from a full per-area audit pass plus three adversarial cross-matrices (user journeys, parallel/merge chaos, process/crash chaos).
@@ -24,13 +24,13 @@ This file is the exhaustive, always-current inventory of every test case for Viv
 | e2e-test-infra-rehearsal | 287 | 102 | 185 |
 | extraction-gates | 295 | 160 | 135 |
 | map-ui-data-viewer | 289 | 187 | 102 |
-| onboarding-project-scaffold | 318 | 176 | 142 |
+| onboarding-project-scaffold | 320 | 176 | 144 |
 | pipeline-notifications-agents-ui | 199 | 120 | 79 |
 | upload-vivi-chat | 372 | 174 | 198 |
 | cross-journeys | 82 | 65 | 17 |
 | cross-chaos-parallel-merge | 47 | 33 | 14 |
 | cross-chaos-process | 46 | 43 | 3 |
-| **TOTAL** | **3803** | **2145** | **1658** |
+| **TOTAL** | **3805** | **2145** | **1660** |
 
 ---
 
@@ -3894,6 +3894,7 @@ Area: extraction-gates. Scope: `factory/extract-issues.ts`, `factory/semantic-ex
 - [onboarding-project-scaffold.276] | Template contains exactly one `{{PROJECT_NAME}}` token (in the H1) | Fully substituted by `scaffoldProject`, none remains post-render | unit | scaffold.test.ts (asserts substitution + absence of token)
 - [onboarding-project-scaffold.277] | AGENTS.md carries a single `{{PROJECT_NAME}}` token and no other placeholder — the gate command value lives only in `vivicy.json`, never embedded in prose that could rot | Rendering AGENTS.md with only the PROJECT_NAME replacement leaves the file otherwise byte-stable | unit | GAP
 - [onboarding-project-scaffold.278] | Template's prose forbids implementing product behavior "from memory" and lists the frozen/read-only corpus — a content/policy invariant, not code | No automated test can verify prose intent; a change here is a governance decision, not a bug | n/a | GAP (policy content, not testable in the traditional sense — flag for human review on template edits)
+- [onboarding-project-scaffold.382] | The `vivicy:method` block extracted from the template carries tier-1 machinery defense (uploads immutable, `vivicy.json` machine-owned/never-hand-edited, never weaken the gate) and tier-2 discipline (reach green honestly, a test must discriminate, refactor don't accrete, diagnose before rewriting, no side-channel around a spec conflict) as dense one-liners | `extractManagedBlock(template, METHOD_MARKERS)` contains every tier-1/tier-2 phrase and keeps the existing corpus/transcript/language rules; no tier-3 code-culture (zero comments, time markers) leaks inside the markers | unit | scaffold.test.ts ("extractManagedBlock yields the enriched tier-1 machinery defense and tier-2 discipline, with no code-culture (tier-3) content inside the markers")
 
 ### factory/templates/CLAUDE.md
 
@@ -3972,6 +3973,7 @@ Area: extraction-gates. Scope: `factory/extract-issues.ts`, `factory/semantic-ex
 - [onboarding-project-scaffold.376] `scaffoldProject` existing-project applies the managed-block law: AGENTS.md/CLAUDE.md/.gitignore get exactly one block (the .gitignore block is the essentials only, NOT the generalist comfort rules), README/code/package.json stay byte-identical, CLAUDE.md/vivicy.json created; AGENTS.md and .gitignore appear in `written`, README does not | managed files edited in place, owner files untouched | integration | scaffold.test.ts ("appends an editable block to AGENTS.md and .gitignore …")
 - [onboarding-project-scaffold.377] `scaffoldProject` brownfield idempotence: a second scaffold pass leaves every shared file byte-identical and does not re-list AGENTS.md/.gitignore in `written` | second pass zero diff | integration | scaffold.test.ts ("is idempotent: a second scaffold pass leaves every shared file byte-identical")
 - [onboarding-project-scaffold.378] `scaffoldProject` restores an owner-mangled managed block (owner deleted the essentials inside the markers) while preserving the owner's own edits before and after the block | essentials restored, owner edits kept | integration | scaffold.test.ts ("restores an owner-mangled managed block while keeping their surrounding edits")
+- [onboarding-project-scaffold.383] `scaffoldProject` re-normalizes an already-governed AGENTS.md whose method block holds an OLDER canonical to the current enriched canonical on the next governance pass, delivering the new tier-1/tier-2 lines while owner bytes on both sides of the markers stay byte-identical (mutation-honest: the stale content genuinely differs and is replaced), exactly one block | old block → current canonical, owner text outside untouched | integration | scaffold.test.ts ("re-normalizes an already-governed AGENTS.md carrying an OLDER method block to the current canonical, owner bytes outside byte-identical")
 - [onboarding-project-scaffold.379] `scaffoldProject` raises `ScaffoldError "managed_block_corrupt"` and leaves the file byte-untouched when the owner corrupts the markers (e.g. a begin marker with no end) | typed refusal, no mutation | integration | scaffold.test.ts ("refuses loudly (typed error, file untouched) when the owner corrupts the managed markers")
 - [onboarding-project-scaffold.380] `scaffoldProject` from-scratch embeds exactly one managed block per shared governance file (greenfield is a re-governance fixpoint) and keeps the full generalist gitignore comfort rules (macOS/language sections) alongside the managed essentials | greenfield rich + one block each | unit | scaffold.test.ts ("writes the LEAN skeleton with the name substituted and sets the current project")
 - [onboarding-project-scaffold.381] `POST /api/project/govern` maps `ScaffoldError "managed_block_corrupt"` → HTTP 409 with the code in the body | 409 + `code: "managed_block_corrupt"` | unit | app/api/project/govern/route.test.ts ("maps ScaffoldError codes: … managed_block_corrupt → 409")

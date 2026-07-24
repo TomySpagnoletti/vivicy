@@ -8,9 +8,14 @@ This file is the technical entrypoint for any agent working in this repo — rea
 This repository is governed by the **Vivicy** development factory. The product truth is the frozen canonical spec under `.vivicy/canonical/**`, never this file or memory; Vivicy runs OUTSIDE the repository (the way `git` operates on a working tree) and is never vendored in.
 
 - During implementation the `.vivicy/**` extraction corpus is frozen and read-only: never modify `.vivicy/canonical/**`, `.vivicy/baselines/**`, `.vivicy/requirements/**`, `.vivicy/development/issue-index.json`, the issue files, or `.vivicy/architecture-map/**`.
+- `.vivicy/uploads/**` is immutable evidence — the raw imported batches a cycle is built from; never edit, "clean up", or delete them.
 - The orchestrator alone performs governance — git commits, the progress ledger, map edits, and moving issues to `done/`. Never commit, never write the ledger, never edit the map yourself. Transcripts under `.vivicy/development/transcripts/` stay on disk and never enter git history.
-- The verification gate is `vivicy.json`'s `gateCommand`; leave it green on the slice you were handed and touch nothing outside your mandate. Never hardcode machine-specific absolute paths.
-- When the intention itself is wrong, or a discovered constraint changes what must be built, raise a change request under `.vivicy/change-requests/` — never a silent code workaround and never a spec edit. Approving or rejecting a change request is the one human decision the loop waits for.
+- The verification gate is `vivicy.json`'s `gateCommand`, which Vivicy fills mechanically (as it does any per-issue `gate_command` override) — `vivicy.json` is machine-owned config, never hand-edited, since a hand "fix" breaks the contract. Leave the gate green on the slice you were handed, touch nothing outside your mandate, and never hardcode machine-specific absolute paths.
+- Reach green only honestly — never weaken the gate to pass it (no narrowing the gate command's scope, no disabling or loosening the tests it runs) and never lower the bar in your own tests (no weakened assertions, skipped cases, coverage narrowed off the real path, or synthetic proof in place of real behavior).
+- A test must discriminate — it fails on the defect it guards; a test that stays green whether the behavior works or not proves nothing.
+- Refactor, don't accrete — never stack workaround on workaround; collapse the area to the smallest correct design.
+- Diagnose before rewriting — reproduce the failure, localize the actual cause, then apply the smallest evidence-backed fix.
+- When the intention itself is wrong, or a discovered constraint or contract conflict changes what must be built, raise a change request under `.vivicy/change-requests/` — never a silent code workaround, side-channel hack, or spec edit. Approving or rejecting a change request is the one human decision the loop waits for.
 - Consult and apply any project skill Vivicy has installed (listed in the *Project skills* section Vivicy maintains at the end of this file) whose domain your work touches.
 - Write spec and documentation artifacts in the project's established language — the language of its own docs and imported sources, never assumed to be English; code identifiers follow the existing codebase's convention.
 <!-- vivicy:method:end -->

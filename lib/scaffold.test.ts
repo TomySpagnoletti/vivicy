@@ -5,10 +5,11 @@ import path from "node:path"
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 
-import { GITIGNORE_MARKERS, METHOD_MARKERS } from "@/lib/managed-block"
+import { extractManagedBlock, GITIGNORE_MARKERS, METHOD_MARKERS } from "@/lib/managed-block"
 import { getCurrentProject } from "@/lib/project"
 import {
   detectGateCommand,
+  getTemplatesRoot,
   resolveTargetDir,
   ScaffoldError,
   scaffoldProject,
@@ -313,6 +314,26 @@ describe("scaffoldProject — existing project (shared files get a managed block
     expect(count(restored, GITIGNORE_MARKERS.begin)).toBe(1)
   })
 
+  it("re-normalizes an already-governed AGENTS.md carrying an OLDER method block to the current canonical, owner bytes outside byte-identical", () => {
+    const target = path.join(workDir, "already-governed")
+    mkdirSync(target, { recursive: true })
+    const ownerHead = "# My guide\n\nHouse rules the owner wrote, above the managed block.\n\n"
+    const ownerTail = "\n## My own appendix\n\nOwner prose after the managed block, kept verbatim.\n"
+    const staleBlock = `${METHOD_MARKERS.begin}\n## Working under Vivicy\n\nAn older, thinner version of the method contract from a previous governance pass.\n\n- One stale bullet that the current canonical no longer carries.\n${METHOD_MARKERS.end}`
+    writeFileSync(path.join(target, "AGENTS.md"), `${ownerHead}${staleBlock}${ownerTail}`)
+
+    scaffoldProject({ targetDir: target, projectName: "Already Governed" })
+    const agents = readFileSync(path.join(target, "AGENTS.md"), "utf8")
+
+    expect(agents.startsWith(ownerHead), "owner bytes before the block stay byte-identical").toBe(true)
+    expect(agents.endsWith(ownerTail), "owner bytes after the block stay byte-identical").toBe(true)
+    expect(agents, "the stale block content is replaced, not kept").not.toContain("An older, thinner version")
+    expect(agents).not.toContain("One stale bullet")
+    expect(agents, "re-normalized to the current tier-1 machinery defense").toContain("immutable evidence")
+    expect(agents, "re-normalized to the current tier-2 discipline").toContain("A test must discriminate")
+    expect(count(agents, METHOD_MARKERS.begin), "still exactly one managed block").toBe(1)
+  })
+
   it("refuses loudly (typed error, file untouched) when the owner corrupts the managed markers", () => {
     const target = seedBrownfield()
     writeFileSync(
@@ -324,6 +345,30 @@ describe("scaffoldProject — existing project (shared files get a managed block
       expect.objectContaining({ code: "managed_block_corrupt" })
     )
     expect(readFileSync(path.join(target, "AGENTS.md"), "utf8"), "the corrupt file is never mutated").toBe(before)
+  })
+})
+
+describe("the vivicy:method block (single-sourced from the template)", () => {
+  it("extractManagedBlock yields the enriched tier-1 machinery defense and tier-2 discipline, with no code-culture (tier-3) content inside the markers", () => {
+    const template = readFileSync(path.join(getTemplatesRoot(), "AGENTS.md"), "utf8")
+    const block = extractManagedBlock(template, METHOD_MARKERS)
+
+    expect(block).toContain(".vivicy/uploads/")
+    expect(block).toContain("immutable evidence")
+    expect(block, "vivicy.json is machine-owned, never hand-edited").toMatch(/machine-owned config, never hand-edited/i)
+    expect(block).toMatch(/never weaken the gate to pass it/i)
+    expect(block).toMatch(/reach green only honestly/i)
+    expect(block).toContain("A test must discriminate")
+    expect(block).toMatch(/refactor, don't accrete/i)
+    expect(block).toMatch(/diagnose before rewriting/i)
+    expect(block, "no silent side-channel around a spec conflict").toMatch(/side-channel hack/i)
+
+    expect(block, "existing corpus rule preserved").toContain(".vivicy/development/transcripts/")
+    expect(block, "existing language law preserved").toMatch(/established language/i)
+
+    expect(block, "tier-3 zero-comments culture stays OUT of the block").not.toMatch(/zero comments/i)
+    expect(block, "tier-3 time-marker culture stays OUT of the block").not.toMatch(/moment in time/i)
+    expect(block).not.toMatch(/version marker/i)
   })
 })
 
