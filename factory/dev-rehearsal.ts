@@ -341,6 +341,7 @@ async function main(): Promise<void> {
   await runDocPrepScenario();
   await runCycleBatchScenarios();
   await runAcceptanceScenarios();
+  await runRetroScenarios();
   await runRunCommandExtractorScenario();
 
   writeReport({ dry, temp, processed, verified, blocked, totalIssues, doneCount, verifiedStates: verifiedStates.length, passingGates });
@@ -671,6 +672,102 @@ async function runAcceptanceScenarios(): Promise<void> {
     );
   } finally {
     rmSync(defect, { recursive: true, force: true });
+  }
+}
+
+// Observability-class stage running after acceptance green: isolated fixtures with a faked leg (the ≥2-occurrence floor, landing coercion, report write, and the never-blocks guarantee are the real machinery under test).
+function plantRecurringFailures(root: string): void {
+  const write = (rel: string, content: string): void => {
+    const abs = join(root, ...rel.split("/"));
+    mkdirSync(dirname(abs), { recursive: true });
+    writeFileSync(abs, content);
+  };
+  for (const iss of ["ISS-0001", "ISS-0002"]) {
+    write(`.vivicy/development/gates/${iss}-gate.json`, JSON.stringify({ gate_id: `gate:test:${iss}`, issue_id: iss, command: "npm test", exit_code: 1, status: "fail", finished_at: new Date().toISOString(), baseline_id: "baseline-v1.0.0" }, null, 2));
+    write(`.vivicy/development/reports/${iss}-blocked.json`, JSON.stringify({ kind: "quota", reason: "provider quota exhausted mid-issue", issue_id: iss }, null, 2));
+  }
+}
+
+async function runRetroScenarios(): Promise<void> {
+  const retro = await import(pathToFileURL(factoryScript("retro.ts")).href);
+
+  const recurring = mkdtempSync(join(tmpdir(), "vivicy-rehearsal-retro-recurring-"));
+  try {
+    writeAcceptanceFixture(recurring);
+    plantRecurringFailures(recurring);
+    const report = await retro.runRetro({
+      repoRoot: recurring,
+      spawnLeg: async ({ repoRoot, verdictRel }: { repoRoot: string; verdictRel: string }) => {
+        const abs = join(repoRoot, verdictRel);
+        mkdirSync(dirname(abs), { recursive: true });
+        writeFileSync(abs, JSON.stringify({
+          recurring_classes: [
+            { id: "gate-flake-test", kind: "gate_flake", signature: "the npm test gate failed on two issues", occurrences: 2, evidence: [".vivicy/development/gates/ISS-0001-gate.json", ".vivicy/development/gates/ISS-0002-gate.json"] },
+            { id: "blocked-quota", kind: "blocked_cause", signature: "two issues blocked on provider quota exhaustion", occurrences: 2, evidence: [".vivicy/development/reports/ISS-0001-blocked.json", ".vivicy/development/reports/ISS-0002-blocked.json"] },
+            { id: "one-off", kind: "review_finding", signature: "a single review finding", occurrences: 1 },
+            { id: "fake-count", kind: "gate_flake", signature: "claims five recurrences but cites no witnesses", occurrences: 5, evidence: [] },
+          ],
+          proposals: [
+            { landing: "settings", title: "Lower concurrency to smooth quota bursts", rationale: "two issues blocked on quota", detail: "Set maxParallel to 2 so the run does not exhaust the provider quota in bursts.", addresses: ["blocked-quota"] },
+            { landing: "method_block", title: "Prime the gate before the first run", rationale: "the test gate flaked on two issues", detail: "Add a method-block bullet: the stack-setup issue warms the toolchain before the first gate so a cold-start flake never blocks an issue.", addresses: ["gate-flake-test"] },
+          ],
+        }));
+      },
+    });
+    const landings = (report.proposals ?? []).map((p: { landing?: string }) => p.landing).sort();
+    const derivedOccurrences = (report.recurring_classes ?? []).every((c: { occurrences?: number; evidence?: string[] }) => c.occurrences === (c.evidence?.length ?? 0));
+    const noCrs = !existsSync(join(recurring, ".vivicy/change-requests"));
+    record(
+      "retro (planted recurring failures): witnessed classes named, proposals mapped to real landing places, one-off + unwitnessed fake-count dropped by the evidence gate, occurrences machine-derived, NO rule self-applied",
+      report.phase === "proposals" && report.recurring_classes?.length === 2 && derivedOccurrences && report.proposals?.length === 2 && landings.join(",") === "method_block,settings" && noCrs,
+      `phase ${report.phase ?? "?"}; ${report.recurring_classes?.length ?? "?"} witnessed class(es), proposals -> ${landings.join(",") || "none"}`,
+    );
+  } finally {
+    rmSync(recurring, { recursive: true, force: true });
+  }
+
+  const clean = mkdtempSync(join(tmpdir(), "vivicy-rehearsal-retro-clean-"));
+  try {
+    writeAcceptanceFixture(clean);
+    const report = await retro.runRetro({
+      repoRoot: clean,
+      spawnLeg: async ({ repoRoot, verdictRel }: { repoRoot: string; verdictRel: string }) => {
+        const abs = join(repoRoot, verdictRel);
+        mkdirSync(dirname(abs), { recursive: true });
+        writeFileSync(abs, JSON.stringify({ recurring_classes: [], proposals: [] }));
+      },
+    });
+    record(
+      "retro (clean cycle): quiet retro, no recurring classes, nothing to decide",
+      report.phase === "quiet" && (report.proposals?.length ?? -1) === 0 && (report.recurring_classes?.length ?? -1) === 0,
+      `phase ${report.phase ?? "?"}`,
+    );
+  } finally {
+    rmSync(clean, { recursive: true, force: true });
+  }
+
+  const failed = mkdtempSync(join(tmpdir(), "vivicy-rehearsal-retro-failed-"));
+  try {
+    writeAcceptanceFixture(failed);
+    let threw = false;
+    let report: { phase?: string; summary?: string } | null = null;
+    try {
+      report = await retro.runRetro({
+        repoRoot: failed,
+        spawnLeg: async () => {
+          throw new Error("retro leg wedged");
+        },
+      });
+    } catch {
+      threw = true;
+    }
+    record(
+      "retro (leg failure): loud 'failed' note, cycle close NEVER blocked (runRetro returns, never throws)",
+      !threw && report?.phase === "failed" && /close is not affected/i.test(report?.summary ?? ""),
+      threw ? "runRetro threw (must not — retro is observability, never fatal)" : `phase ${report?.phase ?? "?"}`,
+    );
+  } finally {
+    rmSync(failed, { recursive: true, force: true });
   }
 }
 

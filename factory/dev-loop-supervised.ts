@@ -7,6 +7,7 @@ import { findFrozenManifest } from "./extract-issues.ts";
 import { SKILLS_REPORT_REL } from "./install-skills.ts";
 import { resolveTargetRoot } from "./target-root.ts";
 import { ACCEPTANCE_REPORT_FILE } from "../lib/acceptance-report.ts";
+import { RETRO_REPORT_FILE } from "../lib/retro-report.ts";
 
 const STALL_LIMIT = Number(process.env.DEV_LOOP_STALL_LIMIT ?? "3");
 const MAX_RELAUNCHES = Number(process.env.DEV_LOOP_MAX_RELAUNCHES ?? "200");
@@ -62,6 +63,23 @@ function runAcceptanceStage(scriptDir: string, repoRoot: string): "green" | "fin
   if (phase === "green") return "green";
   if (phase === "findings") return "findings";
   return "failed";
+}
+
+// Observability-class, runs AFTER acceptance green: retro NEVER blocks the close — its outcome is a loud note, never an exit signal.
+function runRetroStage(scriptDir: string, repoRoot: string): void {
+  process.stdout.write("supervisor: running the post-cycle retro stage (retro.ts) — observability, never blocks the close\n");
+  spawnSync("node", [join(scriptDir, "retro.ts")], { cwd: repoRoot, stdio: "inherit", env: process.env });
+  let phase: unknown;
+  try {
+    phase = (JSON.parse(readFileSync(join(repoRoot, RETRO_REPORT_FILE), "utf8")) as { phase?: unknown }).phase;
+  } catch {
+    phase = undefined;
+  }
+  const note =
+    phase === "proposals" ? "method amendments proposed for the owner to decide"
+    : phase === "quiet" ? "no recurring failure classes this cycle"
+    : "retro did not complete (non-blocking; see the report)";
+  process.stdout.write(`supervisor: retro ${String(phase ?? "failed")} — ${note}; the cycle close is not affected\n`);
 }
 
 function main() {
@@ -131,6 +149,7 @@ function main() {
           process.stdout.write(`supervisor: acceptance ${outcome} — Done withheld (done ${done}/${total}); see ${ACCEPTANCE_REPORT_FILE}\n`);
           process.exit(1);
         }
+        runRetroStage(scriptDir, repoRoot);
       }
       writeState({ status: action, attempt, done, total, blocked });
       const ok = action === "done";

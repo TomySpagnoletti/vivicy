@@ -17,6 +17,7 @@ import {
   readDevStatus,
   readDocPrepReport,
   readProductRun,
+  readRetroReport,
   readRunState,
   readSkillsReport,
   removeSkills,
@@ -579,6 +580,45 @@ describe("readSkillsReport", () => {
     mkdirSync(path.dirname(file), { recursive: true })
     writeFileSync(file, "{ not json")
     expect(readSkillsReport()).toBeNull()
+  })
+})
+
+function writeRetroReport(report: Record<string, unknown>) {
+  const file = path.join(targetRoot, ".vivicy", "development", "reports", "retro-report.json")
+  mkdirSync(path.dirname(file), { recursive: true })
+  writeFileSync(file, JSON.stringify(report, null, 2))
+}
+
+describe("readRetroReport", () => {
+  it("returns null when the post-cycle retro has never run", () => {
+    expect(readRetroReport()).toBeNull()
+  })
+
+  it("surfaces the retro leg's recorded proposals verbatim", () => {
+    writeRetroReport({
+      phase: "proposals",
+      baseline_id: "baseline-v1.0.0",
+      recurring_classes: [{ id: "gate-flake", kind: "gate_flake", signature: "typecheck flaked twice", occurrences: 2 }],
+      proposals: [{ landing: "method_block", title: "Prime the gate", detail: "Add a bullet." }],
+      summary: "1 method amendment proposed",
+      updated_at: "2026-07-24T09:00:00Z",
+    })
+    const report = readRetroReport()
+    expect(report?.phase).toBe("proposals")
+    expect(report?.proposals?.[0]?.landing).toBe("method_block")
+    expect(report?.recurring_classes?.[0]?.occurrences).toBe(2)
+  })
+
+  it("treats an unparseable report as null (best-effort read)", () => {
+    const file = path.join(targetRoot, ".vivicy", "development", "reports", "retro-report.json")
+    mkdirSync(path.dirname(file), { recursive: true })
+    writeFileSync(file, "{ not json")
+    expect(readRetroReport()).toBeNull()
+  })
+
+  it("throws missing_target when the target root is absent", () => {
+    rmSync(targetRoot, { recursive: true, force: true })
+    expect(() => readRetroReport()).toThrow(ControlError)
   })
 })
 

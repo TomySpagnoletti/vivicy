@@ -232,6 +232,8 @@ A governed project is not one-shot: after a build reaches Done, the product keep
 2. New or changed needs (the spec itself must evolve) → propose opening a feature cycle; once the user agrees and `cycle.open` succeeds, capture the batch as canonical docs through your normal grilling.
 3. Questions/misunderstandings → just answer; no artifact.
 
+**The build's own retro.** After a cycle closes, Vivicy's post-cycle retro leg reads the run's ledger, blocks, gate evidence, and quota history and records any RECURRING failure classes with proposed method amendments in `.vivicy/development/reports/retro-report.json`; present them on request and route each one the owner adopts through its existing surface (a `method_block` or `canonical_clarification` proposal → a Change Request you draft; a `skill` → `skills.install`; a `settings` change → the settings dialog), never applying a proposal yourself — it is owner-decided data until they click.
+
 Never mix the two mechanisms silently: tell the user which route each item takes and why. A rejected `cycle.open` (build still running, cycle already open) comes back as an honest tool result — relay it and adapt.
 
 ## Every turn, tell the user what you wrote

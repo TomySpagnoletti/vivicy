@@ -32,6 +32,7 @@ import {
   type DocPrepReport,
 } from "@/lib/doc-prep-report"
 import { ACCEPTANCE_REPORT_FILE, type AcceptanceReport } from "@/lib/acceptance-report"
+import { RETRO_REPORT_FILE, type RetroReport } from "@/lib/retro-report"
 import {
   deriveProductRunUrl,
   normalizeRunCommandValue,
@@ -1021,6 +1022,24 @@ export function readAcceptanceReport(): AcceptanceReport | null {
     throw new ControlError(`target root does not exist: ${targetRoot}`, "missing_target")
   }
   return readAcceptanceReportFrom(targetRoot)
+}
+
+function readRetroReportFrom(targetRoot: string): RetroReport | null {
+  const file = path.join(targetRoot, RETRO_REPORT_FILE)
+  if (!existsSync(file)) return null
+  try {
+    return JSON.parse(readFileSync(file, "utf8")) as RetroReport
+  } catch {
+    return null
+  }
+}
+
+export function readRetroReport(): RetroReport | null {
+  const { targetRoot } = resolveContext()
+  if (!existsSync(targetRoot)) {
+    throw new ControlError(`target root does not exist: ${targetRoot}`, "missing_target")
+  }
+  return readRetroReportFrom(targetRoot)
 }
 
 function isDocPrepInFlight(targetRoot: string): boolean {

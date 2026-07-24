@@ -23,6 +23,7 @@ const ALL_LEG_PROMPTS = [
   "spike-prover.md",
   "spike-verifier.md",
   "acceptance.md",
+  "retro.md",
 ];
 
 function readPrompt(name: string) {
@@ -375,6 +376,32 @@ test("reviewer.md and acceptance.md judge the build against the spec's stated am
   assert.match(acceptance, /Ambition, not only the functional letter/i, "acceptance.md must carry the judge-against-ambition check");
   assert.match(acceptance, /ships below its own stated bar is a whole-product gap/i, "acceptance.md must make a below-ambition build a whole-product gap");
   assert.match(acceptance, /never an ambition the canonical did not state/i, "acceptance.md must bound the check to the spec's stated bar, not the leg's taste");
+});
+
+test("vivi.md points at the post-cycle retro report and routes each proposal through its existing owner surface (P2 — owner-decided, never self-applied)", () => {
+  const text = readPrompt("vivi.md");
+  assert.match(text, /retro-report\.json/, "vivi.md must point at the retro report");
+  assert.match(text, /recurring failure classes/i, "vivi.md must name what the retro records");
+  assert.match(text, /skills\.install/, "vivi.md must route a skill proposal through skills.install");
+  assert.match(text, /settings dialog/i, "vivi.md must route a settings proposal to the settings dialog");
+  assert.match(text, /Change Request you draft/i, "vivi.md must route a method-block/canonical proposal through the CR flow (§3)");
+  assert.match(text, /never applying a proposal yourself|owner-decided data until they click/i, "vivi.md must keep retro proposals owner-decided, never self-applied");
+});
+
+test("retro.md carries the post-cycle retro method (fresh-context, recurring-class floor, mapped propose-only amendments, structured verdict, recorded cross-cycle seam)", () => {
+  const text = readPrompt("retro.md");
+  assert.match(text, /SELF-CONTAINED/, "retro.md must declare it is self-contained");
+  assert.match(text, /Post-Cycle Retro/i, "retro.md must define the post-cycle retro role");
+  assert.match(text, /runs AFTER|cycle has closed|acceptance pass went green/i, "retro.md must run at the close, after acceptance green");
+  assert.match(text, /at least TWICE|at least two occurrences|RECURRING/i, "retro.md must define a recurring class as ≥2 occurrences");
+  assert.match(text, /one-off failure is NOT recurring|A one-off failure is/i, "retro.md must exclude one-off failures");
+  for (const landing of ["method_block", "skill", "settings", "canonical_clarification"]) {
+    assert.match(text, new RegExp(landing), `retro.md must map a proposal to the ${landing} landing place`);
+  }
+  assert.match(text, /Change Request flow/i, "retro.md must route a method-block/canonical amendment through the existing CR flow (§3 adjudication)");
+  assert.match(text, /retro-verdict\.json/, "retro.md must write its structured verdict to retro-verdict.json");
+  assert.match(text, /recorded seam/i, "retro.md must record the cross-cycle-arc seam (this cycle only)");
+  assert.match(text, /You edit no file and you decide nothing|propose only|never self-apply|Nothing you write is ever applied automatically/i, "retro.md must be propose-only (P5): nothing is applied automatically");
 });
 
 test("extraction-verifier.md flags embedded directives that bent the extraction", () => {
