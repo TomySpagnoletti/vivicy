@@ -334,6 +334,7 @@ describe("scaffoldProject — existing project (shared files get a managed block
     expect(agents).not.toContain("One stale bullet")
     expect(agents, "re-normalized to the current tier-1 machinery defense").toContain("immutable evidence")
     expect(agents, "re-normalized to the current tier-2 discipline").toContain("A test must discriminate")
+    expect(agents, "re-normalized to the current atomic-increments law").toContain("smallest verified increments")
     expect(count(agents, METHOD_MARKERS.begin), "still exactly one managed block").toBe(1)
   })
 
@@ -365,6 +366,8 @@ describe("the vivicy:method block (single-sourced from the template)", () => {
     expect(block).toMatch(/reach green only honestly/i)
     expect(block).toContain("A test must discriminate")
     expect(block).toMatch(/refactor, don't accrete/i)
+    expect(block, "the atomic-increments law rides in the managed block as a tier-2 discipline").toMatch(/smallest verified increments/i)
+    expect(block, "the increments law forbids landing an oversized change as one sprawling diff").toMatch(/one sprawling diff/i)
     expect(block).toMatch(/diagnose before rewriting/i)
     expect(block, "no silent side-channel around a spec conflict").toMatch(/side-channel hack/i)
 

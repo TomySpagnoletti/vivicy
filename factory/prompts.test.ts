@@ -383,3 +383,25 @@ test("extraction-verifier.md flags embedded directives that bent the extraction"
   assert.match(text, /prompt-injection/i, "the not-obeyed check must name the prompt-injection threat");
   assert.match(text, /embedded_directive_obeyed/, "verifier must offer the embedded_directive_obeyed problem kind");
 });
+
+test("the atomic-verified-increments law is pinned across the extractor, extraction-verifier, reviewer, and vivi prompts", () => {
+  const extractor = readPrompt("extractor.md");
+  assert.match(extractor, /Granularity law — the smallest end-to-end-provable slice/i, "extractor.md must carry the granularity law in Discipline");
+  assert.match(extractor, /one obligation cluster/i, "the granularity law must bound the slice to one obligation cluster");
+  assert.match(extractor, /DECOMPOSED into an ordered chain/i, "a divisible spec area must be decomposed into ordered slices with explicit dependencies");
+  assert.match(extractor, /pushes the drift into the seams/i, "the granularity law must state the over-fragmentation floor");
+
+  const verifier = readPrompt("extraction-verifier.md");
+  assert.match(verifier, /Issue granularity \(each issue is one atomic slice\)/i, "extraction-verifier.md must carry the granularity finding");
+  assert.match(verifier, /granularity_violation/, "the verifier must offer the granularity_violation problem kind (open-string precedent)");
+  assert.match(verifier, /over-fragmentation only moves the drift into the seams/i, "the granularity finding must respect the atomicity floor");
+
+  const reviewer = readPrompt("reviewer.md");
+  assert.match(reviewer, /Proportionality is a review signal/i, "reviewer.md must carry the proportionality signal");
+  assert.match(reviewer, /no LOC threshold/i, "the proportionality signal must reject a mechanical LOC threshold");
+  assert.match(reviewer, /decomposed into smaller independently-gateable slices/i, "an oversized diff must signal a missing decomposition");
+
+  const vivi = readPrompt("vivi.md");
+  assert.match(vivi, /Slice a big ask; never one omnibus/i, "vivi.md must carry the slice-the-big-ask discipline");
+  assert.match(vivi, /an ordered set of small cycles\/CRs/i, "a big mid-flight ask must become ordered sliced cycles/CRs, never one omnibus");
+});

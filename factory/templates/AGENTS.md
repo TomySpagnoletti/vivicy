@@ -14,6 +14,7 @@ This repository is governed by the **Vivicy** development factory. The product t
 - Reach green only honestly — never weaken the gate to pass it (no narrowing the gate command's scope, no disabling or loosening the tests it runs) and never lower the bar in your own tests (no weakened assertions, skipped cases, coverage narrowed off the real path, or synthetic proof in place of real behavior).
 - A test must discriminate — it fails on the defect it guards; a test that stays green whether the behavior works or not proves nothing.
 - Refactor, don't accrete — never stack workaround on workaround; collapse the area to the smallest correct design.
+- Build in the smallest verified increments — add each change as the smallest slice that still proves one behavior end to end, and leave the system green between steps; a change too big for one slice is decomposed into ordered slices before you implement it, never landed as one sprawling diff.
 - Diagnose before rewriting — reproduce the failure, localize the actual cause, then apply the smallest evidence-backed fix.
 - When the intention itself is wrong, or a discovered constraint or contract conflict changes what must be built, raise a change request under `.vivicy/change-requests/` — never a silent code workaround, side-channel hack, or spec edit. Approving or rejecting a change request is the one human decision the loop waits for.
 - Consult and apply any project skill Vivicy has installed (listed in the *Project skills* section Vivicy maintains at the end of this file) whose domain your work touches.
