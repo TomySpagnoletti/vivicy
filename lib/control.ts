@@ -32,6 +32,11 @@ import {
   type DocPrepReport,
 } from "@/lib/doc-prep-report"
 import { ACCEPTANCE_REPORT_FILE, type AcceptanceReport } from "@/lib/acceptance-report"
+import {
+  deriveProductRunUrl,
+  normalizeRunCommandValue,
+  type ProductRunView,
+} from "@/lib/product-run"
 import { canonicalHasSpecDoc, getTargetRoot } from "@/lib/target"
 
 export interface DetachedHandle {
@@ -51,6 +56,8 @@ export interface SpawnDetachedOptions {
   cwd: string
   env: NodeJS.ProcessEnv
   logFile: string
+  // shell: true runs the product's own runCommand through the platform shell (like the gate command), and never for factory node scripts.
+  shell?: boolean
 }
 
 export interface RunOptions {
@@ -137,6 +144,7 @@ export class ControlError extends Error {
       | "unknown_cr"
       | "cr_not_decidable"
       | "cycle_state"
+      | "run_not_established"
   ) {
     super(message)
     this.name = "ControlError"
@@ -494,6 +502,202 @@ export function stopSupervisor(spawner: Spawner): { pid: number } {
   spawner.killGroup(state.pid, "SIGTERM")
   clearRunState()
   return { pid: state.pid }
+}
+
+// Running the DELIVERED product (serve-the-pizza) — a long-lived child of the target's own `runCommand`, isolated from the autonomous build's supervisor run lock.
+const PRODUCT_RUN_STATE_FILE = "product-run-state.json"
+const PRODUCT_RUN_LOG_FILE = "product-run.log"
+const PRODUCT_RUN_LOG_WINDOW_BYTES = 256 * 1024
+const PRODUCT_RUN_TAIL_LINES = 24
+
+export interface ProductRunState {
+  pid: number
+  started_at: string
+  command: string
+  log_file: string
+}
+
+function productRunStatePath(targetRoot: string): string {
+  return path.join(projectRuntimeDir(targetRoot), PRODUCT_RUN_STATE_FILE)
+}
+
+function productRunLogPath(targetRoot: string): string {
+  return path.join(projectRuntimeDir(targetRoot), PRODUCT_RUN_LOG_FILE)
+}
+
+function readProductRunState(targetRoot: string): ProductRunState | null {
+  const file = productRunStatePath(targetRoot)
+  if (!existsSync(file)) return null
+  try {
+    return JSON.parse(readFileSync(file, "utf8")) as ProductRunState
+  } catch {
+    return null
+  }
+}
+
+function clearProductRunState(targetRoot: string): void {
+  const file = productRunStatePath(targetRoot)
+  if (existsSync(file)) rmSync(file)
+}
+
+function readRunCommand(targetRoot: string): string | null {
+  const configPath = path.join(targetRoot, "vivicy.json")
+  if (!existsSync(configPath)) return null
+  try {
+    const parsed = JSON.parse(readFileSync(configPath, "utf8")) as { runCommand?: unknown }
+    return normalizeRunCommandValue(parsed.runCommand)
+  } catch {
+    return null
+  }
+}
+
+function readProductRunLog(logFile: string): string | null {
+  if (!existsSync(logFile)) return null
+  try {
+    const buf = readFileSync(logFile)
+    const slice = buf.length > PRODUCT_RUN_LOG_WINDOW_BYTES ? buf.subarray(buf.length - PRODUCT_RUN_LOG_WINDOW_BYTES) : buf
+    return slice.toString("utf8")
+  } catch {
+    return null
+  }
+}
+
+function tailLines(text: string | null, count: number): string | null {
+  if (!text) return null
+  const lines = text.replace(/\n+$/, "").split("\n")
+  const tail = lines.slice(-count).join("\n")
+  return tail.trim().length > 0 ? tail : null
+}
+
+// Same TOCTOU-safe wx-claim as the supervisor run lock — the state file is the lock; a dead prior run is reclaimed, a live one refuses.
+function claimProductRunLock(spawner: Spawner, targetRoot: string, state: ProductRunState): void {
+  mkdirSync(projectRuntimeDir(targetRoot), { recursive: true })
+  const file = productRunStatePath(targetRoot)
+  const body = `${JSON.stringify(state, null, 2)}\n`
+  try {
+    writeFileSync(file, body, { flag: "wx" })
+    return
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error
+  }
+  const existing = readProductRunState(targetRoot)
+  if (existing && spawner.isAlive(existing.pid)) {
+    throw new ControlError("the product is already running", "already_running")
+  }
+  clearProductRunState(targetRoot)
+  try {
+    writeFileSync(file, body, { flag: "wx" })
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "EEXIST") {
+      throw new ControlError("the product is already running", "already_running")
+    }
+    throw error
+  }
+}
+
+export function startProductRun(spawner: Spawner): ProductRunState {
+  const { targetRoot } = resolveContext()
+  if (!existsSync(targetRoot)) {
+    throw new ControlError(`target root does not exist: ${targetRoot}`, "missing_target")
+  }
+  const command = readRunCommand(targetRoot)
+  if (command === null) {
+    throw new ControlError(
+      "run command not established — Vivicy sets vivicy.json#runCommand mechanically from the spec's run-and-ship area or the stack-setup issue; it is not yet a real command",
+      "run_not_established"
+    )
+  }
+  const logFile = productRunLogPath(targetRoot)
+  const state: ProductRunState = {
+    pid: process.pid,
+    started_at: new Date().toISOString(),
+    command,
+    log_file: logFile,
+  }
+  claimProductRunLock(spawner, targetRoot, state)
+  // Fresh log per run so URL detection reads the current process, never a stale prior one.
+  writeFileSync(logFile, "")
+
+  // Vivicy's own PORT must not leak into the product — the product would bind Vivicy's port and collide; its own command/config sets the port it wants.
+  const env = { ...process.env }
+  delete env.PORT
+
+  let handle: DetachedHandle
+  try {
+    handle = spawner.spawnDetached({
+      command,
+      args: [],
+      cwd: targetRoot,
+      env,
+      logFile,
+      shell: true,
+    })
+  } catch (error) {
+    clearProductRunState(targetRoot)
+    throw new ControlError(
+      `failed to start the product: ${error instanceof Error ? error.message : String(error)}`,
+      "spawn_failed"
+    )
+  }
+
+  state.pid = handle.pid
+  writeFileSync(productRunStatePath(targetRoot), `${JSON.stringify(state, null, 2)}\n`)
+  return state
+}
+
+export function stopProductRun(spawner: Spawner): { pid: number } {
+  const { targetRoot } = resolveContext()
+  const state = readProductRunState(targetRoot)
+  if (!state) {
+    throw new ControlError("the product is not running", "not_running")
+  }
+  spawner.killGroup(state.pid, "SIGTERM")
+  clearProductRunState(targetRoot)
+  return { pid: state.pid }
+}
+
+function emptyProductRunView(phase: ProductRunView["phase"], command: string | null): ProductRunView {
+  return { phase, command, url: null, url_source: null, log_file: null, log_tail: null, started_at: null }
+}
+
+export function readProductRun(spawner: Spawner): ProductRunView {
+  const { targetRoot } = resolveContext()
+  if (!existsSync(targetRoot)) {
+    throw new ControlError(`target root does not exist: ${targetRoot}`, "missing_target")
+  }
+  const command = readRunCommand(targetRoot)
+  if (command === null) return emptyProductRunView("not_established", null)
+
+  const state = readProductRunState(targetRoot)
+  if (!state) return emptyProductRunView("stopped", command)
+
+  const logFile = productRunLogPath(targetRoot)
+  const logText = readProductRunLog(logFile)
+  const tail = tailLines(logText, PRODUCT_RUN_TAIL_LINES)
+
+  if (spawner.isAlive(state.pid)) {
+    const { url, source } = deriveProductRunUrl(logText, state.command)
+    return {
+      phase: "running",
+      command: state.command,
+      url,
+      url_source: source,
+      log_file: logFile,
+      log_tail: tail,
+      started_at: state.started_at,
+    }
+  }
+
+  // The process died on its own — an owner stop clears the state, so a surviving state + dead pid means it exited unexpectedly. Surface it loudly with the log that carries the reason.
+  return {
+    phase: "exited",
+    command: state.command,
+    url: null,
+    url_source: null,
+    log_file: logFile,
+    log_tail: tail,
+    started_at: state.started_at,
+  }
 }
 
 export async function readDevStatus(

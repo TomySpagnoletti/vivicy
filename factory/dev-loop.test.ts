@@ -29,6 +29,7 @@ import {
   detectRateLimit,
   footprintDistance,
   gateCommandDirective,
+  runCommandDirective,
   issueClaim,
   issueFootprint,
   issuesIndependent,
@@ -599,6 +600,26 @@ test("GATE-COMMAND: while the sentinel stands, the implementer/reviewer prompt c
 
     writeFileSync(resolve(dir, "vivicy.json"), JSON.stringify({ gateCommand: "npm test" }));
     assert.equal(gateCommandDirective(scratchCfg, undefined), "", "no directive once a real command is established");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("RUN-COMMAND: while the runCommand sentinel stands, the implementer/reviewer prompt carries the establish-it directive; once established it does not", () => {
+  const dir = mkdtempSync(resolve(repoRoot, "_tmp-run-directive-"));
+  try {
+    const scratchCfg = { execRoot: dir } as unknown as Config;
+    writeFileSync(resolve(dir, "vivicy.json"), JSON.stringify({ gateCommand: null, runCommand: null }));
+    const whileSentinel = runCommandDirective(scratchCfg);
+    assert.match(whileSentinel, /Establish the run command/);
+    assert.match(whileSentinel, /must NOT revert it/i, "directive must tell the reviewer not to revert the establishment");
+    assert.match(whileSentinel, /never point it at the test runner/i, "the run command is not the verification gate");
+
+    const composedImplementer = composePrompt("run:\n{{run_command_directive}}", { id: "ISS-A" }, { run_command_directive: whileSentinel });
+    assert.match(composedImplementer, /Establish the run command/);
+
+    writeFileSync(resolve(dir, "vivicy.json"), JSON.stringify({ gateCommand: null, runCommand: "npm run dev" }));
+    assert.equal(runCommandDirective(scratchCfg), "", "no directive once a real run command is established");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

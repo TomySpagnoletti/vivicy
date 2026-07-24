@@ -6,7 +6,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, it } from "node:test";
 
-import { extractIssues, findFrozenManifest, formatCheckOutput, formatFixContext, formatMapError, recordExtractedGateCommand, resolveFreezeVersion } from "./extract-issues.ts";
+import { extractIssues, findFrozenManifest, formatCheckOutput, formatFixContext, formatMapError, recordExtractedGateCommand, recordExtractedRunCommand, resolveFreezeVersion } from "./extract-issues.ts";
 import { readSpikes } from "./spike-check.ts";
 
 const FACTORY_DIR = dirname(fileURLToPath(import.meta.url));
@@ -1232,5 +1232,47 @@ describe("recordExtractedGateCommand — machine-fills gateCommand from the extr
     writeReport({ gateCommand: "go test ./..." });
     assert.equal(recordExtractedGateCommand(dir), false);
     assert.equal(readGate(), "pytest -q");
+  });
+});
+
+describe("recordExtractedRunCommand — machine-fills runCommand from the extractor's structured output", () => {
+  const RUN_REPORT_REL = ".vivicy/development/reports/extraction-run-command.json";
+  let dir: string;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "vivicy-extract-run-"));
+  });
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  const writeReport = (payload: unknown) => {
+    const abs = join(dir, RUN_REPORT_REL);
+    mkdirSync(dirname(abs), { recursive: true });
+    writeFileSync(abs, `${JSON.stringify(payload, null, 2)}\n`);
+  };
+  const readCfg = () => JSON.parse(readFileSync(join(dir, "vivicy.json"), "utf8"));
+
+  it("fills the runCommand sentinel from the canonical run-and-ship area, preserving gateCommand + other fields", () => {
+    writeFileSync(join(dir, "vivicy.json"), JSON.stringify({ gateCommand: "npm test", runCommand: null, requiredSkills: ["a/b@c"] }));
+    writeReport({ runCommand: "npm run dev" });
+    assert.equal(recordExtractedRunCommand(dir), true);
+    assert.deepEqual(readCfg(), { gateCommand: "npm test", runCommand: "npm run dev", requiredSkills: ["a/b@c"] });
+  });
+
+  it("preserves the sentinel when the extractor stated no run command (no report / explicit null)", () => {
+    writeFileSync(join(dir, "vivicy.json"), JSON.stringify({ gateCommand: null, runCommand: null }));
+    assert.equal(recordExtractedRunCommand(dir), false);
+    assert.equal(readCfg().runCommand, null);
+    writeReport({ runCommand: null });
+    assert.equal(recordExtractedRunCommand(dir), false);
+    assert.equal(readCfg().runCommand, null);
+  });
+
+  it("never overrides an already-established run command", () => {
+    writeFileSync(join(dir, "vivicy.json"), JSON.stringify({ gateCommand: null, runCommand: "flask run" }));
+    writeReport({ runCommand: "npm run dev" });
+    assert.equal(recordExtractedRunCommand(dir), false);
+    assert.equal(readCfg().runCommand, "flask run");
   });
 });

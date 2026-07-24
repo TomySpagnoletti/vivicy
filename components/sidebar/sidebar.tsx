@@ -28,6 +28,7 @@ import { SectionFilters } from "@/components/sidebar/section-filters"
 import { SectionInformation } from "@/components/sidebar/section-information"
 import { SectionLegend } from "@/components/sidebar/section-legend"
 import { SectionPipeline } from "@/components/sidebar/section-pipeline"
+import { SectionRun } from "@/components/sidebar/section-run"
 import { SectionSkills } from "@/components/sidebar/section-skills"
 import { SectionTasks } from "@/components/sidebar/section-tasks"
 import { SettingsDialog } from "@/components/sidebar/settings-dialog"
@@ -168,6 +169,13 @@ export function VivicySidebar({
             <AccordionTrigger>{t("sections.skills")}</AccordionTrigger>
             <AccordionContent>
               <SectionSkills />
+            </AccordionContent>
+          </AccordionItem>
+
+          <AccordionItem value="run">
+            <AccordionTrigger>{t("sections.run")}</AccordionTrigger>
+            <AccordionContent>
+              <SectionRun />
             </AccordionContent>
           </AccordionItem>
         </Accordion>

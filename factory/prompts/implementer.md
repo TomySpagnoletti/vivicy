@@ -24,7 +24,11 @@ The EXTRACTION CORPUS is FROZEN and READ-ONLY during implementation. You must NE
 
 The verification gate is the command in the project's `vivicy.json` (`gateCommand`) — whatever test runner the project uses (e.g. `go test ./...`, `cargo test`, `pytest -q`, `phpunit`, `swift test`, `npm test`); the orchestrator re-runs it as the authoritative verdict. Add your tests where that runner discovers them; do NOT change `vivicy.json` or the gate command UNLESS the directive below tells you to establish it. Do NOT gratuitously edit the project's dependency manifest (e.g. `package.json`, `go.mod`, `Cargo.toml`, `pyproject.toml`, `composer.json`, `Package.swift`): the ONLY reason to touch it is a genuinely required NEW runtime dependency — rare and explicit, never a convenience edit (formatting, scripts, dev-deps).
 
+`vivicy.json` also carries `runCommand` — the command that starts the built product for the owner to use, separate from the gate. Do NOT touch it UNLESS the directive below tells you to establish it from the `null` sentinel.
+
 {{gate_command_directive}}
+
+{{run_command_directive}}
 
 Constraints: respect the issue's protected product truth and non-goals; no scope creep; no fallback paths; do not weaken assertions or skip covered paths. Do NOT commit — the orchestrator runs the gate itself and commits on green, then an independent reviewer agent reviews and fixes.
 

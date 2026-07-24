@@ -85,6 +85,21 @@ test("the gate-command lifecycle is pinned across the implementer/reviewer/extra
   assert.match(extractor, /if the canonical does not state a gate command, do NOT write this file/i, "extractor must never guess the gate command");
 });
 
+test("the run-command lifecycle is pinned across the implementer/reviewer/extractor prompts (mirrors the gate-command chain)", () => {
+  const implementer = readPrompt("implementer.md");
+  const reviewer = readPrompt("reviewer.md");
+  assert.match(implementer, /\{\{run_command_directive\}\}/, "implementer.md must carry the run-command directive injection point");
+  assert.match(reviewer, /\{\{run_command_directive\}\}/, "reviewer.md must carry the run-command directive injection point");
+  assert.match(implementer, /`vivicy\.json` also carries `runCommand`/, "implementer.md must name runCommand and defer its edit to the injected directive");
+  assert.match(reviewer, /reverting the run command strands the owner/i, "reviewer.md must forbid reverting an established run command");
+
+  const extractor = readPrompt("extractor.md");
+  assert.match(extractor, /extraction-run-command\.json/, "extractor.md must record a canonical-stated run command as structured output");
+  assert.match(extractor, /## Run command \(only if the canonical STATES it\)/, "extractor.md must carry the run-command recording section");
+  assert.match(extractor, /if the canonical does not state a run command, do NOT write this file/i, "extractor must never guess the run command");
+  assert.match(extractor, /never point it at the test runner/i, "the run command is not the verification gate");
+});
+
 test("extractor.md is self-contained: carries the corpus schemas without a target method doc", () => {
   const text = readPrompt("extractor.md");
   assert.match(text, /SELF-CONTAINED/, "extractor.md must declare it is self-contained");
@@ -326,6 +341,16 @@ test("vivi.md's quality bar requires the spec to state its end-to-end acceptance
   assert.match(text, /end-to-end acceptance scenario/i, "vivi.md's quality bar must require stated end-to-end acceptance scenarios");
   assert.match(text, /what a user DOES with the finished thing|what a user DOES/i, "the item must frame the scenario as a user walkthrough with observable outcome");
   assert.match(text, /whole-product obligation the acceptance pass checks/i, "the item must tie the scenario to the whole-product acceptance pass");
+});
+
+test("vivi.md's quality bar requires the spec to state how the product runs and ships (run command + deploy story)", () => {
+  const text = readPrompt("vivi.md");
+  assert.match(text, /State how it runs and ships/i, "vivi.md's quality bar must require the run-and-ship area");
+  assert.match(text, /run command/i, "the item must require the command that starts the product");
+  assert.match(text, /deploy target/i, "the item must require the deploy target (or an explicit none)");
+  assert.match(text, /rollback/i, "the item must require the rollback expectation for a named deploy target");
+  assert.match(text, /vivicy\.json#runCommand/, "the item must tie the run command to vivicy.json#runCommand");
+  assert.match(text, /never invent a run command or a deploy target/i, "the item must forbid inventing run/deploy details the owner did not state");
 });
 
 test("extraction-verifier.md flags embedded directives that bent the extraction", () => {

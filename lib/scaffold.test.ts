@@ -175,6 +175,8 @@ describe("scaffoldProject — from scratch (lean, language-agnostic)", () => {
     const vivicy = JSON.parse(readFileSync(path.join(target, "vivicy.json"), "utf8"))
     expect("gateCommand" in vivicy).toBe(true)
     expect(vivicy.gateCommand).toBeNull()
+    expect("runCommand" in vivicy, "scaffold writes the runCommand field beside gateCommand").toBe(true)
+    expect(vivicy.runCommand, "runCommand starts as the not-yet-established sentinel").toBeNull()
 
     const gitignore = readFileSync(path.join(target, ".gitignore"), "utf8")
     for (const ignored of [
@@ -278,6 +280,7 @@ describe("scaffoldProject — existing project (shared files get a managed block
 
     const vivicy = JSON.parse(readFileSync(path.join(target, "vivicy.json"), "utf8"))
     expect(vivicy.gateCommand).toBe("npm test")
+    expect(vivicy.runCommand, "runCommand is never brownfield-detected — established from the canonical run-and-ship area or the stack-setup issue").toBeNull()
   })
 
   it("is idempotent: a second scaffold pass leaves every shared file byte-identical (block already canonical)", () => {
@@ -356,6 +359,8 @@ describe("the vivicy:method block (single-sourced from the template)", () => {
     expect(block).toContain(".vivicy/uploads/")
     expect(block).toContain("immutable evidence")
     expect(block, "vivicy.json is machine-owned, never hand-edited").toMatch(/machine-owned config, never hand-edited/i)
+    expect(block, "the machine-owned contract names both gateCommand and runCommand").toMatch(/gateCommand/)
+    expect(block, "runCommand's machine-established law rides inside the single-sourced managed block").toMatch(/runCommand/)
     expect(block).toMatch(/never weaken the gate to pass it/i)
     expect(block).toMatch(/reach green only honestly/i)
     expect(block).toContain("A test must discriminate")

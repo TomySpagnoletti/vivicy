@@ -5,12 +5,16 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   isGateCommandEstablished,
+  isRunCommandEstablished,
   loadProjectConfig,
   normalizeGateCommand,
+  normalizeRunCommand,
   PROJECT_CONFIG_FILENAME,
   ProjectConfigError,
   resolveGateCommand,
+  resolveRunCommand,
   setGateCommand,
+  setRunCommand,
 } from "./project-config.ts";
 
 function scratch() {
@@ -33,8 +37,8 @@ test("normalizeGateCommand rejects a present-but-malformed value (empty / whites
 });
 
 test("isGateCommandEstablished is true only for a real non-empty command", () => {
-  assert.equal(isGateCommandEstablished({ gateCommand: "npm test" }), true);
-  assert.equal(isGateCommandEstablished({ gateCommand: null }), false);
+  assert.equal(isGateCommandEstablished({ gateCommand: "npm test", runCommand: null }), true);
+  assert.equal(isGateCommandEstablished({ gateCommand: null, runCommand: null }), false);
   assert.equal(isGateCommandEstablished(null), false);
 });
 
@@ -43,7 +47,7 @@ test("loadProjectConfig reads a NON-NODE gateCommand from vivicy.json (no npm/no
   try {
     writeFileSync(join(dir, PROJECT_CONFIG_FILENAME), JSON.stringify({ gateCommand: "go test ./..." }));
     const cfg = loadProjectConfig(dir);
-    assert.deepEqual(cfg, { gateCommand: "go test ./..." });
+    assert.deepEqual(cfg, { gateCommand: "go test ./...", runCommand: null });
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -52,10 +56,11 @@ test("loadProjectConfig reads a NON-NODE gateCommand from vivicy.json (no npm/no
 test("loadProjectConfig reads the null sentinel as a valid not-yet-established state (never throws)", () => {
   const dir = scratch();
   try {
-    writeFileSync(join(dir, PROJECT_CONFIG_FILENAME), JSON.stringify({ gateCommand: null }));
+    writeFileSync(join(dir, PROJECT_CONFIG_FILENAME), JSON.stringify({ gateCommand: null, runCommand: null }));
     const cfg = loadProjectConfig(dir);
-    assert.deepEqual(cfg, { gateCommand: null });
+    assert.deepEqual(cfg, { gateCommand: null, runCommand: null });
     assert.equal(isGateCommandEstablished(cfg), false);
+    assert.equal(isRunCommandEstablished(cfg), false);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -77,7 +82,7 @@ test("loadProjectConfig falls back to a `vivicy` field in package.json", () => {
   const dir = scratch();
   try {
     writeFileSync(join(dir, "package.json"), JSON.stringify({ name: "x", vivicy: { gateCommand: "rake test" } }));
-    assert.deepEqual(loadProjectConfig(dir), { gateCommand: "rake test" });
+    assert.deepEqual(loadProjectConfig(dir), { gateCommand: "rake test", runCommand: null });
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -89,6 +94,7 @@ test("vivicy.json WINS over a package.json vivicy field when both exist", () => 
     writeFileSync(join(dir, PROJECT_CONFIG_FILENAME), JSON.stringify({ gateCommand: "go test ./..." }));
     writeFileSync(join(dir, "package.json"), JSON.stringify({ vivicy: { gateCommand: "npm test" } }));
     assert.equal(loadProjectConfig(dir)!.gateCommand, "go test ./...");
+    assert.equal(loadProjectConfig(dir)!.runCommand, null);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -126,6 +132,60 @@ test("setGateCommand fills gateCommand while preserving every other field, and r
     assert.deepEqual(after, { gateCommand: "go test ./...", requiredSkills: ["a/b@c"] });
 
     assert.throws(() => setGateCommand(dir, "   "), { code: "invalid_gate_command" });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("normalizeRunCommand mirrors the gate-command sentinel + malformed rules under its own error code", () => {
+  assert.equal(normalizeRunCommand("  npm run dev  "), "npm run dev");
+  assert.equal(normalizeRunCommand(null), null);
+  assert.equal(normalizeRunCommand(undefined), null);
+  for (const bad of ["", "   ", 42, {}, []]) {
+    assert.throws(() => normalizeRunCommand(bad), { code: "invalid_run_command" });
+  }
+});
+
+test("isRunCommandEstablished is true only for a real non-empty command", () => {
+  assert.equal(isRunCommandEstablished({ gateCommand: null, runCommand: "npm run dev" }), true);
+  assert.equal(isRunCommandEstablished({ gateCommand: "npm test", runCommand: null }), false);
+  assert.equal(isRunCommandEstablished(null), false);
+});
+
+test("loadProjectConfig THROWS on a present-but-malformed runCommand (loud, its own code)", () => {
+  const dir = scratch();
+  try {
+    writeFileSync(join(dir, PROJECT_CONFIG_FILENAME), JSON.stringify({ gateCommand: null, runCommand: "" }));
+    assert.throws(() => loadProjectConfig(dir), { code: "invalid_run_command" });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("setRunCommand fills runCommand while preserving gateCommand + other fields, and refuses an empty command", () => {
+  const dir = scratch();
+  try {
+    writeFileSync(join(dir, PROJECT_CONFIG_FILENAME), JSON.stringify({ gateCommand: "npm test", runCommand: null, requiredSkills: ["a/b@c"] }));
+    const written = setRunCommand(dir, "  npm run dev  ");
+    assert.equal(written, "npm run dev");
+    const after = JSON.parse(readFileSync(join(dir, PROJECT_CONFIG_FILENAME), "utf8"));
+    assert.deepEqual(after, { gateCommand: "npm test", runCommand: "npm run dev", requiredSkills: ["a/b@c"] });
+
+    assert.throws(() => setRunCommand(dir, "   "), { code: "invalid_run_command" });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("resolveRunCommand returns vivicy.json#runCommand, else explicitDefault, else throws its typed refusal", () => {
+  const dir = scratch();
+  try {
+    writeFileSync(join(dir, PROJECT_CONFIG_FILENAME), JSON.stringify({ gateCommand: null, runCommand: "flask run" }));
+    assert.equal(resolveRunCommand({ targetRoot: dir, explicitDefault: "npm run dev" }), "flask run");
+
+    writeFileSync(join(dir, PROJECT_CONFIG_FILENAME), JSON.stringify({ gateCommand: null, runCommand: null }));
+    assert.equal(resolveRunCommand({ targetRoot: dir, explicitDefault: "npm run dev" }), "npm run dev");
+    assert.throws(() => resolveRunCommand({ targetRoot: dir }), { code: "invalid_run_command" });
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

@@ -157,6 +157,10 @@ Author every file below into the **target repo**, all pinned to the frozen basel
 
 `vivicy.json#gateCommand` is the command Vivicy runs as the per-issue verification gate. The scaffold leaves it as the sentinel `null` (not yet established). If — and ONLY if — the frozen canonical EXPLICITLY states the project's test/verification command (e.g. a doc line that says the project is verified with `go test ./...`, `pytest -q`, `npm test`, …), record it so the orchestrator can establish it: write `{ "gateCommand": "<the exact command the canonical states>" }` to `.vivicy/development/reports/extraction-gate-command.json`. Never guess, never infer from the stack, never invent a placeholder or an `echo` — if the canonical does not state a gate command, do NOT write this file; the sentinel stays and the stack-setup issue's implementer establishes it. Do not touch `vivicy.json` yourself.
 
+## Run command (only if the canonical STATES it)
+
+`vivicy.json#runCommand` is the command that starts the built product for the owner to run and use — the "how it runs and ships" story, distinct from the verification gate. The scaffold leaves it as the sentinel `null` (not yet established). If — and ONLY if — the frozen canonical's run-and-ship area EXPLICITLY states the command that runs the product (e.g. a doc line that says the product is served with `npm run dev`, `flask run`, `go run ./...`, …), record it so the orchestrator can establish it: write `{ "runCommand": "<the exact command the canonical states>" }` to `.vivicy/development/reports/extraction-run-command.json`. Never guess, never infer from the stack, never invent a placeholder, and never point it at the test runner — if the canonical does not state a run command, do NOT write this file; the sentinel stays and the stack-setup issue's implementer establishes it. Do not touch `vivicy.json` yourself.
+
 ## File shapes
 
 You author these shapes; they live in this prompt, not the target repo. Reproduce the `##` headings verbatim — the deterministic checkers locate blocks by heading.

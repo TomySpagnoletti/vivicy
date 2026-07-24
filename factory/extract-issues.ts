@@ -23,7 +23,16 @@ import { FACTORY_DIR, FACTORY_PROMPTS_DIR, resolveTargetRoot } from "./target-ro
 import { pruneGitkeeps } from "../lib/skeleton.ts";
 import { clearSpecCycle, readSpecCycle } from "../lib/spec-cycle.ts";
 import { detectSpecKind, type SpecKind } from "../lib/spec-kind.ts";
-import { isGateCommandEstablished, loadProjectConfig, normalizeGateCommand, setGateCommand } from "./project-config.ts";
+import {
+  isGateCommandEstablished,
+  isRunCommandEstablished,
+  loadProjectConfig,
+  normalizeGateCommand,
+  normalizeRunCommand,
+  setGateCommand,
+  setRunCommand,
+  type ProjectConfig,
+} from "./project-config.ts";
 import { DOC_PREP_REPORT_REL, docPrepStageNeeded } from "./prepare-docs.ts";
 import type { DocPrepReport } from "./prepare-docs.ts";
 
@@ -32,6 +41,7 @@ const ISSUE_INDEX_REL = ".vivicy/development/issue-index.json";
 const EXTRACTION_STATUS_REL = ".vivicy/development/reports/extraction-status.json";
 const VERDICT_REL = ".vivicy/development/reports/extraction-fidelity-verdict.json";
 const GATE_COMMAND_REL = ".vivicy/development/reports/extraction-gate-command.json";
+const RUN_COMMAND_REL = ".vivicy/development/reports/extraction-run-command.json";
 const DEFAULT_FREEZE_VERSION = "1.0.0";
 
 export function resolveFreezeVersion(repoRoot: string): string {
@@ -456,6 +466,7 @@ export async function extractIssues(options: ExtractIssuesOptions = {}): Promise
     };
     record({ phase: "green", attempt, spike_mode: spikeMode, map_mode: mapMode, summary: status.summary });
     recordExtractedGateCommand(repoRoot);
+    recordExtractedRunCommand(repoRoot);
     const commit = commitCorpus({ repoRoot, baselineId });
     status.committed = commit?.committed ?? false;
     return status;
@@ -742,25 +753,54 @@ function defaultEmitStatus(status: StatusEvent, repoRoot: string): void {
   if (mapped) notify({ ...mapped, event: `extraction_${status.phase}` });
 }
 
-// If the extractor stated the project's real gate command from the canonical, fill vivicy.json — but only while it is the sentinel; never override an established command, never guess when the extractor stated nothing.
-export function recordExtractedGateCommand(repoRoot: string): boolean {
-  const reportAbs = resolve(repoRoot, GATE_COMMAND_REL);
+// If the extractor stated the project's real command from the canonical, fill vivicy.json — but only while that field is the sentinel; never override an established command, never guess when the extractor stated nothing.
+function recordExtractedCommand(
+  repoRoot: string,
+  opts: {
+    reportRel: string;
+    field: "gateCommand" | "runCommand";
+    normalize: (value: unknown, source: string) => string | null;
+    isEstablished: (config: ProjectConfig | null) => boolean;
+    set: (root: string, command: string) => string;
+  },
+): boolean {
+  const reportAbs = resolve(repoRoot, opts.reportRel);
   if (!existsSync(reportAbs)) return false;
   let stated: string | null;
   try {
-    const parsed = JSON.parse(readFileSync(reportAbs, "utf8")) as { gateCommand?: unknown };
-    stated = normalizeGateCommand(parsed?.gateCommand, GATE_COMMAND_REL);
+    const parsed = JSON.parse(readFileSync(reportAbs, "utf8")) as Record<string, unknown>;
+    stated = opts.normalize(parsed?.[opts.field], opts.reportRel);
   } catch {
     return false;
   }
   if (stated === null) return false;
   try {
-    if (isGateCommandEstablished(loadProjectConfig(repoRoot))) return false;
-    setGateCommand(repoRoot, stated);
+    if (opts.isEstablished(loadProjectConfig(repoRoot))) return false;
+    opts.set(repoRoot, stated);
     return true;
   } catch {
     return false;
   }
+}
+
+export function recordExtractedGateCommand(repoRoot: string): boolean {
+  return recordExtractedCommand(repoRoot, {
+    reportRel: GATE_COMMAND_REL,
+    field: "gateCommand",
+    normalize: normalizeGateCommand,
+    isEstablished: isGateCommandEstablished,
+    set: setGateCommand,
+  });
+}
+
+export function recordExtractedRunCommand(repoRoot: string): boolean {
+  return recordExtractedCommand(repoRoot, {
+    reportRel: RUN_COMMAND_REL,
+    field: "runCommand",
+    normalize: normalizeRunCommand,
+    isEstablished: isRunCommandEstablished,
+    set: setRunCommand,
+  });
 }
 
 function defaultCommitCorpus({ repoRoot, baselineId }: { repoRoot: string; baselineId: string }): { committed: boolean } {

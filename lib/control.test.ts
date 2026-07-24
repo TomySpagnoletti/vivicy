@@ -16,13 +16,16 @@ import {
   openSpecCycle,
   readDevStatus,
   readDocPrepReport,
+  readProductRun,
   readRunState,
   readSkillsReport,
   removeSkills,
   startDocPrep,
+  startProductRun,
   runExtract,
   startSkillsInstall,
   startSupervisor,
+  stopProductRun,
   stopSupervisor,
   type RunResult,
   type Spawner,
@@ -34,13 +37,13 @@ function makeFakeSpawner(overrides: Partial<Spawner> = {}) {
   const alive = new Set<number>()
   let nextPid = 1000
   const calls = {
-    spawnDetached: [] as Array<{ args: string[]; cwd: string; env: NodeJS.ProcessEnv }>,
+    spawnDetached: [] as Array<{ command: string; args: string[]; cwd: string; env: NodeJS.ProcessEnv; shell?: boolean }>,
     run: [] as Array<{ args: string[]; env: NodeJS.ProcessEnv }>,
     kill: [] as number[],
   }
   const spawner: Spawner = {
     spawnDetached: (options) => {
-      calls.spawnDetached.push({ args: options.args, cwd: options.cwd, env: options.env })
+      calls.spawnDetached.push({ command: options.command, args: options.args, cwd: options.cwd, env: options.env, shell: options.shell })
       const pid = nextPid++
       alive.add(pid)
       return { pid }
@@ -218,6 +221,130 @@ describe("stopSupervisor", () => {
     const { spawner } = makeFakeSpawner()
     try {
       stopSupervisor(spawner)
+      throw new Error("expected throw")
+    } catch (error) {
+      expect((error as ControlError).code).toBe("not_running")
+    }
+  })
+})
+
+describe("product run (serve the pizza)", () => {
+  function writeVivicy(runCommand: string | null, extra: Record<string, unknown> = {}): void {
+    writeFileSync(path.join(targetRoot, "vivicy.json"), JSON.stringify({ gateCommand: null, runCommand, ...extra }, null, 2))
+  }
+  function productRunLogPath(): string {
+    return path.join(getProjectRuntimeDir(getRuntimeDir(), targetRoot), "product-run.log")
+  }
+
+  it("reports not_established while runCommand is the null sentinel, and refuses to start", () => {
+    writeVivicy(null)
+    const { spawner, calls } = makeFakeSpawner()
+
+    expect(readProductRun(spawner).phase).toBe("not_established")
+    try {
+      startProductRun(spawner)
+      throw new Error("expected throw")
+    } catch (error) {
+      expect((error as ControlError).code).toBe("run_not_established")
+    }
+    expect(calls.spawnDetached).toHaveLength(0)
+  })
+
+  it("reports stopped once runCommand is established but nothing is running", () => {
+    writeVivicy("npm run dev")
+    const { spawner } = makeFakeSpawner()
+    const view = readProductRun(spawner)
+    expect(view.phase).toBe("stopped")
+    expect(view.command).toBe("npm run dev")
+  })
+
+  it("starts the product's own runCommand through the shell in the target cwd, fresh log per run, without leaking Vivicy's PORT", () => {
+    writeVivicy("npm run dev")
+    const prevPort = process.env.PORT
+    process.env.PORT = "4319"
+    try {
+      const { spawner, calls } = makeFakeSpawner()
+      const state = startProductRun(spawner)
+
+      expect(state.pid).toBeGreaterThan(0)
+      expect(state.command).toBe("npm run dev")
+      expect(calls.spawnDetached).toHaveLength(1)
+      const call = calls.spawnDetached[0]
+      expect(call.command).toBe("npm run dev")
+      expect(call.shell).toBe(true)
+      expect(call.cwd).toBe(targetRoot)
+      expect(call.env.PORT, "the product must not inherit Vivicy's own port").toBeUndefined()
+      expect(existsSync(productRunLogPath())).toBe(true)
+    } finally {
+      if (prevPort === undefined) delete process.env.PORT
+      else process.env.PORT = prevPort
+    }
+  })
+
+  it("surfaces a running product with a URL sniffed from the log", () => {
+    writeVivicy("next dev --port 3000")
+    const { spawner } = makeFakeSpawner()
+    startProductRun(spawner)
+    writeFileSync(productRunLogPath(), "  ▲ Next.js\n  - Local: http://localhost:3000\n")
+
+    const view = readProductRun(spawner)
+    expect(view.phase).toBe("running")
+    expect(view.url).toBe("http://localhost:3000")
+    expect(view.url_source).toBe("log")
+    expect(view.log_tail).toMatch(/Local: http/)
+  })
+
+  it("falls back to the command-string port when the log has not printed a URL yet", () => {
+    writeVivicy("next dev --port 4321")
+    const { spawner } = makeFakeSpawner()
+    startProductRun(spawner)
+    writeFileSync(productRunLogPath(), "starting the compiler...\n")
+
+    const view = readProductRun(spawner)
+    expect(view.url).toBe("http://localhost:4321")
+    expect(view.url_source).toBe("command")
+  })
+
+  it("refuses a double start while the product is alive, allows a restart once its pid dies", () => {
+    writeVivicy("npm run dev")
+    const { spawner, alive } = makeFakeSpawner()
+    const first = startProductRun(spawner)
+    try {
+      startProductRun(spawner)
+      throw new Error("expected throw")
+    } catch (error) {
+      expect((error as ControlError).code).toBe("already_running")
+    }
+    alive.delete(first.pid)
+    const second = startProductRun(spawner)
+    expect(second.pid).not.toBe(first.pid)
+  })
+
+  it("surfaces an exited product loudly with an exit hint when the process dies without an owner stop", () => {
+    writeVivicy("npm run dev")
+    const { spawner, alive } = makeFakeSpawner()
+    const state = startProductRun(spawner)
+    writeFileSync(productRunLogPath(), "Error: EADDRINUSE :::3000\n")
+    alive.delete(state.pid)
+
+    const view = readProductRun(spawner)
+    expect(view.phase).toBe("exited")
+    expect(view.url).toBeNull()
+    expect(view.log_tail).toMatch(/EADDRINUSE/)
+  })
+
+  it("stop kills the process group and clears the state (back to stopped, not exited)", () => {
+    writeVivicy("npm run dev")
+    const { spawner, calls } = makeFakeSpawner()
+    const state = startProductRun(spawner)
+
+    const result = stopProductRun(spawner)
+    expect(result.pid).toBe(state.pid)
+    expect(calls.kill).toContain(state.pid)
+    expect(readProductRun(spawner).phase).toBe("stopped")
+
+    try {
+      stopProductRun(spawner)
       throw new Error("expected throw")
     } catch (error) {
       expect((error as ControlError).code).toBe("not_running")

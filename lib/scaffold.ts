@@ -100,7 +100,7 @@ export function resolveTargetDir(candidate: unknown): { target: string; mode: Sc
 // Also consumed by the factory's pruneGitkeeps (lib/skeleton.ts) — the same set drives both directory creation here and pruning there.
 
 function vivicyConfig(gateCommand: string | null): string {
-  return `${JSON.stringify({ gateCommand }, null, 2)}\n`
+  return `${JSON.stringify({ gateCommand, runCommand: null }, null, 2)}\n`
 }
 
 export function detectGateCommand(targetRoot: string): string | null {
@@ -347,7 +347,7 @@ export function scaffoldProject(input: { targetDir: unknown; projectName: unknow
   const written: string[] = []
   const at = (rel: string) => path.join(target, rel)
 
-  // null is the sentinel: the gate command is established mechanically (extraction, else the stack-setup issue), never by a human editing this file.
+  // null is the sentinel: gateCommand + runCommand are established mechanically (extraction, else the stack-setup issue), never by a human. runCommand is never brownfield-detected — "the run command" is semantically loaded (dev vs start vs a specific entrypoint) and belongs to the canonical run-and-ship area the owner grills, unlike the deterministically-detectable test gate.
   const gateCommand = mode === "existing_project" ? detectGateCommand(target) : null
 
   for (const dir of SKELETON_DIRS) {

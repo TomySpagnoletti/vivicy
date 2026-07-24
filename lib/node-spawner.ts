@@ -21,7 +21,7 @@ function lastNonEmptyLine(text: string): string {
 }
 
 export const nodeSpawner: Spawner = {
-  spawnDetached({ command, args, cwd, env, logFile }: SpawnDetachedOptions): DetachedHandle {
+  spawnDetached({ command, args, cwd, env, logFile, shell }: SpawnDetachedOptions): DetachedHandle {
     // Append so resume runs accumulate rather than truncate the prior log.
     const out = openSync(logFile, "a")
     const err = openSync(logFile, "a")
@@ -30,6 +30,7 @@ export const nodeSpawner: Spawner = {
       env,
       detached: true,
       stdio: ["ignore", out, err],
+      shell: Boolean(shell),
     }
     const child = spawn(command, args, options)
     if (typeof child.pid !== "number") {

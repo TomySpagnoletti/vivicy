@@ -30,7 +30,7 @@ import { runTraceabilityCheck } from "./traceability-check.ts";
 import { runSpikeCheck, transitivelyVerifiedGates } from "./spike-check.ts";
 import { runReferenceCheck } from "./reference-check.ts";
 import { resolveTargetRoot, FACTORY_DIR, FACTORY_PROMPTS_DIR } from "./target-root.ts";
-import { resolveGateCommand, ProjectConfigError } from "./project-config.ts";
+import { resolveGateCommand, resolveRunCommand, ProjectConfigError } from "./project-config.ts";
 import {
   combinedOutput,
   runClaudeLeg as sharedRunClaudeLeg,
@@ -691,6 +691,24 @@ export function gateCommandDirective(cfg: Config, issue: Issue | undefined): str
   }
 }
 
+const RUN_COMMAND_DIRECTIVE = [
+  "## Establish the run command (this issue owes it)",
+  "",
+  "`vivicy.json#runCommand` is still the not-yet-established sentinel (`null`): the owner cannot run the built product until it is a real command. Establishing it is IN SCOPE here and overrides the general rule against editing `vivicy.json`.",
+  "",
+  "As part of completing this issue, the implementer MUST set `vivicy.json#runCommand` (preserving every other field) to the exact command that STARTS this product for a person to use — a long-running dev/serve process where the product has one (for example `npm run dev`, `go run ./...`, `flask run`, `rails server`), or the product's real entry command otherwise. This is a legitimate `runCommand` edit; the reviewer must NOT revert it. Never invent a placeholder or an `echo`, and never point it at the test runner — it is the run command, not the verification gate.",
+].join("\n");
+
+export function runCommandDirective(cfg: Config): string {
+  try {
+    resolveRunCommand({ targetRoot: execRootOf(cfg) });
+    return "";
+  } catch (error) {
+    if (error instanceof ProjectConfigError && error.code === "invalid_run_command") return RUN_COMMAND_DIRECTIVE;
+    return "";
+  }
+}
+
 export function agentCliArgs(
   provider: string,
   { model, effort, fast }: { model?: string; effort?: string; fast?: boolean } = {},
@@ -1137,8 +1155,10 @@ function runCodexLeg(leg: Leg, issue: Issue, cfg: Config): LegResult {
 function legDeps(cfg: Config, issue: Issue | undefined): LegDeps {
   const root = execRootOf(cfg);
   const directive = gateCommandDirective(cfg, issue);
+  const runDirective = runCommandDirective(cfg);
   return {
-    composePrompt: (template, iss) => composePrompt(template, iss, { gate_command_directive: directive }),
+    composePrompt: (template, iss) =>
+      composePrompt(template, iss, { gate_command_directive: directive, run_command_directive: runDirective }),
     agentCliArgs,
     abs,
     execRoot: root,

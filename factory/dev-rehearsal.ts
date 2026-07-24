@@ -80,18 +80,19 @@ function readJson<T = unknown>(path: string): T {
   return JSON.parse(readFileSync(path, "utf8")) as T;
 }
 
-// The pocket-ledger fixture ships gateCommand as the `null` sentinel; the dry implementer establishes it on the stack-setup issue exactly as a real one would, exercising the machine-fill path.
+// The fixtures ship gateCommand + runCommand as the `null` sentinel; the dry implementer establishes both on the stack-setup issue exactly as a real one would, exercising the machine-fill path.
 const FIXTURE_GATE_COMMAND = "npm test";
+const FIXTURE_RUN_COMMAND = "npm run dev";
 
-function readGateCommand(root: string): string | null {
+function readCommandField(root: string, field: "gateCommand" | "runCommand"): string | null {
   try {
-    return (JSON.parse(readFileSync(join(root, "vivicy.json"), "utf8")) as { gateCommand?: string | null }).gateCommand ?? null;
+    return (JSON.parse(readFileSync(join(root, "vivicy.json"), "utf8")) as Record<string, string | null>)[field] ?? null;
   } catch {
     return null;
   }
 }
 
-function fillGateCommandIfSentinel(root: string): void {
+function fillCommandFieldIfSentinel(root: string, field: "gateCommand" | "runCommand", value: string): void {
   const abs = join(root, "vivicy.json");
   let config: Record<string, unknown> = {};
   try {
@@ -99,15 +100,20 @@ function fillGateCommandIfSentinel(root: string): void {
   } catch {
     return;
   }
-  if (typeof config.gateCommand === "string" && config.gateCommand.length > 0) return;
-  config.gateCommand = FIXTURE_GATE_COMMAND;
+  if (typeof config[field] === "string" && (config[field] as string).length > 0) return;
+  config[field] = value;
   writeFileSync(abs, `${JSON.stringify(config, null, 2)}\n`);
+}
+
+function establishSentinelCommands(root: string): void {
+  fillCommandFieldIfSentinel(root, "gateCommand", FIXTURE_GATE_COMMAND);
+  fillCommandFieldIfSentinel(root, "runCommand", FIXTURE_RUN_COMMAND);
 }
 
 // runIssueCycle (sequential) calls legs synchronously; runIssueCycleAsync (parallel) awaits them — dry legs must match or the sequential path breaks.
 function dryImplementer(temp: string) {
   return (issue: LegIssue) => {
-    fillGateCommandIfSentinel(temp);
+    establishSentinelCommands(temp);
     return writeFakeTranscript(temp, issue, "claude-implementer");
   };
 }
@@ -118,7 +124,7 @@ function dryImplementerParallel(temp: string) {
   return async (issue: LegIssue, cfg?: LegCfg) => {
     await delay(15);
     if (cfg?.execRoot) writeWorktreeMarker(cfg.execRoot, issue, "implementer");
-    fillGateCommandIfSentinel(cfg?.execRoot ?? temp);
+    establishSentinelCommands(cfg?.execRoot ?? temp);
     return writeFakeTranscript(temp, issue, "claude-implementer");
   };
 }
@@ -221,7 +227,8 @@ async function main(): Promise<void> {
       ? { runImplementer: dryImplementerParallel(temp), runReviewer: dryReviewerParallel(temp) }
       : { runImplementer: dryImplementer(temp), runReviewer: dryReviewer(temp) }
     : {};
-  const preLoopGateCommand = readGateCommand(temp);
+  const preLoopGateCommand = readCommandField(temp, "gateCommand");
+  const preLoopRunCommand = readCommandField(temp, "runCommand");
   let processed: ProcessedIssue[] = [];
   try {
     // No defaultGateCommand: exercises the real polyglot-gate resolution from the fixture's own vivicy.json.
@@ -230,11 +237,17 @@ async function main(): Promise<void> {
   } catch (error) {
     record("dev-loop two-agent run", false, String((error as Error)?.message ?? error));
   }
-  const postLoopGateCommand = readGateCommand(temp);
+  const postLoopGateCommand = readCommandField(temp, "gateCommand");
+  const postLoopRunCommand = readCommandField(temp, "runCommand");
   record(
     "machine-fill: gateCommand starts as the null sentinel, established by the stack-setup issue (never a human)",
     preLoopGateCommand === null && postLoopGateCommand === FIXTURE_GATE_COMMAND,
     `sentinel(${preLoopGateCommand === null ? "null" : String(preLoopGateCommand)}) -> ${String(postLoopGateCommand)}`,
+  );
+  record(
+    "machine-fill: runCommand starts as the null sentinel, established by the stack-setup issue (canonical states none)",
+    preLoopRunCommand === null && postLoopRunCommand === FIXTURE_RUN_COMMAND,
+    `sentinel(${preLoopRunCommand === null ? "null" : String(preLoopRunCommand)}) -> ${String(postLoopRunCommand)}`,
   );
   if (concurrency > 1) {
     const order = processed.map((p) => p.id);
@@ -328,6 +341,7 @@ async function main(): Promise<void> {
   await runDocPrepScenario();
   await runCycleBatchScenarios();
   await runAcceptanceScenarios();
+  await runRunCommandExtractorScenario();
 
   writeReport({ dry, temp, processed, verified, blocked, totalIssues, doneCount, verifiedStates: verifiedStates.length, passingGates });
   record("write method-rehearsal-report.md", existsSync(reportPath), reportPath);
@@ -657,6 +671,28 @@ async function runAcceptanceScenarios(): Promise<void> {
     );
   } finally {
     rmSync(defect, { recursive: true, force: true });
+  }
+}
+
+// The other run-story path: when the frozen canonical's run-and-ship area STATES the run command, the extractor records it and the orchestrator establishes it from the sentinel — no stack-setup issue needed.
+async function runRunCommandExtractorScenario(): Promise<void> {
+  const extract = await import(pathToFileURL(factoryScript("extract-issues.ts")).href);
+  const root = mkdtempSync(join(tmpdir(), "vivicy-rehearsal-runcmd-"));
+  try {
+    writeFileSync(join(root, "vivicy.json"), `${JSON.stringify({ gateCommand: null, runCommand: null }, null, 2)}\n`);
+    const reportAbs = join(root, ".vivicy/development/reports/extraction-run-command.json");
+    mkdirSync(dirname(reportAbs), { recursive: true });
+    writeFileSync(reportAbs, `${JSON.stringify({ runCommand: "flask run" }, null, 2)}\n`);
+
+    const filled = extract.recordExtractedRunCommand(root) as boolean;
+    const after = readCommandField(root, "runCommand");
+    record(
+      "run-story: the extractor records a canonical-stated run command and the orchestrator establishes it (no stack-setup needed)",
+      filled === true && after === "flask run",
+      `recorded=${filled}; runCommand -> ${String(after)}`,
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
   }
 }
 
