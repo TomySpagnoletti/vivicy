@@ -16,6 +16,7 @@ import { resolveBatchLanguage } from "./detect-language.ts";
 import type { LanguageResolution } from "./detect-language.ts";
 import { BINARY_DOC_EXTENSIONS, TEXT_LANGUAGE_EXTENSIONS, extractBinaryDocText } from "../lib/text-extract.ts";
 import { dominantLanguage } from "../lib/dominant-language.ts";
+import { describeFinding, highConfidenceFindings, scanText, type SecretFinding } from "../lib/secret-scan.ts";
 import { pruneGitkeeps } from "../lib/skeleton.ts";
 import {
   activeCycleId,
@@ -37,7 +38,7 @@ const UNDETERMINED = "und";
 
 export type DocPrepPhase = "classifying" | "extracting" | "placing" | "green" | "failed" | "skipped";
 export type DocPrepRoute = "canonical" | "explode";
-export type DocPrepRejectReason = "invalid_canonical" | "extract_failed" | "outside_target" | "empty_output" | "leg_no_output";
+export type DocPrepRejectReason = "invalid_canonical" | "extract_failed" | "outside_target" | "empty_output" | "leg_no_output" | "secret_detected";
 
 export interface PlacedDoc {
   batch: string;
@@ -54,6 +55,15 @@ export interface RejectedDoc {
   detail?: string;
 }
 
+export interface SecretWarning {
+  batch: string;
+  target: string;
+  source?: string;
+  line: number;
+  detector: string;
+  redacted: string;
+}
+
 export interface DocPrepReport {
   phase: DocPrepPhase;
   cycle_id: string | null;
@@ -63,6 +73,7 @@ export interface DocPrepReport {
   language: string;
   placed: PlacedDoc[];
   rejected: RejectedDoc[];
+  warnings: SecretWarning[];
   summary: string;
   updated_at: string;
 }
@@ -162,6 +173,7 @@ export async function prepareDocs(options: PrepareDocsOptions = {}): Promise<Doc
     language: UNDETERMINED,
     placed: carryForward(sameCycle ? priorReport?.placed : undefined, consumed),
     rejected: carryForward(sameCycle ? priorReport?.rejected : undefined, consumed),
+    warnings: carryForward(sameCycle ? priorReport?.warnings : undefined, consumed),
     summary: "",
     updated_at: "",
   };
@@ -218,9 +230,12 @@ export async function prepareDocs(options: PrepareDocsOptions = {}): Promise<Doc
   }
 
   report.phase = "green";
+  const secretRejects = report.rejected.filter((r) => r.reason === "secret_detected").length;
   report.summary =
     `doc-prep green for cycle ${cycleId}: ${report.placed.length} canonical document(s) placed, ${report.rejected.length} rejected, across ${pending.length} batch(es) (language ${cycleLanguage})` +
-    (report.placed.length === 0 && report.rejected.length === 0 ? " (empty batch is a legitimate outcome)" : "");
+    (report.placed.length === 0 && report.rejected.length === 0 ? " (empty batch is a legitimate outcome)" : "") +
+    (secretRejects > 0 ? ` — ${secretRejects} kept out of the canonical for a suspected secret (remove or rotate the key, then re-import)` : "") +
+    (report.warnings.length > 0 ? ` — ${report.warnings.length} placed with a possible-secret warning` : "");
   emit();
   return report;
 }
@@ -298,8 +313,15 @@ async function prepareBatch(args: {
         continue;
       }
       if (isDominant(detectLanguage(text), cycleLanguage)) {
+        const findings = scanText(text);
+        const high = highConfidenceFindings(findings);
+        if (high.length > 0) {
+          report.rejected.push({ batch: batchId, source: rel, reason: "secret_detected", detail: secretDetail(high) });
+          continue;
+        }
         placeFile(repoRoot, located.targetRel, bytes);
         report.placed.push({ batch: batchId, target: located.targetRel, source: rel, route: "canonical", translated: false });
+        recordSecretWarnings(report, batchId, located.targetRel, rel, findings);
         continue;
       }
       legInputs.push({ source: rel, text: `${translateBanner(located.targetRel)}\n\n${text}` });
@@ -343,11 +365,28 @@ async function prepareBatch(args: {
       report.rejected.push({ batch: batchId, source: `leg:${out.rel}`, reason: "empty_output" });
       continue;
     }
+    const findings = scanText(out.bytes.toString("utf8"));
+    const high = highConfidenceFindings(findings);
+    if (high.length > 0) {
+      report.rejected.push({ batch: batchId, source: `leg:${out.rel}`, reason: "secret_detected", detail: secretDetail(high) });
+      continue;
+    }
     placeFile(repoRoot, out.rel, out.bytes);
     report.placed.push({ batch: batchId, target: out.rel, route: "explode", translated: true });
+    recordSecretWarnings(report, batchId, out.rel, `leg:${out.rel}`, findings);
   }
   clearScratch(repoRoot);
   return { ok: true };
+}
+
+function secretDetail(findings: SecretFinding[]): string {
+  return `a suspected secret credential was kept out of the canonical — remove or rotate it and re-import the cleaned file: ${findings.slice(0, 5).map(describeFinding).join("; ")}`;
+}
+
+function recordSecretWarnings(report: DocPrepReport, batch: string, target: string, source: string, findings: SecretFinding[]): void {
+  for (const f of findings.filter((x) => x.confidence === "generic").slice(0, 10)) {
+    report.warnings.push({ batch, target, source, line: f.line, detector: f.detector, redacted: f.redacted });
+  }
 }
 
 function readReport(repoRoot: string): DocPrepReport | null {

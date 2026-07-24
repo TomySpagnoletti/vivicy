@@ -483,6 +483,35 @@ describe("importIntoGoverned (import into the current governed project)", () => 
   })
 })
 
+const PLANTED_KEY = "sk-ant-" + "api03-Qz7Rp2Kw9Vn4Bh6Tm1Yj3Lf5Gd8Sx0UaWc"
+
+describe("secret scanning at import", () => {
+  it("surfaces a planted key as a redacted finding in the result plus a warning notification, and still lands the batch", async () => {
+    const result = await startGovernance({
+      targetDir: targetPath("secret-import"),
+      entries: [fileEntry("brief.md", `# Brief\n\n${ENGLISH}\n\n${PLANTED_KEY}\n`)],
+    })
+    const batch = result.batch!
+    expect(batch.accepted.map((f) => f.path)).toEqual(["brief.md"])
+    const high = batch.findings.filter((f) => f.confidence === "high")
+    expect(high).toHaveLength(1)
+    expect(high[0]).toMatchObject({ path: "brief.md", detector: "openai_anthropic_key" })
+    expect(JSON.stringify(batch.findings)).not.toContain(PLANTED_KEY)
+
+    const warn = readNotifications().filter((n) => n.stage === "import" && n.event === "secret_finding")
+    expect(warn).toHaveLength(1)
+    expect(warn[0].level).toBe("warning")
+    expect(warn[0].message).toContain(batch.batchId)
+    expect(warn[0].message).not.toContain(PLANTED_KEY)
+  })
+
+  it("a clean batch produces zero findings and no secret warning (no false-positive friction)", async () => {
+    const result = await startGovernance({ targetDir: targetPath("clean-import"), entries: [fileEntry("spec.md", ENGLISH)] })
+    expect(result.batch?.findings).toEqual([])
+    expect(readNotifications().filter((n) => n.event === "secret_finding")).toHaveLength(0)
+  })
+})
+
 function readdirBatches(root: string): string[] {
   const dir = path.join(root, UPLOADS_DIR)
   if (!existsSync(dir)) return []

@@ -12,6 +12,7 @@ import { basename, dirname, isAbsolute, join, relative, resolve } from "node:pat
 import { fileURLToPath } from "node:url";
 import { pruneGitkeeps } from "../lib/skeleton.ts";
 import { detectSpecKind, type SpecKind } from "../lib/spec-kind.ts";
+import { describeFinding, highConfidenceFindings, scanText } from "../lib/secret-scan.ts";
 
 const scriptPath = fileURLToPath(import.meta.url);
 const scriptDir = dirname(scriptPath);
@@ -149,6 +150,17 @@ function generate(args: ParsedArgs): void {
         `- working tree clean: ${git.working_tree_clean}\n` +
         "Commit or stash changes (and ensure git is reachable) before freezing, or generate with --status draft."
     );
+  }
+
+  if (status === "frozen") {
+    const secretLines = scanCorpusForSecrets(files);
+    if (secretLines.length > 0) {
+      fail(
+        "Refusing to freeze the canonical: a suspected secret credential is present in the corpus.\n" +
+          `${secretLines.join("\n")}\n` +
+          "Remove or rotate the key(s) — a real credential must never enter a frozen baseline or git history — then re-freeze. Only high-confidence key shapes block the freeze."
+      );
+    }
   }
 
   // Required so an agent cannot self-assert a freeze — verify --require-status frozen checks for this approval block.
@@ -326,6 +338,22 @@ function verify(args: ParsedArgs): void {
   console.log(`files=${manifest.files.length}`);
   console.log(`document_set_hash=${manifest.document_set_hash}`);
   console.log(`manifest_hash=${manifest.manifest_hash}`);
+}
+
+function scanCorpusForSecrets(files: BaselineFileEntry[]): string[] {
+  const lines: string[] = [];
+  for (const file of files) {
+    let text: string;
+    try {
+      text = readFileSync(join(repoRoot, file.path), "utf8");
+    } catch {
+      continue;
+    }
+    for (const finding of highConfidenceFindings(scanText(text))) {
+      lines.push(`- ${file.path}: ${describeFinding(finding)}`);
+    }
+  }
+  return lines;
 }
 
 function collectIncludedFiles(includePatterns: string[], excludePatterns: string[]): BaselineFileEntry[] {

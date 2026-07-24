@@ -12,6 +12,7 @@ import { deriveProjectName, resolveTargetDir, scaffoldProject, type ScaffoldMode
 import { dominantLanguage } from "@/lib/dominant-language"
 import { activeCycleBinding, type BatchCycleBinding } from "@/lib/spec-cycle"
 import { SUPPORTED_DOC_EXTENSIONS, ZIP_TRANSPORT_EXTENSION } from "@/lib/supported-extensions"
+import { scanDocument, type SecretFileFinding } from "@/lib/secret-scan"
 import { extractScannableText } from "@/lib/text-extract"
 
 export const UPLOADS_DIR = path.join(".vivicy", "uploads")
@@ -74,6 +75,7 @@ export interface BatchResult {
   cycle: BatchCycleBinding
   accepted: ManifestFile[]
   rejected: RejectedFile[]
+  findings: SecretFileFinding[]
 }
 
 export interface GovernanceResult {
@@ -186,9 +188,10 @@ function walkFiles(dir: string): string[] {
 
 // Binary docs (docx/pdf/odt/rtf) carry no scannable text in their raw bytes; extract first, then detect, so a batch of
 // French .docx files never collapses to 'und'. Undetectable files add no weight, so any real language dominates noise.
-async function summarizeBatch(batchDir: string): Promise<{ files: ManifestFile[]; language: string }> {
+async function summarizeBatch(batchDir: string): Promise<{ files: ManifestFile[]; language: string; findings: SecretFileFinding[] }> {
   const files: ManifestFile[] = []
   const weights = new Map<string, number>()
+  const findings: SecretFileFinding[] = []
   for (const abs of walkFiles(batchDir)) {
     const rel = toPosix(path.relative(batchDir, abs))
     if (rel === MANIFEST_FILE) continue
@@ -196,11 +199,18 @@ async function summarizeBatch(batchDir: string): Promise<{ files: ManifestFile[]
     files.push({ path: rel, size: bytes.length, sha256: sha256(bytes) })
     const text = await extractScannableText(extLower(rel), bytes)
     if (text.trim().length === 0) continue
+    findings.push(...scanDocument(rel, text))
     const lang = franc(text)
     if (lang !== UNDETERMINED_LANGUAGE) weights.set(lang, (weights.get(lang) ?? 0) + text.length)
   }
   files.sort((a, b) => a.path.localeCompare(b.path))
-  return { files, language: dominantLanguage(weights) }
+  findings.sort((a, b) => a.path.localeCompare(b.path) || a.line - b.line)
+  return { files, language: dominantLanguage(weights), findings }
+}
+
+function secretFindingNotice(fileCount: number, batchId: string): string {
+  const files = fileCount === 1 ? "1 file" : `${fileCount} files`
+  return `possible secret key(s) detected in ${files} of batch ${batchId} — remove or rotate them and re-import before the pipeline runs; ask Vivi for the exact locations`
 }
 
 export function mintBatchId(root: string): string {
@@ -246,7 +256,7 @@ async function persistBatch(root: string, exploded: { accepted: AcceptedEntry[];
   const batchDir = path.join(root, UPLOADS_DIR, batchId)
   for (const file of exploded.accepted) writeBatchFile(batchDir, file.rel, file.bytes)
 
-  const { files, language } = await summarizeBatch(batchDir)
+  const { files, language, findings } = await summarizeBatch(batchDir)
   const cycle = activeCycleBinding(root)
   const manifest: BatchManifest = {
     batchId,
@@ -264,7 +274,16 @@ async function persistBatch(root: string, exploded: { accepted: AcceptedEntry[];
     message: `imported ${files.length} file(s) as batch ${batchId} (language: ${language}) ${cycleBindingLabel(cycle)}`,
   })
 
-  return { batchId, targetPath: root, language, cycle, accepted: files, rejected: exploded.rejected }
+  if (findings.length > 0) {
+    appendNotification({
+      level: "warning",
+      stage: "import",
+      event: "secret_finding",
+      message: secretFindingNotice(new Set(findings.map((f) => f.path)).size, batchId),
+    })
+  }
+
+  return { batchId, targetPath: root, language, cycle, accepted: files, rejected: exploded.rejected, findings }
 }
 
 export async function startGovernance(input: {

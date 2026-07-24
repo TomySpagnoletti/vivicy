@@ -880,6 +880,7 @@ describe("decision cards (server contracts)", () => {
 
 const IMPORT_ENGLISH =
   "The quick brown fox jumps over the lazy dog near the riverbank every single morning without fail. ".repeat(6)
+const IMPORT_PLANTED_KEY = "sk-ant-" + "api03-Qz7Rp2Kw9Vn4Bh6Tm1Yj3Lf5Gd8Sx0UaWc"
 
 function docEntry(rel: string, text: string): RawEntry {
   return { rel, name: path.basename(rel), bytes: new Uint8Array(Buffer.from(text, "utf8")) }
@@ -1017,6 +1018,27 @@ describe("importDocsIntoSession (standing composer import into the current proje
     const turns = readTranscript(result.sessionId)
     expect(turns.map((t) => t.role)).toEqual(["vivi"])
     expect(turns[0].text).toContain("in the kitchen")
+  })
+
+  it("names a planted secret and the fix in the ack (redacted), without blocking the import", async () => {
+    const sessionId = seedViviWelcome()
+    const result = await importDocsIntoSession({
+      sessionId,
+      entries: [docEntry("brief.md", `${IMPORT_ENGLISH}\n\n${IMPORT_PLANTED_KEY}\n`)],
+    })
+    expect(result.ok).toBe(true)
+    const ack = readTranscript(sessionId).at(-1)!.text
+    expect(ack).toContain("in the kitchen")
+    expect(ack).toContain("Attenzione")
+    expect(ack).toContain("brief.md:")
+    expect(ack).toMatch(/remove or rotate/i)
+    expect(ack).not.toContain(IMPORT_PLANTED_KEY)
+  })
+
+  it("a clean import ack carries no secret warning clause", async () => {
+    const sessionId = seedViviWelcome()
+    await importDocsIntoSession({ sessionId, entries: [docEntry("a.md", IMPORT_ENGLISH)] })
+    expect(readTranscript(sessionId).at(-1)!.text).not.toContain("Attenzione")
   })
 
   it("throws before writing anything when the upload has no supported file", async () => {

@@ -16,6 +16,7 @@ import path from "node:path"
 
 import { ControlError, decideCr, getExtractionStatus, getFactoryRoot, isRunActive, readSkillsReport, startSkillsInstall, type Spawner } from "@/lib/control"
 import { importIntoGoverned, type BatchResult, type ManifestFile, type RawEntry, type RejectedFile } from "@/lib/import-docs"
+import type { SecretFileFinding } from "@/lib/secret-scan"
 import { languageDisplayName } from "@/lib/language"
 import { getProjectRuntimeDir } from "@/lib/project-runtime"
 import { getRuntimeDir } from "@/lib/runtime-dir"
@@ -371,10 +372,30 @@ export interface CardImportResult {
 }
 
 // Server-authored, deterministic — names the count + detected language and reflects the SERVER's cycle binding (active → folded into this cycle; seed → the canonical is frozen so it feeds the next cycle). Zero LLM in the render (P2): the click is the owner's, the words are ours. `reprompt` re-opens the grill question, used only on the first-run welcome; the standing composer path returns the floor without re-asking.
+const MAX_FINDINGS_IN_ACK = 5
+
+// Deterministic, redacted security clause: names the file:line and the four-char shape signal (never the secret) plus the fix — the secret value is never re-emitted by construction (lib/secret-scan redaction invariant).
+function secretFindingAckClause(findings: SecretFileFinding[]): string {
+  if (findings.length === 0) return ""
+  const files = [...new Set(findings.map((f) => f.path))]
+  const fileNoun = files.length === 1 ? "1 file" : `${files.length} files`
+  const shown = findings.slice(0, MAX_FINDINGS_IN_ACK)
+  const locations = shown.map((f) => `${f.path}:${f.line} (${f.redacted})`).join(", ")
+  const more = findings.length > shown.length ? ", …" : ""
+  const themKeys = findings.length === 1 ? "it" : "them"
+  const filePlural = files.length === 1 ? "" : "s"
+  return (
+    `\n\n⚠ Attenzione — I spotted what looks like a real secret key in ${fileNoun}: ${locations}${more}. ` +
+    `A credential must never live in the spec or in git history, so please remove or rotate ${themKeys} ` +
+    `and re-import the cleaned file${filePlural} before we build.`
+  )
+}
+
 export function viviImportAck(
   count: number,
   language: string,
   cycle: BatchCycleBinding,
+  findings: SecretFileFinding[] = [],
   opts: { reprompt?: boolean } = {}
 ): string {
   const noun = count === 1 ? "1 document" : `${count} documents`
@@ -387,8 +408,9 @@ export function viviImportAck(
     cycle.binding === "seed"
       ? `The canonical spec is frozen and building right now, so I've set ${them} aside for the NEXT cycle rather than the frozen corpus — nothing for you to check right now.`
       : `I'll fold ${them} into the spec when the pipeline runs, so there's nothing for you to check right now.`
+  const security = secretFindingAckClause(findings)
   const closer = opts.reprompt ? " Now, tell me: what are you building?" : ""
-  return `${landed} ${fate}${closer}`
+  return `${landed} ${fate}${security}${closer}`
 }
 
 function importDecisionSummary(count: number, skipped: number, language: string): string {
@@ -409,7 +431,7 @@ async function importAndAcknowledge(
   const batch = await importIntoGoverned({ root: targetRoot, entries })
   appendTurn(sessionId, {
     role: "vivi",
-    text: viviImportAck(batch.accepted.length, batch.language, batch.cycle, { reprompt: opts.reprompt }),
+    text: viviImportAck(batch.accepted.length, batch.language, batch.cycle, batch.findings, { reprompt: opts.reprompt }),
     ts: new Date().toISOString(),
   })
   return batch

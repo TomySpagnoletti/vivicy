@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -57,6 +57,15 @@ function readBaseline(root: string, baselineId: string): BaselineManifest {
 }
 
 const BASELINE_ID = "baseline-v1.0.0-draft";
+const PLANTED_KEY = "sk-ant-" + "api03-Qz7Rp2Kw9Vn4Bh6Tm1Yj3Lf5Gd8Sx0UaWc";
+
+function gitInitCommit(root: string): void {
+  execFileSync("git", ["init", "-q"], { cwd: root });
+  execFileSync("git", ["config", "user.email", "t@example.com"], { cwd: root });
+  execFileSync("git", ["config", "user.name", "Test"], { cwd: root });
+  execFileSync("git", ["add", "-A"], { cwd: root });
+  execFileSync("git", ["commit", "-q", "-m", "init"], { cwd: root });
+}
 
 test("generate hashes the doc set and produces a self-consistent manifest", () => {
   const root = makeTargetRoot();
@@ -319,6 +328,47 @@ test("generate stamps the mechanically detected spec_kind and it rides the manif
     const feature = readBaseline(root, BASELINE_ID);
     assert.equal(feature.spec_kind, "feature");
     assert.notEqual(feature.manifest_hash, project.manifest_hash);
+  } finally {
+    rmSync(root, { force: true, recursive: true });
+  }
+});
+
+test("freeze refuses when a high-confidence secret is in the corpus, names the file/line-class redacted, and writes no manifest", () => {
+  const root = makeTargetRoot();
+  try {
+    writeDoc(root, "01-a.md", `# Doc One\n\nSetup uses the key ${PLANTED_KEY}\n`);
+    gitInitCommit(root);
+    const res = runCli(root, ["generate", "--version", "1.0.0", "--status", "frozen", "--approved-by", "owner", "--approval-ref", "ref-1"]);
+    assert.equal(res.status, 1, "a secret in the corpus must block the freeze");
+    assert.match(res.stderr, /Refusing to freeze the canonical: a suspected secret credential/);
+    assert.match(res.stderr, /01-a\.md.*openai_anthropic_key/);
+    assert.doesNotMatch(res.stderr, new RegExp(PLANTED_KEY.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")), "the refusal never re-prints the secret");
+    assert.equal(existsSync(resolve(root, ".vivicy", "baselines", "baseline-v1.0.0.json")), false, "no manifest is written on refusal");
+  } finally {
+    rmSync(root, { force: true, recursive: true });
+  }
+});
+
+test("freeze passes once the secret is removed (clean corpus)", () => {
+  const root = makeTargetRoot();
+  try {
+    writeDoc(root, "01-a.md", "# Doc One\n\nThe API key is read from the environment at runtime.\n");
+    gitInitCommit(root);
+    const res = runCli(root, ["generate", "--version", "1.0.0", "--status", "frozen", "--approved-by", "owner", "--approval-ref", "ref-1"]);
+    assert.equal(res.status, 0, res.stderr);
+    assert.equal(existsSync(resolve(root, ".vivicy", "baselines", "baseline-v1.0.0.json")), true);
+  } finally {
+    rmSync(root, { force: true, recursive: true });
+  }
+});
+
+test("a DRAFT baseline is never blocked by a secret — only a freeze refuses (a generic finding never blocks either)", () => {
+  const root = makeTargetRoot();
+  try {
+    writeDoc(root, "01-a.md", `# Doc One\n\nkey ${PLANTED_KEY}\n\nDB_PASSWORD = Zx8Kq2Lp9Wm4Nv6Tb1Yh3Rj5Fd7Gs0\n`);
+    const res = runCli(root, ["generate", "--version", "1.0.0", "--status", "draft"]);
+    assert.equal(res.status, 0, res.stderr);
+    assert.equal(existsSync(resolve(root, ".vivicy", "baselines", `${BASELINE_ID}.json`)), true);
   } finally {
     rmSync(root, { force: true, recursive: true });
   }

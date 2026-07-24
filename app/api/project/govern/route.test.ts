@@ -33,6 +33,7 @@ const WITH_DOCS: GovernanceResult = {
     cycle: { binding: "active", id: "project" },
     accepted: [{ path: "spec.md", size: 12, sha256: "x" }],
     rejected: [],
+    findings: [],
   },
 }
 

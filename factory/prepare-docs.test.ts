@@ -432,13 +432,81 @@ test("nested platform-safe paths: a deep canonical upload path places at the mir
   }
 });
 
-test("report shape carries phase, cycle_id, cycle_kind, batches_consumed, batches_pending, language, placed, rejected, summary, updated_at", async () => {
+const PLANTED_KEY = "sk-ant-" + "api03-Qz7Rp2Kw9Vn4Bh6Tm1Yj3Lf5Gd8Sx0UaWc";
+
+test("secret gate: a canonical doc carrying a high-confidence key is kept OUT of the canonical (rejected secret_detected), never placed", async () => {
+  const root = repo();
+  try {
+    writeBatch(root, "2026-12-01", { "canonical/spec.md": `# Spec\n\n${ENGLISH}\n\n${PLANTED_KEY}\n`, "canonical/ok.md": `# Ok\n\n${ENGLISH}` }, "eng");
+    const report = await prepareDocs({ repoRoot: root, spawnLeg: NEVER_SPAWN });
+    assert.equal(report.phase, "green");
+    const secretRej = report.rejected.find((r) => r.reason === "secret_detected");
+    assert.ok(secretRej, "the keyed doc is rejected as secret_detected");
+    assert.equal(secretRej!.source, "canonical/spec.md");
+    assert.equal(existsSync(join(root, ".vivicy/canonical/spec.md")), false, "the keyed doc is never placed");
+    assert.ok(report.placed.some((p) => p.target === "canonical/ok.md"), "the clean sibling is still placed");
+    assert.ok(!secretRej!.detail?.includes(PLANTED_KEY), "the reject detail never re-prints the secret");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("secret gate: a generic high-entropy value is placed with a loud warning (a spec string is not a hard block)", async () => {
+  const root = repo();
+  try {
+    writeBatch(root, "2026-12-02", { "canonical/spec.md": `# Spec\n\n${ENGLISH}\n\nDB_PASSWORD = Zx8Kq2Lp9Wm4Nv6Tb1Yh3Rj5Fd7Gs0\n` }, "eng");
+    const report = await prepareDocs({ repoRoot: root, spawnLeg: NEVER_SPAWN });
+    assert.equal(report.phase, "green");
+    assert.ok(report.placed.some((p) => p.target === "canonical/spec.md"), "placed despite the generic finding");
+    assert.equal(report.rejected.filter((r) => r.reason === "secret_detected").length, 0);
+    assert.equal(report.warnings.length, 1);
+    assert.equal(report.warnings[0].target, "canonical/spec.md");
+    assert.ok(existsSync(join(root, ".vivicy/canonical/spec.md")));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("secret gate: a doc quoting a fake EXAMPLE key is placed clean — no finding, no friction", async () => {
+  const root = repo();
+  try {
+    writeBatch(root, "2026-12-03", { "canonical/spec.md": `# Spec\n\n${ENGLISH}\n\naws_access_key_id = AKIAIOSFODNN7EXAMPLE\n` }, "eng");
+    const report = await prepareDocs({ repoRoot: root, spawnLeg: NEVER_SPAWN });
+    assert.equal(report.phase, "green");
+    assert.ok(report.placed.some((p) => p.target === "canonical/spec.md"));
+    assert.equal(report.rejected.length, 0);
+    assert.equal(report.warnings.length, 0);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("secret gate: a leg-exploded output carrying a high-confidence key is rejected, never placed", async () => {
+  const root = repo();
+  try {
+    writeBatch(root, "2026-12-04", { "notes.txt": FRENCH }, "eng");
+    const report = await prepareDocs({
+      repoRoot: root,
+      spawnLeg: async ({ outputDir }) => {
+        mkdirSync(join(outputDir, "canonical"), { recursive: true });
+        writeFileSync(join(outputDir, "canonical", "notes.md"), `# Notes\n\n${PLANTED_KEY}\n`);
+      },
+    });
+    assert.equal(report.phase, "green");
+    assert.ok(report.rejected.some((r) => r.reason === "secret_detected" && r.source === "leg:canonical/notes.md"));
+    assert.equal(existsSync(join(root, ".vivicy/canonical/notes.md")), false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("report shape carries phase, cycle_id, cycle_kind, batches_consumed, batches_pending, language, placed, rejected, warnings, summary, updated_at", async () => {
   const root = repo();
   try {
     writeBatch(root, "2026-11-11", { "canonical/a.md": ENGLISH }, "eng");
     await prepareDocs({ repoRoot: root, spawnLeg: NEVER_SPAWN });
     const report = readReport(root) as unknown as Record<string, unknown>;
-    for (const key of ["phase", "cycle_id", "cycle_kind", "batches_consumed", "batches_pending", "language", "placed", "rejected", "summary", "updated_at"]) {
+    for (const key of ["phase", "cycle_id", "cycle_kind", "batches_consumed", "batches_pending", "language", "placed", "rejected", "warnings", "summary", "updated_at"]) {
       assert.ok(key in report, `report missing ${key}`);
     }
     assert.equal((report as { language: string }).language, "eng");
