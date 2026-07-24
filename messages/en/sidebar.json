@@ -123,7 +123,7 @@
     "stopConfirmConfirm": "Stop",
     "progressAriaLabel": "progress",
     "issuesVerifiedAriaLabel": "issues verified",
-    "extractedGateMessage": "Already extracted — {count, plural, one {# issue} other {# issues}}. Re-extraction isn't available yet.",
+    "extractedGateMessage": "Already extracted — {count, plural, one {# issue} other {# issues}}. To run it again, retry the extraction stage in the pipeline, or ask Vivi.",
     "toastFailedTitle": "{label} failed",
     "toastFailedHttpDescription": "HTTP {status}",
     "toastOkTitle": "{label} ok",

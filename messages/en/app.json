@@ -7,7 +7,7 @@
   "extract": {
     "emptyCanonical": "canonical is empty",
     "blockedTitle": "Extraction blocked",
-    "blockedDefaultDescription": "The deterministic checks stayed red after the retries. A human needs to look.",
+    "blockedDefaultDescription": "The deterministic checks stayed red after the retries. Ask Vivi — she reads the report and proposes the fix.",
     "failedTitle": "Extract failed",
     "failedHttpDescription": "HTTP {status}",
     "failedNetworkDescription": "network error",

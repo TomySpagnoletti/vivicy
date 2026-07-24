@@ -238,6 +238,22 @@ test("vivi.md carries the governess charter (action protocol, no code, no CR dec
   assert.match(text, /never repeat a succeeded action/i, "vivi.md must forbid re-issuing succeeded actions");
 });
 
+test("vivi.md carries the red-gate playbook: report paths, the four cause classes, and the propose-one-action discipline", () => {
+  const text = readPrompt("vivi.md");
+  assert.match(text, /When it burns/i, "vivi.md must carry the red-gate playbook section");
+  assert.match(text, /-blocked\.json/, "the playbook must send Vivi to the per-issue block report");
+  assert.match(text, /extraction-status\.json/, "the playbook must send Vivi to the extraction block report");
+  assert.match(text, /-gate\.json/, "the playbook must send Vivi to the gate evidence");
+  assert.match(text, /development\/transcripts\//, "the playbook must send Vivi to the leg transcript");
+  for (const cls of ["transient", "environment", "spec contradiction", "quota"]) {
+    assert.match(text, new RegExp(`\\*\\*${cls}\\*\\*`), `the playbook must classify the ${cls} cause (bold class cell)`);
+  }
+  assert.match(text, /pipeline\.retry/, "the transient class must propose the retry action");
+  assert.match(text, /Change Request/, "the spec-contradiction class must propose drafting a CR");
+  assert.match(text, /quota-state\.json/, "the quota class must cite the quota-state report");
+  assert.match(text, /You PROPOSE; the owner clicks/, "the playbook must keep P2: propose, owner decides");
+});
+
 test("vivi.md carries la Nonna's voice WITH the no-seasoning-in-files guard", () => {
   const text = readPrompt("vivi.md");
   assert.match(text, /la Nonna's kitchen/i, "vivi.md must define the Nonna voice section");
