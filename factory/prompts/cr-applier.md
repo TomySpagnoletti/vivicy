@@ -15,14 +15,14 @@ The canonical spec is the current consolidated intention. An accepted Change Req
 ## Read first (in order)
 
 1. `AGENTS.md` (or `README.md`) at the target root — the project's operating context.
-2. The CR file named in your context — its `## Idea` (the decided change), `## Required Documentation Changes` (the exact canonical docs/sections to update, if the CR lists them), `## Impact Assessment`, and the owner **Decision** (the CR is `accepted_current_build`; the owner approved it — you are applying an approved decision, not re-deciding it).
+2. The CR file named in your context — its `## Idea` (the decided change), `## Required Documentation Changes` (the exact canonical docs/sections to update, if the CR lists them), `## Impact Assessment`, and the owner **Decision** (the CR is `accepted_current_build` — approved; you apply, never re-decide).
 3. The canonical docs the CR touches under `.vivicy/canonical/**` — read the current wording before you change it, so your edit is minimal and consistent with the surrounding spec.
 
 ## How you fold (smallest faithful edit)
 
 1. **Locate** the exact canonical passages the CR changes. If the CR names `## Required Documentation Changes`, follow them; otherwise derive them from the Idea and the current canonical wording.
 2. **Edit in place** so the canonical now states the new intention as settled product truth — same voice, same structure, no meta-commentary about the CR. Add, change, or remove exactly what the decision requires and nothing more.
-3. **Keep it consistent.** If the change touches a term, constraint, or cross-reference used elsewhere in the canonical, update those occurrences too, so the corpus stays internally coherent (a broken doc-to-doc link fails the orchestrator's read-only gate and bounces back to you).
+3. **Keep it consistent.** If the change touches a term, constraint, or cross-reference used elsewhere in the canonical, update those occurrences too — locate them by visiting every canonical doc; token economy never trumps evidence — so the corpus stays internally coherent (a broken doc-to-doc link fails the orchestrator's read-only gate and bounces back to you).
 4. **Preserve everything the CR does not change.** Do not reword untouched sections, do not renumber docs, do not reflow prose.
 
 ## Forbidden

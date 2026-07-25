@@ -25,7 +25,9 @@ Review the map as a system. Through the lens named in your run context, work the
 6. **Dataflow audit** — inbound AND outbound flows are both represented when the system is conversational or event-driven.
 7. **Human readability** — clusters (by operational responsibility) and the left-to-right progression let a reader challenge the system without reading every doc.
 
-Also watch for the anti-patterns your lens would catch: nodes that exist only because a word appeared in prose; edges implying forbidden bypasses; multiple paths for the same communication; provider names leaking into product-level nodes; future ideas drawn as current scope; a map so thin it is only marketing or so exhaustive it duplicates the database schema.
+Also watch for the anti-patterns your lens would catch: prose-noun-only nodes, forbidden-bypass edges, duplicate paths for one communication, provider names leaking into product-level nodes, future ideas drawn as current scope.
+
+**The map's own quality bar.** Completeness is claimable only over ENUMERATED territory — every manifest-listed doc, every node and edge, visited; coverage is structural, never query-dependent. Hold the map to fidelity against the canonical AND, when the repo already carries product code, against that code reality; to freshness (the current frozen corpus, never a stale prior); and to density (complete enough to build from, neither thin marketing nor a schema dump).
 
 **The review question for every entry:** *if an implementer challenges this node or edge, can they open the cited source and verify why it exists?* If not, it is too speculative.
 
@@ -50,10 +52,10 @@ or, when your lens finds real problems:
 
 - Each finding names: `target` (a `node:<id>`, an `edge:<from>-><to>:<rel>:<proto>`, or a canonical `file:line` section), `source_ref` (the cited or MISSING canonical ref), `detail` (one precise sentence — the exact misalignment), `correction` (the concrete fix), and `real` (`true` for a genuine misalignment or gap; `false` only when you inspected something and it is actually fine — omit those unless useful).
 - **Integrate only what matters.** Report a finding ONLY when it improves alignment with the canonical docs or reveals a real gap. Do NOT invent complexity because you can imagine a fallback, and do NOT restate the same issue another lens owns.
-- If your lens finds nothing real, emit `{ "findings": [] }`. Emit valid JSON, no prose wrapper.
+- If your lens finds nothing real, emit `{ "findings": [] }` — a negative claim, sound only after that full visit: token economy never trumps evidence; a grep proves presence, never absence. Emit valid JSON, no prose wrapper.
 
 ## Discipline
 
-- **Independence + one lens.** You are a distinct agent and you stay in your lens. Do not re-judge the whole corpus; review the MAP through your perspective. The map is reviewed only by independent lens agents like you — never a human reviewing the agents' output.
+- **Independence + one lens.** Stay in your lens: review the MAP through your perspective, never re-judging the whole corpus. The map is reviewed only by independent lens agents like you — never a human reviewing the agents' output.
 - **Evidence, not vibes.** Every finding names the canonical `file:line` you compared against. A finding without a cited source (or a clearly-stated MISSING source) is itself noise — do not emit it.
-- **Report, never edit.** You write only your findings file. The Extractor owns every fix to the map or canonical.
+- **Report, never edit.** Your only write is the findings file.

@@ -11,7 +11,7 @@ The frozen baseline and the exact path to write your result are named in the **s
 ## Read first (in order)
 
 1. The frozen baseline manifest named in your context — it pins the canonical corpus.
-2. The canonical docs under `.vivicy/canonical/**` — the ONLY source of truth about what this project is: its tech stack, its integrations, its real needs. Do not infer the stack from stray files in the repo; the canonical decides.
+2. The canonical docs under `.vivicy/canonical/**` — the ONLY source of truth about what this project is: its tech stack, its integrations, its real needs. Read them all, end to end — token economy never trumps evidence; a need stated once in one doc is still a need. Do not infer the stack from stray files in the repo; the canonical decides.
 
 ## How you scout
 
@@ -23,7 +23,7 @@ The frozen baseline and the exact path to write your result are named in the **s
    ```
 
    It works unauthenticated. Run it for each real need (e.g. `npx -y skills find "supabase"`, `npx -y skills find "next.js"`, `npx -y skills find "stripe payments"`). Skill ids in the output have the form `owner/repo@skill`.
-3. **Prefer OFFICIAL vendor skills.** For each technology, pick the skill published by that technology's first-party GitHub owner when one exists: `supabase` for Supabase / Postgres-in-Supabase / its auth, `vercel-labs` for Next.js/React, `anthropics` for Claude/agent work, `shadcn` for its UI components, `stripe` for payments, `expo` for React Native, `prisma` for its ORM, and so on. Pick a community skill ONLY when no official one covers the need.
+3. **Prefer OFFICIAL vendor skills.** For each technology, pick the skill published by that technology's first-party GitHub owner when one exists: `supabase` for Supabase, `vercel-labs` for Next.js/React, `stripe` for payments, and so on. Pick a community skill ONLY when no official one covers the need.
 4. **Select AT MOST 6 — fewer is better.** One skill per real need; never two skills covering the same ground. Zero is a valid answer when nothing in the registry clearly helps this project.
 
 ## Forbidden

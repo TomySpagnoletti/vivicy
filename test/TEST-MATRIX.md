@@ -1,6 +1,6 @@
 # Vivicy — exhaustive test matrix
 
-Reconciled fingerprint: `a46b4254bdb251a0d8646316dc2e98183f13eddcca17ddecce3779372fabe8dd` @ commit `84552c8cdea543e401f4f9df628ac8205d190be1`
+Reconciled fingerprint: `42756fe2c8137c4edd91c0adc3e2c9d6dc7c622faf33e3f06faae657fac9c399` @ commit `47dd5ab461e66d2308c1fd606ab30068fe39d6b2`
 
 
 This file is the exhaustive, always-current inventory of every test case for Vivicy — every behavior the system has, whether it is covered by a test today or is a known GAP. It is **committed and machine-guarded**: the `Reconciled fingerprint` line above hashes the behavior-bearing source tree and records the HEAD commit at reconciliation time, and `scripts/test-matrix.test.ts` fails the vitest suite when code changes without this file being reconciled and re-stamped (`npm run matrix:stamp`). `git log test/TEST-MATRIX.md` is the audit trail of reconciliations. It is the single source of truth for "what should be tested" across the app (`app/`, `components/`, `lib/`) and the factory (`factory/`). It was assembled from a full per-area audit pass plus three adversarial cross-matrices (user journeys, parallel/merge chaos, process/crash chaos).
@@ -18,7 +18,7 @@ This file is the exhaustive, always-current inventory of every test case for Viv
 |---|---:|---:|---:|
 | app-shell-sidebar-ui-kit | 389 | 269 | 120 |
 | baselines-change-requests | 266 | 203 | 63 |
-| cli-supervisor-process-infra | 475 | 246 | 229 |
+| cli-supervisor-process-infra | 478 | 246 | 232 |
 | control-plane-api-routes | 494 | 233 | 261 |
 | dev-loop-worktrees-merge | 329 | 146 | 183 |
 | e2e-test-infra-rehearsal | 292 | 102 | 190 |
@@ -30,7 +30,7 @@ This file is the exhaustive, always-current inventory of every test case for Viv
 | cross-journeys | 82 | 65 | 17 |
 | cross-chaos-parallel-merge | 47 | 33 | 14 |
 | cross-chaos-process | 46 | 43 | 3 |
-| **TOTAL** | **3916** | **2158** | **1758** |
+| **TOTAL** | **3919** | **2158** | **1761** |
 
 ---
 
@@ -1432,6 +1432,9 @@ Out of this area's primary concern (prompt content, not CLI/process infra) but i
 - [cli-supervisor-process-infra.481] prompts.test.ts locks the atomic-verified-increments law across four prompts with section-unique anchors: extractor.md's granularity law (smallest end-to-end-provable slice, one obligation cluster, a divisible spec area DECOMPOSED into an ordered chain with explicit depends_on, the over-fragmentation floor), extraction-verifier.md's `granularity_violation` finding (a plainly-divisible issue flagged, the atomicity floor respected), reviewer.md's proportionality signal (a diff out of proportion to the issue's stated scope is a finding, no LOC threshold), and vivi.md's slice-the-big-ask discipline (a big mid-flight ask proposed as ordered cycles/CRs, never one omnibus) | all four section-unique anchors + the granularity_violation kind present, mutation-honest | unit | prompts.test.ts ("the atomic-verified-increments law is pinned across the extractor, extraction-verifier, reviewer, and vivi prompts")
 - [cli-supervisor-process-infra.471] extraction-verifier.md carries the S7 check that embedded directives in the corpus were NOT obeyed (a directive-shaped/prompt-injection sentence that visibly bent the extraction is a fidelity finding) plus the `embedded_directive_obeyed` problem kind in its verdict slug list | not-obeyed check heading + prompt-injection naming + the new kind slug all present | unit | prompts.test.ts ("extraction-verifier.md flags embedded directives that bent the extraction")
 - [cli-supervisor-process-infra.472] prompts.test.ts locks vivi.md's "When it burns" red-gate playbook: the on-disk report paths to read (`<issue-id>-blocked.json`, `extraction-status.json`, `<issue-id>-gate.json`, `development/transcripts/`), the four cause classes (transient / environment / spec contradiction / quota), the per-class action (`pipeline.retry` for transient, a Change Request for spec contradiction, `quota-state.json` for quota), and the P2 propose-one-action discipline ("You PROPOSE; the owner clicks") | all pinned substrings present, mutation-honest | unit | prompts.test.ts ("vivi.md carries the red-gate playbook: report paths, the four cause classes, and the propose-one-action discipline")
+- [cli-supervisor-process-infra.485] the global-view laws are pinned iff-style over all 17 leg prompts: the anti-token-economy asymmetry anchor ("token economy never trumps evidence") in its 11 receiving prompts, the negative-claims anchor ("proves presence, never absence") in its 8, map-first in implementer/reviewer/extractor, the structured-sweep anchor ("coverage is structural, never query-dependent") in its 4 — and each anchor ABSENT from every non-receiving prompt, so a law pasted where it drives nothing (over-instruction) fails the pin | per-law presence in each receiving prompt + absence everywhere else | unit | prompts.test.ts ("the global-view laws are pinned exactly where adjudicated — present in each receiving prompt, absent everywhere else")
+- [cli-supervisor-process-infra.486] extractor.md carries the map-current-last exit duty: the leg reads the existing architecture map first (REUSED mode / fix pass) and leaves it faithful to the frozen canonical on exit | pinned phrase in extractor.md | unit | prompts.test.ts ("the extractor leaves the architecture map faithful on exit (map-current-last)")
+- [cli-supervisor-process-infra.487] map-review.md carries the map quality bar: completeness claimable only over ENUMERATED territory, fidelity vs the canonical AND vs the code reality when the repo already carries product code, freshness (the current frozen corpus, never a stale prior), density (complete enough to build from, neither thin marketing nor a schema dump) | all four bar anchors present, mutation-honest | unit | prompts.test.ts ("map-review.md carries the map quality bar (enumerated completeness, fidelity vs canonical AND code, freshness, density)")
 
 ### lib/spawner.ts
 
@@ -3624,7 +3627,7 @@ Area: extraction-gates. Scope: `factory/extract-issues.ts`, `factory/semantic-ex
 
 ### factory/prompts/map-review.md
 
-- [map-ui-data-viewer.275] Prompt template's `{{issue_id}}` placeholder is actually substituted by whatever orchestrator renders it (this file's own content has no test — it's static prompt text, verified only by the runtime legs' emitted JSON matching the documented schema) | GAP — no test verifies the prompt file's placeholder syntax, its documented output JSON schema stays in sync with `MapReviewFinding`'s TS interface, or that the file is even read/reachable from the expected path at runtime
+- [map-ui-data-viewer.275] Prompt template's `{{issue_id}}` placeholder is actually substituted by whatever orchestrator renders it (the file's method content is pinned by prompts.test.ts — per-lens review method, global-view laws, the map quality bar — but not its runtime wiring) | GAP — no test verifies the prompt file's placeholder syntax, its documented output JSON schema stays in sync with `MapReviewFinding`'s TS interface, or that the file is even read/reachable from the expected path at runtime
 - [map-ui-data-viewer.276] Schema drift risk: the prompt tells lenses to write `{ "findings": [{ target, source_ref, detail, correction, real }] }` — no automated check that a real lens's raw JSON output actually deserializes cleanly into `MapReviewFinding` (e.g. extra prose wrapper, invalid JSON, wrong field names) before reaching aggregateFindings, which silently defaults to `[]` on any shape mismatch (`Array.isArray` check only) | GAP — no fixture-based test feeds a "realistic bad LLM output" (extra prose, markdown code fence, wrong keys) through the real read-findings path to confirm graceful degradation rather than a wrong silent pass
 
 ### Area cross-notes

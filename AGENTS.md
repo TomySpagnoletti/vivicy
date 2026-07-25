@@ -11,8 +11,6 @@ Gates: `npm run typecheck`, `npm run lint`, `npm run test`, `npm run build`, `np
 
 Always run tests through the wrapped npm commands, never `npx vitest`/`npx playwright test` directly: the wrappers auto-clean transient artifacts (`.next-e2e-*` dist dirs, `test-results/`, `playwright-report/`) after the run, including Playwright's post-teardown `.last-run.json` that the config-level teardown cannot catch. Targeted runs pass through: `npm test -- <test files>`, `npm run e2e -- <spec> --project=<project>`.
 
-Vivicy is a web app — `npm run dev` to develop, `npm run build && npm run start` to run. See the README's Run / Build section.
-
 This repo pins Next.js 16, which has breaking changes from older releases — confirm App Router APIs and conventions against the bundled docs in `node_modules/next/dist/docs/` rather than from memory.
 
 ## Method invariants (bind every change to this repo)
@@ -54,7 +52,7 @@ The four routing rules, all enforced in code (`lib/vivi.ts` allowlists, `factory
 
 ## Per-leg timeouts (agent legs cannot hang the loop)
 
-Every agent leg (both the dev-loop's implementer/reviewer and the extractor/verifier) runs through the shared spawn infra (`factory/agent-spawn.ts` → `factory/leg-timeout.ts` → `factory/leg-supervisor.ts`) under TWO independent watchdogs, so a wedged `codex exec`/`claude` (alive but producing nothing) can never block the orchestrator the way it once did for ~5 hours:
+Every agent leg (both the dev-loop's implementer/reviewer and the extractor/verifier) runs through the shared spawn infra (`factory/agent-spawn.ts` → `factory/leg-timeout.ts` → `factory/leg-supervisor.ts`) under TWO independent watchdogs, so a wedged `codex exec`/`claude` (alive but producing nothing) can never block the orchestrator:
 
 - a **hard wall-clock cap** (`VIVICY_LEG_TIMEOUT_MS`, default 45 min) — the absolute ceiling for one leg, generous enough for legit xhigh-effort issues (15–30 min);
 - a **stall/idle timeout** (`VIVICY_LEG_IDLE_MS`, default 12 min) — no new stdout/stderr for this long means the CLI is wedged even before the cap.
@@ -86,9 +84,9 @@ Repo skills live under `.agents/skills/` (committed, standard SKILL.md format �
 
 ## The golden rule — every artifact earns its keep by driving behavior
 
-Everything this repo carries — every doc, prompt, directive, comment, and line of code — must drive what an agent or a human DOES; content that only reassures rots into a stale lie, so delete it rather than write it. This never deletes a contract: a quality bar, a security boundary, or a cross-process invariant CHANGES behavior and is kept, even hardened.
+Everything this repo carries — every doc, prompt, directive, comment, and line of code — must drive what an agent or a human DOES; content that only reassures rots into a stale lie, so delete it rather than write it. This never deletes a contract: a quality bar, a security boundary, or a cross-process invariant CHANGES behavior and is kept, even hardened. And the rule bounds WRITING, never observation: be exhaustive in reading, search, and verification — token economy never trumps evidence, a partial observation is a false observation — and minimal only in what you add.
 
-**Zero comments by default.** The code, its names, and its tests are the documentation. A comment may exist ONLY when it states a structural invariant, constraint, or danger that is **not derivable from the code itself** — the "this breaks if you change it" class: a cross-process byte-compatibility contract, a deliberately non-obvious ordering, a platform trap, a security boundary. One dense line, no story. The canonical set of such invariants lives in the "Structural invariants" section below — prefer pointing there over repeating them inline. Never write: narration or paraphrase of the next line, JSDoc/docstrings that restate names and types, module-header essays, session or history references, plan/sprint codes, version markers, decorative banners. Tool directives (`eslint-disable`, `@ts-expect-error`, `"use client"`, shebangs) are not comments — keep them. When editing a file that still carries legacy comments, delete them as you pass.
+**Zero comments by default.** The code, its names, and its tests are the documentation. A comment may exist ONLY when it states a structural invariant, constraint, or danger that is **not derivable from the code itself** — the "this breaks if you change it" class: a cross-process byte-compatibility contract, a deliberately non-obvious ordering, a platform trap, a security boundary. One dense line, no story. The canonical set of such invariants lives in the "Structural invariants" section below — prefer pointing there over repeating them inline. Never write: narration or paraphrase of the next line, JSDoc/docstrings that restate names and types, module-header essays, decorative banners. Tool directives (`eslint-disable`, `@ts-expect-error`, `"use client"`, shebangs) are not comments — keep them. When editing a file that still carries legacy comments, delete them as you pass.
 
 **Never encode a moment in time.** The ban on time-fixed references extends beyond comments to the code itself. Code is a flow — it states what the system IS, never when or in which batch a piece was written. Do not encode version markers, plan/workstream/sprint/phase codes, "new/old/legacy/added in vX" wording, or session references in identifiers, strings, file names, comments, or docs. Version data a machine reads is functional, not a marker (dependency manifests, protocol/schema version fields, the semver in `package.json`) — it stays.
 

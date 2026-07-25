@@ -404,6 +404,56 @@ test("retro.md carries the post-cycle retro method (fresh-context, recurring-cla
   assert.match(text, /You edit no file and you decide nothing|propose only|never self-apply|Nothing you write is ever applied automatically/i, "retro.md must be propose-only (P5): nothing is applied automatically");
 });
 
+const GLOBAL_VIEW_LAWS: Array<{ law: string; anchor: RegExp; prompts: string[] }> = [
+  {
+    law: "anti-token-economy asymmetry (exhaustive observation, minimal addition)",
+    anchor: /[Tt]oken economy never trumps evidence/,
+    prompts: ["implementer.md", "reviewer.md", "extractor.md", "extraction-verifier.md", "map-review.md", "acceptance.md", "readiness.md", "spike-verifier.md", "doc-prep.md", "skill-scout.md", "cr-applier.md"],
+  },
+  {
+    law: "negative claims only over enumerated, visited territory",
+    anchor: /proves presence, never absence/,
+    prompts: ["reviewer.md", "extraction-verifier.md", "map-review.md", "acceptance.md", "retro.md", "readiness.md", "spike-verifier.md", "change-request.md"],
+  },
+  {
+    law: "map-first orientation for legs working in the tree",
+    anchor: /[Mm]ap first/,
+    prompts: ["implementer.md", "reviewer.md", "extractor.md"],
+  },
+  {
+    law: "structured sweep (enumerate, visit every partition, drill on signal)",
+    anchor: /coverage is structural, never query-dependent/,
+    prompts: ["extraction-verifier.md", "map-review.md", "acceptance.md", "retro.md"],
+  },
+];
+
+test("the global-view laws are pinned exactly where adjudicated — present in each receiving prompt, absent everywhere else", () => {
+  for (const { law, anchor, prompts } of GLOBAL_VIEW_LAWS) {
+    for (const name of ALL_LEG_PROMPTS) {
+      const text = readPrompt(name);
+      if (prompts.includes(name)) {
+        assert.match(text, anchor, `${name} must carry the ${law} law`);
+      } else {
+        assert.doesNotMatch(text, anchor, `${name} must NOT carry the ${law} law — a law pasted where it drives nothing is over-instruction`);
+      }
+    }
+  }
+});
+
+test("the extractor leaves the architecture map faithful on exit (map-current-last)", () => {
+  const text = readPrompt("extractor.md");
+  assert.match(text, /faithful to the frozen canonical on exit/, "extractor.md must carry the map-current-last exit duty");
+});
+
+test("map-review.md carries the map quality bar (enumerated completeness, fidelity vs canonical AND code, freshness, density)", () => {
+  const text = readPrompt("map-review.md");
+  assert.match(text, /The map's own quality bar/, "map-review.md must carry the quality-bar section");
+  assert.match(text, /Completeness is claimable only over ENUMERATED territory/, "completeness claims are bounded to enumerated territory");
+  assert.match(text, /against the canonical AND, when the repo already carries product code, against that code reality/, "fidelity is judged against canonical AND code");
+  assert.match(text, /freshness \(the current frozen corpus, never a stale prior\)/, "the bar includes freshness");
+  assert.match(text, /density \(complete enough to build from, neither thin marketing nor a schema dump\)/, "the bar includes density");
+});
+
 test("extraction-verifier.md flags embedded directives that bent the extraction", () => {
   const text = readPrompt("extraction-verifier.md");
   assert.match(text, /Embedded directives were NOT obeyed/i, "verifier must carry the not-obeyed check");

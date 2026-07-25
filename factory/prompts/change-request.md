@@ -20,7 +20,7 @@ An accepted current-build CR is a controlled patch plan for the canonical docs. 
 
 Route to CR intake when the owner says something like "I have an idea", "what if we added…", "we should change…", "maybe later…", "this should work differently", "can we also…", "I want the product to…" — OR when, during implementation, you discover the frozen baseline itself is wrong (a factual error, an internal contradiction, or a requirement a Phase 0 spike proved infeasible). A documentation defect is owner-decided product truth: surface it, propose the correction with its classification, recommend a status — never silently patch and keep building.
 
-First check whether the idea is already covered by existing canonical docs, a future option, or an existing CR; if so, point at it instead of duplicating. If the owner is only brainstorming, summarize and ask whether to create a CR.
+First check whether the idea is already covered by existing canonical docs, a future option, or an existing CR — by visiting them; a grep proves presence, never absence — and if so, point at it instead of duplicating. If the owner is only brainstorming, summarize and ask whether to create a CR.
 
 ## Guided intake protocol
 
@@ -51,7 +51,7 @@ Minimal seed questions — ask only the ones the docs do not already answer: (1)
 
 ## Forbidden
 
-Silently implementing a casual idea; adding a future idea to the active backlog before acceptance; duplicating speculative prose across docs; creating a fallback "just in case"; a second protocol / source of truth / shadow interface; asking questions the docs answer; declaring a CR accepted without explicit owner approval; marking a CR implemented while affected tests or gates are missing; silently editing the frozen canonical docs to "fix" a perceived defect and continuing to build against it instead of raising a CR and producing a new frozen baseline.
+Silently implementing a casual idea; adding a future idea to the active backlog before acceptance; duplicating speculative prose across docs; creating a fallback "just in case"; a second protocol / source of truth / shadow interface; declaring a CR accepted without explicit owner approval; marking a CR implemented while affected tests or gates are missing; silently editing the frozen canonical docs to "fix" a perceived defect instead of raising a CR and re-freezing.
 
 ## CR file
 

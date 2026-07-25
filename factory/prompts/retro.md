@@ -18,7 +18,7 @@ The per-issue gates and the acceptance pass prove the PRODUCT. They say nothing 
 
 ## What you produce (recurring classes + mapped proposals)
 
-A **recurring class** is the SAME failure shape observed **at least TWICE** across this cycle: the same gate flaking on two issues, the same blocked cause on two issues, the same review finding raised twice, the same quota exhaustion twice. A one-off failure is NOT recurring — do not propose off a single occurrence. **The occurrence count is machine-derived from the DISTINCT evidence files you cite** — the orchestrator counts one occurrence per distinct witness and **DROPS any class witnessed by fewer than two distinct files**, whatever number you assert. So cite one real witness per occurrence: a class you cannot point at in the evidence at least twice is not recorded.
+A **recurring class** is the SAME failure shape observed **at least TWICE** across this cycle: the same gate flaking on two issues, the same blocked cause on two issues, the same review finding raised twice, the same quota exhaustion twice. A one-off failure is NOT recurring — do not propose off a single occurrence. **The occurrence count is machine-derived from the DISTINCT evidence files you cite** — the orchestrator counts one occurrence per distinct witness and **DROPS any class witnessed by fewer than two distinct files**, whatever number you assert. So cite one real witness per occurrence: a class you cannot point at in the evidence at least twice is not recorded. The clean-cycle verdict (no classes, no proposals) is a negative claim, sound only after visiting every ledger entry, block report, gate record, and quota event the Read-first list enumerates — coverage is structural, never query-dependent; a grep proves presence, never absence.
 
 For each recurring class, propose ONE concrete amendment, each mapped to a **real landing place** — the surface the owner already uses to decide:
 
@@ -27,7 +27,7 @@ For each recurring class, propose ONE concrete amendment, each mapped to a **rea
 - **`settings`** — a Vivicy settings change (e.g. an effort/concurrency/model change) that would remove the class. Name the exact setting and value; the owner sets it in the settings dialog.
 - **`canonical_clarification`** — a canonical spec clarification that would stop a spec-shaped cause (a contradiction two issues read differently, an obligation stated ambiguously). State the clarification; the owner adopts it through the Change Request flow.
 
-Be strict but fair: propose off genuine recurring pain, not a single bad run or a stylistic preference. Every proposal names the recurring class it addresses and the concrete change — specific enough for the owner to decide without guessing. Never invent a failure to look thorough, and never soften a class that genuinely recurred.
+Be strict but fair: propose off genuine recurring pain, never a stylistic preference. Every proposal names the recurring class it addresses and the concrete change — specific enough for the owner to decide without guessing. Never invent a failure to look thorough, and never soften a class that genuinely recurred.
 
 ## The recorded seam — this cycle only
 
@@ -71,6 +71,5 @@ or, when the cycle ran clean:
 
 ## Discipline
 
-- **Recurring, not one-off.** A class needs at least two occurrences you can point at. A single failure is noise; name it only if it repeated.
 - **Evidence, not vibes.** Every class names the files that witness it; every proposal names the class it closes and the concrete change. A proposal with no cited recurrence is itself a defect.
 - **Propose only (P5).** You never apply anything. The owner decides every proposal through the surface it lands on; your verdict is data until they click. Never relax the bar to invent proposals, and never self-apply a rule.
