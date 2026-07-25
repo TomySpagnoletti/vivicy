@@ -67,9 +67,93 @@ export function agentEnv(): NodeJS.ProcessEnv {
   return { ...process.env };
 }
 
+export type LegPromptErrorCode = "prompts_dir_unset" | "invalid_leg_role" | "unknown_leg_role" | "prompt_unreadable" | "empty_leg_prompt";
+
+export class LegPromptError extends Error {
+  code: LegPromptErrorCode;
+  role: string;
+  promptPath: string | null;
+  constructor(message: string, code: LegPromptErrorCode, role: string, promptPath: string | null, cause?: unknown) {
+    super(message, cause === undefined ? undefined : { cause });
+    this.name = "LegPromptError";
+    this.code = code;
+    this.role = role;
+    this.promptPath = promptPath;
+  }
+}
+
+const PROMPT_EXT = ".md";
+export const LEG_ROLE_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+
+export function legRoles(promptsDir: string): string[] {
+  return readdirSync(promptsDir, { withFileTypes: true })
+    .filter((entry) => !entry.isDirectory() && entry.name.endsWith(PROMPT_EXT))
+    .map((entry) => entry.name.slice(0, -PROMPT_EXT.length))
+    .sort();
+}
+
+function describeValidRoles(promptsDir: string): string {
+  let roles: string[];
+  try {
+    roles = legRoles(promptsDir);
+  } catch {
+    return `The prompt directory ${promptsDir} could not be listed.`;
+  }
+  if (roles.length === 0) return `No prompt file exists under ${promptsDir}.`;
+  return `Valid roles (one per prompt file under ${promptsDir}): ${roles.join(", ")}.`;
+}
+
 // cfg.promptsDir is an absolute factory path, independent of the target project being built.
-export function readPrompt(cfg: LegConfig, name: string): string {
-  return readFileSync(resolve(cfg.promptsDir!, `${name}.md`), "utf8");
+export function readPrompt(cfg: LegConfig, role: string): string {
+  const promptsDir = cfg.promptsDir;
+  if (typeof promptsDir !== "string" || promptsDir.trim().length === 0) {
+    throw new LegPromptError(
+      `agent-spawn: cannot resolve the prompt for leg role "${String(role)}" — the leg config carries no promptsDir (an absolute factory prompts path is required).`,
+      "prompts_dir_unset",
+      String(role),
+      null,
+    );
+  }
+  if (typeof role !== "string" || !LEG_ROLE_PATTERN.test(role)) {
+    throw new LegPromptError(
+      `agent-spawn: "${String(role)}" is not a valid leg role — a role is lowercase kebab-case and names its prompt file <role>${PROMPT_EXT} under ${promptsDir}. ${describeValidRoles(promptsDir)}`,
+      "invalid_leg_role",
+      String(role),
+      null,
+    );
+  }
+  const promptPath = resolve(promptsDir, `${role}${PROMPT_EXT}`);
+  let template: string;
+  try {
+    template = readFileSync(promptPath, "utf8");
+  } catch (cause) {
+    const errno = (cause as { code?: string } | null)?.code;
+    if (errno === "ENOENT" || errno === "ENOTDIR") {
+      throw new LegPromptError(
+        `agent-spawn: leg role "${role}" has no prompt file — expected ${promptPath}. ${describeValidRoles(promptsDir)}`,
+        "unknown_leg_role",
+        role,
+        promptPath,
+        cause,
+      );
+    }
+    throw new LegPromptError(
+      `agent-spawn: leg role "${role}" has a prompt file that could not be read (${errno ?? "unknown error"}) — ${promptPath}.`,
+      "prompt_unreadable",
+      role,
+      promptPath,
+      cause,
+    );
+  }
+  if (template.trim().length === 0) {
+    throw new LegPromptError(
+      `agent-spawn: leg role "${role}" resolves to an empty prompt file (${promptPath}) — a leg must never run on a blank prompt.`,
+      "empty_leg_prompt",
+      role,
+      promptPath,
+    );
+  }
+  return template;
 }
 
 // Loops all project dirs because the CLI's dir-name encoding for a session varies — no direct path is derivable.

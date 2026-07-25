@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { FACTORY_DIR, FACTORY_PROMPTS_DIR } from "./target-root.ts";
 import { PROOFS_DIR, PROOF_RECIPE_FILE } from "../lib/proofs.ts";
 
-const PROMPTS = ["implementer.md", "reviewer.md", "extractor.md", "extraction-verifier.md", "map-review.md", "change-request.md", "spike-prover.md", "spike-verifier.md", "cr-applier.md", "skill-scout.md", "doc-prep.md", "detect-language.md"];
+const PROMPTS = ["implementer.md", "reviewer.md", "extractor.md", "extraction-verifier.md", "map-review.md", "spike-prover.md", "spike-verifier.md", "cr-applier.md", "skill-scout.md", "doc-prep.md", "detect-language.md"];
 
 const ALL_LEG_PROMPTS = [
   "doc-prep.md",
@@ -16,8 +16,7 @@ const ALL_LEG_PROMPTS = [
   "implementer.md",
   "reviewer.md",
   "merge-resolver.md",
-  "readiness.md",
-  "change-request.md",
+  "readiness-checker.md",
   "cr-applier.md",
   "map-review.md",
   "skill-scout.md",
@@ -146,16 +145,6 @@ test("extractor.md carries the architecture-map authoring craft (passes, layout 
   assert.match(text, /operational storyboard/i, "the layout method narrative");
   assert.match(text, /Anti-patterns — never author these/i);
   assert.match(text, /Resolving a canonical contradiction/i, "the agent edits canonical + re-freeze, no change-request");
-});
-
-test("change-request.md carries the post-freeze Change-Control discipline", () => {
-  const text = readPrompt("change-request.md");
-  assert.match(text, /Change Request agent/i);
-  assert.match(text, /guided intake/i);
-  assert.match(text, /accepted_current_build/);
-  assert.match(text, /owner_decision_evidence/);
-  assert.match(text, /never silently edit/i, "the agent must not silently patch the frozen canonical");
-  assert.match(text, /full CR frontmatter/, "change-request.md carries the CR frontmatter shape inline, not a target-repo template");
 });
 
 test("spike-prover.md carries the run-it-in-the-target-repo proving discipline", () => {
@@ -409,12 +398,12 @@ const PINNED_KERNELS: Array<{ kernel: string; anchor: RegExp; prompts: string[] 
   {
     kernel: "anti-token-economy asymmetry (exhaustive observation, minimal addition)",
     anchor: /[Tt]oken economy never trumps evidence/,
-    prompts: ["implementer.md", "reviewer.md", "extractor.md", "extraction-verifier.md", "map-review.md", "acceptance.md", "readiness.md", "spike-verifier.md", "doc-prep.md", "skill-scout.md", "cr-applier.md"],
+    prompts: ["implementer.md", "reviewer.md", "extractor.md", "extraction-verifier.md", "map-review.md", "acceptance.md", "readiness-checker.md", "spike-verifier.md", "doc-prep.md", "skill-scout.md", "cr-applier.md"],
   },
   {
     kernel: "negative claims only over enumerated, visited territory",
     anchor: /proves presence, never absence/,
-    prompts: ["reviewer.md", "extraction-verifier.md", "map-review.md", "acceptance.md", "retro.md", "readiness.md", "spike-verifier.md", "change-request.md"],
+    prompts: ["reviewer.md", "extraction-verifier.md", "map-review.md", "acceptance.md", "retro.md", "readiness-checker.md", "spike-verifier.md"],
   },
   {
     kernel: "map-first orientation for legs working in the tree",
