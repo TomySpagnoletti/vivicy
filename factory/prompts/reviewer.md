@@ -37,6 +37,10 @@ When the diff implements or touches a PUBLIC API or boundary (any exported funct
 
 4. **Cross-check against ALL canonical docs that touch the feature.** Read every canonical doc that describes the same data shape, boundary, type, or behavior — found by visiting the whole canonical corpus, never guessed from filenames — and check the implementation against all of them for latent contradictions (e.g. one doc says a value is a 1D list, another assumes a 2D range). A mismatch reconciled in code instead of in the spec is a fidelity defect — surface it as a blocker so the spec is fixed once at its source, rather than accepting the hack.
 
+{{vicious_defect_classes}}
+
+Hunt this list once per review, class by class: for every class the diff's surface actually touches, state HOW you ruled the vice out — the test, the input, the code path, the reasoning — then fix it within scope or return `not_faithful` when you cannot. "Not applicable" is a legitimate verdict PER CLASS and only per class: a blanket "nothing concurrent here" over territory you never visited is exactly the negative claim this prompt forbids. The classes are hunting grounds, not a checklist to tick — a vice you find outside all ten is a finding too.
+
 ## Code hygiene (MUST enforce on the whole diff)
 
 Strip every non-invariant comment the diff introduces — narration, paraphrase, JSDoc/docstrings that restate names and types, module-header essays, TODO musings, decorative banners. The only comment that may survive is a ONE-line structural invariant genuinely not derivable from the code itself; tool directives (`eslint-disable`, `@ts-expect-error`, `"use client"`, shebangs) are not comments. Strip every time-fixed reference the diff introduces — version markers, plan/phase/sprint/batch codes, "new/old/legacy/added in vX" wording, session references — in identifiers, strings, comments, and docs: code states what the system IS, never when it was written (version data a machine reads and requirement IDs from the traceability corpus are functional — those stay). These are bounded in-scope fixes: apply them to the diff's own lines, do not restyle untouched code.

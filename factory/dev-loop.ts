@@ -664,11 +664,33 @@ export function selectIndependentBatch(
   return batch;
 }
 
+const VICIOUS_DEFECT_CLASSES = [
+  "## The vicious defect classes — the named hunting grounds",
+  "",
+  'Stack-agnostic classes of defect that pass tests, reviews, and gates and then surface in production. This is a net over the RECURRING named vices, never the whole of correctness — clearing all ten never licenses "therefore correct".',
+  "",
+  "1. **Concurrency** — read-modify-write races; check-then-act (TOCTOU); deadlock and livelock; double-fire; torn writes; two writers on one state.",
+  "2. **Time** — DST and timezone arithmetic; non-monotonic clocks; expiry mid-operation; calendar edges; retry storms without backoff.",
+  "3. **Async and ordering** — floating promises; callbacks after teardown; out-of-order events; re-entrancy; stale closures.",
+  "4. **State and persistence** — uninvalidated caches; zombie state after a crash (a lock held by a dead holder); half-applied migrations; non-atomic multi-file writes; missing idempotence (replay = double effect).",
+  "5. **Data boundaries** — encodings (UTF-8, BOM, NFC vs NFD); CRLF; Windows vs POSIX paths; null vs undefined vs empty; float arithmetic; integer and JSON-precision overflow; timezone-less serialized dates.",
+  "6. **Resources** — leaks (file descriptors, listeners, timers); orphan processes; ignored backpressure; disk full mid-write; degradation over a long run.",
+  "7. **Network** — slow is not dead; retrying a non-idempotent action; out-of-order delivery; half-closed connections.",
+  "8. **Security** — injection (SQL, command, prompt); path traversal and zip-slip; secrets in logs; catastrophic regex backtracking (ReDoS); hostile deserialization; unicode homoglyphs.",
+  "9. **Environment** — dev is not prod (inherited env); locale-dependent behaviour; symlinks; missed watcher events; runtime-version drift.",
+  "10. **Human and UX** — double-click double-submit; back-navigation onto stale state; two tabs one session; autosave overwriting a concurrent edit.",
+].join("\n");
+
+const VICIOUS_TORTURE_CRITERIA =
+  "kill it mid-write and reprove the invariant; deliver the action twice and prove one effect; run N writers on the one state; feed the dirty boundary inputs (empty, oversized, wrong encoding, CRLF, homoglyph, DST edge); move the clock across the expiry and the DST edge; exhaust the resource and prove nothing leaked";
+
 export function composePrompt(template: string, issue: Issue, extra: Record<string, unknown> = {}): string {
   const values: Record<string, unknown> = {
     issue_id: issue.id,
     issue_path: issue.path ?? issue.issue_path ?? "",
     graph_refs: (issue.graph_refs ?? []).join(", "),
+    vicious_defect_classes: VICIOUS_DEFECT_CLASSES,
+    vicious_torture_criteria: VICIOUS_TORTURE_CRITERIA,
     ...extra,
   };
   return template.replace(/\{\{(\w+)\}\}/g, (match, key) => (key in values ? String(values[key]) : match));

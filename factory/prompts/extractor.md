@@ -188,7 +188,7 @@ verification_gate_ids:
 
 - **`## Scope`** — faithful spec restated from the referenced canonical lines. Deterministic wording only (no "if needed", "simplify where appropriate").
 - **`## Out Of Scope`** — what this issue deliberately excludes, especially adjacent behavior a reader might assume is included.
-- **`## Verification`** — the tests and gates that PROVE the Scope before completion is claimed: real-behavior coverage (happy + negative/edge/failure), integration with the components the anti-cheating rules forbid faking, and each `verification_gate_ids` gate resolving to a real green gate-run record. Never lower the bar.
+- **`## Verification`** — the tests and gates that PROVE the Scope before completion is claimed: real-behavior coverage (happy + negative/edge/failure), integration with the components the anti-cheating rules forbid faking, the torture criterion of every vicious defect class the Scope touches (see "The vicious defect classes"), and each `verification_gate_ids` gate resolving to a real green gate-run record. Never lower the bar.
 
 ### Spike file — `.vivicy/development/spikes/<nn>-<slug>.md`
 
@@ -232,6 +232,10 @@ Item 6 gives the map's machine-checkable SHAPE; this is how you AUTHOR a good ma
 Owner-placed layout is sacred (item 6): preserve every existing `layout_x/_y/_cluster/_role` and `layout_label_ratio` verbatim; apply this storyboard only to NEW nodes/edges and to a from-scratch map.
 
 **Anti-patterns — never author these:** nodes that exist only because a word appeared in prose; edges implying forbidden bypasses; multiple paths for the same service/worker communication; fallback or alternate implementation paths not chosen by accepted docs; provider-specific names in a product-level node when a provider-neutral boundary exists; the same durable state stored in several nodes; future ideas drawn as current-scope paths; mixing runtime architecture with development methodology in one graph; hiding missing architecture by omitting important nodes; a map so thin it is only a marketing diagram; a map so exhaustive it duplicates the database schema. The map must be complete enough to build from, not bloated enough to replace the docs.
+
+{{vicious_defect_classes}}
+
+**A class the spec's own behaviour touches becomes a gate-provable obligation.** Where an obligation genuinely sits on one of the classes above, the issue carrying it states that class's TORTURE criterion in its `## Verification`, expressed in THIS product's stack — {{vicious_torture_criteria}}. Only where the canonical's own obligations reach the class — never a torture criterion for a vice the product cannot have, and never a new catalog requirement: it is a verification criterion on an obligation the canonical already states, so source fidelity is untouched. And never as prose: a criterion that is not a real gate-provable test is not an obligation.
 
 ## Discipline
 

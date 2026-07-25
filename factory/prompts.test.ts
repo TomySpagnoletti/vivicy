@@ -404,40 +404,138 @@ test("retro.md carries the post-cycle retro method (fresh-context, recurring-cla
   assert.match(text, /You edit no file and you decide nothing|propose only|never self-apply|Nothing you write is ever applied automatically/i, "retro.md must be propose-only (P5): nothing is applied automatically");
 });
 
-const GLOBAL_VIEW_LAWS: Array<{ law: string; anchor: RegExp; prompts: string[] }> = [
+const PINNED_KERNELS: Array<{ kernel: string; anchor: RegExp; prompts: string[] }> = [
   {
-    law: "anti-token-economy asymmetry (exhaustive observation, minimal addition)",
+    kernel: "anti-token-economy asymmetry (exhaustive observation, minimal addition)",
     anchor: /[Tt]oken economy never trumps evidence/,
     prompts: ["implementer.md", "reviewer.md", "extractor.md", "extraction-verifier.md", "map-review.md", "acceptance.md", "readiness.md", "spike-verifier.md", "doc-prep.md", "skill-scout.md", "cr-applier.md"],
   },
   {
-    law: "negative claims only over enumerated, visited territory",
+    kernel: "negative claims only over enumerated, visited territory",
     anchor: /proves presence, never absence/,
     prompts: ["reviewer.md", "extraction-verifier.md", "map-review.md", "acceptance.md", "retro.md", "readiness.md", "spike-verifier.md", "change-request.md"],
   },
   {
-    law: "map-first orientation for legs working in the tree",
+    kernel: "map-first orientation for legs working in the tree",
     anchor: /[Mm]ap first/,
     prompts: ["implementer.md", "reviewer.md", "extractor.md"],
   },
   {
-    law: "structured sweep (enumerate, visit every partition, drill on signal)",
+    kernel: "structured sweep (enumerate, visit every partition, drill on signal)",
     anchor: /coverage is structural, never query-dependent/,
     prompts: ["extraction-verifier.md", "map-review.md", "acceptance.md", "retro.md"],
   },
+  {
+    kernel: "vicious-defect taxonomy injection slot (the single-source class list)",
+    anchor: /\{\{vicious_defect_classes\}\}/,
+    prompts: ["implementer.md", "reviewer.md", "extractor.md", "extraction-verifier.md"],
+  },
+  {
+    kernel: "vicious-defect torture-criteria injection slot (the single-source proof shapes)",
+    anchor: /\{\{vicious_torture_criteria\}\}/,
+    prompts: ["extractor.md", "extraction-verifier.md"],
+  },
 ];
 
-test("the global-view laws are pinned exactly where adjudicated — present in each receiving prompt, absent everywhere else", () => {
-  for (const { law, anchor, prompts } of GLOBAL_VIEW_LAWS) {
+test("every pinned kernel sits exactly where adjudicated — present in each receiving prompt, absent everywhere else", () => {
+  for (const { kernel, anchor, prompts } of PINNED_KERNELS) {
     for (const name of ALL_LEG_PROMPTS) {
       const text = readPrompt(name);
       if (prompts.includes(name)) {
-        assert.match(text, anchor, `${name} must carry the ${law} law`);
+        assert.match(text, anchor, `${name} must carry the ${kernel} kernel`);
       } else {
-        assert.doesNotMatch(text, anchor, `${name} must NOT carry the ${law} law — a law pasted where it drives nothing is over-instruction`);
+        assert.doesNotMatch(text, anchor, `${name} must NOT carry the ${kernel} kernel — a kernel pasted where it drives nothing is over-instruction (and vivi.md composes through an identity composePrompt, so a slot there would reach the leg as a literal placeholder)`);
       }
     }
   }
+});
+
+const CLASS_VICE_TOKENS: Array<[string, RegExp]> = [
+  ["Concurrency", /read-modify-write|check-then-act/],
+  ["Time", /non-monotonic/],
+  ["Async and ordering", /floating promises/],
+  ["State and persistence", /half-applied migrations/],
+  ["Data boundaries", /NFC vs NFD/],
+  ["Resources", /ignored backpressure/],
+  ["Network", /half-closed/],
+  ["Security", /zip-slip/],
+  ["Environment", /missed watcher events/],
+  ["Human and UX", /two tabs one session/],
+];
+
+test("the vicious-defect class list is single-sourced in the factory — no prompt file restates any of the ten classes", () => {
+  for (const name of ALL_LEG_PROMPTS) {
+    const text = readPrompt(name);
+    for (const [label, token] of CLASS_VICE_TOKENS) {
+      assert.doesNotMatch(text, token, `${name} restates the ${label} class — the ten classes are injected from ONE factory-side source (composePrompt's \`vicious_defect_classes\`), never pasted per prompt`);
+    }
+  }
+  assert.equal(CLASS_VICE_TOKENS.length, 10, "one probe per class: a class with no probe is a class that can be pasted into a prompt unnoticed");
+});
+
+test("the torture-criteria proof shapes are single-sourced too — neither extraction prompt restates them", () => {
+  for (const name of ALL_LEG_PROMPTS) {
+    const text = readPrompt(name);
+    for (const shape of [/kill it mid-write/, /deliver the action twice/, /N writers/, /prove nothing leaked/]) {
+      assert.doesNotMatch(text, shape, `${name} restates a torture-criterion shape — they are injected from ONE factory-side source (composePrompt's \`vicious_torture_criteria\`); two copies already drifted once`);
+    }
+  }
+});
+
+test("vivi.md's quality bar grills the reliability expectations a product's nature invites (the intake the owner never states)", () => {
+  const text = readPrompt("vivi.md");
+  assert.match(text, /State the reliability expectations the product's nature invites/, "vivi.md's quality bar must carry the reliability-intake item");
+  assert.match(text, /multi-user, handles money, crosses a network, runs background or scheduled work, or rewrites files the user cares about/, "the item triggers on the product's nature, not on every product");
+  assert.match(text, /the owner rarely thinks to state them/, "the item exists because these obligations are the unstated ones");
+  assert.match(text, /double-clicks or works in two tabs/, "the double-fire question");
+  assert.match(text, /a call is retried or arrives twice/, "the replay question");
+  assert.match(text, /the process dies mid-save/, "the crash-mid-write question");
+  assert.match(text, /a credential or a lock expires mid-operation/, "the expiry-mid-operation question");
+  assert.match(text, /the clock or the timezone moves/, "the time question");
+  assert.match(text, /never a generic questionnaire/, "the grill stays scoped to the product's nature");
+  assert.match(text, /as an ordinary canonical obligation — quantified \(the window, the retry budget, the retention\), with its detection and recovery/, "each answer lands as a quantified obligation with detection + recovery, no new artifact");
+  assert.match(text, /the factory prevents and tortures what the spec states, and guesses nothing/, "the item ties the intake to the prevent + torture halves downstream");
+});
+
+test("the vicious-defect taxonomy pairs with a gate-provable torture criterion: the extractor mints it, the verifier flags the missing pairing", () => {
+  const extractor = readPrompt("extractor.md");
+  assert.match(extractor, /A class the spec's own behaviour touches becomes a gate-provable obligation/, "extractor.md must turn a touched class into an obligation");
+  assert.match(extractor, /that class's TORTURE criterion in its `## Verification`, expressed in THIS product's stack — \{\{vicious_torture_criteria\}\}/, "the criterion is stated in the issue's Verification, in the product's own stack, with the proof shapes injected from the single source");
+  assert.match(extractor, /never a torture criterion for a vice the product cannot have/, "the criterion is bounded by what the canonical's obligations reach");
+  assert.match(extractor, /never a new catalog requirement: it is a verification criterion on an obligation the canonical already states, so source fidelity is untouched/, "the criterion can never be misread as an invented requirement");
+  assert.match(extractor, /a criterion that is not a real gate-provable test is not an obligation/, "prose is not a criterion");
+  assert.match(extractor, /the torture criterion of every vicious defect class the Scope touches \(see "The vicious defect classes"\)/, "the Issue file shape's Verification section points at the single-source class list");
+
+  const verifier = readPrompt("extraction-verifier.md");
+  assert.match(verifier, /Vice pairing \(a class-touching issue owes its torture criterion\)/, "extraction-verifier.md must carry the pairing check");
+  assert.match(verifier, /must state that class's torture criterion — \{\{vicious_torture_criteria\}\} — as a real gate-provable test/, "the pairing check reads the proof shapes from the single source, not a second copy");
+  assert.match(verifier, /the vice ships unproven and nothing downstream will ask again/, "the pairing gap names what it costs");
+  assert.match(verifier, /Flag it with kind `vice_pairing_gap`, naming the issue, the class, and the criterion it owes/, "the pairing check itself offers the problem kind (open-string precedent), not only the slug list");
+  assert.match(verifier, /`granularity_violation`, `vice_pairing_gap`\)/, "vice_pairing_gap joins the verdict's problem-kind slug list");
+  assert.match(verifier, /flag ONLY where an obligation the canonical states would visibly break if the vice occurred/, "the pairing gap is severity-bounded: it forces a re-author loop, so it cannot fire on a class word that merely could apply");
+  assert.match(verifier, /every function takes input and every screen has a button/, "the bound names the two near-universal classes that would otherwise swallow the corpus");
+  assert.match(verifier, /never flag a criterion a named test already covers under other wording/, "the pairing check is bounded on the other side too");
+});
+
+test("the vicious-defect taxonomy is consumed as a DUTY by each anchor it reaches — the implementer prevents by design, the reviewer hunts class by class", () => {
+  const implementer = readPrompt("implementer.md");
+  assert.match(implementer, /Prevent, never merely test afterwards/, "implementer.md must own the prevent-by-design half");
+  assert.match(implementer, /one writer, or a lock\/transaction taken before the read/, "shared mutable state gets one writer or an explicit lock");
+  assert.match(implementer, /an atomic write \(temp \+ rename\), never truncate-then-write/, "a rewritten file gets an atomic write");
+  assert.match(implementer, /idempotent by construction, keyed so the second delivery is a no-op/, "a replayable action is idempotent by construction");
+  assert.match(implementer, /an injected clock and monotonic durations, never `now\(\)` read inline/, "time comes from an injected clock");
+  assert.match(implementer, /idempotent retries with backoff, or none/, "external calls retry idempotently or not at all");
+  assert.match(implementer, /closed on every path including the failure one/, "anything opened is closed on the failure path too");
+  assert.match(implementer, /validated and normalized once, at the boundary/, "boundary input is normalized once");
+  assert.match(implementer, /guarded where the state lives, never on the button alone/, "a twice-fireable user action is guarded at the state, not the button");
+  assert.match(implementer, /a class it touches and you left to chance is a defect you shipped/, "the prevent duty carries its bar");
+
+  const reviewer = readPrompt("reviewer.md");
+  assert.match(reviewer, /Hunt this list once per review, class by class/, "reviewer.md must own the named hunt");
+  assert.match(reviewer, /state HOW you ruled the vice out/, "the hunt is a per-class declaration of the verification, not a feeling");
+  assert.match(reviewer, /"Not applicable" is a legitimate verdict PER CLASS and only per class/, "not-applicable is per class, never wholesale");
+  assert.match(reviewer, /exactly the negative claim this prompt forbids/, "the hunt binds to the negative-claims law the prompt already carries");
+  assert.match(reviewer, /hunting grounds, not a checklist to tick/, "the ten classes never bound the review");
 });
 
 test("the extractor leaves the architecture map faithful on exit (map-current-last)", () => {

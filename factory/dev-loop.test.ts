@@ -665,6 +665,50 @@ test("the reviewer prompt carries the visual-review directive placeholder (the i
   assert.match(text, /\{\{visual_review_directive\}\}/, "reviewer.md exposes the visual_review_directive slot legDeps fills");
 });
 
+test("VICIOUS DEFECTS: composePrompt itself carries the single-source class taxonomy, so every leg builder fills the slot without its own wiring", () => {
+  const injected = composePrompt("{{vicious_defect_classes}}", { id: "ISS-A" });
+  assert.doesNotMatch(injected, /\{\{/, "the taxonomy slot is a composePrompt default — no leg builder can leak the literal placeholder");
+  assert.match(injected, /## The vicious defect classes — the named hunting grounds/, "the injected block is a self-standing prompt section");
+  assert.match(injected, /never the whole of correctness — clearing all ten never licenses/, "the net is bounded: a cleared checklist is not a correctness proof");
+
+  const classProbes: Array<[string, RegExp]> = [
+    ["Concurrency", /read-modify-write races; check-then-act \(TOCTOU\); deadlock and livelock; double-fire; torn writes; two writers on one state/],
+    ["Time", /DST and timezone arithmetic; non-monotonic clocks; expiry mid-operation; calendar edges; retry storms without backoff/],
+    ["Async and ordering", /floating promises; callbacks after teardown; out-of-order events; re-entrancy; stale closures/],
+    ["State and persistence", /uninvalidated caches; zombie state after a crash \(a lock held by a dead holder\); half-applied migrations; non-atomic multi-file writes; missing idempotence \(replay = double effect\)/],
+    ["Data boundaries", /encodings \(UTF-8, BOM, NFC vs NFD\); CRLF; Windows vs POSIX paths; null vs undefined vs empty; float arithmetic; integer and JSON-precision overflow; timezone-less serialized dates/],
+    ["Resources", /leaks \(file descriptors, listeners, timers\); orphan processes; ignored backpressure; disk full mid-write; degradation over a long run/],
+    ["Network", /slow is not dead; retrying a non-idempotent action; out-of-order delivery; half-closed connections/],
+    ["Security", /injection \(SQL, command, prompt\); path traversal and zip-slip; secrets in logs; catastrophic regex backtracking \(ReDoS\); hostile deserialization; unicode homoglyphs/],
+    ["Environment", /dev is not prod \(inherited env\); locale-dependent behaviour; symlinks; missed watcher events; runtime-version drift/],
+    ["Human and UX", /double-click double-submit; back-navigation onto stale state; two tabs one session; autosave overwriting a concurrent edit/],
+  ];
+  classProbes.forEach(([label, probe], index) => {
+    assert.match(injected, new RegExp(`${index + 1}\\. \\*\\*${label}\\*\\* —`), `class ${index + 1} (${label}) must stay named and in order`);
+    assert.match(injected, probe, `class ${index + 1} (${label}) must keep its full vice inventory — a dropped vice is a vice nobody hunts`);
+  });
+  assert.equal(
+    (injected.match(/^\d+\. \*\*/gm) ?? []).length,
+    classProbes.length,
+    "the taxonomy is EXACTLY these ten classes — an eleventh added to the constant without a probe here would otherwise ride in unpinned",
+  );
+
+  const criteria = composePrompt("{{vicious_torture_criteria}}", { id: "ISS-A" });
+  for (const shape of [
+    /kill it mid-write and reprove the invariant/,
+    /deliver the action twice and prove one effect/,
+    /run N writers on the one state/,
+    /feed the dirty boundary inputs \(empty, oversized, wrong encoding, CRLF, homoglyph, DST edge\)/,
+    /move the clock across the expiry and the DST edge/,
+    /exhaust the resource and prove nothing leaked/,
+  ]) {
+    assert.match(criteria, shape, "the torture-criteria proof shapes are single-sourced beside the classes, so the extractor that mints them and the verifier that checks them can never drift");
+  }
+
+  const withIssueValues = composePrompt("{{issue_id}}\n{{vicious_defect_classes}}", { id: "ISS-B" });
+  assert.match(withIssueValues, /^ISS-B\n## The vicious defect classes/, "the taxonomy composes beside the ordinary issue values");
+});
+
 test("runLoop REFUSES to develop on a tampered frozen baseline (integrity gate blocks)", () => {
   const { dir, cfg } = buildScratch("true");
   try {
