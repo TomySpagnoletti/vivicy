@@ -15,13 +15,26 @@ function findToaster() {
 }
 
 describe("Toaster mount", () => {
-  test("anchors top-right, forced light theme", async () => {
+  test("anchors over the canvas (top-center), clear of the control rail, forced light theme", async () => {
     render(<Toaster />)
     toast("probe")
     const el = await waitFor(findToaster)
-    expect(el.getAttribute("data-x-position")).toBe("right")
+    expect(el.getAttribute("data-x-position")).toBe("center")
     expect(el.getAttribute("data-y-position")).toBe("top")
     expect(el.getAttribute("data-sonner-theme")).toBe("light")
+  })
+
+  test("shifts the stack by half the live rail width and caps it to the canvas", async () => {
+    render(<Toaster />)
+    toast("probe")
+    const el = await waitFor(findToaster)
+    const style = el.getAttribute("style") ?? ""
+    expect(style).toContain("--vivicy-panel-width: 24rem")
+    expect(style).toContain("translate: calc(var(--vivicy-rail) * -0.5)")
+    expect(style).toContain("--width: min(356px, calc(100vw - var(--vivicy-rail) - 6rem))")
+    // The rail is only docked at >= md; below it the shift resolves to zero and sonner's own mobile layout stands.
+    expect(el.className).toContain("[--vivicy-rail:0px]")
+    expect(el.className).toContain("md:[--vivicy-rail:var(--vivicy-panel-width)]")
   })
 
   test("typed colors derive from the design tokens, not sonner's own palette", async () => {

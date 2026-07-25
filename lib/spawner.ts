@@ -2,13 +2,28 @@ import { mkdirSync, writeFileSync } from "node:fs"
 import path from "node:path"
 
 import { readDevStatusFromDisk } from "@/lib/dev-status-fs"
-import type { DetachedHandle, RunOptions, RunResult, Spawner } from "@/lib/control"
+import { readRunState, type DetachedHandle, type RunOptions, type RunResult, type Spawner } from "@/lib/control"
 import { nodeSpawner } from "@/lib/node-spawner"
 import { getTargetRoot } from "@/lib/target"
 
-const FAKE_PID = 424242
+const FIRST_FAKE_PID = 424242
 
-let fakeAlive = false
+interface FakeProcesses {
+  alive: Set<number>
+  nextPid: number
+}
+
+// Module scope is not process scope: a second evaluation of this module (a server that duplicates or re-evaluates it per entry) would fork the writer (control routes) from the readers (status routes), so the fake process table is process-global — see AGENTS.md "Platform traps".
+const FAKE_PROCESSES = Symbol.for("vivicy.fake-spawner.processes")
+
+function fakeProcesses(): FakeProcesses {
+  const registry = globalThis as unknown as Record<symbol, FakeProcesses | undefined>
+  const existing = registry[FAKE_PROCESSES]
+  if (existing) return existing
+  const created: FakeProcesses = { alive: new Set<number>(), nextPid: FIRST_FAKE_PID }
+  registry[FAKE_PROCESSES] = created
+  return created
+}
 
 function scriptName(args: string[]): string {
   const scriptArg = args.find((a) => a.endsWith(".ts")) ?? ""
@@ -45,8 +60,10 @@ function writeFakeExtractionStatus(targetRoot: string): void {
 
 export const fakeSpawner: Spawner = {
   spawnDetached(): DetachedHandle {
-    fakeAlive = true
-    return { pid: FAKE_PID }
+    const processes = fakeProcesses()
+    const pid = processes.nextPid++
+    processes.alive.add(pid)
+    return { pid }
   },
 
   async run({ args }: RunOptions): Promise<RunResult> {
@@ -55,7 +72,11 @@ export const fakeSpawner: Spawner = {
     const targetRoot = getTargetRoot()
     if (name === "dev-status.ts" && targetRoot !== null) {
       const status = readDevStatusFromDisk(targetRoot)
-      const withLive = { ...status, process_alive: fakeAlive }
+      const supervisor = readRunState()
+      const withLive = {
+        ...status,
+        process_alive: supervisor !== null && fakeProcesses().alive.has(supervisor.pid),
+      }
       const json = JSON.stringify(withLive, null, 2)
       return { code: 0, lastLine: json.split("\n").at(-1) ?? "", stdout: json, stderr: "" }
     }
@@ -75,13 +96,12 @@ export const fakeSpawner: Spawner = {
     }
   },
 
-  killGroup(): boolean {
-    fakeAlive = false
-    return true
+  killGroup(pid: number): boolean {
+    return fakeProcesses().alive.delete(pid)
   },
 
   isAlive(pid: number): boolean {
-    return pid === FAKE_PID && fakeAlive
+    return fakeProcesses().alive.has(pid)
   },
 }
 

@@ -3,6 +3,8 @@
 import { Toaster as Sonner, type ToasterProps } from "sonner"
 import { CircleCheckIcon, InfoIcon, TriangleAlertIcon, OctagonXIcon, Loader2Icon } from "lucide-react"
 
+import { usePanelState } from "@/hooks/use-panel-state"
+
 const VARIANT_TOKENS = {
   success: "--success",
   error: "--destructive",
@@ -18,13 +20,15 @@ const variantColorVars = Object.fromEntries(
   ]),
 )
 
+// Centred on the CANVAS, not the viewport: the stack is shifted by half the live rail width (0 while the rail is undocked — below `md`, or panel closed) so it can never overlap the process control bar it announces — see AGENTS.md "Platform traps".
 const Toaster = ({ ...props }: ToasterProps) => {
+  const panel = usePanelState()
   return (
     <Sonner
       theme="light"
-      position="top-right"
+      position="top-center"
       duration={5000}
-      className="toaster group"
+      className="toaster group [--vivicy-rail:0px] md:[--vivicy-rail:var(--vivicy-panel-width)]"
       closeButton
       richColors
       toastOptions={{ classNames: { icon: "size-6!" } }}
@@ -47,6 +51,10 @@ const Toaster = ({ ...props }: ToasterProps) => {
       }}
       style={
         {
+          "--vivicy-panel-width": panel.open ? panel.width : "0px",
+          // Inline (not a utility class): sonner injects its own stylesheet at runtime, and only an inline declaration is guaranteed to win over it.
+          "--width": "min(356px, calc(100vw - var(--vivicy-rail) - 6rem))",
+          translate: "calc(var(--vivicy-rail) * -0.5)",
           "--normal-bg": "var(--popover)",
           "--normal-text": "var(--popover-foreground)",
           "--normal-border": "var(--border)",
