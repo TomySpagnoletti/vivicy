@@ -407,7 +407,7 @@ export function viviImportAck(
   const fate =
     cycle.binding === "seed"
       ? `The canonical spec is frozen and building right now, so I've set ${them} aside for the NEXT cycle rather than the frozen corpus — nothing for you to check right now.`
-      : `I'll fold ${them} into the spec when the pipeline runs, so there's nothing for you to check right now.`
+      : `I'll fold ${them} into the spec when the workflow runs, so there's nothing for you to check right now.`
   const security = secretFindingAckClause(findings)
   const closer = opts.reprompt ? " Now, tell me: what are you building?" : ""
   return `${landed} ${fate}${security}${closer}`
@@ -665,11 +665,11 @@ function buildStatusLine(spawner: Spawner, targetRoot: string, frozen: boolean):
     const running = isRunActive(spawner)
     const kind = detectSpecKind(targetRoot)
     return (
-      `Pipeline snapshot: run_active=${running}; extraction=${extraction?.phase ?? "never"}; ` +
+      `Workflow snapshot: run_active=${running}; extraction=${extraction?.phase ?? "never"}; ` +
       `skills=${skills?.phase ?? "never"}; spec_frozen=${frozen}; spec_kind=${kind}.`
     )
   } catch {
-    return "Pipeline snapshot: unavailable."
+    return "Workflow snapshot: unavailable."
   }
 }
 
@@ -935,7 +935,7 @@ export async function runViviTurn(spawner: Spawner, input: {
       ? "\n\n⚠ this target has no usable git repository — Vivi's no-code enforcement outside `.vivicy` was unavailable this turn."
       : ""
 
-  // re-derived every round: an action tool (e.g. pipeline.extract, cycle.open/close) can freeze or reopen the baseline mid-turn.
+  // re-derived every round: an action tool (e.g. workflow.extract, cycle.open/close) can freeze or reopen the baseline mid-turn.
   let frozen = isCanonicalFrozen(targetRoot)
   // folds in each accepted round's writes so they're never re-judged by a later round's (possibly stricter) allowlist.
   let roundBase = snapshotVivicy(targetRoot)

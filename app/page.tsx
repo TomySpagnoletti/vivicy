@@ -28,7 +28,7 @@ import {
   type SelectedItem,
 } from "@/components/map/architecture-map"
 import { MapEmptyState } from "@/components/map/map-empty-state"
-import { PipelineWidget } from "@/components/pipeline/pipeline-widget"
+import { WorkflowWidget } from "@/components/workflow/workflow-widget"
 import { OnboardingEmptyState } from "@/components/project/onboarding-empty-state"
 import { SetupBar } from "@/components/project/setup-bar"
 import { PanelToggle } from "@/components/sidebar/panel-toggle"
@@ -303,7 +303,7 @@ export default function Page() {
                       void loadMap(true)
                     }}
                   />
-                  <PipelineWidget />
+                  <WorkflowWidget />
                 </>
               ) : null}
 
@@ -325,7 +325,7 @@ export default function Page() {
                     }}
                   />
                   {/* Must stay a normal overlay, not a ViewportPortal child — fixed to the screen, never pans/zooms with the graph. */}
-                  <PipelineWidget />
+                  <WorkflowWidget />
                 </>
               ) : null}
             </SidebarInset>

@@ -7,14 +7,14 @@ export type StageMarker = "user" | "agent" | "mixed"
 export type StageSide = "non_loop" | "dev_loop"
 export type StageState = "pending" | "running" | "green" | "red"
 
-export interface PipelineStage {
+export interface WorkflowStage {
   id: string
   marker: StageMarker
   side: StageSide
   retryStage?: "prepare" | "extract" | "skills" | "dev"
 }
 
-export const PIPELINE_STAGES: PipelineStage[] = [
+export const WORKFLOW_STAGES: WorkflowStage[] = [
   { id: "S0", marker: "user", side: "non_loop" },
   { id: "S1", marker: "mixed", side: "non_loop" },
   { id: "SP", marker: "mixed", side: "dev_loop", retryStage: "prepare" },
@@ -49,7 +49,7 @@ const EXTRACTION_RUNNING_PHASES = new Set([
   "map-review",
 ])
 
-// Subset of @/lib/control's ExtractionStatus, redeclared here because this file and its consumers (the widget, SectionPipeline) are client components that can't import the server-only control module.
+// Subset of @/lib/control's ExtractionStatus, redeclared here because this file and its consumers (the widget, SectionWorkflow) are client components that can't import the server-only control module.
 export interface ExtractionStatusLike {
   phase?: string
   spike_mode?: "integrate" | "extract"
@@ -67,7 +67,7 @@ export function deriveStageStates(
   acceptance: AcceptanceReport | null = null
 ): Record<string, StageState> {
   const states: Record<string, StageState> = {}
-  for (const stage of PIPELINE_STAGES) states[stage.id] = "pending"
+  for (const stage of WORKFLOW_STAGES) states[stage.id] = "pending"
 
   // S0/S1 have no observable automatism; reaching the dev-loop (or having prepared docs) is the only honest signal that they completed.
   const reachedDevLoop = extraction !== null || (status?.issues_total ?? 0) > 0 || Boolean(docPrep?.phase)

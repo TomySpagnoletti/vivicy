@@ -254,7 +254,7 @@ test("an undetermined batch the leg cannot resolve stays 'und' and preparation s
   }
 });
 
-test("no batch -> skipped (the pipeline proceeds on owner-authored canonical)", async () => {
+test("no batch -> skipped (the workflow proceeds on owner-authored canonical)", async () => {
   const root = repo();
   try {
     const report = await prepareDocs({ repoRoot: root, spawnLeg: NEVER_SPAWN });

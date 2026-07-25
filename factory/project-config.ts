@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 
 export const PROJECT_CONFIG_FILENAME = "vivicy.json";
 
-// null in vivicy.json#gateCommand / #runCommand means "not yet established"; the pipeline fills a real command mechanically, never a human.
+// null in vivicy.json#gateCommand / #runCommand means "not yet established"; the workflow fills a real command mechanically, never a human.
 export const GATE_COMMAND_SENTINEL = null;
 export const RUN_COMMAND_SENTINEL = null;
 
@@ -48,7 +48,7 @@ function normalizeCommand(value: unknown, field: CommandField, source: string): 
   if (value === null || value === undefined) return null;
   if (typeof value !== "string" || value.trim().length === 0) {
     throw new ProjectConfigError(
-      `${source}: "${field.key}" must be null (the not-yet-established sentinel) or ${field.describe}. The pipeline sets this mechanically; it is never hand-edited.`,
+      `${source}: "${field.key}" must be null (the not-yet-established sentinel) or ${field.describe}. The workflow sets this mechanically; it is never hand-edited.`,
       field.code,
     );
   }

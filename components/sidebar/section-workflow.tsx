@@ -6,10 +6,10 @@ import { useTranslations } from "next-intl"
 import {
   deriveStageStates,
   MARKER_GLYPH,
-  PIPELINE_STAGES,
+  WORKFLOW_STAGES,
   type ExtractionStatusLike,
   type StageState,
-} from "@/components/pipeline/pipeline-stages"
+} from "@/components/workflow/workflow-stages"
 import { Badge } from "@/components/ui/badge"
 import type { RunStatus } from "@/lib/run-status"
 import type { SkillsReport } from "@/lib/skills-report"
@@ -51,7 +51,7 @@ interface AcceptanceReportResponse {
   report?: AcceptanceReport | null
 }
 
-export function SectionPipeline() {
+export function SectionWorkflow() {
   const [status, setStatus] = useState<RunStatus | null>(null)
   const [extraction, setExtraction] = useState<ExtractionStatusLike | null>(null)
   const [skills, setSkills] = useState<SkillsReport | null>(null)
@@ -106,13 +106,13 @@ export function SectionPipeline() {
     }
   }, [])
 
-  const t = useTranslations("sidebar.pipeline")
-  const tPipeline = useTranslations("pipeline")
+  const t = useTranslations("sidebar.workflow")
+  const tWorkflow = useTranslations("workflow")
   const states = deriveStageStates(status, extraction, skills, docPrep, acceptance)
 
   return (
     <ul className="flex flex-col gap-2 text-xs">
-      {PIPELINE_STAGES.map((stage) => (
+      {WORKFLOW_STAGES.map((stage) => (
         <li
           key={stage.id}
           data-stage={stage.id}
@@ -122,7 +122,7 @@ export function SectionPipeline() {
             <span className="font-mono font-semibold text-foreground">{stage.id}</span>
             <span aria-hidden>{MARKER_GLYPH[stage.marker]}</span>
             <span className="min-w-0 flex-1 truncate text-foreground">
-              {tPipeline(`stages.${stage.id}`)}
+              {tWorkflow(`stages.${stage.id}`)}
             </span>
             <Badge
               variant={STATE_BADGE_VARIANT[states[stage.id]]}
@@ -153,7 +153,7 @@ function StageEvidence({
   acceptance: AcceptanceReport | null
   status: RunStatus | null
 }) {
-  const t = useTranslations("sidebar.pipeline")
+  const t = useTranslations("sidebar.workflow")
   const lines: string[] = []
 
   if (stageId === "SP" && docPrep) {

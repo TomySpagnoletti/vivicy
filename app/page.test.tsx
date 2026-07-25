@@ -9,8 +9,8 @@ import { renderWithIntl } from "@/test/render"
 vi.mock("@/components/map/architecture-map", () => ({
   ArchitectureMap: () => null,
 }))
-vi.mock("@/components/pipeline/pipeline-widget", () => ({
-  PipelineWidget: () => null,
+vi.mock("@/components/workflow/workflow-widget", () => ({
+  WorkflowWidget: () => null,
 }))
 
 class FakeEventSource {

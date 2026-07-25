@@ -8,9 +8,9 @@ Vivicy is project- and language-agnostic. It operates **on** a target project (y
 
 ## Meet the kitchen
 
-Vivicy is a kitchen and your project is the pizza; you are the guest, never the cook. You do exactly two things. First you **order**: give your idea and answer Vivi's questions until the recipe is right. Then you **taste**: approve the recipe into the oven, then approve or reject each change while it cooks — the one decision the build ever waits for. You never step into the kitchen: no code to write, no pipeline to babysit, no build to reason about.
+Vivicy is a kitchen and your project is the pizza; you are the guest, never the cook. You do exactly two things. First you **order**: give your idea and answer Vivi's questions until the recipe is right. Then you **taste**: approve the recipe into the oven, then approve or reject each change while it cooks — the one decision the build ever waits for. You never step into the kitchen: no code to write, no workflow to babysit, no build to reason about.
 
-Two hands do the cooking, and neither is yours. **Vivi** is _la Nonna_ — the governess who runs the whole kitchen: she grills your idea into the recipe (the canonical spec), drives the pipeline, tidies the map, and turns any later ask into a change request. She directs everything and never cooks the code herself. The **reviewer** is _il Nonno_ — the chef of finished dishes, who checks every issue the implementer plates up before it leaves the pass. You talk to Vivi from the bubble in the corner; she does the rest.
+Two hands do the cooking, and neither is yours. **Vivi** is _la Nonna_ — the governess who runs the whole kitchen: she grills your idea into the recipe (the canonical spec), drives the workflow, tidies the map, and turns any later ask into a change request. She directs everything and never cooks the code herself. The **reviewer** is _il Nonno_ — the chef of finished dishes, who checks every issue the implementer plates up before it leaves the pass. You talk to Vivi from the bubble in the corner; she does the rest.
 
 ## The truth model
 
@@ -31,7 +31,7 @@ The reviewer never authored the code it reviews: the loop runs two distinct agen
 4. **Issues are extracted.** Deterministic gates turn the frozen baseline into a requirement catalog, traceable vertical issues, and the architecture map — with full line coverage: every spec line is covered by an issue, explicitly excluded, or the gate fails.
 5. **The two-agent loop builds it.** For each ready issue: implement (gate-first), independently review and fix, then the orchestrator re-runs the gate as the authoritative verdict, commits the green checkpoint, and retires the issue.
 6. **Changes go through change requests.** Mid-run, you talk to Vivi; post-freeze your asks are drafted as CRs. Approving or rejecting a CR is **the one decision the loop waits for** — an approved CR folds into the spec, re-freezes the baseline, re-extracts, and reopens exactly the impacted issues.
-7. **You watch all of it.** The control plane shows the full pipeline, the architecture map with live per-node status, notifications with in-app CR review, per-agent quota, and Run / Stop / Resume controls.
+7. **You watch all of it.** The control plane shows the full workflow, the architecture map with live per-node status, notifications with in-app CR review, per-agent quota, and Run / Stop / Resume controls.
 
 ## Quick start
 
@@ -82,7 +82,7 @@ The target stays lean by design: no method docs, no templates, no framework assu
 
 ## Any language, any stack
 
-Nothing in the factory assumes a stack for the target. The per-issue verification gate is the target's own command (`gateCommand` in `vivicy.json`): `go test ./...`, `cargo test`, `pytest -q`, `phpunit`, `swift test`, `npm test` — whatever your runner is. No hidden default and no human edit: the scaffold writes a `null` sentinel and the pipeline establishes the real command mechanically — from the frozen canonical when the spec states one, otherwise the stack-setup issue — and the loop refuses to verify while the sentinel still stands rather than assuming a runner. Point Vivicy at a Rust crate, a Python service, a Go binary, or a monorepo — the loop, the map, and the gates are the same.
+Nothing in the factory assumes a stack for the target. The per-issue verification gate is the target's own command (`gateCommand` in `vivicy.json`): `go test ./...`, `cargo test`, `pytest -q`, `phpunit`, `swift test`, `npm test` — whatever your runner is. No hidden default and no human edit: the scaffold writes a `null` sentinel and the workflow establishes the real command mechanically — from the frozen canonical when the spec states one, otherwise the stack-setup issue — and the loop refuses to verify while the sentinel still stands rather than assuming a runner. Point Vivicy at a Rust crate, a Python service, a Go binary, or a monorepo — the loop, the map, and the gates are the same.
 
 ## Under the hood
 
@@ -93,7 +93,7 @@ Design choices worth knowing: the orchestrator owns all state transitions (agent
 
 ## Status
 
-Young and moving fast. A project's life is a chain of spec cycles (one project spec, then feature specs), and its runtime state is isolated per project. The pipeline is torture-tested (it survived a deliberately hostile, contradiction-riddled spec and turned the wreckage into evidence-backed change requests), but interfaces may still change without notice.
+Young and moving fast. A project's life is a chain of spec cycles (one project spec, then feature specs), and its runtime state is isolated per project. The workflow is torture-tested (it survived a deliberately hostile, contradiction-riddled spec and turned the wreckage into evidence-backed change requests), but interfaces may still change without notice.
 
 ## License
 

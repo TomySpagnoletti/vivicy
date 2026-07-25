@@ -486,7 +486,7 @@ interface CycleIssueIndex {
   issues: CycleIssueEntry[];
 }
 
-// The FIRST pipeline stage on a fresh mixed import batch: a clean canonical doc is placed untouched, a messy non-dominant doc is exploded/translated through the (faked) leg into canonical form, uploads stay immutable.
+// The FIRST workflow stage on a fresh mixed import batch: a clean canonical doc is placed untouched, a messy non-dominant doc is exploded/translated through the (faked) leg into canonical form, uploads stay immutable.
 async function runDocPrepScenario(): Promise<void> {
   const prep = mkdtempSync(join(tmpdir(), "vivicy-rehearsal-prep-"));
   try {

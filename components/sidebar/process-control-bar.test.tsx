@@ -81,7 +81,7 @@ describe("ProcessControlBar — Extract gating on already-extracted issues", () 
 
   test("the greyed Extract carries the honest re-extraction message", () => {
     expect(extractedGateMessage(8)).toBe(
-      "Already extracted — 8 issues. To run it again, retry the extraction stage in the pipeline, or ask Vivi."
+      "Already extracted — 8 issues. To run it again, retry the extraction stage in the workflow, or ask Vivi."
     )
   })
 
@@ -103,7 +103,7 @@ describe("ProcessControlBar — Extract gating on already-extracted issues", () 
 
   test("singular wording when exactly one issue exists", () => {
     expect(extractedGateMessage(1)).toBe(
-      "Already extracted — 1 issue. To run it again, retry the extraction stage in the pipeline, or ask Vivi."
+      "Already extracted — 1 issue. To run it again, retry the extraction stage in the workflow, or ask Vivi."
     )
     expect(extractedGateMessage(2)).toContain("2 issues")
   })

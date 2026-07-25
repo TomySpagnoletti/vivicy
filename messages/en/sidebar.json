@@ -8,7 +8,7 @@
     "details": "Details",
     "cycles": "Cycles",
     "tasks": "Tasks",
-    "pipeline": "Pipeline",
+    "workflow": "Workflow",
     "skills": "Skills",
     "run": "Run product"
   },
@@ -90,7 +90,7 @@
     "metricIssues": "Issues",
     "metricActive": "Active",
     "metricLinesMapped": "Lines mapped to issues",
-    "emptyState": "No generated issues yet. After issue generation, the semantic extraction pipeline fills this from the issue index.",
+    "emptyState": "No generated issues yet. After issue generation, the semantic extraction stage fills this from the issue index.",
     "untitledIssue": "Untitled issue",
     "requirementsLabel": "Requirements",
     "graphLabel": "Graph",
@@ -102,7 +102,7 @@
     "coverageRequirementLinked": "Requirement-linked",
     "coverageIssueLinked": "Issue-linked"
   },
-  "pipeline": {
+  "workflow": {
     "statePending": "pending",
     "stateRunning": "running",
     "stateDone": "done",
@@ -149,7 +149,7 @@
     "stopConfirmConfirm": "Stop",
     "progressAriaLabel": "progress",
     "issuesVerifiedAriaLabel": "issues verified",
-    "extractedGateMessage": "Already extracted — {count, plural, one {# issue} other {# issues}}. To run it again, retry the extraction stage in the pipeline, or ask Vivi.",
+    "extractedGateMessage": "Already extracted — {count, plural, one {# issue} other {# issues}}. To run it again, retry the extraction stage in the workflow, or ask Vivi.",
     "toastFailedTitle": "{label} failed",
     "toastFailedHttpDescription": "HTTP {status}",
     "toastOkTitle": "{label} ok",

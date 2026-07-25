@@ -2,15 +2,15 @@ import { expect, test } from "./browser-issues"
 
 import { clickPastOverlap, ensurePanelOpen } from "./helpers"
 
-// The doc-prep report seeded into the demo fixture must surface as the SP stage in the sidebar pipeline view.
-test.describe("Document-preparation stage (SP) in the pipeline status surface", () => {
+// The doc-prep report seeded into the demo fixture must surface as the SP stage in the sidebar workflow view.
+test.describe("Document-preparation stage (SP) in the workflow status surface", () => {
   test("SP renders as the first dev-loop stage and reflects the doc-prep report", async ({ page }, testInfo) => {
     await page.goto("/")
 
     await expect(page.locator(".react-flow__node").first()).toBeVisible({ timeout: 30_000 })
     await ensurePanelOpen(page, testInfo)
 
-    await clickPastOverlap(page.getByRole("button", { name: "Pipeline", exact: true }))
+    await clickPastOverlap(page.getByRole("button", { name: "Workflow", exact: true }))
 
     const sp = page.locator('[data-stage="SP"]')
     await expect(sp).toBeVisible({ timeout: 15_000 })

@@ -1,7 +1,7 @@
 import { act, waitFor } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest"
 
-import { SectionPipeline } from "@/components/sidebar/section-pipeline"
+import { SectionWorkflow } from "@/components/sidebar/section-workflow"
 import { renderWithIntl } from "@/test/render"
 
 class FakeEventSource {
@@ -55,9 +55,9 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-describe("SectionPipeline — full process view", () => {
+describe("SectionWorkflow — full process view", () => {
   test("renders all 15 stages (incl. SP and SK) with a pending badge when nothing has run", async () => {
-    renderWithIntl(<SectionPipeline />)
+    renderWithIntl(<SectionWorkflow />)
     await act(() => FakeEventSource.last?.emit(IDLE_STATUS))
 
     for (const id of ["S0", "S1", "SP", "S2", "S3", "S4", "S5", "S6", "S7", "SK", "S8", "S9", "S10", "S11", "S12"]) {
@@ -72,7 +72,7 @@ describe("SectionPipeline — full process view", () => {
       "fetch",
       stubFetch(null, null, { phase: "green", summary: "doc-prep green: 3 placed, 1 rejected", updated_at: "2026-07-05T09:00:00Z" })
     )
-    renderWithIntl(<SectionPipeline />)
+    renderWithIntl(<SectionWorkflow />)
     await act(() => FakeEventSource.last?.emit(IDLE_STATUS))
 
     const sp = await waitFor(() => document.querySelector('[data-stage="SP"]') as HTMLElement)
@@ -86,7 +86,7 @@ describe("SectionPipeline — full process view", () => {
       "fetch",
       stubFetch(null, { phase: "green", summary: "2 skills installed, 1 rejected", updated_at: "2026-07-04T09:00:00Z" })
     )
-    renderWithIntl(<SectionPipeline />)
+    renderWithIntl(<SectionWorkflow />)
     await act(() => FakeEventSource.last?.emit(IDLE_STATUS))
 
     const sk = await waitFor(() => document.querySelector('[data-stage="SK"]') as HTMLElement)
@@ -100,7 +100,7 @@ describe("SectionPipeline — full process view", () => {
       "fetch",
       stubFetch({ phase: "green", summary: "extraction green: 8 issues", updated_at: "2026-07-02T10:00:00Z" })
     )
-    renderWithIntl(<SectionPipeline />)
+    renderWithIntl(<SectionWorkflow />)
     await act(() => FakeEventSource.last?.emit(IDLE_STATUS))
 
     const s6 = await waitFor(() => document.querySelector('[data-stage="S6"]') as HTMLElement)
@@ -109,7 +109,7 @@ describe("SectionPipeline — full process view", () => {
   })
 
   test("never fabricates evidence text for a stage with no data (S0 stays evidence-free)", async () => {
-    renderWithIntl(<SectionPipeline />)
+    renderWithIntl(<SectionWorkflow />)
     await act(() => FakeEventSource.last?.emit(IDLE_STATUS))
 
     const s0 = await waitFor(() => document.querySelector('[data-stage="S0"]') as HTMLElement)
@@ -118,7 +118,7 @@ describe("SectionPipeline — full process view", () => {
 
   test("S9 shows the issue-progress line once issues exist", async () => {
     vi.stubGlobal("fetch", stubFetch({ phase: "green" }))
-    renderWithIntl(<SectionPipeline />)
+    renderWithIntl(<SectionWorkflow />)
     await act(() =>
       FakeEventSource.last?.emit({ ...IDLE_STATUS, issues_total: 8, issues_done: 3, gates: { pass: 3, fail: 1 } })
     )

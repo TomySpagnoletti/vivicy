@@ -46,7 +46,7 @@ test.describe("Vivicy control plane", () => {
     await expect(extract).toHaveAttribute("aria-disabled", "true")
     await extract.hover()
     await expect(
-      page.getByText(/Already extracted — \d+ issues?\. To run it again, retry the extraction stage in the pipeline, or ask Vivi\./)
+      page.getByText(/Already extracted — \d+ issues?\. To run it again, retry the extraction stage in the workflow, or ask Vivi\./)
     ).toBeVisible({ timeout: 10_000 })
 
     // exact:true avoids matching the file-path text that also contains the issue id.

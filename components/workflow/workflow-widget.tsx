@@ -27,10 +27,10 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import {
   deriveStageStates,
   MARKER_GLYPH,
-  PIPELINE_STAGES,
+  WORKFLOW_STAGES,
   type ExtractionStatusLike,
   type StageState,
-} from "@/components/pipeline/pipeline-stages"
+} from "@/components/workflow/workflow-stages"
 
 const STAGE_STATE_CLASS: Record<StageState, string> = {
   pending: "border-border bg-card text-muted-foreground",
@@ -68,11 +68,11 @@ interface AcceptanceReportResponse {
   report?: AcceptanceReport | null
 }
 
-type RetryableStage = NonNullable<(typeof PIPELINE_STAGES)[number]["retryStage"]>
+type RetryableStage = NonNullable<(typeof WORKFLOW_STAGES)[number]["retryStage"]>
 
 // Polls /api/control/prepare, /api/control/extract and /api/control/skills — a second read of already-existing state files, never a new source of truth.
-export function PipelineWidget({ open = false }: { open?: boolean } = {}) {
-  const t = useTranslations("pipeline")
+export function WorkflowWidget({ open = false }: { open?: boolean } = {}) {
+  const t = useTranslations("workflow")
   const tErrors = useTranslations("errors")
   const [status, setStatus] = useState<RunStatus | null>(null)
   const [extraction, setExtraction] = useState<ExtractionStatusLike | null>(null)
@@ -165,14 +165,14 @@ export function PipelineWidget({ open = false }: { open?: boolean } = {}) {
   return (
     <div
       className="pointer-events-auto absolute top-2 left-1/2 z-10 w-fit max-w-[calc(100%-1rem)] -translate-x-1/2"
-      data-pipeline-widget
+      data-workflow-widget
     >
       <div className="flex flex-col items-center gap-1 rounded-md border border-border bg-card/95 px-2 py-1.5 shadow-sm backdrop-blur-sm">
         {/* max-w-full is load-bearing: the shrink-0 chips' ~1100px min-content width would otherwise size this flex item past the card (intrinsic sizing ignores descendants' max-width), and on mobile Chromium that overflow expands the layout viewport (412->768), flipping md: into desktop mode. */}
         <div className="max-w-full">
           <div className="flex items-center gap-0.5 overflow-x-auto py-1">
-            {PIPELINE_STAGES.map((stage, index) => {
-              const previousSide = PIPELINE_STAGES[index - 1]?.side
+            {WORKFLOW_STAGES.map((stage, index) => {
+              const previousSide = WORKFLOW_STAGES[index - 1]?.side
               const boundary = previousSide === "non_loop" && stage.side === "dev_loop"
               return (
                 <div key={stage.id} className="flex items-center gap-0.5">
@@ -226,7 +226,7 @@ function StageNode({
   retryPending: boolean
   onRetry?: () => void
 }) {
-  const t = useTranslations("pipeline")
+  const t = useTranslations("workflow")
   const node = (
     <div
       data-stage={stageId}

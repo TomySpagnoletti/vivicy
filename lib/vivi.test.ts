@@ -523,16 +523,16 @@ describe("runViviTurn — action protocol (the governess loop)", () => {
     expect(turns[2].actions?.[0]).toMatchObject({ tool: "crs.list", ok: true })
   })
 
-  it("executes a real control side effect through the SAME spawner (pipeline.start)", async () => {
+  it("executes a real control side effect through the SAME spawner (workflow.start)", async () => {
     let leg = 0
     const { spawner, calls } = makeFakeSpawner((o) => {
       if (!o.args.some((a) => a.endsWith("vivi-turn.ts"))) return
       leg += 1
-      writeReply(o, leg === 1 ? replyWithActions('{"actions": [{"tool": "pipeline.start"}]}') : "The build is running.")
+      writeReply(o, leg === 1 ? replyWithActions('{"actions": [{"tool": "workflow.start"}]}') : "The build is running.")
     })
     const result = await runViviTurn(spawner, { message: "lance le build" })
 
-    expect(result.actions?.[0]).toMatchObject({ tool: "pipeline.start", ok: true })
+    expect(result.actions?.[0]).toMatchObject({ tool: "workflow.start", ok: true })
     expect(calls.spawnDetached.some((c) => c.args.some((a) => a.endsWith("dev-loop-supervised.ts")))).toBe(true)
   })
 
@@ -621,14 +621,14 @@ describe("runViviTurn — action protocol (the governess loop)", () => {
     expect((turns.at(-1) as ViviTurn).wrote).toEqual([path.join(CANONICAL, "02-b.md")])
   })
 
-  it("the prompt carries the deterministic pipeline snapshot line", async () => {
+  it("the prompt carries the deterministic workflow snapshot line", async () => {
     let seenPrompt = ""
     const { spawner } = makeFakeSpawner((o) => {
       seenPrompt = readFileSync(promptFileFrom(o.args), "utf8")
       writeReply(o, "ok")
     })
     await runViviTurn(spawner, { message: "hello" })
-    expect(seenPrompt).toContain("Pipeline snapshot: run_active=false; extraction=never; skills=never; spec_frozen=false; spec_kind=project.")
+    expect(seenPrompt).toContain("Workflow snapshot: run_active=false; extraction=never; skills=never; spec_frozen=false; spec_kind=project.")
   })
 })
 

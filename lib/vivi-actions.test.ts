@@ -122,12 +122,12 @@ describe("parseActionDirective — pure parser", () => {
 
   it("parses a strict batch, trimming tool names and defaulting args to {}", () => {
     const directive = parseActionDirective(
-      replyWithActions('{"actions": [{"tool": " pipeline.start "}, {"tool": "pipeline.retry", "args": {"stage": "dev"}}]}')
+      replyWithActions('{"actions": [{"tool": " workflow.start "}, {"tool": "workflow.retry", "args": {"stage": "dev"}}]}')
     )
     expect(directive).toEqual({
       actions: [
-        { tool: "pipeline.start", args: {} },
-        { tool: "pipeline.retry", args: { stage: "dev" } },
+        { tool: "workflow.start", args: {} },
+        { tool: "workflow.retry", args: { stage: "dev" } },
       ],
     })
   })
@@ -188,14 +188,14 @@ describe("executeViviActions — registry dispatch", () => {
     expect(result.data).toMatchObject({ run_active: true, issues_done: 3, issues_total: 12, extraction_phase: "green", skills_phase: "green" })
   })
 
-  it("maps pipeline.start/resume/stop onto the supervisor verbs", async () => {
+  it("maps workflow.start/resume/stop onto the supervisor verbs", async () => {
     const { deps, calls } = makeDeps()
     const results = await executeViviActions(
       inertSpawner,
       [
-        { tool: "pipeline.start", args: {} },
-        { tool: "pipeline.resume", args: {} },
-        { tool: "pipeline.stop", args: {} },
+        { tool: "workflow.start", args: {} },
+        { tool: "workflow.resume", args: {} },
+        { tool: "workflow.stop", args: {} },
       ],
       deps
     )
@@ -205,25 +205,25 @@ describe("executeViviActions — registry dispatch", () => {
     expect(results[0].summary).toContain("pid 4242")
   })
 
-  it("pipeline.extract mirrors the honest extract outcome (blocked is not ok)", async () => {
+  it("workflow.extract mirrors the honest extract outcome (blocked is not ok)", async () => {
     const { deps } = makeDeps({
       runExtract: (async () => ({ ok: false, blocked: true, status: "extraction_blocked", summary: "3 checks red", lastLine: "" })) as ViviActionDeps["runExtract"],
     })
-    const [result] = await executeViviActions(inertSpawner, [{ tool: "pipeline.extract", args: {} }], deps)
+    const [result] = await executeViviActions(inertSpawner, [{ tool: "workflow.extract", args: {} }], deps)
     expect(result.ok).toBe(false)
     expect(result.summary).toBe("3 checks red")
     expect(result.data).toMatchObject({ status: "extraction_blocked", blocked: true })
   })
 
-  it("pipeline.retry validates the stage and dispatches like the route/CLI", async () => {
+  it("workflow.retry validates the stage and dispatches like the route/CLI", async () => {
     const { deps, calls } = makeDeps()
     const results = await executeViviActions(
       inertSpawner,
       [
-        { tool: "pipeline.retry", args: { stage: "nope" } },
-        { tool: "pipeline.retry", args: { stage: "extract" } },
-        { tool: "pipeline.retry", args: { stage: "skills" } },
-        { tool: "pipeline.retry", args: { stage: "dev" } },
+        { tool: "workflow.retry", args: { stage: "nope" } },
+        { tool: "workflow.retry", args: { stage: "extract" } },
+        { tool: "workflow.retry", args: { stage: "skills" } },
+        { tool: "workflow.retry", args: { stage: "dev" } },
       ],
       deps
     )
@@ -334,7 +334,7 @@ describe("executeViviActions — registry dispatch", () => {
     const results = await executeViviActions(
       inertSpawner,
       [
-        { tool: "pipeline.start", args: {} },
+        { tool: "workflow.start", args: {} },
         { tool: "crs.list", args: {} },
       ],
       deps
@@ -343,7 +343,7 @@ describe("executeViviActions — registry dispatch", () => {
     expect(results[0].summary).toContain("already active")
     expect(results[1].ok).toBe(true)
     const events = (calls.notify ?? []).map((c) => (c[0] as { event: string }).event)
-    expect(events).toEqual(["action_pipeline_start_error", "action_crs_list"])
+    expect(events).toEqual(["action_workflow_start_error", "action_crs_list"])
   })
 
   it("a notification-write failure never breaks the action outcome", async () => {
@@ -360,11 +360,11 @@ describe("executeViviActions — registry dispatch", () => {
 describe("renderActionResults / stripActionFence", () => {
   it("renders one honest line per action", () => {
     const results: ViviActionResult[] = [
-      { tool: "pipeline.start", ok: true, summary: "supervisor started (pid 1)" },
+      { tool: "workflow.start", ok: true, summary: "supervisor started (pid 1)" },
       { tool: "map.move", ok: false, summary: "read-only" },
     ]
     expect(renderActionResults(results)).toBe(
-      "✓ pipeline.start: supervisor started (pid 1)\n✗ map.move: read-only"
+      "✓ workflow.start: supervisor started (pid 1)\n✗ map.move: read-only"
     )
   })
 

@@ -188,7 +188,7 @@ export async function prepareDocs(options: PrepareDocsOptions = {}): Promise<Doc
     report.summary =
       seeds > 0
         ? `the canonical is frozen — ${seeds} imported batch(es) seed the next cycle and will be prepared when it opens.`
-        : "no active cycle and no upload batch to prepare — the pipeline proceeds on the owner-authored canonical.";
+        : "no active cycle and no upload batch to prepare — the workflow proceeds on the owner-authored canonical.";
     emit();
     return report;
   }
@@ -200,7 +200,7 @@ export async function prepareDocs(options: PrepareDocsOptions = {}): Promise<Doc
     report.summary =
       report.batches_consumed.length > 0
         ? `doc-prep already settled for cycle ${cycleId}; every active-cycle batch is consumed. A new import re-runs the stage.`
-        : `no upload batch bound to cycle ${cycleId} to prepare — the pipeline proceeds on the owner-authored canonical.`;
+        : `no upload batch bound to cycle ${cycleId} to prepare — the workflow proceeds on the owner-authored canonical.`;
     emit();
     return report;
   }

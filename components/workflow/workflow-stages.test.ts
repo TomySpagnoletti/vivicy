@@ -3,8 +3,8 @@ import { describe, expect, it } from "vitest"
 import {
   deriveStageStates,
   MARKER_GLYPH,
-  PIPELINE_STAGES,
-} from "@/components/pipeline/pipeline-stages"
+  WORKFLOW_STAGES,
+} from "@/components/workflow/workflow-stages"
 import type { RunStatus } from "@/lib/run-status"
 
 function status(overrides: Partial<RunStatus> = {}): RunStatus {
@@ -23,15 +23,15 @@ function status(overrides: Partial<RunStatus> = {}): RunStatus {
   }
 }
 
-describe("PIPELINE_STAGES — full stage list + SP + SK + SA", () => {
+describe("WORKFLOW_STAGES — full stage list + SP + SK + SA", () => {
   it("has exactly the 16 stages with SP before S2, SK between S7 and S8, and SA (acceptance) between S11 and S12, in order", () => {
-    expect(PIPELINE_STAGES.map((s) => s.id)).toEqual([
+    expect(WORKFLOW_STAGES.map((s) => s.id)).toEqual([
       "S0", "S1", "SP", "S2", "S3", "S4", "S5", "S6", "S7", "SK", "S8", "S9", "S10", "S11", "SA", "S12",
     ])
   })
 
   it("puts the P7 boundary exactly between S1 (non_loop) and SP (dev_loop, the first prepared stage)", () => {
-    const sides = Object.fromEntries(PIPELINE_STAGES.map((s) => [s.id, s.side]))
+    const sides = Object.fromEntries(WORKFLOW_STAGES.map((s) => [s.id, s.side]))
     expect(sides.S0).toBe("non_loop")
     expect(sides.S1).toBe("non_loop")
     expect(sides.SP).toBe("dev_loop")
@@ -40,19 +40,19 @@ describe("PIPELINE_STAGES — full stage list + SP + SK + SA", () => {
   })
 
   it("assigns the honest retry set (SP prepare, S6 extract, SK skills, S9+SA dev) and nothing else", () => {
-    const retryable = PIPELINE_STAGES.filter((s) => s.retryStage).map((s) => s.id)
+    const retryable = WORKFLOW_STAGES.filter((s) => s.retryStage).map((s) => s.id)
     expect(retryable).toEqual(["SP", "S6", "SK", "S9", "SA"])
-    expect(PIPELINE_STAGES.find((s) => s.id === "SP")?.retryStage).toBe("prepare")
-    expect(PIPELINE_STAGES.find((s) => s.id === "SK")?.retryStage).toBe("skills")
-    expect(PIPELINE_STAGES.find((s) => s.id === "SA")?.retryStage).toBe("dev")
+    expect(WORKFLOW_STAGES.find((s) => s.id === "SP")?.retryStage).toBe("prepare")
+    expect(WORKFLOW_STAGES.find((s) => s.id === "SK")?.retryStage).toBe("skills")
+    expect(WORKFLOW_STAGES.find((s) => s.id === "SA")?.retryStage).toBe("dev")
   })
 
-  it("carries no display label — those live in the pipeline message catalog", () => {
-    expect(PIPELINE_STAGES.every((s) => !("label" in s))).toBe(true)
+  it("carries no display label — those live in the workflow message catalog", () => {
+    expect(WORKFLOW_STAGES.every((s) => !("label" in s))).toBe(true)
   })
 
   it("maps P8 stage typing", () => {
-    const marker = Object.fromEntries(PIPELINE_STAGES.map((s) => [s.id, s.marker]))
+    const marker = Object.fromEntries(WORKFLOW_STAGES.map((s) => [s.id, s.marker]))
     expect(marker).toEqual({
       S0: "user",
       S1: "mixed",
@@ -281,7 +281,7 @@ describe("deriveStageStates — honest state truth, no fake progress", () => {
     expect(deriveStageStates(null, null, null, { phase: "failed" }).SP).toBe("red")
   })
 
-  it("a doc-prep report on its own flips S0/S1 green (the pipeline was reached without extraction yet)", () => {
+  it("a doc-prep report on its own flips S0/S1 green (the dev-loop was reached without extraction yet)", () => {
     const states = deriveStageStates(null, null, null, { phase: "green" })
     expect(states.S0).toBe("green")
     expect(states.S1).toBe("green")

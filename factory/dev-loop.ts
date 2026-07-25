@@ -699,7 +699,7 @@ export function composePrompt(template: string, issue: Issue, extra: Record<stri
 const GATE_COMMAND_DIRECTIVE = [
   "## Establish the verification gate command (this issue owes it)",
   "",
-  "`vivicy.json#gateCommand` is still the not-yet-established sentinel (`null`): the pipeline cannot verify any issue until it is a real command. Establishing it is IN SCOPE here and overrides the general rule against editing `vivicy.json`.",
+  "`vivicy.json#gateCommand` is still the not-yet-established sentinel (`null`): the workflow cannot verify any issue until it is a real command. Establishing it is IN SCOPE here and overrides the general rule against editing `vivicy.json`.",
   "",
   "As part of completing this issue, the implementer MUST set `vivicy.json#gateCommand` (preserving every other field) to this project's real verification command — the exact runner its tests execute under (for example `go test ./...`, `cargo test`, `pytest -q`, `phpunit`, `swift test`, or `npm test`). This is the single legitimate `gateCommand` edit; it must NOT be reverted by the reviewer. Never invent a placeholder or an `echo`; use the project's genuine test runner. The orchestrator refuses to mark this issue done while the sentinel stands.",
 ].join("\n");

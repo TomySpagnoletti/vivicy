@@ -27,7 +27,7 @@ import { SectionDetails } from "@/components/sidebar/section-details"
 import { SectionFilters } from "@/components/sidebar/section-filters"
 import { SectionInformation } from "@/components/sidebar/section-information"
 import { SectionLegend } from "@/components/sidebar/section-legend"
-import { SectionPipeline } from "@/components/sidebar/section-pipeline"
+import { SectionWorkflow } from "@/components/sidebar/section-workflow"
 import { SectionRun } from "@/components/sidebar/section-run"
 import { SectionSkills } from "@/components/sidebar/section-skills"
 import { SectionTasks } from "@/components/sidebar/section-tasks"
@@ -158,10 +158,10 @@ export function VivicySidebar({
             </AccordionContent>
           </AccordionItem>
 
-          <AccordionItem value="pipeline">
-            <AccordionTrigger>{t("sections.pipeline")}</AccordionTrigger>
+          <AccordionItem value="workflow">
+            <AccordionTrigger>{t("sections.workflow")}</AccordionTrigger>
             <AccordionContent>
-              <SectionPipeline />
+              <SectionWorkflow />
             </AccordionContent>
           </AccordionItem>
 

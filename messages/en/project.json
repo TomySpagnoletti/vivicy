@@ -78,7 +78,7 @@
   },
   "importDocsDialog": {
     "title": "Import your docs",
-    "description": "Add the spec docs you already have. {brandName} stores them under <code>.vivicy/uploads/</code> in the folder you choose and prepares them when the pipeline runs — nothing is rewritten, nothing is overwritten.",
+    "description": "Add the spec docs you already have. {brandName} stores them under <code>.vivicy/uploads/</code> in the folder you choose and prepares them when the workflow runs — nothing is rewritten, nothing is overwritten.",
     "step1": {
       "label": "Add your documents"
     },

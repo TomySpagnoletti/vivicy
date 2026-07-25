@@ -31,10 +31,10 @@ const HISTORY: ViviTurn[] = [
   },
   {
     role: "action",
-    text: "✓ pipeline.extract: extraction complete",
+    text: "✓ workflow.extract: extraction complete",
     ts: "2026-07-08T10:03:00Z",
     actions: [
-      { tool: "pipeline.extract", ok: true, summary: "extraction complete" },
+      { tool: "workflow.extract", ok: true, summary: "extraction complete" },
     ],
   },
   {
@@ -49,7 +49,7 @@ const HISTORY: ViviTurn[] = [
         {
           id: "go",
           label: "Freeze it",
-          action: { kind: "control", tool: "pipeline.extract" },
+          action: { kind: "control", tool: "workflow.extract" },
         },
         {
           id: "later",
@@ -355,7 +355,7 @@ describe("ViviPanel — rehydration", () => {
 
     expect(screen.getByText("Actions")).toBeInTheDocument()
     expect(
-      screen.getByText(/✓ pipeline\.extract: extraction complete/)
+      screen.getByText(/✓ workflow\.extract: extraction complete/)
     ).toBeInTheDocument()
 
     expect(screen.getByText("Freeze the spec?")).toBeInTheDocument()
@@ -409,9 +409,9 @@ describe("ViviPanel — send flow", () => {
       },
       {
         role: "action",
-        text: "✓ status.read: pipeline idle",
+        text: "✓ status.read: workflow idle",
         ts: "2026-07-08T11:02:00Z",
-        actions: [{ tool: "status.read", ok: true, summary: "pipeline idle" }],
+        actions: [{ tool: "status.read", ok: true, summary: "workflow idle" }],
       },
     ]
     const fetchMock = stubFetch({
@@ -424,7 +424,7 @@ describe("ViviPanel — send flow", () => {
           reply: "Noted — magic links it is.",
           wrote: [".vivicy/canonical/02-scope.md"],
           actions: [
-            { tool: "status.read", ok: true, summary: "pipeline idle" },
+            { tool: "status.read", ok: true, summary: "workflow idle" },
           ],
         },
       }),
@@ -454,7 +454,7 @@ describe("ViviPanel — send flow", () => {
       await screen.findByText("Noted — magic links it is.")
     ).toBeInTheDocument()
     expect(
-      screen.getByText(/✓ status\.read: pipeline idle/)
+      screen.getByText(/✓ status\.read: workflow idle/)
     ).toBeInTheDocument()
 
     await waitFor(() => expect(onActivity).toHaveBeenCalled())
@@ -596,7 +596,7 @@ describe("ViviPanel — composer document import", () => {
   const ACTIVE_ACK: ViviTurn[] = [
     {
       role: "vivi",
-      text: "Perfetto — 2 documents, in English, are now in the kitchen. I'll fold them into the spec when the pipeline runs, so there's nothing for you to check right now.",
+      text: "Perfetto — 2 documents, in English, are now in the kitchen. I'll fold them into the spec when the workflow runs, so there's nothing for you to check right now.",
       ts: "2026-07-08T12:00:00Z",
     },
   ]

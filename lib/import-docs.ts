@@ -210,7 +210,7 @@ async function summarizeBatch(batchDir: string): Promise<{ files: ManifestFile[]
 
 function secretFindingNotice(fileCount: number, batchId: string): string {
   const files = fileCount === 1 ? "1 file" : `${fileCount} files`
-  return `possible secret key(s) detected in ${files} of batch ${batchId} — remove or rotate them and re-import before the pipeline runs; ask Vivi for the exact locations`
+  return `possible secret key(s) detected in ${files} of batch ${batchId} — remove or rotate them and re-import before the workflow runs; ask Vivi for the exact locations`
 }
 
 export function mintBatchId(root: string): string {
@@ -322,7 +322,7 @@ export async function importIntoGoverned(input: { root: string; entries: RawEntr
   return persistBatch(input.root, explodeOrThrow(input.entries))
 }
 
-// manifest.json is the batch-complete marker: it is the LAST write of an import, so a batch dir lacking it is an interrupted, non-consumable batch the pipeline must skip.
+// manifest.json is the batch-complete marker: it is the LAST write of an import, so a batch dir lacking it is an interrupted, non-consumable batch the workflow must skip.
 function writeManifest(batchDir: string, manifest: BatchManifest): void {
   writeFileSync(path.join(batchDir, MANIFEST_FILE), `${JSON.stringify(manifest, null, 2)}\n`)
 }

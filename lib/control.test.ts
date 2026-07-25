@@ -531,7 +531,7 @@ describe("runExtract", () => {
   })
 })
 
-describe("getExtractionStatus (pipeline widget read)", () => {
+describe("getExtractionStatus (workflow widget read)", () => {
   it("returns null when extraction has never run", () => {
     expect(getExtractionStatus()).toBeNull()
   })

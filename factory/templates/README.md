@@ -2,7 +2,7 @@
 
 {{PROJECT_NAME}} is built with **Vivicy**, an autonomous development factory. You write the product intention as a canonical spec; Vivicy freezes it into a hashed baseline, extracts a traceable set of issues, and runs a two-agent loop — one agent implements each slice, an independent agent reviews it — verifying every change against a real test gate and drawing the result live on an architecture map.
 
-**Vivi** is the governess of this repository: she grills your idea into that canonical spec, drives the pipeline, keeps the architecture map tidy, and turns any later ask into a change request. You talk to her; she runs the build. Approving or rejecting a change request is the one human decision the loop waits for — everything else is autonomous.
+**Vivi** is the governess of this repository: she grills your idea into that canonical spec, drives the workflow, keeps the architecture map tidy, and turns any later ask into a change request. You talk to her; she runs the build. Approving or rejecting a change request is the one human decision the loop waits for — everything else is autonomous.
 
 ## The project's truth lives in `.vivicy/`
 

@@ -971,7 +971,7 @@ function countIssues(repoRoot: string): number {
   }
 }
 
-// Document preparation is the FIRST pipeline stage: it turns the latest upload batch into canonical docs the freeze then snapshots, so it must run before extractIssues() (never after). Staleness-gated like the supervisor's skills auto-run; non-fatal.
+// Document preparation is the FIRST workflow stage: it turns the latest upload batch into canonical docs the freeze then snapshots, so it must run before extractIssues() (never after). Staleness-gated like the supervisor's skills auto-run; non-fatal.
 function maybeRunDocPrep(repoRoot: string): void {
   const report = readJsonOrNull(resolve(repoRoot, DOC_PREP_REPORT_REL)) as DocPrepReport | null;
   if (!docPrepStageNeeded(repoRoot, report)) return;

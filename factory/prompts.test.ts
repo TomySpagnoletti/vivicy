@@ -235,11 +235,11 @@ test("vivi.md carries the governess charter (action protocol, no code, no CR dec
   assert.match(text, /"actions": \[\{"tool":/, "vivi.md must show the envelope shape");
   for (const tool of [
     "status.read",
-    "pipeline.start",
-    "pipeline.resume",
-    "pipeline.stop",
-    "pipeline.extract",
-    "pipeline.retry",
+    "workflow.start",
+    "workflow.resume",
+    "workflow.stop",
+    "workflow.extract",
+    "workflow.retry",
     "skills.install",
     "skills.remove",
     "map.move",
@@ -265,7 +265,7 @@ test("vivi.md carries the red-gate playbook: report paths, the four cause classe
   for (const cls of ["transient", "environment", "spec contradiction", "quota"]) {
     assert.match(text, new RegExp(`\\*\\*${cls}\\*\\*`), `the playbook must classify the ${cls} cause (bold class cell)`);
   }
-  assert.match(text, /pipeline\.retry/, "the transient class must propose the retry action");
+  assert.match(text, /workflow\.retry/, "the transient class must propose the retry action");
   assert.match(text, /Change Request/, "the spec-contradiction class must propose drafting a CR");
   assert.match(text, /quota-state\.json/, "the quota class must cite the quota-state report");
   assert.match(text, /You PROPOSE; the owner clicks/, "the playbook must keep P2: propose, owner decides");

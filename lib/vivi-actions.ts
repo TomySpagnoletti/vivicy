@@ -103,18 +103,18 @@ export function defaultViviActionDeps(): ViviActionDeps {
   }
 }
 
-/** The stages `pipeline.retry` accepts — identical to the retry-stage route/CLI. */
+/** The stages `workflow.retry` accepts — identical to the retry-stage route/CLI. */
 const RETRYABLE_STAGES = ["extract", "skills", "dev"] as const
 type RetryableStage = (typeof RETRYABLE_STAGES)[number]
 
 /** Mirrored in prompts/vivi.md — keep in sync. `cr.decide` is deliberately absent: the CR decision is the sole human touchpoint, recorded only by the owner's click. */
 export const VIVI_ACTION_TOOLS = [
   "status.read",
-  "pipeline.start",
-  "pipeline.resume",
-  "pipeline.stop",
-  "pipeline.extract",
-  "pipeline.retry",
+  "workflow.start",
+  "workflow.resume",
+  "workflow.stop",
+  "workflow.extract",
+  "workflow.retry",
   "skills.install",
   "skills.remove",
   "map.move",
@@ -199,17 +199,17 @@ async function executeOne(
           data,
         }
       }
-      case "pipeline.start":
-      case "pipeline.resume": {
-        const mode = tool === "pipeline.start" ? "start" : "resume"
+      case "workflow.start":
+      case "workflow.resume": {
+        const mode = tool === "workflow.start" ? "start" : "resume"
         const state = deps.startSupervisor(spawner, mode)
         return { tool, ok: true, summary: `supervisor ${mode}ed (pid ${state.pid})`, data: { pid: state.pid, mode } }
       }
-      case "pipeline.stop": {
+      case "workflow.stop": {
         const { pid } = deps.stopSupervisor(spawner)
         return { tool, ok: true, summary: `supervisor stopped (pid ${pid})`, data: { pid } }
       }
-      case "pipeline.extract": {
+      case "workflow.extract": {
         const result = await deps.runExtract(spawner)
         return {
           tool,
@@ -218,7 +218,7 @@ async function executeOne(
           data: { status: result.status, blocked: result.blocked },
         }
       }
-      case "pipeline.retry": {
+      case "workflow.retry": {
         const stage = args.stage
         if (typeof stage !== "string" || !(RETRYABLE_STAGES as readonly string[]).includes(stage)) {
           return { tool, ok: false, summary: `args.stage must be one of: ${RETRYABLE_STAGES.join(", ")}` }

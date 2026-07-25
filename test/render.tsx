@@ -12,13 +12,13 @@ import crs from "@/messages/en/crs.json"
 import errors from "@/messages/en/errors.json"
 import map from "@/messages/en/map.json"
 import notifications from "@/messages/en/notifications.json"
-import pipeline from "@/messages/en/pipeline.json"
 import project from "@/messages/en/project.json"
 import sidebar from "@/messages/en/sidebar.json"
+import workflow from "@/messages/en/workflow.json"
 
 /** The full message catalog, mirroring i18n/request.ts, so any component under
  *  test resolves the same namespaces it gets at runtime. */
-const MESSAGES = { common, app, project, map, pipeline, sidebar, chat, crs, agents, notifications, errors }
+const MESSAGES = { common, app, project, map, workflow, sidebar, chat, crs, agents, notifications, errors }
 
 function AllProviders({ children }: { children: ReactNode }) {
   return (

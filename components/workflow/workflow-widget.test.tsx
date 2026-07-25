@@ -3,9 +3,9 @@ import userEvent from "@testing-library/user-event"
 import { NextIntlClientProvider } from "next-intl"
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest"
 
-import { PipelineWidget } from "@/components/pipeline/pipeline-widget"
+import { WorkflowWidget } from "@/components/workflow/workflow-widget"
 import { TooltipProvider } from "@/components/ui/tooltip"
-import pipeline from "@/messages/en/pipeline.json"
+import workflow from "@/messages/en/workflow.json"
 
 class FakeEventSource {
   static last: FakeEventSource | null = null
@@ -66,15 +66,15 @@ afterEach(() => {
 
 function renderWidget({ open = true }: { open?: boolean } = {}) {
   return render(
-    <NextIntlClientProvider locale="en" messages={{ pipeline }}>
+    <NextIntlClientProvider locale="en" messages={{ workflow }}>
       <TooltipProvider>
-        <PipelineWidget open={open} />
+        <WorkflowWidget open={open} />
       </TooltipProvider>
     </NextIntlClientProvider>
   )
 }
 
-describe("PipelineWidget — renders the full stage strip", () => {
+describe("WorkflowWidget — renders the full stage strip", () => {
   test("renders all 16 stages (incl. SP, SK, and SA) when open", async () => {
     renderWidget()
     await act(() => FakeEventSource.last?.emit({ ...IDLE_STATUS, run_active: true, issues_total: 8, issues_done: 2 }))
@@ -89,7 +89,7 @@ describe("PipelineWidget — renders the full stage strip", () => {
     await act(() => FakeEventSource.last?.emit({ ...IDLE_STATUS, run_active: true }))
     await waitFor(() => expect(document.querySelector("[data-boundary]")).toBeTruthy())
 
-    const container = document.querySelector("[data-pipeline-widget]") as HTMLElement
+    const container = document.querySelector("[data-workflow-widget]") as HTMLElement
     const children = Array.from(container.querySelectorAll("[data-stage], [data-boundary]"))
     const order = children.map((el) => el.getAttribute("data-stage") ?? "BOUNDARY")
     const boundaryIndex = order.indexOf("BOUNDARY")
@@ -99,12 +99,12 @@ describe("PipelineWidget — renders the full stage strip", () => {
 
   test("trigger-less: renders nothing and opens no status stream when not open", async () => {
     renderWidget({ open: false })
-    await waitFor(() => expect(document.querySelector("[data-pipeline-widget]")).toBeNull())
+    await waitFor(() => expect(document.querySelector("[data-workflow-widget]")).toBeNull())
     expect(FakeEventSource.last).toBeNull()
   })
 })
 
-describe("PipelineWidget — state classes reflect the derived truth", () => {
+describe("WorkflowWidget — state classes reflect the derived truth", () => {
   test("a running stage carries data-stage-state=running", async () => {
     vi.stubGlobal("fetch", stubFetch({ phase: "authoring" }))
     renderWidget()
@@ -199,7 +199,7 @@ describe("PipelineWidget — state classes reflect the derived truth", () => {
   })
 })
 
-describe("PipelineWidget — retry confirm flow", () => {
+describe("WorkflowWidget — retry confirm flow", () => {
   test("clicking Retry on S6 opens a confirm dialog, and confirming POSTs retry-stage", async () => {
     const user = userEvent.setup()
     const fetchMock = stubFetch({ phase: "extraction_blocked" })
