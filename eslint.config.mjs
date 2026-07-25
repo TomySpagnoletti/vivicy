@@ -11,6 +11,8 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    "**/.claude/**",
+    "**/.vivicy-worktrees/**",
     // Per-server dist dirs (VIVICY_DIST_DIR) for parallel E2E dev servers — generated, not source.
     ".next-e2e-*/**",
     // Regenerated on every rehearsal run — artifacts, not source.
