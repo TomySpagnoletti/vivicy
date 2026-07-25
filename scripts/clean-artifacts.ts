@@ -1,18 +1,20 @@
 #!/usr/bin/env node
 import { spawnSync } from "node:child_process"
-import { existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs"
 import { dirname, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
+
+import { cleanupTree } from "../factory/cleanup-tree.ts"
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..")
 
 // .next is deliberately excluded here — it's a reusable dev/build cache, not a per-run artifact.
 const ARTIFACTS = ["test-results", "playwright-report"]
 
-// The e2e matrix writes one dist dir per shape×browser as .next-e2e-<shape>-<browser>, set via VIVICY_DIST_DIR in playwright.config.
+// The e2e matrix writes one dist dir per shape×browser as .next-e2e-<shape>-<browser>, set via VIVICY_DIST_DIR in playwright.config. Removal runs through cleanupTree because the webServer Next process and its children may still be flushing into these trees when playwright exits: a raised ENOTEMPTY here would replace the wrapped command's exit code, which this wrapper exists to preserve.
 function cleanArtifacts(): void {
   for (const rel of ARTIFACTS) {
-    rmSync(resolve(REPO_ROOT, rel), { recursive: true, force: true })
+    cleanupTree(resolve(REPO_ROOT, rel))
   }
   let entries: string[] = []
   try {
@@ -22,7 +24,7 @@ function cleanArtifacts(): void {
   }
   for (const name of entries) {
     if (name.startsWith(".next-e2e-")) {
-      rmSync(resolve(REPO_ROOT, name), { recursive: true, force: true })
+      cleanupTree(resolve(REPO_ROOT, name))
     }
   }
   pruneTsconfigIncludes()

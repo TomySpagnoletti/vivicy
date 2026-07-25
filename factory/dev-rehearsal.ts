@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 import { spawnSync } from "node:child_process";
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import type { SpawnSyncReturns } from "node:child_process";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { cleanupTree } from "./cleanup-tree.ts";
 import { FACTORY_REHEARSAL_DIR } from "./target-root.ts";
 import { isCanonicalFrozen, isSpecCycleOpen, SPEC_CYCLE_REL, writeSpecCycle } from "../lib/spec-cycle.ts";
 import {
@@ -75,6 +76,8 @@ const MANIFEST_REL = `.vivicy/baselines/${BASELINE_ID}.json`;
 const factoryScript = (name: string): string => join(factoryDir, name);
 
 const stages: Stage[] = [];
+// A run that dies mid-stage keeps its workspace, exactly like a failed one — the crash report is where its path gets named.
+let liveTempRepo: string | null = null;
 function record(name: string, ok: boolean, detail = ""): void {
   stages.push({ name, ok, detail });
   process.stdout.write(`[${ok ? "PASS" : "FAIL"}] ${name}${detail ? ` — ${detail}` : ""}\n`);
@@ -88,6 +91,17 @@ function lastLine(result: SpawnSyncReturns<string>): string {
 }
 function readJson<T = unknown>(path: string): T {
   return JSON.parse(readFileSync(path, "utf8")) as T;
+}
+// One prefix for every tree the rehearsal creates, so a leftover announced by cleanupTree is greppable in the OS temp dir.
+function rehearsalTemp(scenario?: string): string {
+  return mkdtempSync(join(tmpdir(), `vivicy-rehearsal-${scenario ? `${scenario}-` : ""}`));
+}
+// A fixture is a bundled target project; the marker file is what makes one, so the list never goes stale.
+function availableFixtures(): string[] {
+  return readdirSync(FACTORY_REHEARSAL_DIR, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory() && existsSync(join(FACTORY_REHEARSAL_DIR, entry.name, "vivicy.json")))
+    .map((entry) => entry.name)
+    .sort();
 }
 
 // The fixtures ship gateCommand + runCommand as the `null` sentinel; the dry implementer establishes both on the stack-setup issue exactly as a real one would, exercising the machine-fill path.
@@ -194,6 +208,12 @@ async function main(): Promise<void> {
   const keep = process.env.REHEARSAL_KEEP === "1";
   const fixedDir = process.env.REHEARSAL_DIR ? resolve(process.env.REHEARSAL_DIR) : null;
 
+  // Refused before a temp tree exists: a mistyped --fixture= must not leave an abandoned workspace behind.
+  if (!existsSync(fixtureDir)) {
+    process.stderr.write(`dev-rehearsal: no fixture "${fixtureName}" at ${fixtureDir} — available: ${availableFixtures().join(", ")}\n`);
+    process.exit(1);
+  }
+
   const git = (a: string[], cwd: string) => spawnSync("git", a, { cwd, encoding: "utf8" });
   let temp: string;
   if (fixedDir && existsSync(join(fixedDir, ".git"))) {
@@ -203,7 +223,7 @@ async function main(): Promise<void> {
       : 0;
     record("resume isolated temp repo", true, `${temp} (${done} issue(s) already done)`);
   } else {
-    temp = fixedDir ?? mkdtempSync(join(tmpdir(), "vivicy-rehearsal-"));
+    temp = fixedDir ?? rehearsalTemp();
     if (fixedDir) mkdirSync(fixedDir, { recursive: true });
     cpSync(fixtureDir, temp, { recursive: true });
     git(["init", "-q"], temp);
@@ -211,6 +231,7 @@ async function main(): Promise<void> {
     git(["-c", "user.email=rehearsal@local", "-c", "user.name=rehearsal", "commit", "-qm", "rehearsal fixture"], temp);
     record("materialize isolated temp repo", existsSync(join(temp, ".git")), temp);
   }
+  liveTempRepo = temp;
 
   const env = { VIVICY_TARGET_ROOT: temp };
 
@@ -425,7 +446,7 @@ async function main(): Promise<void> {
   if (keep || !allPass || fixedDir) {
     process.stdout.write(`temp repo kept${fixedDir ? " (pinned)" : ""}: ${temp}\n`);
   } else {
-    rmSync(temp, { recursive: true, force: true });
+    cleanupTree(temp);
   }
   process.exit(allPass ? 0 : 1);
 }
@@ -566,7 +587,7 @@ interface CycleIssueIndex {
 
 // The FIRST workflow stage on a fresh mixed import batch: a clean canonical doc is placed untouched, a messy non-dominant doc is exploded/translated through the (faked) leg into canonical form, uploads stay immutable.
 async function runDocPrepScenario(): Promise<void> {
-  const prep = mkdtempSync(join(tmpdir(), "vivicy-rehearsal-prep-"));
+  const prep = rehearsalTemp("prep");
   try {
     const batchId = "2026-07-05T08-00-00-000Z";
     const batchDir = join(prep, ".vivicy/uploads", batchId);
@@ -616,7 +637,7 @@ async function runDocPrepScenario(): Promise<void> {
       `phase ${report?.phase ?? "?"}; leg lang ${legLanguage}; placed clean=${cleanPlaced} exploded=${explodedPlaced}; uploads immutable=${uploadsImmutable}`,
     );
   } finally {
-    rmSync(prep, { recursive: true, force: true });
+    cleanupTree(prep);
   }
 }
 
@@ -646,7 +667,7 @@ async function runCycleBatchScenarios(): Promise<void> {
   const prepMod = await import(pathToFileURL(factoryScript("prepare-docs.ts")).href);
   const EN = "The product lets a user manage a catalog of items with search and pagination across the whole dataset.";
 
-  const progressive = mkdtempSync(join(tmpdir(), "vivicy-rehearsal-progressive-"));
+  const progressive = rehearsalTemp("progressive");
   try {
     writeUploadBatch(progressive, "2026-07-05T09-00-00-000Z", { "canonical/one.md": `# One\n\n${EN}` }, "eng", { binding: "active", id: "project" });
     writeUploadBatch(progressive, "2026-07-05T09-05-00-000Z", { "canonical/two.md": `# Two\n\n${EN}` }, "eng", { binding: "active", id: "project" });
@@ -659,10 +680,10 @@ async function runCycleBatchScenarios(): Promise<void> {
       `phase ${report?.phase ?? "?"}; consumed ${report?.batches_consumed?.join(",") ?? "?"}`,
     );
   } finally {
-    rmSync(progressive, { recursive: true, force: true });
+    cleanupTree(progressive);
   }
 
-  const seed = mkdtempSync(join(tmpdir(), "vivicy-rehearsal-seed-"));
+  const seed = rehearsalTemp("seed");
   try {
     writeFrozenBaselineFixture(seed);
     writeUploadBatch(seed, "2026-07-05T10-00-00-000Z", { "canonical/next.md": `# Next\n\n${EN}` }, "eng", { binding: "seed" });
@@ -685,7 +706,7 @@ async function runCycleBatchScenarios(): Promise<void> {
       `phase ${afterOpen?.phase ?? "?"}; consumed ${afterOpen?.batches_consumed?.join(",") ?? "?"}`,
     );
   } finally {
-    rmSync(seed, { recursive: true, force: true });
+    cleanupTree(seed);
   }
 }
 
@@ -705,7 +726,7 @@ function writeAcceptanceFixture(root: string): void {
 async function runAcceptanceScenarios(): Promise<void> {
   const acc = await import(pathToFileURL(factoryScript("acceptance.ts")).href);
 
-  const clean = mkdtempSync(join(tmpdir(), "vivicy-rehearsal-accept-clean-"));
+  const clean = rehearsalTemp("accept-clean");
   try {
     writeAcceptanceFixture(clean);
     const report = await acc.runAcceptance({
@@ -723,10 +744,10 @@ async function runAcceptanceScenarios(): Promise<void> {
       `phase ${report?.phase ?? "?"}; ${report?.read_only_scenarios ?? "?"} read-only-verified scenario(s) (run-story seam)`,
     );
   } finally {
-    rmSync(clean, { recursive: true, force: true });
+    cleanupTree(clean);
   }
 
-  const defect = mkdtempSync(join(tmpdir(), "vivicy-rehearsal-accept-defect-"));
+  const defect = rehearsalTemp("accept-defect");
   try {
     writeAcceptanceFixture(defect);
     const report = await acc.runAcceptance({
@@ -749,7 +770,7 @@ async function runAcceptanceScenarios(): Promise<void> {
       `phase ${report?.phase ?? "?"}; drafted ${report?.drafted_crs?.join(",") ?? "none"}`,
     );
   } finally {
-    rmSync(defect, { recursive: true, force: true });
+    cleanupTree(defect);
   }
 }
 
@@ -769,7 +790,7 @@ function plantRecurringFailures(root: string): void {
 async function runRetroScenarios(): Promise<void> {
   const retro = await import(pathToFileURL(factoryScript("retro.ts")).href);
 
-  const recurring = mkdtempSync(join(tmpdir(), "vivicy-rehearsal-retro-recurring-"));
+  const recurring = rehearsalTemp("retro-recurring");
   try {
     writeAcceptanceFixture(recurring);
     plantRecurringFailures(recurring);
@@ -801,10 +822,10 @@ async function runRetroScenarios(): Promise<void> {
       `phase ${report.phase ?? "?"}; ${report.recurring_classes?.length ?? "?"} witnessed class(es), proposals -> ${landings.join(",") || "none"}`,
     );
   } finally {
-    rmSync(recurring, { recursive: true, force: true });
+    cleanupTree(recurring);
   }
 
-  const clean = mkdtempSync(join(tmpdir(), "vivicy-rehearsal-retro-clean-"));
+  const clean = rehearsalTemp("retro-clean");
   try {
     writeAcceptanceFixture(clean);
     const report = await retro.runRetro({
@@ -821,10 +842,10 @@ async function runRetroScenarios(): Promise<void> {
       `phase ${report.phase ?? "?"}`,
     );
   } finally {
-    rmSync(clean, { recursive: true, force: true });
+    cleanupTree(clean);
   }
 
-  const failed = mkdtempSync(join(tmpdir(), "vivicy-rehearsal-retro-failed-"));
+  const failed = rehearsalTemp("retro-failed");
   try {
     writeAcceptanceFixture(failed);
     let threw = false;
@@ -845,14 +866,14 @@ async function runRetroScenarios(): Promise<void> {
       threw ? "runRetro threw (must not — retro is observability, never fatal)" : `phase ${report?.phase ?? "?"}`,
     );
   } finally {
-    rmSync(failed, { recursive: true, force: true });
+    cleanupTree(failed);
   }
 }
 
 // The other run-story path: when the frozen canonical's run-and-ship area STATES the run command, the extractor records it and the orchestrator establishes it from the sentinel — no stack-setup issue needed.
 async function runRunCommandExtractorScenario(): Promise<void> {
   const extract = await import(pathToFileURL(factoryScript("extract-issues.ts")).href);
-  const root = mkdtempSync(join(tmpdir(), "vivicy-rehearsal-runcmd-"));
+  const root = rehearsalTemp("runcmd");
   try {
     writeFileSync(join(root, "vivicy.json"), `${JSON.stringify({ gateCommand: null, runCommand: null }, null, 2)}\n`);
     const reportAbs = join(root, ".vivicy/development/reports/extraction-run-command.json");
@@ -867,7 +888,7 @@ async function runRunCommandExtractorScenario(): Promise<void> {
       `recorded=${filled}; runCommand -> ${String(after)}`,
     );
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    cleanupTree(root);
   }
 }
 
@@ -1147,4 +1168,8 @@ ${rows}
   writeFileSync(reportPath, body);
 }
 
-main();
+main().catch((error) => {
+  process.stderr.write(`\nREHEARSAL CRASHED: ${(error as Error)?.stack ?? String(error)}\n`);
+  if (liveTempRepo) process.stderr.write(`temp repo kept for inspection: ${liveTempRepo}\n`);
+  process.exit(1);
+});

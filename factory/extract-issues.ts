@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 
 import { runClaudeLeg, runCodexLeg } from "./agent-spawn.ts";
 import type { AgentIssue, LegConfig, LegDeps, LegRunResult } from "./agent-spawn.ts";
+import { cleanupTree } from "./cleanup-tree.ts";
 import { notify } from "./notify.ts";
 import { agentCliArgs, CLI_DEFAULTS, composePrompt, DEFAULT_CONFIG, resolveAgentLegs } from "./dev-loop.ts";
 import type { Leg, LegResult } from "./dev-loop.ts";
@@ -238,6 +239,15 @@ interface ExtractionResult {
 }
 
 export async function extractIssues(options: ExtractIssuesOptions = {}): Promise<ExtractionResult> {
+  const layoutBaseline: { dir: string | null } = { dir: null };
+  try {
+    return await runExtraction(options, layoutBaseline);
+  } finally {
+    if (layoutBaseline.dir) cleanupTree(layoutBaseline.dir);
+  }
+}
+
+async function runExtraction(options: ExtractIssuesOptions, layoutBaseline: { dir: string | null }): Promise<ExtractionResult> {
   const repoRoot = options.repoRoot;
   if (!repoRoot) {
     throw new Error(
@@ -317,7 +327,8 @@ export async function extractIssues(options: ExtractIssuesOptions = {}): Promise
   let layoutBaselinePath: string | null = null;
   const mapMode = existsSync(mapAbs) ? "reused" : "authored";
   if (mapMode === "reused") {
-    layoutBaselinePath = join(mkdtempSync(join(tmpdir(), "vivicy-map-")), "baseline.yml");
+    layoutBaseline.dir = mkdtempSync(join(tmpdir(), "vivicy-map-"));
+    layoutBaselinePath = join(layoutBaseline.dir, "baseline.yml");
     writeFileSync(layoutBaselinePath, readFileSync(mapAbs, "utf8"));
   }
   const spikeMode = readSpikes(repoRoot).length > 0 ? "integrate" : "extract";
