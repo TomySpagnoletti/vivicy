@@ -37,6 +37,45 @@ const DATA: ArchitectureMapData = {
   nodes: [NODE],
   edges: [EDGE],
   development: {
+    proofs: [
+      {
+        issue_id: "ISS-0100",
+        proofs: [
+          {
+            id: "claim-flow-screens",
+            class: "ui_flow",
+            evidences: [".vivicy/canonical/09-telegram-channel-interface.md:12"],
+            path: ".vivicy/development/proofs/ISS-0100/claim-flow-screens",
+            produced: true,
+            recipe: true,
+            artifacts: ["desktop.png", "mobile.png", "recipe.txt"],
+          },
+          {
+            id: "claim-token-request",
+            class: "http_transcript",
+            evidences: [".vivicy/canonical/09-telegram-channel-interface.md:20-24"],
+            path: ".vivicy/development/proofs/ISS-0100/claim-token-request",
+            produced: false,
+            recipe: false,
+            artifacts: [],
+          },
+        ],
+      },
+      {
+        issue_id: "ISS-0200",
+        proofs: [
+          {
+            id: "mcp-invocation",
+            class: "gate_evidence",
+            evidences: [".vivicy/canonical/22-worker-platform-mcp.md:8"],
+            path: ".vivicy/development/gates/ISS-0200-gate.json",
+            produced: true,
+            recipe: true,
+            artifacts: ["ISS-0200-gate.json"],
+          },
+        ],
+      },
+    ],
     issues: [
       { id: "ISS-0100", title: "Wire the channel", graph_refs: ["node:telegram-channel"] },
       { id: "ISS-0200", title: "Wire the protocol", graph_refs: ["edge:telegram->mcp"] },
@@ -101,6 +140,32 @@ describe("SectionDetails — a selected node", () => {
     ).toBeInTheDocument()
   })
 
+  test("lists the declared proofs of its covering issues — class, produced state, canonical refs, and where they sit on disk", () => {
+    renderDetails({ type: "node", item: NODE })
+
+    expect(screen.getByText("Proofs")).toBeInTheDocument()
+    expect(screen.getByText("claim-flow-screens")).toBeInTheDocument()
+    expect(screen.getByText("ui flow")).toBeInTheDocument()
+    expect(screen.getByText("ISS-0100 · produced")).toBeInTheDocument()
+
+    expect(screen.getByText("claim-token-request")).toBeInTheDocument()
+    expect(screen.getByText("http transcript")).toBeInTheDocument()
+    expect(
+      screen.getByText("ISS-0100 · not produced yet"),
+      "an owed-but-absent observation is visible, never hidden"
+    ).toBeInTheDocument()
+
+    const produced = screen.getByText("claim-flow-screens").closest("li") as HTMLElement
+    expect(
+      within(produced).getByText(/\.vivicy\/canonical\/09-telegram-channel-interface\.md:12/)
+    ).toBeInTheDocument()
+    expect(
+      within(produced).getByText(/\.vivicy\/development\/proofs\/ISS-0100\/claim-flow-screens/)
+    ).toBeInTheDocument()
+    expect(within(produced).getByText("Evidences")).toBeInTheDocument()
+    expect(within(produced).getByText("On disk")).toBeInTheDocument()
+  })
+
   test("falls back to the node's own status when no overlay state exists", () => {
     const lonelyNode: MapNode = { ...NODE, id: "lonely", graph_ref: "node:lonely", status: "blocked" }
     renderDetails(
@@ -109,6 +174,7 @@ describe("SectionDetails — a selected node", () => {
     )
     expect(screen.getByText("blocked")).toBeInTheDocument()
     expect(screen.getByText("None yet")).toBeInTheDocument()
+    expect(screen.queryByText("Proofs"), "a node no issue covers shows no proofs block at all").toBeNull()
   })
 })
 
@@ -122,5 +188,19 @@ describe("SectionDetails — a selected edge", () => {
     expect(screen.getByText("message, claim_token")).toBeInTheDocument()
     expect(screen.getByText("in progress")).toBeInTheDocument()
     expect(screen.getByText("ISS-0200")).toBeInTheDocument()
+  })
+
+  test("reaches the proofs of the issues covering the edge, gate-witnessed ones included", () => {
+    renderDetails({ type: "edge", id: "edge:telegram->mcp", item: EDGE })
+
+    expect(screen.getByText("Proofs")).toBeInTheDocument()
+    expect(screen.getByText("mcp-invocation")).toBeInTheDocument()
+    expect(screen.getByText("gate evidence")).toBeInTheDocument()
+    expect(screen.getByText("ISS-0200 · produced")).toBeInTheDocument()
+    expect(
+      screen.getByText(/\.vivicy\/development\/gates\/ISS-0200-gate\.json/),
+      "a gate-witnessed proof points at the gate record itself, no ritual artifact"
+    ).toBeInTheDocument()
+    expect(screen.queryByText("claim-flow-screens"), "another item's proofs never leak in").toBeNull()
   })
 })

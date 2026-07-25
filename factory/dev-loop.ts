@@ -27,6 +27,20 @@ import type { ProgressEvent } from "./progress-ledger.ts";
 import { checkSkills } from "./dev-preflight.ts";
 import { pruneGitkeeps } from "../lib/skeleton.ts";
 import { commandServesHttp } from "../lib/product-run.ts";
+import {
+  gateEvidenceRel,
+  inspectDeclaredProofs,
+  ISSUES_DIR,
+  parseDeclaredProofs,
+  proofClass,
+  proofHomeRel,
+  GATES_DIR,
+  PROOFS_DIR,
+  PROOF_CLASSES,
+  PROOF_RECIPE_FILE,
+  type ProofClass,
+  type ProofStatus,
+} from "../lib/proofs.ts";
 import { runTraceabilityCheck } from "./traceability-check.ts";
 import { runSpikeCheck, transitivelyVerifiedGates } from "./spike-check.ts";
 import { runReferenceCheck } from "./reference-check.ts";
@@ -247,6 +261,7 @@ export interface Config {
   issuesDir?: string;
   doneDir?: string;
   gatesDir?: string;
+  proofsDir?: string;
   reportsDir?: string;
   readiness?: boolean;
   promptsDir?: string;
@@ -363,9 +378,10 @@ export function resolveAgentLegs(env: Record<string, string | undefined> = {}): 
 export const DEFAULT_CONFIG: Config = {
   issueIndexPath: ".vivicy/development/issue-index.json",
   progressLedgerPath: ".vivicy/development/progress-ledger.json",
-  issuesDir: ".vivicy/development/issues",
-  doneDir: ".vivicy/development/issues/done",
-  gatesDir: ".vivicy/development/gates",
+  issuesDir: ISSUES_DIR,
+  doneDir: `${ISSUES_DIR}/done`,
+  gatesDir: GATES_DIR,
+  proofsDir: PROOFS_DIR,
   reportsDir: ".vivicy/development/reports",
   readiness: true,
   promptsDir: FACTORY_PROMPTS_DIR,
@@ -684,6 +700,14 @@ const VICIOUS_DEFECT_CLASSES = [
 const VICIOUS_TORTURE_CRITERIA =
   "kill it mid-write and reprove the invariant; deliver the action twice and prove one effect; run N writers on the one state; feed the dirty boundary inputs (empty, oversized, wrong encoding, CRLF, homoglyph, DST edge); move the clock across the expiry and the DST edge; exhaust the resource and prove nothing leaked";
 
+const PROOF_CLASSES_BLOCK = [
+  "## The proof classes — the a-posteriori observation an obligation owes",
+  "",
+  "A test is a PREDICTION authored by an intelligence; a PROOF is an OBSERVATION of the real thing. Gates automate regression, proofs anchor reality, and the traceability chain runs requirement → code → test → PROOF. Two guards keep it honest: every proof carries the replayable recipe that produced it, and its CLASS is proportional to the obligation — the cheapest class that genuinely observes it, never a ritual artifact for something a gate already witnesses.",
+  "",
+  ...PROOF_CLASSES.map((entry: ProofClass) => `- \`${entry.id}\` — ${entry.obligation}.`),
+].join("\n");
+
 export function composePrompt(template: string, issue: Issue, extra: Record<string, unknown> = {}): string {
   const values: Record<string, unknown> = {
     issue_id: issue.id,
@@ -691,6 +715,7 @@ export function composePrompt(template: string, issue: Issue, extra: Record<stri
     graph_refs: (issue.graph_refs ?? []).join(", "),
     vicious_defect_classes: VICIOUS_DEFECT_CLASSES,
     vicious_torture_criteria: VICIOUS_TORTURE_CRITERIA,
+    proof_classes: PROOF_CLASSES_BLOCK,
     ...extra,
   };
   return template.replace(/\{\{(\w+)\}\}/g, (match, key) => (key in values ? String(values[key]) : match));
@@ -759,6 +784,100 @@ export function visualReviewDirective(cfg: Config, issue: Issue | undefined): st
   }
   if (!commandServesHttp(command)) return "";
   return visualReviewDirectiveText(issue?.id ?? "<issue_id>");
+}
+
+function readIssueBody(issue: Issue, cfg: Config): string | null {
+  const rel = issue.path ?? issue.issue_path ?? `${cfg.issuesDir}/${issue.id}.md`;
+  try {
+    return readFileSync(abs(rel), "utf8");
+  } catch {
+    return null;
+  }
+}
+
+function proofsDirectiveText(statuses: ProofStatus[]): string {
+  return [
+    "## The declared proofs of this issue (produced from the real run, judged on replay)",
+    "",
+    "The issue's `## Proofs` section declares the a-posteriori proofs this slice owes: OBSERVATIONS of the real running thing — never fabricated, never mocked, never a capture of something you did not actually run. A test is a prediction authored by an intelligence; these are what the owner can taste. The orchestrator checks their existence mechanically at this issue's close and refuses to close it while one is missing.",
+    "",
+    `- **Implementer** — produce every proof below, as part of completing this issue: run the real thing, write its artifact(s) into that proof's own home (an absolute path OUTSIDE your worktree on purpose: it is the durable evidence home the owner and the architecture map read, and the artifacts there stay out of git history), and write a \`${PROOF_RECIPE_FILE}\` beside them holding the exact command(s) you ran, verbatim and replayable by anyone from the target root — that recipe is the ONE file of the proof home that git keeps (the artifacts are gitignored), so it is what makes the observation reproducible off this machine; no recipe means no proof. If a proof genuinely cannot be produced in this environment, STOP and say so loudly, naming the proof and the obstacle; never invent an artifact and never weaken the declaration.`,
+    `- **Reviewer** — judge them: re-derive each proof from its \`${PROOF_RECIPE_FILE}\` (re-deriving is your right, not a courtesy) and confirm the artifact shows the behaviour its cited canonical lines claim. Re-derive into your OWN scratch — the screenshots/transcripts home this prompt already gives you — and never write into or overwrite the proof you are judging: it belongs to the run that produced it. Absent, unreplayable, stale, or silent about what it claims is a \`not_faithful\` finding naming the proof id — a green gate over a hollow proof is exactly the reassurance this system exists to refuse.`,
+    "",
+    ...statuses.map((status) => {
+      const production = proofClass(status.class)?.production ?? "produce the observation the class names";
+      return `- \`${status.id}\` (\`${status.class}\`) — evidences ${status.evidences.join(", ")}. Produce: ${production}. Home: \`${abs(status.path)}\``;
+    }),
+  ].join("\n");
+}
+
+export function proofsDirective(cfg: Config, issue: Issue | undefined): string {
+  if (!issue) return "";
+  const body = readIssueBody(issue, cfg);
+  if (body === null) return "";
+  const { statuses } = inspectDeclaredProofs({
+    targetRoot: requireRepoRoot(),
+    issueId: issue.id,
+    body,
+    dirs: { proofsDir: cfg.proofsDir, gatesDir: cfg.gatesDir },
+  });
+  return statuses.length === 0 ? "" : proofsDirectiveText(statuses);
+}
+
+// Cleared by the orchestrator before every attempt's legs run, so presence afterwards can only witness THIS attempt: a replayed close can never ride a previous run's artifact. The committed recipe.txt is left in place — deleting a tracked file here would stage a deletion the loop never asked for.
+function resetDeclaredProofArtifacts(issue: Issue, cfg: Config): void {
+  const body = readIssueBody(issue, cfg);
+  if (body === null) return;
+  for (const proof of parseDeclaredProofs(body).proofs) {
+    if (proof.class === "gate_evidence") continue;
+    const homeAbs = abs(proofHomeRel(issue.id, proof.id, cfg.proofsDir));
+    let entries: string[];
+    try {
+      entries = readdirSync(homeAbs);
+    } catch {
+      continue;
+    }
+    for (const entry of entries) {
+      if (entry === PROOF_RECIPE_FILE) continue;
+      try {
+        rmSync(resolve(homeAbs, entry), { recursive: true, force: true });
+      } catch {
+      }
+    }
+  }
+}
+
+// The machine checks PRESENCE only (P5): the reviewer judges whether a present proof is replayable and shows the claimed behaviour. An unreadable declaration is `unreadable`, never `satisfied` — a leg cannot repair the frozen issue file, so the loop must not spend attempts on it.
+export function declaredProofsPresence(
+  issue: Issue,
+  cfg: Config,
+): { status: "satisfied" } | { status: "missing" | "unreadable"; reason: string } {
+  const body = readIssueBody(issue, cfg);
+  if (body === null) {
+    return {
+      status: "unreadable",
+      reason: `the issue file ${issue.path ?? issue.issue_path ?? `${cfg.issuesDir}/${issue.id}.md`} is missing or unreadable, so which proofs this issue owes cannot be established`,
+    };
+  }
+  const { statuses, problems } = inspectDeclaredProofs({
+    targetRoot: requireRepoRoot(),
+    issueId: issue.id,
+    body,
+    dirs: { proofsDir: cfg.proofsDir, gatesDir: cfg.gatesDir },
+  });
+  if (problems.length > 0) {
+    return { status: "unreadable", reason: `declared proofs are unreadable: ${problems.join("; ")}` };
+  }
+  const missing = statuses.filter((status) => !status.produced);
+  if (missing.length === 0) return { status: "satisfied" };
+  return { status: "missing", reason: `declared proof not produced: ${missing.map(missingProofDetail).join("; ")}` };
+}
+
+function missingProofDetail(status: ProofStatus): string {
+  const home = `${status.id} (${status.class}) expected at ${status.path}`;
+  if (status.class === "gate_evidence") return home;
+  if (!status.recipe) return `${home} with its ${PROOF_RECIPE_FILE}`;
+  return `${home} (recipe present, observation missing)`;
 }
 
 export function agentCliArgs(
@@ -1209,12 +1328,14 @@ function legDeps(cfg: Config, issue: Issue | undefined): LegDeps {
   const directive = gateCommandDirective(cfg, issue);
   const runDirective = runCommandDirective(cfg);
   const visualDirective = visualReviewDirective(cfg, issue);
+  const proofsDuty = proofsDirective(cfg, issue);
   return {
     composePrompt: (template, iss) =>
       composePrompt(template, iss, {
         gate_command_directive: directive,
         run_command_directive: runDirective,
         visual_review_directive: visualDirective,
+        proofs_directive: proofsDuty,
       }),
     agentCliArgs,
     abs,
@@ -1336,7 +1457,7 @@ function spawnShellAsync(command: string, options: { cwd?: string } = {}): Promi
 function writeGateEvidence(issue: Issue, cfg: Config, gateCommand: string | null, exitCode: number, reason?: string): GateResult {
   const gateId = (issue.verification_gate_ids ?? [])[0] ?? `gate:issue:${issue.id}`;
   mkdirSync(abs(cfg.gatesDir!), { recursive: true });
-  const evidenceRel = `${cfg.gatesDir}/${issue.id}-gate.json`;
+  const evidenceRel = gateEvidenceRel(issue.id, cfg.gatesDir!);
   const record = {
     gate_id: gateId,
     issue_id: issue.id,
@@ -1537,7 +1658,8 @@ export function defaultRemoveWorktree(issue: Issue, cfg: Config, worktreeRoot: s
   if (branch) spawnSync("git", ["branch", "-D", branch], { cwd: root, encoding: "utf8" });
 }
 
-function commitDoneMove(issue: Issue, cfg: Config) {
+// `git add -- <a> <b>` aborts WHOLESALE when any one pathspec matches neither the worktree nor the index (same trap as frozenIntegrationPaths), and several of these paths are written lazily — proofsDir only once an artifact-bearing proof exists, reportsDir only once a report does. Absent paths are therefore dropped before the add, and BOTH git statuses are checked: a discarded exit code here silently loses a whole per-issue checkpoint.
+function commitDoneMove(issue: Issue, cfg: Config): { ok: boolean; detail: string } {
   const root = requireRepoRoot();
   const paths = [
     cfg.issuesDir,
@@ -1545,11 +1667,40 @@ function commitDoneMove(issue: Issue, cfg: Config) {
     cfg.issueIndexPath,
     cfg.progressLedgerPath,
     cfg.gatesDir,
+    // Only each proof's recipe.txt is trackable under proofsDir; the artifacts beside it are gitignored.
+    cfg.proofsDir,
     cfg.reportsDir,
-  ].filter((p): p is string => Boolean(p));
+  ].filter((p): p is string => typeof p === "string" && p.length > 0 && existsSync(resolve(root, p)));
   pruneGitkeeps(root);
-  spawnSync("git", ["add", "--", ...paths], { cwd: root, encoding: "utf8" });
-  return spawnSync("git", ["commit", "-m", `${issue.id}: move to done/ (integrated; live progress in ledger)`], { cwd: root, encoding: "utf8" });
+  const add = spawnSync("git", ["add", "--", ...paths], { cwd: root, encoding: "utf8" });
+  if ((add.status ?? 1) !== 0) {
+    return failedDoneMoveCommit(issue, "git add", add);
+  }
+  const commit = spawnSync("git", ["commit", "-m", `${issue.id}: move to done/ (integrated; live progress in ledger)`], {
+    cwd: root,
+    encoding: "utf8",
+  });
+  if ((commit.status ?? 1) !== 0) {
+    return failedDoneMoveCommit(issue, "git commit", commit);
+  }
+  return { ok: true, detail: (commit.stdout ?? "").trim() };
+}
+
+function notifyCheckpointFailure(issue: Issue, detail: string): void {
+  notify({
+    level: "error",
+    stage: "S10",
+    event: "checkpoint_commit_failed",
+    message: `${issue.id}: integrated and moved to done/, but its checkpoint commit did not land (${detail}) — the working tree is left dirty and the next run refuses to start until it is committed or reset`,
+  });
+}
+
+function failedDoneMoveCommit(issue: Issue, step: string, result: { status?: number | null; stdout?: string; stderr?: string }): { ok: boolean; detail: string } {
+  const detail = `${step} exited ${result.status ?? "null"}: ${`${result.stdout ?? ""}\n${result.stderr ?? ""}`.trim()}`;
+  process.stderr.write(
+    `[parallel] CRITICAL: ${issue.id} was integrated and moved to done/ but its checkpoint commit did not land (${detail}); the tree is left dirty and the next run's clean-tree gate will refuse — manual intervention required\n`,
+  );
+  return { ok: false, detail };
 }
 
 function moveIssueToDone(issue: Issue, cfg: Config): string | null {
@@ -1683,6 +1834,7 @@ function ensureWorktreesIgnored(cfg: Config): void {
 const NOTIFY_BY_EVENT: Record<string, { level: NotifyLevel; stage: string; label: string }> = {
   gate_passed: { level: "success", stage: "S9", label: "gate green" },
   gate_failed: { level: "warning", stage: "S9", label: "gate red" },
+  proofs_missing: { level: "warning", stage: "S9", label: "declared proof not produced" },
   issue_blocked: { level: "error", stage: "S9", label: "issue blocked" },
   issue_parked_on_cr: { level: "warning", stage: "S8", label: "parked on CR" },
   issue_reopened: { level: "info", stage: "S11", label: "issue reopened" },
@@ -1883,14 +2035,10 @@ function readReadinessVerdict(issue: Issue, cfg: Config): ReadinessVerdict | nul
 function applyReadinessUpdate(issue: Issue, cfg: Config, verdict: ReadinessVerdict): boolean {
   const patch = verdict?.updates?.body_patch;
   if (typeof patch !== "string" || patch.length === 0) return false;
-  const rel = issue.path ?? issue.issue_path ?? `${cfg.issuesDir}/${issue.id}.md`;
-  let current: string;
-  try {
-    current = readFileSync(abs(rel), "utf8");
-  } catch {
-    return false;
-  }
+  const current = readIssueBody(issue, cfg);
+  if (current === null) return false;
   if (!issueUpdatePreservesTraceability(current, patch)) return false;
+  const rel = issue.path ?? issue.issue_path ?? `${cfg.issuesDir}/${issue.id}.md`;
   writeFileSync(abs(rel), patch.endsWith("\n") ? patch : `${patch}\n`);
   return true;
 }
@@ -2003,6 +2151,7 @@ export function runIssueCycle(issue: Issue, cfg: Config, steps: CycleSteps): Cyc
   const allTranscripts: string[] = [];
   let lastTimeoutReason: string | null = null;
   let lastGateReason: string | null = null;
+  let lastProofsReason: string | null = null;
   for (let attempt = 1; attempt <= cfg.maxRetries!; attempt += 1) {
     emit(cfg, {
       event_type: "issue_started",
@@ -2011,6 +2160,7 @@ export function runIssueCycle(issue: Issue, cfg: Config, steps: CycleSteps): Cyc
       actor: cfg.implementer.actor,
       role: cfg.implementer.role,
     });
+    resetDeclaredProofArtifacts(issue, cfg);
     const implResult = runLegWithQuota(runImplementer, cfg.implementer, issue, cfg);
     if (implResult.quotaBlocked) return quotaBlock(issue, cfg, cfg.implementer, allTranscripts);
     lastTimeoutReason = legTimeoutReason(implResult) ?? lastTimeoutReason;
@@ -2040,6 +2190,15 @@ export function runIssueCycle(issue: Issue, cfg: Config, steps: CycleSteps): Cyc
     const gate = runGate(issue, cfg);
     lastGateReason = gate.reason ?? lastGateReason;
     if (gate.pass) {
+      const proofs = declaredProofsPresence(issue, cfg);
+      if (proofs.status === "unreadable") {
+        return proofsUnreadableBlock(issue, cfg, proofs.reason, allTranscripts);
+      }
+      if (proofs.status === "missing") {
+        lastProofsReason = proofs.reason;
+        emitProofsMissing(issue, cfg, transcripts, proofs.reason);
+        continue;
+      }
       if (!cfg.deferVerified) {
         emit(cfg, {
           event_type: "gate_passed",
@@ -2074,7 +2233,9 @@ export function runIssueCycle(issue: Issue, cfg: Config, steps: CycleSteps): Cyc
     graph_refs: issue.graph_refs,
     actor: cfg.implementer.actor,
     role: cfg.implementer.role,
-    evidence_refs: [writeBlockedEvidence(issue, cfg, lastTimeoutReason, lastGateReason)],
+    evidence_refs: [
+      writeBlockedEvidence(issue, cfg, { timeout: lastTimeoutReason, gate: lastGateReason, proofs: lastProofsReason }),
+    ],
     transcript_refs: allTranscripts,
   });
   return { status: "blocked", attempts: cfg.maxRetries!, transcripts: allTranscripts };
@@ -2085,6 +2246,7 @@ export async function runIssueCycleAsync(issue: Issue, cfg: Config, steps: Async
   const allTranscripts: string[] = [];
   let lastTimeoutReason: string | null = null;
   let lastGateReason: string | null = null;
+  let lastProofsReason: string | null = null;
   for (let attempt = 1; attempt <= cfg.maxRetries!; attempt += 1) {
     emit(cfg, {
       event_type: "issue_started",
@@ -2093,6 +2255,7 @@ export async function runIssueCycleAsync(issue: Issue, cfg: Config, steps: Async
       actor: cfg.implementer.actor,
       role: cfg.implementer.role,
     });
+    resetDeclaredProofArtifacts(issue, cfg);
     const implResult = await runLegWithQuotaAsync(runImplementer, cfg.implementer, issue, cfg);
     if (implResult.quotaBlocked) return quotaBlock(issue, cfg, cfg.implementer, allTranscripts);
     lastTimeoutReason = legTimeoutReason(implResult) ?? lastTimeoutReason;
@@ -2122,6 +2285,15 @@ export async function runIssueCycleAsync(issue: Issue, cfg: Config, steps: Async
     const gate = await runGate(issue, cfg);
     lastGateReason = gate.reason ?? lastGateReason;
     if (gate.pass) {
+      const proofs = declaredProofsPresence(issue, cfg);
+      if (proofs.status === "unreadable") {
+        return proofsUnreadableBlock(issue, cfg, proofs.reason, allTranscripts);
+      }
+      if (proofs.status === "missing") {
+        lastProofsReason = proofs.reason;
+        emitProofsMissing(issue, cfg, transcripts, proofs.reason);
+        continue;
+      }
       if (!cfg.deferVerified) {
         emit(cfg, {
           event_type: "gate_passed",
@@ -2156,7 +2328,9 @@ export async function runIssueCycleAsync(issue: Issue, cfg: Config, steps: Async
     graph_refs: issue.graph_refs,
     actor: cfg.implementer.actor,
     role: cfg.implementer.role,
-    evidence_refs: [writeBlockedEvidence(issue, cfg, lastTimeoutReason, lastGateReason)],
+    evidence_refs: [
+      writeBlockedEvidence(issue, cfg, { timeout: lastTimeoutReason, gate: lastGateReason, proofs: lastProofsReason }),
+    ],
     transcript_refs: allTranscripts,
   });
   return { status: "blocked", attempts: cfg.maxRetries!, transcripts: allTranscripts };
@@ -2166,20 +2340,59 @@ function legTimeoutReason(legResult: LegResult): string | null {
   return legResult?.result?.timedOut ? legResult.result.timeoutReason || "leg timed out" : null;
 }
 
-function writeBlockedEvidence(
-  issue: Issue,
-  cfg: Config,
-  timeoutReason: string | null = null,
-  gateReason: string | null = null,
-): string {
+// A declaration the machine cannot read is not fixable by a leg (the issue file is frozen corpus), so this blocks on the spot instead of burning the remaining attempts.
+function proofsUnreadableBlock(issue: Issue, cfg: Config, reason: string, allTranscripts: string[]): CycleResult {
   mkdirSync(abs(cfg.reportsDir!), { recursive: true });
   const rel = `${cfg.reportsDir}/${issue.id}-blocked.json`;
-  const reason = timeoutReason
-    ? `${timeoutReason}; still red after ${cfg.maxRetries} attempts`
-    : gateReason
-      ? `${gateReason} (still unresolved after ${cfg.maxRetries} attempts)`
-      : `gate red after ${cfg.maxRetries} attempts`;
-  const kind = timeoutReason ? "timeout" : gateReason ? "gate_command_unset" : null;
+  writeFileSync(
+    abs(rel),
+    `${JSON.stringify({ issue_id: issue.id, reason, kind: "proofs_unreadable", at: nowIso(cfg) }, null, 2)}\n`,
+  );
+  process.stderr.write(`[proofs] ${issue.id}: ${reason}\n`);
+  emit(cfg, {
+    event_type: "issue_blocked",
+    issue_id: issue.id,
+    graph_refs: issue.graph_refs,
+    actor: cfg.implementer.actor,
+    role: cfg.implementer.role,
+    evidence_refs: [rel],
+    transcript_refs: allTranscripts,
+  });
+  return { status: "blocked", reason: "proofs_unreadable", attempts: 0, transcripts: allTranscripts };
+}
+
+function emitProofsMissing(issue: Issue, cfg: Config, transcripts: string[], reason: string | undefined): void {
+  process.stderr.write(`[proofs] ${issue.id}: ${reason ?? "a declared proof is missing"}\n`);
+  emit(cfg, {
+    event_type: "proofs_missing",
+    issue_id: issue.id,
+    graph_refs: issue.graph_refs,
+    actor: cfg.implementer.actor,
+    role: cfg.implementer.role,
+    transcript_refs: transcripts,
+  });
+}
+
+interface BlockReasons {
+  timeout?: string | null;
+  gate?: string | null;
+  proofs?: string | null;
+}
+
+function writeBlockedEvidence(issue: Issue, cfg: Config, reasons: BlockReasons = {}): string {
+  mkdirSync(abs(cfg.reportsDir!), { recursive: true });
+  const rel = `${cfg.reportsDir}/${issue.id}-blocked.json`;
+  const attempts = `${cfg.maxRetries} attempts`;
+  const observed: Array<{ kind: string; text: string }> = [
+    ...(reasons.timeout ? [{ kind: "timeout", text: `${reasons.timeout}; still red after ${attempts}` }] : []),
+    ...(reasons.gate ? [{ kind: "gate_command_unset", text: `${reasons.gate} (still unresolved after ${attempts})` }] : []),
+    ...(reasons.proofs ? [{ kind: "proofs_missing", text: `${reasons.proofs} (still missing after ${attempts})` }] : []),
+  ];
+  // Every observed cause is named: a proof miss on the last attempt must not vanish behind an earlier attempt's timeout.
+  const reason = observed.length === 0
+    ? `gate red after ${attempts}`
+    : [observed[0].text, ...observed.slice(1).map((entry) => `also: ${entry.text}`)].join("; ");
+  const kind = observed[0]?.kind ?? null;
   writeFileSync(
     abs(rel),
     `${JSON.stringify({ issue_id: issue.id, reason, ...(kind ? { kind } : {}), at: nowIso(cfg) }, null, 2)}\n`,
@@ -2217,7 +2430,7 @@ function quotaBlock(issue: Issue, cfg: Config, leg: Leg, allTranscripts: string[
 }
 
 function assertRelativeConfig(cfg: Config): void {
-  const keys: (keyof Config)[] = ["issueIndexPath", "progressLedgerPath", "issuesDir", "doneDir", "gatesDir", "reportsDir"];
+  const keys: (keyof Config)[] = ["issueIndexPath", "progressLedgerPath", "issuesDir", "doneDir", "gatesDir", "proofsDir", "reportsDir"];
   for (const key of keys) {
     const value = cfg[key];
     if (typeof value === "string" && isAbsolute(value)) {
@@ -2425,7 +2638,11 @@ export async function runLoopParallel(userConfig: Partial<Config> = {}, steps: L
           evidence_refs: [postMergeGate.evidenceRel],
           transcript_refs: result.gateTranscripts ?? [],
         });
-        if (steps.commitDoneMove !== false) commitDoneMove(issue, cfg);
+        if (steps.commitDoneMove !== false) {
+          const checkpoint = commitDoneMove(issue, cfg);
+          // Integrated-but-bookkeeping-failed is NOT blocked: the code is on the integration branch, the gate was green, and the issue is in done/. What is missing is the git checkpoint, so the issue completes and the absent owner is told loudly instead.
+          if (!checkpoint.ok) notifyCheckpointFailure(issue, checkpoint.detail);
+        }
         return { id: issue.id, status: "verified" };
       });
     } finally {

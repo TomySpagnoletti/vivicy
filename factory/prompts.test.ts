@@ -3,6 +3,7 @@ import test from "node:test";
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { FACTORY_DIR, FACTORY_PROMPTS_DIR } from "./target-root.ts";
+import { PROOFS_DIR, PROOF_RECIPE_FILE } from "../lib/proofs.ts";
 
 const PROMPTS = ["implementer.md", "reviewer.md", "extractor.md", "extraction-verifier.md", "map-review.md", "change-request.md", "spike-prover.md", "spike-verifier.md", "cr-applier.md", "skill-scout.md", "doc-prep.md", "detect-language.md"];
 
@@ -435,6 +436,16 @@ const PINNED_KERNELS: Array<{ kernel: string; anchor: RegExp; prompts: string[] 
     anchor: /\{\{vicious_torture_criteria\}\}/,
     prompts: ["extractor.md", "extraction-verifier.md"],
   },
+  {
+    kernel: "proof-class taxonomy injection slot (the single-source proportionality list)",
+    anchor: /\{\{proof_classes\}\}/,
+    prompts: ["extractor.md", "extraction-verifier.md"],
+  },
+  {
+    kernel: "declared-proofs directive slot (produced by the implementer, judged by the reviewer)",
+    anchor: /\{\{proofs_directive\}\}/,
+    prompts: ["implementer.md", "reviewer.md"],
+  },
 ];
 
 test("every pinned kernel sits exactly where adjudicated — present in each receiving prompt, absent everywhere else", () => {
@@ -511,7 +522,7 @@ test("the vicious-defect taxonomy pairs with a gate-provable torture criterion: 
   assert.match(verifier, /must state that class's torture criterion — \{\{vicious_torture_criteria\}\} — as a real gate-provable test/, "the pairing check reads the proof shapes from the single source, not a second copy");
   assert.match(verifier, /the vice ships unproven and nothing downstream will ask again/, "the pairing gap names what it costs");
   assert.match(verifier, /Flag it with kind `vice_pairing_gap`, naming the issue, the class, and the criterion it owes/, "the pairing check itself offers the problem kind (open-string precedent), not only the slug list");
-  assert.match(verifier, /`granularity_violation`, `vice_pairing_gap`\)/, "vice_pairing_gap joins the verdict's problem-kind slug list");
+  assert.match(verifier, /`granularity_violation`, `vice_pairing_gap`, /, "vice_pairing_gap joins the verdict's problem-kind slug list");
   assert.match(verifier, /flag ONLY where an obligation the canonical states would visibly break if the vice occurred/, "the pairing gap is severity-bounded: it forces a re-author loop, so it cannot fire on a class word that merely could apply");
   assert.match(verifier, /every function takes input and every screen has a button/, "the bound names the two near-universal classes that would otherwise swallow the corpus");
   assert.match(verifier, /never flag a criterion a named test already covers under other wording/, "the pairing check is bounded on the other side too");
@@ -536,6 +547,63 @@ test("the vicious-defect taxonomy is consumed as a DUTY by each anchor it reache
   assert.match(reviewer, /"Not applicable" is a legitimate verdict PER CLASS and only per class/, "not-applicable is per class, never wholesale");
   assert.match(reviewer, /exactly the negative claim this prompt forbids/, "the hunt binds to the negative-claims law the prompt already carries");
   assert.match(reviewer, /hunting grounds, not a checklist to tick/, "the ten classes never bound the review");
+});
+
+test("the proof contract spans the corpus: the extractor declares proportionally, the verifier flags both excesses, the legs produce and judge, acceptance consumes", () => {
+  const extractor = readPrompt("extractor.md");
+  assert.match(extractor, /^- \*\*`## Proofs`\*\* — a `text` code block declaring the a-posteriori proofs this issue owes/m, "the issue file shape carries the Proofs section");
+  assert.match(extractor, /- id: <slug unique within this issue>/, "the declaration grammar is inline, one entry per proof");
+  assert.match(extractor, /the orchestrator DERIVES the proof's directory from it, so you never author a path/, "no authored path: the slug is the only input");
+  assert.match(extractor, /cites the canonical line\(s\) that proof anchors, so the chain reads requirement → code → test → proof/, "each proof carries its /goal link");
+  assert.match(extractor, /Declare each issue's proofs in its `## Proofs` block, proportionally/, "the extractor owns the proportional declaration");
+  assert.match(extractor, /a pure-logic obligation owes its gate evidence and nothing more/, "no ritual artifact where the gate is the witness");
+  assert.match(extractor, /the proof comes AFTER the gate, never instead of it/, "a proof never softens the verification bar");
+
+  const verifier = readPrompt("extraction-verifier.md");
+  assert.match(verifier, /Proof pairing, BOTH directions/, "the verifier judges declaration AND ritual");
+  assert.match(verifier, /kind `proof_declaration_gap`/, "the missing-where-demanded kind (open-string precedent)");
+  assert.match(verifier, /kind `proof_ritual`/, "the ritual-where-pointless kind");
+  assert.match(verifier, /`proof_declaration_gap`, `proof_ritual`\)/, "both kinds join the verdict's slug list");
+  assert.match(verifier, /judge the obligation's NATURE exactly as the canonical states it, never a wish for more evidence/, "the pairing check is bounded, like the vice pairing");
+
+  const implementer = readPrompt("implementer.md");
+  assert.match(implementer, /\{\{proofs_directive\}\}/, "the implementer receives the per-issue proofs duty by injection, zero mass when none are owed");
+  const reviewer = readPrompt("reviewer.md");
+  assert.match(reviewer, /\{\{proofs_directive\}\}/, "the reviewer receives the same block and owns the judging half");
+
+  const acceptance = readPrompt("acceptance.md");
+  assert.match(acceptance, /declared proofs under `\.vivicy\/development\/proofs\/<issue-id>\/`/, "the whole-product pass reads the per-issue proofs as evidence");
+  assert.match(acceptance, /their mere presence is the orchestrator's mechanical gate, never your verdict/, "P5 split: the machine checks presence, fresh eyes judge content");
+});
+
+test("the proof HOME and the recipe filename the code owns are pinned wherever prose names them (a path copy is free to drift otherwise)", () => {
+  const template = readFileSync(join(FACTORY_DIR, "templates", "AGENTS.md"), "utf8");
+  for (const [label, text] of [
+    ["acceptance.md", readPrompt("acceptance.md")],
+    ["the governed-repo AGENTS.md template", template],
+  ] as Array<[string, string]>) {
+    assert.ok(
+      text.includes(`${PROOFS_DIR}/`),
+      `${label} names the proofs home as prose — it must match lib/proofs.ts's PROOFS_DIR (${PROOFS_DIR})`,
+    );
+    assert.ok(
+      text.includes(PROOF_RECIPE_FILE),
+      `${label} names the recipe file as prose — it must match lib/proofs.ts's PROOF_RECIPE_FILE (${PROOF_RECIPE_FILE})`,
+    );
+  }
+});
+
+test("the proof classes are single-sourced in the factory — no prompt file names one of the class ids", () => {
+  for (const name of ALL_LEG_PROMPTS) {
+    const text = readPrompt(name);
+    for (const id of ["ui_flow", "http_transcript", "run_log", "gate_evidence"]) {
+      assert.doesNotMatch(
+        text,
+        new RegExp(id),
+        `${name} names the ${id} proof class — the classes are injected from ONE factory-side source (composePrompt's \`proof_classes\`), never pasted per prompt`,
+      );
+    }
+  }
 });
 
 test("the extractor leaves the architecture map faithful on exit (map-current-last)", () => {

@@ -21,3 +21,11 @@ dist/
 # TRANSCRIPTS ARE NEVER COMMITTED (full agent session JSONL; the ledger links to
 # them, they never enter git history).
 .vivicy/development/transcripts/
+
+# PROOF ARTIFACTS ARE NEVER COMMITTED (per-issue observations of the real run —
+# captures, request transcripts, run logs). Each proof's recipe.txt IS committed:
+# an observation is replayable by anyone only if its command lives in history, and
+# a directory pattern cannot be re-included from, hence the three-line form.
+.vivicy/development/proofs/**
+!.vivicy/development/proofs/**/
+!.vivicy/development/proofs/**/recipe.txt

@@ -189,6 +189,16 @@ verification_gate_ids:
 - **`## Scope`** — faithful spec restated from the referenced canonical lines. Deterministic wording only (no "if needed", "simplify where appropriate").
 - **`## Out Of Scope`** — what this issue deliberately excludes, especially adjacent behavior a reader might assume is included.
 - **`## Verification`** — the tests and gates that PROVE the Scope before completion is claimed: real-behavior coverage (happy + negative/edge/failure), integration with the components the anti-cheating rules forbid faking, the torture criterion of every vicious defect class the Scope touches (see "The vicious defect classes"), and each `verification_gate_ids` gate resolving to a real green gate-run record. Never lower the bar.
+- **`## Proofs`** — a `text` code block declaring the a-posteriori proofs this issue owes (see "The proof classes"), one entry per obligation that needs an OBSERVATION of the real thing:
+
+```text
+- id: <slug unique within this issue>
+  class: <one proof class id>
+  evidences:
+  - .vivicy/canonical/<file>.md:<start>[-<end>]
+```
+
+  Each `id` is a safe slug (letters, digits, dot, underscore, hyphen) — the orchestrator DERIVES the proof's directory from it, so you never author a path. Each `evidences` ref cites the canonical line(s) that proof anchors, so the chain reads requirement → code → test → proof. Declare one proof per class-worthy obligation of this Scope, never one per test.
 
 ### Spike file — `.vivicy/development/spikes/<nn>-<slug>.md`
 
@@ -236,6 +246,10 @@ Owner-placed layout is sacred (item 6): preserve every existing `layout_x/_y/_cl
 {{vicious_defect_classes}}
 
 **A class the spec's own behaviour touches becomes a gate-provable obligation.** Where an obligation genuinely sits on one of the classes above, the issue carrying it states that class's TORTURE criterion in its `## Verification`, expressed in THIS product's stack — {{vicious_torture_criteria}}. Only where the canonical's own obligations reach the class — never a torture criterion for a vice the product cannot have, and never a new catalog requirement: it is a verification criterion on an obligation the canonical already states, so source fidelity is untouched. And never as prose: a criterion that is not a real gate-provable test is not an obligation.
+
+{{proof_classes}}
+
+**Declare each issue's proofs in its `## Proofs` block, proportionally.** A gate is a prediction authored by the same family of intelligences that writes the code; the owner also needs the observation. So every issue declares the proofs its Scope owes — one per class-worthy obligation, each carrying the class whose stated nature actually matches that obligation, and a pure-logic obligation owes its gate evidence and nothing more. Both excesses are the same disease: an obligation someone must see, call, or run with no proof declared ships unobserved, and a ritual artifact declared where the gate already witnesses the behaviour is ceremony that rots. Declare no proof for a nature this product does not have, and never let a proof replace or soften the `## Verification` bar — the proof comes AFTER the gate, never instead of it.
 
 ## Discipline
 

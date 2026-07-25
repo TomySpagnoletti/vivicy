@@ -6,6 +6,7 @@ import {
   buildEdgeCounts,
   buildGraphStatesByRef,
   buildIssuesByGraphRef,
+  buildProofsByIssue,
   clusterMovedPositions,
   computeVisibleCounts,
   edgeGraphRef,
@@ -232,6 +233,42 @@ describe("buildIssuesByGraphRef / buildActiveGraphRefs / buildGraphStatesByRef",
   it("indexes graph states by ref", () => {
     const byRef = buildGraphStatesByRef(development.graph_item_states)
     expect(byRef.get("node:a")?.status).toBe("verified")
+  })
+})
+
+describe("buildProofsByIssue", () => {
+  const proof = (id: string, produced: boolean) => ({
+    id,
+    class: "run_log",
+    evidences: [".vivicy/canonical/06-cli.md:13"],
+    path: `.vivicy/development/proofs/ISS-1/${id}`,
+    produced,
+    recipe: produced,
+    artifacts: produced ? ["observed.log", "recipe.txt"] : [],
+  })
+
+  it("indexes the declared proofs by issue id, produced or not", () => {
+    const byIssue = buildProofsByIssue([
+      { issue_id: "ISS-1", proofs: [proof("cli-run", true), proof("cli-error", false)] },
+      { issue_id: "ISS-2", proofs: [proof("api-call", true)] },
+    ])
+    expect(byIssue.get("ISS-1")?.map((p) => [p.id, p.produced])).toEqual([
+      ["cli-run", true],
+      ["cli-error", false],
+    ])
+    expect(byIssue.get("ISS-2")).toHaveLength(1)
+    expect(byIssue.get("ISS-3")).toBeUndefined()
+  })
+
+  it("is empty for a target that declares none, and skips malformed entries", () => {
+    expect(buildProofsByIssue(undefined).size).toBe(0)
+    expect(buildProofsByIssue([]).size).toBe(0)
+    expect(
+      buildProofsByIssue([
+        { issue_id: "ISS-1", proofs: [] },
+        { issue_id: "", proofs: [proof("x", true)] },
+      ]).size
+    ).toBe(0)
   })
 })
 

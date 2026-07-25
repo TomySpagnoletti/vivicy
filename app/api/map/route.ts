@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises"
 
 import { applyLiveOverlay, normalizeMapData } from "@/lib/map-data"
+import { readProofsByIssue } from "@/lib/proofs"
 import {
   canonicalHasSpecDoc,
   getArchitectureDataPath,
@@ -8,7 +9,7 @@ import {
   getTargetRoot,
   isTargetResolved,
 } from "@/lib/target"
-import type { MapEmptyState } from "@/lib/types"
+import type { ArchitectureMapData, MapEmptyState } from "@/lib/types"
 
 // Filesystem reads require the Node runtime, not Edge.
 export const runtime = "nodejs"
@@ -76,7 +77,16 @@ export async function GET() {
 
   // The map JSON is generated once at extraction and never regenerated; the ledger is the live source of truth, overlaid here so a read always shows current progress. A missing/unreadable ledger leaves the static graph as-is (everything not_started).
   const ledger = await readLedger()
-  return Response.json(applyLiveOverlay(data, ledger))
+  return Response.json(withProofs(applyLiveOverlay(data, ledger)))
+}
+
+// Declared proofs live in the committed issue files, produced ones on disk beside the gates — both read here, never baked into the static map.
+function withProofs(data: ArchitectureMapData): ArchitectureMapData {
+  const targetRoot = getTargetRoot()
+  if (targetRoot === null) return data
+  const proofs = readProofsByIssue(targetRoot)
+  if (proofs.length === 0) return data
+  return { ...data, development: { ...(data.development ?? {}), proofs } }
 }
 
 async function readLedger(): Promise<unknown> {

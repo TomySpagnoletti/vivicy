@@ -189,6 +189,15 @@ describe("scaffoldProject — from scratch (lean, language-agnostic)", () => {
     ]) {
       expect(gitignore, `expected .gitignore to ignore ${ignored}`).toContain(ignored)
     }
+    // Line-exact: the re-inclusion lines contain the exclude pattern as a substring, so `toContain` alone would pass with the exclude gone.
+    const ignoreLines = gitignore.split("\n")
+    for (const line of [
+      ".vivicy/development/proofs/**",
+      "!.vivicy/development/proofs/**/",
+      "!.vivicy/development/proofs/**/recipe.txt",
+    ]) {
+      expect(ignoreLines, `expected .gitignore to carry the exact line ${line}`).toContain(line)
+    }
     for (const committed of ["architecture-data.json", "source-map.json", "coverage-report"]) {
       expect(gitignore, `expected .gitignore NOT to ignore ${committed}`).not.toContain(committed)
     }
@@ -312,6 +321,9 @@ describe("scaffoldProject — existing project (shared files get a managed block
     const restored = readFileSync(gitignorePath, "utf8")
     expect(restored).toContain(".vivicy-runtime/")
     expect(restored, "the essentials the owner deleted are restored").toContain(".vivicy/development/transcripts/")
+    for (const line of [".vivicy/development/proofs/**", "!.vivicy/development/proofs/**/recipe.txt"]) {
+      expect(restored.split("\n"), `restored block must carry the exact line ${line}`).toContain(line)
+    }
     expect(restored.startsWith(ownerGitignore), "owner's own head stays intact").toBe(true)
     expect(restored.endsWith("# owner note\n"), "owner's edit after the block stays intact").toBe(true)
     expect(count(restored, GITIGNORE_MARKERS.begin)).toBe(1)
@@ -352,6 +364,53 @@ describe("scaffoldProject — existing project (shared files get a managed block
   })
 })
 
+describe("the proof-artifact ignore posture, exercised through real git (both writers)", () => {
+  function plantProof(target: string): void {
+    const home = path.join(target, ".vivicy", "development", "proofs", "ISS-0008", "cli-run")
+    mkdirSync(path.join(home, "screens"), { recursive: true })
+    writeFileSync(path.join(home, "recipe.txt"), "node src/cli.js report 2026-01\n")
+    writeFileSync(path.join(home, "observed.log"), "total 1234\n")
+    writeFileSync(path.join(home, "screens", "desktop.png"), "png-bytes")
+  }
+
+  function trackedAfterAddAll(target: string): string[] {
+    const git = (args: string[]) => spawnSync("git", args, { cwd: target, encoding: "utf8" })
+    if (git(["rev-parse", "--is-inside-work-tree"]).status !== 0) git(["init", "-q", "."])
+    git(["config", "user.email", "t@example.com"])
+    git(["config", "user.name", "t"])
+    git(["add", "-A"])
+    git(["commit", "-qm", "proof posture"])
+    return (git(["ls-files"]).stdout ?? "").split("\n").filter(Boolean)
+  }
+
+  // A string assertion cannot prove a .gitignore: git's own re-inclusion rules decide, and a trailing-slash directory pattern would make the recipe unrecoverable.
+  it("greenfield: git tracks each proof's recipe.txt and NOT one artifact beside it", () => {
+    const target = path.join(workDir, "greenfield-proofs")
+    scaffoldProject({ targetDir: target, projectName: "Greenfield Proofs" })
+    plantProof(target)
+    const tracked = trackedAfterAddAll(target)
+    expect(tracked).toContain(".vivicy/development/proofs/ISS-0008/cli-run/recipe.txt")
+    expect(tracked.filter((p) => p.startsWith(".vivicy/development/proofs/"))).toEqual([
+      ".vivicy/development/proofs/ISS-0008/cli-run/recipe.txt",
+    ])
+    expect(spawnSync("git", ["status", "--porcelain"], { cwd: target, encoding: "utf8" }).stdout.trim()).toBe("")
+  })
+
+  it("brownfield: the appended managed block yields the same posture in a repo that already had its own .gitignore", () => {
+    const target = path.join(workDir, "brownfield-proofs")
+    mkdirSync(target, { recursive: true })
+    writeFileSync(path.join(target, ".gitignore"), "node_modules/\nmy-own-ignore/\n")
+    writeFileSync(path.join(target, "main.py"), "print('hi')\n")
+    scaffoldProject({ targetDir: target, projectName: "Brownfield Proofs" })
+    plantProof(target)
+    const tracked = trackedAfterAddAll(target)
+    expect(tracked.filter((p) => p.startsWith(".vivicy/development/proofs/"))).toEqual([
+      ".vivicy/development/proofs/ISS-0008/cli-run/recipe.txt",
+    ])
+    expect(spawnSync("git", ["status", "--porcelain"], { cwd: target, encoding: "utf8" }).stdout.trim()).toBe("")
+  })
+})
+
 describe("the vivicy:method block (single-sourced from the template)", () => {
   it("extractManagedBlock yields the enriched tier-1 machinery defense and tier-2 discipline, with no code-culture (tier-3) content inside the markers", () => {
     const template = readFileSync(path.join(getTemplatesRoot(), "AGENTS.md"), "utf8")
@@ -372,6 +431,9 @@ describe("the vivicy:method block (single-sourced from the template)", () => {
     expect(block, "no silent side-channel around a spec conflict").toMatch(/side-channel hack/i)
 
     expect(block, "existing corpus rule preserved").toContain(".vivicy/development/transcripts/")
+    expect(block, "the a-posteriori proof artifacts are never-committed evidence too").toContain(".vivicy/development/proofs/")
+    expect(block, "but each proof's recipe IS committed, or nothing is replayable").toMatch(/`recipe\.txt` IS committed/)
+    expect(block, "a proof is an observation, never a fabrication").toMatch(/never fabricate one/i)
     expect(block, "existing language law preserved").toMatch(/established language/i)
 
     expect(block, "tier-3 zero-comments culture stays OUT of the block").not.toMatch(/zero comments/i)

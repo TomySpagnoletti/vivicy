@@ -13,9 +13,11 @@ import type {
   DevelopmentBlock,
   DevelopmentIssue,
   GraphItemState,
+  IssueProofsView,
   MapEdge,
   MapNode,
   NodeStatus,
+  ProofView,
   ViewMode,
 } from "@/lib/types"
 
@@ -340,6 +342,17 @@ export function buildIssuesByGraphRef(
     }
   }
   return byRef
+}
+
+export function buildProofsByIssue(
+  proofs: IssueProofsView[] | undefined
+): Map<string, ProofView[]> {
+  const byIssue = new Map<string, ProofView[]>()
+  for (const entry of proofs ?? []) {
+    if (!entry?.issue_id || !Array.isArray(entry.proofs) || entry.proofs.length === 0) continue
+    byIssue.set(entry.issue_id, [...(byIssue.get(entry.issue_id) ?? []), ...entry.proofs])
+  }
+  return byIssue
 }
 
 export function buildActiveGraphRefs(

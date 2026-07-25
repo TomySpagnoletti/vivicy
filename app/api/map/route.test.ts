@@ -11,6 +11,7 @@ const {
   normalizeMapData,
   applyLiveOverlay,
   readFile,
+  readProofsByIssue,
 } = vi.hoisted(() => ({
   isTargetResolved: vi.fn(),
   getTargetRoot: vi.fn(),
@@ -20,6 +21,7 @@ const {
   normalizeMapData: vi.fn(),
   applyLiveOverlay: vi.fn(),
   readFile: vi.fn(),
+  readProofsByIssue: vi.fn(),
 }))
 
 vi.mock("node:fs/promises", async () => {
@@ -34,6 +36,7 @@ vi.mock("@/lib/target", () => ({
   canonicalHasSpecDoc,
 }))
 vi.mock("@/lib/map-data", () => ({ normalizeMapData, applyLiveOverlay }))
+vi.mock("@/lib/proofs", () => ({ readProofsByIssue }))
 
 import { GET } from "./route"
 
@@ -64,6 +67,7 @@ beforeEach(() => {
   getProgressLedgerPath.mockReturnValue(LEDGER_PATH)
   canonicalHasSpecDoc.mockReturnValue(true)
   applyLiveOverlay.mockImplementation((data: ArchitectureMapData) => data)
+  readProofsByIssue.mockReturnValue([])
 })
 
 describe("GET /api/map", () => {
@@ -196,5 +200,45 @@ describe("GET /api/map", () => {
     const res = await GET()
     expect(res.status).toBe(200)
     expect(applyLiveOverlay).toHaveBeenCalledWith(NORMALIZED, undefined)
+  })
+
+  it("serves the per-issue declared proofs read from disk beside the ledger overlay", async () => {
+    isTargetResolved.mockReturnValue(true)
+    readFile.mockResolvedValue(JSON.stringify({ name: "Example", nodes: [{}] }))
+    normalizeMapData.mockReturnValue(NORMALIZED)
+    const proofs = [
+      {
+        issue_id: "ISS-0008",
+        proofs: [
+          {
+            id: "cli-dispatch-run",
+            class: "run_log",
+            evidences: [".vivicy/canonical/06-cli.md:13-16"],
+            path: ".vivicy/development/proofs/ISS-0008/cli-dispatch-run",
+            produced: true,
+            recipe: true,
+            artifacts: ["observed.log", "recipe.txt"],
+          },
+        ],
+      },
+    ]
+    readProofsByIssue.mockReturnValue(proofs)
+
+    const res = await GET()
+    expect(res.status).toBe(200)
+    const body = await res.json()
+
+    expect(readProofsByIssue).toHaveBeenCalledWith(TARGET_ROOT)
+    expect(body.development.proofs).toEqual(proofs)
+  })
+
+  it("leaves the payload untouched for a target whose issues declare no proof", async () => {
+    isTargetResolved.mockReturnValue(true)
+    readFile.mockResolvedValue(JSON.stringify({ name: "Example", nodes: [{}] }))
+    normalizeMapData.mockReturnValue(NORMALIZED)
+    readProofsByIssue.mockReturnValue([])
+
+    const body = await (await GET()).json()
+    expect(body.development).toBeUndefined()
   })
 })

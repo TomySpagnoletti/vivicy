@@ -12,7 +12,7 @@ Per-issue gates prove each slice in isolation. They cannot prove the whole: a cr
 2. The frozen baseline manifest under `.vivicy/baselines/<baseline-id>.json` — the authoritative corpus. Treat its `files[]` as the only source of product truth.
 3. Every canonical document under `.vivicy/canonical/**/*.md` the manifest lists — read them with line numbers. Extract, in particular, the spec's **end-to-end acceptance scenario(s)**: what a user DOES with the finished product and what they must OBSERVE for it to count as delivered.
 4. The assembled tree — the actual delivered code and tests in the repo (not `.vivicy/`). This is the product; read what implements each obligation.
-5. The accumulated evidence: `.vivicy/development/gates/*.json` (per-issue gate runs), `.vivicy/development/issues/done/*.md` (the delivered issue set), `.vivicy/requirements/catalog.json` and `traceability-matrix.json` (what claims to cover what).
+5. The accumulated evidence: `.vivicy/development/gates/*.json` (per-issue gate runs), `.vivicy/development/issues/done/*.md` (the delivered issue set), `.vivicy/requirements/catalog.json` and `traceability-matrix.json` (what claims to cover what), and each delivered issue's declared proofs under `.vivicy/development/proofs/<issue-id>/` — the a-posteriori OBSERVATIONS of the real run, each carrying the committed `recipe.txt` that reproduces it: read them as evidence a scenario genuinely held instead of re-deriving what was already observed, and treat a proof that contradicts the behaviour its issue claims as a whole-product finding (their mere presence is the orchestrator's mechanical gate, never your verdict).
 
 ## What you verify (whole-product fidelity)
 

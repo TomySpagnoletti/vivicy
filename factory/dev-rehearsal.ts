@@ -7,6 +7,16 @@ import type { SpawnSyncReturns } from "node:child_process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { FACTORY_REHEARSAL_DIR } from "./target-root.ts";
 import { isCanonicalFrozen, isSpecCycleOpen, SPEC_CYCLE_REL, writeSpecCycle } from "../lib/spec-cycle.ts";
+import {
+  ISSUES_DIR,
+  parseDeclaredProofs,
+  proofHomeRel,
+  PROOFS_DIR,
+  PROOF_RECIPE_FILE,
+  readIssueBodyFromDisk,
+  readProofsByIssue,
+  type ProofStatus,
+} from "../lib/proofs.ts";
 
 interface Stage {
   name: string;
@@ -110,10 +120,27 @@ function establishSentinelCommands(root: string): void {
   fillCommandFieldIfSentinel(root, "runCommand", FIXTURE_RUN_COMMAND);
 }
 
+// The dry implementer withholds a declared proof on its FIRST attempt, so the rehearsal exercises the orchestrator's refusal AND its bounded remediation on the next one.
+const implementerAttempts = new Map<string, number>();
+
+function produceDeclaredProofs(temp: string, issue: LegIssue): void {
+  const attempt = (implementerAttempts.get(issue.id) ?? 0) + 1;
+  implementerAttempts.set(issue.id, attempt);
+  if (attempt < 2) return;
+  for (const proof of parseDeclaredProofs(readIssueBodyFromDisk(temp, issue.id)).proofs) {
+    if (proof.class === "gate_evidence") continue;
+    const home = join(temp, ...proofHomeRel(issue.id, proof.id).split("/"));
+    mkdirSync(home, { recursive: true });
+    writeFileSync(join(home, "observed.log"), `dry-run capture for ${issue.id} (${proof.id}): the product ran and printed its result\n`);
+    writeFileSync(join(home, PROOF_RECIPE_FILE), `node src/index.js report 2026-01\n`);
+  }
+}
+
 // runIssueCycle (sequential) calls legs synchronously; runIssueCycleAsync (parallel) awaits them — dry legs must match or the sequential path breaks.
 function dryImplementer(temp: string) {
   return (issue: LegIssue) => {
     establishSentinelCommands(temp);
+    produceDeclaredProofs(temp, issue);
     return writeFakeTranscript(temp, issue, "claude-implementer");
   };
 }
@@ -125,6 +152,8 @@ function dryImplementerParallel(temp: string) {
     await delay(15);
     if (cfg?.execRoot) writeWorktreeMarker(cfg.execRoot, issue, "implementer");
     establishSentinelCommands(cfg?.execRoot ?? temp);
+    // Proofs go to the MAIN root, never the worktree: the evidence home must survive the worktree's removal.
+    produceDeclaredProofs(temp, issue);
     return writeFakeTranscript(temp, issue, "claude-implementer");
   };
 }
@@ -294,6 +323,33 @@ async function main(): Promise<void> {
   const passingGates = gateRecords.filter((f) => readJson<{ status?: string }>(join(gatesDir, f)).status === "pass").length;
   record("gate-run evidence records (pass)", passingGates === totalIssues, `${passingGates}/${totalIssues} passing`);
 
+  const declaredProofs: Array<{ issue: string; proof: ProofStatus }> = readProofsByIssue(temp).flatMap((entry) =>
+    entry.proofs.map((proof) => ({ issue: entry.issue_id, proof })),
+  );
+  const unproduced = declaredProofs.filter(({ proof }) => !proof.produced);
+  record(
+    "proofs: every declared proof is an observation on disk with its replayable recipe",
+    declaredProofs.length > 0 && unproduced.length === 0,
+    `${declaredProofs.length - unproduced.length}/${declaredProofs.length} produced${unproduced.length ? ` (missing: ${unproduced.map((p) => `${p.issue}:${p.proof.id}`).join(", ")})` : ""}`,
+  );
+  const artifactProofs = declaredProofs.filter(({ proof }) => proof.class !== "gate_evidence");
+  const proofsRoot = join(temp, ...PROOFS_DIR.split("/"));
+  const proofDirs = existsSync(proofsRoot) ? readdirSync(proofsRoot).filter((f) => !f.startsWith(".")) : [];
+  record(
+    "proofs: proportional by class — only the artifact-bearing classes get a directory, a pure-logic obligation rides its own green gate record",
+    proofDirs.length === new Set(artifactProofs.map((p) => p.issue)).size,
+    `${artifactProofs.length} artifact proof(s) in ${proofDirs.length} issue dir(s); ${declaredProofs.length - artifactProofs.length} gate-witnessed, zero ritual artifacts`,
+  );
+  // No vacuous PASS: a fixture whose every obligation is gate-witnessed cannot exercise the withhold-then-produce path, so the stage is not recorded at all rather than reported green.
+  if (artifactProofs.length > 0) {
+    const refused = [...implementerAttempts.entries()].filter(([, attempts]) => attempts > 1).map(([id]) => id);
+    record(
+      "proofs: the close is REFUSED while a declared proof is missing, then granted once the real run produced it (bounded remediation, never a silent pass)",
+      refused.length > 0 && artifactProofs.every(({ issue }) => refused.includes(issue)),
+      `withheld once then produced: ${refused.join(", ") || "(none — the refusal path never fired)"}`,
+    );
+  }
+
   const staticMapBytesPostLoop = readFileSync(join(temp, mapPathRel));
   const mapByteUnchanged = staticMapBytesPreLoop.equals(staticMapBytesPostLoop);
   record(
@@ -334,6 +390,23 @@ async function main(): Promise<void> {
     transcriptsOnDisk && transcriptsCommitted.length === 0,
     `${transcriptsCommitted.length} transcript(s) committed (must be 0); on disk: ${transcriptsOnDisk}`,
   );
+  // Read both halves back out of git HEAD, never the working tree: the claim is that what makes a proof replayable survives in history.
+  const trackedUnderProofs = [...tracked].filter((p) => p.startsWith(`${PROOFS_DIR}/`));
+  const committedArtifacts = trackedUnderProofs.filter((p) => !p.endsWith(`/${PROOF_RECIPE_FILE}`));
+  const recipesInHead = artifactProofs.filter(
+    ({ issue, proof }) => (gitShow(temp, `${proofHomeRel(issue, proof.id)}/${PROOF_RECIPE_FILE}`) ?? "").trim().length > 0,
+  ).length;
+  const declaredFromHead = new Map<string, number>();
+  for (const { issue } of declaredProofs) {
+    if (declaredFromHead.has(issue)) continue;
+    declaredFromHead.set(issue, parseDeclaredProofs(gitShow(temp, `${ISSUES_DIR}/done/${issue}.md`)).proofs.length);
+  }
+  const declaredInHead = [...declaredFromHead.values()].reduce((total, count) => total + count, 0);
+  record(
+    "closure: every DECLARATION and every proof RECIPE is readable from git HEAD (replayable by anyone) while the artifacts themselves stay out of history",
+    committedArtifacts.length === 0 && declaredInHead === declaredProofs.length && recipesInHead === artifactProofs.length,
+    `${committedArtifacts.length} artifact(s) committed (must be 0); ${declaredInHead}/${declaredProofs.length} declaration(s) and ${recipesInHead}/${artifactProofs.length} recipe(s) readable from git HEAD`,
+  );
   const porcelain = (git(["status", "--porcelain"], temp).stdout || "").trim();
   record("closure: clean tree (only gitignored untracked)", porcelain === "", porcelain ? `dirty:\n${porcelain}` : "clean");
 
@@ -373,6 +446,11 @@ function readMapFromHead(temp: string): RehearsalMap | null {
   } catch {
     return null;
   }
+}
+
+function gitShow(temp: string, relPath: string): string | null {
+  const r = spawnSync("git", ["show", `HEAD:${relPath}`], { cwd: temp, encoding: "utf8" });
+  return r.status === 0 ? r.stdout : null;
 }
 
 function readJsonFromHead(temp: string, relPath: string): unknown {

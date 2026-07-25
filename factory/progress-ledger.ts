@@ -26,6 +26,7 @@ export const progressEventTypes = [
   "gate_started",
   "gate_passed",
   "gate_failed",
+  "proofs_missing",
   "issue_blocked",
   "issue_completed",
   "issue_reopened",
@@ -54,6 +55,7 @@ export type ActiveItemState = "working" | "verifying" | "reviewing" | "blocked";
 const activeStateByEvent: Partial<Record<ProgressEventType, ActiveItemState>> = {
   gate_failed: "verifying",
   gate_started: "verifying",
+  proofs_missing: "verifying",
   graph_item_focus: "working",
   heartbeat: "working",
   issue_blocked: "blocked",

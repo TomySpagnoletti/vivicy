@@ -11,6 +11,7 @@ import {
   buildEdgeCounts,
   buildGraphStatesByRef,
   buildIssuesByGraphRef,
+  buildProofsByIssue,
   edgeGraphRef,
 } from "@/lib/map-data"
 import { transcriptName } from "@/lib/transcript"
@@ -84,6 +85,7 @@ function NodeDetails({
       <RefBadges label={t("sourceRefsLabel")} refs={node.source_refs} />
       <RefBadges label={t("evidenceRefsLabel")} refs={node.evidence_refs} />
       <CoveredBy issues={issues.map((i) => i.id)} />
+      <Proofs issues={issues.map((i) => i.id)} data={data} />
       <TranscriptRefs refs={transcripts} />
     </div>
   )
@@ -122,7 +124,56 @@ function EdgeDetails({
 
       <RefBadges label={t("sourceRefsLabel")} refs={edge.source_refs} />
       <CoveredBy issues={issues.map((i) => i.id)} />
+      <Proofs issues={issues.map((i) => i.id)} data={data} />
       <TranscriptRefs refs={transcripts} />
+    </div>
+  )
+}
+
+function Proofs({ issues, data }: { issues: string[]; data: ArchitectureMapData }) {
+  const t = useTranslations("sidebar.details")
+  const byIssue = buildProofsByIssue(data.development?.proofs)
+  const rows = issues.flatMap((issueId) =>
+    (byIssue.get(issueId) ?? []).map((proof) => ({ issueId, proof }))
+  )
+  if (rows.length === 0) return null
+  return (
+    <div className="flex flex-col gap-1.5">
+      <p className="text-xs font-medium text-muted-foreground">{t("proofsLabel")}</p>
+      <ul className="flex flex-col gap-2">
+        {rows.map(({ issueId, proof }) => (
+          <li key={`${issueId}:${proof.id}`} className="flex flex-col gap-1.5">
+            <div className="flex items-baseline justify-between gap-2">
+              <span className="min-w-0 font-mono break-all text-foreground">{proof.id}</span>
+              <Badge variant={proof.produced ? "secondary" : "outline"} className="shrink-0">
+                {proof.class.replace(/_/g, " ")}
+              </Badge>
+            </div>
+            <p className="text-muted-foreground">
+              {proof.produced
+                ? t("proofProduced", { issue: issueId })
+                : t("proofPending", { issue: issueId })}
+            </p>
+            <ProofPaths label={t("proofEvidencesLabel")} paths={proof.evidences} />
+            <ProofPaths label={t("proofHomeLabel")} paths={[proof.path]} />
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
+}
+
+// Plain mono lines, never Badge chips: a Badge is a fixed-height single-line pill, so a long proof path would be clipped instead of wrapped.
+function ProofPaths({ label, paths }: { label: string; paths: string[] }) {
+  if (paths.length === 0) return null
+  return (
+    <div className="flex flex-col gap-0.5">
+      <p className="leading-snug text-muted-foreground">{label}</p>
+      {paths.map((path) => (
+        <p key={path} className="font-mono text-[11px] leading-snug break-all text-foreground/80">
+          {path}
+        </p>
+      ))}
     </div>
   )
 }

@@ -22,6 +22,7 @@ import {
   type MarkerPair,
 } from "@/lib/managed-block"
 import { setCurrentProject } from "@/lib/project"
+import { PROOF_RECIPE_FILE, PROOFS_DIR } from "@/lib/proofs"
 import type { CurrentProject } from "@/lib/project-types"
 import { SKELETON_DIRS } from "@/lib/skeleton"
 
@@ -133,7 +134,11 @@ const VIVICY_ESSENTIAL_IGNORES = `# Factory runtime: lock, logs, settings, curre
 # Transient integration mutex, created and removed during a merge.
 .vivicy/development/gates/.integration.lock
 # Agent session logs; the progress ledger links them, they never enter git history.
-.vivicy/development/transcripts/`
+.vivicy/development/transcripts/
+# Per-issue proof ARTIFACTS (captures, request transcripts, run logs) — binary weight for one moment. Their recipe.txt is deliberately re-included: an artifact is replayable by anyone only if the command that produced it lives in history. A directory pattern cannot be re-included from, hence the three-line form.
+${PROOFS_DIR}/**
+!${PROOFS_DIR}/**/
+!${PROOFS_DIR}/**/${PROOF_RECIPE_FILE}`
 
 function gitignore(): string {
   return `${GITIGNORE_MARKERS.begin}

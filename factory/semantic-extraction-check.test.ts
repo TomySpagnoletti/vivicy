@@ -33,6 +33,7 @@ interface TestIssue {
   traceabilityRequirementIds?: string[];
   traceabilityRequirements?: string[];
   indexEntryOverrides?: Record<string, unknown>;
+  proofs?: string[];
 }
 
 interface ClassifiedRangeLike {
@@ -198,7 +199,7 @@ Everything else.
 ## Verification
 
 Run the declared gate green.
-`;
+${issue.proofs === undefined ? "" : `\n## Proofs\n\n\`\`\`text\n${issue.proofs.join("\n")}\n\`\`\`\n`}`;
 }
 
 function makeIssue(overrides: Partial<TestIssue> = {}): TestIssue {
@@ -378,6 +379,60 @@ test("valid refs with full coverage pass and write the three reports", () => {
     );
   } finally {
     fixture.cleanup();
+  }
+});
+
+test("a well-formed Proofs block passes and never feeds line coverage (a proof points at an obligation, it never carries one)", () => {
+  const proofs = ["- id: sample-run", "  class: run_log", "  evidences:", `  - ${SAMPLE_DOC_PATH}:5`];
+  const withProofs = makeFixture({ issues: [makeIssue({ proofs })] });
+  try {
+    const result = withProofs.run();
+    assert.deepEqual(result.errors, []);
+    assert.equal(result.exitCode, 0);
+    const bare = makeFixture({ issues: [makeIssue()] });
+    try {
+      assert.deepEqual(
+        result.coverage!.totals,
+        bare.run().coverage!.totals,
+        "declaring proofs changes no coverage number",
+      );
+    } finally {
+      bare.cleanup();
+    }
+  } finally {
+    withProofs.cleanup();
+  }
+});
+
+test("an issue with no Proofs section still passes (declaration is the extractor's judgment, not a mechanical requirement)", () => {
+  const fixture = makeFixture({ issues: [makeIssue()] });
+  try {
+    const result = fixture.run();
+    assert.deepEqual(result.errors, []);
+    assert.equal(result.exitCode, 0);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("a malformed Proofs block fails at extraction, where the extractor can still fix it", () => {
+  const cases: Array<[string[], RegExp]> = [
+    [["- id: shot", "  class: vibes", "  evidences:", `  - ${SAMPLE_DOC_PATH}:5`], /unknown class "vibes"/],
+    [["- id: shot", "  class: run_log"], /cites no canonical line/],
+    [["- id: ../escape", "  class: run_log", "  evidences:", `  - ${SAMPLE_DOC_PATH}:5`], /is not a safe slug/],
+    [["- id: shot", "  class: run_log", "  evidences:", "  - .vivicy/canonical/absent.md:5"], /proof "shot" evidence ref .* outside the pinned manifest corpus/],
+    [["- id: shot", "  class: run_log", "  evidences:", `  - ${SAMPLE_DOC_PATH}:99`], /proof "shot" evidence ref .* out of range/],
+  ];
+  for (const [proofs, expected] of cases) {
+    const fixture = makeFixture({ issues: [makeIssue({ proofs })] });
+    try {
+      const result = fixture.run();
+      assert.equal(result.exitCode, 1, `expected a failure for ${JSON.stringify(proofs)}`);
+      assert.ok(result.errors.some((error) => expected.test(error)), result.errors.join("\n"));
+      assert.equal(result.reportsWritten, false, "structural failures write no reports");
+    } finally {
+      fixture.cleanup();
+    }
   }
 });
 

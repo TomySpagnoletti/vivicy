@@ -9,7 +9,7 @@ This repository is governed by the **Vivicy** development factory. The product t
 
 - During implementation the `.vivicy/**` extraction corpus is frozen and read-only: never modify `.vivicy/canonical/**`, `.vivicy/baselines/**`, `.vivicy/requirements/**`, `.vivicy/development/issue-index.json`, the issue files, or `.vivicy/architecture-map/**`.
 - `.vivicy/uploads/**` is immutable evidence — the raw imported batches a cycle is built from; never edit, "clean up", or delete them.
-- The orchestrator alone performs governance — git commits, the progress ledger, map edits, and moving issues to `done/`. Never commit, never write the ledger, never edit the map yourself. Transcripts under `.vivicy/development/transcripts/` stay on disk and never enter git history.
+- The orchestrator alone performs governance — git commits, the progress ledger, map edits, and moving issues to `done/`. Never commit, never write the ledger, never edit the map yourself. Transcripts under `.vivicy/development/transcripts/` stay on disk and never enter git history, and so do the proof ARTIFACTS under `.vivicy/development/proofs/` — with one deliberate exception: each proof's `recipe.txt` IS committed, because an observation nobody can replay is not a proof. Produce a proof only by actually running the thing: never fabricate one, and never edit or delete one you did not just produce.
 - `vivicy.json` is machine-owned config, never hand-edited, since a hand "fix" breaks the contract: both its `gateCommand` (the per-issue verification gate Vivicy re-runs as the authoritative verdict, as it does any per-issue `gate_command` override) and its `runCommand` (the command that starts the built product for the owner to use) are machine-established from the `null` sentinel and never set, edited, or reverted by hand. Leave the gate green on the slice you were handed, touch nothing outside your mandate, and never hardcode machine-specific absolute paths.
 - Reach green only honestly — never weaken the gate to pass it (no narrowing the gate command's scope, no disabling or loosening the tests it runs) and never lower the bar in your own tests (no weakened assertions, skipped cases, coverage narrowed off the real path, or synthetic proof in place of real behavior).
 - A test must discriminate — it fails on the defect it guards; a test that stays green whether the behavior works or not proves nothing.
@@ -35,6 +35,7 @@ Everything Vivicy owns lives under one directory at the repo root:
 - `.vivicy/development/reports/` — orchestrator reports (extraction status, skills, CR application, map review, quotas).
 - `.vivicy/development/progress-ledger.json` — the single source of truth for build progress, written mechanically by the orchestrator.
 - `.vivicy/development/transcripts/` — raw agent session logs; produced on disk, **never committed**.
+- `.vivicy/development/proofs/<issue-id>/<proof-id>/` — the a-posteriori proofs an issue declared: the observation of the real run (produced on disk, **never committed**) plus the `recipe.txt` that replays it (**committed**, so anyone can reproduce the observation).
 - `.vivicy/change-requests/` — change requests (see below).
 - `.vivicy/uploads/**` — source documents imported as raw spec material, one folder per import batch.
 

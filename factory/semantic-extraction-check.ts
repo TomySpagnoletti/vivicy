@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { z } from "zod";
 import { resolveTargetRoot } from "./target-root.ts";
 import { atomicWriteJson } from "./atomic-write.ts";
+import { parseDeclaredProofs } from "../lib/proofs.ts";
 
 const defaultPaths = {
   coverageReportJsonPath: ".vivicy/requirements/coverage-report.json",
@@ -321,34 +322,45 @@ export function runSemanticExtractionCheck(options: SemanticCheckOptions = {}): 
       errors.push(`${label}: issue file is missing`);
       continue;
     }
-    const block = parseTraceabilityBlock(markdown, label, errors);
-    if (!block) continue;
-    crossCheckTraceability(entry, block, label, errors);
-    for (const ref of block.source_line_refs ?? []) {
+    const resolveCorpusRef = (ref: string, kind: string): { file: string; start: number; end: number } | null => {
       const match = ref.match(requirementRefPattern);
       if (!match) {
-        errors.push(`${label}: source line ref "${ref}" does not match the source ref grammar ${requirementRefPattern}`);
-        continue;
+        errors.push(`${label}: ${kind} "${ref}" does not match the source ref grammar ${requirementRefPattern}`);
+        return null;
       }
       const [, file, startText, endText] = match;
       const start = Number(startText);
       const end = endText === undefined ? start : Number(endText);
       if (!corpusPaths.has(file)) {
-        errors.push(`${label}: requirement ref "${ref}" points to a file outside the pinned manifest corpus`);
-        continue;
+        errors.push(`${label}: ${kind} "${ref}" points to a file outside the pinned manifest corpus`);
+        return null;
       }
       if (start < 1 || start > end) {
-        errors.push(`${label}: requirement ref "${ref}" has an empty or inverted range`);
-        continue;
+        errors.push(`${label}: ${kind} "${ref}" has an empty or inverted range`);
+        return null;
       }
       const lineCount = loadDocLines(file).length;
       if (end > lineCount) {
-        errors.push(`${label}: requirement ref "${ref}" is out of range (${file} has ${lineCount} line(s))`);
-        continue;
+        errors.push(`${label}: ${kind} "${ref}" is out of range (${file} has ${lineCount} line(s))`);
+        return null;
       }
-      const lines = coveredByFile.get(file) ?? new Set<number>();
-      for (let line = start; line <= end; line += 1) lines.add(line);
-      coveredByFile.set(file, lines);
+      return { file, start, end };
+    };
+    const block = parseTraceabilityBlock(markdown, label, errors);
+    if (!block) continue;
+    crossCheckTraceability(entry, block, label, errors);
+    for (const ref of block.source_line_refs ?? []) {
+      const resolved = resolveCorpusRef(ref, "requirement ref");
+      if (!resolved) continue;
+      const lines = coveredByFile.get(resolved.file) ?? new Set<number>();
+      for (let line = resolved.start; line <= resolved.end; line += 1) lines.add(line);
+      coveredByFile.set(resolved.file, lines);
+    }
+    // Declared proofs are shape-checked here so a malformed block fails at extraction, where the extractor can fix it, instead of silently declaring nothing at the issue's close. Their refs never feed line coverage: a proof points AT an obligation, it does not carry one.
+    const declaredProofs = parseDeclaredProofs(markdown);
+    for (const problem of declaredProofs.problems) errors.push(`${label}: ${problem}`);
+    for (const proof of declaredProofs.proofs) {
+      for (const ref of proof.evidences) resolveCorpusRef(ref, `proof "${proof.id}" evidence ref`);
     }
     for (const dependency of entry.depends_on) {
       if (!issueIds.has(dependency)) {
