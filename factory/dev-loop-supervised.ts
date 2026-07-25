@@ -5,6 +5,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { findFrozenManifest } from "./extract-issues.ts";
 import { SKILLS_REPORT_REL } from "./install-skills.ts";
+import { notify } from "./notify.ts";
 import { resolveTargetRoot } from "./target-root.ts";
 import { ACCEPTANCE_REPORT_FILE } from "../lib/acceptance-report.ts";
 import { RETRO_REPORT_FILE } from "../lib/retro-report.ts";
@@ -48,6 +49,54 @@ export function skillsStageNeeded(
   if (!report) return true;
   const settled = report.phase === "green" || report.phase === "skipped";
   return !settled || report.baseline_id !== baseline.baselineId;
+}
+
+type SupervisorNotifyLevel = "info" | "success" | "warning" | "error";
+interface SupervisorNotification {
+  level: SupervisorNotifyLevel;
+  stage: string;
+  event: string;
+  message: string;
+}
+
+// The acceptance-not-green exit maps to null on purpose: acceptance.ts already emits its own SA notification for that moment, so mapping it here would double it.
+export function supervisorTerminalNotification(
+  action: SupervisorAction,
+  { done, total, blocked }: { done: number; total: number; blocked: number },
+): SupervisorNotification | null {
+  const progress = `${done}/${total} delivered`;
+  switch (action) {
+    case "done":
+      return {
+        level: "success",
+        stage: "S12",
+        event: "run_finished",
+        message: `build complete — all ${total} issue(s) delivered and whole-product acceptance passed; your project is ready`,
+      };
+    case "blocked":
+      return {
+        level: "error",
+        stage: "S12",
+        event: "run_blocked",
+        message: `build halted — ${blocked} issue(s) blocked (${progress}); open the blocked report or ask Vivi to get it moving`,
+      };
+    case "stalled":
+      return {
+        level: "error",
+        stage: "S12",
+        event: "run_stalled",
+        message: `build halted — no progress across repeated relaunches (${progress}); ask Vivi to diagnose the stall`,
+      };
+    case "max_relaunches":
+      return {
+        level: "error",
+        stage: "S12",
+        event: "run_max_relaunches",
+        message: `build halted — reached the relaunch ceiling (${progress}); ask Vivi to diagnose`,
+      };
+    default:
+      return null;
+  }
 }
 
 // Any outcome other than a written "green" report (explicit "findings"/"failed", a crashed child, a missing report) withholds Done loudly — never a silent success.
@@ -152,6 +201,8 @@ function main() {
         runRetroStage(scriptDir, repoRoot);
       }
       writeState({ status: action, attempt, done, total, blocked });
+      const terminal = supervisorTerminalNotification(action, { done, total, blocked });
+      if (terminal) notify(terminal);
       const ok = action === "done";
       process.stdout.write(`supervisor: ${action} (done ${done}/${total}, blocked ${blocked}, attempts ${attempt})\n`);
       process.exit(ok ? 0 : 1);

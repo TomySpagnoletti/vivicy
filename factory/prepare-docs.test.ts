@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { completeBatches, docPrepStageNeeded, prepareDocs, routeByLocation, unconsumedActiveCycleBatches } from "./prepare-docs.ts";
+import { completeBatches, docPrepNotification, docPrepStageNeeded, prepareDocs, routeByLocation, unconsumedActiveCycleBatches } from "./prepare-docs.ts";
 import type { DocPrepReport, PrepareDocsOptions } from "./prepare-docs.ts";
 
 function repo(): string {
@@ -370,6 +370,37 @@ test("path-(a) light check rejects an empty canonical doc and non-JSON requireme
     assert.ok(reasons.includes("requirements/bad.json:invalid_canonical"));
     assert.ok(report.placed.some((p) => p.target === "canonical/ok.md"));
   } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("docPrepNotification: a green stage that kept documents out escalates to a warning carrying the summary", () => {
+  const green = { phase: "green", rejected: [], summary: "doc-prep green: 2 placed, 0 rejected" } as unknown as DocPrepReport;
+  assert.equal(docPrepNotification(green)?.level, "success");
+  const withRejects = { phase: "green", rejected: [{ batch: "b", source: "canonical/x.md", reason: "invalid_canonical" }], summary: "doc-prep green: 1 placed, 1 rejected" } as unknown as DocPrepReport;
+  const note = docPrepNotification(withRejects);
+  assert.equal(note?.level, "warning");
+  assert.equal(note?.event, "doc_prep_green");
+  assert.equal(note?.message, "doc-prep green: 1 placed, 1 rejected");
+  assert.equal(docPrepNotification({ phase: "failed", rejected: [], summary: "boom" } as unknown as DocPrepReport)?.level, "error");
+  assert.equal(docPrepNotification({ phase: "wat" } as unknown as DocPrepReport), null);
+});
+
+test("a green doc-prep that rejected a document emits a WARNING notification naming the drop", async () => {
+  const root = repo();
+  const prev = process.env.VIVICY_RUNTIME_DIR;
+  process.env.VIVICY_RUNTIME_DIR = root;
+  try {
+    writeBatch(root, "2026-07-07", { "canonical/empty.md": "   ", "canonical/ok.md": ENGLISH }, "eng");
+    const report = await prepareDocs({ repoRoot: root, spawnLeg: NEVER_SPAWN });
+    assert.equal(report.phase, "green");
+    const lines = readFileSync(join(root, "notifications.jsonl"), "utf8").trim().split("\n").map((l) => JSON.parse(l));
+    const green = lines.find((n) => n.event === "doc_prep_green");
+    assert.equal(green.level, "warning", "a green stage with a dropped document is an actionable heads-up, not a silent success");
+    assert.match(green.message, /rejected/);
+  } finally {
+    if (prev === undefined) delete process.env.VIVICY_RUNTIME_DIR;
+    else process.env.VIVICY_RUNTIME_DIR = prev;
     rmSync(root, { recursive: true, force: true });
   }
 });

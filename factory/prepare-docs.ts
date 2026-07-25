@@ -508,13 +508,22 @@ const NOTIFY_BY_PHASE: Record<string, { level: "info" | "success" | "warning" | 
   skipped: { level: "info", stage: "SP", message: "document-preparation had nothing to prepare" },
 };
 
+// A green stage that still kept documents out of the canonical (a suspected secret, an unreadable/empty file) is an actionable heads-up, not a silent success — the owner may need to fix a source and re-import; the rich report summary already names what was dropped.
+export function docPrepNotification(report: DocPrepReport): { level: "info" | "success" | "warning" | "error"; stage: string; event: string; message: string } | null {
+  const mapped = NOTIFY_BY_PHASE[report.phase];
+  if (!mapped) return null;
+  const rejected = report.rejected?.length ?? 0;
+  const level = report.phase === "green" && rejected > 0 ? "warning" : mapped.level;
+  return { level, stage: mapped.stage, event: `doc_prep_${report.phase}`, message: report.summary || mapped.message };
+}
+
 function defaultEmitReport(report: DocPrepReport, repoRoot: string): void {
   const abs = resolve(repoRoot, DOC_PREP_REPORT_REL);
   mkdirSync(dirname(abs), { recursive: true });
   atomicWriteJson(abs, report);
   pruneGitkeeps(repoRoot);
-  const mapped = NOTIFY_BY_PHASE[report.phase];
-  if (mapped) notify({ ...mapped, event: `doc_prep_${report.phase}` });
+  const mapped = docPrepNotification(report);
+  if (mapped) notify(mapped);
 }
 
 function readJsonOrNull(abs: string): unknown {

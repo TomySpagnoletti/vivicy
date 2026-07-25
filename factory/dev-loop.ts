@@ -1712,7 +1712,33 @@ function writeQuotaState(cfg: Config, actor: string, agentState: AgentQuotaState
   return state;
 }
 
+// Transition-only so a multi-hour rate-limit wait, which loops through markAgentThrottled on every backoff tick, notifies the absent owner exactly once when it starts and once when it clears — never per tick.
+export function quotaTransitionNotification(
+  prior: string | undefined,
+  next: "throttled" | "available",
+  actor: string,
+): { level: NotifyLevel; stage: string; event: string; message: string } | null {
+  if (next === "throttled" && prior !== "throttled") {
+    return {
+      level: "warning",
+      stage: "S9",
+      event: "quota_paused",
+      message: `build paused — ${actor} hit its usage limit; the build waits and resumes automatically when the limit resets`,
+    };
+  }
+  if (next === "available" && prior === "throttled") {
+    return {
+      level: "success",
+      stage: "S9",
+      event: "quota_resumed",
+      message: `build resumed — ${actor}'s usage limit reset`,
+    };
+  }
+  return null;
+}
+
 function markAgentAvailable(cfg: Config, leg: Leg, windows: QuotaWindows): void {
+  const prior = readQuotaState(cfg).agents[leg.actor]?.status;
   writeQuotaState(cfg, leg.actor, {
     model: leg.model ?? null,
     status: "available",
@@ -1720,6 +1746,8 @@ function markAgentAvailable(cfg: Config, leg: Leg, windows: QuotaWindows): void 
     last_message: null,
     ...(windows && Object.keys(windows).length > 0 ? { windows } : {}),
   });
+  const transition = quotaTransitionNotification(prior, "available", leg.actor);
+  if (transition) notify(transition);
 }
 
 function markAgentThrottled(
@@ -1727,6 +1755,7 @@ function markAgentThrottled(
   leg: Leg,
   { message, resetAtMs, windows }: { message: string | null; resetAtMs: number | null; windows: QuotaWindows },
 ): void {
+  const prior = readQuotaState(cfg).agents[leg.actor]?.status;
   writeQuotaState(cfg, leg.actor, {
     model: leg.model ?? null,
     status: "throttled",
@@ -1734,6 +1763,8 @@ function markAgentThrottled(
     last_message: message ?? null,
     ...(windows && Object.keys(windows).length > 0 ? { windows } : {}),
   });
+  const transition = quotaTransitionNotification(prior, "throttled", leg.actor);
+  if (transition) notify(transition);
 }
 
 export function runLegWithQuota(

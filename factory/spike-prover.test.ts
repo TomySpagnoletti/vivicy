@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
 
-import { flipSpikeStatus, runSpikeProving } from "./spike-prover.ts";
+import { flipSpikeStatus, runSpikeProving, spikeProvingCrNotification } from "./spike-prover.ts";
 import { readSpikes, runSpikeCheck } from "./spike-check.ts";
 import { runChangeControlCheck } from "./change-control.ts";
 import { progressEventTypes, progressRoles } from "./progress-ledger.ts";
@@ -184,7 +184,40 @@ describe("runSpikeProving — agree + verified", () => {
   });
 });
 
+describe("spikeProvingCrNotification", () => {
+  it("stays silent when no CR was drafted and warns naming the ids when one was", () => {
+    assert.equal(spikeProvingCrNotification([]), null);
+    const note = spikeProvingCrNotification([{ file: "a.md", id: "CR-0001" }, { file: "b.md", id: "CR-0002" }]);
+    assert.equal(note?.level, "warning");
+    assert.equal(note?.stage, "S3");
+    assert.equal(note?.event, "spike_change_request_drafted");
+    assert.match(note!.message, /CR-0001, CR-0002/);
+  });
+});
+
 describe("runSpikeProving — agree + failed drafts a Change Request", () => {
+  it("emits a warning notification for the drafted CR so it does not sit silent during a walk-away extraction", async () => {
+    const s = writeSpike("01-provider-auth.md");
+    const { spawnProver } = fakeProver({ [s.gate_id]: "failed" });
+    const { spawnSpikeVerifier } = fakeSpikeVerifier({ [s.gate_id]: true });
+    const dir = mkdtempSync(join(tmpdir(), "vivicy-spike-notif-"));
+    const prev = process.env.VIVICY_RUNTIME_DIR;
+    process.env.VIVICY_RUNTIME_DIR = dir;
+    try {
+      const result = await runSpikeProving({ repoRoot: temp, spawnProver, spawnSpikeVerifier });
+      assert.equal(result.changeRequests.length, 1);
+      const lines = readFileSync(join(dir, "notifications.jsonl"), "utf8").trim().split("\n").map((l) => JSON.parse(l));
+      const drafted = lines.filter((n) => n.event === "spike_change_request_drafted");
+      assert.equal(drafted.length, 1, "one notification for the drafting run, never per-CR spam");
+      assert.equal(drafted[0].level, "warning");
+      assert.match(drafted[0].message, new RegExp(result.changeRequests[0].id));
+    } finally {
+      if (prev === undefined) delete process.env.VIVICY_RUNTIME_DIR;
+      else process.env.VIVICY_RUNTIME_DIR = prev;
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("flips the spike to failed and writes a CR whose frontmatter passes change-control", async () => {
     const s = writeSpike("01-provider-auth.md");
     const { spawnProver } = fakeProver({ [s.gate_id]: "failed" });

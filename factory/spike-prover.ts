@@ -6,6 +6,7 @@ import { runClaudeLeg, runCodexLeg } from "./agent-spawn.ts";
 import type { AgentIssue, AgentLeg, LegConfig, LegDeps, LegRunResult } from "./agent-spawn.ts";
 import { agentCliArgs, CLI_DEFAULTS, composePrompt } from "./dev-loop.ts";
 import { createChangeRequest } from "./change-control.ts";
+import { notify } from "./notify.ts";
 import { readSpikes } from "./spike-check.ts";
 import type { Spike, SpikeStatus } from "./spike-check.ts";
 import { FACTORY_PROMPTS_DIR } from "./target-root.ts";
@@ -135,7 +136,23 @@ export async function runSpikeProving(args: RunSpikeProvingArgs = {}): Promise<R
     if (outcome.changeRequest) changeRequests.push(outcome.changeRequest);
   }
 
+  const crNotification = spikeProvingCrNotification(changeRequests);
+  if (crNotification) notify(crNotification);
   return { proved, failed, skipped, changeRequests };
+}
+
+// Spike proving runs inside the autonomous extraction, so a CR it drafts would otherwise sit silent in the list until the owner happens to look; one notification per run, never per CR.
+export function spikeProvingCrNotification(
+  changeRequests: ChangeRequestRef[],
+): { level: "warning"; stage: string; event: string; message: string } | null {
+  if (changeRequests.length === 0) return null;
+  const ids = changeRequests.map((cr) => cr.id).join(", ");
+  return {
+    level: "warning",
+    stage: "S3",
+    event: "spike_change_request_drafted",
+    message: `spike proving drafted ${changeRequests.length} change request(s) (${ids}) — a hypothesis did not hold; decide before the build proceeds`,
+  };
 }
 
 async function proveOneSpike(ctx: {

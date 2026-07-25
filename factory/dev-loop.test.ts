@@ -42,6 +42,7 @@ import {
   parseQuotaWindows,
   parseResetMs,
   pickNextIssue,
+  quotaTransitionNotification,
   resolveAgentLegs,
   runLegWithQuota,
   runLoop,
@@ -934,6 +935,43 @@ test("runLegWithQuota waits the parsed duration, retries the same leg, then proc
   assert.equal(out.quotaBlocked, false);
   assert.equal(out.transcriptRel, "tx.jsonl");
   assert.deepEqual(waits, [120_000 + 5000], "waited the parsed reset (+pad), nothing more");
+});
+
+test("quotaTransitionNotification fires once per pause and once per resume, never per backoff tick", () => {
+  assert.equal(quotaTransitionNotification("available", "throttled", "claude")?.event, "quota_paused");
+  assert.equal(quotaTransitionNotification(undefined, "throttled", "claude")?.event, "quota_paused");
+  assert.equal(quotaTransitionNotification("available", "throttled", "claude")?.level, "warning");
+  assert.equal(quotaTransitionNotification("throttled", "throttled", "claude"), null);
+  assert.equal(quotaTransitionNotification("throttled", "available", "codex")?.event, "quota_resumed");
+  assert.equal(quotaTransitionNotification("throttled", "available", "codex")?.level, "success");
+  assert.equal(quotaTransitionNotification("available", "available", "codex"), null);
+  assert.equal(quotaTransitionNotification(undefined, "available", "codex"), null);
+});
+
+test("runLegWithQuota notifies one pause + one resume across a multi-tick wait, never spamming per tick", () => {
+  const dir = mkdtempSync(resolve(repoRoot, "_tmp-quota-notif-"));
+  const prev = process.env.VIVICY_RUNTIME_DIR;
+  process.env.VIVICY_RUNTIME_DIR = dir;
+  try {
+    const { cfg } = fakeClockCfg({ quotaStatePath: resolve(dir, "quota-state.json"), quotaMaxWaitMs: 8 * 3600_000 });
+    let call = 0;
+    const runLeg = () => {
+      call += 1;
+      return call <= 3
+        ? { output: "Error: 429 rate_limit_error, try again in 120s", result: { status: 1 } }
+        : { output: "all good", result: { status: 0 }, transcriptRel: "tx.jsonl" };
+    };
+    const leg = { actor: "claude", role: "implementer", model: "opus" };
+    const out = runLegWithQuota(runLeg, leg, { id: "X" }, cfg);
+    assert.equal(out.quotaBlocked, false);
+    assert.equal(call, 4, "three rate-limited attempts then a clean one");
+    const events = readFileSync(resolve(dir, "notifications.jsonl"), "utf8").trim().split("\n").map((l) => JSON.parse(l).event);
+    assert.deepEqual(events, ["quota_paused", "quota_resumed"], "exactly one pause and one resume, no per-tick spam");
+  } finally {
+    if (prev === undefined) delete process.env.VIVICY_RUNTIME_DIR;
+    else process.env.VIVICY_RUNTIME_DIR = prev;
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test("runLegWithQuota never waits or throws on a clean (non-rate-limited) leg", () => {
