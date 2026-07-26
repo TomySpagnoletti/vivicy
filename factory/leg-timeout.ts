@@ -1,9 +1,9 @@
-// Single source of truth for leg timeout policy: dev-loop.ts and extract-issues.ts both route legs through agent-spawn.ts into these helpers.
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
+import { cleanupTree } from "./cleanup-tree.ts";
 
 const SUPERVISOR_PATH = resolve(dirname(fileURLToPath(import.meta.url)), "leg-supervisor.ts");
 
@@ -122,7 +122,7 @@ export function spawnLegSync(command: string, args: string[], options: SpawnLegO
     const outcome = readOutcome(resultPath);
     return toLegResult({ outcome, stdout, stderr, supervisorFailed: result.error != null && outcome == null });
   } finally {
-    rmSync(dir, { recursive: true, force: true });
+    cleanupTree(dir);
   }
 }
 
@@ -132,8 +132,9 @@ export function spawnLegAsync(command: string, args: string[], options: SpawnLeg
   return new Promise<LegResult>((resolveLeg) => {
     let stdout = "";
     let stderr = "";
+    // done() runs from the supervisor's close/error handlers, OUTSIDE this executor, so a raised removal is not caught into a rejection: with no uncaughtException handler in this process it kills the whole orchestrator over a leg that already finished.
     const done = (extra: LegResult) => {
-      rmSync(dir, { recursive: true, force: true });
+      cleanupTree(dir);
       resolveLeg(extra);
     };
     let sup: ChildProcess;

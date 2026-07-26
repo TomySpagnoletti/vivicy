@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -332,6 +332,62 @@ test("happy path: a clean dominant-language canonical doc is placed untouched; a
     assert.ok(existsSync(join(root, ".vivicy/canonical/produit.md")));
     assert.equal(existsSync(join(root, ".vivicy/development/reports/doc-prep-scratch")), false);
   } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("a scratch a leg child still holds never fails the stage: the placement stands and the leftover is announced, never raised", async () => {
+  const root = repo();
+  const held = join(root, ".vivicy/development/reports/doc-prep-scratch/input/held");
+  try {
+    writeBatch(root, "2026-07-07", { "cahier.txt": FRENCH }, "eng");
+    const report = await prepareDocs({
+      repoRoot: root,
+      spawnLeg: async ({ outputDir }) => {
+        mkdirSync(join(outputDir, "canonical"), { recursive: true });
+        writeFileSync(join(outputDir, "canonical", "produit.md"), `# Produit\n\n${ENGLISH}`);
+        mkdirSync(held, { recursive: true });
+        writeFileSync(join(held, "flush.tmp"), "a leg child is still flushing into the scratch\n");
+        chmodSync(held, 0o500);
+      },
+    });
+    assert.equal(report.phase, "green", "a scratch that resists removal never turns a placed batch into a failed stage");
+    assert.ok(existsSync(join(root, ".vivicy/canonical/produit.md")), "the canonical document the leg produced is placed");
+    assert.ok(existsSync(join(held, "flush.tmp")), "the held scratch really did survive the clear, so the run was proven against a real leftover");
+  } finally {
+    if (existsSync(held)) chmodSync(held, 0o700);
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("a scratch that resists the clear BEFORE the leg runs fails the batch: a surviving output is never placed under a batch that did not produce it", async () => {
+  const root = repo();
+  const held = join(root, ".vivicy/development/reports/doc-prep-scratch/output/canonical");
+  try {
+    writeBatch(root, "2026-08-08", { "cahier.txt": FRENCH }, "eng");
+    mkdirSync(held, { recursive: true });
+    writeFileSync(join(held, "from-an-earlier-run.md"), `# Ancien\n\n${ENGLISH}`);
+    chmodSync(held, 0o500);
+    let spawned = false;
+    const report = await prepareDocs({
+      repoRoot: root,
+      spawnLeg: async () => {
+        spawned = true;
+      },
+    });
+    assert.equal(
+      existsSync(join(root, ".vivicy/canonical/from-an-earlier-run.md")),
+      false,
+      "an earlier run's document is never placed into the canonical under a batch that did not produce it",
+    );
+    assert.deepEqual(report.placed, [], "nothing from the surviving scratch is claimed as this batch's output");
+    assert.equal(report.phase, "failed", "an unclearable scratch refuses the batch rather than reading what survived in it");
+    assert.match(report.summary, /could not be cleared before the run/);
+    assert.equal(spawned, false, "no leg is sent into a scratch whose prior contents could not be cleared");
+    assert.deepEqual(report.rejected, [], "the sources are not blamed for a leg that was never allowed to speak");
+    assert.deepEqual(report.batches_consumed, [], "the batch stays unconsumed, so a re-run retries it once the obstruction clears");
+  } finally {
+    if (existsSync(held)) chmodSync(held, 0o700);
     rmSync(root, { recursive: true, force: true });
   }
 });

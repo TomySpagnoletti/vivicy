@@ -3,7 +3,7 @@ import { testTargetRoot as repoRoot } from "./test-target-root.ts";
 import assert from "node:assert/strict";
 import test, { after } from "node:test";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -827,6 +827,37 @@ test("PROOFS: a STALE artifact from an earlier run can never satisfy a later clo
   }
 });
 
+test("PROOFS: a home the pre-attempt clear could NOT win refuses the close — an artifact this run may not have produced never counts as its observation", () => {
+  const { dir, cfg } = buildScratch("true", { proofs: RUN_LOG_PROOF });
+  const home = resolve(repoRoot, `${cfg.proofsDir}/ISS-A/cli-report`);
+  const held = resolve(home, "capture");
+  try {
+    mkdirSync(held, { recursive: true });
+    writeFileSync(resolve(held, "shot.png"), "captured by a PREVIOUS attempt\n");
+    writeFileSync(resolve(home, "recipe.txt"), "node src/cli.js report 2026-01\n");
+    chmodSync(held, 0o500);
+
+    const processed = runLoop({ ...cfg, maxRetries: 1, claudeQuotaProbeEnabled: false }, stubSteps);
+    assert.deepEqual(processed, [{ id: "ISS-A", status: "blocked" }], "an unwitnessable proof blocks instead of closing");
+    assert.ok(
+      existsSync(resolve(held, "shot.png")),
+      "the artifact really did survive the clear, so the refusal answers a real leftover and not a phantom",
+    );
+
+    const gate = JSON.parse(readFileSync(resolve(repoRoot, `${cfg.gatesDir}/ISS-A-gate.json`), "utf8"));
+    assert.equal(gate.status, "pass", "the gate itself was green — the unclearable home is what refused the close");
+    const block = JSON.parse(readFileSync(resolve(repoRoot, `${cfg.reportsDir}/ISS-A-blocked.json`), "utf8"));
+    assert.equal(block.kind, "proofs_missing");
+    assert.match(block.reason, /declared proof home not cleared before this attempt: cli-report at/);
+    assert.match(block.reason, new RegExp(`${cfg.proofsDir}/ISS-A/cli-report`));
+    assert.match(block.reason, /nothing left in it can be attributed to this run/);
+    assert.ok(!existsSync(resolve(repoRoot, `${cfg.doneDir}/ISS-A.md`)), "the issue never moves to done/ on a proof nobody can attribute");
+  } finally {
+    if (existsSync(held)) chmodSync(held, 0o700);
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("PROOFS: a gate_evidence proof needs NO ritual artifact — the green gate record is the observation", () => {
   const { dir, cfg } = buildScratch("true", { proofs: GATE_PROOF });
   try {
@@ -870,6 +901,28 @@ test("PROOFS: an UNREADABLE declaration blocks IMMEDIATELY (typed), never burnin
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  }
+});
+
+test("PROOFS: an unreadable declaration still outranks an unclearable home — the terminal one-attempt block is never downgraded to a retried miss", () => {
+  const { dir, cfg } = buildScratch("true", { proofs: [...RUN_LOG_PROOF, "- id: not a slug!", "  class: run_log"] });
+  const held = resolve(repoRoot, `${cfg.proofsDir}/ISS-A/cli-report/capture`);
+  let implementerRuns = 0;
+  try {
+    mkdirSync(held, { recursive: true });
+    writeFileSync(resolve(held, "shot.png"), "captured by a PREVIOUS attempt\n");
+    chmodSync(held, 0o500);
+    const processed = runLoop(
+      { ...cfg, maxRetries: 3, claudeQuotaProbeEnabled: false },
+      { ...stubSteps, runImplementer: () => { implementerRuns += 1; } },
+    );
+    assert.deepEqual(processed, [{ id: "ISS-A", status: "blocked" }]);
+    assert.equal(implementerRuns, 1, "a frozen file no leg may fix still costs ONE attempt, not maxRetries");
+    const block = JSON.parse(readFileSync(resolve(repoRoot, `${cfg.reportsDir}/ISS-A-blocked.json`), "utf8"));
+    assert.equal(block.kind, "proofs_unreadable", "the unreadable declaration is the cause named, not the leftover home");
+  } finally {
+    if (existsSync(held)) chmodSync(held, 0o700);
+    rmSync(dir, { recursive: true, force: true });
   }
 });
 
@@ -2395,6 +2448,39 @@ test("defaultResetWorktreeFrozenArtifacts drops a worktree's frozen-artifact edi
     defaultRemoveWorktree(issues[0], cfg as Config, created.worktreeRoot, created.branch);
   } finally {
     frozen.cleanup();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("WORKTREE: a tree that resists removal never surfaces as a raw filesystem crash — removal returns, creation fails with the loop's own typed error", () => {
+  ensureRepoRootGit();
+  const dir = mkdtempSync(resolve(repoRoot, "_tmp-worktree-stuck-"));
+  const worktreesDir = relative(repoRoot, dir);
+  const seal = (root: string): string => {
+    const inner = resolve(root, "held");
+    mkdirSync(inner, { recursive: true });
+    writeFileSync(resolve(inner, "capture.log"), "a leg child still holds this\n");
+    chmodSync(inner, 0o500);
+    return inner;
+  };
+  const stuck = resolve(dir, "ISS-STUCK");
+  const leftover = resolve(dir, "ISS-CREATE");
+  const sealed = [seal(stuck), seal(leftover)];
+  try {
+    assert.doesNotThrow(
+      () => defaultRemoveWorktree({ id: "ISS-STUCK" } as Issue, {} as Config, stuck, ""),
+      "worktree removal runs AFTER the issue is already integrated: a throw there would replace that outcome",
+    );
+    assert.ok(existsSync(stuck), "the tree is left standing and announced, never half-reported as gone");
+
+    assert.throws(
+      () => defaultCreateWorktree({ id: "ISS-CREATE" } as Issue, { worktreesDir } as Config),
+      /dev-loop: failed to create worktree for ISS-CREATE: [\s\S]*fatal/,
+      "a leftover the clear cannot win surfaces as the loop's own create failure carrying git's own words, never a bare filesystem error",
+    );
+  } finally {
+    for (const inner of sealed) if (existsSync(inner)) chmodSync(inner, 0o700);
+    spawnSync("git", ["branch", "-D", "vivicy/ISS-CREATE"], { cwd: repoRoot, encoding: "utf8" });
     rmSync(dir, { recursive: true, force: true });
   }
 });

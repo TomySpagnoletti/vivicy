@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { dirname, extname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -8,6 +8,7 @@ import { franc } from "franc-min";
 import { runClaudeLeg, runCodexLeg } from "./agent-spawn.ts";
 import type { AgentIssue, LegConfig, LegDeps } from "./agent-spawn.ts";
 import { atomicWriteJson } from "./atomic-write.ts";
+import { cleanupTree } from "./cleanup-tree.ts";
 import { agentCliArgs, CLI_DEFAULTS, composePrompt, DEFAULT_CONFIG, resolveAgentLegs } from "./dev-loop.ts";
 import type { Leg, LegResult } from "./dev-loop.ts";
 import { notify } from "./notify.ts";
@@ -349,7 +350,10 @@ async function prepareBatch(args: {
   const legOutcome = await runLeg({ repoRoot, language: cycleLanguage, inputs: legInputs, spawnLeg });
   if (!legOutcome.ok) {
     clearScratch(repoRoot);
-    report.rejected.push(...legInputs.map((i) => ({ batch: batchId, source: i.source, reason: "leg_no_output" as const, detail: "the leg wrote nothing placeable for this source" })));
+    // A blocked scratch never let the leg speak for these sources, so recording them as "the leg wrote nothing" would name the wrong culprit; the batch stays unconsumed either way and the summary carries the real cause.
+    if (!legOutcome.scratchBlocked) {
+      report.rejected.push(...legInputs.map((i) => ({ batch: batchId, source: i.source, reason: "leg_no_output" as const, detail: "the leg wrote nothing placeable for this source" })));
+    }
     return { ok: false, problem: legOutcome.problems.join("; ") };
   }
   report.phase = "placing";
@@ -407,12 +411,19 @@ async function runLeg({
   language: string;
   inputs: Array<{ source: string; text: string }>;
   spawnLeg: (args: SpawnLegArgs) => Promise<LegResult | void>;
-}): Promise<{ ok: true; outputs: Array<{ rel: string; bytes: Buffer }> } | { ok: false; problems: string[] }> {
+}): Promise<{ ok: true; outputs: Array<{ rel: string; bytes: Buffer }> } | { ok: false; problems: string[]; scratchBlocked?: true }> {
   const inputDir = resolve(repoRoot, SCRATCH_REL, "input");
   const outputDir = resolve(repoRoot, SCRATCH_REL, "output");
   let problems: string[] = [];
   for (let attempt = 1; attempt <= 2; attempt += 1) {
-    clearScratch(repoRoot);
+    // The clear must WIN before the leg writes: what survives it would be read back as this run's output and placed into the canonical under this batch's name.
+    if (!clearScratch(repoRoot)) {
+      return {
+        ok: false,
+        scratchBlocked: true,
+        problems: [`the leg scratch ${SCRATCH_REL} could not be cleared before the run, so nothing written there could be attributed to this batch (the removal failure was announced on stderr)`],
+      };
+    }
     mkdirSync(inputDir, { recursive: true });
     mkdirSync(outputDir, { recursive: true });
     for (const input of inputs) writeFileSync(join(inputDir, sourceToInputName(input.source)), input.text);
@@ -448,8 +459,8 @@ function placeFile(repoRoot: string, targetRel: string, bytes: Buffer | Uint8Arr
   writeFileSync(abs, bytes);
 }
 
-function clearScratch(repoRoot: string): void {
-  rmSync(resolve(repoRoot, SCRATCH_REL), { recursive: true, force: true });
+function clearScratch(repoRoot: string): boolean {
+  return cleanupTree(resolve(repoRoot, SCRATCH_REL));
 }
 
 function isParseableJson(text: string): boolean {

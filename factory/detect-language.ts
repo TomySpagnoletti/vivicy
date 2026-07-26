@@ -1,9 +1,10 @@
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { extname, join, relative, resolve } from "node:path";
 
 import { runCodexLegAsync } from "./agent-spawn.ts";
 import type { AgentIssue, AgentLeg, LegConfig, LegDeps } from "./agent-spawn.ts";
 import { atomicWriteJson } from "./atomic-write.ts";
+import { cleanupTree } from "./cleanup-tree.ts";
 import { agentCliArgs, composePrompt, DEFAULT_CONFIG } from "./dev-loop.ts";
 import { notify } from "./notify.ts";
 import { FACTORY_PROMPTS_DIR } from "./target-root.ts";
@@ -72,7 +73,16 @@ export async function resolveBatchLanguage(options: ResolveBatchLanguageOptions)
 
   const inputDir = resolve(repoRoot, SCRATCH_REL, "input");
   const outputDir = resolve(repoRoot, SCRATCH_REL, "output");
-  clearScratch(repoRoot);
+  // The clear must WIN before the leg writes: a verdict surviving in that scratch would be read back as this batch's answer.
+  if (!clearScratch(repoRoot)) {
+    notifyFn({
+      level: "warning",
+      stage: "SP",
+      event: "language_unresolved",
+      message: `the language-leg scratch ${SCRATCH_REL} could not be cleared before the run, so no verdict in it could be attributed to this batch — language stays 'und'`,
+    });
+    return { resolved: false, language: UNDETERMINED, reason: "scratch not cleared" };
+  }
   mkdirSync(inputDir, { recursive: true });
   mkdirSync(outputDir, { recursive: true });
   for (const sample of samples) writeFileSync(join(inputDir, sample.name), sample.text);
@@ -168,8 +178,8 @@ function readJsonObject(abs: string): Record<string, unknown> | null {
   }
 }
 
-function clearScratch(repoRoot: string): void {
-  rmSync(resolve(repoRoot, SCRATCH_REL), { recursive: true, force: true });
+function clearScratch(repoRoot: string): boolean {
+  return cleanupTree(resolve(repoRoot, SCRATCH_REL));
 }
 
 // Mirrors prepare-docs' makeDefaultSpawnLeg, but binds a fixed fast Codex leg (default gpt-5.6-luna) instead of the implementer leg.

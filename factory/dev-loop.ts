@@ -10,7 +10,6 @@ import {
   readdirSync,
   readFileSync,
   renameSync,
-  rmSync,
   statSync,
   unlinkSync,
   writeFileSync,
@@ -20,6 +19,7 @@ import { platform, tmpdir } from "node:os";
 import { dirname, isAbsolute, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { atomicWriteJson } from "./atomic-write.ts";
+import { cleanupTree } from "./cleanup-tree.ts";
 import { notify } from "./notify.ts";
 import { sleepSync } from "./sleep-sync.ts";
 import { recordProgressEvent } from "./progress-ledger.ts";
@@ -825,9 +825,10 @@ export function proofsDirective(cfg: Config, issue: Issue | undefined): string {
 }
 
 // Cleared by the orchestrator before every attempt's legs run, so presence afterwards can only witness THIS attempt: a replayed close can never ride a previous run's artifact. The committed recipe.txt is left in place — deleting a tracked file here would stage a deletion the loop never asked for.
-function resetDeclaredProofArtifacts(issue: Issue, cfg: Config): void {
+function resetDeclaredProofArtifacts(issue: Issue, cfg: Config): string[] {
   const body = readIssueBody(issue, cfg);
-  if (body === null) return;
+  if (body === null) return [];
+  const uncleared: string[] = [];
   for (const proof of parseDeclaredProofs(body).proofs) {
     if (proof.class === "gate_evidence") continue;
     const homeAbs = abs(proofHomeRel(issue.id, proof.id, cfg.proofsDir));
@@ -837,21 +838,26 @@ function resetDeclaredProofArtifacts(issue: Issue, cfg: Config): void {
     } catch {
       continue;
     }
-    for (const entry of entries) {
-      if (entry === PROOF_RECIPE_FILE) continue;
-      try {
-        rmSync(resolve(homeAbs, entry), { recursive: true, force: true });
-      } catch {
-      }
-    }
+    const survived = entries.filter((entry) => entry !== PROOF_RECIPE_FILE && !cleanupTree(resolve(homeAbs, entry)));
+    if (survived.length > 0) uncleared.push(proof.id);
   }
+  return uncleared;
+}
+
+type ProofsOutcome = { status: "satisfied" } | { status: "missing" | "unreadable"; reason: string };
+
+function proofsOutcome(issue: Issue, cfg: Config, uncleared: string[]): ProofsOutcome {
+  const presence = declaredProofsPresence(issue, cfg);
+  if (uncleared.length === 0 || presence.status === "unreadable") return presence;
+  const homes = uncleared.map((id) => `${id} at ${proofHomeRel(issue.id, id, cfg.proofsDir)}`).join("; ");
+  return {
+    status: "missing",
+    reason: `declared proof home not cleared before this attempt: ${homes} — nothing left in it can be attributed to this run, so its presence cannot witness the close (the removal failure was announced on stderr; an obstruction that never clears will refuse every attempt until it is removed by hand)`,
+  };
 }
 
 // The machine checks PRESENCE only (P5): the reviewer judges whether a present proof is replayable and shows the claimed behaviour. An unreadable declaration is `unreadable`, never `satisfied` — a leg cannot repair the frozen issue file, so the loop must not spend attempts on it.
-export function declaredProofsPresence(
-  issue: Issue,
-  cfg: Config,
-): { status: "satisfied" } | { status: "missing" | "unreadable"; reason: string } {
+export function declaredProofsPresence(issue: Issue, cfg: Config): ProofsOutcome {
   const body = readIssueBody(issue, cfg);
   if (body === null) {
     return {
@@ -1195,10 +1201,7 @@ function captureClaudeStatusLine(cfg: Config, leg: Leg): Record<string, unknown>
   } catch {
     return null;
   } finally {
-    try {
-      rmSync(dir, { recursive: true, force: true });
-    } catch {
-    }
+    cleanupTree(dir);
   }
 }
 
@@ -1581,7 +1584,7 @@ export function defaultCreateWorktree(issue: Issue, cfg: Config): WorktreeHandle
   const branch = `vivicy/${issue.id}`;
   spawnSync("git", ["worktree", "remove", "--force", worktreeRoot], { cwd: root, encoding: "utf8" });
   spawnSync("git", ["branch", "-D", branch], { cwd: root, encoding: "utf8" });
-  if (existsSync(worktreeRoot)) rmSync(worktreeRoot, { recursive: true, force: true });
+  cleanupTree(worktreeRoot);
   mkdirSync(resolve(root, cfg.worktreesDir!), { recursive: true });
   const add = spawnSync("git", ["worktree", "add", "-b", branch, worktreeRoot, "HEAD"], {
     cwd: root,
@@ -1654,7 +1657,7 @@ export function defaultRebaseWorktree(issue: Issue, cfg: Config, worktreeRoot: s
 export function defaultRemoveWorktree(issue: Issue, cfg: Config, worktreeRoot: string, branch: string): void {
   const root = requireRepoRoot();
   spawnSync("git", ["worktree", "remove", "--force", worktreeRoot], { cwd: root, encoding: "utf8" });
-  if (existsSync(worktreeRoot)) rmSync(worktreeRoot, { recursive: true, force: true });
+  cleanupTree(worktreeRoot);
   if (branch) spawnSync("git", ["branch", "-D", branch], { cwd: root, encoding: "utf8" });
 }
 
@@ -2160,7 +2163,7 @@ export function runIssueCycle(issue: Issue, cfg: Config, steps: CycleSteps): Cyc
       actor: cfg.implementer.actor,
       role: cfg.implementer.role,
     });
-    resetDeclaredProofArtifacts(issue, cfg);
+    const unclearedProofs = resetDeclaredProofArtifacts(issue, cfg);
     const implResult = runLegWithQuota(runImplementer, cfg.implementer, issue, cfg);
     if (implResult.quotaBlocked) return quotaBlock(issue, cfg, cfg.implementer, allTranscripts);
     lastTimeoutReason = legTimeoutReason(implResult) ?? lastTimeoutReason;
@@ -2190,7 +2193,7 @@ export function runIssueCycle(issue: Issue, cfg: Config, steps: CycleSteps): Cyc
     const gate = runGate(issue, cfg);
     lastGateReason = gate.reason ?? lastGateReason;
     if (gate.pass) {
-      const proofs = declaredProofsPresence(issue, cfg);
+      const proofs = proofsOutcome(issue, cfg, unclearedProofs);
       if (proofs.status === "unreadable") {
         return proofsUnreadableBlock(issue, cfg, proofs.reason, allTranscripts);
       }
@@ -2255,7 +2258,7 @@ export async function runIssueCycleAsync(issue: Issue, cfg: Config, steps: Async
       actor: cfg.implementer.actor,
       role: cfg.implementer.role,
     });
-    resetDeclaredProofArtifacts(issue, cfg);
+    const unclearedProofs = resetDeclaredProofArtifacts(issue, cfg);
     const implResult = await runLegWithQuotaAsync(runImplementer, cfg.implementer, issue, cfg);
     if (implResult.quotaBlocked) return quotaBlock(issue, cfg, cfg.implementer, allTranscripts);
     lastTimeoutReason = legTimeoutReason(implResult) ?? lastTimeoutReason;
@@ -2285,7 +2288,7 @@ export async function runIssueCycleAsync(issue: Issue, cfg: Config, steps: Async
     const gate = await runGate(issue, cfg);
     lastGateReason = gate.reason ?? lastGateReason;
     if (gate.pass) {
-      const proofs = declaredProofsPresence(issue, cfg);
+      const proofs = proofsOutcome(issue, cfg, unclearedProofs);
       if (proofs.status === "unreadable") {
         return proofsUnreadableBlock(issue, cfg, proofs.reason, allTranscripts);
       }
