@@ -190,6 +190,11 @@ test("DEFAULT_CONFIG pins the latest models with the documented default thinking
   assert.equal(DEFAULT_CONFIG.reviewer.effort, "high");
 });
 
+// The seam passes several `-c key=value` pairs (the isolation set plus the effort), so the effort is asserted over ALL of them — never by the position of the first `-c`.
+function codexConfigValues(argv: string[]): string[] {
+  return argv.filter((arg, index) => index > 0 && argv[index - 1] === "-c");
+}
+
 test("defaultRunImplementer / defaultRunReviewer spawn with the model + effort flags", () => {
   const shimDir = mkdtempSync(resolve(repoRoot, "_tmp-agent-shim-"));
   const shimRel = relative(repoRoot, shimDir);
@@ -232,8 +237,7 @@ test("defaultRunImplementer / defaultRunReviewer spawn with the model + effort f
 
     const xm = codex.argv.indexOf("-m");
     assert.ok(xm !== -1 && codex.argv[xm + 1] === "gpt-5.5");
-    const xc = codex.argv.indexOf("-c");
-    assert.ok(xc !== -1 && codex.argv[xc + 1] === 'model_reasoning_effort="minimal"');
+    assert.ok(codexConfigValues(codex.argv).includes('model_reasoning_effort="minimal"'));
   } finally {
     process.env.PATH = prevPath;
     if (prevOut === undefined) delete process.env.AGENT_SHIM_OUT;
@@ -407,8 +411,7 @@ test("defaultRunImplementer / defaultRunReviewer dispatch to the assigned CLI (r
     const codex = records.find((r) => r.name === "codex");
     assert.ok(codex, "implementer leg spawned codex");
     assert.ok(codex.argv.includes("exec"), "codex invoked in exec mode");
-    const xc = codex.argv.indexOf("-c");
-    assert.ok(xc !== -1 && codex.argv[xc + 1] === 'model_reasoning_effort="minimal"');
+    assert.ok(codexConfigValues(codex.argv).includes('model_reasoning_effort="minimal"'));
 
     const claude = records.find((r) => r.name === "claude");
     assert.ok(claude, "reviewer leg spawned claude");

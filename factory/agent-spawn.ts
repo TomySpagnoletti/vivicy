@@ -62,9 +62,46 @@ export function combinedOutput(result: LegResult | null | undefined): string {
   return `${result?.stdout ?? ""}\n${result?.stderr ?? ""}`;
 }
 
+// Everything in these namespaces configures the agent CLI, so the machine's copy of it is pollution.
+const AGENT_ENV_ISOLATED_PREFIXES = ["ANTHROPIC_", "CLAUDE_", "CODEX_", "OPENAI_"];
+const AGENT_ENV_ISOLATED_NAMES = new Set(["CLAUDECODE"]);
+
+// The auth carve-out, one entry per authentication family the installed CLIs define, each carried WHOLE: a family split in half preserves a credential nothing can reach (a 3P key with no selector, an OIDC identity token with no federation/organization/scope quad — measured: the token alone cannot resolve an auth method, the group performs a real token exchange). Only ANTHROPIC_API_KEY, CLAUDE_CONFIG_DIR and CODEX_HOME are also read by lib/agents-health.ts; every other name is the CLIs' alone, so these lists are measured against their binaries and nothing else vouches for them — and the endpoints among them ARE config overrides, kept because a credential sent to the wrong host is a broken credential.
+export const AGENT_ENV_AUTH_FAMILIES: Record<string, readonly string[]> = {
+  anthropicFirstParty: ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL", "ANTHROPIC_CUSTOM_HEADERS", "CLAUDE_CODE_OAUTH_TOKEN", "CLAUDE_CONFIG_DIR"],
+  anthropicOidcFederation: ["ANTHROPIC_BASE_URL", "ANTHROPIC_FEDERATION_RULE_ID", "ANTHROPIC_IDENTITY_TOKEN", "ANTHROPIC_IDENTITY_TOKEN_FILE", "ANTHROPIC_ORGANIZATION_ID", "ANTHROPIC_SCOPE", "ANTHROPIC_SERVICE_ACCOUNT_ID", "ANTHROPIC_WORKSPACE_ID"],
+  providerSelectors: ["CLAUDE_CODE_USE_ANTHROPIC_AWS", "CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_FOUNDRY", "CLAUDE_CODE_USE_GATEWAY", "CLAUDE_CODE_USE_MANTLE", "CLAUDE_CODE_USE_VERTEX"],
+  providerSkipAuth: ["CLAUDE_CODE_SKIP_ANTHROPIC_AWS_AUTH", "CLAUDE_CODE_SKIP_BEDROCK_AUTH", "CLAUDE_CODE_SKIP_FOUNDRY_AUTH", "CLAUDE_CODE_SKIP_MANTLE_AUTH", "CLAUDE_CODE_SKIP_VERTEX_AUTH"],
+  providerCredentials: ["ANTHROPIC_AWS_API_KEY", "ANTHROPIC_BEDROCK_MANTLE_API_KEY", "ANTHROPIC_FOUNDRY_API_KEY"],
+  providerEndpoints: ["ANTHROPIC_AWS_BASE_URL", "ANTHROPIC_AWS_WORKSPACE_ID", "ANTHROPIC_BEDROCK_BASE_URL", "ANTHROPIC_BEDROCK_MANTLE_BASE_URL", "ANTHROPIC_FOUNDRY_BASE_URL", "ANTHROPIC_FOUNDRY_RESOURCE", "ANTHROPIC_VERTEX_BASE_URL", "ANTHROPIC_VERTEX_PROJECT_ID"],
+  codex: ["CODEX_ACCESS_TOKEN", "CODEX_API_KEY", "CODEX_HOME", "OPENAI_API_KEY"],
+};
+
+export const AGENT_ENV_AUTH_PASSTHROUGH = new Set(Object.values(AGENT_ENV_AUTH_FAMILIES).flat());
+
+export function isolateAgentEnv(source: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = {};
+  for (const [name, value] of Object.entries(source)) {
+    if (value === undefined) continue;
+    if (AGENT_ENV_AUTH_PASSTHROUGH.has(name)) {
+      env[name] = value;
+      continue;
+    }
+    if (AGENT_ENV_ISOLATED_NAMES.has(name)) continue;
+    if (AGENT_ENV_ISOLATED_PREFIXES.some((prefix) => name.startsWith(prefix))) continue;
+    env[name] = value;
+  }
+  return env;
+}
+
 // Deliberately no PROGRESS_* env injected — agents do no self-reporting; the orchestrator writes progress mechanically via its own emit().
 export function agentEnv(): NodeJS.ProcessEnv {
-  return { ...process.env };
+  return isolateAgentEnv(process.env);
+}
+
+function agentHome(overrideName: string, defaultLeaf: string): string {
+  const override = process.env[overrideName];
+  return override && override.length > 0 ? resolve(override) : resolve(homedir(), defaultLeaf);
 }
 
 export type LegPromptErrorCode = "prompts_dir_unset" | "invalid_leg_role" | "unknown_leg_role" | "prompt_unreadable" | "empty_leg_prompt";
@@ -158,7 +195,7 @@ export function readPrompt(cfg: LegConfig, role: string): string {
 
 // Loops all project dirs because the CLI's dir-name encoding for a session varies — no direct path is derivable.
 export function captureClaudeTranscript(uuid: string, destAbs: string): boolean {
-  const projectsDir = resolve(homedir(), ".claude", "projects");
+  const projectsDir = resolve(agentHome("CLAUDE_CONFIG_DIR", ".claude"), "projects");
   if (!existsSync(projectsDir)) return false;
   for (const sub of readdirSync(projectsDir)) {
     const candidate = resolve(projectsDir, sub, `${uuid}.jsonl`);
@@ -182,7 +219,7 @@ type RolloutLine = {
 };
 
 export function findNewestCodexRollout(sinceMs: number, cwdFilter: string | null = null): string | null {
-  const base = resolve(homedir(), ".codex", "sessions");
+  const base = resolve(agentHome("CODEX_HOME", ".codex"), "sessions");
   if (!existsSync(base)) return null;
   let best: string | null = null;
   let bestMtime = sinceMs - 1;
@@ -245,12 +282,16 @@ export function ensureTranscriptDir(absTranscriptDir: string): void {
   mkdirSync(absTranscriptDir, { recursive: true });
 }
 
+// A leg is a product run, not a run of this machine: these flags are the whole of what keeps the user's CLAUDE.md/AGENTS.md, skills, plugins, hooks, MCP servers, memories and agent listings out of every leg; neither CLI's credential resolution sits on their path (each authenticates identically with and without them, measured with the flag as the only variable), and the target repo's project layer reaches the leg through the explicit AGENTS.md read every role prompt opens with, never through CLI auto-discovery.
+export const CLAUDE_ISOLATION_ARGS = ["--safe-mode"];
+export const CODEX_ISOLATION_ARGS = ["--ignore-user-config", "--ignore-rules", "-c", "skills.include_instructions=false", "--disable", "plugins", "--disable", "apps"];
+
 export function buildClaudeArgs({ prompt, uuid, modelArgs }: { prompt: string; uuid: string; modelArgs: string[] }): string[] {
-  return ["-p", prompt, "--dangerously-skip-permissions", "--session-id", uuid, ...modelArgs];
+  return ["-p", prompt, ...CLAUDE_ISOLATION_ARGS, "--dangerously-skip-permissions", "--session-id", uuid, ...modelArgs];
 }
 
 export function buildCodexArgs({ prompt, root, modelArgs }: { prompt: string; root: string; modelArgs: string[] }): string[] {
-  const args = ["exec", prompt, "--dangerously-bypass-approvals-and-sandbox", "-C", root, "--skip-git-repo-check"];
+  const args = ["exec", prompt, ...CODEX_ISOLATION_ARGS, "--dangerously-bypass-approvals-and-sandbox", "-C", root, "--skip-git-repo-check"];
   args.push(...modelArgs);
   return args;
 }
