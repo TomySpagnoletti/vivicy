@@ -2,6 +2,11 @@
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 
+@source not "../**/*.{test,spec}.{ts,tsx}";
+
+/* Vivicy is light-only: re-gating Tailwind's `dark` variant on a `.dark` class nothing ever sets is what keeps every `dark:` utility shadcn ships — present and future — inert under the OS dark preference. */
+@custom-variant dark (&:where(.dark, .dark *));
+
 @theme inline {
     --color-status-not-started: var(--status-not-started);
     --color-status-in-progress: var(--status-in-progress);
@@ -55,6 +60,7 @@
 }
 
 :root {
+    color-scheme: light;
     --background: oklch(1 0 0);
     --foreground: oklch(0.153 0.006 107.1);
     --card: oklch(1 0 0);

@@ -586,7 +586,7 @@ export function ViviPanel({
                 </MessageScrollerProvider>
 
                 <div className="border-t border-border p-3">
-                  <div className="relative rounded-none border border-input bg-transparent transition-colors focus-within:border-ring focus-within:ring-1 focus-within:ring-ring/50 dark:bg-input/30">
+                  <div className="relative rounded-none border border-input bg-transparent transition-colors focus-within:border-ring focus-within:ring-1 focus-within:ring-ring/50">
                     <Textarea
                       ref={composerRef}
                       value={draft}
@@ -594,7 +594,7 @@ export function ViviPanel({
                       onKeyDown={onKeyDown}
                       placeholder={t("inputPlaceholder")}
                       aria-label={t("inputAriaLabel")}
-                      className="max-h-40 resize-none border-0 bg-transparent pr-11 pl-11 focus-visible:ring-0 dark:bg-transparent"
+                      className="max-h-40 resize-none border-0 bg-transparent pr-11 pl-11 focus-visible:ring-0"
                     />
                     <input
                       ref={importInputRef}

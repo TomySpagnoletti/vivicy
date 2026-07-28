@@ -1,6 +1,6 @@
 # Vivicy — exhaustive test matrix
 
-Reconciled fingerprint: `858f8242854d0809707ade88662d6c7e762fac696ec409c2bed10f12104541e4` @ commit `593825f338bb93f60b26e61386eb7b3789bff0d5`
+Reconciled fingerprint: `2412d154f16cf1203c15b0b99100309609914e77aacda8bb0abb8f91ff627506` @ commit `6720886a46d2ae73e1e597f41ee525135fa0742b`
 
 
 This file is the exhaustive, always-current inventory of every test case for Vivicy — every behavior the system has, whether it is covered by a test today or is a known GAP. It is **committed and machine-guarded**: the `Reconciled fingerprint` line above hashes the behavior-bearing source tree and records the HEAD commit at reconciliation time, and `scripts/test-matrix.test.ts` fails the vitest suite when code changes without this file being reconciled and re-stamped (`npm run matrix:stamp`). `git log test/TEST-MATRIX.md` is the audit trail of reconciliations. It is the single source of truth for "what should be tested" across the app (`app/`, `components/`, `lib/`) and the factory (`factory/`). It was assembled from a full per-area audit pass plus three adversarial cross-matrices (user journeys, parallel/merge chaos, process/crash chaos).
@@ -16,7 +16,7 @@ This file is the exhaustive, always-current inventory of every test case for Viv
 
 | Area | Cases | Gaps | Covered |
 |---|---:|---:|---:|
-| app-shell-sidebar-ui-kit | 397 | 269 | 128 |
+| app-shell-sidebar-ui-kit | 403 | 269 | 134 |
 | baselines-change-requests | 263 | 200 | 63 |
 | cli-supervisor-process-infra | 490 | 241 | 249 |
 | control-plane-api-routes | 494 | 233 | 261 |
@@ -30,7 +30,7 @@ This file is the exhaustive, always-current inventory of every test case for Viv
 | cross-journeys | 82 | 65 | 17 |
 | cross-chaos-parallel-merge | 47 | 33 | 14 |
 | cross-chaos-process | 46 | 43 | 3 |
-| **TOTAL** | **4057** | **2143** | **1914** |
+| **TOTAL** | **4063** | **2143** | **1920** |
 
 ---
 
@@ -79,6 +79,15 @@ This file is the exhaustive, always-current inventory of every test case for Viv
 - [app-shell-sidebar-ui-kit.24] Root layout renders with self-hosted Geist/Geist Mono fonts (no network request to Google Fonts). | `<html>` carries `fontMono.variable`, `font-sans`, `geist.variable`, and `antialiased`; no external font fetch happens at build/runtime. | integration | GAP
 - [app-shell-sidebar-ui-kit.25] A browser extension (e.g. Grammarly) injects `data-lt-installed`/`data-gr-ext-installed` attributes onto `<html>`/`<body>` before hydration. | `suppressHydrationWarning` on both elements prevents a hydration-mismatch warning/error; the rest of the tree is still fully hydration-checked. | e2e-ui | GAP
 - [app-shell-sidebar-ui-kit.26] `NextIntlClientProvider` receives `messages` from `getMessages()` and renders `TooltipProvider` + children + `Toaster`. | Children render with i18n context available; `Toaster` mounts once at the root (not duplicated per page). | integration | GAP
+
+### app/globals.css
+
+- [app-shell-sidebar-ui-kit.389] The stylesheet is compiled through the app's own Tailwind pipeline. | Not one `prefers-color-scheme` media query is emitted, so the OS dark preference reaches nothing the app renders. | unit | globals.test.ts (`the app renders light-only, whatever the OS colour-scheme preference > emits not one dark colour-scheme media query`)
+- [app-shell-sidebar-ui-kit.390] shadcn ships `dark:` utilities with every primitive it generates; the compiled stylesheet is scanned for surviving ones. | No `.dark\:` rule is emitted at all — the shipped defaults are deleted from the sources, not merely left inert. | unit | globals.test.ts (`… > emits no \`dark:\` utility rule — shadcn's defaults are swept, not merely inert`)
+- [app-shell-sidebar-ui-kit.391] The root's declared colour scheme. | `:root` carries `color-scheme: light`, so browser-painted chrome (form controls, scrollbars) never auto-darkens. | unit | globals.test.ts (`… > declares the root colour-scheme light, so form controls and scrollbars never auto-darken`)
+- [app-shell-sidebar-ui-kit.392] Mutation: the `@custom-variant dark` redefinition is dropped and Tailwind's `prefers-color-scheme` default restored. | Dark media queries come back (shadcn's own `@variant dark` in its `shimmer` utility is out of reach of any source sweep), proving the redefinition — not the sweep — is what makes the app dark-proof. | unit | globals.test.ts (`… > owes that silence to the dark-variant redefinition: restoring Tailwind's default brings the media queries back`)
+- [app-shell-sidebar-ui-kit.393] A `dark:` utility the tree does not carry yet (forced in via `@source inline`), i.e. any primitive added later. | It compiles gated on `&:where(.dark, .dark *)` — a class nothing ever sets — and emits no media query, so future shadcn additions are inert by construction rather than by sweeping. | unit | globals.test.ts (`… > gates a \`dark:\` utility the tree does not carry yet on a class, never on the OS preference`)
+- [app-shell-sidebar-ui-kit.394] A class literal written only inside a `*.{test,spec}.{ts,tsx}` file anywhere in the repo (Tailwind scans `.ts`/`.tsx` for candidates). | The compiled stylesheet does not carry it: `@source not "../**/…"` is anchored at the repo root, not at the stylesheet's own directory, so test files under `components/`, `lib/` and `e2e/` are excluded too — dropping the line brings the class back, and re-anchoring it stylesheet-relative reds this case. | unit | globals.test.ts (`… > is compiled from rendered sources only, repo-wide: a class whose sole author is a test file never reaches production CSS`)
 
 ### components/sidebar/sidebar.tsx (VivicySidebar)
 
