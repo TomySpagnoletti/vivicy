@@ -6,6 +6,7 @@ import { useTranslations } from "next-intl"
 
 import type { ViviCardAction, ViviTurn } from "@/lib/vivi"
 import { errorText } from "@/lib/i18n-errors"
+import { VIVI_TURN_CEILING_MS } from "@/lib/leg-budget"
 import { IMPORT_ACCEPT_ATTR } from "@/lib/supported-extensions"
 import { cn } from "@/lib/utils"
 import { Badge } from "@/components/ui/badge"
@@ -43,13 +44,34 @@ import {
 
 type PanelTab = "chat" | "notifications"
 
-// Capped so a turn the server silently dropped doesn't poll forever.
 const RESUME_POLL_MS = 5_000
-const RESUME_POLL_MAX = 120
+// The backstop, derived from the very timeouts that bound a turn server-side (every round is one leg, each leg dies at the cap) plus a margin — never a hand-tuned literal that would drift from them. The primary signal is the server's own liveness flag below; this only catches a turn that outlives every bound the factory enforces.
+const RESUME_POLL_MAX = Math.ceil((VIVI_TURN_CEILING_MS * 1.2) / RESUME_POLL_MS)
+
+// A thread is awaiting Vivi when she owes it an answer: the last turn is the owner's message, or a batch anywhere in the thread is still being read (position-independent — the reading turn's own action rounds, or another turn finishing ahead of it, append after the acknowledgment).
+function awaitingVivi(turns: ViviTurn[]): boolean {
+  return (
+    turns[turns.length - 1]?.role === "user" ||
+    turns.some((turn) => turn.imported?.read?.status === "pending")
+  )
+}
+
+// Identity of what is being waited ON, so a give-up survives the owner's next message instead of being erased by it, and a new wait never inherits an old one's verdict.
+function waitIdentity(turns: ViviTurn[]): string | null {
+  const reading = turns.find((turn) => turn.imported?.read?.status === "pending")
+  if (reading) return `read:${reading.imported!.batchId}`
+  const last = turns[turns.length - 1]
+  return last?.role === "user" ? `user:${last.ts}` : null
+}
+
+interface SessionSnapshot {
+  turns: ViviTurn[]
+  busy: boolean
+}
 
 async function fetchSessionTurns(
   sessionId: string
-): Promise<ViviTurn[] | null> {
+): Promise<SessionSnapshot | null> {
   try {
     const res = await fetch(`/api/vivi/sessions/${sessionId}`, {
       cache: "no-store",
@@ -57,9 +79,10 @@ async function fetchSessionTurns(
     const body = (await res.json().catch(() => ({}))) as {
       ok?: boolean
       turns?: ViviTurn[]
+      busy?: boolean
     }
     if (!res.ok || body.ok === false || !Array.isArray(body.turns)) return null
-    return body.turns
+    return { turns: body.turns, busy: body.busy === true }
   } catch {
     return null
   }
@@ -88,6 +111,7 @@ export function ViviPanel({
   const [sendError, setSendError] = useState<string | null>(null)
   const [importing, setImporting] = useState(false)
   const [importNote, setImportNote] = useState<string | null>(null)
+  const [lostWait, setLostWait] = useState<string | null>(null)
 
   const bubbleRef = useRef<HTMLButtonElement | null>(null)
   const textareaRef = useRef<HTMLTextAreaElement | null>(null)
@@ -160,7 +184,7 @@ export function ViviPanel({
         const restored = await fetchSessionTurns(newest.sessionId)
         if (cancelled || restored === null) return
         setSessionId(newest.sessionId)
-        setTurns(restored)
+        setTurns(restored.turns)
         // Latches only on a successful, non-cancelled restore, so a mid-fetch cancellation retries next run instead of getting stuck unhydrated.
         hydratedRef.current = true
       } catch {
@@ -243,7 +267,7 @@ export function ViviPanel({
         : null
       if (epoch !== epochRef.current) return
       if (restored !== null) {
-        setTurns(restored)
+        setTurns(restored.turns)
       } else {
         setTurns((prev) => [
           ...prev,
@@ -305,7 +329,7 @@ export function ViviPanel({
           ? await fetchSessionTurns(body.sessionId)
           : null
         if (epoch !== epochRef.current) return
-        if (restored !== null) setTurns(restored)
+        if (restored !== null) setTurns(restored.turns)
         const skipped = body.rejected ?? []
         if (skipped.length > 0) {
           setImportNote(
@@ -351,7 +375,7 @@ export function ViviPanel({
             restored === null
           )
             return
-          setTurns(restored)
+          setTurns(restored.turns)
         })()
       }
       if (action.action.kind !== "dismiss") onActivity?.()
@@ -359,27 +383,39 @@ export function ViviPanel({
     [sessionId, onActivity]
   )
 
-  const lastTurn = turns[turns.length - 1]
-  const awaitingReply = !sending && !!sessionId && lastTurn?.role === "user"
+  const awaitingReply = !sending && !!sessionId && awaitingVivi(turns)
+  const reading = turns.some((turn) => turn.imported?.read?.status === "pending")
+  // Keyed to WHAT is awaited (the pending batch, or the owner's own message by its timestamp), so a verdict cannot be erased by the next message or inherited by the next wait.
+  const identity = waitIdentity(turns)
+  const waitKey = sessionId && identity ? `${sessionId}:${identity}` : null
+  const lostTurn = lostWait !== null && lostWait === waitKey
   useEffect(() => {
-    if (!awaitingReply || !sessionId) return
+    if (!awaitingReply || !sessionId || !waitKey) return
     const epoch = epochRef.current
     let polls = 0
     const timer = setInterval(() => {
       polls += 1
       if (polls > RESUME_POLL_MAX) {
         clearInterval(timer)
+        if (epoch === epochRef.current) setLostWait(waitKey)
         return
       }
       void (async () => {
         const restored = await fetchSessionTurns(sessionId)
         if (epoch !== epochRef.current || restored === null) return
-        const next = restored[restored.length - 1]
-        if (next && next.role !== "user") setTurns(restored)
+        if (restored.turns.length > 0 && !awaitingVivi(restored.turns)) {
+          setTurns(restored.turns)
+          return
+        }
+        // The server's own liveness beats any wall-clock guess: still awaiting with no turn running means the turn died with its process.
+        if (!restored.busy) {
+          clearInterval(timer)
+          setLostWait(waitKey)
+        }
       })()
     }, RESUME_POLL_MS)
     return () => clearInterval(timer)
-  }, [awaitingReply, sessionId])
+  }, [awaitingReply, sessionId, waitKey])
 
   const askVivi = useCallback(
     (text: string) => {
@@ -511,9 +547,21 @@ export function ViviPanel({
                             />
                           </MessageScrollerItem>
                         ))}
-                        {sending || awaitingReply ? (
+                        {sending || (awaitingReply && !lostTurn) ? (
                           <MessageScrollerItem messageId="pending">
-                            <PendingMarker />
+                            <PendingMarker reading={reading} />
+                          </MessageScrollerItem>
+                        ) : null}
+                        {!sending && awaitingReply && lostTurn ? (
+                          <MessageScrollerItem messageId="lost">
+                            <Marker>
+                              <MarkerIcon>
+                                <CircleAlert />
+                              </MarkerIcon>
+                              <MarkerContent>
+                                {t(reading ? "readingLost" : "pendingLost")}
+                              </MarkerContent>
+                            </Marker>
                           </MessageScrollerItem>
                         ) : null}
                         {importing ? (
@@ -684,14 +732,14 @@ function TurnView({
   return null
 }
 
-function PendingMarker() {
+function PendingMarker({ reading }: { reading?: boolean }) {
   const t = useTranslations("chat")
   return (
     <Marker>
       <MarkerIcon>
         <Loader2 className="animate-spin" />
       </MarkerIcon>
-      <MarkerContent>{t("pending")}</MarkerContent>
+      <MarkerContent>{t(reading ? "reading" : "pending")}</MarkerContent>
     </Marker>
   )
 }

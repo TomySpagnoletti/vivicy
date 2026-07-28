@@ -1,5 +1,6 @@
 import { ControlError } from "@/lib/control"
 import { ImportError } from "@/lib/import-docs"
+import { getSpawner } from "@/lib/spawner"
 import { IMPORT_STATUS_BY_CODE, readUploadEntries } from "@/lib/upload-form"
 import { importDocsIntoSession } from "@/lib/vivi"
 
@@ -18,7 +19,7 @@ export async function POST(request: Request) {
 
   try {
     const entries = await readUploadEntries(form)
-    const result = await importDocsIntoSession({
+    const result = await importDocsIntoSession(getSpawner(), {
       sessionId: typeof sessionId === "string" && sessionId.length > 0 ? sessionId : undefined,
       entries,
     })

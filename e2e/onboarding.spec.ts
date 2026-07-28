@@ -132,7 +132,9 @@ test.describe("Vivicy onboarding (panel-hosted)", () => {
     await expect(importButton).toHaveAttribute("aria-disabled", "true")
     await expect(panel.getByText(/in the kitchen/i)).toBeVisible()
 
-    // The standing composer import (paperclip beside Send) is the permanent path: it lands a second batch into the same governed session and appends its own acknowledgment.
+    // Importing IS the request: the reading turn is dispatched server-side, so the leg answers with nothing typed.
+    await expect(panel.getByText(/dry mode/i)).toHaveCount(1, { timeout: 30_000 })
+
     const attach = panel.getByRole("button", { name: "Attach documents" })
     await expect(attach).toBeEnabled()
     const composerChooserPromise = page.waitForEvent("filechooser")
@@ -144,6 +146,7 @@ test.describe("Vivicy onboarding (panel-hosted)", () => {
       buffer: Buffer.from("The five boxing wizards jump quickly over the lazy dog again and again every night. ".repeat(8)),
     })
     await expect(panel.getByText(/in the kitchen/i)).toHaveCount(2, { timeout: 15_000 })
+    await expect(panel.getByText(/dry mode/i)).toHaveCount(2, { timeout: 30_000 })
 
     await page.reload()
     await expect(page.getByText(/what do you want to build/i)).toBeVisible({
@@ -151,6 +154,7 @@ test.describe("Vivicy onboarding (panel-hosted)", () => {
     })
     await expect(page.getByText(/document.*imported/i)).toBeVisible({ timeout: 15_000 })
     await expect(page.getByText(/in the kitchen/i)).toHaveCount(2, { timeout: 15_000 })
+    await expect(page.getByText(/dry mode/i)).toHaveCount(2, { timeout: 15_000 })
 
     await expect(page.locator(".react-flow__node")).toHaveCount(0)
     await expect(page.getByText(/Request failed/i)).toHaveCount(0)

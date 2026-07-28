@@ -2,19 +2,27 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import type { GovernanceResult } from "@/lib/import-docs"
 
-const { startGovernance, seedViviWelcome, appendCardTurn, WELCOME_IMPORT_CARD } = vi.hoisted(() => ({
-  startGovernance: vi.fn(),
-  seedViviWelcome: vi.fn(),
-  appendCardTurn: vi.fn(),
-  WELCOME_IMPORT_CARD: { id: "welcome-import-docs", title: "T", actions: [] },
-}))
+const { startGovernance, seedViviWelcome, appendCardTurn, dispatchImportRead, getSpawner, WELCOME_IMPORT_CARD, SPAWNER } = vi.hoisted(() => {
+  const SPAWNER = { id: "fake-spawner" }
+  return {
+    startGovernance: vi.fn(),
+    seedViviWelcome: vi.fn(),
+    appendCardTurn: vi.fn(),
+    dispatchImportRead: vi.fn(async () => true),
+    getSpawner: vi.fn(() => SPAWNER),
+    WELCOME_IMPORT_CARD: { id: "welcome-import-docs", title: "T", actions: [] },
+    SPAWNER,
+  }
+})
 
 vi.mock("@/lib/import-docs", async () => {
   const actual = await vi.importActual<typeof import("@/lib/import-docs")>("@/lib/import-docs")
   return { ...actual, startGovernance }
 })
 
-vi.mock("@/lib/vivi", () => ({ seedViviWelcome, appendCardTurn, WELCOME_IMPORT_CARD }))
+vi.mock("@/lib/spawner", () => ({ getSpawner }))
+
+vi.mock("@/lib/vivi", () => ({ seedViviWelcome, appendCardTurn, dispatchImportRead, WELCOME_IMPORT_CARD }))
 
 import { ImportError } from "@/lib/import-docs"
 import { ScaffoldError } from "@/lib/scaffold"
@@ -67,10 +75,12 @@ describe("POST /api/project/govern", () => {
     expect(startGovernance).toHaveBeenCalledWith({ targetDir: "/abs/new", projectName: "My App", entries: [] })
     expect(body).toEqual({ ok: true, project: PROJECT, mode: "from_scratch", batch: null })
     expect(seedViviWelcome).toHaveBeenCalledTimes(1)
+    expect(seedViviWelcome).toHaveBeenCalledWith(null)
     expect(appendCardTurn).toHaveBeenCalledWith(WELCOME_IMPORT_CARD, "session-1")
+    expect(dispatchImportRead).not.toHaveBeenCalled()
   })
 
-  it("with docs: uploads become entries, the batch is returned, and the import card does NOT ride the welcome", async () => {
+  it("with docs: uploads become entries, the batch is returned, the welcome carries it, and its reading turn is dispatched instead of the import card", async () => {
     startGovernance.mockResolvedValue(WITH_DOCS)
     seedViviWelcome.mockReturnValue("session-2")
 
@@ -85,7 +95,25 @@ describe("POST /api/project/govern", () => {
     expect(call.entries[0].name).toBe("spec.md")
     expect(body.batch).toEqual(WITH_DOCS.batch)
     expect(seedViviWelcome).toHaveBeenCalledTimes(1)
+    expect(seedViviWelcome).toHaveBeenCalledWith(WITH_DOCS.batch)
     expect(appendCardTurn).not.toHaveBeenCalled()
+    expect(dispatchImportRead).toHaveBeenCalledTimes(1)
+    expect(dispatchImportRead).toHaveBeenCalledWith(SPAWNER, { sessionId: "session-2", batch: WITH_DOCS.batch })
+  })
+
+  it("still answers the moment the batch is written — the response never waits on the reading turn", async () => {
+    startGovernance.mockResolvedValue(WITH_DOCS)
+    seedViviWelcome.mockReturnValue("session-3")
+    let settle: () => void = () => {}
+    dispatchImportRead.mockImplementationOnce(
+      () => new Promise<boolean>((resolve) => { settle = () => resolve(true) })
+    )
+
+    const res = await POST(postForm({ targetDir: "/abs/new" }, [{ name: "spec.md", content: "hello" }]))
+
+    expect(res.status).toBe(200)
+    expect((await res.json()).batch).toEqual(WITH_DOCS.batch)
+    settle()
   })
 
   it("maps already_governed to 409 and never seeds the welcome", async () => {

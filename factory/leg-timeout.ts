@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 import { cleanupTree } from "./cleanup-tree.ts";
+import { DEFAULT_LEG_CAP_MS } from "../lib/leg-budget.ts";
 
 const SUPERVISOR_PATH = resolve(dirname(fileURLToPath(import.meta.url)), "leg-supervisor.ts");
 
@@ -40,7 +41,7 @@ interface SpawnLegOptions {
   timeout?: LegTimeoutOptions;
 }
 
-export const DEFAULT_LEG_CAP_MS = 45 * 60 * 1000;
+export { DEFAULT_LEG_CAP_MS } from "../lib/leg-budget.ts";
 export const DEFAULT_LEG_IDLE_MS = 12 * 60 * 1000;
 export const DEFAULT_LEG_KILL_GRACE_MS = 10 * 1000;
 

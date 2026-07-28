@@ -1,13 +1,14 @@
-import { execFileSync } from "node:child_process"
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { execFileSync, spawnSync } from "node:child_process"
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import path from "node:path"
 
-import { afterEach, beforeEach, describe, expect, it } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { ControlError, type RunOptions, type RunResult, type Spawner } from "@/lib/control"
-import { UPLOADS_DIR, type RawEntry } from "@/lib/import-docs"
-import { appendCardTurn, decideCardAction, decideCardImport, importDocsIntoSession, listViviSessions, parseSkillsDirective, readTranscript, runViviTurn, seedViviWelcome, VIVI_WELCOME_MESSAGE, WELCOME_IMPORT_CARD, type ViviTurn } from "@/lib/vivi"
+import { importIntoGoverned, UPLOADS_DIR, type BatchResult, type RawEntry } from "@/lib/import-docs"
+import { getProjectRuntimeDir } from "@/lib/project-runtime"
+import { appendCardTurn, decideCardAction, decideCardImport, dispatchImportRead, importDocsIntoSession, isViviTurnRunning, listViviSessions, parseSkillsDirective, readTranscript, recoverInterruptedReads, runViviTurn, seedViviWelcome, VIVI_WELCOME_MESSAGE, WELCOME_IMPORT_CARD, type SessionImportResult, type ViviTurn } from "@/lib/vivi"
 
 function makeFakeSpawner(onRun: (options: RunOptions) => Partial<RunResult> | void = () => {}) {
   const calls = {
@@ -886,12 +887,60 @@ function docEntry(rel: string, text: string): RawEntry {
   return { rel, name: path.basename(rel), bytes: new Uint8Array(Buffer.from(text, "utf8")) }
 }
 
+// The reading turn is dispatched detached (the upload response never waits on the leg); every import test settles it so no background turn outlives the temp target.
+async function settleTranscript(sessionId: string, turns: number): Promise<ViviTurn[]> {
+  return vi.waitFor(() => {
+    const settled = readTranscript(sessionId)
+    if (settled.length < turns) throw new Error(`transcript has ${settled.length} of ${turns} turns`)
+    if (settled.some((t) => t.imported?.read?.status === "pending")) throw new Error("a reading turn is still pending")
+    return settled
+  })
+}
+
+function viviLegRuns(calls: Array<{ args: string[] }>): number {
+  return calls.filter((c) => c.args.some((a) => a.endsWith("vivi-turn.ts"))).length
+}
+
+function viviSessionDir(): string {
+  return path.join(getProjectRuntimeDir(runtimeDir, targetRoot), "vivi")
+}
+
+// A pid that is genuinely gone: the child has already exited by the time spawnSync returns.
+function deadPid(): number {
+  return spawnSync(process.execPath, ["-e", ""]).pid
+}
+
+// The on-disk state a process killed mid-read leaves behind.
+function stampReadOnDisk(sessionId: string, batchId: string, read: unknown): void {
+  const turns = readTranscript(sessionId).map((turn) =>
+    turn.imported?.batchId === batchId ? { ...turn, imported: { ...turn.imported, read } } : turn
+  )
+  writeFileSync(
+    path.join(viviSessionDir(), `${sessionId}.jsonl`),
+    `${turns.map((t) => JSON.stringify(t)).join("\n")}\n`
+  )
+}
+
+// What a replayed upload response would hand back to a second dispatch attempt.
+function batchOf(result: SessionImportResult): BatchResult {
+  return {
+    batchId: result.batchId,
+    targetPath: targetRoot,
+    language: result.language,
+    cycle: result.cycle,
+    accepted: result.accepted,
+    rejected: result.rejected,
+    findings: [],
+  }
+}
+
 describe("decideCardImport (welcome-card document import into the current project)", () => {
   it("imports the batch, appends a deterministic Vivi acknowledgment, and stamps the card decided", async () => {
     const sessionId = seedViviWelcome()
     appendCardTurn(WELCOME_IMPORT_CARD, sessionId)
+    const { spawner } = makeFakeSpawner((o) => writeReply(o, "Read them: here is what they say."))
 
-    const result = await decideCardImport({
+    const result = await decideCardImport(spawner, {
       sessionId,
       cardId: WELCOME_IMPORT_CARD.id,
       actionId: "import",
@@ -908,36 +957,47 @@ describe("decideCardImport (welcome-card document import into the current projec
     expect(existsSync(path.join(batchDir, "brief.md"))).toBe(true)
     expect(existsSync(path.join(batchDir, "manifest.json"))).toBe(true)
 
-    const turns = readTranscript(sessionId)
-    expect(turns.map((t) => t.role)).toEqual(["vivi", "card", "vivi"])
+    const turns = await settleTranscript(sessionId, 4)
+    expect(turns.map((t) => t.role)).toEqual(["vivi", "card", "vivi", "vivi"])
     expect(turns[1].decided?.actionId).toBe("import")
     expect(turns[1].decided?.summary).toBe(result.summary)
     expect(turns[2].text).toContain("2 documents")
     expect(turns[2].text).toContain("English")
-    expect(turns[2].text).toMatch(/what are you building/i)
+    expect(turns[2].text).not.toMatch(/what are you building/i)
+    expect(turns[2].text).not.toMatch(/nothing for you to check/i)
+    expect(turns[2].imported).toEqual({
+      batchId: result.batchId,
+      files: ["brief.md", "data.csv"],
+      read: { status: "done" },
+    })
+    expect(turns[3].text).toBe("Read them: here is what they say.")
   })
 
   it("names a single document and omits the language clause when nothing is scannable", async () => {
     const sessionId = seedViviWelcome()
     appendCardTurn(WELCOME_IMPORT_CARD, sessionId)
-    const result = await decideCardImport({
+    const { spawner } = makeFakeSpawner((o) => writeReply(o, "read"))
+    const result = await decideCardImport(spawner, {
       sessionId,
       cardId: WELCOME_IMPORT_CARD.id,
       actionId: "import",
       entries: [docEntry("scan.pdf", "%PDF-1.4 binary-ish")],
     })
     expect(result.summary).toBe("1 document imported")
-    const ack = readTranscript(sessionId).at(-1)!.text
+    const ack = readTranscript(sessionId)[2].text
     expect(ack).toContain("1 document is now in the kitchen")
     expect(ack).not.toContain(", in ")
+    await settleTranscript(sessionId, 4)
   })
 
   it("refuses a second import (the card is already decided) and refuses a non-import action", async () => {
     const sessionId = seedViviWelcome()
     appendCardTurn(WELCOME_IMPORT_CARD, sessionId)
-    await decideCardImport({ sessionId, cardId: WELCOME_IMPORT_CARD.id, actionId: "import", entries: [docEntry("a.md", IMPORT_ENGLISH)] })
+    const { spawner } = makeFakeSpawner((o) => writeReply(o, "read"))
+    await decideCardImport(spawner, { sessionId, cardId: WELCOME_IMPORT_CARD.id, actionId: "import", entries: [docEntry("a.md", IMPORT_ENGLISH)] })
+    await settleTranscript(sessionId, 4)
 
-    const again = await decideCardImport({ sessionId, cardId: WELCOME_IMPORT_CARD.id, actionId: "import", entries: [docEntry("b.md", IMPORT_ENGLISH)] })
+    const again = await decideCardImport(spawner, { sessionId, cardId: WELCOME_IMPORT_CARD.id, actionId: "import", entries: [docEntry("b.md", IMPORT_ENGLISH)] })
     expect(again.ok).toBe(false)
     expect(again.summary).toContain("already decided")
 
@@ -947,29 +1007,32 @@ describe("decideCardImport (welcome-card document import into the current projec
       actions: [{ id: "list", label: "List", action: { kind: "control", tool: "crs.list" } }],
     })
     await expect(
-      decideCardImport({ sessionId: controlSession, cardId: "control-card", actionId: "list", entries: [docEntry("a.md", IMPORT_ENGLISH)] })
+      decideCardImport(spawner, { sessionId: controlSession, cardId: "control-card", actionId: "list", entries: [docEntry("a.md", IMPORT_ENGLISH)] })
     ).rejects.toThrow(/not a document import/)
   })
 
   it("leaves the card undecided when the upload has no supported file, so the owner can retry", async () => {
     const sessionId = seedViviWelcome()
     appendCardTurn(WELCOME_IMPORT_CARD, sessionId)
+    const { spawner, calls } = makeFakeSpawner()
     await expect(
-      decideCardImport({ sessionId, cardId: WELCOME_IMPORT_CARD.id, actionId: "import", entries: [docEntry("a.exe", "x")] })
+      decideCardImport(spawner, { sessionId, cardId: WELCOME_IMPORT_CARD.id, actionId: "import", entries: [docEntry("a.exe", "x")] })
     ).rejects.toMatchObject({ code: "no_supported_files" })
 
     const turns = readTranscript(sessionId)
     expect(turns.map((t) => t.role)).toEqual(["vivi", "card"])
     expect(turns[1].decided).toBeUndefined()
     expect(existsSync(path.join(targetRoot, UPLOADS_DIR))).toBe(false)
+    expect(viviLegRuns(calls.run)).toBe(0)
   })
 })
 
 describe("importDocsIntoSession (standing composer import into the current project)", () => {
-  it("imports into the active cycle pre-freeze, appends variant A ack (no reprompt), and reuses the passed session", async () => {
+  it("imports into the active cycle pre-freeze, appends the reading-promise ack, and reuses the passed session", async () => {
     const sessionId = seedViviWelcome()
+    const { spawner } = makeFakeSpawner((o) => writeReply(o, "Synthesis of your brief."))
 
-    const result = await importDocsIntoSession({
+    const result = await importDocsIntoSession(spawner, {
       sessionId,
       entries: [docEntry("brief.md", IMPORT_ENGLISH), docEntry("data.csv", "a,b\n1,2\n"), docEntry("skip.exe", "x")],
     })
@@ -985,19 +1048,22 @@ describe("importDocsIntoSession (standing composer import into the current proje
     const batchDir = path.join(targetRoot, UPLOADS_DIR, result.batchId)
     expect(existsSync(path.join(batchDir, "manifest.json"))).toBe(true)
 
-    const turns = readTranscript(sessionId)
-    expect(turns.map((t) => t.role)).toEqual(["vivi", "vivi"])
-    const ack = turns.at(-1)!.text
+    const turns = await settleTranscript(sessionId, 3)
+    expect(turns.map((t) => t.role)).toEqual(["vivi", "vivi", "vivi"])
+    const ack = turns[1].text
     expect(ack).toContain("2 documents, in English, are now in the kitchen")
-    expect(ack).toContain("fold them into the spec")
+    expect(ack).toContain("reading them cover to cover right now")
     expect(ack).not.toMatch(/what are you building/i)
+    expect(ack).not.toMatch(/nothing for you to check|fold them into the spec/i)
+    expect(turns[2].text).toBe("Synthesis of your brief.")
   })
 
-  it("seeds the NEXT cycle when the canonical is frozen and says so honestly (variant B)", async () => {
+  it("seeds the NEXT cycle when the canonical is frozen and says so honestly, and still reads the batch", async () => {
     seedFrozenBaseline(targetRoot)
     const sessionId = seedViviWelcome()
+    const { spawner } = makeFakeSpawner((o) => writeReply(o, "Read; here is what it would change."))
 
-    const result = await importDocsIntoSession({
+    const result = await importDocsIntoSession(spawner, {
       sessionId,
       entries: [docEntry("notes.md", IMPORT_ENGLISH)],
     })
@@ -1005,50 +1071,244 @@ describe("importDocsIntoSession (standing composer import into the current proje
     expect(result.ok).toBe(true)
     expect(result.cycle).toEqual({ binding: "seed" })
 
-    const ack = readTranscript(sessionId).at(-1)!.text
+    const turns = await settleTranscript(sessionId, 3)
+    const ack = turns[1].text
     expect(ack).toContain("1 document, in English, is now in the kitchen")
     expect(ack).toContain("frozen")
     expect(ack).toContain("NEXT cycle")
-    expect(ack).not.toMatch(/what are you building/i)
+    expect(ack).toContain("reading it cover to cover right now")
+    expect(ack).not.toMatch(/what are you building|nothing for you to check/i)
+    expect(turns.at(-1)!.text).toBe("Read; here is what it would change.")
   })
 
   it("mints a session the client adopts when none is passed", async () => {
-    const result = await importDocsIntoSession({ entries: [docEntry("a.md", IMPORT_ENGLISH)] })
+    const { spawner } = makeFakeSpawner((o) => writeReply(o, "read"))
+    const result = await importDocsIntoSession(spawner, { entries: [docEntry("a.md", IMPORT_ENGLISH)] })
     expect(result.sessionId).toMatch(/[0-9a-f-]{36}/)
-    const turns = readTranscript(result.sessionId)
-    expect(turns.map((t) => t.role)).toEqual(["vivi"])
-    expect(turns[0].text).toContain("in the kitchen")
+    expect(readTranscript(result.sessionId)[0].text).toContain("in the kitchen")
+    const turns = await settleTranscript(result.sessionId, 2)
+    expect(turns.map((t) => t.role)).toEqual(["vivi", "vivi"])
   })
 
   it("names a planted secret and the fix in the ack (redacted), without blocking the import", async () => {
     const sessionId = seedViviWelcome()
-    const result = await importDocsIntoSession({
+    const { spawner } = makeFakeSpawner((o) => writeReply(o, "read"))
+    const result = await importDocsIntoSession(spawner, {
       sessionId,
       entries: [docEntry("brief.md", `${IMPORT_ENGLISH}\n\n${IMPORT_PLANTED_KEY}\n`)],
     })
     expect(result.ok).toBe(true)
-    const ack = readTranscript(sessionId).at(-1)!.text
+    const ack = readTranscript(sessionId)[1].text
     expect(ack).toContain("in the kitchen")
     expect(ack).toContain("Attenzione")
     expect(ack).toContain("brief.md:")
     expect(ack).toMatch(/remove or rotate/i)
     expect(ack).not.toContain(IMPORT_PLANTED_KEY)
+    await settleTranscript(sessionId, 3)
   })
 
   it("a clean import ack carries no secret warning clause", async () => {
     const sessionId = seedViviWelcome()
-    await importDocsIntoSession({ sessionId, entries: [docEntry("a.md", IMPORT_ENGLISH)] })
-    expect(readTranscript(sessionId).at(-1)!.text).not.toContain("Attenzione")
+    const { spawner } = makeFakeSpawner((o) => writeReply(o, "read"))
+    await importDocsIntoSession(spawner, { sessionId, entries: [docEntry("a.md", IMPORT_ENGLISH)] })
+    expect(readTranscript(sessionId)[1].text).not.toContain("Attenzione")
+    await settleTranscript(sessionId, 3)
   })
 
   it("throws before writing anything when the upload has no supported file", async () => {
     const sessionId = seedViviWelcome()
+    const { spawner, calls } = makeFakeSpawner()
     await expect(
-      importDocsIntoSession({ sessionId, entries: [docEntry("a.exe", "x")] })
+      importDocsIntoSession(spawner, { sessionId, entries: [docEntry("a.exe", "x")] })
     ).rejects.toMatchObject({ code: "no_supported_files" })
 
     expect(readTranscript(sessionId).map((t) => t.role)).toEqual(["vivi"])
     expect(existsSync(path.join(targetRoot, UPLOADS_DIR))).toBe(false)
+    expect(viviLegRuns(calls.run)).toBe(0)
+  })
+})
+
+describe("the auto-dispatched reading turn (importing documents IS the request)", () => {
+  it("orders the read of the exact batch, names every file, and never asks the user what they are building", async () => {
+    const sessionId = seedViviWelcome()
+    const prompts: string[] = []
+    const { spawner, calls } = makeFakeSpawner((o) => {
+      prompts.push(readFileSync(promptFileFrom(o.args), "utf8"))
+      writeReply(o, "Here is what your two documents say.")
+    })
+
+    const result = await importDocsIntoSession(spawner, {
+      sessionId,
+      entries: [docEntry("brief.md", IMPORT_ENGLISH), docEntry("notes/extra.md", IMPORT_ENGLISH)],
+    })
+    await settleTranscript(sessionId, 3)
+
+    expect(viviLegRuns(calls.run)).toBe(1)
+    expect(prompts).toHaveLength(1)
+    const prompt = prompts[0]
+    expect(prompt).toContain(`.vivicy/uploads/${result.batchId}`)
+    expect(prompt).toContain("- brief.md")
+    expect(prompt).toContain("- notes/extra.md")
+    expect(prompt).toMatch(/the import IS the request/i)
+    // The reading RULES stay single-sourced in the persona; the task only points at them.
+    expect(prompt).toMatch(/under your document-intake law/i)
+    expect(prompt).toMatch(/only the questions the corpus leaves open/i)
+    expect(prompt).not.toMatch(/Respond to the user's latest message/)
+  })
+
+  it("orders a Change Request instead of a canonical write when the batch lands on a frozen canonical", async () => {
+    seedFrozenBaseline(targetRoot)
+    const sessionId = seedViviWelcome()
+    const prompts: string[] = []
+    const { spawner } = makeFakeSpawner((o) => {
+      prompts.push(readFileSync(promptFileFrom(o.args), "utf8"))
+      writeReply(o, "read")
+    })
+
+    await importDocsIntoSession(spawner, { sessionId, entries: [docEntry("a.md", IMPORT_ENGLISH)] })
+    await settleTranscript(sessionId, 3)
+
+    expect(prompts[0]).toContain("spec_frozen: true")
+    expect(prompts[0]).toMatch(/draft ONE Change Request/)
+    expect(prompts[0]).toContain("CR-0001")
+    expect(prompts[0]).not.toMatch(/write or update the canonical docs/)
+  })
+
+  it("fires exactly once per batch: the transcript claim makes a replayed dispatch a no-op", async () => {
+    const sessionId = seedViviWelcome()
+    const { spawner, calls } = makeFakeSpawner((o) => writeReply(o, "read"))
+
+    const result = await importDocsIntoSession(spawner, {
+      sessionId,
+      entries: [docEntry("a.md", IMPORT_ENGLISH)],
+    })
+    const turns = await settleTranscript(sessionId, 3)
+    expect(viviLegRuns(calls.run)).toBe(1)
+
+    const replayed = await dispatchImportRead(spawner, { sessionId, batch: batchOf(result) })
+
+    expect(replayed).toBe(false)
+    expect(viviLegRuns(calls.run)).toBe(1)
+    expect(readTranscript(sessionId)).toEqual(turns)
+    // The claim rewrites the transcript whole through a temp+rename; no scratch file may survive it.
+    expect(readdirSync(viviSessionDir()).filter((f) => f.endsWith(".tmp"))).toEqual([])
+  })
+
+  it("reads the corpus handed over AT governance: the seeded welcome is claimable, once, and a replay after reload adds nothing", async () => {
+    const { spawner, calls } = makeFakeSpawner((o) => writeReply(o, "Both read, cover to cover."))
+    const batch = await importIntoGoverned({
+      root: targetRoot,
+      entries: [docEntry("cdc.md", IMPORT_ENGLISH), docEntry("annexe.md", IMPORT_ENGLISH)],
+    })
+    const sessionId = seedViviWelcome(batch)
+
+    expect(await dispatchImportRead(spawner, { sessionId, batch })).toBe(true)
+    const turns = await settleTranscript(sessionId, 2)
+
+    expect(turns.map((t) => t.role)).toEqual(["vivi", "vivi"])
+    expect(turns[0].imported?.read).toEqual({ status: "done" })
+    expect(turns[1].text).toBe("Both read, cover to cover.")
+    expect(viviLegRuns(calls.run)).toBe(1)
+
+    expect(await dispatchImportRead(spawner, { sessionId, batch })).toBe(false)
+    expect(viviLegRuns(calls.run)).toBe(1)
+    expect(readTranscript(sessionId)).toEqual(turns)
+  })
+
+  it("picks a read back up when the process holding it died, exactly once, and never while its owner is alive", async () => {
+    const { spawner, calls } = makeFakeSpawner((o) => writeReply(o, "Picked it back up — here is what they say."))
+    const batch = await importIntoGoverned({ root: targetRoot, entries: [docEntry("cdc.md", IMPORT_ENGLISH)] })
+    const sessionId = seedViviWelcome(batch)
+
+    // A claim this very process holds is in flight: nothing recovers it and nothing may re-dispatch it.
+    stampReadOnDisk(sessionId, batch.batchId, { status: "pending", pid: process.pid })
+    expect(recoverInterruptedReads(spawner, sessionId)).toBe(0)
+    expect(await dispatchImportRead(spawner, { sessionId, batch })).toBe(false)
+    expect(viviLegRuns(calls.run)).toBe(0)
+    expect(readTranscript(sessionId)).toHaveLength(1)
+
+    // The same claim left behind by a process that is gone: settled honestly, then picked straight back up.
+    stampReadOnDisk(sessionId, batch.batchId, { status: "pending", pid: deadPid() })
+    expect(recoverInterruptedReads(spawner, sessionId)).toBe(1)
+    const turns = await settleTranscript(sessionId, 3)
+
+    expect(turns.map((t) => t.role)).toEqual(["vivi", "vivi", "vivi"])
+    expect(turns[1].text).toMatch(/cut short/i)
+    expect(turns[1].text).toMatch(/picking it straight back up/i)
+    expect(turns[2].text).toBe("Picked it back up — here is what they say.")
+    expect(turns[0].imported?.read).toEqual({ status: "done" })
+    expect(viviLegRuns(calls.run)).toBe(1)
+
+    // Once settled, later passes find nothing to recover — the recovery is per CLAIM, not a loop.
+    expect(recoverInterruptedReads(spawner, sessionId)).toBe(0)
+    expect(await dispatchImportRead(spawner, { sessionId, batch })).toBe(false)
+    expect(viviLegRuns(calls.run)).toBe(1)
+  })
+
+  it("exposes the target's turn liveness, so a thread awaiting a reply nobody is producing is detectable", async () => {
+    let duringTurn: boolean | null = null
+    const { spawner } = makeFakeSpawner((o) => {
+      duringTurn = isViviTurnRunning(targetRoot)
+      writeReply(o, "answered")
+    })
+
+    expect(isViviTurnRunning(targetRoot)).toBe(false)
+    await runViviTurn(spawner, { message: "hello" })
+
+    expect(duringTurn).toBe(true)
+    expect(isViviTurnRunning(targetRoot)).toBe(false)
+  })
+
+  it("never dispatches a batch no turn claims", async () => {
+    const sessionId = seedViviWelcome()
+    const { spawner, calls } = makeFakeSpawner()
+    const batch = await importIntoGoverned({ root: targetRoot, entries: [docEntry("a.md", IMPORT_ENGLISH)] })
+
+    expect(await dispatchImportRead(spawner, { sessionId, batch })).toBe(false)
+    expect(viviLegRuns(calls.run)).toBe(0)
+    expect(readTranscript(sessionId)).toHaveLength(1)
+  })
+
+  it("says so in the thread when the reading turn cannot run at all, instead of leaving it silently pending", async () => {
+    const sessionId = seedViviWelcome()
+    const { spawner, calls } = makeFakeSpawner()
+    rmSync(path.join(factoryRoot, "vivi-turn.ts"))
+
+    await importDocsIntoSession(spawner, { sessionId, entries: [docEntry("a.md", IMPORT_ENGLISH)] })
+    const turns = await settleTranscript(sessionId, 3)
+
+    expect(viviLegRuns(calls.run)).toBe(0)
+    expect(turns[1].imported?.read).toEqual({ status: "done" })
+    expect(turns[2].text).toMatch(/could not read the documents/i)
+    expect(turns[2].text).toMatch(/vivi-turn\.ts/)
+  })
+
+  it("serializes turns on one target so a reading turn and the owner's next message never roll each other back", async () => {
+    const sessionId = seedViviWelcome()
+    const order: string[] = []
+    const spawner: Spawner = {
+      spawnDetached: () => ({ pid: 1 }),
+      run: async (options) => {
+        const reading = readFileSync(promptFileFrom(options.args), "utf8").includes("the import IS the request")
+        const who = reading ? "read" : "message"
+        order.push(`${who}:start`)
+        // The reading turn is deliberately the SLOW one: unserialized, the owner's message would finish inside it.
+        await new Promise((resolve) => setTimeout(resolve, reading ? 40 : 0))
+        order.push(`${who}:end`)
+        writeReply(options, reading ? "READ" : "ANSWER")
+        return { code: 0, lastLine: "", stdout: "", stderr: "" }
+      },
+      killGroup: () => true,
+      isAlive: () => false,
+    }
+
+    await importDocsIntoSession(spawner, { sessionId, entries: [docEntry("a.md", IMPORT_ENGLISH)] })
+    await runViviTurn(spawner, { sessionId, message: "Any questions for me?" })
+    const turns = await settleTranscript(sessionId, 5)
+
+    expect(order).toEqual(["read:start", "read:end", "message:start", "message:end"])
+    expect(turns.map((t) => t.role)).toEqual(["vivi", "vivi", "user", "vivi", "vivi"])
+    expect(turns.map((t) => t.text).slice(-2)).toEqual(["READ", "ANSWER"])
   })
 })
 
@@ -1080,6 +1340,23 @@ describe("seedViviWelcome (deterministic first turn)", () => {
       sessionId
     )
     expect(readTranscript(sessionId).map((t) => t.role)).toEqual(["vivi", "card"])
+  })
+
+  it("greets a governance-with-corpus session with the same intro plus the import acknowledgment — never the what-are-you-building question", async () => {
+    const batch = await importIntoGoverned({
+      root: targetRoot,
+      entries: [docEntry("brief.md", IMPORT_ENGLISH), docEntry("notes.md", IMPORT_ENGLISH)],
+    })
+    const sessionId = seedViviWelcome(batch)
+
+    const turns = readTranscript(sessionId)
+    expect(turns).toHaveLength(1)
+    expect(turns[0].role).toBe("vivi")
+    expect(turns[0].text).toContain("Ciao, I'm Vivi")
+    expect(turns[0].text).toContain("2 documents, in English, are now in the kitchen")
+    expect(turns[0].text).toContain("reading them cover to cover right now")
+    expect(turns[0].text).not.toMatch(/what do you want to build|what are you building/i)
+    expect(turns[0].imported).toEqual({ batchId: batch.batchId, files: ["brief.md", "notes.md"] })
   })
 })
 

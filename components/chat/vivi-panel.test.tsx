@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest"
 
 import type { ViviTurn } from "@/lib/vivi"
+import { VIVI_TURN_CEILING_MS } from "@/lib/leg-budget"
 import type { Notification } from "@/lib/notifications"
 import { ViviPanel } from "@/components/chat/vivi-panel"
 import {
@@ -122,6 +123,7 @@ function stubFetch(opts: {
   decide?: () => { body: unknown; status?: number }
   govern?: () => { body: unknown; status?: number }
   importDocs?: () => { body: unknown; status?: number }
+  busy?: boolean
 }) {
   const liveNotifications = (opts.notifications ?? []).slice()
   return vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -182,6 +184,8 @@ function stubFetch(opts: {
         ok: true,
         sessionId: id,
         turns: opts.turnsBySession?.[id] ?? [],
+        // The server reports a turn running on this target unless a test says otherwise.
+        busy: opts.busy ?? true,
       })
     }
     if (url.startsWith("/api/vivi/sessions")) {
@@ -596,8 +600,9 @@ describe("ViviPanel — composer document import", () => {
   const ACTIVE_ACK: ViviTurn[] = [
     {
       role: "vivi",
-      text: "Perfetto — 2 documents, in English, are now in the kitchen. I'll fold them into the spec when the workflow runs, so there's nothing for you to check right now.",
+      text: "Perfetto — 2 documents, in English, are now in the kitchen. I'm reading them cover to cover right now — un attimo — then I'll tell you what's inside and what's still open.",
       ts: "2026-07-08T12:00:00Z",
+      imported: { batchId: "2026-07-08T12-00-00-000Z", files: ["brief.md", "data.csv"], read: { status: "pending", pid: 4242 } },
     },
   ]
 
@@ -663,8 +668,9 @@ describe("ViviPanel — composer document import", () => {
     const seedAck: ViviTurn[] = [
       {
         role: "vivi",
-        text: "Perfetto — 1 document, in English, is now in the kitchen. The canonical spec is frozen and building right now, so I've set it aside for the NEXT cycle rather than the frozen corpus — nothing for you to check right now.",
+        text: "Perfetto — 1 document, in English, is now in the kitchen. The canonical spec is frozen and building right now, so it feeds the NEXT cycle rather than the frozen corpus. I'm reading it cover to cover right now — un attimo — then I'll tell you what's inside and what's still open.",
         ts: "2026-07-08T12:00:00Z",
+        imported: { batchId: "2026-07-08T12-00-00-000Z", files: ["notes.md"], read: { status: "pending", pid: 4242 } },
       },
     ]
     const fetchMock = stubFetch({
@@ -681,8 +687,9 @@ describe("ViviPanel — composer document import", () => {
     await user.click(screen.getByRole("button", { name: "Open Vivi" }))
     await user.upload(fileInput(container), [new File(["# notes"], "notes.md", { type: "text/markdown" })])
 
-    expect(await screen.findByText(/seed it aside for the NEXT cycle|NEXT cycle rather than the frozen corpus/)).toBeInTheDocument()
+    expect(await screen.findByText(/NEXT cycle rather than the frozen corpus/)).toBeInTheDocument()
     expect(screen.getByText(/frozen and building/)).toBeInTheDocument()
+    expect(screen.getByText("Vivi is reading your documents…")).toBeInTheDocument()
   })
 
   test("per-file rejects surface a skipped note under the composer", async () => {
@@ -1480,7 +1487,7 @@ describe("ViviPanel — mid-turn resume", () => {
         async (input: RequestInfo | URL, init?: RequestInit) => {
           const url = String(input)
           if (url.startsWith("/api/vivi/sessions/")) {
-            return jsonResponse({ ok: true, sessionId: SESSION_A, turns: current })
+            return jsonResponse({ ok: true, sessionId: SESSION_A, turns: current, busy: true })
           }
           if (url.startsWith("/api/vivi/sessions")) {
             return jsonResponse({
@@ -1525,6 +1532,239 @@ describe("ViviPanel — mid-turn resume", () => {
     } finally {
       vi.useRealTimers()
     }
+  })
+
+  test("a reload while Vivi is reading a fresh import shows the reading marker and polls until her synthesis lands", async () => {
+    vi.useFakeTimers()
+    try {
+      const readingThread: ViviTurn[] = [
+        {
+          role: "vivi",
+          text: "Perfetto — 2 documents, in French, are now in the kitchen. I'm reading them cover to cover right now — un attimo — then I'll tell you what's inside and what's still open.",
+          ts: "2026-07-08T11:00:00Z",
+          imported: { batchId: "2026-07-08T11-00-00-000Z", files: ["cdc.docx", "annexe.docx"], read: { status: "pending", pid: 4242 } },
+        },
+      ]
+      // The server stamps the batch `done` as the reading turn ends, in the same transcript the poll reads.
+      const readThread: ViviTurn[] = [
+        {
+          ...readingThread[0],
+          imported: { ...readingThread[0].imported!, read: { status: "done" } },
+        },
+        { role: "vivi", text: "Both read, cover to cover.", ts: "2026-07-08T11:02:00Z" },
+      ]
+      let current = readingThread
+      const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input)
+        if (url.startsWith("/api/vivi/sessions/")) {
+          return jsonResponse({ ok: true, sessionId: SESSION_A, turns: current, busy: true })
+        }
+        if (url.startsWith("/api/vivi/sessions")) {
+          return jsonResponse({
+            ok: true,
+            sessions: [
+              { sessionId: SESSION_A, updated_at: "2026-07-08T11:00:00Z", preview: "documents", turns: 1 },
+            ],
+          })
+        }
+        if (url.includes("/api/control/notifications"))
+          return jsonResponse({ ok: true, notifications: [] })
+        if (url.includes("/api/control/crs")) return jsonResponse({ ok: true, crs: [] })
+        if (init?.method === "POST") return jsonResponse({ ok: true })
+        return jsonResponse({ ok: true })
+      })
+      vi.stubGlobal("fetch", fetchMock)
+      renderPanel({ projectRoot: "/proj/x", hasTarget: true })
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: "Open Vivi" }))
+      })
+      await act(async () => {
+        for (let i = 0; i < 20; i++) await Promise.resolve()
+      })
+
+      expect(screen.getByText("Vivi is reading your documents…")).toBeInTheDocument()
+      expect(screen.queryByText("Vivi is thinking…")).not.toBeInTheDocument()
+
+      current = readThread
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(5_100)
+      })
+      expect(screen.getByText("Both read, cover to cover.")).toBeInTheDocument()
+      expect(screen.queryByText("Vivi is reading your documents…")).not.toBeInTheDocument()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  function stuckReadThread(): ViviTurn[] {
+    return [
+      {
+        role: "vivi",
+        text: "Perfetto — 1 document, in French, is now in the kitchen.",
+        ts: "2026-07-08T11:00:00Z",
+        imported: {
+          batchId: "2026-07-08T11-00-00-000Z",
+          files: ["cdc.docx"],
+          read: { status: "pending", pid: 4242 },
+        },
+      },
+    ]
+  }
+
+  function readingFetch(opts: { turns: () => ViviTurn[]; busy: () => boolean }) {
+    return vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url.startsWith("/api/vivi/sessions/")) {
+        return jsonResponse({ ok: true, sessionId: SESSION_A, turns: opts.turns(), busy: opts.busy() })
+      }
+      if (url.startsWith("/api/vivi/sessions")) {
+        return jsonResponse({
+          ok: true,
+          sessions: [
+            { sessionId: SESSION_A, updated_at: "2026-07-08T11:00:00Z", preview: "documents", turns: 1 },
+          ],
+        })
+      }
+      if (url.includes("/api/control/notifications")) return jsonResponse({ ok: true, notifications: [] })
+      if (url.includes("/api/control/crs")) return jsonResponse({ ok: true, crs: [] })
+      if (init?.method === "POST") return jsonResponse({ ok: true })
+      return jsonResponse({ ok: true })
+    })
+  }
+
+  async function openOnReadingThread() {
+    renderPanel({ projectRoot: "/proj/x", hasTarget: true })
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Open Vivi" }))
+    })
+    await act(async () => {
+      for (let i = 0; i < 20; i++) await Promise.resolve()
+    })
+    expect(screen.getByText("Vivi is reading your documents…")).toBeInTheDocument()
+  }
+
+  function sessionPolls(fetchMock: ReturnType<typeof readingFetch>): number {
+    return fetchMock.mock.calls.filter((c) => String(c[0]).startsWith("/api/vivi/sessions/")).length
+  }
+
+  test("a read no turn is producing any more is declared lost on the very next poll, and polling stops dead", async () => {
+    vi.useFakeTimers()
+    try {
+      const fetchMock = readingFetch({ turns: stuckReadThread, busy: () => false })
+      vi.stubGlobal("fetch", fetchMock)
+      await openOnReadingThread()
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(5_100)
+      })
+      const pollsAtGiveUp = sessionPolls(fetchMock)
+
+      expect(screen.queryByText("Vivi is reading your documents…")).not.toBeInTheDocument()
+      expect(screen.getByText(/never came back from reading your documents/)).toBeInTheDocument()
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(60_000)
+      })
+      expect(sessionPolls(fetchMock)).toBe(pollsAtGiveUp)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  test("a turn the server says is still running is never called lost — not even past a single leg's cap", async () => {
+    vi.useFakeTimers()
+    try {
+      const fetchMock = readingFetch({ turns: stuckReadThread, busy: () => true })
+      vi.stubGlobal("fetch", fetchMock)
+      await openOnReadingThread()
+
+      // Past the ceiling of ONE leg (45 min): a multi-round turn legitimately lives longer, so the bound must not be a leg's.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(50 * 60_000)
+      })
+      expect(screen.getByText("Vivi is reading your documents…")).toBeInTheDocument()
+      expect(screen.queryByText(/never came back/)).not.toBeInTheDocument()
+      const polled = sessionPolls(fetchMock)
+
+      // Past the whole TURN's ceiling (every round is one leg), the backstop finally fires.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(VIVI_TURN_CEILING_MS * 1.3)
+      })
+      expect(screen.getByText(/never came back from reading your documents/)).toBeInTheDocument()
+      expect(sessionPolls(fetchMock)).toBeGreaterThan(polled)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  test("a give-up on one wait is not erased by the owner's next message: it is keyed to what is awaited", async () => {
+    vi.useFakeTimers()
+    try {
+      let thread = stuckReadThread()
+      const answered: ViviTurn[] = [
+        ...stuckReadThread(),
+        { role: "user", text: "Alors?", ts: "2026-07-08T11:30:00Z" },
+        { role: "vivi", text: "Answered your question.", ts: "2026-07-08T11:30:20Z" },
+      ]
+      const base = readingFetch({ turns: () => thread, busy: () => false })
+      const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (String(input) === "/api/vivi" && init?.method === "POST") {
+          thread = answered
+          return jsonResponse({ ok: true, sessionId: SESSION_A, reply: "Answered your question.", wrote: [] })
+        }
+        return base(input, init)
+      })
+      vi.stubGlobal("fetch", fetchMock)
+      await openOnReadingThread()
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(5_100)
+      })
+      expect(screen.getByText(/never came back from reading your documents/)).toBeInTheDocument()
+
+      // The owner sends a message anyway and gets answered: the verdict on the STILL-pending read must survive it, or the false spinner returns under a fully answered exchange.
+      await act(async () => {
+        fireEvent.change(screen.getByLabelText("Message Vivi"), { target: { value: "Alors?" } })
+        fireEvent.keyDown(screen.getByLabelText("Message Vivi"), { key: "Enter" })
+      })
+      await act(async () => {
+        for (let i = 0; i < 20; i++) await Promise.resolve()
+      })
+
+      expect(screen.getByText("Answered your question.")).toBeInTheDocument()
+      expect(screen.getByText(/never came back from reading your documents/)).toBeInTheDocument()
+      expect(screen.queryByText("Vivi is reading your documents…")).not.toBeInTheDocument()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  test("the reading marker survives a turn landing BEHIND the pending acknowledgment", async () => {
+    const behind: ViviTurn[] = [
+      ...stuckReadThread(),
+      {
+        role: "action",
+        text: "✓ status.read: 0 of 0 issues done",
+        ts: "2026-07-08T11:01:00Z",
+        actions: [{ tool: "status.read", ok: true, summary: "0 of 0 issues done" }],
+      },
+      { role: "vivi", text: "An earlier turn finally answered.", ts: "2026-07-08T11:01:30Z" },
+    ]
+    vi.stubGlobal(
+      "fetch",
+      stubFetch({
+        sessions: [
+          { sessionId: SESSION_A, updated_at: "2026-07-08T11:01:30Z", preview: "documents", turns: 3 },
+        ],
+        turnsBySession: { [SESSION_A]: behind },
+      })
+    )
+    const user = userEvent.setup()
+    renderPanel({ projectRoot: "/proj/x", hasTarget: true })
+
+    await user.click(screen.getByRole("button", { name: "Open Vivi" }))
+    expect(await screen.findByText("An earlier turn finally answered.")).toBeInTheDocument()
+    expect(screen.getByText("Vivi is reading your documents…")).toBeInTheDocument()
   })
 })
 

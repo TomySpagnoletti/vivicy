@@ -1,5 +1,6 @@
 import { ControlError } from "@/lib/control"
 import { ImportError } from "@/lib/import-docs"
+import { getSpawner } from "@/lib/spawner"
 import { IMPORT_STATUS_BY_CODE, readUploadEntries } from "@/lib/upload-form"
 import { decideCardImport } from "@/lib/vivi"
 
@@ -26,7 +27,7 @@ export async function POST(request: Request) {
 
   try {
     const entries = await readUploadEntries(form)
-    const result = await decideCardImport({ sessionId, cardId, actionId, entries })
+    const result = await decideCardImport(getSpawner(), { sessionId, cardId, actionId, entries })
     return Response.json(result, { status: result.ok ? 200 : 422 })
   } catch (error) {
     if (error instanceof ImportError) {

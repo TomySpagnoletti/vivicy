@@ -1,6 +1,6 @@
 import { ControlError } from "@/lib/control"
 import { getSpawner } from "@/lib/spawner"
-import { runViviTurn } from "@/lib/vivi"
+import { recoverInterruptedReads, runViviTurn } from "@/lib/vivi"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -14,7 +14,10 @@ export async function POST(request: Request) {
     const message = typeof body?.message === "string" ? body.message : ""
     const sessionId = typeof body?.sessionId === "string" ? body.sessionId : undefined
 
-    const result = await runViviTurn(getSpawner(), { sessionId, message })
+    const spawner = getSpawner()
+    // A read orphaned by a dead process is picked back up before this turn queues behind it, so the owner's next message never runs on a corpus Vivi silently never read.
+    if (sessionId) recoverInterruptedReads(spawner, sessionId)
+    const result = await runViviTurn(spawner, { sessionId, message })
     return Response.json({
       ok: true,
       sessionId: result.sessionId,

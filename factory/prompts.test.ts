@@ -326,6 +326,21 @@ test("acceptance.md carries the whole-product acceptance method (fresh-context, 
   assert.match(text, /You edit no product file and you decide nothing|propose/i, "acceptance.md must be propose-only (P5): the leg proposes, the orchestrator routes");
 });
 
+test("vivi.md pins the document-intake law: read the whole corpus first, prove it with the synthesis, grill only the gaps", () => {
+  const text = readPrompt("vivi.md");
+  assert.match(text, /## When documents land — read first, then grill only the gaps/, "vivi.md must carry the document-intake section");
+  assert.match(text, /Handing you documents IS a request/i, "the section must state the import itself is the request");
+  assert.match(text, /END TO END/, "the section must require reading every file end to end");
+  assert.match(text, /a partially read source is a falsely read source/i, "the section must carry the exhaustive-observation law");
+  assert.match(text, /never modify anything under `\.vivicy\/uploads\/`/i, "the section must keep the uploads immutable");
+  assert.match(text, /synthesis that PROVES the reading/i, "the section must require the synthesis as the proof of reading");
+  assert.match(text, /Never ask what the documents already answer/i, "the section must forbid re-asking what the corpus answers");
+  assert.match(text, /what are you building\?" after a cahier des charges/i, "the section must name the observed failure it forbids");
+  assert.match(text, /Never defer the reading/i, "the section must forbid deferring the reading");
+  assert.match(text, /there's nothing for you to check right now/i, "the section must forbid the observed deferral phrasing verbatim");
+  assert.match(text, /it is not your reading, and it never excuses you from reading now/i, "the section must deny the doc-prep stage as an excuse");
+});
+
 test("vivi.md's quality bar requires the spec to state its end-to-end acceptance scenario(s)", () => {
   const text = readPrompt("vivi.md");
   assert.match(text, /## The quality bar for every canonical doc/, "vivi.md must keep the quality-bar section");
@@ -398,7 +413,7 @@ const PINNED_KERNELS: Array<{ kernel: string; anchor: RegExp; prompts: string[] 
   {
     kernel: "anti-token-economy asymmetry (exhaustive observation, minimal addition)",
     anchor: /[Tt]oken economy never trumps evidence/,
-    prompts: ["implementer.md", "reviewer.md", "extractor.md", "extraction-verifier.md", "map-review.md", "acceptance.md", "readiness-checker.md", "spike-verifier.md", "doc-prep.md", "skill-scout.md", "cr-applier.md"],
+    prompts: ["implementer.md", "reviewer.md", "extractor.md", "extraction-verifier.md", "map-review.md", "acceptance.md", "readiness-checker.md", "spike-verifier.md", "doc-prep.md", "skill-scout.md", "cr-applier.md", "vivi.md"],
   },
   {
     kernel: "negative claims only over enumerated, visited territory",

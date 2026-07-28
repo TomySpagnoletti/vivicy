@@ -1,6 +1,7 @@
 import { ImportError, startGovernance, type RawEntry } from "@/lib/import-docs"
 import { ScaffoldError } from "@/lib/scaffold"
-import { appendCardTurn, seedViviWelcome, WELCOME_IMPORT_CARD } from "@/lib/vivi"
+import { getSpawner } from "@/lib/spawner"
+import { appendCardTurn, dispatchImportRead, seedViviWelcome, WELCOME_IMPORT_CARD } from "@/lib/vivi"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -30,9 +31,11 @@ export async function POST(request: Request) {
 
     const result = await startGovernance({ targetDir, projectName, entries })
 
+    // Best-effort greeting: a governed project is never failed by a transcript hiccup. With a corpus the welcome carries the import acknowledgment and the reading turn is dispatched detached — the response never waits on the agent leg.
     try {
-      const sessionId = seedViviWelcome()
-      if (!result.batch) appendCardTurn(WELCOME_IMPORT_CARD, sessionId)
+      const sessionId = seedViviWelcome(result.batch)
+      if (result.batch) void dispatchImportRead(getSpawner(), { sessionId, batch: result.batch })
+      else appendCardTurn(WELCOME_IMPORT_CARD, sessionId)
     } catch {}
 
     return Response.json({ ok: true, ...result })
