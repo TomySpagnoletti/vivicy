@@ -402,38 +402,39 @@ export interface CardImportResult {
 
 const MAX_FINDINGS_IN_ACK = 5
 
+// The ONE count switch for every string this module emits: each branch is a COMPLETE self-agreeing phrase (a subject carries its own verb, a noun its own suffix), never fragments that must agree across an interpolation.
+function countForm(count: number, one: string, many: string): string {
+  return count === 1 ? one : many
+}
+
 // Deterministic, redacted security clause: names the file:line and the four-char shape signal (never the secret) plus the fix — the secret value is never re-emitted by construction (lib/secret-scan redaction invariant).
 function secretFindingAckClause(findings: SecretFileFinding[]): string {
   if (findings.length === 0) return ""
   const files = [...new Set(findings.map((f) => f.path))]
-  const fileNoun = files.length === 1 ? "1 file" : `${files.length} files`
   const shown = findings.slice(0, MAX_FINDINGS_IN_ACK)
   const locations = shown.map((f) => `${f.path}:${f.line} (${f.redacted})`).join(", ")
-  const more = findings.length > shown.length ? ", …" : ""
-  const themKeys = findings.length === 1 ? "it" : "them"
-  const filePlural = files.length === 1 ? "" : "s"
+  const remaining = findings.length - shown.length
+  const more = remaining > 0 ? `, and ${remaining} more` : ""
   return (
-    `\n\n⚠ Attenzione — I spotted what looks like a real secret key in ${fileNoun}: ${locations}${more}. ` +
-    `A credential must never live in the spec or in git history, so please remove or rotate ${themKeys} ` +
-    `and re-import the cleaned file${filePlural} before we build.`
+    `\n\n⚠ Attenzione — I spotted ${countForm(findings.length, "what looks like a real secret key", "what look like real secret keys")} ` +
+    `in ${countForm(files.length, "1 file", `${files.length} files`)}: ${locations}${more}. ` +
+    `A credential must never live in the spec or in git history, so please remove or rotate ${countForm(findings.length, "it", "them")} ` +
+    `and re-import the ${countForm(files.length, "cleaned file", "cleaned files")} before we build.`
   )
 }
 
 // Server-authored, deterministic — names the count + detected language and reflects the SERVER's cycle binding (seed = the canonical is frozen, so the batch feeds the next cycle). Zero LLM in the render (P2), and it promises only what the dispatched reading turn then delivers.
 function viviImportAck(batch: BatchResult, opts: { welcome: boolean }): string {
   const count = batch.accepted.length
-  const noun = count === 1 ? "1 document" : `${count} documents`
-  const verb = count === 1 ? "is" : "are"
-  const them = count === 1 ? "it" : "them"
   const name = languageDisplayName(batch.language)
   const langClause = name ? `, in ${name},` : ""
   const intro = opts.welcome ? `${VIVI_WELCOME_INTRO}\n\n` : ""
-  const landed = `Perfetto — ${noun}${langClause} ${verb} now in the kitchen.`
+  const landed = `Perfetto — ${countForm(count, `1 document${langClause} is`, `${count} documents${langClause} are`)} now in the kitchen.`
   const fate =
     batch.cycle.binding === "seed"
-      ? ` The canonical spec is frozen and building right now, so ${them} ${count === 1 ? "feeds" : "feed"} the NEXT cycle rather than the frozen corpus.`
+      ? ` The canonical spec is frozen and building right now, so ${countForm(count, "it feeds", "they feed")} the NEXT cycle rather than the frozen corpus.`
       : ""
-  const reading = ` I'm reading ${them} cover to cover right now — un attimo — then I'll tell you what's inside and what's still open.`
+  const reading = ` I'm reading ${countForm(count, "it", "them")} cover to cover right now — un attimo — then I'll tell you what's inside and what's still open.`
   const security = secretFindingAckClause(batch.findings)
   return `${intro}${landed}${fate}${reading}${security}`
 }
@@ -448,7 +449,7 @@ function importTurn(batch: BatchResult, opts: { welcome: boolean }): ViviTurn {
 }
 
 function importDecisionSummary(count: number, skipped: number, language: string): string {
-  const parts = [count === 1 ? "1 document imported" : `${count} documents imported`]
+  const parts = [countForm(count, "1 document imported", `${count} documents imported`)]
   const name = languageDisplayName(language)
   if (name) parts.push(name)
   if (skipped > 0) parts.push(`${skipped} skipped`)
@@ -523,7 +524,7 @@ async function runImportRead(
     claimed = true
     await runTurn(spawner, sessionId, { kind: "import_read", imported })
   } catch (error) {
-    noteImportReadFailure(sessionId, error)
+    noteImportReadFailure(sessionId, imported.files.length, error)
   }
   try {
     if (claimed) stampImportRead(sessionId, imported.batchId, { status: "done" })
@@ -538,9 +539,10 @@ export function recoverInterruptedReads(spawner: Spawner, sessionId: string): nu
   for (const turn of readTranscript(sessionId)) {
     const imported = turn.imported
     if (!imported || imported.read?.status !== "pending" || readerAlive(imported.read.pid)) continue
+    const count = imported.files.length
     appendTurn(sessionId, {
       role: "vivi",
-      text: `My reading of ${imported.files.length === 1 ? "that document" : "those documents"} was cut short — Vivicy stopped while I was still in them. Nothing is lost: I'm picking it straight back up.`,
+      text: `My reading of ${countForm(count, "that document", "those documents")} was cut short — Vivicy stopped while I was still in ${countForm(count, "it", "them")}. Nothing is lost: I'm picking it straight back up.`,
       ts: new Date().toISOString(),
     })
     if (stampImportRead(sessionId, imported.batchId, { status: "interrupted" }) === null) continue
@@ -550,12 +552,13 @@ export function recoverInterruptedReads(spawner: Spawner, sessionId: string): nu
   return recovered
 }
 
-function noteImportReadFailure(sessionId: string, error: unknown): void {
+function noteImportReadFailure(sessionId: string, count: number, error: unknown): void {
   const reason = error instanceof Error ? error.message : String(error)
+  const them = countForm(count, "it", "them")
   try {
     appendTurn(sessionId, {
       role: "vivi",
-      text: `I could not read the documents I just took in: ${reason}. They are safe in the kitchen — ask me to read them and I'll pick them straight up.`,
+      text: `I could not read ${countForm(count, "the document", "the documents")} I just took in: ${reason}. ${countForm(count, "It is", "They are")} safe in the kitchen — ask me to read ${them} and I'll pick ${them} straight up.`,
       ts: new Date().toISOString(),
     })
   } catch {}
@@ -760,8 +763,9 @@ const CANONICAL_WRITE_ORDER =
 
 // This turn has no user message to answer, so the task carries the batch itself and points at the law; the reading rules themselves live ONLY in the persona (factory/prompts/vivi.md), never restated here.
 function importReadTask(imported: ViviImportEvent, frozen: boolean, crId: string): string {
-  const noun = imported.files.length === 1 ? "1 document" : `${imported.files.length} documents`
-  const them = imported.files.length === 1 ? "it" : "them"
+  const count = imported.files.length
+  const noun = countForm(count, "1 document", `${count} documents`)
+  const them = countForm(count, "it", "them")
   const listing = imported.files.map((f) => `- ${f}`).join("\n")
   const tail = frozen
     ? `The canonical is LOCKED, so if the corpus genuinely changes what the product must do, ` +
@@ -1291,7 +1295,7 @@ async function runTurnLocked(
     if (round >= maxRounds) {
       const finalReply =
         `${spokenText.length > 0 ? `${spokenText}\n\n` : ""}${renderActionResults(results)}\n\n` +
-        `→ action round limit (${maxRounds}) reached this turn; the results above are recorded.${gitNote}`
+        `→ action round limit (${maxRounds}) reached this turn; ${countForm(results.length, "the result above is recorded", "the results above are recorded")}.${gitNote}`
       appendTurn(sessionId, { role: "vivi", text: finalReply, ts: new Date().toISOString() })
       return { sessionId, reply: finalReply, wrote, actions: allActions }
     }
@@ -1306,7 +1310,12 @@ function resolveMaxActionRounds(raw: string | undefined): number {
 
 function withExecutedActionsNote(reason: string, executed: ViviActionResult[]): string {
   if (executed.length === 0) return reason
-  return `${reason}; note: ${executed.length} action(s) already executed this turn remain in effect`
+  const note = countForm(
+    executed.length,
+    "1 action already executed this turn remains in effect",
+    `${executed.length} actions already executed this turn remain in effect`
+  )
+  return `${reason}; note: ${note}`
 }
 
 async function spawnViviLeg(

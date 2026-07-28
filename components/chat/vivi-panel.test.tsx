@@ -689,7 +689,7 @@ describe("ViviPanel — composer document import", () => {
 
     expect(await screen.findByText(/NEXT cycle rather than the frozen corpus/)).toBeInTheDocument()
     expect(screen.getByText(/frozen and building/)).toBeInTheDocument()
-    expect(screen.getByText("Vivi is reading your documents…")).toBeInTheDocument()
+    expect(screen.getByText("Vivi is reading what you handed her…")).toBeInTheDocument()
   })
 
   test("per-file rejects surface a skipped note under the composer", async () => {
@@ -1582,7 +1582,7 @@ describe("ViviPanel — mid-turn resume", () => {
         for (let i = 0; i < 20; i++) await Promise.resolve()
       })
 
-      expect(screen.getByText("Vivi is reading your documents…")).toBeInTheDocument()
+      expect(screen.getByText("Vivi is reading what you handed her…")).toBeInTheDocument()
       expect(screen.queryByText("Vivi is thinking…")).not.toBeInTheDocument()
 
       current = readThread
@@ -1590,7 +1590,7 @@ describe("ViviPanel — mid-turn resume", () => {
         await vi.advanceTimersByTimeAsync(5_100)
       })
       expect(screen.getByText("Both read, cover to cover.")).toBeInTheDocument()
-      expect(screen.queryByText("Vivi is reading your documents…")).not.toBeInTheDocument()
+      expect(screen.queryByText("Vivi is reading what you handed her…")).not.toBeInTheDocument()
     } finally {
       vi.useRealTimers()
     }
@@ -1610,6 +1610,21 @@ describe("ViviPanel — mid-turn resume", () => {
       },
     ]
   }
+
+  // The same stuck state over a MULTI-file batch: the marker and the give-up line carry no count, so they must read identically here.
+  function stuckMultiDocThread(): ViviTurn[] {
+    const [turn] = stuckReadThread()
+    return [
+      {
+        ...turn,
+        text: "Perfetto — 2 documents, in French, are now in the kitchen.",
+        imported: { ...turn.imported!, files: ["cdc.docx", "annexe.docx"] },
+      },
+    ]
+  }
+
+  const READING_LOST =
+    "Vivi never came back from reading what you handed her — ask her to read it again and she'll pick it straight up."
 
   function readingFetch(opts: { turns: () => ViviTurn[]; busy: () => boolean }) {
     return vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -1640,7 +1655,7 @@ describe("ViviPanel — mid-turn resume", () => {
     await act(async () => {
       for (let i = 0; i < 20; i++) await Promise.resolve()
     })
-    expect(screen.getByText("Vivi is reading your documents…")).toBeInTheDocument()
+    expect(screen.getByText("Vivi is reading what you handed her…")).toBeInTheDocument()
   }
 
   function sessionPolls(fetchMock: ReturnType<typeof readingFetch>): number {
@@ -1659,8 +1674,8 @@ describe("ViviPanel — mid-turn resume", () => {
       })
       const pollsAtGiveUp = sessionPolls(fetchMock)
 
-      expect(screen.queryByText("Vivi is reading your documents…")).not.toBeInTheDocument()
-      expect(screen.getByText(/never came back from reading your documents/)).toBeInTheDocument()
+      expect(screen.queryByText("Vivi is reading what you handed her…")).not.toBeInTheDocument()
+      expect(screen.getByText(READING_LOST)).toBeInTheDocument()
 
       await act(async () => {
         await vi.advanceTimersByTimeAsync(60_000)
@@ -1674,7 +1689,7 @@ describe("ViviPanel — mid-turn resume", () => {
   test("a turn the server says is still running is never called lost — not even past a single leg's cap", async () => {
     vi.useFakeTimers()
     try {
-      const fetchMock = readingFetch({ turns: stuckReadThread, busy: () => true })
+      const fetchMock = readingFetch({ turns: stuckMultiDocThread, busy: () => true })
       vi.stubGlobal("fetch", fetchMock)
       await openOnReadingThread()
 
@@ -1682,7 +1697,7 @@ describe("ViviPanel — mid-turn resume", () => {
       await act(async () => {
         await vi.advanceTimersByTimeAsync(50 * 60_000)
       })
-      expect(screen.getByText("Vivi is reading your documents…")).toBeInTheDocument()
+      expect(screen.getByText("Vivi is reading what you handed her…")).toBeInTheDocument()
       expect(screen.queryByText(/never came back/)).not.toBeInTheDocument()
       const polled = sessionPolls(fetchMock)
 
@@ -1690,7 +1705,7 @@ describe("ViviPanel — mid-turn resume", () => {
       await act(async () => {
         await vi.advanceTimersByTimeAsync(VIVI_TURN_CEILING_MS * 1.3)
       })
-      expect(screen.getByText(/never came back from reading your documents/)).toBeInTheDocument()
+      expect(screen.getByText(READING_LOST)).toBeInTheDocument()
       expect(sessionPolls(fetchMock)).toBeGreaterThan(polled)
     } finally {
       vi.useRealTimers()
@@ -1720,7 +1735,7 @@ describe("ViviPanel — mid-turn resume", () => {
       await act(async () => {
         await vi.advanceTimersByTimeAsync(5_100)
       })
-      expect(screen.getByText(/never came back from reading your documents/)).toBeInTheDocument()
+      expect(screen.getByText(READING_LOST)).toBeInTheDocument()
 
       // The owner sends a message anyway and gets answered: the verdict on the STILL-pending read must survive it, or the false spinner returns under a fully answered exchange.
       await act(async () => {
@@ -1732,8 +1747,8 @@ describe("ViviPanel — mid-turn resume", () => {
       })
 
       expect(screen.getByText("Answered your question.")).toBeInTheDocument()
-      expect(screen.getByText(/never came back from reading your documents/)).toBeInTheDocument()
-      expect(screen.queryByText("Vivi is reading your documents…")).not.toBeInTheDocument()
+      expect(screen.getByText(READING_LOST)).toBeInTheDocument()
+      expect(screen.queryByText("Vivi is reading what you handed her…")).not.toBeInTheDocument()
     } finally {
       vi.useRealTimers()
     }
@@ -1764,7 +1779,7 @@ describe("ViviPanel — mid-turn resume", () => {
 
     await user.click(screen.getByRole("button", { name: "Open Vivi" }))
     expect(await screen.findByText("An earlier turn finally answered.")).toBeInTheDocument()
-    expect(screen.getByText("Vivi is reading your documents…")).toBeInTheDocument()
+    expect(screen.getByText("Vivi is reading what you handed her…")).toBeInTheDocument()
   })
 })
 

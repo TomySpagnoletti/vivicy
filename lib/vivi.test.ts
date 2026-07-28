@@ -559,8 +559,21 @@ describe("runViviTurn — action protocol (the governess loop)", () => {
 
     expect(legRuns(calls)).toHaveLength(2)
     expect(result.actions).toHaveLength(2)
-    expect(result.reply).toContain("action round limit (2) reached")
     expect(result.reply).toContain("✓ crs.list")
+    // The note speaks about the block printed above it — the CLOSING round's results — not about the turn's running total.
+    expect(result.reply).toContain("→ action round limit (2) reached this turn; the result above is recorded.")
+  })
+
+  it("counts the closing round's results in the plural when it ran several", async () => {
+    process.env.VIVICY_VIVI_MAX_ROUNDS = "1"
+    const { spawner } = makeFakeSpawner((o) => {
+      if (!o.args.some((a) => a.endsWith("vivi-turn.ts"))) return
+      writeReply(o, replyWithActions('{"actions": [{"tool": "crs.list"}, {"tool": "crs.list"}]}'))
+    })
+    const result = await runViviTurn(spawner, { message: "spin" })
+
+    expect(result.actions).toHaveLength(2)
+    expect(result.reply).toContain("→ action round limit (1) reached this turn; the results above are recorded.")
   })
 
   it("clamps an invalid VIVICY_VIVI_MAX_ROUNDS to the default", async () => {
@@ -593,11 +606,29 @@ describe("runViviTurn — action protocol (the governess loop)", () => {
     const result = await runViviTurn(spawner, { message: "go" })
 
     expect(result.rejected).toMatch(/outside its allowlist/)
-    expect(result.rejected).toMatch(/1 action\(s\) already executed this turn remain in effect/)
+    expect(result.rejected).toMatch(/1 action already executed this turn remains in effect/)
     expect(result.wrote).toEqual([])
     expect(result.actions).toHaveLength(1)
     expect(readFileSync(path.join(targetRoot, CANONICAL, "01-product.md"), "utf8")).toBe("original\n")
     expect(existsSync(path.join(targetRoot, ".vivicy", "baselines", "forged.md"))).toBe(false)
+  })
+
+  it("counts the executed actions in the plural when the rejected turn ran several", async () => {
+    let leg = 0
+    const { spawner } = makeFakeSpawner((o) => {
+      if (!o.args.some((a) => a.endsWith("vivi-turn.ts"))) return
+      leg += 1
+      if (leg === 1) {
+        writeReply(o, replyWithActions('{"actions": [{"tool": "crs.list"}, {"tool": "crs.list"}]}'))
+      } else {
+        writeInTarget(targetRoot, path.join(".vivicy", "baselines", "forged.md"), "no\n")
+        writeReply(o, "oops")
+      }
+    })
+    const result = await runViviTurn(spawner, { message: "go" })
+
+    expect(result.actions).toHaveLength(2)
+    expect(result.rejected).toMatch(/2 actions already executed this turn remain in effect/)
   })
 
   it("accumulates writes across rounds in `wrote` and per-round on the transcript", async () => {
@@ -1100,10 +1131,43 @@ describe("importDocsIntoSession (standing composer import into the current proje
     expect(result.ok).toBe(true)
     const ack = readTranscript(sessionId)[1].text
     expect(ack).toContain("in the kitchen")
-    expect(ack).toContain("Attenzione")
-    expect(ack).toContain("brief.md:")
-    expect(ack).toMatch(/remove or rotate/i)
+    expect(ack).toContain(
+      "⚠ Attenzione — I spotted what looks like a real secret key in 1 file: brief.md:3 (sk-a…). A credential must never live in the spec or in git history, so please remove or rotate it and re-import the cleaned file before we build."
+    )
     expect(ack).not.toContain(IMPORT_PLANTED_KEY)
+    await settleTranscript(sessionId, 3)
+  })
+
+  it("names several planted secrets in the plural, still redacted", async () => {
+    const sessionId = seedViviWelcome()
+    const { spawner } = makeFakeSpawner((o) => writeReply(o, "read"))
+    await importDocsIntoSession(spawner, {
+      sessionId,
+      entries: [
+        docEntry("brief.md", `${IMPORT_ENGLISH}\n\n${IMPORT_PLANTED_KEY}\n`),
+        docEntry("notes.md", `${IMPORT_ENGLISH}\n\n${IMPORT_PLANTED_KEY}\n`),
+      ],
+    })
+    const ack = readTranscript(sessionId)[1].text
+    expect(ack).toContain(
+      "⚠ Attenzione — I spotted what look like real secret keys in 2 files: brief.md:3 (sk-a…), notes.md:3 (sk-a…). A credential must never live in the spec or in git history, so please remove or rotate them and re-import the cleaned files before we build."
+    )
+    expect(ack).not.toContain(IMPORT_PLANTED_KEY)
+    await settleTranscript(sessionId, 3)
+  })
+
+  it("counts the secrets past the listing cap instead of trailing off", async () => {
+    const sessionId = seedViviWelcome()
+    const { spawner } = makeFakeSpawner((o) => writeReply(o, "read"))
+    await importDocsIntoSession(spawner, {
+      sessionId,
+      entries: Array.from({ length: 7 }, (_, i) =>
+        docEntry(`leak-${i}.md`, `${IMPORT_ENGLISH}\n\n${IMPORT_PLANTED_KEY}\n`)
+      ),
+    })
+    expect(readTranscript(sessionId)[1].text).toContain(
+      "in 7 files: leak-0.md:3 (sk-a…), leak-1.md:3 (sk-a…), leak-2.md:3 (sk-a…), leak-3.md:3 (sk-a…), leak-4.md:3 (sk-a…), and 2 more. A credential must never live"
+    )
     await settleTranscript(sessionId, 3)
   })
 
@@ -1125,6 +1189,35 @@ describe("importDocsIntoSession (standing composer import into the current proje
     expect(readTranscript(sessionId).map((t) => t.role)).toEqual(["vivi"])
     expect(existsSync(path.join(targetRoot, UPLOADS_DIR))).toBe(false)
     expect(viviLegRuns(calls.run)).toBe(0)
+  })
+})
+
+describe("the import acknowledgment's English (both cycle bindings × both counts, verbatim)", () => {
+  async function ackOf(files: string[]): Promise<string> {
+    const { spawner } = makeFakeSpawner((o) => writeReply(o, "read"))
+    const result = await importDocsIntoSession(spawner, {
+      entries: files.map((f) => docEntry(f, IMPORT_ENGLISH)),
+    })
+    return (await settleTranscript(result.sessionId, 2))[0].text
+  }
+
+  it("an active cycle: one document is in the kitchen and read, several documents are", async () => {
+    expect(await ackOf(["brief.md"])).toBe(
+      "Perfetto — 1 document, in English, is now in the kitchen. I'm reading it cover to cover right now — un attimo — then I'll tell you what's inside and what's still open."
+    )
+    expect(await ackOf(["brief.md", "notes.md"])).toBe(
+      "Perfetto — 2 documents, in English, are now in the kitchen. I'm reading them cover to cover right now — un attimo — then I'll tell you what's inside and what's still open."
+    )
+  })
+
+  it("a frozen canonical: the seed batch feeds the NEXT cycle, one document or several", async () => {
+    seedFrozenBaseline(targetRoot)
+    expect(await ackOf(["brief.md"])).toBe(
+      "Perfetto — 1 document, in English, is now in the kitchen. The canonical spec is frozen and building right now, so it feeds the NEXT cycle rather than the frozen corpus. I'm reading it cover to cover right now — un attimo — then I'll tell you what's inside and what's still open."
+    )
+    expect(await ackOf(["brief.md", "notes.md"])).toBe(
+      "Perfetto — 2 documents, in English, are now in the kitchen. The canonical spec is frozen and building right now, so they feed the NEXT cycle rather than the frozen corpus. I'm reading them cover to cover right now — un attimo — then I'll tell you what's inside and what's still open."
+    )
   })
 })
 
@@ -1233,8 +1326,9 @@ describe("the auto-dispatched reading turn (importing documents IS the request)"
     const turns = await settleTranscript(sessionId, 3)
 
     expect(turns.map((t) => t.role)).toEqual(["vivi", "vivi", "vivi"])
-    expect(turns[1].text).toMatch(/cut short/i)
-    expect(turns[1].text).toMatch(/picking it straight back up/i)
+    expect(turns[1].text).toBe(
+      "My reading of that document was cut short — Vivicy stopped while I was still in it. Nothing is lost: I'm picking it straight back up."
+    )
     expect(turns[2].text).toBe("Picked it back up — here is what they say.")
     expect(turns[0].imported?.read).toEqual({ status: "done" })
     expect(viviLegRuns(calls.run)).toBe(1)
@@ -1279,7 +1373,8 @@ describe("the auto-dispatched reading turn (importing documents IS the request)"
 
     expect(viviLegRuns(calls.run)).toBe(0)
     expect(turns[1].imported?.read).toEqual({ status: "done" })
-    expect(turns[2].text).toMatch(/could not read the documents/i)
+    expect(turns[2].text).toMatch(/could not read the document I just took in/i)
+    expect(turns[2].text).toMatch(/It is safe in the kitchen — ask me to read it and I'll pick it straight up\.$/)
     expect(turns[2].text).toMatch(/vivi-turn\.ts/)
   })
 
