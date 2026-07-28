@@ -475,7 +475,7 @@ export function ViviPanel({
         aria-hidden={!open}
         inert={!open}
         className={cn(
-          "fixed inset-y-0 left-0 z-40 flex h-dvh w-[clamp(380px,25vw,480px)] flex-col border-r border-border bg-background shadow-xl transition-transform duration-200 ease-out",
+          "fixed inset-y-0 left-0 z-40 flex h-dvh w-[min(100%,clamp(380px,25vw,480px))] flex-col border-r border-border bg-background shadow-xl transition-transform duration-200 ease-out",
           open ? "translate-x-0" : "-translate-x-full"
         )}
       >
