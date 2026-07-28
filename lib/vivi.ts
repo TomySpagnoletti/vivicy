@@ -14,6 +14,7 @@ import {
 } from "node:fs"
 import path from "node:path"
 
+import { readFencedBlock } from "@/lib/fenced-block"
 import { ControlError, decideCr, getExtractionStatus, getFactoryRoot, isRunActive, readSkillsReport, startSkillsInstall, type Spawner } from "@/lib/control"
 import { importIntoGoverned, UPLOADS_DIR, type BatchResult, type ManifestFile, type RawEntry, type RejectedFile } from "@/lib/import-docs"
 import type { SecretFileFinding } from "@/lib/secret-scan"
@@ -34,6 +35,18 @@ import {
   stripActionFence,
   type ViviActionResult,
 } from "@/lib/vivi-actions"
+import {
+  ANSWER_SEPARATOR,
+  MAX_OTHER_ANSWER_LENGTH,
+  oneLine,
+  parseQuestionsDirective,
+  remainingQuestions,
+  serializeAnswer,
+  stripQuestionsFence,
+  type ViviQuestion,
+  type ViviQuestionAnswerRef,
+  type ViviQuestionStack,
+} from "@/lib/vivi-questions"
 
 const VIVI_TURN_SCRIPT = "vivi-turn.ts"
 
@@ -67,7 +80,7 @@ export interface ViviCardAction {
     | { kind: "dismiss" }
 }
 
-// server-authored, deterministic — a card's content never comes from the LLM reply.
+// server-authored, deterministic — a decision card's content never comes from the LLM reply; the question card below is the one sanctioned amendment to that law.
 export interface ViviCard {
   id: string
   title: string
@@ -94,8 +107,9 @@ export interface ViviImportEvent {
   read?: ViviImportRead
 }
 
+// The one amendment to the card law above: question CONTENT may be LLM-authored, but ONLY through the validated `vivicy-questions` fence; every ACTION stays deterministic — an answer appends one ordinary user turn carrying the answer text, strictly equivalent to typing that line, with no other effect and nothing firing without the owner's click. Full invariant in AGENTS.md, "Vivi enforcement".
 export interface ViviTurn {
-  role: "user" | "vivi" | "action" | "card"
+  role: "user" | "vivi" | "action" | "card" | "questions"
   text: string
   ts: string
   wrote?: string[]
@@ -104,6 +118,8 @@ export interface ViviTurn {
   card?: ViviCard
   decided?: ViviCardDecision
   imported?: ViviImportEvent
+  questions?: ViviQuestionStack
+  answered?: ViviQuestionAnswerRef
 }
 
 export interface ViviReply {
@@ -390,6 +406,108 @@ export async function decideCardAction(
   }
 }
 
+export interface QuestionAnswerResult {
+  ok: boolean
+  summary: string
+  answer: string
+  remaining: number
+}
+
+function findQuestionStack(turns: ViviTurn[], stackId: string): ViviQuestionStack {
+  const stack = turns.find((t) => t.role === "questions" && t.questions?.id === stackId)?.questions
+  if (!stack) throw new ControlError(`unknown question stack "${stackId}"`, "missing_target")
+  return stack
+}
+
+function optionLabel(question: ViviQuestion, optionIndex: number | undefined): string {
+  if (
+    typeof optionIndex !== "number" ||
+    !Number.isInteger(optionIndex) ||
+    optionIndex < 0 ||
+    optionIndex >= question.options.length
+  ) {
+    return failAnswer(
+      `answer question "${question.id}" with one of its ${question.options.length} options, or with your own words`
+    )
+  }
+  return question.options[optionIndex].label
+}
+
+function failAnswer(reason: string): never {
+  throw new ControlError(reason, "missing_target")
+}
+
+// The click's WHOLE effect, and the only writer of an answer: read the thread, refuse a second answer to the same card, append ONE ordinary user turn carrying the serialized Q+A. Synchronous through the check-then-append (no await inside), so two clicks racing the same card can never both record one; the append is idempotent by construction since the first answer is what refuses the second.
+export function answerViviQuestion(
+  spawner: Spawner,
+  input: {
+    sessionId: string
+    stackId: string
+    questionId: string
+    optionIndex?: number
+    other?: string
+  }
+): QuestionAnswerResult {
+  assertSessionId(input.sessionId)
+  const other = typeof input.other === "string" ? oneLine(input.other) : null
+  if (other !== null && input.optionIndex !== undefined) {
+    failAnswer("answer with one of the options or with your own words, never both")
+  }
+  if (other !== null && other.length === 0) failAnswer("write an answer before sending it")
+  if (other !== null && other.length > MAX_OTHER_ANSWER_LENGTH) {
+    failAnswer(
+      `that answer runs to ${other.length} characters — keep it under ${MAX_OTHER_ANSWER_LENGTH}, or send the long version as a message`
+    )
+  }
+
+  const turns = readTranscript(input.sessionId)
+  const stack = findQuestionStack(turns, input.stackId)
+  const question = stack.questions.find((q) => q.id === input.questionId)
+  if (!question) {
+    failAnswer(`unknown question "${input.questionId}" on stack "${input.stackId}"`)
+  }
+
+  const remainingBefore = remainingQuestions(stack, turns)
+  if (!remainingBefore.some((q) => q.id === question.id)) {
+    return {
+      ok: false,
+      summary: "this question was already answered",
+      answer: "",
+      remaining: remainingBefore.length,
+    }
+  }
+
+  const answer = other ?? optionLabel(question, input.optionIndex)
+  appendTurn(input.sessionId, {
+    role: "user",
+    text: serializeAnswer(question.question, answer),
+    ts: new Date().toISOString(),
+    answered: { stackId: stack.id, questionId: question.id },
+  })
+
+  const remaining = remainingBefore.length - 1
+  if (remaining === 0) void dispatchQuestionAnswers(spawner, input.sessionId, stack.questions.length)
+  return { ok: true, summary: answer, answer, remaining }
+}
+
+// Detached and TOTAL: the owner's last click is the Send, so the continuation runs like any other turn — and a continuation that cannot run says so in the thread instead of leaving the answered pile silently unanswered.
+async function dispatchQuestionAnswers(spawner: Spawner, sessionId: string, count: number): Promise<void> {
+  try {
+    await runTurn(spawner, sessionId, { kind: "question_answers", count })
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error)
+    try {
+      appendTurn(sessionId, {
+        role: "vivi",
+        text:
+          `I could not pick up ${countForm(count, "your answer", "your answers")}: ${reason}. ` +
+          `${countForm(count, "It is", "They are")} safe in the thread — send me a message and I'll carry on from there.`,
+        ts: new Date().toISOString(),
+      })
+    } catch {}
+  }
+}
+
 export interface CardImportResult {
   ok: boolean
   summary: string
@@ -641,6 +759,14 @@ function readPersona(factoryRoot: string): string {
   return readFileSync(path.join(factoryRoot, "prompts", "vivi.md"), "utf8")
 }
 
+// The pile's own state, so a later turn sees which cards are still standing and never re-asks one whose answer line is already above it.
+function renderQuestionStack(stack: ViviQuestionStack, turns: ViviTurn[]): string {
+  const standing = new Set(remainingQuestions(stack, turns).map((q) => q.id))
+  return stack.questions
+    .map((q, i) => `${i + 1}. ${q.question} [${standing.has(q.id) ? "still on the pile" : "answered above"}]`)
+    .join("\n")
+}
+
 function renderTranscript(turns: ViviTurn[]): string {
   if (turns.length === 0) return "(no prior turns — this is the first message)"
   const lastIdx = turns.length - 1
@@ -649,6 +775,7 @@ function renderTranscript(turns: ViviTurn[]): string {
       turn.role === "user" ? "User"
       : turn.role === "action" ? "Tool results"
       : turn.role === "card" ? "Choice card"
+      : turn.role === "questions" ? "Question cards"
       : "Vivi"
     const cardState =
       turn.role === "card"
@@ -656,7 +783,13 @@ function renderTranscript(turns: ViviTurn[]): string {
           ? ` [decided: ${turn.decided.actionId}${turn.decided.summary ? ` — ${firstLine(turn.decided.summary, 80)}` : ""}]`
           : " [awaiting the owner's choice]"
         : ""
-    const body = (i === lastIdx ? turn.text : firstLine(turn.text, 200)) + cardState
+    // An answered card is rendered WHOLE, never through firstLine: its text is `question → answer`, so a length clip is spent on the question and eats the answer's tail — and by construction every answer but the terminal one is a non-last turn, so the clip would silently drop most of what the owner actually said from the one prompt the spec is built out of. It is a structured line, not free prose, and bounded by construction (question ≤ MAX_QUESTION_LENGTH, answer ≤ MAX_OTHER_ANSWER_LENGTH or an ≤ MAX_OPTION_LABEL_LENGTH label).
+    const body =
+      turn.role === "questions" && turn.questions
+        ? renderQuestionStack(turn.questions, turns)
+        : turn.answered !== undefined
+          ? turn.text
+          : (i === lastIdx ? turn.text : firstLine(turn.text, 200)) + cardState
     const wrote =
       turn.role === "vivi" && turn.wrote && turn.wrote.length > 0
         ? ` [wrote: ${turn.wrote.join(", ")}]`
@@ -783,6 +916,21 @@ function importReadTask(imported: ViviImportEvent, frozen: boolean, crId: string
   )
 }
 
+// This turn has no typed message either: the owner answered the cards, so their answers ARE the message — one user turn per card, already above.
+function questionAnswersTask(count: number, frozen: boolean, crId: string): string {
+  const asked = countForm(count, "the question you carded", `the ${count} questions you carded`)
+  const tail = frozen
+    ? `The canonical is LOCKED, so if what they just settled genuinely changes what the product ` +
+      `must do, ${crDraftOrder(crId)}; if it does not, just close the loop for them.`
+    : `Where their answers settle an area beyond doubt, ${CANONICAL_WRITE_ORDER} and say exactly ` +
+      `which files you wrote; then ask your next batch, carded when those questions are decidable.`
+  return (
+    `The owner just answered ${asked}: their answers are the user turns above, one line per card ` +
+    `(\`question ${ANSWER_SEPARATOR.trim()} answer\`). Take them as given, never re-ask a card that ` +
+    `already carries its line, and carry on. ${tail}\n`
+  )
+}
+
 function composePrompt(
   factoryRoot: string,
   targetRoot: string,
@@ -808,6 +956,8 @@ function composePrompt(
       `that already succeeded.\n`
     : origin.kind === "import_read"
       ? `${phaseLine}${importReadTask(origin.imported, frozen, crId)}`
+      : origin.kind === "question_answers"
+      ? `${phaseLine}${questionAnswersTask(origin.count, frozen, crId)}`
       : frozen
       ? `${phaseLine}Respond to the user's latest message above. If it asks ` +
         `for a change to what the product does, ${crDraftOrder(crId)}. ` +
@@ -1078,6 +1228,7 @@ function resolveTarget(): string {
 type TurnOrigin =
   | { kind: "user"; message: string }
   | { kind: "import_read"; imported: ViviImportEvent }
+  | { kind: "question_answers"; count: number }
 
 type TurnQueue = Map<string, Promise<void>>
 
@@ -1247,24 +1398,27 @@ async function runTurnLocked(
     const directive = parseActionDirective(reply)
 
     if (directive === null) {
-      const finalReply = `${applySkillsDirective(spawner, reply)}${gitNote}`
-      appendTurn(sessionId, { role: "vivi", text: finalReply, ts: new Date().toISOString(), wrote: diff.allowedWrites })
+      const spoken = takeQuestions(applySkillsDirective(spawner, reply))
+      const finalReply = `${spoken.text}${gitNote}`
+      appendViviReply(sessionId, finalReply, diff.allowedWrites, spoken.questions)
       return { sessionId, reply: finalReply, wrote, actions: allActions.length > 0 ? allActions : undefined }
     }
 
     if ("malformed" in directive) {
-      const finalReply = `${applySkillsDirective(spawner, reply)}\n\n→ no action executed: ${directive.malformed}.${gitNote}`
-      appendTurn(sessionId, { role: "vivi", text: finalReply, ts: new Date().toISOString(), wrote: diff.allowedWrites })
+      const spoken = takeQuestions(applySkillsDirective(spawner, reply))
+      const finalReply = `${spoken.text}\n\n→ no action executed: ${directive.malformed}.${gitNote}`
+      appendViviReply(sessionId, finalReply, diff.allowedWrites, spoken.questions)
       return { sessionId, reply: finalReply, wrote, actions: allActions.length > 0 ? allActions : undefined }
     }
 
-    const spokenText = applySkillsDirective(spawner, stripActionFence(reply))
-    appendTurn(sessionId, {
-      role: "vivi",
-      text: spokenText.length > 0 ? spokenText : "(requested actions)",
-      ts: new Date().toISOString(),
-      wrote: diff.allowedWrites,
-    })
+    const spoken = takeQuestions(applySkillsDirective(spawner, stripActionFence(reply)))
+    const spokenText = spoken.text
+    appendViviReply(
+      sessionId,
+      spokenText.length > 0 ? spokenText : spoken.questions === null ? "(requested actions)" : "",
+      diff.allowedWrites,
+      spoken.questions
+    )
 
     const results = await executeViviActions(spawner, directive.actions)
     allActions.push(...results)
@@ -1352,16 +1506,16 @@ async function spawnViviLeg(
   return reply
 }
 
-const SKILLS_FENCE = /```vivicy-skills\s*\n([\s\S]*?)\n\s*```/
+const SKILLS_TAG = "vivicy-skills"
 
 export type SkillsDirective = { ids: string[] } | { malformed: string } | null
 
 export function parseSkillsDirective(reply: string): SkillsDirective {
-  const match = reply.match(SKILLS_FENCE)
-  if (!match) return null
+  const block = readFencedBlock(reply, SKILLS_TAG)
+  if (block === null) return null
   let parsed: unknown
   try {
-    parsed = JSON.parse(match[1])
+    parsed = JSON.parse(block.body)
   } catch {
     return { malformed: "the vivicy-skills block is not valid JSON" }
   }
@@ -1392,6 +1546,42 @@ function applySkillsDirective(spawner: Spawner, reply: string): string {
     const message = error instanceof Error ? error.message : String(error)
     return `${reply}\n\n→ skills install NOT started: ${message}.`
   }
+}
+
+interface SpokenReply {
+  text: string
+  questions: ViviQuestion[] | null
+}
+
+// The fence never reaches the thread — valid or malformed, it comes out of her prose, because a raw JSON block in the chat is the owner reading what the machine owed them rendered. A refusal degrades to prose plus one honest line, exactly like the skills directive's.
+function takeQuestions(reply: string): SpokenReply {
+  const directive = parseQuestionsDirective(reply)
+  if (directive === null) return { text: reply, questions: null }
+  const spoken = stripQuestionsFence(reply)
+  if ("malformed" in directive) {
+    const note = `→ no question cards rendered: ${directive.malformed}.`
+    return { text: spoken.length > 0 ? `${spoken}\n\n${note}` : note, questions: null }
+  }
+  return { text: spoken, questions: directive.questions }
+}
+
+// The stack rides its OWN turn so the pile is an object in the thread, not prose: its id is server-minted (the fence never names it), and a reply that was the fence and nothing else leaves no bubble above the pile — unless she also wrote files, which the turn still speaks through its attachments.
+function appendViviReply(
+  sessionId: string,
+  text: string,
+  wrote: string[],
+  questions: ViviQuestion[] | null
+): void {
+  if (text.trim().length > 0 || wrote.length > 0 || questions === null) {
+    appendTurn(sessionId, { role: "vivi", text, ts: new Date().toISOString(), wrote })
+  }
+  if (questions === null) return
+  appendTurn(sessionId, {
+    role: "questions",
+    text: countForm(questions.length, "1 question card", `${questions.length} question cards`),
+    ts: new Date().toISOString(),
+    questions: { id: randomUUID(), questions },
+  })
 }
 
 function rejectTurn(

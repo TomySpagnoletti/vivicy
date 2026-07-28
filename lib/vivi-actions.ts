@@ -12,11 +12,11 @@ import {
   stopSupervisor,
   type Spawner,
 } from "@/lib/control"
+import { readFencedBlock, stripFencedBlock } from "@/lib/fenced-block"
 import { applyLayoutSave, validateLayoutSavePayload } from "@/lib/map-layout-save"
 import { appendNotification, readNotifications, type Notification } from "@/lib/notifications"
 
-/** Matches Vivi's action fenced block (see prompts/vivi.md, "Acting on Vivicy"); succeeds the legacy "vivicy-skills" fence still parsed by vivi.ts as a deprecated alias. */
-const ACTION_FENCE = /```vivicy-action\s*\n([\s\S]*?)\n\s*```/
+const ACTION_TAG = "vivicy-action"
 
 const MAX_ACTIONS_PER_TURN = 5
 
@@ -35,11 +35,11 @@ export interface ViviActionResult {
 export type ActionDirective = { actions: ViviActionRequest[] } | { malformed: string } | null
 
 export function parseActionDirective(reply: string): ActionDirective {
-  const match = reply.match(ACTION_FENCE)
-  if (!match) return null
+  const block = readFencedBlock(reply, ACTION_TAG)
+  if (block === null) return null
   let parsed: unknown
   try {
-    parsed = JSON.parse(match[1])
+    parsed = JSON.parse(block.body)
   } catch {
     return { malformed: "the vivicy-action block is not valid JSON" }
   }
@@ -318,5 +318,5 @@ export function renderActionResults(results: ViviActionResult[]): string {
 }
 
 export function stripActionFence(reply: string): string {
-  return reply.replace(ACTION_FENCE, "").replace(/\n{3,}/g, "\n\n").trim()
+  return stripFencedBlock(reply, ACTION_TAG)
 }

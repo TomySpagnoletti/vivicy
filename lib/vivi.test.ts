@@ -8,7 +8,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { ControlError, type RunOptions, type RunResult, type Spawner } from "@/lib/control"
 import { importIntoGoverned, UPLOADS_DIR, type BatchResult, type RawEntry } from "@/lib/import-docs"
 import { getProjectRuntimeDir } from "@/lib/project-runtime"
-import { appendCardTurn, decideCardAction, decideCardImport, dispatchImportRead, importDocsIntoSession, isViviTurnRunning, listViviSessions, parseSkillsDirective, readTranscript, recoverInterruptedReads, runViviTurn, seedViviWelcome, VIVI_WELCOME_MESSAGE, WELCOME_IMPORT_CARD, type SessionImportResult, type ViviTurn } from "@/lib/vivi"
+import { answerViviQuestion, appendCardTurn, decideCardAction, decideCardImport, dispatchImportRead, importDocsIntoSession, isViviTurnRunning, listViviSessions, parseSkillsDirective, readTranscript, recoverInterruptedReads, runViviTurn, seedViviWelcome, VIVI_WELCOME_MESSAGE, WELCOME_IMPORT_CARD, type SessionImportResult, type ViviTurn } from "@/lib/vivi"
+import { MAX_OTHER_ANSWER_LENGTH, remainingQuestions } from "@/lib/vivi-questions"
 
 function makeFakeSpawner(onRun: (options: RunOptions) => Partial<RunResult> | void = () => {}) {
   const calls = {
@@ -1539,6 +1540,307 @@ describe("runViviTurn — action side effects are orchestrator state, never Vivi
     expect(result.rejected).toBeTruthy()
     expect(readFileSync(path.join(targetRoot, ".gitignore"), "utf8")).toBe("node_modules\n")
     expect(existsSync(path.join(targetRoot, "src", "evil.ts"))).toBe(false)
+  })
+})
+
+const QUESTION_CARDS = JSON.stringify([
+  {
+    id: "datastore",
+    question: "Which datastore should v1 run on?",
+    options: [{ label: "SQLite" }, { label: "Postgres", recommended: true }, { label: "MongoDB" }],
+    allowOther: true,
+  },
+  {
+    id: "auth",
+    question: "How do people sign in?",
+    options: [{ label: "Email + password", recommended: true }, { label: "Magic link" }],
+    allowOther: true,
+  },
+])
+
+function replyWithQuestions(json: string, lead = "Due cose, poi si cucina."): string {
+  return `${lead}\n\n\`\`\`vivicy-questions\n${json}\n\`\`\``
+}
+
+async function settleDispatchedTurn(): Promise<void> {
+  for (let i = 0; i < 400 && isViviTurnRunning(targetRoot); i++) {
+    await new Promise((resolve) => setTimeout(resolve, 5))
+  }
+}
+
+async function stackedSession(
+  spawner: Spawner,
+  json = QUESTION_CARDS
+): Promise<{ sessionId: string; stackId: string }> {
+  const result = await runViviTurn(spawner, { message: "on part sur quoi ?" })
+  const stack = readTranscript(result.sessionId).find((t) => t.role === "questions")?.questions
+  if (!stack) throw new Error(`no question stack in the transcript for ${json}`)
+  return { sessionId: result.sessionId, stackId: stack.id }
+}
+
+describe("question cards — the validated fence becomes a pile in the thread", () => {
+  it("appends the stack as its own turn, mints the stack id server-side, and keeps the fence out of her prose", async () => {
+    const { spawner } = makeFakeSpawner((o) => writeReply(o, replyWithQuestions(QUESTION_CARDS)))
+    const result = await runViviTurn(spawner, { message: "un todo app" })
+
+    expect(result.rejected).toBeUndefined()
+    expect(result.reply).toBe("Due cose, poi si cucina.")
+    expect(result.reply).not.toContain("vivicy-questions")
+
+    const turns = readTranscript(result.sessionId)
+    expect(turns.map((t) => t.role)).toEqual(["user", "vivi", "questions"])
+    expect(turns[1].text).toBe("Due cose, poi si cucina.")
+    const stack = turns[2].questions!
+    expect(stack.id).toMatch(/^[0-9a-f-]{36}$/)
+    expect(stack.id).not.toContain("datastore")
+    expect(turns[2].text).toBe("2 question cards")
+    expect(stack.questions.map((q) => q.id)).toEqual(["datastore", "auth"])
+    expect(stack.questions[0].options[0]).toEqual({ label: "Postgres", recommended: true })
+  })
+
+  it("drops a malformed fence WHOLE, keeps her prose, and says so once — no half a pile", async () => {
+    const { spawner } = makeFakeSpawner((o) => writeReply(o, replyWithQuestions('[{"id": "a",}]')))
+    const result = await runViviTurn(spawner, { message: "vas-y" })
+
+    expect(result.rejected).toBeUndefined()
+    expect(result.reply).toContain("Due cose, poi si cucina.")
+    expect(result.reply).toContain("no question cards rendered: the vivicy-questions block is not valid JSON")
+    expect(result.reply).not.toContain("vivicy-questions\n")
+    expect(readTranscript(result.sessionId).some((t) => t.role === "questions")).toBe(false)
+  })
+
+  it("skips the empty bubble when the reply is the fence and nothing else", async () => {
+    const { spawner } = makeFakeSpawner((o) => writeReply(o, replyWithQuestions(QUESTION_CARDS, "")))
+    const result = await runViviTurn(spawner, { message: "vas-y" })
+
+    expect(readTranscript(result.sessionId).map((t) => t.role)).toEqual(["user", "questions"])
+  })
+
+  it("answering an option appends ONE ordinary user turn carrying the SERVER-held label, and nothing else", async () => {
+    const { spawner, calls } = makeFakeSpawner((o) => writeReply(o, replyWithQuestions(QUESTION_CARDS)))
+    const { sessionId, stackId } = await stackedSession(spawner)
+    const legsBefore = legRuns(calls).length
+
+    const outcome = answerViviQuestion(spawner, { sessionId, stackId, questionId: "datastore", optionIndex: 0 })
+
+    expect(outcome).toEqual({ ok: true, summary: "Postgres", answer: "Postgres", remaining: 1 })
+    const turns = readTranscript(sessionId)
+    expect(turns.map((t) => t.role)).toEqual(["user", "vivi", "questions", "user"])
+    expect(turns[3].text).toBe("Which datastore should v1 run on? → Postgres")
+    expect(turns[3].answered).toEqual({ stackId, questionId: "datastore" })
+    expect(turns[3].actions).toBeUndefined()
+    expect(legRuns(calls)).toHaveLength(legsBefore)
+    expect(calls.spawnDetached).toHaveLength(0)
+  })
+
+  it("answering in the owner's own words appends their words, whitespace-normalized", async () => {
+    const { spawner } = makeFakeSpawner((o) => writeReply(o, replyWithQuestions(QUESTION_CARDS)))
+    const { sessionId, stackId } = await stackedSession(spawner)
+
+    const outcome = answerViviQuestion(spawner, {
+      sessionId,
+      stackId,
+      questionId: "datastore",
+      other: "  DuckDB,\n  embedded  ",
+    })
+
+    expect(outcome).toMatchObject({ ok: true, answer: "DuckDB, embedded" })
+    expect(readTranscript(sessionId).at(-1)?.text).toBe(
+      "Which datastore should v1 run on? → DuckDB, embedded"
+    )
+  })
+
+  it("puts a pasted free answer through the same boundary strip as her labels", async () => {
+    const { spawner } = makeFakeSpawner((o) => writeReply(o, replyWithQuestions(QUESTION_CARDS)))
+    const { sessionId, stackId } = await stackedSession(spawner)
+
+    const outcome = answerViviQuestion(spawner, {
+      sessionId,
+      stackId,
+      questionId: "datastore",
+      other: "Post​gres‮ ⁦managed⁩",
+    })
+
+    expect(outcome).toMatchObject({ ok: true, answer: "Postgres managed" })
+    expect(readTranscript(sessionId).at(-1)?.text).not.toMatch(/[​‮⁦⁩]/)
+  })
+
+  it.each([
+    ["family emoji (ZWJ)", "Un Raspberry Pi chez moi \uD83D\uDC68\u200D\uD83D\uDC69\u200D\uD83D\uDC67"],
+    ["Persian mi-ravad (ZWNJ)", "\u0645\u06CC\u200C\u0631\u0648\u062F"],
+    ["Devanagari k-ssa (ZWJ)", "\u0915\u094D\u200D\u0937"],
+  ])("records a free answer carrying a joiner byte-identical, as typing it would: %s", async (_name, typed) => {
+    const { spawner } = makeFakeSpawner((o) => writeReply(o, replyWithQuestions(QUESTION_CARDS)))
+    const { sessionId, stackId } = await stackedSession(spawner)
+
+    const outcome = answerViviQuestion(spawner, { sessionId, stackId, questionId: "datastore", other: typed })
+
+    expect(outcome).toMatchObject({ ok: true, answer: typed })
+    expect(readTranscript(sessionId).at(-1)?.text).toBe(
+      `Which datastore should v1 run on? \u2192 ${typed}`
+    )
+  })
+
+  it("refuses a second answer to the same card without appending a second line", async () => {
+    const { spawner } = makeFakeSpawner((o) => writeReply(o, replyWithQuestions(QUESTION_CARDS)))
+    const { sessionId, stackId } = await stackedSession(spawner)
+    answerViviQuestion(spawner, { sessionId, stackId, questionId: "datastore", optionIndex: 1 })
+
+    const replay = answerViviQuestion(spawner, { sessionId, stackId, questionId: "datastore", optionIndex: 2 })
+
+    expect(replay).toMatchObject({ ok: false, remaining: 1 })
+    expect(replay.summary).toContain("already answered")
+    expect(readTranscript(sessionId).filter((t) => t.answered?.questionId === "datastore")).toHaveLength(1)
+    expect(readTranscript(sessionId).at(-1)?.text).toContain("SQLite")
+  })
+
+  it("refuses an unknown stack, an unknown question, an out-of-range option, and a doubly-shaped answer", async () => {
+    const { spawner } = makeFakeSpawner((o) => writeReply(o, replyWithQuestions(QUESTION_CARDS)))
+    const { sessionId, stackId } = await stackedSession(spawner)
+    const answer = (over: Record<string, unknown>) =>
+      answerViviQuestion(spawner, { sessionId, stackId, questionId: "datastore", ...over })
+
+    expect(() => answerViviQuestion(spawner, { sessionId, stackId: "nope", questionId: "datastore", optionIndex: 0 }))
+      .toThrow(ControlError)
+    expect(() => answer({ questionId: "ghost", optionIndex: 0 })).toThrow(/unknown question "ghost"/)
+    expect(() => answer({ optionIndex: 3 })).toThrow(/one of its 3 options/)
+    expect(() => answer({ optionIndex: -1 })).toThrow(/one of its 3 options/)
+    expect(() => answer({})).toThrow(/one of its 3 options/)
+    expect(() => answer({ optionIndex: 0, other: "both" })).toThrow(/never both/)
+    expect(() => answer({ other: "   " })).toThrow(/write an answer/)
+    expect(() => answer({ other: "x".repeat(401) })).toThrow(/keep it under 400/)
+    expect(readTranscript(sessionId).filter((t) => t.answered !== undefined)).toHaveLength(0)
+  })
+
+  it("rejects an invalid session id before touching a transcript path", () => {
+    const { spawner } = makeFakeSpawner()
+    expect(() =>
+      answerViviQuestion(spawner, {
+        sessionId: "../../etc/passwd",
+        stackId: "s",
+        questionId: "q",
+        optionIndex: 0,
+      })
+    ).toThrow(/invalid vivi session id/)
+  })
+
+  it("only the answer that empties the pile dispatches the continuation turn — exactly once, with the answers as the message", async () => {
+    let leg = 0
+    let continuationPrompt = ""
+    const { spawner, calls } = makeFakeSpawner((o) => {
+      if (!o.args.some((a) => a.endsWith("vivi-turn.ts"))) return
+      leg += 1
+      if (leg === 1) {
+        writeReply(o, replyWithQuestions(QUESTION_CARDS))
+        return
+      }
+      continuationPrompt = readFileSync(promptFileFrom(o.args), "utf8")
+      writeReply(o, "Perfetto — Postgres e magic link, je note.")
+    })
+    const { sessionId, stackId } = await stackedSession(spawner)
+
+    answerViviQuestion(spawner, { sessionId, stackId, questionId: "datastore", optionIndex: 0 })
+    expect(legRuns(calls)).toHaveLength(1)
+
+    const last = answerViviQuestion(spawner, { sessionId, stackId, questionId: "auth", optionIndex: 1 })
+    expect(last.remaining).toBe(0)
+    await settleDispatchedTurn()
+
+    expect(legRuns(calls)).toHaveLength(2)
+    expect(continuationPrompt).toContain("Which datastore should v1 run on? → Postgres")
+    expect(continuationPrompt).toContain("How do people sign in? → Magic link")
+    expect(continuationPrompt).toContain("never re-ask a card that already carries its line")
+    expect(continuationPrompt).toContain("Question cards")
+    expect(continuationPrompt).toContain("1. Which datastore should v1 run on? [answered above]")
+    expect(readTranscript(sessionId).at(-1)?.text).toBe("Perfetto — Postgres e magic link, je note.")
+  })
+
+  it("carries a MAX-length free answer into the continuation prompt WHOLE, tail and all", async () => {
+    let leg = 0
+    let continuationPrompt = ""
+    const { spawner } = makeFakeSpawner((o) => {
+      if (!o.args.some((a) => a.endsWith("vivi-turn.ts"))) return
+      leg += 1
+      if (leg === 1) {
+        writeReply(o, replyWithQuestions(QUESTION_CARDS))
+        return
+      }
+      continuationPrompt = readFileSync(promptFileFrom(o.args), "utf8")
+      writeReply(o, "Ricevuto.")
+    })
+    const { sessionId, stackId } = await stackedSession(spawner)
+
+    // 400 chars — exactly what the card's own input invites — answering the NON-last card, the position the length clip used to eat.
+    const head = "On facture a la main les dix premiers clients, "
+    const tail = ", mais seulement quand on depasse trente commandes par jour"
+    const long = `${head}${"e".repeat(MAX_OTHER_ANSWER_LENGTH - head.length - tail.length)}${tail}`
+    expect(long).toHaveLength(MAX_OTHER_ANSWER_LENGTH)
+    answerViviQuestion(spawner, { sessionId, stackId, questionId: "datastore", other: long })
+    answerViviQuestion(spawner, { sessionId, stackId, questionId: "auth", optionIndex: 0 })
+    await settleDispatchedTurn()
+
+    expect(continuationPrompt).toContain(`Which datastore should v1 run on? \u2192 ${long}`)
+    expect(continuationPrompt).toContain(tail.slice(2))
+    expect(continuationPrompt).not.toContain("\u2026")
+  })
+
+  it("carries a MAX-length OPTION answer whole too (question 200 + label 80 also overruns the old clip)", async () => {
+    let leg = 0
+    let continuationPrompt = ""
+    const question = `Quelle est la regle ${"x".repeat(178)}?`
+    const label = `Toujours ${"y".repeat(70)}`
+    expect(question).toHaveLength(199)
+    expect(label).toHaveLength(79)
+    const cards = JSON.stringify([
+      { id: "rule", question, options: [{ label, recommended: true }, { label: "Jamais" }], allowOther: true },
+      { id: "auth", question: "How do people sign in?", options: [{ label: "Email + password", recommended: true }, { label: "Magic link" }] },
+    ])
+    const { spawner } = makeFakeSpawner((o) => {
+      if (!o.args.some((a) => a.endsWith("vivi-turn.ts"))) return
+      leg += 1
+      if (leg === 1) {
+        writeReply(o, replyWithQuestions(cards))
+        return
+      }
+      continuationPrompt = readFileSync(promptFileFrom(o.args), "utf8")
+      writeReply(o, "Ricevuto.")
+    })
+    const { sessionId, stackId } = await stackedSession(spawner, cards)
+
+    answerViviQuestion(spawner, { sessionId, stackId, questionId: "rule", optionIndex: 0 })
+    answerViviQuestion(spawner, { sessionId, stackId, questionId: "auth", optionIndex: 0 })
+    await settleDispatchedTurn()
+
+    expect(continuationPrompt).toContain(`${question} \u2192 ${label}`)
+  })
+
+  it("survives a reload mid-stack: the standing pile and the answered lines are exactly what the thread holds", async () => {
+    const { spawner } = makeFakeSpawner((o) => writeReply(o, replyWithQuestions(QUESTION_CARDS)))
+    const { sessionId, stackId } = await stackedSession(spawner)
+    answerViviQuestion(spawner, { sessionId, stackId, questionId: "auth", optionIndex: 0 })
+
+    const reloaded = readTranscript(sessionId)
+    const stack = reloaded.find((t) => t.role === "questions")!.questions!
+    expect(stack.questions).toHaveLength(2)
+    expect(remainingQuestions(stack, reloaded).map((q) => q.id)).toEqual(["datastore"])
+    expect(reloaded.filter((t) => t.answered).map((t) => t.text)).toEqual([
+      "How do people sign in? → Email + password",
+    ])
+  })
+
+  it("tells the owner in the thread when the continuation cannot run at all", async () => {
+    const { spawner } = makeFakeSpawner((o) => writeReply(o, replyWithQuestions(QUESTION_CARDS)))
+    const { sessionId, stackId } = await stackedSession(spawner)
+    answerViviQuestion(spawner, { sessionId, stackId, questionId: "datastore", optionIndex: 0 })
+    rmSync(path.join(factoryRoot, "vivi-turn.ts"))
+
+    answerViviQuestion(spawner, { sessionId, stackId, questionId: "auth", optionIndex: 0 })
+    await settleDispatchedTurn()
+
+    const last = readTranscript(sessionId).at(-1)!
+    expect(last.role).toBe("vivi")
+    expect(last.text).toContain("could not pick up your answers")
+    expect(last.text).toContain("vivi-turn.ts")
   })
 })
 

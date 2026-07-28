@@ -1783,6 +1783,130 @@ describe("ViviPanel — mid-turn resume", () => {
   })
 })
 
+const STACK_HEAD: ViviTurn[] = [
+  { role: "vivi", text: "Due cose, poi si cucina.", ts: "2026-07-08T12:00:00Z" },
+  {
+    role: "questions",
+    text: "2 question cards",
+    ts: "2026-07-08T12:00:01Z",
+    questions: {
+      id: "stack-1",
+      questions: [
+        {
+          id: "datastore",
+          question: "Which datastore should v1 run on?",
+          options: [{ label: "Postgres", recommended: true }, { label: "SQLite" }],
+        },
+        {
+          id: "auth",
+          question: "How do people sign in?",
+          options: [{ label: "Email + password", recommended: true }, { label: "Magic link" }],
+        },
+      ],
+    },
+  },
+]
+
+const STACK_MID: ViviTurn[] = [
+  ...STACK_HEAD,
+  {
+    role: "user",
+    text: "Which datastore should v1 run on? → Postgres",
+    ts: "2026-07-08T12:01:00Z",
+    answered: { stackId: "stack-1", questionId: "datastore" },
+  },
+]
+
+const STACK_SPENT: ViviTurn[] = [
+  ...STACK_MID,
+  {
+    role: "user",
+    text: "How do people sign in? → Magic link",
+    ts: "2026-07-08T12:02:00Z",
+    answered: { stackId: "stack-1", questionId: "auth" },
+  },
+]
+
+function stackSessions() {
+  return [{ sessionId: SESSION_A, updated_at: "2026-07-08T12:00:00Z", preview: "spec", turns: 2 }]
+}
+
+describe("ViviPanel — the question pile lives in the thread", () => {
+  test("mid-stack: the answered card is a compact Q+A line, the next card stands, and Vivi is NOT said to be thinking", async () => {
+    const user = userEvent.setup()
+    vi.stubGlobal(
+      "fetch",
+      stubFetch({ sessions: stackSessions(), turnsBySession: { [SESSION_A]: STACK_MID } })
+    )
+    renderPanel({ hasTarget: true, projectRoot: "/proj/x" })
+    await user.click(screen.getByRole("button", { name: "Open Vivi" }))
+
+    expect(await screen.findByText("Question 2 of 2")).toBeInTheDocument()
+    expect(screen.getByText("How do people sign in?")).toBeInTheDocument()
+    expect(screen.getByText("Which datastore should v1 run on?")).toBeInTheDocument()
+    expect(screen.getByText("Postgres")).toBeInTheDocument()
+    expect(screen.queryByText(/→/)).not.toBeInTheDocument()
+    expect(screen.queryByText("Vivi is thinking…")).not.toBeInTheDocument()
+
+    // The standing pile sits BELOW the lines it already produced, so the card to act on is never pushed off the top by its own answers.
+    const line = screen.getByText("Which datastore should v1 run on?")
+    const pile = document.querySelector('[data-slot="menu-card-pile"]') as HTMLElement
+    expect(line.compareDocumentPosition(pile) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
+  test("a spent pile leaves no trace but its lines, and the last answer is what Vivi is answering", async () => {
+    const user = userEvent.setup()
+    vi.stubGlobal(
+      "fetch",
+      stubFetch({ sessions: stackSessions(), turnsBySession: { [SESSION_A]: STACK_SPENT } })
+    )
+    renderPanel({ hasTarget: true, projectRoot: "/proj/x" })
+    await user.click(screen.getByRole("button", { name: "Open Vivi" }))
+
+    expect(await screen.findByText("Magic link")).toBeInTheDocument()
+    expect(document.querySelector('[data-slot="menu-card-pile"]')).toBeNull()
+    expect(screen.queryByText(/Question \d of/)).not.toBeInTheDocument()
+    expect(screen.getByText("Vivi is thinking…")).toBeInTheDocument()
+  })
+
+  test("answering from the panel posts the choice and re-syncs the thread from the transcript", async () => {
+    const user = userEvent.setup()
+    let thread = STACK_HEAD
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url === "/api/vivi/questions") {
+        thread = STACK_MID
+        return jsonResponse({ ok: true, remaining: 1 })
+      }
+      if (url.startsWith("/api/vivi/sessions/")) {
+        return jsonResponse({ ok: true, sessionId: SESSION_A, turns: thread, busy: false })
+      }
+      if (url.startsWith("/api/vivi/sessions")) {
+        return jsonResponse({ ok: true, sessions: stackSessions() })
+      }
+      if (url.includes("/api/control/notifications")) return jsonResponse({ ok: true, notifications: [] })
+      if (url.includes("/api/control/crs")) return jsonResponse({ ok: true, crs: [] })
+      if (init?.method === "POST") return jsonResponse({ ok: true })
+      return jsonResponse({ ok: true })
+    })
+    vi.stubGlobal("fetch", fetchMock)
+    renderPanel({ hasTarget: true, projectRoot: "/proj/x" })
+    await user.click(screen.getByRole("button", { name: "Open Vivi" }))
+
+    await user.click(await screen.findByRole("button", { name: /Postgres/ }))
+
+    expect(await screen.findByText("Question 2 of 2")).toBeInTheDocument()
+    expect(screen.getByText("Which datastore should v1 run on?")).toBeInTheDocument()
+    const posted = fetchMock.mock.calls.find(([url]) => String(url) === "/api/vivi/questions")
+    expect(JSON.parse(String((posted?.[1] as RequestInit).body))).toEqual({
+      sessionId: SESSION_A,
+      stackId: "stack-1",
+      questionId: "datastore",
+      optionIndex: 0,
+    })
+  })
+})
+
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,

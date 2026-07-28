@@ -245,6 +245,21 @@ test("vivi.md carries the governess charter (action protocol, no code, no CR dec
   assert.match(text, /never repeat a succeeded action/i, "vivi.md must forbid re-issuing succeeded actions");
 });
 
+test("vivi.md serves a question batch as validated cards, and pins every bound the parser enforces", () => {
+  const text = readPrompt("vivi.md");
+  assert.match(text, /```vivicy-questions/, "vivi.md must document the vivicy-questions fence");
+  assert.match(text, /"recommended": true/, "vivi.md must show the recommended flag");
+  assert.match(text, /"allowOther": true/, "vivi.md must show the always-on free answer");
+  assert.match(text, /1 to 6 cards/i, "vivi.md must pin the stack cap the parser enforces");
+  assert.match(text, /2 or 3 options/i, "vivi.md must pin the option count the parser enforces");
+  assert.match(text, /exactly one marked/i, "vivi.md must pin the single-recommendation law");
+  assert.match(text, /200 characters at most/i, "vivi.md must pin the question length bound");
+  assert.match(text, /80 characters at most/i, "vivi.md must pin the option label bound");
+  assert.match(text, /NEVER a card/i, "vivi.md must keep open questions out of the cards");
+  assert.match(text, /dropped WHOLE/i, "vivi.md must state that a malformed block loses the whole batch");
+  assert.match(text, /never re-ask a card that already carries its line/i, "vivi.md must forbid re-asking an answered card");
+});
+
 test("vivi.md carries the red-gate playbook: report paths, the four cause classes, and the propose-one-action discipline", () => {
   const text = readPrompt("vivi.md");
   assert.match(text, /When it burns/i, "vivi.md must carry the red-gate playbook section");

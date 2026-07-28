@@ -12,6 +12,37 @@ const FACE =
 
 const RULE = "border-foreground/10"
 
+const SHEET =
+  "absolute inset-x-1.5 rounded-lg bg-linear-to-b from-card to-muted ring-1 ring-foreground/15"
+
+// Deepest first: DOM order IS the stacking order here, so the sheet that peeks furthest paints furthest back and the live card, the only positioned sibling after them, paints on top.
+const SHEETS = ["top-5 bottom-3 rotate-[1.4deg]", "top-4 bottom-5 rotate-[-1deg]"] as const
+
+// The count made physical: the sheets behind are paper, never content. Their resting offset and rotation are geometry, not motion, and they stay INSIDE this box's padding — a transcript row is paint-contained (`components/ui/message-scroller.tsx` `[content-visibility:auto]`), so a rotated corner reaching past it is shaved. The horizontal padding is constant across the pile's whole life so the live card never changes width as the pile shrinks.
+export function MenuCardPile({
+  depth,
+  className,
+  children,
+}: {
+  depth: number
+  className?: string
+  children: ReactNode
+}) {
+  const sheets = Math.max(0, Math.min(depth, SHEETS.length))
+  return (
+    <div
+      data-slot="menu-card-pile"
+      data-depth={sheets}
+      className={cn("relative px-3 pt-1", sheets > 0 ? "pb-7" : "pb-1", className)}
+    >
+      {SHEETS.slice(SHEETS.length - sheets).map((sheet) => (
+        <div key={sheet} aria-hidden data-slot="menu-card-sheet" className={cn(SHEET, sheet)} />
+      ))}
+      <div className="relative">{children}</div>
+    </div>
+  )
+}
+
 export function MenuCard({
   eyebrow,
   turned = false,

@@ -6,12 +6,20 @@ import {
   MenuCard,
   MenuCardActions,
   MenuCardBody,
+  MenuCardPile,
   MenuCardStamp,
   MenuCardTitle,
 } from "@/components/chat/menu-card"
 
 function root(): HTMLElement {
   return document.querySelector('[data-slot="menu-card"]') as HTMLElement
+}
+
+// Each pile case renders into its own container, so the document-wide sheet query only ever sees the pile under test.
+function renderWithClamp(ui: Parameters<typeof render>[0]) {
+  document.body.innerHTML = ""
+  render(ui)
+  return { pile: document.querySelector('[data-slot="menu-card-pile"]') as HTMLElement }
 }
 
 function flipper(): HTMLElement {
@@ -153,6 +161,69 @@ describe("MenuCard — reduced motion crosses over instead of rotating", () => {
     expect(front.className).toContain("motion-reduce:opacity-0")
     expect(back.className).toContain("motion-reduce:opacity-100")
     expect(front.className).toContain("motion-reduce:transition-opacity")
+  })
+})
+
+describe("MenuCardPile — the count made physical, bounded by the row that paints it", () => {
+  function sheets(): HTMLElement[] {
+    return Array.from(document.querySelectorAll('[data-slot="menu-card-sheet"]'))
+  }
+
+  function stack(depth: number) {
+    return (
+      <MenuCardPile depth={depth}>
+        <MenuCard>
+          <MenuCardTitle>Which datastore?</MenuCardTitle>
+        </MenuCard>
+      </MenuCardPile>
+    )
+  }
+
+  test("depth is clamped to the two sheets that exist, in reverse order: deepest paints first", () => {
+    const view = renderWithClamp(stack(9))
+    expect(view.pile).toHaveAttribute("data-depth", "2")
+    const [deep, shallow] = sheets()
+    expect(deep.className).toContain("rotate-[1.4deg]")
+    expect(deep.className).toContain("bottom-3")
+    expect(shallow.className).toContain("rotate-[-1deg]")
+    expect(shallow.className).toContain("bottom-5")
+    expect(deep.compareDocumentPosition(shallow) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
+  test("a single sheet is the SHALLOW one — a pile of two never shows the bottom of a pile of three", () => {
+    renderWithClamp(stack(1))
+    expect(sheets()).toHaveLength(1)
+    expect(sheets()[0].className).toContain("rotate-[-1deg]")
+  })
+
+  test("a negative or zero depth is bare paper, and the bottom room goes with the sheets", () => {
+    const view = renderWithClamp(stack(-3))
+    expect(view.pile).toHaveAttribute("data-depth", "0")
+    expect(sheets()).toHaveLength(0)
+    expect(view.pile.className).toContain("pb-1")
+  })
+
+  test("every sheet's geometry stays inside the pile's own padding, and the live card keeps one width", () => {
+    const wide = renderWithClamp(stack(2))
+    expect(wide.pile.className).toContain("px-3")
+    expect(wide.pile.className).toContain("pb-7")
+    for (const sheet of sheets()) {
+      expect(sheet.className).toContain("inset-x-1.5")
+      expect(sheet.className).toContain("absolute")
+    }
+
+    const bare = renderWithClamp(stack(0))
+    expect(bare.pile.className).toContain("px-3")
+  })
+
+  test("the sheets are the same paper as the face, without its content chrome", () => {
+    renderWithClamp(stack(2))
+    for (const sheet of sheets()) {
+      expect(sheet.className).toContain("rounded-lg")
+      expect(sheet.className).toContain("ring-1")
+      expect(sheet).toHaveAttribute("aria-hidden", "true")
+      expect(sheet).toBeEmptyDOMElement()
+    }
   })
 })
 

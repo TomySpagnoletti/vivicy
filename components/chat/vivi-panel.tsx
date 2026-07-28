@@ -5,6 +5,12 @@ import { CircleAlert, Loader2, Paperclip, SendHorizontal, X } from "lucide-react
 import { useTranslations } from "next-intl"
 
 import type { ViviCardAction, ViviTurn } from "@/lib/vivi"
+import {
+  readAnsweredLine,
+  remainingQuestions,
+  threadRenderOrder,
+  type ViviQuestion,
+} from "@/lib/vivi-questions"
 import { errorText } from "@/lib/i18n-errors"
 import { VIVI_TURN_CEILING_MS } from "@/lib/leg-budget"
 import { IMPORT_ACCEPT_ATTR } from "@/lib/supported-extensions"
@@ -33,6 +39,7 @@ import {
 import { ViviAvatar } from "@/components/brand/vivi-avatar"
 import { DecisionCard } from "@/components/chat/decision-card"
 import { MessageBubble } from "@/components/chat/message-bubble"
+import { QuestionStack, type QuestionAnswerOutcome } from "@/components/chat/question-stack"
 import { useViviPanel } from "@/components/chat/vivi-panel-context"
 import { ViviOnboarding } from "@/components/chat/vivi-onboarding"
 import {
@@ -48,12 +55,19 @@ const RESUME_POLL_MS = 5_000
 // The backstop, derived from the very timeouts that bound a turn server-side (every round is one leg, each leg dies at the cap) plus a margin — never a hand-tuned literal that would drift from them. The primary signal is the server's own liveness flag below; this only catches a turn that outlives every bound the factory enforces.
 const RESUME_POLL_MAX = Math.ceil((VIVI_TURN_CEILING_MS * 1.2) / RESUME_POLL_MS)
 
-// A thread is awaiting Vivi when she owes it an answer: the last turn is the owner's message, or a batch anywhere in the thread is still being read (position-independent — the reading turn's own action rounds, or another turn finishing ahead of it, append after the acknowledgment).
+// A card answer is a RECORDED line, not a dispatched turn: only the one that empties its pile sends the batch, exactly as pressing Send sends a typed line. Without this the thread would claim Vivi was thinking while the owner is still working through the pile.
+function stackComplete(turns: ViviTurn[], stackId: string): boolean {
+  const stack = turns.find((turn) => turn.questions?.id === stackId)?.questions
+  return stack !== undefined && remainingQuestions(stack, turns).length === 0
+}
+
+// A thread is awaiting Vivi when she owes it an answer: the last turn is a message the owner actually sent, or a batch anywhere in the thread is still being read (position-independent — the reading turn's own action rounds, or another turn finishing ahead of it, append after the acknowledgment).
 function awaitingVivi(turns: ViviTurn[]): boolean {
-  return (
-    turns[turns.length - 1]?.role === "user" ||
-    turns.some((turn) => turn.imported?.read?.status === "pending")
-  )
+  const last = turns[turns.length - 1]
+  const sent =
+    last?.role === "user" &&
+    (last.answered === undefined || stackComplete(turns, last.answered.stackId))
+  return sent || turns.some((turn) => turn.imported?.read?.status === "pending")
 }
 
 // Identity of what is being waited ON, so a give-up survives the owner's next message instead of being erased by it, and a new wait never inherits an old one's verdict.
@@ -417,6 +431,27 @@ export function ViviPanel({
     return () => clearInterval(timer)
   }, [awaitingReply, sessionId, waitKey])
 
+  // An answered card re-syncs the thread from the transcript (the answer line lives there); when the last one empties the pile, the composer takes the focus the card just gave up — but only if the pile still held it.
+  const onQuestionAnswered = useCallback(
+    ({ remaining, takeFocus }: QuestionAnswerOutcome) => {
+      const answerSession = sessionId
+      if (!answerSession) return
+      const epoch = epochRef.current
+      void (async () => {
+        const restored = await fetchSessionTurns(answerSession)
+        if (
+          epoch !== epochRef.current ||
+          sessionIdRef.current !== answerSession ||
+          restored === null
+        )
+          return
+        setTurns(restored.turns)
+        if (remaining === 0 && takeFocus) focusComposer()
+      })()
+    },
+    [sessionId, focusComposer]
+  )
+
   const askVivi = useCallback(
     (text: string) => {
       setTab("chat")
@@ -538,15 +573,26 @@ export function ViviPanel({
                   <MessageScroller className="flex-1">
                     <MessageScrollerViewport>
                       <MessageScrollerContent className="gap-3 p-4">
-                        {turns.map((turn, i) => (
-                          <MessageScrollerItem key={i} messageId={String(i)}>
-                            <TurnView
-                              turn={turn}
-                              sessionId={sessionId}
-                              onDecided={onCardDecided}
-                            />
-                          </MessageScrollerItem>
-                        ))}
+                        {threadRenderOrder(turns).map((i) => {
+                          const turn = turns[i]
+                          const remaining = turn.questions
+                            ? remainingQuestions(turn.questions, turns)
+                            : null
+                          // A pile with nothing left on it leaves no trace: the answers are the lines it became.
+                          if (remaining?.length === 0) return null
+                          return (
+                            <MessageScrollerItem key={i} messageId={String(i)}>
+                              <TurnView
+                                turn={turn}
+                                remaining={remaining}
+                                answered={readAnsweredLine(turns, turn)}
+                                sessionId={sessionId}
+                                onDecided={onCardDecided}
+                                onAnswered={onQuestionAnswered}
+                              />
+                            </MessageScrollerItem>
+                          )
+                        })}
                         {sending || (awaitingReply && !lostTurn) ? (
                           <MessageScrollerItem messageId="pending">
                             <PendingMarker reading={reading} />
@@ -681,14 +727,34 @@ export function ViviPanel({
 
 function TurnView({
   turn,
+  remaining,
+  answered,
   sessionId,
   onDecided,
+  onAnswered,
 }: {
   turn: ViviTurn
+  remaining?: ViviQuestion[] | null
+  answered?: { question: string; answer: string } | null
   sessionId?: string
   onDecided?: (action: ViviCardAction) => void
+  onAnswered?: (outcome: QuestionAnswerOutcome) => void
 }) {
   const t = useTranslations("chat")
+
+  if (turn.role === "questions") {
+    if (!turn.questions || !remaining || remaining.length === 0 || !sessionId) return null
+    return (
+      <QuestionStack
+        sessionId={sessionId}
+        stack={turn.questions}
+        remaining={remaining}
+        onAnswered={onAnswered}
+      />
+    )
+  }
+
+  if (answered) return <AnsweredLine question={answered.question} answer={answered.answer} />
 
   if (turn.role === "user" || turn.role === "vivi") {
     return (
@@ -730,6 +796,22 @@ function TurnView({
   }
 
   return null
+}
+
+// The answered card's whole trace in the thread: the question it settled, muted, above the owner's own word. It is an ordinary user turn — the two halves are the one serialized line, split back apart for reading.
+function AnsweredLine({ question, answer }: { question: string; answer: string }) {
+  return (
+    <Message align="end">
+      <MessageContent>
+        <Bubble variant="muted" align="end">
+          <BubbleContent className="flex flex-col gap-0.5">
+            <span className="text-[11px]/relaxed text-muted-foreground">{question}</span>
+            <span className="font-medium wrap-break-word">{answer}</span>
+          </BubbleContent>
+        </Bubble>
+      </MessageContent>
+    </Message>
+  )
 }
 
 function PendingMarker({ reading }: { reading?: boolean }) {

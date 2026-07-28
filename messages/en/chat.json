@@ -26,6 +26,12 @@
   },
   "cardDecided": "Chose “{label}”",
   "cardFailed": "This action could not be completed",
+  "questionCounter": "{total, plural, =1 {Question} other {Question {index} of {total}}}",
+  "questionRecommended": "Recommended",
+  "questionOtherPlaceholder": "Something else…",
+  "questionOtherAriaLabel": "Answer in your own words",
+  "questionOtherSubmit": "Send this answer",
+  "questionFailed": "That answer could not be recorded",
   "requestFailed": "Vivi could not respond (HTTP {status})",
   "networkError": "network error"
 }
