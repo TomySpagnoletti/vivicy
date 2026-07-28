@@ -35,6 +35,7 @@ import { PanelToggle } from "@/components/sidebar/panel-toggle"
 import { VivicySidebar } from "@/components/sidebar/sidebar"
 import { TranscriptProvider } from "@/components/transcript/transcript-modal"
 import { usePanelState } from "@/hooks/use-panel-state"
+import { useReopenPersistedProject } from "@/hooks/use-reopen-persisted-project"
 
 type LoadState =
   | { kind: "loading" }
@@ -100,6 +101,8 @@ export default function Page() {
       await loadProject()
     })()
   }, [loadProject, projectSignal])
+
+  useReopenPersistedProject(project)
 
   const loadMap = useCallback(
     async (foreground = false) => {

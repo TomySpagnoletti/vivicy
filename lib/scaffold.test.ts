@@ -1,15 +1,30 @@
 import { spawnSync } from "node:child_process"
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  statSync,
+  symlinkSync,
+  utimesSync,
+  writeFileSync,
+} from "node:fs"
 import { tmpdir } from "node:os"
 import path from "node:path"
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 
 import { extractManagedBlock, GITIGNORE_MARKERS, METHOD_MARKERS } from "@/lib/managed-block"
-import { getCurrentProject } from "@/lib/project"
+import { readNotifications } from "@/lib/notifications"
+import { getCurrentProject, setCurrentProject } from "@/lib/project"
 import {
   detectGateCommand,
   getTemplatesRoot,
+  renormalizeManagedFiles,
   resolveTargetDir,
   ScaffoldError,
   scaffoldProject,
@@ -725,6 +740,218 @@ describe("scaffoldProject — from-scratch git lifecycle (mechanical, no human g
     expect(result.mode).toBe("from_scratch")
     expect(result.git).toEqual({ initialized: false, committed: false })
     expect(git(target, ["config", "user.email"]).stdout.trim()).toBe("owner@example.com")
+  })
+})
+
+describe("renormalizeManagedFiles — the project-open seam (same engine, never blocks the open)", () => {
+  const MANAGED = [".gitignore", "AGENTS.md", "CLAUDE.md"]
+  const ownerHead = "# My guide\n\nHouse rules the owner wrote above the managed block.\n\n"
+  const ownerTail = "\n## My own appendix\n\nOwner prose after the managed block, kept verbatim.\n"
+  const staleMethodBlock = `${METHOD_MARKERS.begin}\n## Working under Vivicy\n\nA thinner method contract from the governance pass that laid this repo down.\n${METHOD_MARKERS.end}`
+  const ownerIgnoreHead = "node_modules/\nmy-own-ignore/\n"
+  const staleIgnoreBlock = `${GITIGNORE_MARKERS.begin}\n.vivicy-runtime/\n.vivicy-worktrees/\n${GITIGNORE_MARKERS.end}\n`
+
+  function canonicalClaude(): string {
+    return readFileSync(path.join(getTemplatesRoot(), "CLAUDE.md"), "utf8")
+  }
+
+  function governedRoot(name: string, files: Record<string, string> = {}): string {
+    const target = path.join(workDir, name)
+    mkdirSync(path.join(target, ".vivicy"), { recursive: true })
+    for (const [rel, contents] of Object.entries(files)) {
+      const abs = path.join(target, rel)
+      mkdirSync(path.dirname(abs), { recursive: true })
+      writeFileSync(abs, contents)
+    }
+    // Mirrors the production seam: the root is persisted first, so the renormalization's notifications land in ITS namespace.
+    setCurrentProject(target)
+    return target
+  }
+
+  function staleGovernedRoot(name: string): string {
+    return governedRoot(name, {
+      "AGENTS.md": `${ownerHead}${staleMethodBlock}${ownerTail}`,
+      "CLAUDE.md": canonicalClaude(),
+      ".gitignore": `${ownerIgnoreHead}${staleIgnoreBlock}`,
+    })
+  }
+
+  function writtenRel(target: string, result: { written: string[] }): string[] {
+    return result.written.map((abs) => path.relative(target, abs))
+  }
+
+  it("delivers the current block definition to a repo governed before it existed, owner bytes outside byte-identical", () => {
+    const target = staleGovernedRoot("open-stale")
+
+    const result = renormalizeManagedFiles(target)
+
+    const agents = readFileSync(path.join(target, "AGENTS.md"), "utf8")
+    expect(agents.startsWith(ownerHead), "owner bytes before the block stay byte-identical").toBe(true)
+    expect(agents.endsWith(ownerTail), "owner bytes after the block stay byte-identical").toBe(true)
+    expect(agents, "the block the repo was governed with is replaced, not kept").not.toContain("A thinner method contract")
+    expect(agents).toContain("A test must discriminate")
+    expect(agents).toContain("smallest verified increments")
+    expect(count(agents, METHOD_MARKERS.begin), "still exactly one managed block").toBe(1)
+
+    const gitignore = readFileSync(path.join(target, ".gitignore"), "utf8")
+    expect(gitignore.startsWith(ownerIgnoreHead), "owner bytes before the block stay byte-identical").toBe(true)
+    expect(gitignore.split("\n"), "the env excludes reach a repo governed before they existed").toContain(".env.*")
+    expect(gitignore.split("\n")).toContain(".vivicy/development/transcripts/")
+    expect(count(gitignore, GITIGNORE_MARKERS.begin)).toBe(1)
+
+    expect(result.failures).toEqual([])
+    expect(writtenRel(target, result), "only the two stale files — the healthy CLAUDE.md is left alone").toEqual([
+      ".gitignore",
+      "AGENTS.md",
+    ])
+
+    const notifications = readNotifications()
+    expect(notifications).toHaveLength(1)
+    expect(notifications[0]).toMatchObject({ level: "info", stage: "project", event: "managed_files_updated" })
+    expect(notifications[0].message).toContain("AGENTS.md")
+    expect(notifications[0].message).toContain(".gitignore")
+    expect(notifications[0].message, "a file that was not rewritten is never announced").not.toContain("CLAUDE.md")
+    expect(
+      notifications[0].message,
+      "the pending refresh is the run's to absorb, not a dirty tree the owner has to explain"
+    ).toContain("the next run absorbs them into a commit of its own")
+  })
+
+  it("is a byte-stable no-op on a healthy project: nothing rewritten, no mtime touched, nothing announced", () => {
+    const target = path.join(workDir, "open-healthy")
+    scaffoldProject({ targetDir: target, projectName: "Open Healthy" })
+    // An explicit past stamp, not the write clock: it makes the no-write claim independent of timestamp resolution.
+    const stamp = new Date(Date.now() - 86_400_000)
+    const before = MANAGED.map((rel) => {
+      const abs = path.join(target, rel)
+      utimesSync(abs, stamp, stamp)
+      return { rel, bytes: readFileSync(abs, "utf8"), mtimeMs: statSync(abs).mtimeMs }
+    })
+
+    const result = renormalizeManagedFiles(target)
+
+    expect(result).toEqual({ written: [], failures: [] })
+    for (const { rel, bytes, mtimeMs } of before) {
+      const abs = path.join(target, rel)
+      expect(readFileSync(abs, "utf8"), `${rel} was rewritten`).toBe(bytes)
+      expect(statSync(abs).mtimeMs, `${rel}'s mtime was touched`).toBe(mtimeMs)
+    }
+    expect(readNotifications(), "silent when zero files change").toEqual([])
+  })
+
+  it("recreates a managed file the owner deleted, and re-runs NOTHING else the greenfield scaffold owns", () => {
+    const target = governedRoot("acme-open")
+
+    const result = renormalizeManagedFiles(target)
+
+    expect(result.failures).toEqual([])
+    expect(writtenRel(target, result)).toEqual(MANAGED)
+
+    const agents = readFileSync(path.join(target, "AGENTS.md"), "utf8")
+    expect(agents, "a missing file gets the FULL template, named after the project directory").toContain(
+      "acme-open Development Operating Guide"
+    )
+    expect(agents).not.toContain("{{PROJECT_NAME}}")
+    expect(count(agents, METHOD_MARKERS.begin)).toBe(1)
+    expect(readFileSync(path.join(target, "CLAUDE.md"), "utf8")).toContain("@AGENTS.md")
+    expect(readFileSync(path.join(target, ".gitignore"), "utf8").split("\n")).toContain(".env.*")
+
+    for (const rel of ["README.md", "vivicy.json", ".env.example", ".vivicy/canonical"]) {
+      expect(
+        existsSync(path.join(target, rel)),
+        `${rel} is a greenfield-only artifact — opening a project never re-runs it`
+      ).toBe(false)
+    }
+  })
+
+  it("never blocks the open when a managed file is unwritable: the failure is surfaced internally, the rest still land", () => {
+    const target = staleGovernedRoot("open-readonly")
+    const agentsPath = path.join(target, "AGENTS.md")
+    const sealed = readFileSync(agentsPath, "utf8")
+    chmodSync(agentsPath, 0o444)
+
+    let result
+    try {
+      result = renormalizeManagedFiles(target)
+    } finally {
+      chmodSync(agentsPath, 0o644)
+    }
+
+    expect(readFileSync(agentsPath, "utf8"), "an unwritable file keeps its bytes").toBe(sealed)
+    expect(writtenRel(target, result), "the writable files still reach the current definition").toEqual([".gitignore"])
+    expect(readNotifications()[0].message, "the announcement agrees in number with what it lists").toContain(
+      "updated 1 managed file on open: .gitignore — uncommitted in your working tree for now; the next run absorbs it into a commit of its own"
+    )
+    expect(result.failures).toHaveLength(1)
+    expect(result.failures[0].file, "failures carry absolute paths, exactly like written").toBe(agentsPath)
+    expect(result.failures[0].reason, "the reason names the real fs error").toMatch(/^(EACCES|EPERM): /)
+    expect(
+      result.failures[0].reason,
+      "and drops the absolute path the message already names by its relative file"
+    ).not.toContain(agentsPath)
+
+    const notifications = readNotifications()
+    expect(notifications.map((n) => n.event)).toEqual(["managed_files_updated", "managed_files_failed"])
+    expect(notifications[1]).toMatchObject({ level: "warning", stage: "project" })
+    expect(notifications[1].message).toContain("AGENTS.md")
+    expect(notifications[1].message, "the owner learns the open succeeded anyway, and what to do").toContain(
+      "the project opened anyway"
+    )
+    expect(notifications[1].message).toContain("reopen the project")
+    expect(
+      notifications[1].message,
+      "the announcement is relative throughout — it belongs to a project whose root the owner picked"
+    ).not.toContain(target)
+  })
+
+  it("degrades to a surfaced failure, never a throw, when Vivicy's own templates are unreachable", () => {
+    const target = staleGovernedRoot("open-no-templates")
+    process.env.VIVICY_FACTORY_ROOT = path.join(workDir, "absent-factory")
+
+    const result = renormalizeManagedFiles(target)
+
+    expect(
+      result.failures.map((f) => path.relative(target, f.file)),
+      "the template-backed files fail, each named"
+    ).toEqual(["AGENTS.md", "CLAUDE.md"])
+    expect(writtenRel(target, result), ".gitignore is a code constant and still reaches the current definition").toEqual([
+      ".gitignore",
+    ])
+    expect(
+      result.failures[0].reason,
+      "a failure on VIVICY's own template keeps the path — otherwise it would read as the owner's AGENTS.md being gone"
+    ).toContain(path.join("absent-factory", "templates", "AGENTS.md"))
+    expect(readNotifications().map((n) => n.event)).toEqual(["managed_files_updated", "managed_files_failed"])
+  })
+
+  it("does nothing at all on an ungoverned root — the seam renormalizes only what Vivicy governs", () => {
+    const target = path.join(workDir, "not-governed")
+    mkdirSync(target, { recursive: true })
+    writeFileSync(path.join(target, "README.md"), "the owner's own readme\n")
+    setCurrentProject(target)
+
+    expect(renormalizeManagedFiles(target)).toEqual({ written: [], failures: [] })
+    expect(readdirSync(target), "no managed file is invented in a folder Vivicy does not govern").toEqual(["README.md"])
+    expect(readNotifications()).toEqual([])
+  })
+
+  it("mutates no git state: the refreshed bytes sit in the working tree, nothing staged, HEAD unmoved", () => {
+    const target = staleGovernedRoot("open-git")
+    git(target, ["init", "-q", "."])
+    git(target, ["config", "user.email", "owner@example.com"])
+    git(target, ["config", "user.name", "Owner"])
+    git(target, ["add", "-A"])
+    git(target, ["commit", "-qm", "the owner's own commit"])
+    const head = git(target, ["rev-parse", "HEAD"]).stdout.trim()
+
+    renormalizeManagedFiles(target)
+
+    expect(git(target, ["rev-parse", "HEAD"]).stdout.trim(), "no commit at open").toBe(head)
+    expect(git(target, ["diff", "--cached", "--name-only"]).stdout.trim(), "nothing staged at open").toBe("")
+    expect(
+      git(target, ["status", "--porcelain"]).stdout.split("\n").filter(Boolean).sort(),
+      "exactly the two refreshed files, unstaged — the governed loop's own checkpoints pick them up later"
+    ).toEqual([" M .gitignore", " M AGENTS.md"])
   })
 })
 

@@ -1,4 +1,5 @@
 import { getCurrentProject, ProjectError, setCurrentProject } from "@/lib/project"
+import { renormalizeManagedFiles } from "@/lib/scaffold"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -20,6 +21,11 @@ export async function POST(request: Request) {
       )
     }
     const project = setCurrentProject(root, { requireGoverned: body?.requireGoverned === true })
+    // After the persist, never before (the renormalization's notifications resolve through the ambient current project), and never able to fail it: the selection is already on disk, so anything raised here would answer an error for an open that succeeded.
+    try {
+      renormalizeManagedFiles(project.root)
+    } catch {
+    }
     return Response.json({ ok: true, project })
   } catch (error) {
     if (error instanceof ProjectError) {

@@ -17,11 +17,14 @@ import {
   ensureManagedBlock,
   extractManagedBlock,
   GITIGNORE_MARKERS,
+  MANAGED_GOVERNANCE_FILES,
   METHOD_MARKERS,
+  type ManagedGovernanceFile,
   type ManagedSpec,
   type MarkerPair,
 } from "@/lib/managed-block"
-import { setCurrentProject } from "@/lib/project"
+import { appendNotification } from "@/lib/notifications"
+import { isGovernedRoot, setCurrentProject } from "@/lib/project"
 import { PROOF_RECIPE_FILE, PROOFS_DIR } from "@/lib/proofs"
 import type { CurrentProject } from "@/lib/project-types"
 import { SKELETON_DIRS } from "@/lib/skeleton"
@@ -367,6 +370,82 @@ function writeManaged(abs: string, spec: ManagedSpec): string | null {
   return abs
 }
 
+const MANAGED_SPECS: Record<ManagedGovernanceFile, (projectName: string) => ManagedSpec> = {
+  "AGENTS.md": (projectName) =>
+    managedSpec(renderTemplate("AGENTS.md", { [PROJECT_NAME_TOKEN]: projectName }), METHOD_MARKERS),
+  "CLAUDE.md": (projectName) =>
+    managedSpec(renderTemplate("CLAUDE.md", { [PROJECT_NAME_TOKEN]: projectName }), METHOD_MARKERS),
+  ".gitignore": () => managedSpec(gitignore(), GITIGNORE_MARKERS),
+}
+
+export interface ManagedFileFailure {
+  file: string
+  reason: string
+}
+
+export interface ManagedRenormalization {
+  written: string[]
+  failures: ManagedFileFailure[]
+}
+
+function plural(count: number, noun: string): string {
+  return `${count} ${noun}${count === 1 ? "" : "s"}`
+}
+
+// Node appends ", <syscall> '<path>'" to fs errors: drop it only when that path IS the file the message already names, so a failure on one of Vivicy's own templates still says which file is missing.
+function failureReason(error: unknown, abs: string): string {
+  if (!(error instanceof Error)) return String(error)
+  const { path: errorPath, syscall } = error as NodeJS.ErrnoException
+  return errorPath === abs && syscall ? error.message.split(`, ${syscall} `)[0] : error.message
+}
+
+function announceRenormalization(root: string, written: string[], failures: ManagedFileFailure[]): void {
+  const rel = (abs: string) => path.relative(root, abs)
+  try {
+    if (written.length > 0) {
+      appendNotification({
+        level: "info",
+        stage: "project",
+        event: "managed_files_updated",
+        message: `updated ${plural(written.length, "managed file")} on open: ${written
+          .map(rel)
+          .join(", ")} — uncommitted in your working tree for now; the next run absorbs ${
+          written.length === 1 ? "it" : "them"
+        } into a commit of its own before it starts`,
+      })
+    }
+    if (failures.length > 0) {
+      appendNotification({
+        level: "warning",
+        stage: "project",
+        event: "managed_files_failed",
+        message: `could not update ${plural(failures.length, "managed file")} on open — the project opened anyway: ${failures
+          .map(({ file, reason }) => `${rel(file)} (${reason})`)
+          .join("; ")}. Make ${failures.length === 1 ? "it" : "them"} writable and reopen the project to retry.`,
+      })
+    }
+  } catch {
+  }
+}
+
+export function renormalizeManagedFiles(root: string): ManagedRenormalization {
+  const written: string[] = []
+  const failures: ManagedFileFailure[] = []
+  if (!isGovernedRoot(root)) return { written, failures }
+  const projectName = deriveProjectName(root)
+  for (const rel of MANAGED_GOVERNANCE_FILES) {
+    const abs = path.join(root, rel)
+    try {
+      if (writeManaged(abs, MANAGED_SPECS[rel](projectName))) written.push(abs)
+    } catch (error) {
+      failures.push({ file: abs, reason: failureReason(error, abs) })
+    }
+  }
+  written.sort()
+  announceRenormalization(root, written, failures)
+  return { written, failures }
+}
+
 export function scaffoldProject(input: { targetDir: unknown; projectName: unknown }): ScaffoldResult {
   const projectName = validateProjectName(input.projectName)
   const { target, mode } = resolveTargetDir(input.targetDir)
@@ -388,13 +467,8 @@ export function scaffoldProject(input: { targetDir: unknown; projectName: unknow
     if (written1) written.push(written1)
   }
 
-  const managedFiles: Array<[string, ManagedSpec]> = [
-    ["AGENTS.md", managedSpec(renderTemplate("AGENTS.md", { [PROJECT_NAME_TOKEN]: projectName }), METHOD_MARKERS)],
-    ["CLAUDE.md", managedSpec(renderTemplate("CLAUDE.md", { [PROJECT_NAME_TOKEN]: projectName }), METHOD_MARKERS)],
-    [".gitignore", managedSpec(gitignore(), GITIGNORE_MARKERS)],
-  ]
-  for (const [rel, spec] of managedFiles) {
-    const w = writeManaged(at(rel), spec)
+  for (const rel of MANAGED_GOVERNANCE_FILES) {
+    const w = writeManaged(at(rel), MANAGED_SPECS[rel](projectName))
     if (w) written.push(w)
   }
 

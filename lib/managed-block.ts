@@ -1,3 +1,8 @@
+// Imported directly by factory/dev-loop.ts via a relative .ts path (no bundler) — this file must stay free of Next path aliases and any node:/Next-only import.
+export const MANAGED_GOVERNANCE_FILES = ["AGENTS.md", "CLAUDE.md", ".gitignore"] as const
+
+export type ManagedGovernanceFile = (typeof MANAGED_GOVERNANCE_FILES)[number]
+
 export interface MarkerPair {
   begin: string
   end: string

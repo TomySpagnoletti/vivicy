@@ -1,4 +1,8 @@
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
+import path from "node:path"
+
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import type { CurrentProject } from "@/lib/project-types"
 
@@ -13,6 +17,16 @@ vi.mock("@/lib/project", async () => {
   return { ...actual, getCurrentProject, setCurrentProject }
 })
 
+// A recording pass-through, never a stub: the wiring assertions read the spy while the open-seam case below drives the real engine over a real governed root.
+const { renormalizeManagedFiles } = vi.hoisted(() => ({ renormalizeManagedFiles: vi.fn() }))
+
+vi.mock("@/lib/scaffold", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/scaffold")>("@/lib/scaffold")
+  renormalizeManagedFiles.mockImplementation(actual.renormalizeManagedFiles)
+  return { ...actual, renormalizeManagedFiles }
+})
+
+import { METHOD_MARKERS } from "@/lib/managed-block"
 import { ProjectError } from "@/lib/project"
 
 import { GET, POST } from "./route"
@@ -85,6 +99,44 @@ describe("POST /api/project", () => {
     expect(body).toEqual({ ok: true, project: PROJECT })
   })
 
+  it("renormalizes the DESCRIBED root, and only after the selection is persisted", async () => {
+    setCurrentProject.mockReturnValue(PROJECT)
+
+    await POST(postJson({ root: "/abs/proj/../proj" }))
+
+    expect(renormalizeManagedFiles).toHaveBeenCalledWith(PROJECT.root)
+    expect(renormalizeManagedFiles).toHaveBeenCalledTimes(1)
+    expect(
+      setCurrentProject.mock.invocationCallOrder[0],
+      "the renormalization's notifications resolve through the ambient current project"
+    ).toBeLessThan(renormalizeManagedFiles.mock.invocationCallOrder[0])
+  })
+
+  it("still answers 200 with the project when the renormalization reports a failure — an open is never blocked", async () => {
+    setCurrentProject.mockReturnValue(PROJECT)
+    renormalizeManagedFiles.mockReturnValueOnce({
+      written: [],
+      failures: [{ file: "/abs/proj/AGENTS.md", reason: "EACCES: permission denied" }],
+    })
+
+    const res = await POST(postJson({ root: "/abs/proj" }))
+    expect(res.status).toBe(200)
+
+    expect(await res.json()).toEqual({ ok: true, project: PROJECT })
+  })
+
+  it("still answers 200 when the renormalization THROWS — the selection is already on disk, so the open cannot be answered as an error", async () => {
+    setCurrentProject.mockReturnValue(PROJECT)
+    renormalizeManagedFiles.mockImplementationOnce(() => {
+      throw new Error("EROFS: read-only file system")
+    })
+
+    const res = await POST(postJson({ root: "/abs/proj" }))
+    expect(res.status).toBe(200)
+
+    expect(await res.json()).toEqual({ ok: true, project: PROJECT })
+  })
+
   it("forwards requireGoverned and maps a not_governed rejection to 400", async () => {
     setCurrentProject.mockImplementation(() => {
       throw new ProjectError("no .vivicy directory in /bare", "not_governed")
@@ -97,6 +149,7 @@ describe("POST /api/project", () => {
     expect(setCurrentProject).toHaveBeenCalledWith("/bare", { requireGoverned: true })
     expect(body.ok).toBe(false)
     expect(body.code).toBe("not_governed")
+    expect(renormalizeManagedFiles, "a refused open touches nothing in the folder").not.toHaveBeenCalled()
   })
 
   it("maps a ProjectError to 400 with its typed code", async () => {
@@ -125,5 +178,51 @@ describe("POST /api/project", () => {
     expect(body.ok).toBe(false)
     expect(body.error).toBe("disk on fire")
     expect(body.code).toBeUndefined()
+  })
+})
+
+// End to end over the real store and the real engine: this is what makes "an already-governed repo receives block-definition evolutions at its next open" true in production rather than only at acquisition.
+describe("POST /api/project — opening a governed repo brings its managed block to the current definition", () => {
+  let workDir: string
+  let prevRuntime: string | undefined
+  let prevFactoryRoot: string | undefined
+
+  beforeEach(async () => {
+    workDir = realpathSync(mkdtempSync(path.join(tmpdir(), "vivicy-open-")))
+    prevRuntime = process.env.VIVICY_RUNTIME_DIR
+    prevFactoryRoot = process.env.VIVICY_FACTORY_ROOT
+    process.env.VIVICY_RUNTIME_DIR = path.join(workDir, ".runtime")
+    process.env.VIVICY_FACTORY_ROOT = path.resolve(process.cwd(), "factory")
+    const actual = await vi.importActual<typeof import("@/lib/project")>("@/lib/project")
+    setCurrentProject.mockImplementation(actual.setCurrentProject)
+  })
+
+  afterEach(() => {
+    setCurrentProject.mockReset()
+    if (prevRuntime === undefined) delete process.env.VIVICY_RUNTIME_DIR
+    else process.env.VIVICY_RUNTIME_DIR = prevRuntime
+    if (prevFactoryRoot === undefined) delete process.env.VIVICY_FACTORY_ROOT
+    else process.env.VIVICY_FACTORY_ROOT = prevFactoryRoot
+    rmSync(workDir, { recursive: true, force: true })
+  })
+
+  it("replaces the block the repo was governed with, keeps the owner's own bytes, and reports the project", async () => {
+    const target = path.join(workDir, "governed-before-the-block-moved")
+    mkdirSync(path.join(target, ".vivicy"), { recursive: true })
+    const ownerHead = "# Owner guide\n\nHouse rules above the managed block.\n\n"
+    writeFileSync(
+      path.join(target, "AGENTS.md"),
+      `${ownerHead}${METHOD_MARKERS.begin}\nA thinner method contract from the pass that governed this repo.\n${METHOD_MARKERS.end}\n`
+    )
+
+    const res = await POST(postJson({ root: target, requireGoverned: true }))
+    expect(res.status).toBe(200)
+    expect((await res.json()).project.root).toBe(target)
+
+    const agents = readFileSync(path.join(target, "AGENTS.md"), "utf8")
+    expect(agents.startsWith(ownerHead)).toBe(true)
+    expect(agents).not.toContain("A thinner method contract")
+    expect(agents).toContain("A test must discriminate")
+    expect(agents).toContain("smallest verified increments")
   })
 })

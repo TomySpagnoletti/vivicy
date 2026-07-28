@@ -1,7 +1,9 @@
-import { screen } from "@testing-library/react"
+import { StrictMode } from "react"
+import { screen, waitFor } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest"
 
 import type { AgentHealth, AgentsHealth } from "@/lib/agents-health-types"
+import type { CurrentProject } from "@/lib/project-types"
 import Page from "@/app/page"
 import { __resetPersistedBooleanStoresForTests } from "@/hooks/use-persisted-boolean"
 import { renderWithIntl } from "@/test/render"
@@ -141,5 +143,44 @@ describe("Page — first-boot loading state", () => {
     expect(
       await screen.findByRole("button", { name: "Open Vivi" })
     ).toBeInTheDocument()
+  })
+})
+
+// Wiring only — the one-shot/governed contract itself is pinned in hooks/use-reopen-persisted-project.test.tsx.
+describe("Page — a returning session re-opens its persisted project through the selection seam", () => {
+  const GOVERNED: CurrentProject = { root: "/repos/acme", name: "acme", hasCanonicalSpec: true }
+
+  test("hands the resolved project to the seam: the persisted root is POSTed once, with no click anywhere", async () => {
+    const calls: Array<{ url: string; init?: RequestInit }> = []
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      calls.push({ url, init })
+      if (url.includes("/api/agents/health")) return json({ ok: true, agents: { claude: agent(), codex: agent() } })
+      if (url.includes("/api/map")) return json(NO_MAP)
+      if (url.endsWith("/api/project")) return json({ ok: true, project: GOVERNED })
+      if (url.includes("/api/control/notifications")) return json({ ok: true, notifications: [] })
+      if (url.includes("/api/control/crs")) return json({ ok: true, crs: [] })
+      if (url.includes("/api/vivi/sessions")) return json({ ok: true, sessions: [] })
+      return json({ ok: true })
+    })
+    vi.stubGlobal("fetch", fetchMock)
+    const seamPosts = () => calls.filter((c) => c.url.endsWith("/api/project") && c.init?.method === "POST")
+
+    // StrictMode, because the App Router runs it by default: the mount-time double-invoke must not double-fire the seam.
+    renderWithIntl(
+      <StrictMode>
+        <Page />
+      </StrictMode>
+    )
+
+    await waitFor(() => expect(seamPosts().length).toBeGreaterThan(0))
+    expect(await screen.findByRole("button", { name: "Open Vivi" })).toBeInTheDocument()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(seamPosts()).toHaveLength(1)
+    expect(JSON.parse(String(seamPosts()[0].init?.body))).toEqual({
+      root: GOVERNED.root,
+      requireGoverned: true,
+    })
   })
 })

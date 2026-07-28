@@ -4,9 +4,11 @@ import assert from "node:assert/strict";
 import test, { after } from "node:test";
 import { spawnSync } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  ensureCleanTreeForRun,
   agentCliArgs,
   buildArchitectureIndex,
   buildDepsClosure,
@@ -3116,5 +3118,96 @@ test("post-merge re-gate RED -> integration reset to pre-merge sha + issue block
     assert.ok(done.includes("ISS-C.md"), "independent issue moved to done/");
   } finally {
     rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+function managedRefreshRepo(): {
+  root: string;
+  git: (a: string[]) => { stdout: string; stderr: string };
+  status: () => string[];
+  head: () => string;
+} {
+  const root = mkdtempSync(resolve(tmpdir(), "vivicy-governance-absorb-"));
+  const git = (a: string[]) => {
+    const r = spawnSync("git", a, { cwd: root, encoding: "utf8" });
+    return { stdout: r.stdout ?? "", stderr: r.stderr ?? "" };
+  };
+  git(["init", "-q"]);
+  git(["config", "user.email", "owner@example.com"]);
+  git(["config", "user.name", "Owner"]);
+  git(["config", "commit.gpgsign", "false"]);
+  mkdirSync(resolve(root, "src"), { recursive: true });
+  writeFileSync(resolve(root, "AGENTS.md"), "# owner guide\n");
+  writeFileSync(resolve(root, ".gitignore"), "node_modules/\n");
+  writeFileSync(resolve(root, "src/app.ts"), "export const a = 1;\n");
+  git(["add", "-A"]);
+  git(["commit", "-qm", "the owner's own commit"]);
+  return {
+    root,
+    git,
+    status: () => git(["status", "--porcelain"]).stdout.split("\n").filter((l) => l.trim().length > 0).sort(),
+    head: () => git(["rev-parse", "HEAD"]).stdout.trim(),
+  };
+}
+
+test("ensureCleanTreeForRun absorbs a managed-ONLY dirty set so the owner's run starts instead of being refused for bytes Vivicy wrote", () => {
+  const repo = managedRefreshRepo();
+  try {
+    writeFileSync(resolve(repo.root, "AGENTS.md"), "# owner guide\n\n<!-- vivicy:method:begin -->\ncurrent block\n<!-- vivicy:method:end -->\n");
+    writeFileSync(resolve(repo.root, ".gitignore"), "node_modules/\n.env\n");
+    writeFileSync(resolve(repo.root, "CLAUDE.md"), "@AGENTS.md\n");
+    const before = repo.head();
+
+    ensureCleanTreeForRun(repo.root);
+
+    assert.deepEqual(repo.status(), [], "the tree is clean, so the run proceeds");
+    assert.equal(repo.git(["rev-list", "--count", `${before}..HEAD`]).stdout.trim(), "1", "exactly one commit");
+    assert.deepEqual(
+      repo.git(["show", "--name-only", "--format=", "HEAD"]).stdout.split("\n").filter(Boolean).sort(),
+      [".gitignore", "AGENTS.md", "CLAUDE.md"],
+      "the commit carries the managed files — including the untracked recreation — and nothing else",
+    );
+    assert.match(
+      repo.git(["log", "-1", "--format=%s"]).stdout.trim(),
+      /^chore: refresh the Vivicy-managed governance blocks$/,
+      "conventional subject naming the refresh, so the owner reading git log knows Vivicy wrote it",
+    );
+  } finally {
+    rmSync(repo.root, { recursive: true, force: true });
+  }
+});
+
+test("ensureCleanTreeForRun absorbs NOTHING when anything else is dirty — the refusal stays verbatim and the tree untouched", () => {
+  const repo = managedRefreshRepo();
+  try {
+    mkdirSync(resolve(repo.root, "docs"), { recursive: true });
+    writeFileSync(resolve(repo.root, "AGENTS.md"), "# owner guide\n\nrefreshed block\n");
+    writeFileSync(resolve(repo.root, "src/app.ts"), "export const a = 2;\n");
+    writeFileSync(resolve(repo.root, "docs/CLAUDE.md"), "a same-named file that is NOT the managed root one\n");
+    const before = repo.head();
+    const dirtyBefore = repo.status();
+
+    assert.throws(
+      () => ensureCleanTreeForRun(repo.root),
+      /refuses to start on a dirty working tree/,
+      "a mixed set is never partially absorbed — the owner still owns the refusal",
+    );
+    assert.equal(repo.head(), before, "no commit");
+    assert.equal(repo.git(["diff", "--cached", "--name-only"]).stdout.trim(), "", "nothing staged either");
+    assert.deepEqual(repo.status(), dirtyBefore, "the working tree is exactly the state the gate refused");
+  } finally {
+    rmSync(repo.root, { recursive: true, force: true });
+  }
+});
+
+test("ensureCleanTreeForRun creates no empty commit on an already-clean tree", () => {
+  const repo = managedRefreshRepo();
+  try {
+    const before = repo.head();
+    ensureCleanTreeForRun(repo.root);
+    assert.equal(repo.head(), before);
+    assert.deepEqual(repo.status(), []);
+  } finally {
+    rmSync(repo.root, { recursive: true, force: true });
   }
 });

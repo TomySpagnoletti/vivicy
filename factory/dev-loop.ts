@@ -26,6 +26,7 @@ import { recordProgressEvent } from "./progress-ledger.ts";
 import type { ProgressEvent } from "./progress-ledger.ts";
 import { checkSkills } from "./dev-preflight.ts";
 import { pruneGitkeeps } from "../lib/skeleton.ts";
+import { MANAGED_GOVERNANCE_FILES } from "../lib/managed-block.ts";
 import { commandServesHttp } from "../lib/product-run.ts";
 import {
   gateEvidenceRel,
@@ -1728,13 +1729,50 @@ function moveIssueToDone(issue: Issue, cfg: Config): string | null {
   return toRel;
 }
 
-function assertCleanTree(): void {
-  const result = spawnSync("git", ["status", "--porcelain"], { cwd: requireRepoRoot(), encoding: "utf8" });
+const GOVERNANCE_REFRESH_COMMIT_MESSAGE =
+  "chore: refresh the Vivicy-managed governance blocks\n\nWritten by Vivicy when the project was opened; committed here so the run starts on a clean tree.";
+
+function absorbManagedGovernanceRefresh(root: string): string[] {
+  const status = spawnSync("git", ["status", "--porcelain"], { cwd: root, encoding: "utf8" });
+  if ((status.status ?? 1) !== 0) return [];
+  const dirty = (status.stdout ?? "")
+    .split("\n")
+    .filter((line) => line.trim().length > 0)
+    .map((line) => line.replace(/\r$/, "").slice(3));
+  if (dirty.length === 0) return [];
+  if (!dirty.every((entry) => (MANAGED_GOVERNANCE_FILES as readonly string[]).includes(entry))) return [];
+  // Exact pathspec, never -A: a file the owner touches between the status read and the add must not be swallowed into Vivicy's commit.
+  const add = spawnSync("git", ["add", "--", ...dirty], { cwd: root, encoding: "utf8" });
+  const commit =
+    (add.status ?? 1) === 0
+      ? spawnSync("git", ["commit", "-m", GOVERNANCE_REFRESH_COMMIT_MESSAGE], { cwd: root, encoding: "utf8" })
+      : null;
+  if ((commit?.status ?? 1) !== 0) {
+    const failed = commit ?? add;
+    process.stderr.write(
+      `dev-loop preflight: could not absorb the Vivicy-managed governance refresh (${dirty.join(", ")}): ${`${failed.stderr ?? ""}\n${failed.stdout ?? ""}`.trim()}\n`,
+    );
+    return [];
+  }
+  process.stderr.write(
+    `dev-loop preflight: absorbed the Vivicy-managed governance refresh (${dirty.join(", ")}) into one commit\n`,
+  );
+  return dirty;
+}
+
+function assertCleanTree(root: string): void {
+  const result = spawnSync("git", ["status", "--porcelain"], { cwd: root, encoding: "utf8" });
   if ((result.stdout ?? "").trim().length > 0) {
     throw new Error(
       "dev-loop refuses to start on a dirty working tree: commit or stash existing changes first, so each issue commits only its own changes.",
     );
   }
+}
+
+// The run's clean-tree precondition, absorption FIRST: opening a project renormalizes the managed governance files in the owner's tree without touching git (lib/scaffold.ts), so the refusal would otherwise fire on bytes the owner never wrote and blame them for it.
+export function ensureCleanTreeForRun(root: string): void {
+  absorbManagedGovernanceRefresh(root);
+  assertCleanTree(root);
 }
 
 const INTEGRATION_LOCK_STALE_MS = 120_000;
@@ -2807,7 +2845,7 @@ function writePostMergeIntegrationBlock(
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
-  assertCleanTree();
+  ensureCleanTreeForRun(requireRepoRoot());
   const skills = checkSkills();
   for (const note of skills.notes ?? []) {
     process.stderr.write(`dev-loop preflight: note: ${note}\n`);
