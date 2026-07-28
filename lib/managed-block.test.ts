@@ -3,7 +3,6 @@ import { describe, expect, it } from "vitest"
 import {
   ensureManagedBlock,
   GITIGNORE_MARKERS,
-  ManagedBlockError,
   METHOD_MARKERS,
   type ManagedSpec,
 } from "@/lib/managed-block"
@@ -93,24 +92,95 @@ describe("ensureManagedBlock — marker-lookalike owner text", () => {
   })
 })
 
-describe("ensureManagedBlock — corruption edges are deterministic and never destructive", () => {
-  const cases: Array<{ name: string; current: string; reason: ManagedBlockError["reason"] }> = [
-    { name: "duplicated begin marker", current: `a\n${MARKERS.begin}\nx\n${MARKERS.begin}\ny\n${MARKERS.end}\n`, reason: "duplicate_begin_marker" },
-    { name: "duplicated end marker", current: `${MARKERS.begin}\nx\n${MARKERS.end}\ny\n${MARKERS.end}\n`, reason: "duplicate_end_marker" },
-    { name: "begin without end", current: `head\n${MARKERS.begin}\nx\ny\n`, reason: "unterminated_block" },
-    { name: "end without begin", current: `head\nx\n${MARKERS.end}\ntail\n`, reason: "stray_end_marker" },
-    { name: "end before begin", current: `${MARKERS.end}\nx\n${MARKERS.begin}\n`, reason: "misordered_markers" },
+describe("ensureManagedBlock — damaged markers self-repair, never block", () => {
+  // A span's interior is block content and goes, exactly as on the healthy in-place path — but only for a MUTUALLY nearest begin/end pair, so lines between two begins stay the owner's.
+  const cases: Array<{ name: string; current: string; owner: string }> = [
+    { name: "duplicated begin marker", current: `a\n${MARKERS.begin}\nx\n${MARKERS.begin}\ny\n${MARKERS.end}\n`, owner: "a\nx\n" },
+    { name: "duplicated end marker", current: `${MARKERS.begin}\nx\n${MARKERS.end}\ny\n${MARKERS.end}\n`, owner: "y\n" },
+    { name: "begin without end", current: `head\n${MARKERS.begin}\nx\ny\n`, owner: "head\nx\ny\n" },
+    { name: "end without begin", current: `head\nx\n${MARKERS.end}\ntail\n`, owner: "head\nx\ntail\n" },
+    { name: "end before begin", current: `${MARKERS.end}\nx\n${MARKERS.begin}\n`, owner: "x\n" },
+    { name: "two whole blocks around owner prose", current: `${MARKERS.begin}\nA\n${MARKERS.end}\nmine\n${MARKERS.begin}\nB\n${MARKERS.end}\n`, owner: "mine\n" },
+    { name: "a stray begin above a real block — the owner lines between the two begins are NOT swallowed", current: `keep1\n${MARKERS.begin}\nkeep2\n${MARKERS.begin}\nblock\n${MARKERS.end}\n`, owner: "keep1\nkeep2\n" },
+    { name: "nested begins with two ends pair innermost-first, the outer line survives", current: `${MARKERS.begin}\nkeep\n${MARKERS.begin}\nblock\n${MARKERS.end}\n${MARKERS.end}\n`, owner: "keep\n" },
   ]
-  for (const { name, current, reason } of cases) {
-    it(`${name} → typed refusal, file untouched`, () => {
-      expect(() => ensureManagedBlock(current, spec())).toThrow(ManagedBlockError)
-      try {
-        ensureManagedBlock(current, spec())
-      } catch (error) {
-        expect((error as ManagedBlockError).reason).toBe(reason)
-      }
+  for (const { name, current, owner } of cases) {
+    it(`${name} → residues cleaned, one pristine block restored, owner lines byte-preserved`, () => {
+      const repaired = ensureManagedBlock(current, spec())
+      expect(repaired).toBe(`${owner.replace(/\n+$/, "")}\n\n${BLOCK}\n`)
+      expect(repaired.split(MARKERS.begin)).toHaveLength(2)
+      expect(repaired.split(MARKERS.end)).toHaveLength(2)
+      expect(ensureManagedBlock(repaired, spec()), "a second pass over the repair is a zero diff").toBe(repaired)
     })
   }
+
+  it("a file that is nothing but marker residue converges to the block alone, no leading blank lines", () => {
+    const repaired = ensureManagedBlock(`${MARKERS.end}\n${MARKERS.begin}\n`, spec())
+    expect(repaired).toBe(`${BLOCK}\n`)
+    expect(ensureManagedBlock(repaired, spec())).toBe(repaired)
+  })
+
+  it("marker LOOKALIKES around real residue are owner text: preserved verbatim while the residue is cleaned", () => {
+    const current = `  ${MARKERS.begin}\n${MARKERS.end}\nSee ${MARKERS.end} inline\n`
+    const repaired = ensureManagedBlock(current, spec())
+    expect(repaired).toBe(`  ${MARKERS.begin}\nSee ${MARKERS.end} inline\n\n${BLOCK}\n`)
+    expect(ensureManagedBlock(repaired, spec())).toBe(repaired)
+  })
+})
+
+describe("ensureManagedBlock — totality is exhaustive, not sampled", () => {
+  // "Never throws on any input" cannot be shown by enumerated shapes, so walk EVERY arrangement of the alphabet that decides the outcome (both markers, their CRLF spellings, a lookalike, an owner line, a blank), each with and without a trailing newline.
+  const ALPHABET = [MARKERS.begin, MARKERS.end, `${MARKERS.begin}\r`, `${MARKERS.end}\r`, "owner", "", `  ${MARKERS.begin}`]
+  const MAX_LINES = 5
+
+  function bare(line: string): string {
+    return line.endsWith("\r") ? line.slice(0, -1) : line
+  }
+
+  // The POLICY, stated declaratively so it shares no scan with the implementation: a pair is MUTUALLY nearest — b is the last begin before e AND e is the first end after b. Only such a pair's span is Vivicy's; every other non-marker line is the owner's.
+  function ownerLines(text: string): string[] {
+    const lines = text.split("\n").map(bare)
+    const at = (kind: string) => lines.flatMap((line, i) => (line === kind ? [i] : []))
+    const begins = at(MARKERS.begin)
+    const ends = at(MARKERS.end)
+    const owned = new Set<number>()
+    for (const e of ends) {
+      const b = begins.filter((candidate) => candidate < e).at(-1)
+      if (b === undefined || ends.find((candidate) => candidate > b) !== e) continue
+      for (let i = b; i <= e; i += 1) owned.add(i)
+    }
+    return lines.filter(
+      (line, i) => !owned.has(i) && line !== MARKERS.begin && line !== MARKERS.end && line.trim().length > 0
+    )
+  }
+
+  function* arrangements(): Generator<string> {
+    let level = [""]
+    for (let depth = 0; depth <= MAX_LINES; depth += 1) {
+      for (const body of level) {
+        yield body
+        yield `${body}\n`
+      }
+      level = level.flatMap((body) => ALPHABET.map((line) => (body === "" ? line : `${body}\n${line}`)))
+    }
+  }
+
+  it("every arrangement converges to exactly one well-formed block, is a fixpoint, and keeps every owner line", () => {
+    let seen = 0
+    for (const input of arrangements()) {
+      seen += 1
+      const out = ensureManagedBlock(input, spec())
+      const outLines = out.split("\n").map(bare)
+      const why = JSON.stringify(input)
+      expect(outLines.filter((line) => line === MARKERS.begin), `one begin marker for ${why}`).toHaveLength(1)
+      expect(outLines.filter((line) => line === MARKERS.end), `one end marker for ${why}`).toHaveLength(1)
+      expect(outLines.indexOf(MARKERS.begin), `begin before end for ${why}`).toBeLessThan(outLines.indexOf(MARKERS.end))
+      expect(out, `canonical block content for ${why}`).toContain(BLOCK)
+      expect(ensureManagedBlock(out, spec()), `fixpoint for ${why}`).toBe(out)
+      expect(ownerLines(out), `owner lines for ${why}`).toEqual(ownerLines(input))
+    }
+    expect(seen, "the walk must actually cover the arrangement space").toBeGreaterThan(30_000)
+  })
 })
 
 describe("ensureManagedBlock — real marker idioms", () => {

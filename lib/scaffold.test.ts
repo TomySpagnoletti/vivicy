@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process"
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import path from "node:path"
 
@@ -130,6 +130,7 @@ describe("scaffoldProject — from scratch (lean, language-agnostic)", () => {
       "README.md",
       "vivicy.json",
       ".gitignore",
+      ".env.example",
     ]
     for (const rel of expectedFiles) {
       expect(existsSync(path.join(target, rel)), `missing ${rel}`).toBe(true)
@@ -198,6 +199,16 @@ describe("scaffoldProject — from scratch (lean, language-agnostic)", () => {
     ]) {
       expect(ignoreLines, `expected .gitignore to carry the exact line ${line}`).toContain(line)
     }
+    // The env family is excluded in EVERY shape and re-included NOWHERE — a `!` line below the block would survive only until the first marker repair re-appends the block underneath it, silently flipping the placeholder to ignored forever.
+    for (const line of [".env", ".env.*"]) {
+      expect(ignoreLines.filter((l) => l === line), `greenfield must carry ${line} exactly once`).toHaveLength(1)
+    }
+    const blockEnd = ignoreLines.indexOf(GITIGNORE_MARKERS.end)
+    expect(ignoreLines.indexOf(".env.*"), "the excludes are block content").toBeLessThan(blockEnd)
+    expect(
+      ignoreLines.filter((l) => l.startsWith("!.env")),
+      "no env re-include anywhere — greenfield ships a real .env.example and TRACKS it instead"
+    ).toEqual([])
     for (const committed of ["architecture-data.json", "source-map.json", "coverage-report"]) {
       expect(gitignore, `expected .gitignore NOT to ignore ${committed}`).not.toContain(committed)
     }
@@ -329,6 +340,28 @@ describe("scaffoldProject — existing project (shared files get a managed block
     expect(count(restored, GITIGNORE_MARKERS.begin)).toBe(1)
   })
 
+  it("re-normalizes an already-governed .gitignore whose essential block predates the env rules, owner bytes outside byte-identical", () => {
+    const target = path.join(workDir, "governed-pre-env")
+    mkdirSync(target, { recursive: true })
+    git(target, ["init", "-q", "."])
+    const ownerHead = "node_modules/\nmy-own-ignore/\n\n"
+    const ownerTail = "\n# my own tail rule\nbuild-cache/\n"
+    const staleBlock = `${GITIGNORE_MARKERS.begin}\n.vivicy-runtime/\n.vivicy-worktrees/\n.vivicy/development/transcripts/\n${GITIGNORE_MARKERS.end}`
+    writeFileSync(path.join(target, ".gitignore"), `${ownerHead}${staleBlock}${ownerTail}`)
+
+    scaffoldProject({ targetDir: target, projectName: "Governed Pre Env" })
+    const gitignore = readFileSync(path.join(target, ".gitignore"), "utf8")
+
+    expect(gitignore.startsWith(ownerHead), "owner bytes before the block stay byte-identical").toBe(true)
+    expect(gitignore.endsWith(ownerTail), "owner bytes after the block stay byte-identical").toBe(true)
+    expect(count(gitignore, GITIGNORE_MARKERS.begin), "still exactly one managed block").toBe(1)
+    expect(git(target, ["check-ignore", "-q", ".env"]).status, "the migrated block ignores real env files").toBe(0)
+    expect(
+      gitignore.split("\n"),
+      "the brownfield block carries excludes only — a re-include appended at EOF would override the owner's rules above it"
+    ).not.toContain("!.env.example")
+  })
+
   it("re-normalizes an already-governed AGENTS.md carrying an OLDER method block to the current canonical, owner bytes outside byte-identical", () => {
     const target = path.join(workDir, "already-governed")
     mkdirSync(target, { recursive: true })
@@ -350,17 +383,24 @@ describe("scaffoldProject — existing project (shared files get a managed block
     expect(count(agents, METHOD_MARKERS.begin), "still exactly one managed block").toBe(1)
   })
 
-  it("refuses loudly (typed error, file untouched) when the owner corrupts the managed markers", () => {
+  it("self-repairs an owner-damaged marker state instead of blocking governance, and a further pass is a zero diff", () => {
     const target = seedBrownfield()
-    writeFileSync(
-      path.join(target, "AGENTS.md"),
-      `# mine\n${METHOD_MARKERS.begin}\nhalf a block, no end marker\n`
-    )
-    const before = readFileSync(path.join(target, "AGENTS.md"), "utf8")
-    expect(() => scaffoldProject({ targetDir: target, projectName: "My Repo" })).toThrow(
-      expect.objectContaining({ code: "managed_block_corrupt" })
-    )
-    expect(readFileSync(path.join(target, "AGENTS.md"), "utf8"), "the corrupt file is never mutated").toBe(before)
+    const agentsPath = path.join(target, "AGENTS.md")
+    writeFileSync(agentsPath, `# mine\n${METHOD_MARKERS.begin}\nhalf a block, no end marker\n`)
+
+    const result = scaffoldProject({ targetDir: target, projectName: "My Repo" })
+    const repaired = readFileSync(agentsPath, "utf8")
+
+    expect(repaired.startsWith("# mine\nhalf a block, no end marker\n"), "owner lines are never deleted — only Vivicy's own marker lines are").toBe(true)
+    expect(count(repaired, METHOD_MARKERS.begin), "exactly one well-formed block").toBe(1)
+    expect(count(repaired, METHOD_MARKERS.end)).toBe(1)
+    expect(repaired.endsWith(`${METHOD_MARKERS.end}\n`)).toBe(true)
+    expect(repaired).toContain("## Working under Vivicy")
+    expect(new Set(result.written.map((p) => path.relative(target, p))).has("AGENTS.md"), "the repair rides `written` like any other renormalization").toBe(true)
+
+    const result2 = scaffoldProject({ targetDir: target, projectName: "My Repo" })
+    expect(readFileSync(agentsPath, "utf8"), "the repair is a fixpoint").toBe(repaired)
+    expect(new Set(result2.written.map((p) => path.relative(target, p))).has("AGENTS.md")).toBe(false)
   })
 })
 
@@ -408,6 +448,179 @@ describe("the proof-artifact ignore posture, exercised through real git (both wr
       ".vivicy/development/proofs/ISS-0008/cli-run/recipe.txt",
     ])
     expect(spawnSync("git", ["status", "--porcelain"], { cwd: target, encoding: "utf8" }).stdout.trim()).toBe("")
+  })
+})
+
+describe("the .env ignore posture, exercised through real git (both writers)", () => {
+  // A string pin on the constant would pass with the patterns ordered wrong; git's own last-match-wins rules are the only oracle. Exit 0 = ignored, 1 = not ignored (128 would be a broken invocation, which either assertion catches) — and git never reports a TRACKED path as ignored, so `--no-index` is what asks the rules alone.
+  function expectIgnored(target: string, rels: string[], ignored: boolean): void {
+    for (const rel of rels) {
+      expect(
+        git(target, ["check-ignore", "-q", rel]).status,
+        `${rel} must be ${ignored ? "ignored" : "committable"}`
+      ).toBe(ignored ? 0 : 1)
+    }
+  }
+
+  function trackedFiles(target: string): string[] {
+    return git(target, ["ls-files"]).stdout.split("\n").filter(Boolean)
+  }
+
+  it("greenfield: the whole family is ignored, yet the placeholder template reaches history because scaffold TRACKS it", () => {
+    const target = path.join(workDir, "greenfield-env")
+    scaffoldProject({ targetDir: target, projectName: "Greenfield Env" })
+    expectIgnored(target, [".env", ".env.local", ".env.sample"], true)
+    expect(
+      git(target, ["check-ignore", "-q", "--no-index", ".env.example"]).status,
+      "the rules themselves ignore it — no re-include exists anywhere to be inverted"
+    ).toBe(0)
+    expect(
+      git(target, ["check-ignore", "-q", ".env.example"]).status,
+      "git never ignores a path that is in the index, which is exactly why tracking is the structural fix"
+    ).toBe(1)
+
+    const example = readFileSync(path.join(target, ".env.example"), "utf8")
+    expect(example, "the placeholder tells the owner what to do with it").toContain("cp .env.example .env")
+    expect(example.split("\n").filter((l) => l.trim() && !l.startsWith("#")), "every placeholder line is commented — never a live value").toEqual([])
+    expect(trackedFiles(target), "an ignored file only reaches history force-added, and a tracked file no ignore rule can undo").toContain(".env.example")
+  })
+
+  it("brownfield: the appended block excludes the whole family, re-includes NOTHING, and drops no uninvited file into the owner's tree", () => {
+    const target = path.join(workDir, "brownfield-env")
+    mkdirSync(target, { recursive: true })
+    git(target, ["init", "-q", "."])
+    writeFileSync(path.join(target, ".gitignore"), "node_modules/\nmy-own-ignore/\n")
+    writeFileSync(path.join(target, "main.py"), "print('hi')\n")
+    scaffoldProject({ targetDir: target, projectName: "Brownfield Env" })
+    expectIgnored(target, [".env", ".env.local", ".env.example", ".env.sample"], true)
+    expect(existsSync(path.join(target, ".env.example")), "the placeholder is greenfield-only — an owner's existing tree receives no file it did not ask for").toBe(false)
+  })
+
+  // The inversion this kills: with the placeholder delivered by a `!` re-include below the block, either damage shape re-appends the block at EOF UNDER that line and flips it to ignored, permanently. A tracked file cannot be flipped.
+  const DAMAGE: Array<{ name: string; damage: (gitignore: string) => string }> = [
+    {
+      name: "the owner deletes the managed block whole",
+      damage: (gi) =>
+        gi.slice(0, gi.indexOf(GITIGNORE_MARKERS.begin)) +
+        gi.slice(gi.indexOf(GITIGNORE_MARKERS.end) + GITIGNORE_MARKERS.end.length).replace(/^\n+/, ""),
+    },
+    {
+      name: "the owner drops the block's end marker",
+      damage: (gi) => gi.replace(`${GITIGNORE_MARKERS.end}\n`, ""),
+    },
+  ]
+  for (const [index, { name, damage }] of DAMAGE.entries()) {
+    it(`greenfield repair: ${name}, and re-governance leaves .env.example tracked with its content intact`, () => {
+      const target = path.join(workDir, `greenfield-repair-${index}`)
+      scaffoldProject({ targetDir: target, projectName: "Greenfield Repair" })
+      const examplePath = path.join(target, ".env.example")
+      const example = readFileSync(examplePath, "utf8")
+
+      const gitignorePath = path.join(target, ".gitignore")
+      writeFileSync(gitignorePath, damage(readFileSync(gitignorePath, "utf8")))
+      scaffoldProject({ targetDir: target, projectName: "Greenfield Repair" })
+
+      expect(count(readFileSync(gitignorePath, "utf8"), GITIGNORE_MARKERS.begin), "exactly one block after repair").toBe(1)
+      expect(readFileSync(examplePath, "utf8"), "the placeholder is an owner file — never rewritten").toBe(example)
+      git(target, ["add", "-A"])
+      git(target, ["commit", "-qm", "after repair"])
+      expect(trackedFiles(target), "the repaired block sits at EOF, and a tracked file is immune to it").toContain(".env.example")
+      expect(git(target, ["show", "HEAD:.env.example"]).stdout, "and it is the placeholder's real bytes in history").toBe(example)
+    })
+  }
+
+  it("greenfield in a repo the owner already init'd FOR this project: the placeholder is staged into their index, so their own first commit carries it", () => {
+    const target = path.join(workDir, "pre-inited")
+    mkdirSync(target, { recursive: true })
+    git(target, ["init", "-q", "."])
+    git(target, ["config", "user.email", "owner@example.com"])
+    git(target, ["config", "user.name", "Owner"])
+
+    const result = scaffoldProject({ targetDir: target, projectName: "Pre Inited" })
+    expect(result.git, "Vivicy still never inits or commits in a repo it did not create").toEqual({ initialized: false, committed: false })
+    expect(git(target, ["config", "user.email"]).stdout.trim(), "and never touches their identity").toBe("owner@example.com")
+    expect(trackedFiles(target), "staged, or the block's own .env.* would hide the placeholder from git forever").toContain(".env.example")
+
+    git(target, ["add", "-A"])
+    git(target, ["commit", "-qm", "owner's first commit"])
+    expect(git(target, ["show", "HEAD:.env.example"]).stdout, "the owner's own first commit carries its real bytes").toBe(
+      readFileSync(path.join(target, ".env.example"), "utf8")
+    )
+  })
+
+  it("greenfield reached through a SYMLINKED path: the owner's own repo is recognised by PHYSICAL path identity, so the placeholder is still staged", () => {
+    const physical = path.join(workDir, "physical")
+    mkdirSync(path.join(physical, "app"), { recursive: true })
+    symlinkSync(physical, path.join(workDir, "link"), "dir")
+    const target = path.join(workDir, "link", "app")
+    git(target, ["init", "-q", "."])
+
+    scaffoldProject({ targetDir: target, projectName: "Symlinked App" })
+
+    // `resolveTargetDir` only normalizes the owner's input while git always answers `--show-toplevel` with the physical path (darwin's /tmp → /private/tmp, /var → /private/var, or any symlinked project dir), so comparing the raw strings would read the owner's OWN repo as a foreign parent and silently withhold the placeholder.
+    expect(git(target, ["rev-parse", "--show-toplevel"]).stdout.trim(), "the two spellings of this repo really do differ").not.toBe(target)
+    expect(trackedFiles(target), "physical path identity keeps this on branch (b)").toContain(".env.example")
+  })
+
+  it("greenfield nested under a FOREIGN parent repo: no placeholder is written at all, because Vivicy may not stage into an index it does not own", () => {
+    const parent = path.join(workDir, "parent-repo")
+    mkdirSync(parent, { recursive: true })
+    git(parent, ["init", "-q", "."])
+    git(parent, ["config", "user.email", "owner@example.com"])
+    git(parent, ["config", "user.name", "Owner"])
+    writeFileSync(path.join(parent, "README.md"), "parent\n")
+    git(parent, ["add", "-A"])
+    git(parent, ["commit", "-qm", "parent"])
+
+    const target = path.join(parent, "apps", "nested")
+    const result = scaffoldProject({ targetDir: target, projectName: "Nested App" })
+
+    expect(result.mode).toBe("from_scratch")
+    expect(result.git).toEqual({ initialized: false, committed: false })
+    expect(
+      existsSync(path.join(target, ".env.example")),
+      "a placeholder that cannot be tracked would be invisible to git forever and its own text would be false — so it is never written"
+    ).toBe(false)
+    // `status --porcelain` is the wrong oracle here: the scaffold legitimately leaves untracked files in the parent's work tree. The index is what must be untouched.
+    expect(trackedFiles(parent), "the parent's index is not Vivicy's to write").toEqual(["README.md"])
+    expect(git(parent, ["diff", "--cached", "--name-only"]).stdout.trim(), "nothing staged in the parent").toBe("")
+  })
+
+  it("brownfield: an owner rule the block would otherwise override survives — a repo that deliberately ignores its .env.example keeps it ignored", () => {
+    const target = path.join(workDir, "brownfield-env-allowlist")
+    mkdirSync(target, { recursive: true })
+    git(target, ["init", "-q", "."])
+    writeFileSync(path.join(target, ".gitignore"), "*\n!src/\n!.gitignore\n")
+    writeFileSync(path.join(target, "main.py"), "print('hi')\n")
+    scaffoldProject({ targetDir: target, projectName: "Brownfield Allowlist" })
+    expectIgnored(target, [".env", ".env.example", ".env.sample"], true)
+  })
+
+  it("a half-deleted marker above the owner's own secret rule never costs them that rule: repair keeps it and git still ignores the secret", () => {
+    const target = path.join(workDir, "damaged-above-secret")
+    mkdirSync(target, { recursive: true })
+    git(target, ["init", "-q", "."])
+    writeFileSync(
+      path.join(target, ".gitignore"),
+      `node_modules/\n${GITIGNORE_MARKERS.begin}\nsecrets/config.json\n${GITIGNORE_MARKERS.begin}\n.vivicy-runtime/\n${GITIGNORE_MARKERS.end}\n`
+    )
+    mkdirSync(path.join(target, "secrets"), { recursive: true })
+    writeFileSync(path.join(target, "secrets", "config.json"), '{"token":"real"}\n')
+
+    scaffoldProject({ targetDir: target, projectName: "Damaged Above Secret" })
+
+    const gitignore = readFileSync(path.join(target, ".gitignore"), "utf8")
+    expect(gitignore.split("\n"), "the owner's rule between the two markers is never swallowed").toContain("secrets/config.json")
+    expect(count(gitignore, GITIGNORE_MARKERS.begin), "exactly one block after repair").toBe(1)
+    expectIgnored(target, ["secrets/config.json"], true)
+    git(target, ["config", "user.email", "t@example.com"])
+    git(target, ["config", "user.name", "t"])
+    git(target, ["add", "-A"])
+    git(target, ["commit", "-qm", "post-repair"])
+    expect(
+      git(target, ["ls-files"]).stdout.split("\n").filter(Boolean),
+      "the loop's git add -A must not stage the owner's secret"
+    ).not.toContain("secrets/config.json")
   })
 })
 

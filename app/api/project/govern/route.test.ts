@@ -98,17 +98,25 @@ describe("POST /api/project/govern", () => {
     expect(seedViviWelcome).not.toHaveBeenCalled()
   })
 
-  it("maps ScaffoldError codes: not_absolute → 400, templates_missing → 500, managed_block_corrupt → 409", async () => {
-    startGovernance.mockRejectedValueOnce(new ScaffoldError("nope", "not_absolute"))
-    expect((await POST(postForm({ targetDir: "x" }))).status).toBe(400)
-
+  it("only non-default statuses are mapped: templates_missing → 500, everything else typed falls through to the 400 default", async () => {
     startGovernance.mockRejectedValueOnce(new ScaffoldError("gone", "templates_missing"))
-    expect((await POST(postForm({ targetDir: "/abs" }))).status).toBe(500)
-
-    startGovernance.mockRejectedValueOnce(new ScaffoldError("AGENTS.md: corrupt markers", "managed_block_corrupt"))
     const res = await POST(postForm({ targetDir: "/abs" }))
-    expect(res.status).toBe(409)
-    expect((await res.json()).code).toBe("managed_block_corrupt")
+    expect(res.status).toBe(500)
+    expect((await res.json()).code).toBe("templates_missing")
+
+    for (const code of ["not_absolute", "not_a_directory", "invalid_name"] as const) {
+      startGovernance.mockRejectedValueOnce(new ScaffoldError("nope", code))
+      const fallen = await POST(postForm({ targetDir: "x" }))
+      expect(fallen.status, code).toBe(400)
+      expect((await fallen.json()).code).toBe(code)
+    }
+  })
+
+  it("an unmapped typed code still answers 400 with its code — the fallback is the contract, not an accident", async () => {
+    startGovernance.mockRejectedValueOnce(new ImportError("nothing usable", "no_supported_files"))
+    const res = await POST(postForm({ targetDir: "/abs" }))
+    expect(res.status).toBe(400)
+    expect((await res.json()).code).toBe("no_supported_files")
   })
 
   it("still returns the governed project when seeding the welcome throws (best-effort)", async () => {

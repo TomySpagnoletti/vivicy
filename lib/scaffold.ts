@@ -6,6 +6,7 @@ import {
   mkdirSync,
   readdirSync,
   readFileSync,
+  realpathSync,
   statSync,
   writeFileSync,
 } from "node:fs"
@@ -16,7 +17,6 @@ import {
   ensureManagedBlock,
   extractManagedBlock,
   GITIGNORE_MARKERS,
-  ManagedBlockError,
   METHOD_MARKERS,
   type ManagedSpec,
   type MarkerPair,
@@ -40,7 +40,6 @@ export class ScaffoldError extends Error {
       | "not_a_directory"
       | "invalid_name"
       | "templates_missing"
-      | "managed_block_corrupt"
   ) {
     super(message)
     this.name = "ScaffoldError"
@@ -126,8 +125,11 @@ export function detectGateCommand(targetRoot: string): string | null {
   return null
 }
 
-// The indispensable never-commit set the governed loop writes — the orchestrator runs `git add -A` every checkpoint and relies on this being exhaustive; anything wrongly excluded silently never gets committed. Single-sourced into both the greenfield .gitignore and the brownfield managed block.
-const VIVICY_ESSENTIAL_IGNORES = `# Factory runtime: lock, logs, settings, current-project selection.
+// Single-sourced into the greenfield .gitignore AND the brownfield block, which is why it carries EXCLUDES only apart from the proofs recipe: the block is appended at EOF, so a `!` line here would silently override an owner rule above it and hand `git add -A` a file they deliberately ignored. A superfluous entry drops a real output from history.
+const VIVICY_ESSENTIAL_IGNORES = `# Secrets: the loop runs git add -A at every checkpoint, so real values here would be committed and pushed. Keep a placeholder template in history by tracking it once (git add -f .env.example), never by re-including it here.
+.env
+.env.*
+# Factory runtime: lock, logs, settings, current-project selection.
 .vivicy-runtime/
 # Per-issue parallel worktrees; content integrates onto main, the dir itself never lands in history.
 .vivicy-worktrees/
@@ -196,12 +198,6 @@ coverage/
 *.lcov
 .nyc_output/
 
-# Environment / secrets (commit an .env.example, never real values)
-.env
-.env.*
-!.env.example
-!.env.sample
-
 # Lockfiles and vendored deps (vendor/, bin/) are deliberately NOT ignored: committed for reproducible builds and because those dir names carry committed source in some ecosystems.
 
 # Node / JavaScript / TypeScript
@@ -267,6 +263,21 @@ obj/
 `
 }
 
+const ENV_EXAMPLE_FILENAME = ".env.example"
+
+// Must stay a code constant, never a factory/templates/ file: Vivicy's own .gitignore `.env*` would leave that file untracked and missing from the shipped build.
+const ENV_EXAMPLE = `# Environment variables — the shape of your configuration, never its values.
+#
+# Copy this file to .env and put your real values there: cp .env.example .env
+#
+# .env is ignored by git, so your real keys stay on your machine and never enter history. This file is the one that goes into git instead, so anyone opening the project — a teammate, or an agent — knows which variables it needs.
+#
+# One line per variable, commented out, with a placeholder. Never a real value.
+
+# DATABASE_URL=postgres://user:password@localhost:5432/my_database
+# API_KEY=replace-me
+`
+
 // spawnSync takes an argv array (no shell) — never build a shell string here or this becomes an injection surface.
 function git(cwd: string, args: string[]): { status: number; stdout: string; stderr: string } {
   const r = spawnSync("git", args, { cwd, encoding: "utf8" })
@@ -275,6 +286,22 @@ function git(cwd: string, args: string[]): { status: number; stdout: string; std
 
 function isGitRepo(cwd: string): boolean {
   return git(cwd, ["rev-parse", "--is-inside-work-tree"]).status === 0
+}
+
+function canonical(p: string): string {
+  try {
+    return realpathSync(p)
+  } catch {
+    return path.normalize(p)
+  }
+}
+
+// The placeholder is written ONLY where Vivicy can also TRACK it: the managed block ignores the whole .env family, so an untracked one is invisible to git forever and the file's own text about being the one that goes into git would be false. Deliverable when the target IS its work tree's root — the repo Vivicy is about to init, or an empty repo the owner init'd for this project, whose index Vivicy may stage into — never when the target merely sits under a FOREIGN parent repo, whose index is not Vivicy's to write.
+function envExampleIsDeliverable(target: string): boolean {
+  const toplevel = git(target, ["rev-parse", "--show-toplevel"])
+  if (toplevel.status !== 0) return true
+  const root = toplevel.stdout.trim()
+  return root === "" || canonical(root) === canonical(target)
 }
 
 // Bare `git config` (no --global) reads/writes LOCAL scope only, never the owner's global identity; git commit fails hard without one.
@@ -287,11 +314,19 @@ function ensureLocalGitIdentity(cwd: string): void {
   }
 }
 
-function initFromScratchRepo(target: string): { initialized: boolean; committed: boolean } {
-  if (isGitRepo(target)) return { initialized: false, committed: false }
+function initFromScratchRepo(target: string, placeholderWritten: boolean): { initialized: boolean; committed: boolean } {
+  const trackPlaceholder = () => {
+    if (placeholderWritten) git(target, ["add", "-f", "--", ENV_EXAMPLE_FILENAME])
+  }
+  if (isGitRepo(target)) {
+    // The owner's own repo for this project: stage the placeholder into THEIR index so their first commit carries it, without creating a commit or an identity Vivicy does not already create here.
+    trackPlaceholder()
+    return { initialized: false, committed: false }
+  }
   if (git(target, ["init"]).status !== 0) return { initialized: false, committed: false }
   ensureLocalGitIdentity(target)
   if (git(target, ["add", "-A"]).status !== 0) return { initialized: true, committed: false }
+  trackPlaceholder()
   const commit = git(target, ["commit", "-m", "Vivicy: scaffold skeleton"])
   return { initialized: true, committed: commit.status === 0 }
 }
@@ -325,15 +360,7 @@ function managedSpec(template: string, markers: MarkerPair): ManagedSpec {
 
 function writeManaged(abs: string, spec: ManagedSpec): string | null {
   const current = existsSync(abs) ? readFileSync(abs, "utf8") : null
-  let next: string
-  try {
-    next = ensureManagedBlock(current, spec)
-  } catch (error) {
-    if (error instanceof ManagedBlockError) {
-      throw new ScaffoldError(`${path.basename(abs)}: ${error.message}`, "managed_block_corrupt")
-    }
-    throw error
-  }
+  const next = ensureManagedBlock(current, spec)
   if (next === current) return null
   mkdirSync(path.dirname(abs), { recursive: true })
   writeFileSync(abs, next)
@@ -375,6 +402,8 @@ export function scaffoldProject(input: { targetDir: unknown; projectName: unknow
     ["README.md", renderTemplate("README.md", { [PROJECT_NAME_TOKEN]: projectName })],
     [VIVICY_CONFIG_FILENAME, vivicyConfig(gateCommand)],
   ]
+  const placeholder = mode === "from_scratch" && envExampleIsDeliverable(target)
+  if (placeholder) ownerFiles.push([ENV_EXAMPLE_FILENAME, ENV_EXAMPLE])
   for (const [rel, contents] of ownerFiles) {
     const w = writeIfMissing(at(rel), contents)
     if (w) written.push(w)
@@ -382,7 +411,7 @@ export function scaffoldProject(input: { targetDir: unknown; projectName: unknow
 
   // Must run after .gitignore is written above — otherwise this git add -A would pick up node_modules/logs/runtime noise.
   const gitResult =
-    mode === "from_scratch" ? initFromScratchRepo(target) : { initialized: false, committed: false }
+    mode === "from_scratch" ? initFromScratchRepo(target, placeholder) : { initialized: false, committed: false }
 
   const project = setCurrentProject(target)
 

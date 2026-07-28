@@ -10,6 +10,10 @@ dist/
 *.log
 .DS_Store
 
+# SECRETS ARE NEVER COMMITTED — `git add -A` at every checkpoint would commit and push real values. The whole family is ignored and re-included NOWHERE: the managed block is appended at EOF, so the first marker repair would land it below any `!` line and flip that line for good. The placeholder template `.env.example` is in history because scaffold TRACKS it (git add -f), which no ignore rule can undo.
+.env
+.env.*
+
 # Vivicy factory runtime + per-issue parallel worktrees.
 .vivicy-runtime/
 .vivicy-worktrees/

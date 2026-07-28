@@ -1162,8 +1162,10 @@ describe("formatMapError", () => {
 });
 
 describe("scaffold + fixture gitignore the COMPLETE never-commit set, and ONLY that", () => {
-  // NEVER_COMMIT is exhaustive — every other Vivicy output is committed, so `git add -A` after every checkpoint is safe.
-  const NEVER_COMMIT = ["node_modules/", ".DS_Store", ".vivicy-runtime/", ".vivicy-worktrees/", ".vivicy/development/transcripts/"];
+  // NEVER_COMMIT is exhaustive — every other Vivicy output is committed, so `git add -A` after every checkpoint is safe. The env excludes ride here because that same add -A would otherwise commit and push the owner's real secrets.
+  const NEVER_COMMIT = [".env", ".env.*", "node_modules/", ".DS_Store", ".vivicy-runtime/", ".vivicy-worktrees/", ".vivicy/development/transcripts/"];
+  // A re-include is the inverse of a never-commit entry, and the env family has none anywhere: the managed block is appended at EOF, so the first marker repair would re-append it BELOW any `!` line and flip the placeholder to ignored for good. The committed template reaches history TRACKED (scaffold force-adds `.env.example` into the initial commit), which no ignore rule can undo.
+  const NEVER_RE_INCLUDED = ["!.env.example", "!.env.sample"];
   const NOW_COMMITTED = [
     "architecture-data.json",
     "source-map.json",
@@ -1171,16 +1173,23 @@ describe("scaffold + fixture gitignore the COMPLETE never-commit set, and ONLY t
     ".vivicy/development/reports/extraction-status.json",
   ];
 
+  // Line-exact: `.env` is a substring of `.env.*`, so a substring check would pass with the exclude or a re-include missing.
+  const exactLines = (text: string) => new Set(text.split("\n").map((line) => line.trim()));
+
   it("the fixture .gitignore lists the complete never-commit set and none of the now-committed outputs", () => {
     const gi = readFileSync(resolve(FIXTURE, ".gitignore"), "utf8");
-    for (const line of NEVER_COMMIT) assert.ok(gi.includes(line), `fixture .gitignore must ignore ${line}`);
+    const lines = exactLines(gi);
+    for (const line of NEVER_COMMIT) assert.ok(lines.has(line), `fixture .gitignore must carry the exact line ${line}`);
+    for (const line of NEVER_RE_INCLUDED) assert.ok(!lines.has(line), `fixture .gitignore must NOT re-include ${line}`);
     for (const out of NOW_COMMITTED) assert.ok(!gi.includes(out), `fixture .gitignore must NOT ignore ${out}`);
     assert.doesNotMatch(gi, /^\.vivicy\/development\/reports\/?\s*$/m, "must not ignore the whole reports/ dir");
   });
 
   it("the scaffold gitignore() template emits the complete never-commit set and none of the now-committed outputs", () => {
     const scaffoldSrc = readFileSync(resolve(FACTORY_DIR, "../lib/scaffold.ts"), "utf8");
-    for (const line of NEVER_COMMIT) assert.ok(scaffoldSrc.includes(line), `scaffold gitignore() must include ${line}`);
+    const lines = exactLines(scaffoldSrc);
+    for (const line of NEVER_COMMIT) assert.ok(lines.has(line), `scaffold gitignore() must carry the exact line ${line}`);
+    for (const line of NEVER_RE_INCLUDED) assert.ok(!lines.has(line), `scaffold must NOT re-include ${line} — the greenfield placeholder is delivered tracked, not re-included`);
     for (const out of NOW_COMMITTED) {
       assert.ok(!scaffoldSrc.includes(`\n${out}`) && !scaffoldSrc.includes(`${out}\n`), `scaffold gitignore() must NOT ignore ${out}`);
     }

@@ -13,23 +13,6 @@ export const GITIGNORE_MARKERS: MarkerPair = {
   end: "# --- end vivicy managed block ---",
 }
 
-export type ManagedBlockCorruption =
-  | "duplicate_begin_marker"
-  | "duplicate_end_marker"
-  | "unterminated_block"
-  | "stray_end_marker"
-  | "misordered_markers"
-
-export class ManagedBlockError extends Error {
-  constructor(
-    message: string,
-    readonly reason: ManagedBlockCorruption
-  ) {
-    super(message)
-    this.name = "ManagedBlockError"
-  }
-}
-
 export interface ManagedSpec {
   block: string
   template: string
@@ -41,18 +24,61 @@ interface Line {
   raw: string
 }
 
-function splitLines(content: string): Line[] {
-  const out: Line[] = []
-  let start = 0
-  for (const raw of content.split("\n")) {
-    out.push({ start, raw })
-    start += raw.length + 1
-  }
-  return out
+type MarkerKind = "begin" | "end" | null
+
+interface Scan {
+  content: string
+  lines: Line[]
+  kinds: MarkerKind[]
 }
 
-function markerLines(lines: Line[], marker: string): Line[] {
-  return lines.filter((line) => (line.raw.endsWith("\r") ? line.raw.slice(0, -1) : line.raw) === marker)
+function scan(content: string, markers: MarkerPair): Scan {
+  const lines: Line[] = []
+  let start = 0
+  for (const raw of content.split("\n")) {
+    lines.push({ start, raw })
+    start += raw.length + 1
+  }
+  const kinds = lines.map(({ raw }) => {
+    const text = raw.endsWith("\r") ? raw.slice(0, -1) : raw
+    return text === markers.begin ? "begin" : text === markers.end ? "end" : null
+  })
+  return { content, lines, kinds }
+}
+
+function soleSpan({ lines, kinds }: Scan): { start: number; end: number } | null {
+  const begin = kinds.indexOf("begin")
+  const end = kinds.indexOf("end")
+  if (begin === -1 || end < begin) return null
+  if (kinds.indexOf("begin", begin + 1) !== -1 || kinds.indexOf("end", end + 1) !== -1) return null
+  return { start: lines[begin].start, end: lines[end].start + lines[end].raw.length }
+}
+
+// Vivicy owns exactly two things in an owner's file: a span whose markers are each other's NEAREST counterpart (an end pairs with the closest begin above it, NEVER across an intervening begin), and any marker LINE left unpaired. Everything else is the owner's, byte-preserved — pairing an end with an earlier begin would swallow, and delete, the owner lines sitting between the two begins.
+function withoutManagedLines({ content, lines, kinds }: Scan): string {
+  const drop = new Array<boolean>(lines.length).fill(false)
+  let open = -1
+  for (let i = 0; i < lines.length; i += 1) {
+    if (kinds[i] === null) continue
+    if (kinds[i] === "begin") {
+      if (open !== -1) drop[open] = true
+      open = i
+      continue
+    }
+    if (open === -1) {
+      drop[i] = true
+      continue
+    }
+    for (let j = open; j <= i; j += 1) drop[j] = true
+    open = -1
+  }
+  if (open !== -1) drop[open] = true
+  let out = ""
+  for (let i = 0; i < lines.length; i += 1) {
+    if (drop[i]) continue
+    out += content.slice(lines[i].start, i + 1 < lines.length ? lines[i + 1].start : content.length)
+  }
+  return out
 }
 
 function appendBlock(current: string, block: string): string {
@@ -61,44 +87,17 @@ function appendBlock(current: string, block: string): string {
 }
 
 export function extractManagedBlock(template: string, markers: MarkerPair): string {
-  const lines = splitLines(template)
-  const begins = markerLines(lines, markers.begin)
-  const ends = markerLines(lines, markers.end)
-  if (begins.length !== 1 || ends.length !== 1 || ends[0].start < begins[0].start) {
+  const span = soleSpan(scan(template, markers))
+  if (!span) {
     throw new Error(`managed-block template must embed exactly one well-formed ${markers.begin} … ${markers.end} block`)
   }
-  return template.slice(begins[0].start, ends[0].start + ends[0].raw.length)
+  return template.slice(span.start, span.end)
 }
 
 export function ensureManagedBlock(current: string | null, spec: ManagedSpec): string {
   if (current === null) return spec.template
-
-  const lines = splitLines(current)
-  const begins = markerLines(lines, spec.markers.begin)
-  const ends = markerLines(lines, spec.markers.end)
-
-  if (begins.length === 0 && ends.length === 0) return appendBlock(current, spec.block)
-
-  if (begins.length > 1) {
-    throw new ManagedBlockError("the managed block is corrupt: the begin marker appears more than once", "duplicate_begin_marker")
-  }
-  if (ends.length > 1) {
-    throw new ManagedBlockError("the managed block is corrupt: the end marker appears more than once", "duplicate_end_marker")
-  }
-  if (begins.length === 1 && ends.length === 0) {
-    throw new ManagedBlockError("the managed block is corrupt: a begin marker with no matching end marker", "unterminated_block")
-  }
-  if (begins.length === 0 && ends.length === 1) {
-    throw new ManagedBlockError("the managed block is corrupt: an end marker with no matching begin marker", "stray_end_marker")
-  }
-
-  const begin = begins[0]
-  const end = ends[0]
-  if (end.start < begin.start) {
-    throw new ManagedBlockError("the managed block is corrupt: the end marker precedes the begin marker", "misordered_markers")
-  }
-
-  const before = current.slice(0, begin.start)
-  const after = current.slice(end.start + end.raw.length)
-  return before + spec.block + after
+  const scanned = scan(current, spec.markers)
+  const span = soleSpan(scanned)
+  if (span) return current.slice(0, span.start) + spec.block + current.slice(span.end)
+  return appendBlock(withoutManagedLines(scanned), spec.block)
 }

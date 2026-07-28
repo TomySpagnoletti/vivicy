@@ -5,16 +5,10 @@ import { appendCardTurn, seedViviWelcome, WELCOME_IMPORT_CARD } from "@/lib/vivi
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 
+// Only codes whose status is NOT the 400 default belong here; every other typed code falls through below.
 const STATUS_BY_CODE: Record<string, number> = {
   already_governed: 409,
-  no_supported_files: 400,
-  zip_slip: 400,
-  zip_unreadable: 400,
-  not_absolute: 400,
-  not_a_directory: 400,
-  invalid_name: 400,
   templates_missing: 500,
-  managed_block_corrupt: 409,
 }
 
 export async function POST(request: Request) {
