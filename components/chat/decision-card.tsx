@@ -7,14 +7,14 @@ import { useTranslations } from "next-intl"
 import type { ViviCard, ViviCardAction, ViviCardDecision } from "@/lib/vivi"
 import { IMPORT_ACCEPT_ATTR } from "@/lib/supported-extensions"
 import { Button } from "@/components/ui/button"
-import {
-  Card,
-  CardContent,
-  CardFooter,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card"
 import { Marker, MarkerContent, MarkerIcon } from "@/components/ui/marker"
+import {
+  MenuCard,
+  MenuCardActions,
+  MenuCardBody,
+  MenuCardStamp,
+  MenuCardTitle,
+} from "@/components/chat/menu-card"
 
 export function DecisionCard({
   sessionId,
@@ -42,6 +42,12 @@ export function DecisionCard({
     ? card.actions.find((a) => a.id === decision.actionId)
     : null
   const hasImport = card.actions.some((a) => a.action.kind === "import_docs")
+  const hasCr = card.actions.some((a) => a.action.kind === "cr_decide")
+  const kind = hasImport ? "documents" : hasCr ? "changeRequest" : "decision"
+  const outcome = decision
+    ? t("cardDecided", { label: decidedAction?.label ?? decision.actionId }) +
+      (decision.summary ? ` — ${decision.summary}` : "")
+    : null
 
   type Outcome = { ok?: boolean; summary?: string; error?: string; decided?: ViviCardDecision }
   // body.decided is populated on any decided outcome (success, executed-but-failed, already-decided) and absent only when nothing was recorded — trust its presence to lock the buttons.
@@ -117,78 +123,79 @@ export function DecisionCard({
   }
 
   return (
-    <Card className="gap-3 [--card-spacing:--spacing(3)]">
-      <CardHeader className="gap-1">
-        <CardTitle>{card.title}</CardTitle>
-      </CardHeader>
+    <div className="flex flex-col gap-2">
+      <MenuCard
+        eyebrow={t(`cardKind.${kind}`)}
+        turned={hasImport && decision !== null}
+        back={
+          hasImport ? (
+            <MenuCardStamp role="status">
+              {decision?.summary ?? outcome}
+            </MenuCardStamp>
+          ) : undefined
+        }
+      >
+        <MenuCardTitle>{card.title}</MenuCardTitle>
 
-      {card.body ? (
-        <CardContent className="text-xs/relaxed whitespace-pre-wrap text-muted-foreground">
-          {card.body}
-        </CardContent>
+        {card.body ? <MenuCardBody>{card.body}</MenuCardBody> : null}
+
+        <MenuCardActions>
+          <div className="flex flex-wrap gap-2">
+            {/* aria-disabled + a guarded onClick, never the native disabled: disabling the focused button on activation would drop keyboard focus to <body> (the panel is DOM-last, so Tab would restart behind the overlay). */}
+            {card.actions.map((action) => (
+              <Button
+                key={action.id}
+                type="button"
+                variant={action.variant ?? "default"}
+                size="sm"
+                aria-disabled={disabled}
+                onClick={() => onActionClick(action)}
+                className={disabled ? "opacity-60" : undefined}
+              >
+                {pendingId === action.id ? (
+                  <Loader2 className="animate-spin" />
+                ) : null}
+                {action.label}
+              </Button>
+            ))}
+          </div>
+
+          {hasImport ? (
+            <input
+              ref={fileInputRef}
+              type="file"
+              multiple
+              accept={IMPORT_ACCEPT_ATTR}
+              className="hidden"
+              onChange={(event) => {
+                const files = Array.from(event.target.files ?? [])
+                const action = importActionRef.current
+                importActionRef.current = null
+                event.target.value = ""
+                if (action && files.length > 0) void importDocs(action, files)
+              }}
+            />
+          ) : null}
+
+          {outcome && !hasImport ? (
+            <Marker role="status">
+              <MarkerIcon>
+                <Check />
+              </MarkerIcon>
+              <MarkerContent>{outcome}</MarkerContent>
+            </Marker>
+          ) : null}
+        </MenuCardActions>
+      </MenuCard>
+
+      {error ? (
+        <Marker role="status" className="text-destructive">
+          <MarkerIcon>
+            <CircleAlert />
+          </MarkerIcon>
+          <MarkerContent>{error}</MarkerContent>
+        </Marker>
       ) : null}
-
-      <CardFooter className="flex-col items-start gap-2">
-        <div className="flex flex-wrap gap-2">
-          {/* aria-disabled + a guarded onClick, never the native disabled: disabling the focused button on activation would drop keyboard focus to <body> (the panel is DOM-last, so Tab would restart behind the overlay). */}
-          {card.actions.map((action) => (
-            <Button
-              key={action.id}
-              type="button"
-              variant={action.variant ?? "default"}
-              size="sm"
-              aria-disabled={disabled}
-              onClick={() => onActionClick(action)}
-              className={disabled ? "opacity-60" : undefined}
-            >
-              {pendingId === action.id ? (
-                <Loader2 className="animate-spin" />
-              ) : null}
-              {action.label}
-            </Button>
-          ))}
-        </div>
-
-        {hasImport ? (
-          <input
-            ref={fileInputRef}
-            type="file"
-            multiple
-            accept={IMPORT_ACCEPT_ATTR}
-            className="hidden"
-            onChange={(event) => {
-              const files = Array.from(event.target.files ?? [])
-              const action = importActionRef.current
-              importActionRef.current = null
-              event.target.value = ""
-              if (action && files.length > 0) void importDocs(action, files)
-            }}
-          />
-        ) : null}
-
-        {decision ? (
-          <Marker role="status">
-            <MarkerIcon>
-              <Check />
-            </MarkerIcon>
-            <MarkerContent>
-              {t("cardDecided", {
-                label: decidedAction?.label ?? decision.actionId,
-              })}
-              {decision.summary ? ` — ${decision.summary}` : ""}
-            </MarkerContent>
-          </Marker>
-        ) : null}
-
-        {error ? (
-          <Marker role="status" className="text-destructive">
-            <MarkerIcon>
-              <CircleAlert />
-            </MarkerIcon>
-            <MarkerContent>{error}</MarkerContent>
-          </Marker>
-        ) : null}
-      </CardFooter>
-    </Card>
+    </div>
   )
 }

@@ -1,4 +1,4 @@
-import { fireEvent, screen, waitFor } from "@testing-library/react"
+import { cleanup, fireEvent, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, describe, expect, test, vi } from "vitest"
 
@@ -34,9 +34,22 @@ const CARD: ViviCard = {
   ],
 }
 
+const CONTROL_CARD: ViviCard = {
+  id: "card-1",
+  title: "Freeze the spec?",
+  body: "This locks the canonical.",
+  actions: [
+    { id: "go", label: "Freeze it", action: { kind: "control", tool: "workflow.extract" } },
+  ],
+}
+
 afterEach(() => {
   vi.unstubAllGlobals()
 })
+
+function menuCard(): HTMLElement {
+  return document.querySelector('[data-slot="menu-card"]') as HTMLElement
+}
 
 describe("DecisionCard", () => {
   test("renders the title, body, and one live button per action", () => {
@@ -47,6 +60,21 @@ describe("DecisionCard", () => {
     expect(screen.getByText("Switch login to magic links.")).toBeInTheDocument()
     expect(screen.getByRole("button", { name: "Approve" })).toBeEnabled()
     expect(screen.getByRole("button", { name: "Reject" })).toBeEnabled()
+  })
+
+  test("rides the menu-card base and names its kind in the menu header", () => {
+    vi.stubGlobal("fetch", vi.fn())
+    renderWithIntl(<DecisionCard sessionId={SESSION} card={CARD} />)
+    expect(menuCard()).toBeInTheDocument()
+    expect(screen.getByText("Change request")).toBeInTheDocument()
+
+    cleanup()
+    renderWithIntl(<DecisionCard sessionId={SESSION} card={IMPORT_CARD} />)
+    expect(screen.getAllByText("Documents").length).toBeGreaterThan(0)
+
+    cleanup()
+    renderWithIntl(<DecisionCard sessionId={SESSION} card={CONTROL_CARD} />)
+    expect(screen.getByText("Decision")).toBeInTheDocument()
   })
 
   test("clicking POSTs the exact payload, then disables all buttons forever and shows the summary", async () => {
@@ -80,6 +108,7 @@ describe("DecisionCard", () => {
     ).toBeInTheDocument()
     expect(screen.getByRole("button", { name: "Approve" })).toHaveAttribute("aria-disabled", "true")
     expect(screen.getByRole("button", { name: "Reject" })).toHaveAttribute("aria-disabled", "true")
+    expect(menuCard()).toHaveAttribute("data-turned", "false")
     expect(onDecided).toHaveBeenCalledWith(CARD.actions[0])
   })
 
@@ -224,14 +253,32 @@ describe("DecisionCard — import_docs (native file picker)", () => {
     expect(form.getAll("files")).toHaveLength(2)
     expect(form.getAll("paths")).toEqual(["brief.md", "data.csv"])
 
+    expect(await screen.findByText("2 documents imported · English")).toBeInTheDocument()
+    await waitFor(() => expect(menuCard()).toHaveAttribute("data-turned", "true"))
+    expect(menuCard()).toHaveAttribute("data-flip", "animated")
     expect(
-      await screen.findByText("Chose “I have docs to import” — 2 documents imported · English")
-    ).toBeInTheDocument()
-    expect(screen.getByRole("button", { name: "I have docs to import" })).toHaveAttribute(
-      "aria-disabled",
-      "true"
-    )
+      screen.queryByRole("button", { name: "I have docs to import" })
+    ).not.toBeInTheDocument()
+    expect(screen.getByRole("status")).toHaveTextContent("2 documents imported · English")
     expect(onDecided).toHaveBeenCalledWith(IMPORT_CARD.actions[0])
+  })
+
+  test("a transcript rehydrated with the import already decided renders the imported face with no turn to replay", () => {
+    vi.stubGlobal("fetch", vi.fn())
+    renderWithIntl(
+      <DecisionCard
+        sessionId={SESSION}
+        card={IMPORT_CARD}
+        decided={{ actionId: "import", at: "2026-07-11T10:00:00Z", summary: "2 documents imported · English" }}
+      />
+    )
+
+    expect(menuCard()).toHaveAttribute("data-turned", "true")
+    expect(menuCard()).toHaveAttribute("data-flip", "static")
+    expect(screen.getByRole("status")).toHaveTextContent("2 documents imported · English")
+    expect(
+      screen.queryByRole("button", { name: "I have docs to import" })
+    ).not.toBeInTheDocument()
   })
 
   test("cancelling the picker (no files) leaves the card undecided — no upload", () => {

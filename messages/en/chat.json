@@ -19,6 +19,11 @@
   "importing": "Bringing your documents into the kitchen…",
   "importSkipped": "{count, plural, one {Skipped # unsupported file} other {Skipped # unsupported files}}: {files}",
   "actionsTitle": "Actions",
+  "cardKind": {
+    "documents": "Documents",
+    "changeRequest": "Change request",
+    "decision": "Decision"
+  },
   "cardDecided": "Chose “{label}”",
   "cardFailed": "This action could not be completed",
   "requestFailed": "Vivi could not respond (HTTP {status})",

@@ -129,7 +129,8 @@ test.describe("Vivicy onboarding (panel-hosted)", () => {
       buffer: Buffer.from("The quick brown fox jumps over the lazy dog by the river every morning. ".repeat(8)),
     })
     await expect(panel.getByText(/document.*imported/i)).toBeVisible({ timeout: 15_000 })
-    await expect(importButton).toHaveAttribute("aria-disabled", "true")
+    await expect(panel.locator('[data-slot="menu-card"][data-turned="true"]')).toHaveCount(1)
+    await expect(importButton).toHaveCount(0)
     await expect(panel.getByText(/in the kitchen/i)).toBeVisible()
 
     // Importing IS the request: the reading turn is dispatched server-side, so the leg answers with nothing typed.
