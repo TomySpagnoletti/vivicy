@@ -1162,10 +1162,12 @@ describe("formatMapError", () => {
 });
 
 describe("scaffold + fixture gitignore the COMPLETE never-commit set, and ONLY that", () => {
-  // NEVER_COMMIT is exhaustive — every other Vivicy output is committed, so `git add -A` after every checkpoint is safe. The env excludes ride here because that same add -A would otherwise commit and push the owner's real secrets.
-  const NEVER_COMMIT = [".env", ".env.*", "node_modules/", ".DS_Store", ".vivicy-runtime/", ".vivicy-worktrees/", ".vivicy/development/transcripts/"];
+  // NEVER_COMMIT is exhaustive — every other Vivicy output is committed, so `git add -A` after every checkpoint is safe. The secret excludes (dotenv AND direnv) ride here because that same add -A would otherwise commit and push the owner's real values; `.vivicy-tmp.*` because it would otherwise commit the temp a crash left behind mid managed-file replacement.
+  const NEVER_COMMIT = [".env", ".env.*", ".envrc", "node_modules/", ".DS_Store", ".vivicy-runtime/", ".vivicy-worktrees/", ".vivicy/development/transcripts/", ".vivicy-tmp.*"];
   // A re-include is the inverse of a never-commit entry, and the env family has none anywhere: the managed block is appended at EOF, so the first marker repair would re-append it BELOW any `!` line and flip the placeholder to ignored for good. The committed template reaches history TRACKED (scaffold force-adds `.env.example` into the initial commit), which no ignore rule can undo.
   const NEVER_RE_INCLUDED = ["!.env.example", "!.env.sample"];
+  // The scaffold emits its temp pattern from the same constant its writer builds the temp name with, so no such literal line exists in its SOURCE; the RENDERED greenfield output is the oracle there, pinned exactly-once and inside the block by lib/scaffold.test.ts, and re-proven at git level by its abandoned-temp cases. Grepping the identifier here would pin a name, not a rule.
+  const EMITTED_FROM_A_CONSTANT = new Set([".vivicy-tmp.*"]);
   const NOW_COMMITTED = [
     "architecture-data.json",
     "source-map.json",
@@ -1188,7 +1190,10 @@ describe("scaffold + fixture gitignore the COMPLETE never-commit set, and ONLY t
   it("the scaffold gitignore() template emits the complete never-commit set and none of the now-committed outputs", () => {
     const scaffoldSrc = readFileSync(resolve(FACTORY_DIR, "../lib/scaffold.ts"), "utf8");
     const lines = exactLines(scaffoldSrc);
-    for (const line of NEVER_COMMIT) assert.ok(lines.has(line), `scaffold gitignore() must carry the exact line ${line}`);
+    for (const line of NEVER_COMMIT) {
+      if (EMITTED_FROM_A_CONSTANT.has(line)) continue;
+      assert.ok(lines.has(line), `scaffold gitignore() must carry the exact line ${line}`);
+    }
     for (const line of NEVER_RE_INCLUDED) assert.ok(!lines.has(line), `scaffold must NOT re-include ${line} — the greenfield placeholder is delivered tracked, not re-included`);
     for (const out of NOW_COMMITTED) {
       assert.ok(!scaffoldSrc.includes(`\n${out}`) && !scaffoldSrc.includes(`${out}\n`), `scaffold gitignore() must NOT ignore ${out}`);

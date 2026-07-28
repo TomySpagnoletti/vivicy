@@ -10,9 +10,10 @@ dist/
 *.log
 .DS_Store
 
-# SECRETS ARE NEVER COMMITTED — `git add -A` at every checkpoint would commit and push real values. The whole family is ignored and re-included NOWHERE: the managed block is appended at EOF, so the first marker repair would land it below any `!` line and flip that line for good. The placeholder template `.env.example` is in history because scaffold TRACKS it (git add -f), which no ignore rule can undo.
+# SECRETS ARE NEVER COMMITTED — `git add -A` at every checkpoint would commit and push real values, dotenv's and direnv's alike. The whole family is ignored and re-included NOWHERE: the managed block is appended at EOF, so the first marker repair would land it below any `!` line and flip that line for good. The placeholder template `.env.example` is in history because scaffold TRACKS it (git add -f), which no ignore rule can undo.
 .env
 .env.*
+.envrc
 
 # Vivicy factory runtime + per-issue parallel worktrees.
 .vivicy-runtime/
@@ -21,6 +22,9 @@ dist/
 # The parallel loop's transient integration mutex — created/removed during a merge,
 # never part of history (committing its churn would dirty the tree).
 .vivicy/development/gates/.integration.lock
+
+# Vivicy replaces a managed governance file by writing this temp beside it and renaming: the original is never truncated, and a temp left behind by a crash is never committed.
+.vivicy-tmp.*
 
 # TRANSCRIPTS ARE NEVER COMMITTED (full agent session JSONL; the ledger links to
 # them, they never enter git history).

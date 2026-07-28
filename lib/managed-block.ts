@@ -1,5 +1,6 @@
 // Imported directly by factory/dev-loop.ts via a relative .ts path (no bundler) — this file must stay free of Next path aliases and any node:/Next-only import.
-export const MANAGED_GOVERNANCE_FILES = ["AGENTS.md", "CLAUDE.md", ".gitignore"] as const
+// `.gitignore` FIRST, and the order is load-bearing: it is the file that carries the never-commit rules, so writing it last would leave every other managed file's atomic-write temp uncovered on the pass that installs the block.
+export const MANAGED_GOVERNANCE_FILES = [".gitignore", "AGENTS.md", "CLAUDE.md"] as const
 
 export type ManagedGovernanceFile = (typeof MANAGED_GOVERNANCE_FILES)[number]
 
@@ -99,10 +100,21 @@ export function extractManagedBlock(template: string, markers: MarkerPair): stri
   return template.slice(span.start, span.end)
 }
 
-export function ensureManagedBlock(current: string | null, spec: ManagedSpec): string {
-  if (current === null) return spec.template
-  const scanned = scan(current, spec.markers)
+// latin1 is Node's identity byte codec — one char per byte, every byte round-trips — so the scan and splice run over the owner's raw bytes: a latin-1, UTF-8 or BOM-carrying file is never decoded, never re-encoded, and everything outside the span comes back byte-identical.
+const BYTEWISE = "latin1" as const
+
+function asBytes(text: string): string {
+  return Buffer.from(text, "utf8").toString(BYTEWISE)
+}
+
+export function ensureManagedBlock(current: Buffer | null, spec: ManagedSpec): Buffer {
+  if (current === null) return Buffer.from(spec.template, "utf8")
+  const content = current.toString(BYTEWISE)
+  const block = asBytes(spec.block)
+  const scanned = scan(content, { begin: asBytes(spec.markers.begin), end: asBytes(spec.markers.end) })
   const span = soleSpan(scanned)
-  if (span) return current.slice(0, span.start) + spec.block + current.slice(span.end)
-  return appendBlock(withoutManagedLines(scanned), spec.block)
+  const next = span
+    ? content.slice(0, span.start) + block + content.slice(span.end)
+    : appendBlock(withoutManagedLines(scanned), block)
+  return Buffer.from(next, BYTEWISE)
 }
