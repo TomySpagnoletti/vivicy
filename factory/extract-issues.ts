@@ -308,15 +308,7 @@ async function runExtraction(options: ExtractIssuesOptions, layoutBaseline: { di
     frozen = await runFreeze({ repoRoot, version, approvalRef: openCycle?.id })
     froze = true
   }
-  if (froze && openCycle) {
-    clearSpecCycle(repoRoot)
-    notify({
-      level: "info",
-      stage: "cycle",
-      event: "cycle_closed_by_freeze",
-      message: `drafting cycle ${openCycle.id} closed by the freeze (${frozen.baselineId})`,
-    })
-  }
+  if (froze && openCycle) clearSpecCycle(repoRoot)
   let { manifestPath, baselineId } = frozen
 
   let lastChecks: Checks | null = null
@@ -399,15 +391,7 @@ async function runExtraction(options: ExtractIssuesOptions, layoutBaseline: { di
       record({ phase: "refreezing", attempt })
       commitSpecSnapshot({ repoRoot })
       const refrozen = await runFreeze({ repoRoot, version: resolveFreezeVersion(repoRoot), approvalRef: openCycle?.id })
-      if (openCycle && readSpecCycle(repoRoot)) {
-        clearSpecCycle(repoRoot)
-        notify({
-          level: "info",
-          stage: "cycle",
-          event: "cycle_closed_by_freeze",
-          message: `drafting cycle ${openCycle.id} closed by the freeze (${refrozen.baselineId})`,
-        })
-      }
+      if (openCycle && readSpecCycle(repoRoot)) clearSpecCycle(repoRoot)
       manifestPath = refrozen.manifestPath
       baselineId = refrozen.baselineId
       lastChecks = null
@@ -833,12 +817,8 @@ function defaultRunGenerateMap({ repoRoot, reconcileAgainst }: { repoRoot: strin
 }
 
 const NOTIFY_BY_PHASE: Record<string, { level: "info" | "success" | "warning" | "error"; stage: string; message: string }> = {
-  spike_proving: { level: "info", stage: "S3", message: "proving spikes in the target repo" },
-  authoring: { level: "info", stage: "S6", message: "extracting issues from the frozen canonical" },
-  fixing: { level: "warning", stage: "S6", message: "re-prompting the extractor after red checks" },
   blocked_on_unverified_spikes: { level: "error", stage: "S3", message: "extraction refused: unverified spikes" },
   extraction_blocked: { level: "error", stage: "S6", message: "extraction blocked after bounded retries" },
-  green: { level: "success", stage: "S7", message: "extraction green — corpus committed" },
 }
 
 function defaultEmitStatus(status: StatusEvent, repoRoot: string): void {

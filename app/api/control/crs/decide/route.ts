@@ -25,21 +25,7 @@ export async function POST(request: Request) {
   try {
     const result = await decideCr(getSpawner(), { id, decision, decidedBy: DECIDED_BY })
     // ok:false here means the decision landed but the apply chain is blocked, not that the decision failed (mirrors the extract route's 200/422 split).
-    if (decision === "rejected") {
-      appendNotification({
-        level: "info",
-        stage: "crs",
-        event: "rejected",
-        message: `${id} rejected: ${result.summary}`,
-      })
-    } else if (result.applied?.ok) {
-      appendNotification({
-        level: "info",
-        stage: "crs",
-        event: "approved_applied",
-        message: `${id} approved and applied: ${result.applied.summary}`,
-      })
-    } else {
+    if (decision === "approved" && !result.applied?.ok) {
       appendNotification({
         level: "error",
         stage: "crs",

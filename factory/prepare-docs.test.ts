@@ -472,23 +472,38 @@ test("path-(a) light check rejects an empty canonical doc and non-JSON requireme
   }
 })
 
-test("docPrepNotification: a green stage that kept documents out escalates to a warning carrying the summary", () => {
-  const green = { phase: "green", rejected: [], summary: "doc-prep green: 2 placed, 0 rejected" } as unknown as DocPrepReport
-  assert.equal(docPrepNotification(green)?.level, "success")
+test("docPrepNotification: only a green that kept something out or flagged it speaks; a clean green, a skip and a phase in flight say nothing", () => {
+  const clean = {
+    phase: "green",
+    rejected: [],
+    warnings: [],
+    summary: "doc-prep green: 2 placed, 0 rejected",
+  } as unknown as DocPrepReport
+  assert.equal(docPrepNotification(clean), null)
   const withRejects = {
     phase: "green",
     rejected: [{ batch: "b", source: "canonical/x.md", reason: "invalid_canonical" }],
+    warnings: [],
     summary: "doc-prep green: 1 placed, 1 rejected",
   } as unknown as DocPrepReport
   const note = docPrepNotification(withRejects)
   assert.equal(note?.level, "warning")
-  assert.equal(note?.event, "doc_prep_green")
+  assert.equal(note?.event, "doc_prep_findings")
   assert.equal(note?.message, "doc-prep green: 1 placed, 1 rejected")
+  const withWarnings = {
+    phase: "green",
+    rejected: [],
+    warnings: [{ batch: "b", target: "canonical/x.md" }],
+    summary: "doc-prep green: 1 placed with a possible-secret warning",
+  } as unknown as DocPrepReport
+  assert.equal(docPrepNotification(withWarnings)?.event, "doc_prep_findings", "a possible secret PLACED is the owner's to look at too")
   assert.equal(docPrepNotification({ phase: "failed", rejected: [], summary: "boom" } as unknown as DocPrepReport)?.level, "error")
+  assert.equal(docPrepNotification({ phase: "skipped", summary: "nothing to prepare" } as unknown as DocPrepReport), null)
+  assert.equal(docPrepNotification({ phase: "classifying" } as unknown as DocPrepReport), null)
   assert.equal(docPrepNotification({ phase: "wat" } as unknown as DocPrepReport), null)
 })
 
-test("a green doc-prep that rejected a document emits a WARNING notification naming the drop", async () => {
+test("a green doc-prep that rejected a document emits its one WARNING notification naming the drop, and nothing else", async () => {
   const root = repo()
   const prev = process.env.VIVICY_RUNTIME_DIR
   process.env.VIVICY_RUNTIME_DIR = root
@@ -500,9 +515,13 @@ test("a green doc-prep that rejected a document emits a WARNING notification nam
       .trim()
       .split("\n")
       .map((l) => JSON.parse(l))
-    const green = lines.find((n) => n.event === "doc_prep_green")
-    assert.equal(green.level, "warning", "a green stage with a dropped document is an actionable heads-up, not a silent success")
-    assert.match(green.message, /rejected/)
+    assert.deepEqual(
+      lines.map((n) => n.event),
+      ["doc_prep_findings"],
+      "no per-batch classifying narration, no green receipt — one line, and only because a document was dropped"
+    )
+    assert.equal(lines[0].level, "warning", "a green stage with a dropped document is an actionable heads-up, not a silent success")
+    assert.match(lines[0].message, /rejected/)
   } finally {
     if (prev === undefined) delete process.env.VIVICY_RUNTIME_DIR
     else process.env.VIVICY_RUNTIME_DIR = prev

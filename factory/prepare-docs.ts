@@ -555,22 +555,22 @@ function legContext({
   )
 }
 
-const NOTIFY_BY_PHASE: Record<string, { level: "info" | "success" | "warning" | "error"; stage: string; message: string }> = {
-  classifying: { level: "info", stage: "SP", message: "preparing imported documents (classifying the latest batch)" },
-  green: { level: "success", stage: "SP", message: "document-preparation stage green" },
-  failed: { level: "error", stage: "SP", message: "document-preparation stage failed" },
-  skipped: { level: "info", stage: "SP", message: "document-preparation had nothing to prepare" },
-}
-
-// A green stage that still kept documents out of the canonical (a suspected secret, an unreadable/empty file) is an actionable heads-up, not a silent success — the owner may need to fix a source and re-import; the rich report summary already names what was dropped.
+// A green stage that kept a document out of the canonical, or placed one carrying a possible secret, is the owner's to fix and re-import; a green that placed everything cleanly has nothing for them to do and stays silent. The rich report summary already names what was dropped or flagged.
 export function docPrepNotification(
   report: DocPrepReport
 ): { level: "info" | "success" | "warning" | "error"; stage: string; event: string; message: string } | null {
-  const mapped = NOTIFY_BY_PHASE[report.phase]
-  if (!mapped) return null
-  const rejected = report.rejected?.length ?? 0
-  const level = report.phase === "green" && rejected > 0 ? "warning" : mapped.level
-  return { level, stage: mapped.stage, event: `doc_prep_${report.phase}`, message: report.summary || mapped.message }
+  if (report.phase === "failed") {
+    return { level: "error", stage: "SP", event: "doc_prep_failed", message: report.summary || "document-preparation stage failed" }
+  }
+  if (report.phase !== "green") return null
+  const flagged = (report.rejected?.length ?? 0) + (report.warnings?.length ?? 0)
+  if (flagged === 0) return null
+  return {
+    level: "warning",
+    stage: "SP",
+    event: "doc_prep_findings",
+    message: report.summary || "document preparation kept documents out of the canonical",
+  }
 }
 
 function defaultEmitReport(report: DocPrepReport, repoRoot: string): void {

@@ -66,20 +66,11 @@ describe("GET /api/control/extract", () => {
 })
 
 describe("POST /api/control/extract — notification emissions", () => {
-  it("always appends a 'started' notification before the run", async () => {
-    runExtract.mockResolvedValue({ ok: true, blocked: false, status: "green", summary: "8 issues" })
-    await POST()
-    const events = readNotifications().map((n) => n.event)
-    expect(events[0]).toBe("started")
-  })
-
-  it("appends 'green' on a clean success", async () => {
+  it("says nothing at all on a clean success — the owner has nothing to do about it", async () => {
     runExtract.mockResolvedValue({ ok: true, blocked: false, status: "green", summary: "extraction green: 8 issues" })
     const res = await POST()
     expect(res.status).toBe(200)
-    const rows = readNotifications()
-    expect(rows.map((n) => n.event)).toEqual(["started", "green"])
-    expect(rows[1].message).toMatch(/8 issues/)
+    expect(readNotifications()).toEqual([])
   })
 
   it("appends 'blocked' when the checks stayed red after retries", async () => {
@@ -87,8 +78,8 @@ describe("POST /api/control/extract — notification emissions", () => {
     const res = await POST()
     expect(res.status).toBe(422)
     const rows = readNotifications()
-    expect(rows.map((n) => n.event)).toEqual(["started", "blocked"])
-    expect(rows[1].level).toBe("error")
+    expect(rows.map((n) => n.event)).toEqual(["blocked"])
+    expect(rows[0].level).toBe("error")
   })
 
   it("appends 'blocked_on_unverified_spikes' by name, carrying the gate ids in the message", async () => {
@@ -100,8 +91,17 @@ describe("POST /api/control/extract — notification emissions", () => {
     })
     await POST()
     const rows = readNotifications()
-    expect(rows.map((n) => n.event)).toEqual(["started", "blocked_on_unverified_spikes"])
-    expect(rows[1].message).toMatch(/SPIKE-01/)
+    expect(rows.map((n) => n.event)).toEqual(["blocked_on_unverified_spikes"])
+    expect(rows[0].message).toMatch(/SPIKE-01/)
+  })
+
+  it("appends 'failed' when the run neither reached green nor blocked cleanly", async () => {
+    runExtract.mockResolvedValue({ ok: false, blocked: false, status: "authoring", summary: "extractor exited 1" })
+    const res = await POST()
+    expect(res.status).toBe(422)
+    const rows = readNotifications()
+    expect(rows.map((n) => n.event)).toEqual(["failed"])
+    expect(rows[0].message).toBe("extractor exited 1")
   })
 
   it("appends 'refused_empty_canonical' distinctly from a generic error", async () => {
@@ -109,7 +109,7 @@ describe("POST /api/control/extract — notification emissions", () => {
     const res = await POST()
     expect(res.status).toBe(422)
     const rows = readNotifications()
-    expect(rows.map((n) => n.event)).toEqual(["started", "refused_empty_canonical"])
+    expect(rows.map((n) => n.event)).toEqual(["refused_empty_canonical"])
   })
 
   it("appends a generic 'error' event for an unexpected throw", async () => {
@@ -117,7 +117,7 @@ describe("POST /api/control/extract — notification emissions", () => {
     const res = await POST()
     expect(res.status).toBe(500)
     const rows = readNotifications()
-    expect(rows.map((n) => n.event)).toEqual(["started", "error"])
-    expect(rows[1].message).toBe("spawn exploded")
+    expect(rows.map((n) => n.event)).toEqual(["error"])
+    expect(rows[0].message).toBe("spawn exploded")
   })
 })

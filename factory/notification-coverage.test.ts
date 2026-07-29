@@ -75,7 +75,7 @@ function quotaCfg(quotaStatePath: string): Config {
   }
 }
 
-test("a full walk-away cycle emits the expected notification stream, once per moment, no per-tick spam", async () => {
+test("a full walk-away cycle emits only the moments the owner acts on or awaits, once each, no per-tick spam", async () => {
   const runtimeDir = mkdtempSync(join(tmpdir(), "vivicy-cycle-notif-"))
   const repoRoot = mkdtempSync(join(tmpdir(), "vivicy-cycle-repo-"))
   const prev = process.env.VIVICY_RUNTIME_DIR
@@ -124,8 +124,8 @@ test("a full walk-away cycle emits the expected notification stream, once per mo
       .map((l) => JSON.parse(l))
     assert.deepEqual(
       rows.map((r) => r.event),
-      ["quota_paused", "quota_resumed", "acceptance_checking", "acceptance_green", "run_finished"],
-      "block -> recover -> acceptance green -> served pizza, each moment once"
+      ["quota_paused", "run_finished"],
+      "the pause the owner may want to act on, then the served pizza — the recovery and the green stages that needed nothing from them stay silent"
     )
     assert.equal(new Set(rows.map((r) => r.id)).size, rows.length, "every notification carries a unique id")
     assert.equal(

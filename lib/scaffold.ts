@@ -496,30 +496,18 @@ function failureReason(error: unknown, abs: string): string {
   return ours && syscall ? error.message.split(`, ${syscall} `)[0] : error.message
 }
 
-function announceRenormalization(root: string, written: string[], failures: ManagedFileFailure[]): void {
+function announceRenormalization(root: string, failures: ManagedFileFailure[]): void {
+  if (failures.length === 0) return
   const rel = (abs: string) => path.relative(root, abs)
   try {
-    if (written.length > 0) {
-      const them = countForm(written.length, "it", "them")
-      appendNotification({
-        level: "info",
-        stage: "project",
-        event: "managed_files_updated",
-        message: `updated ${countOf(written.length, "managed file", "managed files")} on open: ${written
-          .map(rel)
-          .join(", ")} — uncommitted in your working tree for now; the next run absorbs ${them} into a commit of its own before it starts`,
-      })
-    }
-    if (failures.length > 0) {
-      appendNotification({
-        level: "warning",
-        stage: "project",
-        event: "managed_files_failed",
-        message: `could not update ${countOf(failures.length, "managed file", "managed files")} on open — the project opened anyway: ${failures
-          .map(({ file, reason }) => `${rel(file)} (${reason})`)
-          .join("; ")}. Fix ${countForm(failures.length, "it", "them")} and reopen the project to retry.`,
-      })
-    }
+    appendNotification({
+      level: "warning",
+      stage: "project",
+      event: "managed_files_failed",
+      message: `could not update ${countOf(failures.length, "managed file", "managed files")} on open — the project opened anyway: ${failures
+        .map(({ file, reason }) => `${rel(file)} (${reason})`)
+        .join("; ")}. Fix ${countForm(failures.length, "it", "them")} and reopen the project to retry.`,
+    })
   } catch {}
 }
 
@@ -537,7 +525,7 @@ export function renormalizeManagedFiles(root: string): ManagedRenormalization {
     }
   }
   written.sort()
-  announceRenormalization(root, written, failures)
+  announceRenormalization(root, failures)
   return { written, failures }
 }
 

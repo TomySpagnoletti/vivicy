@@ -151,14 +151,16 @@ export async function executeViviActions(
   const results: ViviActionResult[] = []
   for (const action of actions) {
     const result = await executeOne(spawner, action, deps)
-    try {
-      deps.notify({
-        level: result.ok ? "info" : "error",
-        stage: "vivi",
-        event: `action_${action.tool.replace(/\./g, "_")}${result.ok ? "" : "_error"}`,
-        message: `Vivi action ${action.tool}: ${result.summary}`,
-      })
-    } catch {}
+    if (!result.ok) {
+      try {
+        deps.notify({
+          level: "error",
+          stage: "vivi",
+          event: `action_${action.tool.replace(/\./g, "_")}_error`,
+          message: `Vivi action ${action.tool}: ${result.summary}`,
+        })
+      } catch {}
+    }
     results.push(result)
   }
   return results

@@ -18,12 +18,6 @@ export async function GET() {
 }
 
 export async function POST() {
-  appendNotification({
-    level: "info",
-    stage: "prepare",
-    event: "started",
-    message: "document preparation requested: classify -> explode/translate -> place",
-  })
   try {
     const run = startDocPrep(getSpawner())
     return Response.json({ ok: true, ...run })

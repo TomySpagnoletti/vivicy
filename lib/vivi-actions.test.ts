@@ -95,8 +95,8 @@ function makeDeps(overrides: Partial<ViviActionDeps> = {}) {
     readNotifications: () => {
       record("readNotifications")
       return [
-        { id: "a", ts: "2026-07-02T10:00:00Z", level: "info", stage: "extract", event: "green", message: "old", dismissed: true },
-        { id: "b", ts: "2026-07-02T10:05:00Z", level: "warning", stage: "dev", event: "stall", message: "fresh", dismissed: false },
+        { id: "a", ts: "2026-07-02T10:00:00Z", level: "error", stage: "extract", event: "blocked", message: "old", dismissed: true },
+        { id: "b", ts: "2026-07-02T10:05:00Z", level: "warning", stage: "S9", event: "gate_failed", message: "fresh", dismissed: false },
       ]
     },
     applyLayoutSave: (async (opts: unknown) => {
@@ -369,9 +369,9 @@ describe("executeViviActions — registry dispatch", () => {
         ["a", "b"].map((id) => ({
           id,
           ts: "2026-07-02T10:00:00Z",
-          level: "info" as const,
+          level: "error" as const,
           stage: "extract",
-          event: "green",
+          event: "blocked",
           message: "m",
           dismissed: false,
         })),
@@ -406,7 +406,9 @@ describe("executeViviActions — registry dispatch", () => {
     expect(results[0].summary).toContain("already active")
     expect(results[1].ok).toBe(true)
     const events = (calls.notify ?? []).map((c) => (c[0] as { event: string }).event)
-    expect(events).toEqual(["action_workflow_start_error", "action_crs_list"])
+    expect(events, "only the refused action is announced; the one that worked is Vivi's to report in the thread").toEqual([
+      "action_workflow_start_error",
+    ])
   })
 
   it("a notification-write failure never breaks the action outcome", async () => {

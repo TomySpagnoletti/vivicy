@@ -18,42 +18,31 @@ export async function GET() {
 }
 
 export async function POST() {
-  appendNotification({
-    level: "info",
-    stage: "extract",
-    event: "started",
-    message: "extraction started: freeze -> author -> validate -> verify",
-  })
   try {
     const result = await runExtract(getSpawner())
-    if (result.ok) {
-      appendNotification({
-        level: "info",
-        stage: "extract",
-        event: "green",
-        message: result.summary,
-      })
-    } else if (result.blocked) {
-      appendNotification({
-        level: "error",
-        stage: "extract",
-        event: "blocked",
-        message: result.summary,
-      })
-    } else if (result.status === "blocked_on_unverified_spikes") {
-      appendNotification({
-        level: "warning",
-        stage: "extract",
-        event: "blocked_on_unverified_spikes",
-        message: result.summary,
-      })
-    } else {
-      appendNotification({
-        level: "error",
-        stage: "extract",
-        event: "failed",
-        message: result.summary,
-      })
+    if (!result.ok) {
+      if (result.blocked) {
+        appendNotification({
+          level: "error",
+          stage: "extract",
+          event: "blocked",
+          message: result.summary,
+        })
+      } else if (result.status === "blocked_on_unverified_spikes") {
+        appendNotification({
+          level: "warning",
+          stage: "extract",
+          event: "blocked_on_unverified_spikes",
+          message: result.summary,
+        })
+      } else {
+        appendNotification({
+          level: "error",
+          stage: "extract",
+          event: "failed",
+          message: result.summary,
+        })
+      }
     }
     return Response.json(
       {

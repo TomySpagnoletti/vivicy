@@ -1839,14 +1839,9 @@ function ensureWorktreesIgnored(cfg: Config): void {
 }
 
 const NOTIFY_BY_EVENT: Record<string, { level: NotifyLevel; stage: string; label: string }> = {
-  gate_passed: { level: "success", stage: "S9", label: "gate green" },
   gate_failed: { level: "warning", stage: "S9", label: "gate red" },
-  proofs_missing: { level: "warning", stage: "S9", label: "declared proof not produced" },
   issue_blocked: { level: "error", stage: "S9", label: "issue blocked" },
   issue_parked_on_cr: { level: "warning", stage: "S8", label: "parked on CR" },
-  issue_reopened: { level: "info", stage: "S11", label: "issue reopened" },
-  readiness_update_applied: { level: "info", stage: "S8", label: "issue updated by readiness" },
-  merge_conflict_resolved: { level: "success", stage: "S10", label: "merge conflict resolved" },
   merge_conflict_unresolved: { level: "error", stage: "S10", label: "merge conflict unresolved" },
   post_merge_gate_failed: { level: "error", stage: "S10", label: "post-merge gate red — merge reverted" },
 }
@@ -1892,33 +1887,21 @@ function writeQuotaState(cfg: Config, actor: string, agentState: AgentQuotaState
   return state
 }
 
-// Transition-only so a multi-hour rate-limit wait, which loops through markAgentThrottled on every backoff tick, notifies the absent owner exactly once when it starts and once when it clears — never per tick.
-export function quotaTransitionNotification(
+// Transition-only so a multi-hour rate-limit wait, which loops through markAgentThrottled on every backoff tick, notifies the absent owner exactly once when it starts — never per tick.
+export function quotaPauseNotification(
   prior: string | undefined,
-  next: "throttled" | "available",
   actor: string
 ): { level: NotifyLevel; stage: string; event: string; message: string } | null {
-  if (next === "throttled" && prior !== "throttled") {
-    return {
-      level: "warning",
-      stage: "S9",
-      event: "quota_paused",
-      message: `build paused — ${actor} hit its usage limit; the build waits and resumes automatically when the limit resets`,
-    }
+  if (prior === "throttled") return null
+  return {
+    level: "warning",
+    stage: "S9",
+    event: "quota_paused",
+    message: `build paused — ${actor} hit its usage limit; the build waits and resumes automatically when the limit resets`,
   }
-  if (next === "available" && prior === "throttled") {
-    return {
-      level: "success",
-      stage: "S9",
-      event: "quota_resumed",
-      message: `build resumed — ${actor}'s usage limit reset`,
-    }
-  }
-  return null
 }
 
 function markAgentAvailable(cfg: Config, leg: Leg, windows: QuotaWindows): void {
-  const prior = readQuotaState(cfg).agents[leg.actor]?.status
   writeQuotaState(cfg, leg.actor, {
     model: leg.model ?? null,
     status: "available",
@@ -1926,8 +1909,6 @@ function markAgentAvailable(cfg: Config, leg: Leg, windows: QuotaWindows): void 
     last_message: null,
     ...(windows && Object.keys(windows).length > 0 ? { windows } : {}),
   })
-  const transition = quotaTransitionNotification(prior, "available", leg.actor)
-  if (transition) notify(transition)
 }
 
 function markAgentThrottled(
@@ -1943,8 +1924,8 @@ function markAgentThrottled(
     last_message: message ?? null,
     ...(windows && Object.keys(windows).length > 0 ? { windows } : {}),
   })
-  const transition = quotaTransitionNotification(prior, "throttled", leg.actor)
-  if (transition) notify(transition)
+  const pause = quotaPauseNotification(prior, leg.actor)
+  if (pause) notify(pause)
 }
 
 export function runLegWithQuota(runLeg: (issue: Issue, cfg: Config) => LegStepReturn, leg: Leg, issue: Issue, cfg: Config): LegResult {

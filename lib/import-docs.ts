@@ -161,10 +161,6 @@ function explode(entries: RawEntry[]): { accepted: AcceptedEntry[]; rejected: Re
   }
 }
 
-function cycleBindingLabel(cycle: BatchCycleBinding): string {
-  return cycle.binding === "seed" ? "→ seeds the next cycle" : `→ active cycle ${cycle.id}`
-}
-
 function walkFiles(dir: string): string[] {
   const out: string[] = []
   const stack = [dir]
@@ -243,7 +239,7 @@ function explodeOrThrow(entries: RawEntry[]): { accepted: AcceptedEntry[]; rejec
   return exploded
 }
 
-// Guard-less core shared by both entry points: mint → write → summarize → manifest → notify. A batch only ever lands under an already-governed root.
+// Guard-less core shared by both entry points: mint → write → summarize → manifest, silent unless the scan finds a secret. A batch only ever lands under an already-governed root.
 async function persistBatch(root: string, exploded: { accepted: AcceptedEntry[]; rejected: RejectedFile[] }): Promise<BatchResult> {
   const batchId = mintBatchId(root)
   const batchDir = path.join(root, UPLOADS_DIR, batchId)
@@ -259,13 +255,6 @@ async function persistBatch(root: string, exploded: { accepted: AcceptedEntry[];
     files,
   }
   writeManifest(batchDir, manifest)
-
-  appendNotification({
-    level: "info",
-    stage: "import",
-    event: "batch",
-    message: `imported ${countOf(files.length, "file", "files")} as batch ${batchId} (language: ${language}) ${cycleBindingLabel(cycle)}`,
-  })
 
   if (findings.length > 0) {
     appendNotification({

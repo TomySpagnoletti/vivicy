@@ -297,7 +297,6 @@ interface ChangeRequestSummary {
   source: string | null
 }
 
-/** The only statuses shown with Approve/Reject; a decided CR drops out here and surfaces as a notification instead. */
 const PENDING_STATUSES = new Set(["idea", "under_review"])
 
 /** CRs still awaiting a decision — shared so the launcher badge, tab badge, and CR cards all count the same set. */

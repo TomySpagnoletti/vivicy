@@ -23,12 +23,6 @@ export async function POST(request: Request) {
     if (!isStringArray(body.remove) || body.remove.length === 0) {
       return Response.json({ ok: false, error: "remove must be a non-empty array of skill id strings" }, { status: 400 })
     }
-    appendNotification({
-      level: "info",
-      stage: "skills",
-      event: "remove_started",
-      message: `skills remove requested: ${body.remove.join(", ")}`,
-    })
     try {
       const report = await removeSkills(getSpawner(), { ids: body.remove })
       return Response.json({ ok: report.phase === "green", report })
@@ -47,14 +41,6 @@ export async function POST(request: Request) {
     return Response.json({ ok: false, error: "ids must be an array of skill id strings" }, { status: 400 })
   }
   const ids = body.ids as string[] | undefined
-  const mode = ids && ids.length > 0 ? "explicit" : "auto"
-
-  appendNotification({
-    level: "info",
-    stage: "skills",
-    event: "started",
-    message: `skills install requested (${mode} mode${mode === "explicit" ? `: ${ids!.join(", ")}` : ""})`,
-  })
   try {
     const run = startSkillsInstall(getSpawner(), { ids })
     return Response.json({ ok: true, ...run })

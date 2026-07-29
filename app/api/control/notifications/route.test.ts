@@ -24,7 +24,7 @@ beforeEach(() => {
 
 describe("GET /api/control/notifications", () => {
   it("returns the reader's notifications (200)", async () => {
-    const rows = [{ ts: "2026-07-02T10:00:00Z", level: "info", stage: "extract", event: "green", message: "done" }]
+    const rows = [{ ts: "2026-07-02T10:00:00Z", level: "error", stage: "extract", event: "blocked", message: "still red" }]
     readNotifications.mockReturnValue(rows)
 
     const res = await GET()

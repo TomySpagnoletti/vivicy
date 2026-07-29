@@ -124,15 +124,9 @@ function makeDefaultSpawnRetroLeg(options: RunRetroOptions): SpawnRetroLeg {
 }
 
 const NOTIFY_BY_PHASE: Record<string, { level: "info" | "success" | "warning" | "error"; message: string }> = {
-  checking: {
-    level: "info",
-    message: "post-cycle retro: reading the run's ledger, blocks, gates, and quota for recurring failure classes",
-  },
-  quiet: { level: "success", message: "post-cycle retro: no recurring failure classes this cycle — nothing to amend" },
-  proposals: { level: "info", message: "post-cycle retro found recurring failure classes and drafted method amendments for you to decide" },
-  failed: {
+  proposals: {
     level: "warning",
-    message: "post-cycle retro could not complete — the cycle still closed (retro never blocks); see the report",
+    message: "post-cycle retro found recurring failure classes and drafted method amendments for you to decide",
   },
 }
 

@@ -46,10 +46,11 @@ describe("Ask Vivi pill", () => {
     expect(onAskVivi).toHaveBeenCalledWith("extraction blocked after retries")
   })
 
-  test("an informational notification offers no Ask Vivi pill", async () => {
-    renderFeed([notification({ level: "info", message: "import batch placed" })])
+  test("the finished run — the one notification that asks for nothing — offers no Ask Vivi pill", async () => {
+    const message = "build complete — all 9 issues are delivered and whole-product acceptance passed; your project is ready"
+    renderFeed([notification({ level: "success", stage: "S12", event: "run_finished", message })])
 
-    expect(await screen.findByText("import batch placed")).toBeInTheDocument()
+    expect(await screen.findByText(message)).toBeInTheDocument()
     expect(screen.queryByRole("button", { name: "Ask Vivi" })).toBeNull()
   })
 })

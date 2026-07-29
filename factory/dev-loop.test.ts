@@ -46,7 +46,7 @@ import {
   parseResetMs,
   pickNextIssue,
   proofsDirective,
-  quotaTransitionNotification,
+  quotaPauseNotification,
   resolveAgentLegs,
   runLegWithQuota,
   runLoop,
@@ -1041,7 +1041,7 @@ test("PROOFS: a block that has BOTH a leg timeout and a missing proof names both
   }
 })
 
-test("PROOFS: the walk-away owner is notified the moment a declared proof is missing (P9)", () => {
+test("PROOFS: a missing declared proof is retried in silence and reaches the walk-away owner only as the terminal block", () => {
   const runtimeDir = mkdtempSync(resolve(repoRoot, "_tmp-proof-notify-"))
   const prev = process.env.VIVICY_RUNTIME_DIR
   process.env.VIVICY_RUNTIME_DIR = runtimeDir
@@ -1052,14 +1052,13 @@ test("PROOFS: the walk-away owner is notified the moment a declared proof is mis
       .trim()
       .split("\n")
       .map((line) => JSON.parse(line))
-    const proofsMissing = rows.find((row) => row.event === "proofs_missing")
-    assert.ok(proofsMissing, `expected a proofs_missing notification, got ${rows.map((r) => r.event).join(", ")}`)
-    assert.equal(proofsMissing.level, "warning")
-    assert.match(proofsMissing.message, /ISSUE-A: declared proof not produced/)
-    assert.ok(
-      rows.some((row) => row.event === "issue_blocked"),
-      "and the terminal block is announced too"
+    assert.deepEqual(
+      rows.map((row) => row.event),
+      ["issue_blocked"],
+      "the bounded retry narrates nothing; only the block asks the owner for something"
     )
+    assert.equal(rows[0].level, "error")
+    assert.match(rows[0].message, /ISSUE-A: issue blocked/)
   } finally {
     if (prev === undefined) delete process.env.VIVICY_RUNTIME_DIR
     else process.env.VIVICY_RUNTIME_DIR = prev
@@ -1394,18 +1393,14 @@ test("runLegWithQuota waits the parsed duration, retries the same leg, then proc
   assert.deepEqual(waits, [120_000 + 5000], "waited the parsed reset (+pad), nothing more")
 })
 
-test("quotaTransitionNotification fires once per pause and once per resume, never per backoff tick", () => {
-  assert.equal(quotaTransitionNotification("available", "throttled", "claude")?.event, "quota_paused")
-  assert.equal(quotaTransitionNotification(undefined, "throttled", "claude")?.event, "quota_paused")
-  assert.equal(quotaTransitionNotification("available", "throttled", "claude")?.level, "warning")
-  assert.equal(quotaTransitionNotification("throttled", "throttled", "claude"), null)
-  assert.equal(quotaTransitionNotification("throttled", "available", "codex")?.event, "quota_resumed")
-  assert.equal(quotaTransitionNotification("throttled", "available", "codex")?.level, "success")
-  assert.equal(quotaTransitionNotification("available", "available", "codex"), null)
-  assert.equal(quotaTransitionNotification(undefined, "available", "codex"), null)
+test("quotaPauseNotification fires once when the wait starts, never per backoff tick and never on the resume", () => {
+  assert.equal(quotaPauseNotification("available", "claude")?.event, "quota_paused")
+  assert.equal(quotaPauseNotification(undefined, "claude")?.event, "quota_paused")
+  assert.equal(quotaPauseNotification("available", "claude")?.level, "warning")
+  assert.equal(quotaPauseNotification("throttled", "claude"), null)
 })
 
-test("runLegWithQuota notifies one pause + one resume across a multi-tick wait, never spamming per tick", () => {
+test("runLegWithQuota notifies one pause across a multi-tick wait, and stays silent when the limit clears", () => {
   const dir = mkdtempSync(resolve(repoRoot, "_tmp-quota-notif-"))
   const prev = process.env.VIVICY_RUNTIME_DIR
   process.env.VIVICY_RUNTIME_DIR = dir
@@ -1426,7 +1421,7 @@ test("runLegWithQuota notifies one pause + one resume across a multi-tick wait, 
       .trim()
       .split("\n")
       .map((l) => JSON.parse(l).event)
-    assert.deepEqual(events, ["quota_paused", "quota_resumed"], "exactly one pause and one resume, no per-tick spam")
+    assert.deepEqual(events, ["quota_paused"], "exactly one pause, no per-tick spam and no self-healing resume notice")
   } finally {
     if (prev === undefined) delete process.env.VIVICY_RUNTIME_DIR
     else process.env.VIVICY_RUNTIME_DIR = prev

@@ -29,21 +29,9 @@ export async function POST(request: Request) {
   try {
     if (body.action === "open") {
       const cycle = openSpecCycle(getSpawner(), "owner:ui")
-      appendNotification({
-        level: "info",
-        stage: "cycle",
-        event: "cycle_opened",
-        message: `drafting spec cycle ${cycle.id} opened — the canonical is editable until the next extraction freezes it`,
-      })
       return Response.json({ ok: true, cycle })
     }
     const { id } = await cancelSpecCycle(getSpawner())
-    appendNotification({
-      level: "info",
-      stage: "cycle",
-      event: "cycle_cancelled",
-      message: `drafting spec cycle ${id} cancelled (no drift)`,
-    })
     return Response.json({ ok: true, id })
   } catch (error) {
     if (error instanceof ControlError) {

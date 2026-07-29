@@ -831,11 +831,20 @@ function defaultRunInstall({ repoRoot, source, skill }: { repoRoot: string; sour
   return { code: r.status ?? 1, output: `${r.stdout ?? ""}\n${r.stderr ?? ""}`.trim() }
 }
 
-const NOTIFY_BY_PHASE: Record<string, { level: "info" | "success" | "warning" | "error"; stage: string; message: string }> = {
-  selecting: { level: "info", stage: "SK", message: "selecting project skills from the frozen canonical" },
-  removing: { level: "info", stage: "SK", message: "removing project skills" },
-  green: { level: "success", stage: "SK", message: "project skills stage green" },
-  failed: { level: "error", stage: "SK", message: "project skills stage failed" },
+// A green stage that kept a candidate OUT — a red security audit, the project cap, an install that failed — is the owner's to fix and re-run; a green that installed what it chose has nothing for them to do and stays silent. The rich report summary already counts the drops.
+export function skillsNotification(
+  report: SkillsReport
+): { level: "info" | "success" | "warning" | "error"; stage: string; event: string; message: string } | null {
+  if (report.phase === "failed") {
+    return { level: "error", stage: "SK", event: "skills_failed", message: "project skills stage failed" }
+  }
+  if (report.phase !== "green" || (report.rejected?.length ?? 0) === 0) return null
+  return {
+    level: "warning",
+    stage: "SK",
+    event: "skills_findings",
+    message: report.summary || "the skills stage kept a candidate skill out of the project",
+  }
 }
 
 function defaultEmitReport(report: SkillsReport, repoRoot: string): void {
@@ -843,8 +852,8 @@ function defaultEmitReport(report: SkillsReport, repoRoot: string): void {
   mkdirSync(dirname(abs), { recursive: true })
   writeFileSync(abs, `${JSON.stringify(report, null, 2)}\n`)
   pruneGitkeeps(repoRoot)
-  const mapped = NOTIFY_BY_PHASE[report.phase]
-  if (mapped) notify({ ...mapped, event: `skills_${report.phase}` })
+  const mapped = skillsNotification(report)
+  if (mapped) notify(mapped)
 }
 
 const SKILLS_BLOCK_BEGIN = "<!-- vivicy:skills:begin -->"

@@ -272,17 +272,24 @@ describe("notifications --json", () => {
     writeFileSync(
       join(runtimeDir, "notifications.jsonl"),
       [
-        JSON.stringify({ ts: "2026-07-02T10:00:00Z", level: "info", stage: "extract", event: "green", message: "done" }),
+        JSON.stringify({ ts: "2026-07-02T10:00:00Z", level: "error", stage: "extract", event: "blocked", message: "still red" }),
         "not json — a partial write",
-        JSON.stringify({ ts: "2026-07-02T10:05:00Z", level: "warning", stage: "dev", event: "stall", message: "idle", dismissed: false }),
+        JSON.stringify({
+          ts: "2026-07-02T10:05:00Z",
+          level: "warning",
+          stage: "S9",
+          event: "gate_failed",
+          message: "ISSUE-0001: gate red",
+          dismissed: false,
+        }),
         "",
       ].join("\n")
     )
     const r = runCli(["notifications", "--runtime-dir", runtimeDir, "--json"])
     assert.equal(r.code, 0)
     assert.equal(r.json.notifications.length, 2)
-    assert.equal(r.json.notifications[0].event, "green")
-    assert.equal(r.json.notifications[1].stage, "dev")
+    assert.equal(r.json.notifications[0].event, "blocked")
+    assert.equal(r.json.notifications[1].stage, "S9")
   })
 })
 

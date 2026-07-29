@@ -1,5 +1,4 @@
 import { ControlError, startProductRun } from "@/lib/control"
-import { appendNotification } from "@/lib/notifications"
 import { getSpawner } from "@/lib/spawner"
 
 export const runtime = "nodejs"
@@ -8,12 +7,6 @@ export const dynamic = "force-dynamic"
 export async function POST() {
   try {
     const state = startProductRun(getSpawner())
-    appendNotification({
-      level: "info",
-      stage: "run",
-      event: "product_run_started",
-      message: `product run started: ${state.command} (pid ${state.pid})`,
-    })
     return Response.json({ ok: true, run: state })
   } catch (error) {
     if (error instanceof ControlError) {

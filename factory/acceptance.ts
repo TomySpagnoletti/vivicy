@@ -153,8 +153,6 @@ function makeDefaultSpawnAcceptanceLeg(options: RunAcceptanceOptions): SpawnAcce
 }
 
 const NOTIFY_BY_PHASE: Record<string, { level: "info" | "success" | "warning" | "error"; message: string }> = {
-  checking: { level: "info", message: "whole-product acceptance: checking the assembled product against the frozen spec" },
-  green: { level: "success", message: "whole-product acceptance green — the delivered product satisfies the spec end to end" },
   findings: {
     level: "warning",
     message: "whole-product acceptance is not clean — every gap it found is drafted as a change request, Done withheld",

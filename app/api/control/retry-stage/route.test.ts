@@ -31,7 +31,7 @@ function postJson(body: unknown): Request {
   })
 }
 
-// lib/notifications is unmocked and writes for real on every retry — isolate to a temp dir so tests don't touch the real .vivicy-runtime.
+// lib/notifications is unmocked and its failure arms write for real — isolate to a temp dir so tests don't touch the real .vivicy-runtime.
 let runtimeDir: string
 let prevRuntimeEnv: string | undefined
 

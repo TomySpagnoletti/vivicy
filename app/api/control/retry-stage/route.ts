@@ -33,32 +33,21 @@ export async function POST(request: Request) {
   }
   const stage = body.stage
 
-  appendNotification({
-    level: "info",
-    stage: "retry",
-    event: `retry_${stage}_started`,
-    message: `manual retry requested for stage "${stage}"`,
-  })
-
   try {
     if (stage === "prepare") {
       const run = startDocPrep(getSpawner())
-      appendNotification({
-        level: "info",
-        stage: "retry",
-        event: "retry_prepare_started",
-        message: `document preparation retried (pid ${run.pid})`,
-      })
       return Response.json({ ok: true, stage, run })
     }
     if (stage === "extract") {
       const result = await runExtract(getSpawner())
-      appendNotification({
-        level: result.ok ? "info" : "error",
-        stage: "retry",
-        event: result.ok ? "retry_extract_green" : "retry_extract_blocked",
-        message: result.summary,
-      })
+      if (!result.ok) {
+        appendNotification({
+          level: "error",
+          stage: "retry",
+          event: "retry_extract_blocked",
+          message: result.summary,
+        })
+      }
       return Response.json(
         { ok: result.ok, stage, blocked: result.blocked, status: result.status, summary: result.summary },
         { status: result.ok ? 200 : 422 }
@@ -66,21 +55,9 @@ export async function POST(request: Request) {
     }
     if (stage === "skills") {
       const run = startSkillsInstall(getSpawner())
-      appendNotification({
-        level: "info",
-        stage: "retry",
-        event: "retry_skills_started",
-        message: `skills install retried (pid ${run.pid}, ${run.mode} mode)`,
-      })
       return Response.json({ ok: true, stage, run })
     }
     const run = startSupervisor(getSpawner(), "resume")
-    appendNotification({
-      level: "info",
-      stage: "retry",
-      event: "retry_dev_started",
-      message: `dev-loop retried (pid ${run.pid})`,
-    })
     return Response.json({ ok: true, stage, run })
   } catch (error) {
     if (error instanceof ControlError) {

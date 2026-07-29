@@ -140,7 +140,7 @@ describe("govern-only (zero documents)", () => {
     expect(existsSync(path.join(result.project.root, ".vivicy", "canonical"))).toBe(true)
     expect(existsSync(path.join(result.project.root, "vivicy.json"))).toBe(true)
     expect(existsSync(path.join(result.project.root, UPLOADS_DIR))).toBe(false)
-    expect(readNotifications().filter((n) => n.stage === "import" && n.event === "batch")).toHaveLength(0)
+    expect(readNotifications()).toEqual([])
   })
 
   it("governs an existing empty directory (govern-only)", async () => {
@@ -377,25 +377,14 @@ describe("manifest", () => {
 })
 
 describe("notification", () => {
-  it("emits an append-only import batch notification naming the cycle binding", async () => {
+  it("a clean import announces nothing — the owner just made it and the card already answered them", async () => {
     const target = targetPath("notify")
-    const result = await startGovernance({ targetDir: target, entries: [fileEntry("a.md", ENGLISH)] })
-    const events = readNotifications().filter((n) => n.stage === "import" && n.event === "batch")
-    expect(events).toHaveLength(1)
-    expect(events[0].message).toContain(result.batch!.batchId)
-    expect(events[0].message).toContain("eng")
-    expect(events[0].message).toContain("active cycle project")
-    expect(events[0].message, "one document is announced in the singular").toContain("imported 1 file as batch")
-  })
-
-  it("announces a multi-file batch in the plural", async () => {
-    const target = targetPath("notify-plural")
-    await startGovernance({
+    const result = await startGovernance({
       targetDir: target,
       entries: [fileEntry("a.md", ENGLISH), fileEntry("b.md", ENGLISH), fileEntry("c.md", ENGLISH)],
     })
-    const events = readNotifications().filter((n) => n.stage === "import" && n.event === "batch")
-    expect(events[0].message).toContain("imported 3 files as batch")
+    expect(result.batch!.accepted).toHaveLength(3)
+    expect(readNotifications()).toEqual([])
   })
 })
 
@@ -424,8 +413,6 @@ describe("cycle binding", () => {
     const result = await importIntoGoverned({ root, entries: [fileEntry("b.md", ENGLISH)] })
     expect(result.cycle).toEqual({ binding: "seed" })
     expect(readManifest(root, result.batchId).cycle).toEqual({ binding: "seed" })
-    const events = readNotifications().filter((n) => n.stage === "import" && n.event === "batch")
-    expect(events.at(-1)?.message).toContain("seeds the next cycle")
   })
 
   it("binds an import made while a feature cycle is open to that active cycle", async () => {
@@ -489,11 +476,11 @@ describe("importIntoGoverned (import into the current governed project)", () => 
     expect(readdirBatches(root)).toEqual(before)
   })
 
-  it("emits its own append-only batch notification", async () => {
+  it("stays silent on a clean batch, exactly like the governance path", async () => {
     const root = await governedRoot("gov-notify")
     const result = await importIntoGoverned({ root, entries: [fileEntry("a.md", ENGLISH)] })
-    const events = readNotifications().filter((n) => n.stage === "import" && n.event === "batch")
-    expect(events.at(-1)?.message).toContain(result.batchId)
+    expect(result.accepted).toHaveLength(1)
+    expect(readNotifications()).toEqual([])
   })
 })
 

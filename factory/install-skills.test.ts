@@ -26,6 +26,7 @@ import {
   normalizeSkillId,
   OFFICIAL_VENDOR_OWNERS,
   SkillsConfigError,
+  skillsNotification,
   SKILLS_REPORT_REL,
 } from "./install-skills.ts"
 import type { SkillAuditFetch, SkillsReport } from "./install-skills.ts"
@@ -326,6 +327,37 @@ describe("security audits", () => {
     assert.deepEqual(installs, [])
     assert.equal(report.rejected[0].reason, "red_audit")
     assert.match(report.rejected[0].detail ?? "", /gateseal:fail/)
+
+    const note = skillsNotification(report)
+    assert.equal(note?.event, "skills_findings", "a skill kept out by a red audit is the owner's to look at, never a silent green")
+    assert.equal(note?.level, "warning")
+    assert.equal(note?.stage, "SK")
+    assert.equal(note?.message, report.summary)
+  })
+
+  it("a green stage that installed everything it chose says nothing at all", async () => {
+    seedBaseline()
+    const report = await installSkills({
+      repoRoot: repo,
+      spawnScout: scoutOne(),
+      fetchAudit: fakeAudits(),
+      runInstall: fakeInstaller([]),
+      env: {},
+    })
+    assert.equal(report.phase, "green")
+    assert.deepEqual(report.rejected, [])
+    assert.equal(skillsNotification(report), null)
+  })
+
+  it("only a failed stage and a green-with-rejections speak; every in-flight phase is silent", () => {
+    const at = (phase: string, rejected: unknown[] = []) => skillsNotification({ phase, rejected, summary: "s" } as unknown as SkillsReport)
+    assert.equal(at("failed")?.event, "skills_failed")
+    assert.equal(at("failed")?.message, "project skills stage failed")
+    assert.equal(at("green")?.event, undefined)
+    assert.equal(at("green", [{ id: "x" }])?.event, "skills_findings")
+    for (const phase of ["selecting", "validating", "auditing", "installing", "removing"]) {
+      assert.equal(at(phase, [{ id: "x" }]), null, `${phase} is in flight and asks the owner for nothing`)
+    }
   })
 
   it("installs a red-audited skill WITH the flag, flagged security_waived", async () => {

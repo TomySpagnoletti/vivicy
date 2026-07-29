@@ -122,12 +122,6 @@ export async function resolveBatchLanguage(options: ResolveBatchLanguageOptions)
     })
     return { resolved: false, language: UNDETERMINED, reason: "manifest write failed" }
   }
-  notifyFn({
-    level: "success",
-    stage: "SP",
-    event: "language_resolved",
-    message: `document language resolved to '${verdict.dominant}' by the language leg`,
-  })
   return { resolved: true, language: verdict.dominant, perFile: verdict.perFile }
 }
 

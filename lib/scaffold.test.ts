@@ -872,16 +872,10 @@ describe("renormalizeManagedFiles — the project-open seam (same engine, never 
       "AGENTS.md",
     ])
 
-    const notifications = readNotifications()
-    expect(notifications).toHaveLength(1)
-    expect(notifications[0]).toMatchObject({ level: "info", stage: "project", event: "managed_files_updated" })
-    expect(notifications[0].message).toContain("AGENTS.md")
-    expect(notifications[0].message).toContain(".gitignore")
-    expect(notifications[0].message, "a file that was not rewritten is never announced").not.toContain("CLAUDE.md")
-    expect(notifications[0].message, "the announcement agrees in number with what it lists").toContain("updated 2 managed files on open")
-    expect(notifications[0].message, "the pending refresh is the run's to absorb, not a dirty tree the owner has to explain").toContain(
-      "the next run absorbs them into a commit of its own"
-    )
+    expect(
+      readNotifications(),
+      "a refresh that landed asks the owner for nothing — the next run absorbs it into a commit of its own"
+    ).toEqual([])
   })
 
   it("is a byte-stable no-op on a healthy project: nothing rewritten, no mtime touched, nothing announced", () => {
@@ -943,9 +937,6 @@ describe("renormalizeManagedFiles — the project-open seam (same engine, never 
 
     expect(readFileSync(agentsPath, "utf8"), "an unwritable file keeps its bytes").toBe(sealed)
     expect(writtenRel(target, result), "the writable files still reach the current definition").toEqual([".gitignore"])
-    expect(readNotifications()[0].message, "the announcement agrees in number with what it lists").toContain(
-      "updated 1 managed file on open: .gitignore — uncommitted in your working tree for now; the next run absorbs it into a commit of its own"
-    )
     expect(result.failures).toHaveLength(1)
     expect(result.failures[0].file, "failures carry absolute paths, exactly like written").toBe(agentsPath)
     expect(result.failures[0].reason, "the reason names the real fs error").toMatch(/^(EACCES|EPERM): /)
@@ -954,16 +945,19 @@ describe("renormalizeManagedFiles — the project-open seam (same engine, never 
     )
 
     const notifications = readNotifications()
-    expect(notifications.map((n) => n.event)).toEqual(["managed_files_updated", "managed_files_failed"])
-    expect(notifications[1]).toMatchObject({ level: "warning", stage: "project" })
-    expect(notifications[1].message).toContain("AGENTS.md")
-    expect(notifications[1].message, "the refusal agrees in number with the file it names").toContain(
+    expect(
+      notifications.map((n) => n.event),
+      "only the half the owner must fix is announced"
+    ).toEqual(["managed_files_failed"])
+    expect(notifications[0]).toMatchObject({ level: "warning", stage: "project" })
+    expect(notifications[0].message).toContain("AGENTS.md")
+    expect(notifications[0].message, "the refusal agrees in number with the file it names").toContain(
       "could not update 1 managed file on open"
     )
-    expect(notifications[1].message, "the owner learns the open succeeded anyway, and what to do").toContain("the project opened anyway")
-    expect(notifications[1].message).toContain("Fix it and reopen the project to retry.")
+    expect(notifications[0].message, "the owner learns the open succeeded anyway, and what to do").toContain("the project opened anyway")
+    expect(notifications[0].message).toContain("Fix it and reopen the project to retry.")
     expect(
-      notifications[1].message,
+      notifications[0].message,
       "the announcement is relative throughout — it belongs to a project whose root the owner picked"
     ).not.toContain(target)
   })
@@ -983,7 +977,7 @@ describe("renormalizeManagedFiles — the project-open seam (same engine, never 
       result.failures[0].reason,
       "a failure on VIVICY's own template keeps the path — otherwise it would read as the owner's AGENTS.md being gone"
     ).toContain(path.join("absent-factory", "templates", "AGENTS.md"))
-    expect(readNotifications().map((n) => n.event)).toEqual(["managed_files_updated", "managed_files_failed"])
+    expect(readNotifications().map((n) => n.event)).toEqual(["managed_files_failed"])
   })
 
   it("does nothing at all on an ungoverned root — the seam renormalizes only what Vivicy governs", () => {
@@ -1076,8 +1070,8 @@ describe("writeManaged — the owner's bytes, their file, and one atomic swap", 
     expect(result.failures[0].reason).toBe(REFUSAL)
     expect(writtenRel(target, result), "the files it CAN manage still reach the current definition").toEqual(["AGENTS.md"])
     const notifications = readNotifications()
-    expect(notifications.map((n) => n.event)).toEqual(["managed_files_updated", "managed_files_failed"])
-    expect(notifications[1].message, "one sentence the owner can act on, the file named once").toContain(`.gitignore (${REFUSAL})`)
+    expect(notifications.map((n) => n.event)).toEqual(["managed_files_failed"])
+    expect(notifications[0].message, "one sentence the owner can act on, the file named once").toContain(`.gitignore (${REFUSAL})`)
   })
 
   // A UTF-32LE file opens on the UTF-16LE mark followed by two zero bytes, so the shorter pattern would send the owner to convert from an encoding their file is not in.
