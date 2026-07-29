@@ -36,9 +36,7 @@ const future = (h: number, m = 0) => new Date(Date.now() + (h * 3600 + m * 60) *
 describe("formatReset", () => {
   const now = Date.UTC(2026, 5, 24, 12, 0, 0)
   test("renders hours+minutes and minutes-only, hides past/unknown", () => {
-    expect(formatReset(new Date(now + (2 * 3600 + 14 * 60) * 1000).toISOString(), now)).toBe(
-      "resets in 2h14"
-    )
+    expect(formatReset(new Date(now + (2 * 3600 + 14 * 60) * 1000).toISOString(), now)).toBe("resets in 2h14")
     expect(formatReset(new Date(now + 45 * 60 * 1000).toISOString(), now)).toBe("resets in 45m")
     expect(formatReset(new Date(now - 60_000).toISOString(), now)).toBeNull()
     expect(formatReset(null, now)).toBeNull()

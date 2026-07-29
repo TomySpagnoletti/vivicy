@@ -15,9 +15,7 @@ const TEST_ONLY_CLASS = "bg-blue-500"
 const TEST_ONLY_CLASS_SOURCE = "lib/utils.test.ts"
 
 async function emitted(stylesheet: string): Promise<string> {
-  const { css } = await postcss([
-    tailwind({ base: REPO_ROOT, optimize: false }),
-  ]).process(stylesheet, { from: PROBE_FROM })
+  const { css } = await postcss([tailwind({ base: REPO_ROOT, optimize: false })]).process(stylesheet, { from: PROBE_FROM })
   return css
 }
 
@@ -48,48 +46,27 @@ describe("the app renders light-only, whatever the OS colour-scheme preference",
 
   it("owes that silence to the dark-variant redefinition: restoring Tailwind's default brings the media queries back", async () => {
     const withoutRedefinition = source.replace(DARK_VARIANT_LINE, "")
-    expect(
-      withoutRedefinition,
-      "app/globals.css must carry the @custom-variant dark redefinition"
-    ).not.toBe(source)
-    expect(
-      occurrences(
-        await emitted(withoutRedefinition),
-        "@media (prefers-color-scheme: dark)"
-      )
-    ).toBeGreaterThan(0)
+    expect(withoutRedefinition, "app/globals.css must carry the @custom-variant dark redefinition").not.toBe(source)
+    expect(occurrences(await emitted(withoutRedefinition), "@media (prefers-color-scheme: dark)")).toBeGreaterThan(0)
   })
 
   it("gates a `dark:` utility the tree does not carry yet on a class, never on the OS preference", async () => {
-    const withFutureUtility = await emitted(
-      `${source}\n@source inline("dark:bg-red-500");\n`
-    )
+    const withFutureUtility = await emitted(`${source}\n@source inline("dark:bg-red-500");\n`)
     const rule = withFutureUtility.indexOf(".dark\\:bg-red-500")
-    expect(
-      rule,
-      "@source inline must have generated the utility"
-    ).toBeGreaterThan(-1)
-    expect(withFutureUtility.slice(rule, rule + 200)).toContain(
-      "&:where(.dark, .dark *)"
-    )
+    expect(rule, "@source inline must have generated the utility").toBeGreaterThan(-1)
+    expect(withFutureUtility.slice(rule, rule + 200)).toContain("&:where(.dark, .dark *)")
     expect(occurrences(withFutureUtility, "prefers-color-scheme")).toBe(0)
   })
 
   it("is compiled from rendered sources only, repo-wide: a class whose sole author is a test file never reaches production CSS", async () => {
-    const witnessSource = await readFile(
-      path.join(REPO_ROOT, TEST_ONLY_CLASS_SOURCE),
-      "utf8"
-    )
+    const witnessSource = await readFile(path.join(REPO_ROOT, TEST_ONLY_CLASS_SOURCE), "utf8")
     expect(
       witnessSource,
       `${TEST_ONLY_CLASS_SOURCE} no longer writes \`${TEST_ONLY_CLASS}\` — pick another class written only by a test file outside app/`
     ).toContain(TEST_ONLY_CLASS)
     expect(css).not.toContain(`.${TEST_ONLY_CLASS}`)
     const withoutExclusion = source.replace(TEST_SOURCE_EXCLUSION, "")
-    expect(
-      withoutExclusion,
-      "app/globals.css must carry the @source not exclusion"
-    ).not.toBe(source)
+    expect(withoutExclusion, "app/globals.css must carry the @source not exclusion").not.toBe(source)
     expect(await emitted(withoutExclusion)).toContain(`.${TEST_ONLY_CLASS}`)
   })
 })

@@ -14,10 +14,7 @@ export async function POST(request: Request) {
   }
   const { sessionId, cardId, actionId } = body
   if (typeof sessionId !== "string" || typeof cardId !== "string" || typeof actionId !== "string") {
-    return Response.json(
-      { ok: false, error: "sessionId, cardId, and actionId are required strings" },
-      { status: 400 }
-    )
+    return Response.json({ ok: false, error: "sessionId, cardId, and actionId are required strings" }, { status: 400 })
   }
   try {
     const result = await decideCardAction(getSpawner(), { sessionId, cardId, actionId })
@@ -26,9 +23,6 @@ export async function POST(request: Request) {
     if (error instanceof ControlError) {
       return Response.json({ ok: false, error: error.message, code: error.code }, { status: 422 })
     }
-    return Response.json(
-      { ok: false, error: error instanceof Error ? error.message : "card decision failed" },
-      { status: 500 }
-    )
+    return Response.json({ ok: false, error: error instanceof Error ? error.message : "card decision failed" }, { status: 500 })
   }
 }

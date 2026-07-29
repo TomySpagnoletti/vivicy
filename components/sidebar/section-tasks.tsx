@@ -6,20 +6,11 @@ import { StatusDot } from "@/components/map/status-dot"
 import { TranscriptRefs } from "@/components/sidebar/section-details"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
-import {
-  asNodeStatus,
-  formatLineCoverage,
-  issueDisplayStatus,
-  issueTranscriptRefs,
-} from "@/lib/map-data"
+import { asNodeStatus, formatLineCoverage, issueDisplayStatus, issueTranscriptRefs } from "@/lib/map-data"
 import type { DevelopmentBlock, DevelopmentIssue } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
-export function SectionTasks({
-  development,
-}: {
-  development: DevelopmentBlock | undefined
-}) {
+export function SectionTasks({ development }: { development: DevelopmentBlock | undefined }) {
   const t = useTranslations("sidebar.tasks")
   const issues = development?.issues ?? []
   const activeItems = development?.active_items ?? []
@@ -39,12 +30,7 @@ export function SectionTasks({
       ) : (
         <ul className="flex flex-col gap-2">
           {issues.map((issue) => (
-            <IssueCard
-              key={issue.id}
-              issue={issue}
-              development={development}
-              active={activeIssueIds.has(issue.id)}
-            />
+            <IssueCard key={issue.id} issue={issue} development={development} active={activeIssueIds.has(issue.id)} />
           ))}
         </ul>
       )}
@@ -54,21 +40,13 @@ export function SectionTasks({
           <Separator />
           <div className="flex flex-col gap-1">
             <CoverageRow label={t("coverageDocLines")} value={coverage.total_doc_lines} />
-            <CoverageRow
-              label={t("coverageClassified")}
-              value={coverage.classified_doc_lines}
-              of={coverage.total_doc_lines}
-            />
+            <CoverageRow label={t("coverageClassified")} value={coverage.classified_doc_lines} of={coverage.total_doc_lines} />
             <CoverageRow
               label={t("coverageRequirementLinked")}
               value={coverage.requirement_linked_doc_lines}
               of={coverage.total_doc_lines}
             />
-            <CoverageRow
-              label={t("coverageIssueLinked")}
-              value={coverage.issue_linked_doc_lines}
-              of={coverage.total_doc_lines}
-            />
+            <CoverageRow label={t("coverageIssueLinked")} value={coverage.issue_linked_doc_lines} of={coverage.total_doc_lines} />
           </div>
         </div>
       ) : null}
@@ -90,12 +68,7 @@ function IssueCard({
   const transcripts = issueTranscriptRefs(issue, development)
 
   return (
-    <li
-      className={cn(
-        "flex flex-col gap-2 rounded-md border bg-card p-2.5",
-        active ? "border-status-verified" : "border-border"
-      )}
-    >
+    <li className={cn("flex flex-col gap-2 rounded-md border bg-card p-2.5", active ? "border-status-verified" : "border-border")}>
       <div className="flex items-center gap-2">
         <StatusDot status={asNodeStatus(status)} />
         <span className="font-mono text-xs text-foreground">{issue.id}</span>
@@ -103,14 +76,8 @@ function IssueCard({
           {status.replace(/_/g, " ")}
         </Badge>
       </div>
-      <p className="font-medium break-words text-foreground">
-        {issue.title ?? t("untitledIssue")}
-      </p>
-      {issue.issue_path ? (
-        <p className="font-mono break-all text-muted-foreground">
-          {issue.issue_path}
-        </p>
-      ) : null}
+      <p className="font-medium break-words text-foreground">{issue.title ?? t("untitledIssue")}</p>
+      {issue.issue_path ? <p className="font-mono break-all text-muted-foreground">{issue.issue_path}</p> : null}
 
       <dl className="flex flex-col gap-1">
         <RefRow label={t("requirementsLabel")} refs={issue.requirement_ids} />
@@ -124,20 +91,12 @@ function IssueCard({
   )
 }
 
-function RefRow({
-  label,
-  refs,
-}: {
-  label: string
-  refs: string[] | undefined
-}) {
+function RefRow({ label, refs }: { label: string; refs: string[] | undefined }) {
   const t = useTranslations("sidebar.tasks")
   return (
     <div className="flex flex-col gap-0.5">
       <dt className="text-xs font-medium text-muted-foreground">{label}</dt>
-      <dd className="font-mono break-words text-foreground">
-        {refs && refs.length > 0 ? refs.join(", ") : t("refsNone")}
-      </dd>
+      <dd className="font-mono break-words text-foreground">{refs && refs.length > 0 ? refs.join(", ") : t("refsNone")}</dd>
     </div>
   )
 }
@@ -145,23 +104,13 @@ function RefRow({
 function Metric({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex min-w-0 flex-col gap-0.5 rounded-md border border-border bg-card p-2">
-      <span className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
-        {label}
-      </span>
+      <span className="text-xs font-medium tracking-wide text-muted-foreground uppercase">{label}</span>
       <strong className="truncate text-sm text-foreground">{value}</strong>
     </div>
   )
 }
 
-function CoverageRow({
-  label,
-  value,
-  of,
-}: {
-  label: string
-  value: number | undefined
-  of?: number | undefined
-}) {
+function CoverageRow({ label, value, of }: { label: string; value: number | undefined; of?: number | undefined }) {
   return (
     <div className="flex items-center justify-between gap-2">
       <span>{label}</span>

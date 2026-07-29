@@ -59,9 +59,7 @@ export function OpenProjectForm({
           return
         }
         toast.success(t("toast.selectedTitle"), {
-          description: body.project.hasCanonicalSpec
-            ? body.project.root
-            : t("toast.selectedNoSpec", { root: body.project.root }),
+          description: body.project.hasCanonicalSpec ? body.project.root : t("toast.selectedNoSpec", { root: body.project.root }),
         })
         onChanged(body.project)
       } catch (error) {

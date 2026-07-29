@@ -6,10 +6,7 @@ import type { ViviTurn } from "@/lib/vivi"
 import { VIVI_TURN_CEILING_MS } from "@/lib/leg-budget"
 import type { Notification } from "@/lib/notifications"
 import { ViviPanel } from "@/components/chat/vivi-panel"
-import {
-  useViviPanel,
-  ViviPanelProvider,
-} from "@/components/chat/vivi-panel-context"
+import { useViviPanel, ViviPanelProvider } from "@/components/chat/vivi-panel-context"
 import { __resetPersistedBooleanStoresForTests } from "@/hooks/use-persisted-boolean"
 import { renderWithIntl } from "@/test/render"
 
@@ -34,9 +31,7 @@ const HISTORY: ViviTurn[] = [
     role: "action",
     text: "✓ workflow.extract: extraction complete",
     ts: "2026-07-08T10:03:00Z",
-    actions: [
-      { tool: "workflow.extract", ok: true, summary: "extraction complete" },
-    ],
+    actions: [{ tool: "workflow.extract", ok: true, summary: "extraction complete" }],
   },
   {
     role: "card",
@@ -207,11 +202,7 @@ function stubFetch(opts: {
   })
 }
 
-function renderPanel(props?: {
-  onActivity?: () => void
-  hasTarget?: boolean
-  projectRoot?: string | null
-}) {
+function renderPanel(props?: { onActivity?: () => void; hasTarget?: boolean; projectRoot?: string | null }) {
   return renderWithIntl(
     <ViviPanelProvider>
       <ViviPanel {...props} />
@@ -228,11 +219,7 @@ function CtaOpener() {
   )
 }
 
-function renderPanelWithOpener(props?: {
-  onActivity?: () => void
-  hasTarget?: boolean
-  projectRoot?: string | null
-}) {
+function renderPanelWithOpener(props?: { onActivity?: () => void; hasTarget?: boolean; projectRoot?: string | null }) {
   return renderWithIntl(
     <ViviPanelProvider>
       <ViviPanel {...props} />
@@ -258,18 +245,14 @@ describe("ViviPanel — launcher bubble", () => {
   test("renders the launcher bubble when not on the no_target screen; the panel stays hidden until clicked", () => {
     vi.stubGlobal("fetch", stubFetch({}))
     renderPanel()
-    expect(
-      screen.getByRole("button", { name: "Open Vivi" })
-    ).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Open Vivi" })).toBeInTheDocument()
     expect(screen.queryByRole("complementary")).not.toBeInTheDocument()
   })
 
   test("hasTarget=true keeps the launcher bubble present", () => {
     vi.stubGlobal("fetch", stubFetch({}))
     renderPanel({ hasTarget: true })
-    expect(
-      screen.getByRole("button", { name: "Open Vivi" })
-    ).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Open Vivi" })).toBeInTheDocument()
   })
 
   test("hasTarget=false hides the launcher bubble; the CTA opens the panel, which still closes and reopens", async () => {
@@ -277,30 +260,18 @@ describe("ViviPanel — launcher bubble", () => {
     const user = userEvent.setup()
     renderPanelWithOpener({ hasTarget: false, projectRoot: null })
 
-    expect(
-      screen.queryByRole("button", { name: "Open Vivi" })
-    ).not.toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "Open Vivi" })).not.toBeInTheDocument()
 
     await user.click(screen.getByTestId("vivi-cta"))
-    expect(
-      await screen.findByRole("complementary", { name: "Vivi" })
-    ).toBeInTheDocument()
+    expect(await screen.findByRole("complementary", { name: "Vivi" })).toBeInTheDocument()
 
     await user.click(screen.getByRole("button", { name: "Close Vivi" }))
-    await waitFor(() =>
-      expect(
-        screen.queryByRole("complementary", { name: "Vivi" })
-      ).not.toBeInTheDocument()
-    )
+    await waitFor(() => expect(screen.queryByRole("complementary", { name: "Vivi" })).not.toBeInTheDocument())
 
     await user.click(screen.getByTestId("vivi-cta"))
-    expect(
-      await screen.findByRole("complementary", { name: "Vivi" })
-    ).toBeInTheDocument()
+    expect(await screen.findByRole("complementary", { name: "Vivi" })).toBeInTheDocument()
 
-    expect(
-      screen.queryByRole("button", { name: "Open Vivi" })
-    ).not.toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "Open Vivi" })).not.toBeInTheDocument()
   })
 
   test("clicking the bubble opens the panel with header controls and tabs, no engine badge, no new-conversation button", async () => {
@@ -310,20 +281,12 @@ describe("ViviPanel — launcher bubble", () => {
 
     await user.click(screen.getByRole("button", { name: "Open Vivi" }))
 
-    expect(
-      await screen.findByRole("complementary", { name: "Vivi" })
-    ).toBeInTheDocument()
-    expect(
-      screen.queryByRole("button", { name: "New conversation" })
-    ).not.toBeInTheDocument()
-    expect(
-      screen.getByRole("button", { name: "Close Vivi" })
-    ).toBeInTheDocument()
+    expect(await screen.findByRole("complementary", { name: "Vivi" })).toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "New conversation" })).not.toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Close Vivi" })).toBeInTheDocument()
     expect(screen.getByRole("tab", { name: "Chat" })).toBeInTheDocument()
     expect(screen.getByRole("tab", { name: /Notifications/ })).toBeInTheDocument()
-    expect(
-      screen.queryByText(/claude-opus-4-8/)
-    ).not.toBeInTheDocument()
+    expect(screen.queryByText(/claude-opus-4-8/)).not.toBeInTheDocument()
   })
 })
 
@@ -349,18 +312,12 @@ describe("ViviPanel — rehydration", () => {
     await user.click(screen.getByRole("button", { name: "Open Vivi" }))
 
     expect(await screen.findByText("I want a todo app.")).toBeInTheDocument()
-    expect(
-      screen.getByText("What states can a todo be in?")
-    ).toBeInTheDocument()
-    expect(
-      screen.getByText(".vivicy/canonical/01-product.md")
-    ).toBeInTheDocument()
+    expect(screen.getByText("What states can a todo be in?")).toBeInTheDocument()
+    expect(screen.getByText(".vivicy/canonical/01-product.md")).toBeInTheDocument()
     expect(screen.getByText(/wrote outside its allowlist/)).toBeInTheDocument()
 
     expect(screen.getByText("Actions")).toBeInTheDocument()
-    expect(
-      screen.getByText(/✓ workflow\.extract: extraction complete/)
-    ).toBeInTheDocument()
+    expect(screen.getByText(/✓ workflow\.extract: extraction complete/)).toBeInTheDocument()
 
     expect(screen.getByText("Freeze the spec?")).toBeInTheDocument()
     expect(screen.getByText("This locks the canonical.")).toBeInTheDocument()
@@ -377,10 +334,7 @@ describe("ViviPanel — rehydration", () => {
         turns: 5,
       },
     ]
-    vi.stubGlobal(
-      "fetch",
-      stubFetch({ sessions, turnsBySession: { [SESSION_A]: HISTORY } })
-    )
+    vi.stubGlobal("fetch", stubFetch({ sessions, turnsBySession: { [SESSION_A]: HISTORY } }))
     const user = userEvent.setup()
     const view = renderPanel({ projectRoot: "/proj/alpha" })
 
@@ -393,9 +347,7 @@ describe("ViviPanel — rehydration", () => {
         <ViviPanel projectRoot="/proj/beta" />
       </ViviPanelProvider>
     )
-    await waitFor(() =>
-      expect(screen.queryByText("I want a todo app.")).not.toBeInTheDocument()
-    )
+    await waitFor(() => expect(screen.queryByText("I want a todo app.")).not.toBeInTheDocument())
     // The new project has no sessions: a bare composer, no dead hint sentence.
     expect(screen.getByLabelText("Message Vivi")).toBeInTheDocument()
   })
@@ -427,9 +379,7 @@ describe("ViviPanel — send flow", () => {
           sessionId: SESSION_B,
           reply: "Noted — magic links it is.",
           wrote: [".vivicy/canonical/02-scope.md"],
-          actions: [
-            { tool: "status.read", ok: true, summary: "workflow idle" },
-          ],
+          actions: [{ tool: "status.read", ok: true, summary: "workflow idle" }],
         },
       }),
     })
@@ -443,23 +393,15 @@ describe("ViviPanel — send flow", () => {
     await user.click(screen.getByRole("button", { name: "Send message" }))
 
     await waitFor(() => {
-      const post = fetchMock.mock.calls.find(
-        (c) =>
-          String(c[0]) === "/api/vivi" &&
-          (c[1] as RequestInit | undefined)?.method === "POST"
-      )
+      const post = fetchMock.mock.calls.find((c) => String(c[0]) === "/api/vivi" && (c[1] as RequestInit | undefined)?.method === "POST")
       expect(post).toBeDefined()
       expect(JSON.parse((post?.[1] as RequestInit).body as string)).toEqual({
         message: "Add auth.",
       })
     })
 
-    expect(
-      await screen.findByText("Noted — magic links it is.")
-    ).toBeInTheDocument()
-    expect(
-      screen.getByText(/✓ status\.read: workflow idle/)
-    ).toBeInTheDocument()
+    expect(await screen.findByText("Noted — magic links it is.")).toBeInTheDocument()
+    expect(screen.getByText(/✓ status\.read: workflow idle/)).toBeInTheDocument()
 
     await waitFor(() => expect(onActivity).toHaveBeenCalled())
   })
@@ -480,11 +422,7 @@ describe("ViviPanel — send flow", () => {
     const input = screen.getByLabelText("Message Vivi")
 
     const countPosts = () =>
-      fetchMock.mock.calls.filter(
-        (c) =>
-          String(c[0]) === "/api/vivi" &&
-          (c[1] as RequestInit | undefined)?.method === "POST"
-      ).length
+      fetchMock.mock.calls.filter((c) => String(c[0]) === "/api/vivi" && (c[1] as RequestInit | undefined)?.method === "POST").length
 
     await user.type(input, "line one{Shift>}{Enter}{/Shift}line two")
     expect(countPosts()).toBe(0)
@@ -492,11 +430,7 @@ describe("ViviPanel — send flow", () => {
 
     await user.type(input, "{Enter}")
     await waitFor(() => expect(countPosts()).toBe(1))
-    const post = fetchMock.mock.calls.find(
-      (c) =>
-        String(c[0]) === "/api/vivi" &&
-        (c[1] as RequestInit | undefined)?.method === "POST"
-    )
+    const post = fetchMock.mock.calls.find((c) => String(c[0]) === "/api/vivi" && (c[1] as RequestInit | undefined)?.method === "POST")
     expect(JSON.parse((post?.[1] as RequestInit).body as string)).toEqual({
       message: "line one\nline two",
     })
@@ -524,11 +458,7 @@ describe("ViviPanel — send flow", () => {
     await user.type(screen.getByLabelText("Message Vivi"), "hello?")
     await user.click(screen.getByRole("button", { name: "Send message" }))
 
-    expect(
-      await screen.findByText(
-        "no project selected — choose a target project first"
-      )
-    ).toBeInTheDocument()
+    expect(await screen.findByText("no project selected — choose a target project first")).toBeInTheDocument()
     expect(screen.getByText("hello?")).toBeInTheDocument()
   })
 })
@@ -587,12 +517,8 @@ describe("ViviPanel — composer & scroller contract", () => {
     await user.click(screen.getByRole("button", { name: "Open Vivi" }))
     await screen.findByText("I want a todo app.")
 
-    expect(
-      container.querySelector('[data-slot="message-scroller-button"]')
-    ).not.toBeNull()
-    expect(
-      container.querySelector('[data-slot="message-scroller-viewport"]')
-    ).not.toBeNull()
+    expect(container.querySelector('[data-slot="message-scroller-button"]')).not.toBeNull()
+    expect(container.querySelector('[data-slot="message-scroller-viewport"]')).not.toBeNull()
   })
 })
 
@@ -647,9 +573,7 @@ describe("ViviPanel — composer document import", () => {
 
     await waitFor(() => {
       const post = fetchMock.mock.calls.find(
-        (c) =>
-          String(c[0]) === "/api/vivi/import" &&
-          (c[1] as RequestInit | undefined)?.method === "POST"
+        (c) => String(c[0]) === "/api/vivi/import" && (c[1] as RequestInit | undefined)?.method === "POST"
       )
       expect(post).toBeDefined()
       const form = (post?.[1] as RequestInit).body as FormData
@@ -658,9 +582,7 @@ describe("ViviPanel — composer document import", () => {
       expect(form.getAll("paths")).toEqual(["brief.md", "data.csv"])
     })
 
-    expect(
-      await screen.findByText(/2 documents, in English, are now in the kitchen/)
-    ).toBeInTheDocument()
+    expect(await screen.findByText(/2 documents, in English, are now in the kitchen/)).toBeInTheDocument()
     await waitFor(() => expect(onActivity).toHaveBeenCalled())
   })
 
@@ -715,9 +637,7 @@ describe("ViviPanel — composer document import", () => {
       new File(["x"], "notes.exe", { type: "application/octet-stream" }),
     ])
 
-    expect(
-      await screen.findByText("Skipped 1 unsupported file: notes.exe")
-    ).toBeInTheDocument()
+    expect(await screen.findByText("Skipped 1 unsupported file: notes.exe")).toBeInTheDocument()
   })
 
   test("cancelling the picker (no files) uploads nothing", async () => {
@@ -730,9 +650,7 @@ describe("ViviPanel — composer document import", () => {
     await screen.findByRole("button", { name: "Attach documents" })
     fireEvent.change(fileInput(container), { target: { files: [] } })
 
-    expect(
-      fetchMock.mock.calls.filter((c) => String(c[0]) === "/api/vivi/import")
-    ).toHaveLength(0)
+    expect(fetchMock.mock.calls.filter((c) => String(c[0]) === "/api/vivi/import")).toHaveLength(0)
   })
 
   test("a refused upload surfaces an inline error and keeps the paperclip live for a retry", async () => {
@@ -754,15 +672,9 @@ describe("ViviPanel — composer document import", () => {
     await user.click(screen.getByRole("button", { name: "Open Vivi" }))
     await user.upload(fileInput(container), [new File(["# brief"], "brief.md", { type: "text/markdown" })])
 
-    expect(
-      await screen.findByText(
-        "this project is no longer governed by Vivicy — its .vivicy directory is missing"
-      )
-    ).toBeInTheDocument()
+    expect(await screen.findByText("this project is no longer governed by Vivicy — its .vivicy directory is missing")).toBeInTheDocument()
     expect(screen.queryByText("this folder is not governed by Vivicy")).toBeNull()
-    expect(
-      screen.getByRole("button", { name: "Attach documents" })
-    ).toHaveAttribute("aria-disabled", "false")
+    expect(screen.getByRole("button", { name: "Attach documents" })).toHaveAttribute("aria-disabled", "false")
   })
 
   test("a refused upload carrying a ControlError code still resolves through the control family", async () => {
@@ -780,9 +692,7 @@ describe("ViviPanel — composer document import", () => {
     await user.click(screen.getByRole("button", { name: "Open Vivi" }))
     await user.upload(fileInput(container), [new File(["# brief"], "brief.md", { type: "text/markdown" })])
 
-    expect(
-      await screen.findByText("no project selected — choose a target project first")
-    ).toBeInTheDocument()
+    expect(await screen.findByText("no project selected — choose a target project first")).toBeInTheDocument()
   })
 
   test("during an in-flight import, Send is truly inert — click AND Enter fire no /api/vivi turn (guards send(), not just aria); Shift+Enter still adds a newline", async () => {
@@ -800,11 +710,7 @@ describe("ViviPanel — composer document import", () => {
     const { container } = renderPanel()
 
     const viviTurnPosts = () =>
-      fetchMock.mock.calls.filter(
-        (c) =>
-          String(c[0]) === "/api/vivi" &&
-          (c[1] as RequestInit | undefined)?.method === "POST"
-      ).length
+      fetchMock.mock.calls.filter((c) => String(c[0]) === "/api/vivi" && (c[1] as RequestInit | undefined)?.method === "POST").length
 
     await user.click(screen.getByRole("button", { name: "Open Vivi" }))
     const composer = screen.getByLabelText("Message Vivi")
@@ -815,9 +721,7 @@ describe("ViviPanel — composer document import", () => {
     const send = screen.getByRole("button", { name: "Send message" })
     await waitFor(() => expect(send).toHaveAttribute("aria-disabled", "true"))
     expect(attach).toHaveAttribute("aria-disabled", "true")
-    expect(
-      screen.getByText("Bringing your documents into the kitchen…")
-    ).toBeInTheDocument()
+    expect(screen.getByText("Bringing your documents into the kitchen…")).toBeInTheDocument()
 
     // The real proof: the guard lives in send() itself, so neither a click nor Enter mints a competing (session-orphaning) turn while the import is in flight.
     await user.click(send)
@@ -862,9 +766,7 @@ describe("ViviPanel — composer document import", () => {
 
     // Bypass the picker's UX guard by dropping files straight onto the hidden input: importDocs() must still refuse while a send holds the (not-yet-minted) session.
     await user.upload(fileInput(container), [new File(["# brief"], "brief.md", { type: "text/markdown" })])
-    expect(
-      fetchMock.mock.calls.filter((c) => String(c[0]) === "/api/vivi/import")
-    ).toHaveLength(0)
+    expect(fetchMock.mock.calls.filter((c) => String(c[0]) === "/api/vivi/import")).toHaveLength(0)
 
     gate.resolve()
     await waitFor(() => expect(attach).toHaveAttribute("aria-disabled", "false"))
@@ -882,24 +784,14 @@ describe("ViviPanel — onboarding view (no target project)", () => {
     const heading = await screen.findByText("Start a project")
     expect(heading).toBeInTheDocument()
     expect(heading).toHaveClass("text-center")
-    expect(
-      screen.queryByText(/develops one project from its canonical spec/)
-    ).not.toBeInTheDocument()
-    expect(
-      screen.getByRole("button", { name: /Open a governed project/ })
-    ).toBeInTheDocument()
-    expect(
-      screen.getByRole("button", { name: /Start governance/ })
-    ).toBeInTheDocument()
+    expect(screen.queryByText(/develops one project from its canonical spec/)).not.toBeInTheDocument()
+    expect(screen.getByRole("button", { name: /Open a governed project/ })).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: /Start governance/ })).toBeInTheDocument()
     // The standing import is a post-governance feature, never an entry choice — the picker offers exactly two.
-    expect(
-      screen.queryByRole("button", { name: /Import documents/ })
-    ).not.toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: /Import documents/ })).not.toBeInTheDocument()
 
     expect(screen.queryByLabelText("Message Vivi")).not.toBeInTheDocument()
-    expect(
-      screen.queryByRole("button", { name: "New conversation" })
-    ).not.toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "New conversation" })).not.toBeInTheDocument()
   })
 
   test("the start-governance choice POSTs /api/project/govern (docs optional) and reports the acquisition up", async () => {
@@ -919,9 +811,7 @@ describe("ViviPanel — onboarding view (no target project)", () => {
 
     await waitFor(() => {
       const post = fetchMock.mock.calls.find(
-        (c) =>
-          String(c[0]).includes("/api/project/govern") &&
-          (c[1] as RequestInit | undefined)?.method === "POST"
+        (c) => String(c[0]).includes("/api/project/govern") && (c[1] as RequestInit | undefined)?.method === "POST"
       )
       expect(post).toBeDefined()
       const form = (post?.[1] as RequestInit).body as FormData
@@ -949,9 +839,7 @@ describe("ViviPanel — onboarding view (no target project)", () => {
     const composer = await screen.findByLabelText("Message Vivi")
     await waitFor(() => expect(composer).toHaveFocus())
     // No dead hint sentence above the composer — an empty non-scaffold chat is composer-only.
-    expect(
-      screen.queryByText(/Tell Vivi what you want to build/)
-    ).not.toBeInTheDocument()
+    expect(screen.queryByText(/Tell Vivi what you want to build/)).not.toBeInTheDocument()
     expect(screen.queryByText("Start a project")).not.toBeInTheDocument()
   })
 
@@ -985,14 +873,10 @@ describe("ViviPanel — onboarding view (no target project)", () => {
           entries: [],
         })
       }
-      if (url.startsWith("/api/vivi/sessions/"))
-        return jsonResponse({ ok: true, sessionId: SESSION_A, turns: [] })
-      if (url.startsWith("/api/vivi/sessions"))
-        return jsonResponse({ ok: true, sessions: [] })
-      if (url.includes("/api/control/notifications"))
-        return jsonResponse({ ok: true, notifications: [] })
-      if (url.includes("/api/control/crs"))
-        return jsonResponse({ ok: true, crs: [] })
+      if (url.startsWith("/api/vivi/sessions/")) return jsonResponse({ ok: true, sessionId: SESSION_A, turns: [] })
+      if (url.startsWith("/api/vivi/sessions")) return jsonResponse({ ok: true, sessions: [] })
+      if (url.includes("/api/control/notifications")) return jsonResponse({ ok: true, notifications: [] })
+      if (url.includes("/api/control/crs")) return jsonResponse({ ok: true, crs: [] })
       return jsonResponse({ ok: true })
     })
     vi.stubGlobal("fetch", fetchMock)
@@ -1021,20 +905,14 @@ describe("ViviPanel — notifications tab", () => {
     vi.stubGlobal(
       "fetch",
       stubFetch({
-        notifications: notificationRows(
-          { message: "first" },
-          { message: "second", dismissed: true },
-          { message: "third" }
-        ),
+        notifications: notificationRows({ message: "first" }, { message: "second", dismissed: true }, { message: "third" }),
       })
     )
     const user = userEvent.setup()
     renderPanel()
 
     await user.click(screen.getByRole("button", { name: "Open Vivi" }))
-    await waitFor(() =>
-      expect(screen.getByLabelText("2 unread notifications")).toBeInTheDocument()
-    )
+    await waitFor(() => expect(screen.getByLabelText("2 unread notifications")).toBeInTheDocument())
 
     await user.click(screen.getByRole("tab", { name: /Notifications/ }))
     const feed = await screen.findByRole("tabpanel")
@@ -1046,10 +924,7 @@ describe("ViviPanel — notifications tab", () => {
 
   test("dismissing one notification POSTs its id and drops it from feed + badge", async () => {
     const fetchMock = stubFetch({
-      notifications: notificationRows(
-        { id: "keep-1", message: "keep me" },
-        { id: "bye-2", message: "dismiss me" }
-      ),
+      notifications: notificationRows({ id: "keep-1", message: "keep me" }, { id: "bye-2", message: "dismiss me" }),
     })
     vi.stubGlobal("fetch", fetchMock)
     const user = userEvent.setup()
@@ -1062,22 +937,16 @@ describe("ViviPanel — notifications tab", () => {
 
     await waitFor(() => {
       const post = fetchMock.mock.calls.find(
-        (c) =>
-          String(c[0]).includes("/api/control/notifications") &&
-          (c[1] as RequestInit | undefined)?.method === "POST"
+        (c) => String(c[0]).includes("/api/control/notifications") && (c[1] as RequestInit | undefined)?.method === "POST"
       )
       expect(post).toBeDefined()
       expect(JSON.parse((post?.[1] as RequestInit).body as string)).toEqual({
         id: "bye-2",
       })
     })
-    await waitFor(() =>
-      expect(screen.queryByText("dismiss me")).not.toBeInTheDocument()
-    )
+    await waitFor(() => expect(screen.queryByText("dismiss me")).not.toBeInTheDocument())
     expect(screen.getByText("keep me")).toBeInTheDocument()
-    await waitFor(() =>
-      expect(screen.getByLabelText("1 unread notification")).toBeInTheDocument()
-    )
+    await waitFor(() => expect(screen.getByLabelText("1 unread notification")).toBeInTheDocument())
   })
 
   test("clear all confirms, POSTs { all: true }, and empties the feed", async () => {
@@ -1095,9 +964,7 @@ describe("ViviPanel — notifications tab", () => {
 
     await waitFor(() => {
       const post = fetchMock.mock.calls.find(
-        (c) =>
-          String(c[0]).includes("/api/control/notifications") &&
-          (c[1] as RequestInit | undefined)?.method === "POST"
+        (c) => String(c[0]).includes("/api/control/notifications") && (c[1] as RequestInit | undefined)?.method === "POST"
       )
       expect(JSON.parse((post?.[1] as RequestInit).body as string)).toEqual({
         all: true,
@@ -1117,9 +984,7 @@ describe("ViviPanel — notifications tab", () => {
 
     const countGets = () =>
       fetchMock.mock.calls.filter(
-        (c) =>
-          String(c[0]).includes("/api/control/notifications") &&
-          (c[1] as RequestInit | undefined)?.method !== "POST"
+        (c) => String(c[0]).includes("/api/control/notifications") && (c[1] as RequestInit | undefined)?.method !== "POST"
       ).length
     const baseline = countGets()
 
@@ -1173,15 +1038,9 @@ describe("ViviPanel — notifications tab", () => {
     await user.click(await screen.findByRole("button", { name: "Ask Vivi" }))
 
     const composer = await screen.findByLabelText("Message Vivi")
-    expect(composer).toHaveValue(
-      "Explain this notification and what I should do: «extraction blocked after retries»"
-    )
+    expect(composer).toHaveValue("Explain this notification and what I should do: «extraction blocked after retries»")
     await waitFor(() => expect(composer).toHaveFocus())
-    const posts = fetchMock.mock.calls.filter(
-      (c) =>
-        String(c[0]) === "/api/vivi" &&
-        (c[1] as RequestInit | undefined)?.method === "POST"
-    )
+    const posts = fetchMock.mock.calls.filter((c) => String(c[0]) === "/api/vivi" && (c[1] as RequestInit | undefined)?.method === "POST")
     expect(posts).toHaveLength(0)
   })
 
@@ -1205,17 +1064,13 @@ describe("ViviPanel — notifications tab", () => {
     expect(screen.getByText("2026-07-03")).toBeInTheDocument()
 
     await user.click(screen.getByRole("button", { name: /^Approve$/ }))
-    expect(
-      fetchMock.mock.calls.find((c) => String(c[0]).includes("/api/control/crs/decide"))
-    ).toBeUndefined()
+    expect(fetchMock.mock.calls.find((c) => String(c[0]).includes("/api/control/crs/decide"))).toBeUndefined()
     const confirm = await screen.findByRole("alertdialog")
     await user.click(within(confirm).getByRole("button", { name: /^Approve$/ }))
 
     await waitFor(() => {
       const post = fetchMock.mock.calls.find(
-        (c) =>
-          String(c[0]).includes("/api/control/crs/decide") &&
-          (c[1] as RequestInit | undefined)?.method === "POST"
+        (c) => String(c[0]).includes("/api/control/crs/decide") && (c[1] as RequestInit | undefined)?.method === "POST"
       )
       expect(post).toBeDefined()
       expect(JSON.parse((post?.[1] as RequestInit).body as string)).toEqual({
@@ -1223,9 +1078,7 @@ describe("ViviPanel — notifications tab", () => {
         decision: "approved",
       })
     })
-    expect(
-      await screen.findByText(/CR-0001 approved — applied and re-extracted/)
-    ).toBeInTheDocument()
+    expect(await screen.findByText(/CR-0001 approved — applied and re-extracted/)).toBeInTheDocument()
   })
 })
 
@@ -1241,16 +1094,10 @@ describe("ViviPanel — closed-panel attention badge", () => {
     const user = userEvent.setup()
     renderPanel()
 
-    expect(
-      await screen.findByLabelText("3 items need your attention")
-    ).toBeInTheDocument()
+    expect(await screen.findByLabelText("3 items need your attention")).toBeInTheDocument()
 
     await user.click(screen.getByRole("button", { name: "Open Vivi" }))
-    await waitFor(() =>
-      expect(
-        screen.queryByLabelText("3 items need your attention")
-      ).not.toBeInTheDocument()
-    )
+    await waitFor(() => expect(screen.queryByLabelText("3 items need your attention")).not.toBeInTheDocument())
     expect(screen.getByLabelText("3 unread notifications")).toBeInTheDocument()
   })
 })
@@ -1274,14 +1121,12 @@ describe("ViviPanel — turn resilience", () => {
       }),
     })
     const gate = deferred()
-    const fetchMock = vi.fn(
-      async (input: RequestInfo | URL, init?: RequestInit) => {
-        if (String(input) === "/api/vivi" && init?.method === "POST") {
-          await gate.promise
-        }
-        return base(input, init)
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input) === "/api/vivi" && init?.method === "POST") {
+        await gate.promise
       }
-    )
+      return base(input, init)
+    })
     vi.stubGlobal("fetch", fetchMock)
     const user = userEvent.setup()
     renderPanel()
@@ -1299,44 +1144,38 @@ describe("ViviPanel — turn resilience", () => {
     expect(composer).not.toHaveFocus()
 
     gate.resolve()
-    expect(
-      await screen.findByText("Done — magic links.")
-    ).toBeInTheDocument()
+    expect(await screen.findByText("Done — magic links.")).toBeInTheDocument()
     await waitFor(() => expect(composer).toHaveFocus())
   })
 
   test("a rehydration cancelled by a dep flip retries instead of latching hydrated", async () => {
     let indexCalls = 0
     const firstGate = deferred() // never resolved: the cancelled first attempt
-    const fetchMock = vi.fn(
-      async (input: RequestInfo | URL, init?: RequestInit) => {
-        const url = String(input)
-        if (url.startsWith("/api/vivi/sessions/")) {
-          return jsonResponse({ ok: true, sessionId: SESSION_A, turns: HISTORY })
-        }
-        if (url.startsWith("/api/vivi/sessions")) {
-          indexCalls += 1
-          if (indexCalls === 1) await firstGate.promise
-          return jsonResponse({
-            ok: true,
-            sessions: [
-              {
-                sessionId: SESSION_A,
-                updated_at: "2026-07-08T10:04:00Z",
-                preview: "I want a todo app.",
-                turns: 5,
-              },
-            ],
-          })
-        }
-        if (url.includes("/api/control/notifications"))
-          return jsonResponse({ ok: true, notifications: [] })
-        if (url.includes("/api/control/crs"))
-          return jsonResponse({ ok: true, crs: [] })
-        if (init?.method === "POST") return jsonResponse({ ok: true })
-        return jsonResponse({ ok: true })
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url.startsWith("/api/vivi/sessions/")) {
+        return jsonResponse({ ok: true, sessionId: SESSION_A, turns: HISTORY })
       }
-    )
+      if (url.startsWith("/api/vivi/sessions")) {
+        indexCalls += 1
+        if (indexCalls === 1) await firstGate.promise
+        return jsonResponse({
+          ok: true,
+          sessions: [
+            {
+              sessionId: SESSION_A,
+              updated_at: "2026-07-08T10:04:00Z",
+              preview: "I want a todo app.",
+              turns: 5,
+            },
+          ],
+        })
+      }
+      if (url.includes("/api/control/notifications")) return jsonResponse({ ok: true, notifications: [] })
+      if (url.includes("/api/control/crs")) return jsonResponse({ ok: true, crs: [] })
+      if (init?.method === "POST") return jsonResponse({ ok: true })
+      return jsonResponse({ ok: true })
+    })
     vi.stubGlobal("fetch", fetchMock)
     const user = userEvent.setup()
     const view = renderPanel({ projectRoot: "/proj/x" })
@@ -1354,46 +1193,42 @@ describe("ViviPanel — turn resilience", () => {
     let turnsCalls = 0
     let sessionsCalls = 0
     const resyncGate = deferred()
-    const fetchMock = vi.fn(
-      async (input: RequestInfo | URL, init?: RequestInit) => {
-        const url = String(input)
-        if (url === "/api/vivi/card" && init?.method === "POST") {
-          return jsonResponse({
-            ok: true,
-            summary: "frozen",
-            decided: { actionId: "go", at: "2026-07-08T10:05:00Z", summary: "frozen" },
-          })
-        }
-        if (url.startsWith("/api/vivi/sessions/")) {
-          turnsCalls += 1
-          if (turnsCalls >= 2) await resyncGate.promise
-          return jsonResponse({ ok: true, sessionId: SESSION_A, turns: HISTORY })
-        }
-        if (url.startsWith("/api/vivi/sessions")) {
-          sessionsCalls += 1
-          // The first project owns session A; the project we switch to has none.
-          return jsonResponse({
-            ok: true,
-            sessions:
-              sessionsCalls === 1
-                ? [
-                    {
-                      sessionId: SESSION_A,
-                      updated_at: "2026-07-08T10:04:00Z",
-                      preview: "I want a todo app.",
-                      turns: 5,
-                    },
-                  ]
-                : [],
-          })
-        }
-        if (url.includes("/api/control/notifications"))
-          return jsonResponse({ ok: true, notifications: [] })
-        if (url.includes("/api/control/crs"))
-          return jsonResponse({ ok: true, crs: [] })
-        return jsonResponse({ ok: true })
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url === "/api/vivi/card" && init?.method === "POST") {
+        return jsonResponse({
+          ok: true,
+          summary: "frozen",
+          decided: { actionId: "go", at: "2026-07-08T10:05:00Z", summary: "frozen" },
+        })
       }
-    )
+      if (url.startsWith("/api/vivi/sessions/")) {
+        turnsCalls += 1
+        if (turnsCalls >= 2) await resyncGate.promise
+        return jsonResponse({ ok: true, sessionId: SESSION_A, turns: HISTORY })
+      }
+      if (url.startsWith("/api/vivi/sessions")) {
+        sessionsCalls += 1
+        // The first project owns session A; the project we switch to has none.
+        return jsonResponse({
+          ok: true,
+          sessions:
+            sessionsCalls === 1
+              ? [
+                  {
+                    sessionId: SESSION_A,
+                    updated_at: "2026-07-08T10:04:00Z",
+                    preview: "I want a todo app.",
+                    turns: 5,
+                  },
+                ]
+              : [],
+        })
+      }
+      if (url.includes("/api/control/notifications")) return jsonResponse({ ok: true, notifications: [] })
+      if (url.includes("/api/control/crs")) return jsonResponse({ ok: true, crs: [] })
+      return jsonResponse({ ok: true })
+    })
     vi.stubGlobal("fetch", fetchMock)
     const user = userEvent.setup()
     const view = renderPanel({ projectRoot: "/proj/x", hasTarget: true })
@@ -1409,9 +1244,7 @@ describe("ViviPanel — turn resilience", () => {
         <ViviPanel projectRoot="/proj/y" hasTarget />
       </ViviPanelProvider>
     )
-    await waitFor(() =>
-      expect(screen.queryByText("I want a todo app.")).not.toBeInTheDocument()
-    )
+    await waitFor(() => expect(screen.queryByText("I want a todo app.")).not.toBeInTheDocument())
 
     resyncGate.resolve()
     await act(async () => {
@@ -1435,36 +1268,32 @@ describe("ViviPanel — turn resilience", () => {
         turns: 5,
       },
     ]
-    const fetchMock = vi.fn(
-      async (input: RequestInfo | URL, init?: RequestInit) => {
-        const url = String(input)
-        if (url === "/api/vivi" && init?.method === "POST") {
-          await postGate.promise
-          return jsonResponse({
-            ok: true,
-            sessionId: SESSION_B,
-            reply: "Stale reply.",
-            wrote: [],
-          })
-        }
-        if (url.startsWith("/api/vivi/sessions/")) {
-          const id = url.slice("/api/vivi/sessions/".length)
-          return jsonResponse({
-            ok: true,
-            sessionId: id,
-            turns: id === SESSION_A ? HISTORY : id === SESSION_B ? staleTurns : [],
-          })
-        }
-        if (url.startsWith("/api/vivi/sessions")) {
-          return jsonResponse({ ok: true, sessions })
-        }
-        if (url.includes("/api/control/notifications"))
-          return jsonResponse({ ok: true, notifications: [] })
-        if (url.includes("/api/control/crs"))
-          return jsonResponse({ ok: true, crs: [] })
-        return jsonResponse({ ok: true })
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url === "/api/vivi" && init?.method === "POST") {
+        await postGate.promise
+        return jsonResponse({
+          ok: true,
+          sessionId: SESSION_B,
+          reply: "Stale reply.",
+          wrote: [],
+        })
       }
-    )
+      if (url.startsWith("/api/vivi/sessions/")) {
+        const id = url.slice("/api/vivi/sessions/".length)
+        return jsonResponse({
+          ok: true,
+          sessionId: id,
+          turns: id === SESSION_A ? HISTORY : id === SESSION_B ? staleTurns : [],
+        })
+      }
+      if (url.startsWith("/api/vivi/sessions")) {
+        return jsonResponse({ ok: true, sessions })
+      }
+      if (url.includes("/api/control/notifications")) return jsonResponse({ ok: true, notifications: [] })
+      if (url.includes("/api/control/crs")) return jsonResponse({ ok: true, crs: [] })
+      return jsonResponse({ ok: true })
+    })
     vi.stubGlobal("fetch", fetchMock)
     const user = userEvent.setup()
     const view = renderPanel({ projectRoot: "/proj/alpha", hasTarget: true })
@@ -1481,9 +1310,7 @@ describe("ViviPanel — turn resilience", () => {
         <ViviPanel projectRoot="/proj/beta" hasTarget />
       </ViviPanelProvider>
     )
-    await waitFor(() =>
-      expect(screen.queryByText("I want a todo app.")).not.toBeInTheDocument()
-    )
+    await waitFor(() => expect(screen.queryByText("I want a todo app.")).not.toBeInTheDocument())
 
     postGate.resolve()
     await act(async () => {
@@ -1498,41 +1325,32 @@ describe("ViviPanel — mid-turn resume", () => {
   test("a reload whose last turn is the user's shows the pending marker and polls until the reply lands", async () => {
     vi.useFakeTimers()
     try {
-      const pendingThread: ViviTurn[] = [
-        { role: "user", text: "Add auth.", ts: "2026-07-08T11:00:00Z" },
-      ]
-      const answeredThread: ViviTurn[] = [
-        ...pendingThread,
-        { role: "vivi", text: "Magic links it is.", ts: "2026-07-08T11:01:00Z" },
-      ]
+      const pendingThread: ViviTurn[] = [{ role: "user", text: "Add auth.", ts: "2026-07-08T11:00:00Z" }]
+      const answeredThread: ViviTurn[] = [...pendingThread, { role: "vivi", text: "Magic links it is.", ts: "2026-07-08T11:01:00Z" }]
       let current = pendingThread
-      const fetchMock = vi.fn(
-        async (input: RequestInfo | URL, init?: RequestInit) => {
-          const url = String(input)
-          if (url.startsWith("/api/vivi/sessions/")) {
-            return jsonResponse({ ok: true, sessionId: SESSION_A, turns: current, busy: true })
-          }
-          if (url.startsWith("/api/vivi/sessions")) {
-            return jsonResponse({
-              ok: true,
-              sessions: [
-                {
-                  sessionId: SESSION_A,
-                  updated_at: "2026-07-08T11:00:00Z",
-                  preview: "Add auth.",
-                  turns: 1,
-                },
-              ],
-            })
-          }
-          if (url.includes("/api/control/notifications"))
-            return jsonResponse({ ok: true, notifications: [] })
-          if (url.includes("/api/control/crs"))
-            return jsonResponse({ ok: true, crs: [] })
-          if (init?.method === "POST") return jsonResponse({ ok: true })
-          return jsonResponse({ ok: true })
+      const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input)
+        if (url.startsWith("/api/vivi/sessions/")) {
+          return jsonResponse({ ok: true, sessionId: SESSION_A, turns: current, busy: true })
         }
-      )
+        if (url.startsWith("/api/vivi/sessions")) {
+          return jsonResponse({
+            ok: true,
+            sessions: [
+              {
+                sessionId: SESSION_A,
+                updated_at: "2026-07-08T11:00:00Z",
+                preview: "Add auth.",
+                turns: 1,
+              },
+            ],
+          })
+        }
+        if (url.includes("/api/control/notifications")) return jsonResponse({ ok: true, notifications: [] })
+        if (url.includes("/api/control/crs")) return jsonResponse({ ok: true, crs: [] })
+        if (init?.method === "POST") return jsonResponse({ ok: true })
+        return jsonResponse({ ok: true })
+      })
       vi.stubGlobal("fetch", fetchMock)
       // fireEvent, not userEvent: userEvent's internal delays deadlock under fake timers.
       renderPanel({ projectRoot: "/proj/x", hasTarget: true })
@@ -1585,13 +1403,10 @@ describe("ViviPanel — mid-turn resume", () => {
         if (url.startsWith("/api/vivi/sessions")) {
           return jsonResponse({
             ok: true,
-            sessions: [
-              { sessionId: SESSION_A, updated_at: "2026-07-08T11:00:00Z", preview: "documents", turns: 1 },
-            ],
+            sessions: [{ sessionId: SESSION_A, updated_at: "2026-07-08T11:00:00Z", preview: "documents", turns: 1 }],
           })
         }
-        if (url.includes("/api/control/notifications"))
-          return jsonResponse({ ok: true, notifications: [] })
+        if (url.includes("/api/control/notifications")) return jsonResponse({ ok: true, notifications: [] })
         if (url.includes("/api/control/crs")) return jsonResponse({ ok: true, crs: [] })
         if (init?.method === "POST") return jsonResponse({ ok: true })
         return jsonResponse({ ok: true })
@@ -1646,8 +1461,7 @@ describe("ViviPanel — mid-turn resume", () => {
     ]
   }
 
-  const READING_LOST =
-    "Vivi never came back from reading what you handed her — ask her to read it again and she'll pick it straight up."
+  const READING_LOST = "Vivi never came back from reading what you handed her — ask her to read it again and she'll pick it straight up."
 
   function readingFetch(opts: { turns: () => ViviTurn[]; busy: () => boolean }) {
     return vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -1658,9 +1472,7 @@ describe("ViviPanel — mid-turn resume", () => {
       if (url.startsWith("/api/vivi/sessions")) {
         return jsonResponse({
           ok: true,
-          sessions: [
-            { sessionId: SESSION_A, updated_at: "2026-07-08T11:00:00Z", preview: "documents", turns: 1 },
-          ],
+          sessions: [{ sessionId: SESSION_A, updated_at: "2026-07-08T11:00:00Z", preview: "documents", turns: 1 }],
         })
       }
       if (url.includes("/api/control/notifications")) return jsonResponse({ ok: true, notifications: [] })
@@ -1791,9 +1603,7 @@ describe("ViviPanel — mid-turn resume", () => {
     vi.stubGlobal(
       "fetch",
       stubFetch({
-        sessions: [
-          { sessionId: SESSION_A, updated_at: "2026-07-08T11:01:30Z", preview: "documents", turns: 3 },
-        ],
+        sessions: [{ sessionId: SESSION_A, updated_at: "2026-07-08T11:01:30Z", preview: "documents", turns: 3 }],
         turnsBySession: { [SESSION_A]: behind },
       })
     )
@@ -1857,10 +1667,7 @@ function stackSessions() {
 describe("ViviPanel — the question pile lives in the thread", () => {
   test("mid-stack: the answered card is a compact Q+A line, the next card stands, and Vivi is NOT said to be thinking", async () => {
     const user = userEvent.setup()
-    vi.stubGlobal(
-      "fetch",
-      stubFetch({ sessions: stackSessions(), turnsBySession: { [SESSION_A]: STACK_MID } })
-    )
+    vi.stubGlobal("fetch", stubFetch({ sessions: stackSessions(), turnsBySession: { [SESSION_A]: STACK_MID } }))
     renderPanel({ hasTarget: true, projectRoot: "/proj/x" })
     await user.click(screen.getByRole("button", { name: "Open Vivi" }))
 
@@ -1879,10 +1686,7 @@ describe("ViviPanel — the question pile lives in the thread", () => {
 
   test("a spent pile leaves no trace but its lines, and the last answer is what Vivi is answering", async () => {
     const user = userEvent.setup()
-    vi.stubGlobal(
-      "fetch",
-      stubFetch({ sessions: stackSessions(), turnsBySession: { [SESSION_A]: STACK_SPENT } })
-    )
+    vi.stubGlobal("fetch", stubFetch({ sessions: stackSessions(), turnsBySession: { [SESSION_A]: STACK_SPENT } }))
     renderPanel({ hasTarget: true, projectRoot: "/proj/x" })
     await user.click(screen.getByRole("button", { name: "Open Vivi" }))
 

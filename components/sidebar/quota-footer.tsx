@@ -46,11 +46,7 @@ function readCollapsed(): boolean {
   }
 }
 
-export function QuotaFooter({
-  settings = DEFAULT_SETTINGS,
-}: {
-  settings?: AgentsSettings
-}) {
+export function QuotaFooter({ settings = DEFAULT_SETTINGS }: { settings?: AgentsSettings }) {
   const t = useTranslations("sidebar.quotaFooter")
   const [quota, setQuota] = useState<QuotaState | null>(null)
   const [collapsed, setCollapsed] = useState(readCollapsed)
@@ -65,8 +61,7 @@ export function QuotaFooter({
         }
         if (next.error) return
         setQuota(next.quota ?? { agents: {} })
-      } catch {
-      }
+      } catch {}
     }
     return () => source.close()
   }, [])
@@ -76,8 +71,7 @@ export function QuotaFooter({
       const next = !prev
       try {
         window.localStorage.setItem(COLLAPSE_KEY, String(next))
-      } catch {
-      }
+      } catch {}
       return next
     })
   }
@@ -112,23 +106,13 @@ export function QuotaFooter({
       ) : collapsed ? (
         <div className="flex flex-col gap-1">
           {names.map((name) => (
-            <CollapsedRow
-              key={name}
-              agent={agents[name]}
-              config={configForAgent(settings, name)}
-              fallbackName={name}
-            />
+            <CollapsedRow key={name} agent={agents[name]} config={configForAgent(settings, name)} fallbackName={name} />
           ))}
         </div>
       ) : (
         <div className="flex flex-col gap-3">
           {names.map((name) => (
-            <ExpandedAgent
-              key={name}
-              agent={agents[name]}
-              config={configForAgent(settings, name)}
-              fallbackName={name}
-            />
+            <ExpandedAgent key={name} agent={agents[name]} config={configForAgent(settings, name)} fallbackName={name} />
           ))}
         </div>
       )}
@@ -148,15 +132,7 @@ function pctText(t: ReturnType<typeof useTranslations<"sidebar.quotaFooter">>, w
   return win && typeof win.used_pct === "number" ? `${Math.round(win.used_pct)}%` : t("unknownPct")
 }
 
-function CollapsedRow({
-  agent,
-  config,
-  fallbackName,
-}: {
-  agent: AgentQuota
-  config?: AgentSettings
-  fallbackName: string
-}) {
+function CollapsedRow({ agent, config, fallbackName }: { agent: AgentQuota; config?: AgentSettings; fallbackName: string }) {
   const t = useTranslations("sidebar.quotaFooter")
   const label = agentLabel(config, agent, fallbackName)
   const windows = agent.windows ?? {}
@@ -164,12 +140,7 @@ function CollapsedRow({
   return (
     <div className="flex items-baseline justify-between gap-2 text-xs">
       <span className="truncate font-medium text-foreground">{label}</span>
-      <span
-        className={cn(
-          "shrink-0 tabular-nums",
-          throttled ? "font-medium text-destructive" : "text-muted-foreground"
-        )}
-      >
+      <span className={cn("shrink-0 tabular-nums", throttled ? "font-medium text-destructive" : "text-muted-foreground")}>
         {WINDOW_KEYS.map((w, i) => (
           <span key={w.key}>
             {i > 0 ? " · " : ""}
@@ -181,15 +152,7 @@ function CollapsedRow({
   )
 }
 
-function ExpandedAgent({
-  agent,
-  config,
-  fallbackName,
-}: {
-  agent: AgentQuota
-  config?: AgentSettings
-  fallbackName: string
-}) {
+function ExpandedAgent({ agent, config, fallbackName }: { agent: AgentQuota; config?: AgentSettings; fallbackName: string }) {
   const t = useTranslations("sidebar.quotaFooter")
   const label = agentLabel(config, agent, fallbackName)
   const thinking = config?.effort
@@ -203,9 +166,7 @@ function ExpandedAgent({
           {label}
           {thinking ? <span className="text-muted-foreground"> · {thinking}</span> : null}
         </span>
-        <Badge variant={throttled ? "destructive" : "secondary"}>
-          {throttled ? t("throttled") : t("available")}
-        </Badge>
+        <Badge variant={throttled ? "destructive" : "secondary"}>{throttled ? t("throttled") : t("available")}</Badge>
       </div>
       <div className="flex flex-col gap-1.5">
         {WINDOW_KEYS.map((w) => (
@@ -216,15 +177,7 @@ function ExpandedAgent({
   )
 }
 
-function WindowBar({
-  label,
-  win,
-  throttled,
-}: {
-  label: string
-  win: QuotaWindow | undefined
-  throttled: boolean
-}) {
+function WindowBar({ label, win, throttled }: { label: string; win: QuotaWindow | undefined; throttled: boolean }) {
   const t = useTranslations("sidebar.quotaFooter")
   const hasPct = win && typeof win.used_pct === "number"
   return (
@@ -233,14 +186,7 @@ function WindowBar({
         <span className="text-muted-foreground">{label}</span>
         <div className="flex items-center gap-1.5">
           <ResetCountdown resetAt={win?.reset_at ?? null} />
-          <span
-            className={cn(
-              "tabular-nums",
-              throttled ? "font-medium text-destructive" : "text-foreground"
-            )}
-          >
-            {pctText(t, win)}
-          </span>
+          <span className={cn("tabular-nums", throttled ? "font-medium text-destructive" : "text-foreground")}>{pctText(t, win)}</span>
         </div>
       </div>
       {hasPct ? <Progress value={win!.used_pct ?? 0} /> : null}
@@ -258,7 +204,7 @@ function ResetCountdown({ resetAt }: { resetAt: string | null }) {
 
   const label = formatReset(resetAt, nowMs)
   if (!label) return null
-  return <span className="tabular-nums text-muted-foreground">{label}</span>
+  return <span className="text-muted-foreground tabular-nums">{label}</span>
 }
 
 const formatResetT = createTranslator({ locale: LOCALE, messages: sidebarMessages, namespace: "quotaFooter" })

@@ -10,14 +10,8 @@ export async function GET(request: Request) {
     return Response.json({ ok: true, ...listing })
   } catch (error) {
     if (error instanceof FsBrowseError) {
-      return Response.json(
-        { ok: false, error: error.message, code: error.code, default: getDefaultBrowseRoot() },
-        { status: 400 }
-      )
+      return Response.json({ ok: false, error: error.message, code: error.code, default: getDefaultBrowseRoot() }, { status: 400 })
     }
-    return Response.json(
-      { ok: false, error: error instanceof Error ? error.message : "failed to list directory" },
-      { status: 500 }
-    )
+    return Response.json({ ok: false, error: error instanceof Error ? error.message : "failed to list directory" }, { status: 500 })
   }
 }

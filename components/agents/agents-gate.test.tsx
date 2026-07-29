@@ -3,11 +3,7 @@ import userEvent from "@testing-library/user-event"
 import { afterEach, describe, expect, test, vi } from "vitest"
 
 import type { AgentHealth, AgentsHealth } from "@/lib/agents-health-types"
-import {
-  AgentsAuthBanner,
-  AgentsGate,
-  agentsGateBlocked,
-} from "@/components/agents/agents-gate"
+import { AgentsAuthBanner, AgentsGate, agentsGateBlocked } from "@/components/agents/agents-gate"
 import { renderWithIntl } from "@/test/render"
 
 function agent(overrides: Partial<AgentHealth> = {}): AgentHealth {
@@ -48,13 +44,9 @@ describe("agentsGateBlocked — the blocking rule", () => {
 describe("AgentsGate — blocking install screen", () => {
   test("both missing: per-agent cards link to each CLI's install docs in a new tab — no command, no copy button", () => {
     vi.stubGlobal("fetch", vi.fn())
-    renderWithIntl(
-      <AgentsGate health={{ claude: MISSING, codex: MISSING }} onHealth={vi.fn()} />
-    )
+    renderWithIntl(<AgentsGate health={{ claude: MISSING, codex: MISSING }} onHealth={vi.fn()} />)
 
-    expect(
-      screen.getByRole("img", { name: "La Nonna and il Nonno" })
-    ).toBeInTheDocument()
+    expect(screen.getByRole("img", { name: "La Nonna and il Nonno" })).toBeInTheDocument()
     expect(screen.getByText("Install the agent CLIs")).toBeInTheDocument()
     expect(screen.getByText("Claude Code")).toBeInTheDocument()
     expect(screen.getByText("Codex CLI")).toBeInTheDocument()
@@ -83,12 +75,7 @@ describe("AgentsGate — blocking install screen", () => {
 
   test("one missing: the present agent shows its version/auth rows and no docs link; only the missing one links to its install docs", () => {
     vi.stubGlobal("fetch", vi.fn())
-    renderWithIntl(
-      <AgentsGate
-        health={{ claude: agent({ version: "2.1.191" }), codex: MISSING }}
-        onHealth={vi.fn()}
-      />
-    )
+    renderWithIntl(<AgentsGate health={{ claude: agent({ version: "2.1.191" }), codex: MISSING }} onHealth={vi.fn()} />)
 
     expect(screen.getByText("· 2.1.191")).toBeInTheDocument()
     expect(screen.getByText("Installed")).toBeInTheDocument()
@@ -97,9 +84,7 @@ describe("AgentsGate — blocking install screen", () => {
     expect(screen.getByText("Installed").closest("[data-slot='card-action']")).not.toBeNull()
     expect(screen.getByText("Not found").closest("[data-slot='card-action']")).not.toBeNull()
 
-    expect(
-      screen.queryByRole("link", { name: /Claude Code installation guide/ })
-    ).not.toBeInTheDocument()
+    expect(screen.queryByRole("link", { name: /Claude Code installation guide/ })).not.toBeInTheDocument()
     const codexLink = screen.getByRole("link", { name: /Codex CLI installation guide/ })
     expect(codexLink).toHaveAttribute("href", "https://learn.chatgpt.com/docs/codex/cli")
     expect(screen.queryByText(/npm install/)).not.toBeInTheDocument()
@@ -117,9 +102,7 @@ describe("AgentsGate — blocking install screen", () => {
     vi.stubGlobal("fetch", fetchMock)
     const onHealth = vi.fn()
     const user = userEvent.setup()
-    renderWithIntl(
-      <AgentsGate health={{ claude: MISSING, codex: MISSING }} onHealth={onHealth} />
-    )
+    renderWithIntl(<AgentsGate health={{ claude: MISSING, codex: MISSING }} onHealth={onHealth} />)
 
     await user.click(screen.getByRole("button", { name: "Check again" }))
 
@@ -145,17 +128,13 @@ describe("AgentsAuthBanner — present-but-unauthenticated", () => {
     expect(screen.getByText("claude")).toBeInTheDocument()
     expect(screen.queryByText(/Codex CLI is installed but not signed in/)).not.toBeInTheDocument()
 
-    await user.click(
-      screen.getByRole("button", { name: "Dismiss the sign-in reminder" })
-    )
+    await user.click(screen.getByRole("button", { name: "Dismiss the sign-in reminder" }))
     expect(screen.queryByText("Agent sign-in needed")).not.toBeInTheDocument()
   })
 
   test("renders nothing when every present agent is authenticated (or auth is unknown)", () => {
     const { container } = renderWithIntl(
-      <AgentsAuthBanner
-        health={{ claude: agent(), codex: agent({ authenticated: null, authMethod: null }) }}
-      />
+      <AgentsAuthBanner health={{ claude: agent(), codex: agent({ authenticated: null, authMethod: null }) }} />
     )
     expect(container).toBeEmptyDOMElement()
   })

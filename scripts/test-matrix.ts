@@ -11,7 +11,14 @@ export const FINGERPRINT_RE = /^Reconciled fingerprint: `([0-9a-f]{64})` @ commi
 
 // Test files (.test/.spec) are deliberately excluded from the fingerprint — adding a test alone must not force a re-stamp.
 const BEHAVIOR_DIRS = ["app", "components", "lib", "factory", "hooks", "scripts", "e2e"]
-const BEHAVIOR_ROOT_FILES = ["playwright.config.ts", "vitest.config.ts", "vitest.setup.ts", "next.config.ts", "eslint.config.mjs", "package.json"]
+const BEHAVIOR_ROOT_FILES = [
+  "playwright.config.ts",
+  "vitest.config.ts",
+  "vitest.setup.ts",
+  "next.config.ts",
+  "eslint.config.mjs",
+  "package.json",
+]
 
 // Regenerated gitignored artifacts must stay excluded from the fingerprint, or every rehearsal run would invalidate a freshly-stamped matrix.
 const ARTIFACT_PATHS = ["factory/rehearsal/reports/"]
@@ -40,9 +47,7 @@ export function computeBehaviorFingerprint(root = REPO_ROOT): string {
       // A missing behavior dir is itself a behavior change; it shows up through the file list.
     }
   }
-  const rels = files
-    .map((abs) => path.relative(root, abs).split(path.sep).join("/"))
-    .filter(isBehaviorFile)
+  const rels = files.map((abs) => path.relative(root, abs).split(path.sep).join("/")).filter(isBehaviorFile)
   for (const rootFile of BEHAVIOR_ROOT_FILES) rels.push(rootFile)
   rels.sort()
   const hash = createHash("sha256")
@@ -78,11 +83,14 @@ export function changedBehaviorFilesSince(commit: string, root = REPO_ROOT): str
     if (diff.status === 0) for (const line of diff.stdout.split("\n")) if (line.trim()) changed.add(line.trim())
   }
   const status = spawnSync("git", ["status", "--porcelain"], { cwd: root, encoding: "utf8" })
-  if (status.status === 0) for (const line of status.stdout.split("\n")) {
-    const rel = line.slice(3).trim()
-    if (rel) changed.add(rel)
-  }
-  return [...changed].filter((rel) => (BEHAVIOR_DIRS.some((d) => rel.startsWith(`${d}/`)) || BEHAVIOR_ROOT_FILES.includes(rel)) && isBehaviorFile(rel)).sort()
+  if (status.status === 0)
+    for (const line of status.stdout.split("\n")) {
+      const rel = line.slice(3).trim()
+      if (rel) changed.add(rel)
+    }
+  return [...changed]
+    .filter((rel) => (BEHAVIOR_DIRS.some((d) => rel.startsWith(`${d}/`)) || BEHAVIOR_ROOT_FILES.includes(rel)) && isBehaviorFile(rel))
+    .sort()
 }
 
 export function stampFingerprint(root = REPO_ROOT): string {
@@ -90,9 +98,7 @@ export function stampFingerprint(root = REPO_ROOT): string {
   const text = readFileSync(file, "utf8")
   const fingerprint = computeBehaviorFingerprint(root)
   const line = `Reconciled fingerprint: \`${fingerprint}\` @ commit \`${headCommit(root)}\``
-  const next = FINGERPRINT_RE.test(text)
-    ? text.replace(FINGERPRINT_RE, line)
-    : text.replace(/^(# .*\n)/, `$1\n${line}\n`)
+  const next = FINGERPRINT_RE.test(text) ? text.replace(FINGERPRINT_RE, line) : text.replace(/^(# .*\n)/, `$1\n${line}\n`)
   writeFileSync(file, next)
   return fingerprint
 }

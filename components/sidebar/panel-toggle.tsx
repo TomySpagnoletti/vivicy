@@ -7,11 +7,7 @@ import type { PanelState } from "@/hooks/use-panel-state"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { useSidebar } from "@/components/ui/sidebar"
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 
 const NEXT: Record<PanelState, { Icon: typeof PanelRightOpen; labelKey: "openPanel" | "widenPanel" | "closePanel" }> = {
   peek: { Icon: PanelRightOpen, labelKey: "openPanel" },
@@ -37,9 +33,7 @@ export function PanelToggle({
   const mobileLabelKey = openMobile ? "closePanel" : "openPanel"
   const MobileIcon = openMobile ? PanelRightClose : PanelRightOpen
 
-  const { Icon, labelKey } = isMobile
-    ? { Icon: MobileIcon, labelKey: mobileLabelKey }
-    : NEXT[next]
+  const { Icon, labelKey } = isMobile ? { Icon: MobileIcon, labelKey: mobileLabelKey } : NEXT[next]
   const label = t(labelKey)
 
   return (
@@ -53,10 +47,7 @@ export function PanelToggle({
           data-open={isMobile ? openMobile : open}
           aria-label={label}
           onClick={isMobile ? toggleSidebar : onCycle}
-          className={cn(
-            "absolute top-3 right-3 z-30 bg-background shadow-sm",
-            className
-          )}
+          className={cn("absolute top-3 right-3 z-30 bg-background shadow-sm", className)}
         >
           <Icon />
         </Button>

@@ -5,13 +5,7 @@ export const DOC_PREP_REPORT_FILE = ".vivicy/development/reports/doc-prep-report
 
 export const DOC_PREP_IN_FLIGHT_PHASES = ["classifying", "extracting", "placing"] as const
 
-export type DocPrepPhase =
-  | "classifying"
-  | "extracting"
-  | "placing"
-  | "green"
-  | "failed"
-  | "skipped"
+export type DocPrepPhase = "classifying" | "extracting" | "placing" | "green" | "failed" | "skipped"
 
 export type DocPrepRoute = "canonical" | "explode"
 

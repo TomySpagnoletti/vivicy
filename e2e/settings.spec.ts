@@ -30,9 +30,7 @@ test.describe("Vivicy agent settings", () => {
     await page.getByRole("button", { name: "Settings" }).click()
     const dialog2 = page.getByRole("dialog", { name: "Agent settings" })
     await expect(dialog2).toBeVisible()
-    await expect(
-      dialog2.getByRole("combobox", { name: "Implementer thinking level" })
-    ).toContainText("max")
+    await expect(dialog2.getByRole("combobox", { name: "Implementer thinking level" })).toContainText("max")
 
     await dialog2.getByRole("combobox", { name: "Implementer thinking level" }).click()
     await page.getByRole("option", { name: "xhigh", exact: true }).click()
@@ -65,18 +63,12 @@ test.describe("Vivicy agent settings", () => {
     await page.getByRole("button", { name: "Settings" }).click()
     const dialog2 = page.getByRole("dialog", { name: "Agent settings" })
     await expect(dialog2.getByText("Agent settings")).toBeVisible()
-    await expect(
-      dialog2.getByRole("combobox", { name: "Implementer agent" })
-    ).toContainText("Codex")
-    await expect(
-      dialog2.getByRole("combobox", { name: "Reviewer agent" })
-    ).toContainText("Claude Code")
+    await expect(dialog2.getByRole("combobox", { name: "Implementer agent" })).toContainText("Codex")
+    await expect(dialog2.getByRole("combobox", { name: "Reviewer agent" })).toContainText("Claude Code")
 
     await dialog2.getByRole("combobox", { name: "Implementer agent" }).click()
     await page.getByRole("option", { name: "Claude Code", exact: true }).click()
-    await expect(
-      dialog2.getByRole("combobox", { name: "Reviewer agent" })
-    ).toContainText("Codex")
+    await expect(dialog2.getByRole("combobox", { name: "Reviewer agent" })).toContainText("Codex")
     await clickPastOverlap(dialog2.getByRole("button", { name: "Save" }))
     await expect(page.getByText(/Settings saved/i).first()).toBeVisible({ timeout: 15_000 })
     await expect(dialog2).not.toBeVisible()
@@ -113,10 +105,7 @@ test.describe("Vivicy agent settings", () => {
   })
 
   test("screenshot — model picker, fast toggle, disabled-fast case (1320x820)", async ({ page }, testInfo) => {
-    test.skip(
-      testInfo.project.name.includes("-mobile"),
-      "Fixed-frame desktop documentation screenshot."
-    )
+    test.skip(testInfo.project.name.includes("-mobile"), "Fixed-frame desktop documentation screenshot.")
     await page.setViewportSize({ width: 1320, height: 820 })
     await page.goto("/")
 
@@ -205,10 +194,7 @@ test.describe("Vivicy agent settings", () => {
   })
 
   test("screenshot — concurrency 1–12 stepper (1320x820)", async ({ page }, testInfo) => {
-    test.skip(
-      testInfo.project.name.includes("-mobile"),
-      "Fixed-frame desktop documentation screenshot."
-    )
+    test.skip(testInfo.project.name.includes("-mobile"), "Fixed-frame desktop documentation screenshot.")
     await page.setViewportSize({ width: 1320, height: 820 })
     await page.goto("/")
 
@@ -222,9 +208,7 @@ test.describe("Vivicy agent settings", () => {
     await expect(dialog.getByRole("button", { name: "Increase" })).toBeEnabled()
     await expect(dialog.getByRole("button", { name: "Decrease" })).toBeEnabled()
 
-    await dialog
-      .getByText(/spread across different parts of the map/i)
-      .scrollIntoViewIfNeeded()
+    await dialog.getByText(/spread across different parts of the map/i).scrollIntoViewIfNeeded()
     await page.waitForTimeout(250)
     await page.screenshot({ path: "/tmp/vivicy-concurrency.png" })
 

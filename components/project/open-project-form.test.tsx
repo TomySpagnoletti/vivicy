@@ -104,8 +104,7 @@ describe("OpenProjectForm — select()", () => {
       expect(vi.mocked(toast.error)).toHaveBeenCalledWith(
         "Cannot select project",
         expect.objectContaining({
-          description:
-            "This folder doesn't seem to be governed by Vivicy — it has no .vivicy directory.",
+          description: "This folder doesn't seem to be governed by Vivicy — it has no .vivicy directory.",
         })
       )
     )

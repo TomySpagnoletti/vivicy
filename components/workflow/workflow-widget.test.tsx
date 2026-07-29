@@ -31,7 +31,12 @@ const IDLE_STATUS = {
   gates: { pass: 0, fail: 0 },
 }
 
-function stubFetch(extractionStatus: unknown = null, skillsReport: unknown = null, docPrepReport: unknown = null, acceptanceReport: unknown = null) {
+function stubFetch(
+  extractionStatus: unknown = null,
+  skillsReport: unknown = null,
+  docPrepReport: unknown = null,
+  acceptanceReport: unknown = null
+) {
   return vi.fn<typeof fetch>(async (input) => {
     const url = String(input)
     if (url.includes("/api/control/prepare")) {
@@ -110,9 +115,7 @@ describe("WorkflowWidget — state classes reflect the derived truth", () => {
     renderWidget()
     await act(() => FakeEventSource.last?.emit({ ...IDLE_STATUS, run_active: true }))
 
-    await waitFor(() =>
-      expect(document.querySelector('[data-stage="S6"]')).toHaveAttribute("data-stage-state", "running")
-    )
+    await waitFor(() => expect(document.querySelector('[data-stage="S6"]')).toHaveAttribute("data-stage-state", "running"))
   })
 
   test("a blocked extraction carries data-stage-state=red on S6", async () => {
@@ -120,39 +123,29 @@ describe("WorkflowWidget — state classes reflect the derived truth", () => {
     renderWidget()
     await act(() => FakeEventSource.last?.emit({ ...IDLE_STATUS, run_active: true }))
 
-    await waitFor(() =>
-      expect(document.querySelector('[data-stage="S6"]')).toHaveAttribute("data-stage-state", "red")
-    )
+    await waitFor(() => expect(document.querySelector('[data-stage="S6"]')).toHaveAttribute("data-stage-state", "red"))
   })
 
   test("SK reflects the skills report: running while auditing, red on failed", async () => {
     vi.stubGlobal("fetch", stubFetch({ phase: "green" }, { phase: "auditing" }))
     renderWidget()
     await act(() => FakeEventSource.last?.emit({ ...IDLE_STATUS, run_active: true }))
-    await waitFor(() =>
-      expect(document.querySelector('[data-stage="SK"]')).toHaveAttribute("data-stage-state", "running")
-    )
+    await waitFor(() => expect(document.querySelector('[data-stage="SK"]')).toHaveAttribute("data-stage-state", "running"))
 
     vi.stubGlobal("fetch", stubFetch({ phase: "green" }, { phase: "failed" }))
     await act(() => FakeEventSource.last?.emit({ ...IDLE_STATUS, run_active: true }))
-    await waitFor(() =>
-      expect(document.querySelector('[data-stage="SK"]')).toHaveAttribute("data-stage-state", "red")
-    )
+    await waitFor(() => expect(document.querySelector('[data-stage="SK"]')).toHaveAttribute("data-stage-state", "red"))
   })
 
   test("SP reflects the doc-prep report: running while classifying, red on failed", async () => {
     vi.stubGlobal("fetch", stubFetch(null, null, { phase: "classifying" }))
     renderWidget()
     await act(() => FakeEventSource.last?.emit({ ...IDLE_STATUS, run_active: true }))
-    await waitFor(() =>
-      expect(document.querySelector('[data-stage="SP"]')).toHaveAttribute("data-stage-state", "running")
-    )
+    await waitFor(() => expect(document.querySelector('[data-stage="SP"]')).toHaveAttribute("data-stage-state", "running"))
 
     vi.stubGlobal("fetch", stubFetch(null, null, { phase: "failed" }))
     await act(() => FakeEventSource.last?.emit({ ...IDLE_STATUS, run_active: true }))
-    await waitFor(() =>
-      expect(document.querySelector('[data-stage="SP"]')).toHaveAttribute("data-stage-state", "red")
-    )
+    await waitFor(() => expect(document.querySelector('[data-stage="SP"]')).toHaveAttribute("data-stage-state", "red"))
   })
 
   test("a failing gate mid-run carries data-stage-state=red on S9", async () => {
@@ -168,34 +161,20 @@ describe("WorkflowWidget — state classes reflect the derived truth", () => {
       })
     )
 
-    await waitFor(() =>
-      expect(document.querySelector('[data-stage="S9"]')).toHaveAttribute("data-stage-state", "red")
-    )
+    await waitFor(() => expect(document.querySelector('[data-stage="S9"]')).toHaveAttribute("data-stage-state", "red"))
   })
 
   test("all issues done + green acceptance flips SA and S12 green; findings hold S12 back", async () => {
     vi.stubGlobal("fetch", stubFetch({ phase: "green" }, null, null, { phase: "green" }))
     renderWidget()
-    await act(() =>
-      FakeEventSource.last?.emit({ ...IDLE_STATUS, run_active: false, issues_total: 8, issues_done: 8 })
-    )
-    await waitFor(() =>
-      expect(document.querySelector('[data-stage="SA"]')).toHaveAttribute("data-stage-state", "green")
-    )
-    await waitFor(() =>
-      expect(document.querySelector('[data-stage="S12"]')).toHaveAttribute("data-stage-state", "green")
-    )
+    await act(() => FakeEventSource.last?.emit({ ...IDLE_STATUS, run_active: false, issues_total: 8, issues_done: 8 }))
+    await waitFor(() => expect(document.querySelector('[data-stage="SA"]')).toHaveAttribute("data-stage-state", "green"))
+    await waitFor(() => expect(document.querySelector('[data-stage="S12"]')).toHaveAttribute("data-stage-state", "green"))
 
     vi.stubGlobal("fetch", stubFetch({ phase: "green" }, null, null, { phase: "findings", drafted_crs: ["CR-0007"] }))
-    await act(() =>
-      FakeEventSource.last?.emit({ ...IDLE_STATUS, run_active: false, issues_total: 8, issues_done: 8 })
-    )
-    await waitFor(() =>
-      expect(document.querySelector('[data-stage="SA"]')).toHaveAttribute("data-stage-state", "red")
-    )
-    await waitFor(() =>
-      expect(document.querySelector('[data-stage="S12"]')).toHaveAttribute("data-stage-state", "pending")
-    )
+    await act(() => FakeEventSource.last?.emit({ ...IDLE_STATUS, run_active: false, issues_total: 8, issues_done: 8 }))
+    await waitFor(() => expect(document.querySelector('[data-stage="SA"]')).toHaveAttribute("data-stage-state", "red"))
+    await waitFor(() => expect(document.querySelector('[data-stage="S12"]')).toHaveAttribute("data-stage-state", "pending"))
   })
 })
 

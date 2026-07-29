@@ -21,12 +21,7 @@ import path from "node:path"
 
 import { afterAll, afterEach, beforeEach, describe, expect, it } from "vitest"
 
-import {
-  extractManagedBlock,
-  GITIGNORE_MARKERS,
-  MANAGED_GOVERNANCE_FILES,
-  METHOD_MARKERS,
-} from "@/lib/managed-block"
+import { extractManagedBlock, GITIGNORE_MARKERS, MANAGED_GOVERNANCE_FILES, METHOD_MARKERS } from "@/lib/managed-block"
 import { readNotifications } from "@/lib/notifications"
 import { getCurrentProject, setCurrentProject } from "@/lib/project"
 import {
@@ -103,17 +98,13 @@ describe("resolveTargetDir", () => {
   })
 
   it("rejects a relative path", () => {
-    expect(() => resolveTargetDir("relative/path")).toThrow(
-      expect.objectContaining({ code: "not_absolute" })
-    )
+    expect(() => resolveTargetDir("relative/path")).toThrow(expect.objectContaining({ code: "not_absolute" }))
   })
 
   it("rejects a path that is a file, not a directory", () => {
     const target = path.join(workDir, "afile")
     writeFileSync(target, "x")
-    expect(() => resolveTargetDir(target)).toThrow(
-      expect.objectContaining({ code: "not_a_directory" })
-    )
+    expect(() => resolveTargetDir(target)).toThrow(expect.objectContaining({ code: "not_a_directory" }))
   })
 })
 
@@ -147,25 +138,14 @@ describe("scaffoldProject — from scratch (lean, language-agnostic)", () => {
 
     expect(result.mode).toBe("from_scratch")
 
-    const expectedFiles = [
-      "AGENTS.md",
-      "CLAUDE.md",
-      "README.md",
-      "vivicy.json",
-      ".gitignore",
-      ".env.example",
-    ]
+    const expectedFiles = ["AGENTS.md", "CLAUDE.md", "README.md", "vivicy.json", ".gitignore", ".env.example"]
     for (const rel of expectedFiles) {
       expect(existsSync(path.join(target, rel)), `missing ${rel}`).toBe(true)
     }
 
-    expect(existsSync(path.join(target, "docs/governance")), "target must not carry docs/governance").toBe(
-      false
-    )
+    expect(existsSync(path.join(target, "docs/governance")), "target must not carry docs/governance").toBe(false)
 
-    expect(existsSync(path.join(target, "package.json")), "no Node package.json in a lean scaffold").toBe(
-      false
-    )
+    expect(existsSync(path.join(target, "package.json")), "no Node package.json in a lean scaffold").toBe(false)
     expect(existsSync(path.join(target, "test/scaffold.test.js")), "no node:test placeholder").toBe(false)
 
     for (const dir of [
@@ -225,7 +205,10 @@ describe("scaffoldProject — from scratch (lean, language-agnostic)", () => {
     // The secret family is excluded in EVERY shape and re-included NOWHERE — a `!` line below the block would survive only until the first marker repair re-appends the block underneath it, silently flipping the placeholder to ignored forever. `.vivicy-tmp.*` rides the same block because an atomic-write temp a crash abandoned is Vivicy's own uncommittable artifact.
     const blockEnd = ignoreLines.indexOf(GITIGNORE_MARKERS.end)
     for (const line of [".env", ".env.*", ".envrc", ".vivicy-tmp.*"]) {
-      expect(ignoreLines.filter((l) => l === line), `greenfield must carry ${line} exactly once`).toHaveLength(1)
+      expect(
+        ignoreLines.filter((l) => l === line),
+        `greenfield must carry ${line} exactly once`
+      ).toHaveLength(1)
       expect(ignoreLines.indexOf(line), `${line} is block content`).toBeLessThan(blockEnd)
     }
     expect(
@@ -238,7 +221,9 @@ describe("scaffoldProject — from scratch (lean, language-agnostic)", () => {
       expect(gitignore, `expected .gitignore NOT to ignore ${committed}`).not.toContain(committed)
     }
     expect(gitignore, "greenfield keeps the generalist comfort rules alongside the managed essentials").toContain("# macOS")
-    expect(count(gitignore, GITIGNORE_MARKERS.begin), "greenfield carries exactly one managed block, so re-governance is a fixpoint").toBe(1)
+    expect(count(gitignore, GITIGNORE_MARKERS.begin), "greenfield carries exactly one managed block, so re-governance is a fixpoint").toBe(
+      1
+    )
     expect(gitignore).toContain("__pycache__/")
     expect(count(agents, METHOD_MARKERS.begin), "greenfield AGENTS.md embeds exactly one managed contract block").toBe(1)
     expect(agents).toContain("## Working under Vivicy")
@@ -255,9 +240,7 @@ describe("scaffoldProject — from scratch (lean, language-agnostic)", () => {
 
   it("rejects an invalid project name before writing anything", () => {
     const target = path.join(workDir, "named-badly")
-    expect(() => scaffoldProject({ targetDir: target, projectName: "" })).toThrow(
-      expect.objectContaining({ code: "invalid_name" })
-    )
+    expect(() => scaffoldProject({ targetDir: target, projectName: "" })).toThrow(expect.objectContaining({ code: "invalid_name" }))
     expect(existsSync(target)).toBe(false)
   })
 })
@@ -325,7 +308,10 @@ describe("scaffoldProject — existing project (shared files get a managed block
 
     const vivicy = JSON.parse(readFileSync(path.join(target, "vivicy.json"), "utf8"))
     expect(vivicy.gateCommand).toBe("npm test")
-    expect(vivicy.runCommand, "runCommand is never brownfield-detected — established from the canonical run-and-ship area or the stack-setup issue").toBeNull()
+    expect(
+      vivicy.runCommand,
+      "runCommand is never brownfield-detected — established from the canonical run-and-ship area or the stack-setup issue"
+    ).toBeNull()
   })
 
   it("is idempotent: a second scaffold pass leaves every shared file byte-identical (block already canonical)", () => {
@@ -417,12 +403,18 @@ describe("scaffoldProject — existing project (shared files get a managed block
     const result = scaffoldProject({ targetDir: target, projectName: "My Repo" })
     const repaired = readFileSync(agentsPath, "utf8")
 
-    expect(repaired.startsWith("# mine\nhalf a block, no end marker\n"), "owner lines are never deleted — only Vivicy's own marker lines are").toBe(true)
+    expect(
+      repaired.startsWith("# mine\nhalf a block, no end marker\n"),
+      "owner lines are never deleted — only Vivicy's own marker lines are"
+    ).toBe(true)
     expect(count(repaired, METHOD_MARKERS.begin), "exactly one well-formed block").toBe(1)
     expect(count(repaired, METHOD_MARKERS.end)).toBe(1)
     expect(repaired.endsWith(`${METHOD_MARKERS.end}\n`)).toBe(true)
     expect(repaired).toContain("## Working under Vivicy")
-    expect(new Set(result.written.map((p) => path.relative(target, p))).has("AGENTS.md"), "the repair rides `written` like any other renormalization").toBe(true)
+    expect(
+      new Set(result.written.map((p) => path.relative(target, p))).has("AGENTS.md"),
+      "the repair rides `written` like any other renormalization"
+    ).toBe(true)
 
     const result2 = scaffoldProject({ targetDir: target, projectName: "My Repo" })
     expect(readFileSync(agentsPath, "utf8"), "the repair is a fixpoint").toBe(repaired)
@@ -496,7 +488,10 @@ describe("the dependency-install ignore posture, exercised through real git", ()
     git(target, ["add", "-A"])
     git(target, ["commit", "-qm", "dependency posture"])
     const tracked = git(target, ["ls-files"]).stdout.split("\n").filter(Boolean)
-    expect(tracked.filter((p) => p.includes("node_modules")), "neither form reaches the index").toEqual([])
+    expect(
+      tracked.filter((p) => p.includes("node_modules")),
+      "neither form reaches the index"
+    ).toEqual([])
     expect(tracked, "and the owner's own workspace source still does").toContain("packages/api/index.js")
     expect(git(target, ["status", "--porcelain"]).stdout.trim(), "nothing is left for a later add -A either").toBe("")
   })
@@ -506,10 +501,7 @@ describe("the secret-file ignore posture, exercised through real git (both write
   // A string pin on the constant would pass with the patterns ordered wrong; git's own last-match-wins rules are the only oracle. Exit 0 = ignored, 1 = not ignored (128 would be a broken invocation, which either assertion catches) — and git never reports a TRACKED path as ignored, so `--no-index` is what asks the rules alone.
   function expectIgnored(target: string, rels: string[], ignored: boolean): void {
     for (const rel of rels) {
-      expect(
-        git(target, ["check-ignore", "-q", rel]).status,
-        `${rel} must be ${ignored ? "ignored" : "committable"}`
-      ).toBe(ignored ? 0 : 1)
+      expect(git(target, ["check-ignore", "-q", rel]).status, `${rel} must be ${ignored ? "ignored" : "committable"}`).toBe(ignored ? 0 : 1)
     }
   }
 
@@ -532,8 +524,13 @@ describe("the secret-file ignore posture, exercised through real git (both write
 
     const example = readFileSync(path.join(target, ".env.example"), "utf8")
     expect(example, "the placeholder tells the owner what to do with it").toContain("cp .env.example .env")
-    expect(example.split("\n").filter((l) => l.trim() && !l.startsWith("#")), "every placeholder line is commented — never a live value").toEqual([])
-    expect(trackedFiles(target), "an ignored file only reaches history force-added, and a tracked file no ignore rule can undo").toContain(".env.example")
+    expect(
+      example.split("\n").filter((l) => l.trim() && !l.startsWith("#")),
+      "every placeholder line is commented — never a live value"
+    ).toEqual([])
+    expect(trackedFiles(target), "an ignored file only reaches history force-added, and a tracked file no ignore rule can undo").toContain(
+      ".env.example"
+    )
   })
 
   it("brownfield: the appended block excludes the whole family, re-includes NOTHING, and drops no uninvited file into the owner's tree", () => {
@@ -544,7 +541,10 @@ describe("the secret-file ignore posture, exercised through real git (both write
     writeFileSync(path.join(target, "main.py"), "print('hi')\n")
     scaffoldProject({ targetDir: target, projectName: "Brownfield Env" })
     expectIgnored(target, [".env", ".env.local", ".env.example", ".env.sample", ".envrc"], true)
-    expect(existsSync(path.join(target, ".env.example")), "the placeholder is greenfield-only — an owner's existing tree receives no file it did not ask for").toBe(false)
+    expect(
+      existsSync(path.join(target, ".env.example")),
+      "the placeholder is greenfield-only — an owner's existing tree receives no file it did not ask for"
+    ).toBe(false)
   })
 
   // The inversion this kills: with the placeholder delivered by a `!` re-include below the block, either damage shape re-appends the block at EOF UNDER that line and flips it to ignored, permanently. A tracked file cannot be flipped.
@@ -747,7 +747,10 @@ describe("scaffoldProject — from-scratch git lifecycle (mechanical, no human g
     expect(isCleanTree(target), git(target, ["status", "--porcelain"]).stdout).toBe(true)
 
     const tracked = new Set(
-      git(target, ["ls-files"]).stdout.split("\n").map((s) => s.trim()).filter(Boolean)
+      git(target, ["ls-files"])
+        .stdout.split("\n")
+        .map((s) => s.trim())
+        .filter(Boolean)
     )
     expect(tracked.has("vivicy.json")).toBe(true)
     expect(tracked.has(".vivicy/canonical/.gitkeep")).toBe(true)
@@ -865,13 +868,10 @@ describe("renormalizeManagedFiles — the project-open seam (same engine, never 
     expect(notifications[0].message).toContain("AGENTS.md")
     expect(notifications[0].message).toContain(".gitignore")
     expect(notifications[0].message, "a file that was not rewritten is never announced").not.toContain("CLAUDE.md")
-    expect(notifications[0].message, "the announcement agrees in number with what it lists").toContain(
-      "updated 2 managed files on open"
+    expect(notifications[0].message, "the announcement agrees in number with what it lists").toContain("updated 2 managed files on open")
+    expect(notifications[0].message, "the pending refresh is the run's to absorb, not a dirty tree the owner has to explain").toContain(
+      "the next run absorbs them into a commit of its own"
     )
-    expect(
-      notifications[0].message,
-      "the pending refresh is the run's to absorb, not a dirty tree the owner has to explain"
-    ).toContain("the next run absorbs them into a commit of its own")
   })
 
   it("is a byte-stable no-op on a healthy project: nothing rewritten, no mtime touched, nothing announced", () => {
@@ -914,10 +914,7 @@ describe("renormalizeManagedFiles — the project-open seam (same engine, never 
     expect(readFileSync(path.join(target, ".gitignore"), "utf8").split("\n")).toContain(".env.*")
 
     for (const rel of ["README.md", "vivicy.json", ".env.example", ".vivicy/canonical"]) {
-      expect(
-        existsSync(path.join(target, rel)),
-        `${rel} is a greenfield-only artifact — opening a project never re-runs it`
-      ).toBe(false)
+      expect(existsSync(path.join(target, rel)), `${rel} is a greenfield-only artifact — opening a project never re-runs it`).toBe(false)
     }
   })
 
@@ -942,10 +939,9 @@ describe("renormalizeManagedFiles — the project-open seam (same engine, never 
     expect(result.failures).toHaveLength(1)
     expect(result.failures[0].file, "failures carry absolute paths, exactly like written").toBe(agentsPath)
     expect(result.failures[0].reason, "the reason names the real fs error").toMatch(/^(EACCES|EPERM): /)
-    expect(
-      result.failures[0].reason,
-      "and drops the absolute path the message already names by its relative file"
-    ).not.toContain(agentsPath)
+    expect(result.failures[0].reason, "and drops the absolute path the message already names by its relative file").not.toContain(
+      agentsPath
+    )
 
     const notifications = readNotifications()
     expect(notifications.map((n) => n.event)).toEqual(["managed_files_updated", "managed_files_failed"])
@@ -954,9 +950,7 @@ describe("renormalizeManagedFiles — the project-open seam (same engine, never 
     expect(notifications[1].message, "the refusal agrees in number with the file it names").toContain(
       "could not update 1 managed file on open"
     )
-    expect(notifications[1].message, "the owner learns the open succeeded anyway, and what to do").toContain(
-      "the project opened anyway"
-    )
+    expect(notifications[1].message, "the owner learns the open succeeded anyway, and what to do").toContain("the project opened anyway")
     expect(notifications[1].message).toContain("Fix it and reopen the project to retry.")
     expect(
       notifications[1].message,
@@ -974,9 +968,7 @@ describe("renormalizeManagedFiles — the project-open seam (same engine, never 
       result.failures.map((f) => path.relative(target, f.file)),
       "the template-backed files fail, each named"
     ).toEqual(["AGENTS.md", "CLAUDE.md"])
-    expect(writtenRel(target, result), ".gitignore is a code constant and still reaches the current definition").toEqual([
-      ".gitignore",
-    ])
+    expect(writtenRel(target, result), ".gitignore is a code constant and still reaches the current definition").toEqual([".gitignore"])
     expect(
       result.failures[0].reason,
       "a failure on VIVICY's own template keeps the path — otherwise it would read as the owner's AGENTS.md being gone"
@@ -1075,9 +1067,7 @@ describe("writeManaged — the owner's bytes, their file, and one atomic swap", 
     expect(writtenRel(target, result), "the files it CAN manage still reach the current definition").toEqual(["AGENTS.md"])
     const notifications = readNotifications()
     expect(notifications.map((n) => n.event)).toEqual(["managed_files_updated", "managed_files_failed"])
-    expect(notifications[1].message, "one sentence the owner can act on, the file named once").toContain(
-      `.gitignore (${REFUSAL})`
-    )
+    expect(notifications[1].message, "one sentence the owner can act on, the file named once").toContain(`.gitignore (${REFUSAL})`)
   })
 
   // A UTF-32LE file opens on the UTF-16LE mark followed by two zero bytes, so the shorter pattern would send the owner to convert from an encoding their file is not in.
@@ -1146,7 +1136,9 @@ describe("writeManaged — the owner's bytes, their file, and one atomic swap", 
     expect(readFileSync(shared, "utf8").split("\n"), "the block reaches the file the link points at").toContain(".envrc")
     expect(readFileSync(shared, "utf8").startsWith(ownerIgnoreHead)).toBe(true)
     expect(statSync(shared).mode & 0o7777, "and the resolved file keeps its own mode").toBe(0o600)
-    expect(temps(path.dirname(shared)), "the temp is written beside the RESOLVED file, so the rename never crosses a filesystem").toEqual([])
+    expect(temps(path.dirname(shared)), "the temp is written beside the RESOLVED file, so the rename never crosses a filesystem").toEqual(
+      []
+    )
   })
 
   // Adjudicated: a link the owner points OUT of the governed root takes its temp with it. Keeping the temp inside the root would make the rename cross filesystems — trading atomicity, the property this whole seam exists for, for an ignore rule Vivicy has no standing to install in someone else's directory. The exposure is one crash window, in a directory the owner chose, under a name that is unmistakably Vivicy's.
@@ -1165,9 +1157,7 @@ describe("writeManaged — the owner's bytes, their file, and one atomic swap", 
       result.failures.map((f) => path.relative(target, f.file)),
       "the write failed on a temp path OUTSIDE the root — which is where it must be, beside the file it replaces"
     ).toEqual([".gitignore"])
-    expect(readFileSync(shared, "utf8"), "and the owner's file across the link is untouched").toBe(
-      `${ownerIgnoreHead}${staleIgnoreBlock}`
-    )
+    expect(readFileSync(shared, "utf8"), "and the owner's file across the link is untouched").toBe(`${ownerIgnoreHead}${staleIgnoreBlock}`)
     expect(temps(target), "no temp is ever left in the governed root for a file that does not live there").toEqual([])
   })
 
@@ -1212,9 +1202,7 @@ describe("writeManaged — the owner's bytes, their file, and one atomic swap", 
 
     const result = renormalizeManagedFiles(target)
 
-    expect(readFileSync(outside, "utf8"), "an opened symlink would have sent the block out of the repo").toBe(
-      "not Vivicy's to write\n"
-    )
+    expect(readFileSync(outside, "utf8"), "an opened symlink would have sent the block out of the repo").toBe("not Vivicy's to write\n")
     expect(lstatSync(abs).isSymbolicLink(), "and then the rename would have moved that link onto the managed file").toBe(false)
     expect(writtenRel(target, result)).toContain(".gitignore")
     expect(readFileSync(abs, "utf8").split("\n")).toContain(".envrc")
@@ -1258,9 +1246,7 @@ describe("writeManaged — the owner's bytes, their file, and one atomic swap", 
       expect(reason, "and never the temp path, which names nothing the owner has").not.toContain(TEMP_PREFIX)
     }
     const failed = readNotifications().find((n) => n.event === "managed_files_failed")
-    expect(failed?.message, "the refusal agrees in number with the files it names").toContain(
-      "could not update 2 managed files on open"
-    )
+    expect(failed?.message, "the refusal agrees in number with the files it names").toContain("could not update 2 managed files on open")
     expect(failed?.message).toContain("Fix them and reopen the project to retry.")
   })
 

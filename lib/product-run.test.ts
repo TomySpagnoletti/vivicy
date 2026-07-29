@@ -10,19 +10,13 @@ import {
 
 describe("detectUrlFromLog", () => {
   it("sniffs the URL a dev server prints, taking the most recent match", () => {
-    expect(detectUrlFromLog("  VITE ready\n  ➜  Local:   http://localhost:5173/\n")).toBe(
-      "http://localhost:5173/"
-    )
+    expect(detectUrlFromLog("  VITE ready\n  ➜  Local:   http://localhost:5173/\n")).toBe("http://localhost:5173/")
     expect(detectUrlFromLog("listening on http://127.0.0.1:8000")).toBe("http://127.0.0.1:8000")
-    expect(
-      detectUrlFromLog("http://localhost:3000\n... restarted ...\nhttp://localhost:3100")
-    ).toBe("http://localhost:3100")
+    expect(detectUrlFromLog("http://localhost:3000\n... restarted ...\nhttp://localhost:3100")).toBe("http://localhost:3100")
   })
 
   it("normalizes a bind-all address to a browsable localhost", () => {
-    expect(detectUrlFromLog("Server running at http://0.0.0.0:4000/")).toBe(
-      "http://localhost:4000/"
-    )
+    expect(detectUrlFromLog("Server running at http://0.0.0.0:4000/")).toBe("http://localhost:4000/")
     expect(detectUrlFromLog("http://[::]:9090")).toBe("http://localhost:9090")
   })
 

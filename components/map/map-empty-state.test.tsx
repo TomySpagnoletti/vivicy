@@ -20,9 +20,7 @@ describe("MapEmptyState — guidance per empty reason", () => {
     renderEmptyState(<MapEmptyState reason="no_target" onExtract={vi.fn()} />)
     expect(screen.getByText("No project selected")).toBeInTheDocument()
     expect(screen.getByText(/Open Vivi \(bottom-left\) to set one up/)).toBeInTheDocument()
-    expect(
-      screen.queryByRole("button", { name: /Extract from docs/ })
-    ).not.toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: /Extract from docs/ })).not.toBeInTheDocument()
   })
 
   test("no_map shows the run-Extract guidance and an enabled Extract button", () => {
@@ -107,17 +105,9 @@ describe("MapEmptyState — guidance per empty reason", () => {
         }}
       />
     )
-    expect(
-      screen.getByText(/canonical is empty \(only the scaffold README\)/)
-    ).toBeInTheDocument()
-    expect(screen.getByRole("button", { name: /Import docs/ })).toHaveAttribute(
-      "data-variant",
-      "default"
-    )
-    expect(screen.getByRole("button", { name: "Extract from docs" })).toHaveAttribute(
-      "data-variant",
-      "outline"
-    )
+    expect(screen.getByText(/canonical is empty \(only the scaffold README\)/)).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: /Import docs/ })).toHaveAttribute("data-variant", "default")
+    expect(screen.getByRole("button", { name: "Extract from docs" })).toHaveAttribute("data-variant", "outline")
   })
 
   test("a non-empty-canonical extractError shows the message without highlighting Import", () => {
@@ -129,9 +119,6 @@ describe("MapEmptyState — guidance per empty reason", () => {
       />
     )
     expect(screen.getByText("extraction blocked after 3 retries")).toBeInTheDocument()
-    expect(screen.getByRole("button", { name: /Import docs/ })).toHaveAttribute(
-      "data-variant",
-      "outline"
-    )
+    expect(screen.getByRole("button", { name: /Import docs/ })).toHaveAttribute("data-variant", "outline")
   })
 })

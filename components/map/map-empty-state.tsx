@@ -6,22 +6,8 @@ import { useTranslations } from "next-intl"
 
 import { BRAND } from "@/lib/brand"
 import { Button } from "@/components/ui/button"
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card"
-import {
-  Dialog,
-  DialogClose,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { ImportDocsFlow } from "@/components/project/import-docs-flow"
 import type { MapEmptyReason } from "@/lib/types"
 
@@ -45,10 +31,7 @@ export function MapEmptyState({
   if (reason === "empty_canonical") {
     return (
       <div className="flex h-svh w-full items-center justify-center p-6">
-        <p
-          data-empty-reason="empty_canonical"
-          className="max-w-md text-center text-xs/relaxed text-muted-foreground"
-        >
+        <p data-empty-reason="empty_canonical" className="max-w-md text-center text-xs/relaxed text-muted-foreground">
           {t.rich("emptyState.emptyCanonical", { br: () => <br /> })}
         </p>
       </div>
@@ -65,10 +48,7 @@ export function MapEmptyState({
     <div className="flex h-svh w-full items-center justify-center p-6">
       <Card className="w-full max-w-md text-center" data-empty-reason={reason}>
         <CardHeader className="items-center gap-2">
-          <span
-            aria-hidden
-            className="flex size-10 items-center justify-center rounded-full bg-muted text-muted-foreground"
-          >
+          <span aria-hidden className="flex size-10 items-center justify-center rounded-full bg-muted text-muted-foreground">
             <Icon className="size-5" />
           </span>
           <CardTitle>{t(copy.titleKey)}</CardTitle>
@@ -89,11 +69,7 @@ export function MapEmptyState({
                 </Button>
               ) : null}
               {showImport ? (
-                <Button
-                  variant={emptyCanonical ? "default" : "outline"}
-                  size="sm"
-                  onClick={() => setImportOpen(true)}
-                >
+                <Button variant={emptyCanonical ? "default" : "outline"} size="sm" onClick={() => setImportOpen(true)}>
                   <FileUp />
                   {t("emptyState.importButton")}
                 </Button>
@@ -134,10 +110,7 @@ export function MapEmptyState({
   )
 }
 
-const COPY: Record<
-  Exclude<MapEmptyReason, "empty_canonical">,
-  { icon: typeof FolderSearch; titleKey: string; bodyKey: string }
-> = {
+const COPY: Record<Exclude<MapEmptyReason, "empty_canonical">, { icon: typeof FolderSearch; titleKey: string; bodyKey: string }> = {
   no_target: {
     icon: FolderSearch,
     titleKey: "emptyState.noTarget.title",

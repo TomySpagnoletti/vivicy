@@ -12,6 +12,7 @@ function isDirective(comment: Comment): boolean {
   return (
     value.startsWith("eslint-") ||
     value.startsWith("@ts-") ||
+    value.startsWith("prettier-ignore") ||
     value.startsWith("/ <reference") ||
     value.startsWith("<reference")
   )

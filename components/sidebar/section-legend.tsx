@@ -7,11 +7,7 @@ import { usePersistedBoolean } from "@/hooks/use-persisted-boolean"
 import { kindColor, progressStatusColor, STATUS_COLORS } from "@/lib/map-palette"
 import type { MapNode, ViewMode } from "@/lib/types"
 import { cn } from "@/lib/utils"
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@/components/ui/collapsible"
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import { Separator } from "@/components/ui/separator"
 
 export const LEGEND_OPEN_KEY = "vivicy:legend-open"
@@ -23,11 +19,7 @@ interface LegendEntry {
 }
 
 // Must stay in sync with the map's own color rule (target: kind; progress: status) — duplicated, not shared.
-function legendEntries(
-  view: ViewMode,
-  nodes: MapNode[],
-  statusLegend: Record<string, string> | undefined
-): LegendEntry[] {
+function legendEntries(view: ViewMode, nodes: MapNode[], statusLegend: Record<string, string> | undefined): LegendEntry[] {
   if (view === "target") {
     return [...new Set(nodes.map((n) => n.kind))].sort().map((kind) => {
       const color = kindColor(kind)
@@ -40,15 +32,7 @@ function legendEntries(
   })
 }
 
-export function SectionLegend({
-  view,
-  nodes,
-  statusLegend,
-}: {
-  view: ViewMode
-  nodes: MapNode[]
-  statusLegend?: Record<string, string>
-}) {
+export function SectionLegend({ view, nodes, statusLegend }: { view: ViewMode; nodes: MapNode[]; statusLegend?: Record<string, string> }) {
   const t = useTranslations("sidebar.legend")
   const [open, setOpen] = usePersistedBoolean(LEGEND_OPEN_KEY, false)
 
@@ -58,11 +42,7 @@ export function SectionLegend({
   return (
     <div className="flex flex-col gap-2 px-3 pt-3">
       <Separator />
-      <Collapsible
-        open={open}
-        onOpenChange={setOpen}
-        className="flex flex-col gap-2"
-      >
+      <Collapsible open={open} onOpenChange={setOpen} className="flex flex-col gap-2">
         <CollapsibleTrigger className="group flex w-full items-center justify-between gap-2 text-xs font-medium text-muted-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring">
           <span>{t("triggerLabel", { title })}</span>
           <ChevronRight className="size-4 shrink-0 transition-transform group-data-[state=open]:rotate-90" />
@@ -70,14 +50,8 @@ export function SectionLegend({
         <CollapsibleContent>
           <div className="flex flex-wrap gap-x-3 gap-y-1.5">
             {entries.map((entry) => (
-              <span
-                key={entry.label}
-                className="inline-flex items-center gap-1.5 text-xs text-muted-foreground"
-              >
-                <span
-                  className={cn("size-3 shrink-0 rounded-sm border")}
-                  style={{ background: entry.bg, borderColor: entry.border }}
-                />
+              <span key={entry.label} className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+                <span className={cn("size-3 shrink-0 rounded-sm border")} style={{ background: entry.bg, borderColor: entry.border }} />
                 {entry.label}
               </span>
             ))}

@@ -8,7 +8,25 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { ControlError, type RunOptions, type RunResult, type Spawner } from "@/lib/control"
 import { importIntoGoverned, UPLOADS_DIR, type BatchResult, type RawEntry } from "@/lib/import-docs"
 import { getProjectRuntimeDir } from "@/lib/project-runtime"
-import { answerViviQuestion, appendCardTurn, decideCardAction, decideCardImport, dispatchImportRead, importDocsIntoSession, isViviTurnRunning, listViviSessions, parseSkillsDirective, readTranscript, recoverInterruptedReads, runViviTurn, seedViviWelcome, VIVI_WELCOME_MESSAGE, WELCOME_IMPORT_CARD, type SessionImportResult, type ViviTurn } from "@/lib/vivi"
+import {
+  answerViviQuestion,
+  appendCardTurn,
+  decideCardAction,
+  decideCardImport,
+  dispatchImportRead,
+  importDocsIntoSession,
+  isViviTurnRunning,
+  listViviSessions,
+  parseSkillsDirective,
+  readTranscript,
+  recoverInterruptedReads,
+  runViviTurn,
+  seedViviWelcome,
+  VIVI_WELCOME_MESSAGE,
+  WELCOME_IMPORT_CARD,
+  type SessionImportResult,
+  type ViviTurn,
+} from "@/lib/vivi"
 import { MAX_OTHER_ANSWER_LENGTH, remainingQuestions } from "@/lib/vivi-questions"
 
 function makeFakeSpawner(onRun: (options: RunOptions) => Partial<RunResult> | void = () => {}) {
@@ -227,10 +245,7 @@ describe("runViviTurn — allowlist enforcement", () => {
     const result = await runViviTurn(spawner, { message: "start" })
 
     expect(result.rejected).toBeUndefined()
-    expect(result.wrote).toEqual([
-      path.join(CANONICAL, "01-product.md"),
-      path.join(SPIKES, "S01-provider.md"),
-    ])
+    expect(result.wrote).toEqual([path.join(CANONICAL, "01-product.md"), path.join(SPIKES, "S01-provider.md")])
     expect(existsSync(path.join(targetRoot, CANONICAL, "01-product.md"))).toBe(true)
     const turns = readTranscript(result.sessionId)
     expect((turns.at(-1) as ViviTurn).wrote).toEqual(result.wrote)
@@ -251,9 +266,7 @@ describe("runViviTurn — allowlist enforcement", () => {
     expect(result.rejected).toBeUndefined()
     expect(result.wrote).toEqual([path.join(SPIKES, "S01-native-argon2id.md")])
     expect(existsSync(path.join(targetRoot, SPIKES, "S01-native-argon2id.md"))).toBe(true)
-    expect(
-      existsSync(path.join(targetRoot, ".vivicy", "development", "transcripts", "VIVI", "claude-vivi-abc.jsonl"))
-    ).toBe(true)
+    expect(existsSync(path.join(targetRoot, ".vivicy", "development", "transcripts", "VIVI", "claude-vivi-abc.jsonl"))).toBe(true)
   })
 
   it("rejects a write OUTSIDE the allowlist and REMOVES the offending file", async () => {
@@ -446,7 +459,7 @@ function replyWithDirective(json: string): string {
 describe("parseSkillsDirective — pure parser", () => {
   it("returns null when the reply carries no vivicy-skills block", () => {
     expect(parseSkillsDirective("just a normal reply")).toBeNull()
-    expect(parseSkillsDirective("```json\n{\"install\": [\"a\"]}\n```")).toBeNull()
+    expect(parseSkillsDirective('```json\n{"install": ["a"]}\n```')).toBeNull()
   })
 
   it("parses a strict install list, trimming ids", () => {
@@ -661,7 +674,9 @@ describe("runViviTurn — action protocol (the governess loop)", () => {
       writeReply(o, "ok")
     })
     await runViviTurn(spawner, { message: "hello" })
-    expect(seenPrompt).toContain("Workflow snapshot: run_active=false; extraction=never; skills=never; spec_frozen=false; spec_kind=project.")
+    expect(seenPrompt).toContain(
+      "Workflow snapshot: run_active=false; extraction=never; skills=never; spec_frozen=false; spec_kind=project."
+    )
   })
 })
 
@@ -750,9 +765,7 @@ describe("runViviTurn — whole-target no-code enforcement", () => {
 
 describe("runViviTurn — skills directive (explicit installs via chat)", () => {
   it("starts an explicit skills install and appends the status line to the reply", async () => {
-    const { spawner, calls } = makeFakeSpawner((o) =>
-      writeReply(o, replyWithDirective('{"install": ["anthropic/skills@pdf"]}'))
-    )
+    const { spawner, calls } = makeFakeSpawner((o) => writeReply(o, replyWithDirective('{"install": ["anthropic/skills@pdf"]}')))
     const result = await runViviTurn(spawner, { message: "install the pdf skill please" })
 
     expect(result.rejected).toBeUndefined()
@@ -781,9 +794,7 @@ describe("runViviTurn — skills directive (explicit installs via chat)", () => 
 
   it("surfaces a control refusal instead of the started line (missing installer script)", async () => {
     rmSync(path.join(factoryRoot, "install-skills.ts"))
-    const { spawner, calls } = makeFakeSpawner((o) =>
-      writeReply(o, replyWithDirective('{"install": ["acme/repo@x"]}'))
-    )
+    const { spawner, calls } = makeFakeSpawner((o) => writeReply(o, replyWithDirective('{"install": ["acme/repo@x"]}')))
     const result = await runViviTurn(spawner, { message: "install acme/repo@x" })
 
     expect(result.rejected).toBeUndefined()
@@ -858,7 +869,9 @@ describe("decision cards (server contracts)", () => {
     const sessionId = appendCardTurn({
       id: "card-4",
       title: "Start a new project?",
-      actions: [{ id: "go", label: "Start from scratch", action: { kind: "vivi_message", message: "I want to start a new project from scratch." } }],
+      actions: [
+        { id: "go", label: "Start from scratch", action: { kind: "vivi_message", message: "I want to start a new project from scratch." } },
+      ],
     })
     const { spawner } = makeFakeSpawner((o) => {
       if (o.args.some((a) => a.endsWith("vivi-turn.ts"))) writeReply(o, "Great — let's define the product. First questions: …")
@@ -903,16 +916,15 @@ describe("decision cards (server contracts)", () => {
   it("refuses to decide an import_docs action on the JSON path (it needs the upload route)", async () => {
     const sessionId = appendCardTurn(WELCOME_IMPORT_CARD)
     const { spawner } = makeFakeSpawner()
-    await expect(
-      decideCardAction(spawner, { sessionId, cardId: WELCOME_IMPORT_CARD.id, actionId: "import" })
-    ).rejects.toThrow(/imports documents/)
+    await expect(decideCardAction(spawner, { sessionId, cardId: WELCOME_IMPORT_CARD.id, actionId: "import" })).rejects.toThrow(
+      /imports documents/
+    )
     // Nothing stamped — the card stays live for the upload path.
     expect(readTranscript(sessionId)[0].decided).toBeUndefined()
   })
 })
 
-const IMPORT_ENGLISH =
-  "The quick brown fox jumps over the lazy dog near the riverbank every single morning without fail. ".repeat(6)
+const IMPORT_ENGLISH = "The quick brown fox jumps over the lazy dog near the riverbank every single morning without fail. ".repeat(6)
 const IMPORT_PLANTED_KEY = "sk-ant-" + "api03-Qz7Rp2Kw9Vn4Bh6Tm1Yj3Lf5Gd8Sx0UaWc"
 
 function docEntry(rel: string, text: string): RawEntry {
@@ -947,10 +959,7 @@ function stampReadOnDisk(sessionId: string, batchId: string, read: unknown): voi
   const turns = readTranscript(sessionId).map((turn) =>
     turn.imported?.batchId === batchId ? { ...turn, imported: { ...turn.imported, read } } : turn
   )
-  writeFileSync(
-    path.join(viviSessionDir(), `${sessionId}.jsonl`),
-    `${turns.map((t) => JSON.stringify(t)).join("\n")}\n`
-  )
+  writeFileSync(path.join(viviSessionDir(), `${sessionId}.jsonl`), `${turns.map((t) => JSON.stringify(t)).join("\n")}\n`)
 }
 
 // What a replayed upload response would hand back to a second dispatch attempt.
@@ -1026,10 +1035,20 @@ describe("decideCardImport (welcome-card document import into the current projec
     const sessionId = seedViviWelcome()
     appendCardTurn(WELCOME_IMPORT_CARD, sessionId)
     const { spawner } = makeFakeSpawner((o) => writeReply(o, "read"))
-    await decideCardImport(spawner, { sessionId, cardId: WELCOME_IMPORT_CARD.id, actionId: "import", entries: [docEntry("a.md", IMPORT_ENGLISH)] })
+    await decideCardImport(spawner, {
+      sessionId,
+      cardId: WELCOME_IMPORT_CARD.id,
+      actionId: "import",
+      entries: [docEntry("a.md", IMPORT_ENGLISH)],
+    })
     await settleTranscript(sessionId, 4)
 
-    const again = await decideCardImport(spawner, { sessionId, cardId: WELCOME_IMPORT_CARD.id, actionId: "import", entries: [docEntry("b.md", IMPORT_ENGLISH)] })
+    const again = await decideCardImport(spawner, {
+      sessionId,
+      cardId: WELCOME_IMPORT_CARD.id,
+      actionId: "import",
+      entries: [docEntry("b.md", IMPORT_ENGLISH)],
+    })
     expect(again.ok).toBe(false)
     expect(again.summary).toContain("already decided")
 
@@ -1039,7 +1058,12 @@ describe("decideCardImport (welcome-card document import into the current projec
       actions: [{ id: "list", label: "List", action: { kind: "control", tool: "crs.list" } }],
     })
     await expect(
-      decideCardImport(spawner, { sessionId: controlSession, cardId: "control-card", actionId: "list", entries: [docEntry("a.md", IMPORT_ENGLISH)] })
+      decideCardImport(spawner, {
+        sessionId: controlSession,
+        cardId: "control-card",
+        actionId: "list",
+        entries: [docEntry("a.md", IMPORT_ENGLISH)],
+      })
     ).rejects.toThrow(/not a document import/)
   })
 
@@ -1162,9 +1186,7 @@ describe("importDocsIntoSession (standing composer import into the current proje
     const { spawner } = makeFakeSpawner((o) => writeReply(o, "read"))
     await importDocsIntoSession(spawner, {
       sessionId,
-      entries: Array.from({ length: 7 }, (_, i) =>
-        docEntry(`leak-${i}.md`, `${IMPORT_ENGLISH}\n\n${IMPORT_PLANTED_KEY}\n`)
-      ),
+      entries: Array.from({ length: 7 }, (_, i) => docEntry(`leak-${i}.md`, `${IMPORT_ENGLISH}\n\n${IMPORT_PLANTED_KEY}\n`)),
     })
     expect(readTranscript(sessionId)[1].text).toContain(
       "in 7 files: leak-0.md:3 (sk-a…), leak-1.md:3 (sk-a…), leak-2.md:3 (sk-a…), leak-3.md:3 (sk-a…), leak-4.md:3 (sk-a…), and 2 more. A credential must never live"
@@ -1183,9 +1205,9 @@ describe("importDocsIntoSession (standing composer import into the current proje
   it("throws before writing anything when the upload has no supported file", async () => {
     const sessionId = seedViviWelcome()
     const { spawner, calls } = makeFakeSpawner()
-    await expect(
-      importDocsIntoSession(spawner, { sessionId, entries: [docEntry("a.exe", "x")] })
-    ).rejects.toMatchObject({ code: "no_supported_files" })
+    await expect(importDocsIntoSession(spawner, { sessionId, entries: [docEntry("a.exe", "x")] })).rejects.toMatchObject({
+      code: "no_supported_files",
+    })
 
     expect(readTranscript(sessionId).map((t) => t.role)).toEqual(["vivi"])
     expect(existsSync(path.join(targetRoot, UPLOADS_DIR))).toBe(false)
@@ -1568,10 +1590,7 @@ async function settleDispatchedTurn(): Promise<void> {
   }
 }
 
-async function stackedSession(
-  spawner: Spawner,
-  json = QUESTION_CARDS
-): Promise<{ sessionId: string; stackId: string }> {
+async function stackedSession(spawner: Spawner, json = QUESTION_CARDS): Promise<{ sessionId: string; stackId: string }> {
   const result = await runViviTurn(spawner, { message: "on part sur quoi ?" })
   const stack = readTranscript(result.sessionId).find((t) => t.role === "questions")?.questions
   if (!stack) throw new Error(`no question stack in the transcript for ${json}`)
@@ -1645,9 +1664,7 @@ describe("question cards — the validated fence becomes a pile in the thread", 
     })
 
     expect(outcome).toMatchObject({ ok: true, answer: "DuckDB, embedded" })
-    expect(readTranscript(sessionId).at(-1)?.text).toBe(
-      "Which datastore should v1 run on? → DuckDB, embedded"
-    )
+    expect(readTranscript(sessionId).at(-1)?.text).toBe("Which datastore should v1 run on? → DuckDB, embedded")
   })
 
   it("puts a pasted free answer through the same boundary strip as her labels", async () => {
@@ -1676,9 +1693,7 @@ describe("question cards — the validated fence becomes a pile in the thread", 
     const outcome = answerViviQuestion(spawner, { sessionId, stackId, questionId: "datastore", other: typed })
 
     expect(outcome).toMatchObject({ ok: true, answer: typed })
-    expect(readTranscript(sessionId).at(-1)?.text).toBe(
-      `Which datastore should v1 run on? \u2192 ${typed}`
-    )
+    expect(readTranscript(sessionId).at(-1)?.text).toBe(`Which datastore should v1 run on? \u2192 ${typed}`)
   })
 
   it("refuses a second answer to the same card without appending a second line", async () => {
@@ -1697,11 +1712,9 @@ describe("question cards — the validated fence becomes a pile in the thread", 
   it("refuses an unknown stack, an unknown question, an out-of-range option, and a doubly-shaped answer", async () => {
     const { spawner } = makeFakeSpawner((o) => writeReply(o, replyWithQuestions(QUESTION_CARDS)))
     const { sessionId, stackId } = await stackedSession(spawner)
-    const answer = (over: Record<string, unknown>) =>
-      answerViviQuestion(spawner, { sessionId, stackId, questionId: "datastore", ...over })
+    const answer = (over: Record<string, unknown>) => answerViviQuestion(spawner, { sessionId, stackId, questionId: "datastore", ...over })
 
-    expect(() => answerViviQuestion(spawner, { sessionId, stackId: "nope", questionId: "datastore", optionIndex: 0 }))
-      .toThrow(ControlError)
+    expect(() => answerViviQuestion(spawner, { sessionId, stackId: "nope", questionId: "datastore", optionIndex: 0 })).toThrow(ControlError)
     expect(() => answer({ questionId: "ghost", optionIndex: 0 })).toThrow(/unknown question "ghost"/)
     expect(() => answer({ optionIndex: 3 })).toThrow(/one of its 3 options/)
     expect(() => answer({ optionIndex: -1 })).toThrow(/one of its 3 options/)
@@ -1793,7 +1806,11 @@ describe("question cards — the validated fence becomes a pile in the thread", 
     expect(label).toHaveLength(79)
     const cards = JSON.stringify([
       { id: "rule", question, options: [{ label, recommended: true }, { label: "Jamais" }], allowOther: true },
-      { id: "auth", question: "How do people sign in?", options: [{ label: "Email + password", recommended: true }, { label: "Magic link" }] },
+      {
+        id: "auth",
+        question: "How do people sign in?",
+        options: [{ label: "Email + password", recommended: true }, { label: "Magic link" }],
+      },
     ])
     const { spawner } = makeFakeSpawner((o) => {
       if (!o.args.some((a) => a.endsWith("vivi-turn.ts"))) return
@@ -1823,9 +1840,7 @@ describe("question cards — the validated fence becomes a pile in the thread", 
     const stack = reloaded.find((t) => t.role === "questions")!.questions!
     expect(stack.questions).toHaveLength(2)
     expect(remainingQuestions(stack, reloaded).map((q) => q.id)).toEqual(["datastore"])
-    expect(reloaded.filter((t) => t.answered).map((t) => t.text)).toEqual([
-      "How do people sign in? → Email + password",
-    ])
+    expect(reloaded.filter((t) => t.answered).map((t) => t.text)).toEqual(["How do people sign in? → Email + password"])
   })
 
   it("tells the owner in the thread when the continuation cannot run at all", async () => {

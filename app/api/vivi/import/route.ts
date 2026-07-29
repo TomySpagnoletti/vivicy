@@ -34,9 +34,6 @@ export async function POST(request: Request) {
     if (error instanceof ControlError) {
       return Response.json({ ok: false, error: error.message, code: error.code }, { status: 422 })
     }
-    return Response.json(
-      { ok: false, error: error instanceof Error ? error.message : "document import failed" },
-      { status: 500 }
-    )
+    return Response.json({ ok: false, error: error instanceof Error ? error.message : "document import failed" }, { status: 500 })
   }
 }

@@ -4,11 +4,7 @@ import path from "node:path"
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 
-import {
-  featureCycleOpenRefusal,
-  writeSpecCycle,
-  type CycleOpenRefusal,
-} from "@/lib/spec-cycle"
+import { featureCycleOpenRefusal, writeSpecCycle, type CycleOpenRefusal } from "@/lib/spec-cycle"
 
 let root: string
 
@@ -25,7 +21,7 @@ function seedFrozenBaseline(): void {
   mkdirSync(dir, { recursive: true })
   writeFileSync(
     path.join(dir, "baseline-v1.0.0.json"),
-    JSON.stringify({ baseline_id: "baseline-v1.0.0", version: "1.0.0", status: "frozen" }),
+    JSON.stringify({ baseline_id: "baseline-v1.0.0", version: "1.0.0", status: "frozen" })
   )
 }
 

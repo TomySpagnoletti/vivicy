@@ -6,21 +6,10 @@ import { useTranslations } from "next-intl"
 
 import { BRAND } from "@/lib/brand"
 import { InsiemeIllustration } from "@/components/brand/insieme-illustration"
-import {
-  AGENT_GUIDANCE,
-  type AgentHealth,
-  type AgentKey,
-  type AgentsHealth,
-} from "@/lib/agents-health-types"
+import { AGENT_GUIDANCE, type AgentHealth, type AgentKey, type AgentsHealth } from "@/lib/agents-health-types"
 import { Alert, AlertAction, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
-import {
-  Card,
-  CardAction,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card"
+import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { AgentStatusBadge, InstallDocsLink } from "@/components/agents/agent-status"
 
 export function agentsGateBlocked(health: AgentsHealth): boolean {
@@ -28,18 +17,10 @@ export function agentsGateBlocked(health: AgentsHealth): boolean {
 }
 
 export function unauthenticatedAgents(health: AgentsHealth): AgentKey[] {
-  return (["claude", "codex"] as AgentKey[]).filter(
-    (key) => health[key].present && health[key].authenticated === false
-  )
+  return (["claude", "codex"] as AgentKey[]).filter((key) => health[key].present && health[key].authenticated === false)
 }
 
-export function AgentsGate({
-  health,
-  onHealth,
-}: {
-  health: AgentsHealth
-  onHealth: (health: AgentsHealth) => void
-}) {
+export function AgentsGate({ health, onHealth }: { health: AgentsHealth; onHealth: (health: AgentsHealth) => void }) {
   const t = useTranslations("agents")
   const [checking, setChecking] = useState(false)
 
@@ -63,9 +44,7 @@ export function AgentsGate({
         <div className="flex flex-col items-center gap-2 text-center">
           <InsiemeIllustration />
           <h1 className="text-lg font-medium text-foreground">{t("gate.title")}</h1>
-          <p className="max-w-lg text-sm text-muted-foreground">
-            {t("gate.description", { brandName: BRAND.name })}
-          </p>
+          <p className="max-w-lg text-sm text-muted-foreground">{t("gate.description", { brandName: BRAND.name })}</p>
         </div>
 
         {(["claude", "codex"] as AgentKey[]).map((key) => (
@@ -92,17 +71,10 @@ function GateAgentCard({ agentKey, health }: { agentKey: AgentKey; health: Agent
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           {guidance.label}
-          {health.version ? (
-            <span className="text-xs font-normal text-muted-foreground">· {health.version}</span>
-          ) : null}
+          {health.version ? <span className="text-xs font-normal text-muted-foreground">· {health.version}</span> : null}
         </CardTitle>
         <CardAction className="flex flex-wrap items-center justify-end gap-1.5">
-          <AgentStatusBadge
-            ok={health.present}
-            okLabel={t("installed")}
-            badLabel={t("notInstalled")}
-            unknown={false}
-          />
+          <AgentStatusBadge ok={health.present} okLabel={t("installed")} badLabel={t("notInstalled")} unknown={false} />
           {health.present ? (
             <AgentStatusBadge
               ok={health.authenticated === true}
@@ -153,12 +125,7 @@ export function AgentsAuthBanner({ health }: { health: AgentsHealth }) {
           </ul>
         </AlertDescription>
         <AlertAction>
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            aria-label={t("authBanner.dismissAriaLabel")}
-            onClick={() => setDismissed(true)}
-          >
+          <Button variant="ghost" size="icon-sm" aria-label={t("authBanner.dismissAriaLabel")} onClick={() => setDismissed(true)}>
             <X />
           </Button>
         </AlertAction>

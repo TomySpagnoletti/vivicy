@@ -10,8 +10,7 @@ export const DEMO_TARGET_ROOT = process.env.VIVICY_TARGET_ROOT ?? "/tmp/vivicy-d
 export const EMPTY_TARGET_ROOT = "/tmp/vivicy-no-map"
 export const ONBOARD_TARGET_ROOT = "/tmp/vivicy-onboard-target"
 
-export const LONG_PATH_SEGMENT =
-  "a-very-long-directory-name-used-to-exercise-horizontal-overflow-handling-in-the-vivicy-ui"
+export const LONG_PATH_SEGMENT = "a-very-long-directory-name-used-to-exercise-horizontal-overflow-handling-in-the-vivicy-ui"
 export const LONG_TARGET_ROOT = `/tmp/vivicy-long/${LONG_PATH_SEGMENT}/${LONG_PATH_SEGMENT}/${LONG_PATH_SEGMENT}`
 
 type BrowserShape = {
@@ -26,10 +25,8 @@ const BROWSERS: BrowserShape[] = [
   { key: "webkit-desktop", device: devices["Desktop Safari"] },
 ]
 
-export const RUNTIME_DIR = (shape: string, browserKey: string) =>
-  `/tmp/vivicy-rt-${shape}-${browserKey}`
-export const onboardScaffoldParent = (browserKey: string) =>
-  `/tmp/vivicy-onboard-scaffold-${browserKey}`
+export const RUNTIME_DIR = (shape: string, browserKey: string) => `/tmp/vivicy-rt-${shape}-${browserKey}`
+export const onboardScaffoldParent = (browserKey: string) => `/tmp/vivicy-onboard-scaffold-${browserKey}`
 
 // layout-edit writes the SHARED demo target's on-disk architecture-map.yml — concurrent browsers would race that file.
 const CHROMIUM_DESKTOP_ONLY = /layout-edit\.spec\.ts/
@@ -42,15 +39,11 @@ const OVERFLOW_SPEC = /overflow\.spec\.ts/
 type ShapeName = "demo" | "empty" | "onboarding"
 
 function portFor(shape: ShapeName, index: number): number {
-  const base =
-    shape === "demo" ? DEMO_BASE_PORT : shape === "empty" ? EMPTY_BASE_PORT : ONBOARD_BASE_PORT
+  const base = shape === "demo" ? DEMO_BASE_PORT : shape === "empty" ? EMPTY_BASE_PORT : ONBOARD_BASE_PORT
   return base + index
 }
 
-function projectsForShape(
-  shape: ShapeName,
-  options: { testMatch?: RegExp; testIgnore?: RegExp }
-): Project[] {
+function projectsForShape(shape: ShapeName, options: { testMatch?: RegExp; testIgnore?: RegExp }): Project[] {
   return BROWSERS.flatMap((browser, index) => {
     const use = { ...browser.device, baseURL: `http://127.0.0.1:${portFor(shape, index)}` }
     const testIgnore = [
@@ -115,10 +108,7 @@ export default defineConfig({
   forbidOnly: !!process.env.CI,
   retries: 1,
   timeout: 60_000,
-  reporter: [
-    [process.env.CI ? "github" : "list"],
-    ["./e2e/reporters/browser-issues-reporter.ts"],
-  ],
+  reporter: [[process.env.CI ? "github" : "list"], ["./e2e/reporters/browser-issues-reporter.ts"]],
   globalSetup: "./e2e/global-setup.ts",
   globalTeardown: "./e2e/global-teardown.ts",
   use: {
@@ -130,9 +120,5 @@ export default defineConfig({
     ...projectsForShape("empty", { testMatch: /empty-state\.spec\.ts/ }),
     ...projectsForShape("onboarding", { testMatch: /onboarding\.spec\.ts/ }),
   ],
-  webServer: [
-    ...webServersForShape("demo"),
-    ...webServersForShape("empty"),
-    ...webServersForShape("onboarding"),
-  ],
+  webServer: [...webServersForShape("demo"), ...webServersForShape("empty"), ...webServersForShape("onboarding")],
 })

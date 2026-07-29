@@ -104,11 +104,7 @@ export function parseQuestionsDirective(reply: string): QuestionsDirective {
       }
     }
 
-    if (
-      !Array.isArray(raw.options) ||
-      raw.options.length < MIN_OPTIONS_PER_QUESTION ||
-      raw.options.length > MAX_OPTIONS_PER_QUESTION
-    ) {
+    if (!Array.isArray(raw.options) || raw.options.length < MIN_OPTIONS_PER_QUESTION || raw.options.length > MAX_OPTIONS_PER_QUESTION) {
       return {
         malformed: `question card "${id}" needs ${MIN_OPTIONS_PER_QUESTION} or ${MAX_OPTIONS_PER_QUESTION} options`,
       }
@@ -161,10 +157,7 @@ export function stripQuestionsFence(reply: string): string {
 }
 
 // The answered set is derived from the thread, never stored twice: a turn stamped with this stack's id retires exactly its own question.
-export function remainingQuestions(
-  stack: ViviQuestionStack,
-  turns: readonly { answered?: ViviQuestionAnswerRef }[]
-): ViviQuestion[] {
+export function remainingQuestions(stack: ViviQuestionStack, turns: readonly { answered?: ViviQuestionAnswerRef }[]): ViviQuestion[] {
   const answered = new Set<string>()
   for (const turn of turns) {
     if (turn.answered?.stackId === stack.id) answered.add(turn.answered.questionId)
@@ -173,9 +166,7 @@ export function remainingQuestions(
 }
 
 // A STANDING pile is a live object, not a past line: it renders after everything else so the card the owner must act on is always the last thing in the thread, never pushed off the top by its own answer lines. A spent pile stays where it happened (it renders as nothing at all).
-export function threadRenderOrder(
-  turns: readonly { questions?: ViviQuestionStack; answered?: ViviQuestionAnswerRef }[]
-): number[] {
+export function threadRenderOrder(turns: readonly { questions?: ViviQuestionStack; answered?: ViviQuestionAnswerRef }[]): number[] {
   const settled: number[] = []
   const standing: number[] = []
   turns.forEach((turn, index) => {

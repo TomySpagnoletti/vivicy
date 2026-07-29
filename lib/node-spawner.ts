@@ -1,13 +1,7 @@
 import { spawn, type SpawnOptions } from "node:child_process"
 import { openSync } from "node:fs"
 
-import type {
-  DetachedHandle,
-  RunOptions,
-  RunResult,
-  SpawnDetachedOptions,
-  Spawner,
-} from "@/lib/control"
+import type { DetachedHandle, RunOptions, RunResult, SpawnDetachedOptions, Spawner } from "@/lib/control"
 
 const MAX_OUTPUT_BYTES = 256 * 1024
 

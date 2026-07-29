@@ -41,8 +41,7 @@ function makeProbe(opts: {
     home: () => opts.home ?? HOME,
     env: (name) => opts.env?.[name] ?? null,
     platform: () => opts.platform ?? "linux",
-    keychain: () =>
-      "keychain" in opts ? opts.keychain ?? null : { secret: null, exists: false },
+    keychain: () => ("keychain" in opts ? (opts.keychain ?? null) : { secret: null, exists: false }),
   }
 }
 
@@ -91,11 +90,11 @@ describe("normalizeVersion", () => {
 
 describe("parseCodexAuth", () => {
   it("is subscription (ChatGPT) with a tokens block and no API key", () => {
-    expect(
-      parseCodexAuth(
-        JSON.stringify({ auth_mode: "chatgpt", OPENAI_API_KEY: null, tokens: { access_token: "abc" } })
-      )
-    ).toEqual({ authenticated: true, authMethod: "subscription", plan: "ChatGPT" })
+    expect(parseCodexAuth(JSON.stringify({ auth_mode: "chatgpt", OPENAI_API_KEY: null, tokens: { access_token: "abc" } }))).toEqual({
+      authenticated: true,
+      authMethod: "subscription",
+      plan: "ChatGPT",
+    })
   })
 
   it("is api_key when OPENAI_API_KEY is set", () => {
@@ -138,17 +137,19 @@ describe("parseClaudeCredentials", () => {
   })
 
   it("reads a flat credentials blob the same way", () => {
-    expect(
-      parseClaudeCredentials(
-        JSON.stringify({ accessToken: "sk-ant-oat01-FAKE", subscriptionType: "pro" })
-      )
-    ).toEqual({ authenticated: true, authMethod: "subscription", plan: "pro" })
+    expect(parseClaudeCredentials(JSON.stringify({ accessToken: "sk-ant-oat01-FAKE", subscriptionType: "pro" }))).toEqual({
+      authenticated: true,
+      authMethod: "subscription",
+      plan: "pro",
+    })
   })
 
   it("classifies a Console API-key token (sk-ant-api03-) as api_key", () => {
-    expect(
-      parseClaudeCredentials(JSON.stringify({ claudeAiOauth: { accessToken: "sk-ant-api03-FAKE" } }))
-    ).toEqual({ authenticated: true, authMethod: "api_key", plan: null })
+    expect(parseClaudeCredentials(JSON.stringify({ claudeAiOauth: { accessToken: "sk-ant-api03-FAKE" } }))).toEqual({
+      authenticated: true,
+      authMethod: "api_key",
+      plan: null,
+    })
   })
 
   it("returns null when there is no usable access token", () => {
@@ -422,9 +423,7 @@ describe("resolveOnPath (cross-platform presence, no real spawn)", () => {
   }
 
   it("Windows: runs `cmd.exe /c where <bin>` and returns the first absolute match", () => {
-    const { exec, calls } = recordingExec((bin) =>
-      bin === "cmd.exe" ? "C:\\Users\\test-user\\AppData\\Roaming\\npm\\claude.cmd" : null
-    )
+    const { exec, calls } = recordingExec((bin) => (bin === "cmd.exe" ? "C:\\Users\\test-user\\AppData\\Roaming\\npm\\claude.cmd" : null))
     const resolved = resolveOnPath("claude", "win32", exec)
     expect(resolved).toBe("C:\\Users\\test-user\\AppData\\Roaming\\npm\\claude.cmd")
     expect(calls).toHaveLength(1)
@@ -443,9 +442,7 @@ describe("resolveOnPath (cross-platform presence, no real spawn)", () => {
   })
 
   it("Unix: runs `command -v` under /bin/sh and returns an absolute path", () => {
-    const { exec, calls } = recordingExec((bin) =>
-      bin === "/bin/sh" ? "/usr/local/bin/codex" : null
-    )
+    const { exec, calls } = recordingExec((bin) => (bin === "/bin/sh" ? "/usr/local/bin/codex" : null))
     expect(resolveOnPath("codex", "linux", exec)).toBe("/usr/local/bin/codex")
     expect(calls[0]).toEqual({ bin: "/bin/sh", args: ["-c", "command -v codex"] })
     expect(calls.some((c) => c.bin === "cmd.exe")).toBe(false)
@@ -617,9 +614,7 @@ describe("honest unknown vs unauthenticated by OS", () => {
   })
 
   it("Windows/Linux never report 'unknown' — the file store gives a definite verdict", () => {
-    expect(detectClaudeAuth(makeProbe({ platform: "win32", home: WIN_HOME })).authenticated).toBe(
-      false
-    )
+    expect(detectClaudeAuth(makeProbe({ platform: "win32", home: WIN_HOME })).authenticated).toBe(false)
     expect(detectClaudeAuth(makeProbe({ platform: "linux" })).authenticated).toBe(false)
   })
 })

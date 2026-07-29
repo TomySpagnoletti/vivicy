@@ -8,9 +8,7 @@ const { runAgentUpdate, getAgentsHealth } = vi.hoisted(() => ({
 }))
 
 vi.mock("@/lib/agents-update", async () => {
-  const actual = await vi.importActual<typeof import("@/lib/agents-update")>(
-    "@/lib/agents-update"
-  )
+  const actual = await vi.importActual<typeof import("@/lib/agents-update")>("@/lib/agents-update")
   return { ...actual, runAgentUpdate }
 })
 vi.mock("@/lib/agents-health", () => ({ getAgentsHealth }))

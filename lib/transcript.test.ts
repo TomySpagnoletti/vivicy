@@ -1,10 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import {
-  parseTranscript,
-  transcriptName,
-  transcriptUrl,
-} from "@/lib/transcript"
+import { parseTranscript, transcriptName, transcriptUrl } from "@/lib/transcript"
 
 describe("parseTranscript — Claude session JSONL", () => {
   const jsonl = [
@@ -28,12 +24,7 @@ describe("parseTranscript — Claude session JSONL", () => {
   it("detects the claude format and normalizes entries", () => {
     const { entries, format } = parseTranscript(jsonl)
     expect(format).toBe("claude")
-    expect(entries.map((e) => e.kind)).toEqual([
-      "user",
-      "thinking",
-      "tool",
-      "assistant",
-    ])
+    expect(entries.map((e) => e.kind)).toEqual(["user", "thinking", "tool", "assistant"])
   })
 
   it("attaches tool output by tool_use_id and marks the final assistant", () => {
@@ -70,12 +61,7 @@ describe("parseTranscript — Codex rollout JSONL", () => {
   it("detects the codex format and normalizes entries", () => {
     const { entries, format } = parseTranscript(jsonl)
     expect(format).toBe("codex")
-    expect(entries.map((e) => e.kind)).toEqual([
-      "user",
-      "thinking",
-      "tool",
-      "assistant",
-    ])
+    expect(entries.map((e) => e.kind)).toEqual(["user", "thinking", "tool", "assistant"])
     const tool = entries.find((e) => e.kind === "tool")
     expect(tool).toMatchObject({ name: "shell", output: "files" })
   })
@@ -104,14 +90,10 @@ describe("transcript url/name helpers", () => {
     expect(transcriptUrl(".vivicy/development/transcripts/ISSUES/ISSUE-1/a.jsonl")).toBe(
       "/api/transcript/.vivicy/development/transcripts/ISSUES/ISSUE-1/a.jsonl"
     )
-    expect(transcriptUrl("/leading/slash.jsonl")).toBe(
-      "/api/transcript/leading/slash.jsonl"
-    )
+    expect(transcriptUrl("/leading/slash.jsonl")).toBe("/api/transcript/leading/slash.jsonl")
   })
 
   it("derives the file name from a ref", () => {
-    expect(transcriptName(".vivicy/development/transcripts/ISSUES/ISSUE-1/claude.jsonl")).toBe(
-      "claude.jsonl"
-    )
+    expect(transcriptName(".vivicy/development/transcripts/ISSUES/ISSUE-1/claude.jsonl")).toBe("claude.jsonl")
   })
 })

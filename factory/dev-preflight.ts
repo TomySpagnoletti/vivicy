@@ -1,78 +1,78 @@
 #!/usr/bin/env node
-import { spawnSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
-import { countForm, countOf } from "../lib/count-form.ts";
-import { resolveTargetRoot } from "./target-root.ts";
+import { spawnSync } from "node:child_process"
+import { existsSync, readFileSync } from "node:fs"
+import { join } from "node:path"
+import { countForm, countOf } from "../lib/count-form.ts"
+import { resolveTargetRoot } from "./target-root.ts"
 
 interface DeclaredSkills {
-  required: string[];
-  recommended: string[];
+  required: string[]
+  recommended: string[]
 }
 
-type SkillsRunnerResult = { ok: false } | { ok: true; output: string };
-type SkillsRunner = () => SkillsRunnerResult;
+type SkillsRunnerResult = { ok: false } | { ok: true; output: string }
+type SkillsRunner = () => SkillsRunnerResult
 
 interface SkillsCheck {
-  ok: boolean;
-  missingRequired: string[];
-  missingRecommended: string[];
-  notes: string[];
-  reason: string | undefined;
+  ok: boolean
+  missingRequired: string[]
+  missingRecommended: string[]
+  notes: string[]
+  reason: string | undefined
 }
 
 export function readDeclaredSkills(targetRoot = resolveTargetRoot()): DeclaredSkills {
-  const empty: DeclaredSkills = { required: [], recommended: [] };
-  if (!targetRoot) return empty;
+  const empty: DeclaredSkills = { required: [], recommended: [] }
+  if (!targetRoot) return empty
 
-  return declaredIn(readJsonOrNull(join(targetRoot, "vivicy.json")));
+  return declaredIn(readJsonOrNull(join(targetRoot, "vivicy.json")))
 }
 
 function declaredIn(config: unknown): DeclaredSkills {
-  if (!config || typeof config !== "object") return { required: [], recommended: [] };
-  const field = (value: unknown): string[] => (Array.isArray(value) ? toStringList(value).map(skillName) : []);
+  if (!config || typeof config !== "object") return { required: [], recommended: [] }
+  const field = (value: unknown): string[] => (Array.isArray(value) ? toStringList(value).map(skillName) : [])
   return {
     required: field((config as { requiredSkills?: unknown }).requiredSkills),
     recommended: field((config as { recommendedSkills?: unknown }).recommendedSkills),
-  };
+  }
 }
 
 // Declared entries may be a bare name or an `owner/repo@skill` id; `skills list` prints only names, so match on the part after "@".
 function skillName(entry: string): string {
-  const at = entry.lastIndexOf("@");
-  return at > 0 ? entry.slice(at + 1) : entry;
+  const at = entry.lastIndexOf("@")
+  return at > 0 ? entry.slice(at + 1) : entry
 }
 
 function readJsonOrNull(abs: string): unknown {
-  if (!existsSync(abs)) return null;
+  if (!existsSync(abs)) return null
   try {
-    return JSON.parse(readFileSync(abs, "utf8"));
+    return JSON.parse(readFileSync(abs, "utf8"))
   } catch {
-    return null;
+    return null
   }
 }
 
 function toStringList(value: unknown): string[] {
-  if (!Array.isArray(value)) return [];
-  return value.map((entry) => String(entry).trim()).filter((entry) => entry.length > 0);
+  if (!Array.isArray(value)) return []
+  return value.map((entry) => String(entry).trim()).filter((entry) => entry.length > 0)
 }
 
 // Substring match (not exact) so this stays robust to `skills` CLI output-format changes.
 export function missingSkills(listOutput: unknown, required: string[] = []): string[] {
-  const text = String(listOutput ?? "");
-  return required.filter((name) => !text.includes(name));
+  const text = String(listOutput ?? "")
+  return required.filter((name) => !text.includes(name))
 }
 
 export function checkSkills(runner: SkillsRunner = defaultRunner, declared = readDeclaredSkills()): SkillsCheck {
-  const required = declared?.required ?? [];
-  const recommended = declared?.recommended ?? [];
-  const notes: string[] = [];
+  const required = declared?.required ?? []
+  const recommended = declared?.recommended ?? []
+  const notes: string[] = []
 
   if (required.length === 0 && recommended.length === 0) {
-    return { ok: true, missingRequired: [], missingRecommended: [], notes, reason: undefined };
+    return { ok: true, missingRequired: [], missingRecommended: [], notes, reason: undefined }
   }
 
-  const result = runner();
+  const result = runner()
   if (!result || result.ok !== true) {
     if (required.length > 0) {
       return {
@@ -80,22 +80,18 @@ export function checkSkills(runner: SkillsRunner = defaultRunner, declared = rea
         missingRequired: [...required],
         missingRecommended: [...recommended],
         notes,
-        reason:
-          "skills CLI not available and this project declares required skills — install the Vercel `skills` CLI on this machine",
-      };
+        reason: "skills CLI not available and this project declares required skills — install the Vercel `skills` CLI on this machine",
+      }
     }
-    notes.push(
-      "skills CLI not available; could not confirm recommended skills (informational only): " +
-        recommended.join(", "),
-    );
-    return { ok: true, missingRequired: [], missingRecommended: [...recommended], notes, reason: undefined };
+    notes.push("skills CLI not available; could not confirm recommended skills (informational only): " + recommended.join(", "))
+    return { ok: true, missingRequired: [], missingRecommended: [...recommended], notes, reason: undefined }
   }
 
-  const missingRequired = missingSkills(result.output, required);
-  const missingRecommended = missingSkills(result.output, recommended);
+  const missingRequired = missingSkills(result.output, required)
+  const missingRecommended = missingSkills(result.output, recommended)
 
   if (missingRecommended.length > 0) {
-    notes.push(`recommended skills not installed (informational only): ${missingRecommended.join(", ")}`);
+    notes.push(`recommended skills not installed (informational only): ${missingRecommended.join(", ")}`)
   }
 
   return {
@@ -104,40 +100,40 @@ export function checkSkills(runner: SkillsRunner = defaultRunner, declared = rea
     missingRecommended,
     notes,
     reason: missingRequired.length === 0 ? undefined : "required skills not found in `skills list`",
-  };
+  }
 }
 
 function defaultRunner(): SkillsRunnerResult {
-  const result = spawnSync("npx", ["--no-install", "skills", "list"], { encoding: "utf8" });
-  if (result.error || result.status !== 0) return { ok: false };
-  return { ok: true, output: `${result.stdout ?? ""}\n${result.stderr ?? ""}` };
+  const result = spawnSync("npx", ["--no-install", "skills", "list"], { encoding: "utf8" })
+  if (result.error || result.status !== 0) return { ok: false }
+  return { ok: true, output: `${result.stdout ?? ""}\n${result.stderr ?? ""}` }
 }
 
 // Owner-facing refusal contract, shared with factory/dev-loop.ts's preflight: it must name ONLY vivicy.json, the one location readDeclaredSkills reads — an instruction pointing anywhere else cannot clear the refusal.
 export function missingSkillsRefusal(missing: string[]): string {
-  const them = countForm(missing.length, "it", "them");
+  const them = countForm(missing.length, "it", "them")
   return (
     `${countOf(missing.length, "required development skill", "required development skills")} missing: ${missing.join(", ")}\n` +
     `  install ${them} with the Vercel \`skills\` CLI (\`npx skills add <skill>\`), or drop ${them} from the target project's vivicy.json "requiredSkills"\n`
-  );
+  )
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
-  const declared = readDeclaredSkills();
-  const { ok, missingRequired, notes } = checkSkills(defaultRunner, declared);
+  const declared = readDeclaredSkills()
+  const { ok, missingRequired, notes } = checkSkills(defaultRunner, declared)
 
   for (const note of notes) {
-    process.stdout.write(`dev-preflight: note: ${note}\n`);
+    process.stdout.write(`dev-preflight: note: ${note}\n`)
   }
 
   if (ok) {
     if (declared.required.length === 0 && declared.recommended.length === 0) {
-      process.stdout.write("dev-preflight: no development skills declared by the target project; nothing to check.\n");
+      process.stdout.write("dev-preflight: no development skills declared by the target project; nothing to check.\n")
     } else {
-      process.stdout.write("dev-preflight: all required development skills are installed.\n");
+      process.stdout.write("dev-preflight: all required development skills are installed.\n")
     }
   } else {
-    process.stderr.write(`dev-preflight: ${missingSkillsRefusal(missingRequired)}`);
-    process.exit(1);
+    process.stderr.write(`dev-preflight: ${missingSkillsRefusal(missingRequired)}`)
+    process.exit(1)
   }
 }

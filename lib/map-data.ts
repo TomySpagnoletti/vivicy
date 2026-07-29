@@ -25,14 +25,10 @@ const NODE_STATUSES: NodeStatus[] = [...OVERLAY_STATUSES]
 const NODE_STATUS_SET = new Set<string>(NODE_STATUSES)
 
 export function asNodeStatus(value: unknown): NodeStatus | null {
-  return typeof value === "string" && NODE_STATUS_SET.has(value)
-    ? (value as NodeStatus)
-    : null
+  return typeof value === "string" && NODE_STATUS_SET.has(value) ? (value as NodeStatus) : null
 }
 
-function buildStatusOverlay(
-  graphItemStates: GraphItemState[] | undefined
-): Map<string, NodeStatus> {
+function buildStatusOverlay(graphItemStates: GraphItemState[] | undefined): Map<string, NodeStatus> {
   const overlay = new Map<string, NodeStatus>()
   if (!graphItemStates) {
     return overlay
@@ -46,11 +42,7 @@ function buildStatusOverlay(
   return overlay
 }
 
-export function resolveNodeStatus(
-  node: MapNode,
-  view: ViewMode,
-  overlay: Map<string, NodeStatus>
-): NodeStatus | null {
+export function resolveNodeStatus(node: MapNode, view: ViewMode, overlay: Map<string, NodeStatus>): NodeStatus | null {
   if (view === "target") {
     return null
   }
@@ -85,10 +77,8 @@ export function normalizeMapData(raw: unknown): ArchitectureMapData | null {
         order: typeof node.order === "number" ? node.order : undefined,
         layout_x: toNumber(node.layout_x),
         layout_y: toNumber(node.layout_y),
-        layout_cluster:
-          typeof node.layout_cluster === "string" ? node.layout_cluster : undefined,
-        layout_role:
-          typeof node.layout_role === "string" ? node.layout_role : undefined,
+        layout_cluster: typeof node.layout_cluster === "string" ? node.layout_cluster : undefined,
+        layout_role: typeof node.layout_role === "string" ? node.layout_role : undefined,
         scope: typeof node.scope === "string" ? node.scope : undefined,
         status: asNodeStatus(node.status) ?? undefined,
         tech: typeof node.tech === "string" ? node.tech : undefined,
@@ -119,10 +109,7 @@ export function normalizeMapData(raw: unknown): ArchitectureMapData | null {
         relation: typeof edge.relation === "string" ? edge.relation : undefined,
         protocol: typeof edge.protocol === "string" ? edge.protocol : undefined,
         layout_label_ratio:
-          typeof edge.layout_label_ratio === "number" &&
-          Number.isFinite(edge.layout_label_ratio)
-            ? edge.layout_label_ratio
-            : undefined,
+          typeof edge.layout_label_ratio === "number" && Number.isFinite(edge.layout_label_ratio) ? edge.layout_label_ratio : undefined,
         data: toStringArray(edge.data),
         source_refs: toStringArray(edge.source_refs),
         graph_ref: edge.graph_ref,
@@ -136,12 +123,8 @@ export function normalizeMapData(raw: unknown): ArchitectureMapData | null {
     updated: typeof data.updated === "string" ? data.updated : undefined,
     purpose: typeof data.purpose === "string" ? data.purpose : undefined,
     views:
-      data.views && typeof data.views === "object" && !Array.isArray(data.views)
-        ? (data.views as ArchitectureMapData["views"])
-        : undefined,
-    statusLegend: isRecord(data.statusLegend)
-      ? (data.statusLegend as Record<string, string>)
-      : undefined,
+      data.views && typeof data.views === "object" && !Array.isArray(data.views) ? (data.views as ArchitectureMapData["views"]) : undefined,
+    statusLegend: isRecord(data.statusLegend) ? (data.statusLegend as Record<string, string>) : undefined,
     lanes: Array.isArray(data.lanes)
       ? (data.lanes as unknown[]).flatMap((l) => {
           if (!l || typeof l !== "object") return []
@@ -158,17 +141,12 @@ export function normalizeMapData(raw: unknown): ArchitectureMapData | null {
     nodes,
     edges,
     development:
-      data.development && typeof data.development === "object"
-        ? (data.development as ArchitectureMapData["development"])
-        : undefined,
+      data.development && typeof data.development === "object" ? (data.development as ArchitectureMapData["development"]) : undefined,
   }
 }
 
 // Shares deriveDevelopmentOverlay with the extraction generator — do not fork it, or read-time and generation-time overlays will diverge.
-export function applyLiveOverlay(
-  data: ArchitectureMapData,
-  ledger: unknown
-): ArchitectureMapData {
+export function applyLiveOverlay(data: ArchitectureMapData, ledger: unknown): ArchitectureMapData {
   const graphRefs = new Set<string>()
   for (const node of data.nodes) graphRefs.add(canonicalNodeGraphRef(node.id))
   for (const edge of data.edges) {
@@ -258,14 +236,10 @@ export interface MapFilters {
 }
 
 // Must mirror the map's actual render-filter logic (including which edge endpoints the status filter keeps), or these counts drift from what's displayed.
-export function computeVisibleCounts(
-  data: ArchitectureMapData,
-  filters: MapFilters
-): { nodes: number; edges: number } {
+export function computeVisibleCounts(data: ArchitectureMapData, filters: MapFilters): { nodes: number; edges: number } {
   const overlay = buildStatusOverlay(data.development?.graph_item_states)
   const statesByRef = buildGraphStatesByRef(data.development?.graph_item_states)
-  const status = (node: MapNode): NodeStatus =>
-    overlay.get(node.graph_ref) ?? asNodeStatus(node.status) ?? "not_started"
+  const status = (node: MapNode): NodeStatus => overlay.get(node.graph_ref) ?? asNodeStatus(node.status) ?? "not_started"
 
   const statusMatchedEndpoints = new Set<string>()
   if (filters.statusFilter !== "all") {
@@ -281,12 +255,7 @@ export function computeVisibleCounts(
   const visible = new Set(
     data.nodes
       .filter((n) => filters.laneFilter === "all" || n.lane === filters.laneFilter)
-      .filter(
-        (n) =>
-          filters.statusFilter === "all" ||
-          status(n) === filters.statusFilter ||
-          statusMatchedEndpoints.has(n.id)
-      )
+      .filter((n) => filters.statusFilter === "all" || status(n) === filters.statusFilter || statusMatchedEndpoints.has(n.id))
       .filter((n) => filters.scopeFilter === "all" || n.scope === filters.scopeFilter)
       .filter((n) => nodeMatchesQuery(n, filters.query))
       .map((n) => n.id)
@@ -320,9 +289,7 @@ export function buildEdgeCounts(edges: MapEdge[]): Map<string, number> {
   return counts
 }
 
-export function buildIssuesByGraphRef(
-  issues: DevelopmentIssue[] | undefined
-): Map<string, DevelopmentIssue[]> {
+export function buildIssuesByGraphRef(issues: DevelopmentIssue[] | undefined): Map<string, DevelopmentIssue[]> {
   const byRef = new Map<string, DevelopmentIssue[]>()
   for (const issue of issues ?? []) {
     for (const ref of issue.graph_refs ?? []) {
@@ -334,9 +301,7 @@ export function buildIssuesByGraphRef(
   return byRef
 }
 
-export function buildProofsByIssue(
-  proofs: IssueProofsView[] | undefined
-): Map<string, ProofView[]> {
+export function buildProofsByIssue(proofs: IssueProofsView[] | undefined): Map<string, ProofView[]> {
   const byIssue = new Map<string, ProofView[]>()
   for (const entry of proofs ?? []) {
     if (!entry?.issue_id || !Array.isArray(entry.proofs) || entry.proofs.length === 0) continue
@@ -345,9 +310,7 @@ export function buildProofsByIssue(
   return byIssue
 }
 
-export function buildActiveGraphRefs(
-  activeItems: ActiveItem[] | undefined
-): Set<string> {
+export function buildActiveGraphRefs(activeItems: ActiveItem[] | undefined): Set<string> {
   const refs = new Set<string>()
   for (const item of activeItems ?? []) {
     for (const ref of item.graph_refs ?? []) refs.add(ref)
@@ -355,9 +318,7 @@ export function buildActiveGraphRefs(
   return refs
 }
 
-export function buildGraphStatesByRef(
-  states: GraphItemState[] | undefined
-): Map<string, GraphItemState> {
+export function buildGraphStatesByRef(states: GraphItemState[] | undefined): Map<string, GraphItemState> {
   const byRef = new Map<string, GraphItemState>()
   for (const state of states ?? []) {
     if (state.graph_ref) byRef.set(state.graph_ref, state)
@@ -365,31 +326,20 @@ export function buildGraphStatesByRef(
   return byRef
 }
 
-export function issueDisplayStatus(
-  issue: DevelopmentIssue,
-  development: DevelopmentBlock | undefined
-): string {
-  const active = (development?.active_items ?? []).find(
-    (item) => item.issue_id === issue.id
-  )
+export function issueDisplayStatus(issue: DevelopmentIssue, development: DevelopmentBlock | undefined): string {
+  const active = (development?.active_items ?? []).find((item) => item.issue_id === issue.id)
   if (active?.state) return active.state
   const statesByRef = buildGraphStatesByRef(development?.graph_item_states)
-  const statuses = (issue.graph_refs ?? []).map(
-    (ref) => statesByRef.get(ref)?.status ?? "not_started"
-  )
+  const statuses = (issue.graph_refs ?? []).map((ref) => statesByRef.get(ref)?.status ?? "not_started")
   if (statuses.includes("blocked")) return "blocked"
   if (statuses.includes("in_progress")) return "in_progress"
   if (statuses.includes("reviewing")) return "reviewing"
-  if (statuses.length > 0 && statuses.every((s) => s === "verified"))
-    return "verified"
+  if (statuses.length > 0 && statuses.every((s) => s === "verified")) return "verified"
   if (statuses.includes("implemented")) return "implemented"
   return "not_started"
 }
 
-export function issueTranscriptRefs(
-  issue: DevelopmentIssue,
-  development: DevelopmentBlock | undefined
-): string[] {
+export function issueTranscriptRefs(issue: DevelopmentIssue, development: DevelopmentBlock | undefined): string[] {
   const refs = new Set<string>()
   const statesByRef = buildGraphStatesByRef(development?.graph_item_states)
   for (const ref of issue.graph_refs ?? []) {
@@ -403,9 +353,7 @@ export function issueTranscriptRefs(
   return [...refs].filter((ref) => ref.includes(`/${issue.id}/`))
 }
 
-export function formatLineCoverage(
-  summary: CoverageSummary | undefined
-): string {
+export function formatLineCoverage(summary: CoverageSummary | undefined): string {
   const total = summary?.total_doc_lines ?? 0
   if (!summary || total === 0) return "0%"
   return `${(((summary.issue_linked_doc_lines ?? 0) / total) * 100).toFixed(1)}%`

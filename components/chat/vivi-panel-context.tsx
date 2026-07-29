@@ -1,12 +1,6 @@
 "use client"
 
-import {
-  createContext,
-  useCallback,
-  useContext,
-  useMemo,
-  type ReactNode,
-} from "react"
+import { createContext, useCallback, useContext, useMemo, type ReactNode } from "react"
 
 import { usePersistedBoolean } from "@/hooks/use-persisted-boolean"
 
@@ -33,11 +27,7 @@ export function ViviPanelProvider({ children }: { children: ReactNode }) {
     [open, openPanel, closePanel, togglePanel]
   )
 
-  return (
-    <ViviPanelContext.Provider value={value}>
-      {children}
-    </ViviPanelContext.Provider>
-  )
+  return <ViviPanelContext.Provider value={value}>{children}</ViviPanelContext.Provider>
 }
 
 export function useViviPanel(): ViviPanelContextValue {

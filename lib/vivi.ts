@@ -1,22 +1,20 @@
 import { execFileSync } from "node:child_process"
-import {
-  createHash,
-  randomUUID,
-} from "node:crypto"
-import {
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  readdirSync,
-  renameSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs"
+import { createHash, randomUUID } from "node:crypto"
+import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs"
 import path from "node:path"
 
 import { countForm } from "@/lib/count-form"
 import { readFencedBlock } from "@/lib/fenced-block"
-import { ControlError, decideCr, getExtractionStatus, getFactoryRoot, isRunActive, readSkillsReport, startSkillsInstall, type Spawner } from "@/lib/control"
+import {
+  ControlError,
+  decideCr,
+  getExtractionStatus,
+  getFactoryRoot,
+  isRunActive,
+  readSkillsReport,
+  startSkillsInstall,
+  type Spawner,
+} from "@/lib/control"
 import { importIntoGoverned, UPLOADS_DIR, type BatchResult, type ManifestFile, type RawEntry, type RejectedFile } from "@/lib/import-docs"
 import type { SecretFileFinding } from "@/lib/secret-scan"
 import { languageDisplayName } from "@/lib/language"
@@ -29,13 +27,7 @@ import { isCanonicalFrozen, type BatchCycleBinding } from "@/lib/spec-cycle"
 import { detectSpecKind } from "@/lib/spec-kind"
 import { readSettings } from "@/lib/settings-store"
 import { getTargetRoot } from "@/lib/target"
-import {
-  executeViviActions,
-  parseActionDirective,
-  renderActionResults,
-  stripActionFence,
-  type ViviActionResult,
-} from "@/lib/vivi-actions"
+import { executeViviActions, parseActionDirective, renderActionResults, stripActionFence, type ViviActionResult } from "@/lib/vivi-actions"
 import {
   ANSWER_SEPARATOR,
   MAX_OTHER_ANSWER_LENGTH,
@@ -53,10 +45,7 @@ const VIVI_TURN_SCRIPT = "vivi-turn.ts"
 
 const CHANGE_CONTROL_SCRIPT = "change-control.ts"
 
-const CANONICAL_DIRS = [
-  path.join(".vivicy", "canonical"),
-  path.join(".vivicy", "development", "spikes"),
-] as const
+const CANONICAL_DIRS = [path.join(".vivicy", "canonical"), path.join(".vivicy", "development", "spikes")] as const
 
 const CHANGE_REQUESTS_DIR = path.join(".vivicy", "change-requests")
 const POST_FREEZE_DIRS = [CHANGE_REQUESTS_DIR] as const
@@ -96,10 +85,7 @@ export interface ViviCardDecision {
 }
 
 // A pending claim names its OWNER, because the claim outlives nothing else: a process killed mid-read leaves it on disk, and only the pid tells a later reader whether the read is in flight or orphaned.
-export type ViviImportRead =
-  | { status: "pending"; pid: number }
-  | { status: "done" }
-  | { status: "interrupted" }
+export type ViviImportRead = { status: "pending"; pid: number } | { status: "done" } | { status: "interrupted" }
 
 // Rides on the Vivi turn that acknowledges a batch: the transcript is the ledger for the reading turn that batch owes — `read` is both the claim (exactly one live reader per batch) and the in-flight flag the UI reads to know a reply is still coming.
 export interface ViviImportEvent {
@@ -188,9 +174,7 @@ export function seedViviWelcome(batch?: BatchResult | null): string {
   const sessionId = randomUUID()
   appendTurn(
     sessionId,
-    batch
-      ? importTurn(batch, { welcome: true })
-      : { role: "vivi", text: VIVI_WELCOME_MESSAGE, ts: new Date().toISOString() }
+    batch ? importTurn(batch, { welcome: true }) : { role: "vivi", text: VIVI_WELCOME_MESSAGE, ts: new Date().toISOString() }
   )
   return sessionId
 }
@@ -289,11 +273,7 @@ export interface CardDecisionResult {
   reply?: ViviReply
 }
 
-function findCardAction(
-  sessionId: string,
-  cardId: string,
-  actionId: string
-): { turn: ViviTurn; action: ViviCardAction } {
+function findCardAction(sessionId: string, cardId: string, actionId: string): { turn: ViviTurn; action: ViviCardAction } {
   const turn = readTranscript(sessionId).find((t) => t.role === "card" && t.card?.id === cardId)
   if (!turn) {
     throw new ControlError(`unknown card "${cardId}" in session ${sessionId}`, "missing_target")
@@ -361,9 +341,7 @@ export async function decideCardAction(
       return { ok: true, summary: "dismissed", decided: decidedAs("dismissed") }
     }
     case "control": {
-      const [result] = await executeViviActions(spawner, [
-        { tool: action.action.tool, args: action.action.args ?? {} },
-      ])
+      const [result] = await executeViviActions(spawner, [{ tool: action.action.tool, args: action.action.args ?? {} }])
       appendTurn(input.sessionId, {
         role: "action",
         text: renderActionResults([result]),
@@ -413,15 +391,8 @@ function findQuestionStack(turns: ViviTurn[], stackId: string): ViviQuestionStac
 }
 
 function optionLabel(question: ViviQuestion, optionIndex: number | undefined): string {
-  if (
-    typeof optionIndex !== "number" ||
-    !Number.isInteger(optionIndex) ||
-    optionIndex < 0 ||
-    optionIndex >= question.options.length
-  ) {
-    return failAnswer(
-      `answer question "${question.id}" with one of its ${question.options.length} options, or with your own words`
-    )
+  if (typeof optionIndex !== "number" || !Number.isInteger(optionIndex) || optionIndex < 0 || optionIndex >= question.options.length) {
+    return failAnswer(`answer question "${question.id}" with one of its ${question.options.length} options, or with your own words`)
   }
   return question.options[optionIndex].label
 }
@@ -563,11 +534,7 @@ function importDecisionSummary(count: number, skipped: number, language: string)
 }
 
 // The one import+ack+read primitive both the welcome card and the standing composer share, so neither path can fork the sequence or forget the read.
-async function importAndAcknowledge(
-  spawner: Spawner,
-  sessionId: string,
-  entries: RawEntry[]
-): Promise<BatchResult> {
+async function importAndAcknowledge(spawner: Spawner, sessionId: string, entries: RawEntry[]): Promise<BatchResult> {
   const targetRoot = resolveTarget()
   const batch = await importIntoGoverned({ root: targetRoot, entries })
   appendTurn(sessionId, importTurn(batch, { welcome: false }))
@@ -607,21 +574,14 @@ function stampImportRead(sessionId: string, batchId: string, read: ViviImportRea
 }
 
 // Importing documents IS the request: the batch's own reading turn is dispatched here, server-side, exactly once per CLAIM. Detached on purpose (the leg takes minutes; the upload response must not wait) and TOTAL — nothing it does can reject, since both call sites fire it without awaiting, and a read that could not run says so in the thread instead of leaving the batch silently pending.
-export async function dispatchImportRead(
-  spawner: Spawner,
-  input: { sessionId: string; batch: BatchResult }
-): Promise<boolean> {
+export async function dispatchImportRead(spawner: Spawner, input: { sessionId: string; batch: BatchResult }): Promise<boolean> {
   return runImportRead(spawner, input.sessionId, {
     batchId: input.batch.batchId,
     files: input.batch.accepted.map((f) => f.path),
   })
 }
 
-async function runImportRead(
-  spawner: Spawner,
-  sessionId: string,
-  imported: { batchId: string; files: string[] }
-): Promise<boolean> {
+async function runImportRead(spawner: Spawner, sessionId: string, imported: { batchId: string; files: string[] }): Promise<boolean> {
   let claimed = false
   try {
     if (stampImportRead(sessionId, imported.batchId, { status: "pending", pid: process.pid }) === null) {
@@ -683,10 +643,7 @@ export async function decideCardImport(
   assertSessionId(input.sessionId)
   const { turn, action } = findCardAction(input.sessionId, input.cardId, input.actionId)
   if (action.action.kind !== "import_docs") {
-    throw new ControlError(
-      `action "${input.actionId}" on card "${input.cardId}" is not a document import`,
-      "missing_target"
-    )
+    throw new ControlError(`action "${input.actionId}" on card "${input.cardId}" is not a document import`, "missing_target")
   }
   if (turn.decided) return alreadyDecidedResult(turn.decided)
 
@@ -760,11 +717,15 @@ function renderTranscript(turns: ViviTurn[]): string {
   const lastIdx = turns.length - 1
   const lines = turns.map((turn, i) => {
     const who =
-      turn.role === "user" ? "User"
-      : turn.role === "action" ? "Tool results"
-      : turn.role === "card" ? "Choice card"
-      : turn.role === "questions" ? "Question cards"
-      : "Vivi"
+      turn.role === "user"
+        ? "User"
+        : turn.role === "action"
+          ? "Tool results"
+          : turn.role === "card"
+            ? "Choice card"
+            : turn.role === "questions"
+              ? "Question cards"
+              : "Vivi"
     const cardState =
       turn.role === "card"
         ? turn.decided
@@ -778,10 +739,7 @@ function renderTranscript(turns: ViviTurn[]): string {
         : turn.answered !== undefined
           ? turn.text
           : (i === lastIdx ? turn.text : firstLine(turn.text, 200)) + cardState
-    const wrote =
-      turn.role === "vivi" && turn.wrote && turn.wrote.length > 0
-        ? ` [wrote: ${turn.wrote.join(", ")}]`
-        : ""
+    const wrote = turn.role === "vivi" && turn.wrote && turn.wrote.length > 0 ? ` [wrote: ${turn.wrote.join(", ")}]` : ""
     return `${who}: ${body}${wrote}`
   })
   return lines.join("\n\n")
@@ -794,20 +752,14 @@ function firstLine(text: string, max: number): string {
 
 function summarizeVivicyState(targetRoot: string, frozen: boolean): string {
   const sections = CANONICAL_DIRS.map((rel) => {
-    const files = listMarkdown(path.join(targetRoot, rel)).map((abs) =>
-      path.relative(targetRoot, abs)
-    )
+    const files = listMarkdown(path.join(targetRoot, rel)).map((abs) => path.relative(targetRoot, abs))
     const label = rel.includes("spikes") ? "Spikes" : "Canonical docs"
     if (files.length === 0) return `${label}: (none yet)`
     return `${label}:\n${files.map((f) => `  - ${f}`).join("\n")}`
   })
   if (frozen) {
     const crs = listChangeRequestFiles(targetRoot)
-    sections.push(
-      crs.length === 0
-        ? "Change Requests: (none yet)"
-        : `Change Requests:\n${crs.map((f) => `  - ${f}`).join("\n")}`
-    )
+    sections.push(crs.length === 0 ? "Change Requests: (none yet)" : `Change Requests:\n${crs.map((f) => `  - ${f}`).join("\n")}`)
   }
   return sections.join("\n\n")
 }
@@ -933,8 +885,7 @@ function composePrompt(
   const state = summarizeVivicyState(targetRoot, frozen)
   const continuation = turns.at(-1)?.role === "action"
   const phaseLine = frozen
-    ? `spec_frozen: true — the target already has a FROZEN canonical baseline, so the ` +
-      `canonical spec is LOCKED. `
+    ? `spec_frozen: true — the target already has a FROZEN canonical baseline, so the ` + `canonical spec is LOCKED. `
     : `spec_frozen: false — `
   const task = continuation
     ? `${phaseLine}The tool results of the actions you just requested are in the ` +
@@ -945,15 +896,15 @@ function composePrompt(
     : origin.kind === "import_read"
       ? `${phaseLine}${importReadTask(origin.imported, frozen, crId)}`
       : origin.kind === "question_answers"
-      ? `${phaseLine}${questionAnswersTask(origin.count, frozen, crId)}`
-      : frozen
-      ? `${phaseLine}Respond to the user's latest message above. If it asks ` +
-        `for a change to what the product does, ${crDraftOrder(crId)}. ` +
-        `If the message needs no product change, just answer it and write nothing. Then ` +
-        `tell the user exactly what you did.\n`
-      : `${phaseLine}Respond to the user's latest message above. Ask your next ` +
-        `focused batch of questions and, when an area is settled, ${CANONICAL_WRITE_ORDER}. ` +
-        `Then tell the user exactly which files you wrote.\n`
+        ? `${phaseLine}${questionAnswersTask(origin.count, frozen, crId)}`
+        : frozen
+          ? `${phaseLine}Respond to the user's latest message above. If it asks ` +
+            `for a change to what the product does, ${crDraftOrder(crId)}. ` +
+            `If the message needs no product change, just answer it and write nothing. Then ` +
+            `tell the user exactly what you did.\n`
+          : `${phaseLine}Respond to the user's latest message above. Ask your next ` +
+            `focused batch of questions and, when an area is settled, ${CANONICAL_WRITE_ORDER}. ` +
+            `Then tell the user exactly which files you wrote.\n`
   return (
     `${persona}\n\n` +
     `---\n\n## Conversation so far\n\n${transcript}\n\n` +
@@ -1041,11 +992,7 @@ function diffVivicy(targetRoot: string, before: Snapshot, allowedDirs: readonly 
   return { allowedWrites: allowedWrites.sort(), violations: violations.sort() }
 }
 
-function restoreSnapshot(
-  targetRoot: string,
-  diff: DiffResult,
-  bytesBefore: Map<string, Buffer>
-): void {
+function restoreSnapshot(targetRoot: string, diff: DiffResult, bytesBefore: Map<string, Buffer>): void {
   for (const rel of [...diff.allowedWrites, ...diff.violations]) {
     const prior = bytesBefore.get(rel)
     const abs = path.join(targetRoot, rel)
@@ -1202,10 +1149,7 @@ function cleanupCodeWrites(targetRoot: string, violations: string[]): string[] {
 function resolveTarget(): string {
   const targetRoot = getTargetRoot()
   if (targetRoot === null) {
-    throw new ControlError(
-      "no project selected — choose a target project before talking to Vivi",
-      "missing_target"
-    )
+    throw new ControlError("no project selected — choose a target project before talking to Vivi", "missing_target")
   }
   if (!existsSync(targetRoot)) {
     throw new ControlError(`target root does not exist: ${targetRoot}`, "missing_target")
@@ -1214,9 +1158,7 @@ function resolveTarget(): string {
 }
 
 type TurnOrigin =
-  | { kind: "user"; message: string }
-  | { kind: "import_read"; imported: ViviImportEvent }
-  | { kind: "question_answers"; count: number }
+  { kind: "user"; message: string } | { kind: "import_read"; imported: ViviImportEvent } | { kind: "question_answers"; count: number }
 
 type TurnQueue = Map<string, Promise<void>>
 
@@ -1254,10 +1196,13 @@ async function withTargetTurnLock<T>(targetRoot: string, run: () => Promise<T>):
   }
 }
 
-export async function runViviTurn(spawner: Spawner, input: {
-  sessionId?: string
-  message: string
-}): Promise<ViviReply> {
+export async function runViviTurn(
+  spawner: Spawner,
+  input: {
+    sessionId?: string
+    message: string
+  }
+): Promise<ViviReply> {
   const message = typeof input.message === "string" ? input.message.trim() : ""
   if (message.length === 0) {
     throw new ControlError("empty message — write something for Vivi to work with", "missing_target")
@@ -1275,9 +1220,7 @@ async function runTurn(spawner: Spawner, sessionId: string, origin: TurnOrigin):
   if (origin.kind === "user") {
     appendTurn(sessionId, { role: "user", text: origin.message, ts: new Date().toISOString() })
   }
-  return withTargetTurnLock(targetRoot, () =>
-    runTurnLocked(spawner, { sessionId, origin, targetRoot, factoryRoot, command })
-  )
+  return withTargetTurnLock(targetRoot, () => runTurnLocked(spawner, { sessionId, origin, targetRoot, factoryRoot, command }))
 }
 
 async function runTurnLocked(
@@ -1326,11 +1269,18 @@ async function runTurnLocked(
           unrestorable.length > 0
             ? `; WARNING: could not restore your pre-turn bytes for: ${unrestorable.join(", ")} — check them manually`
             : " (your in-progress bytes were restored)"
-        return rejectTurn(sessionId, reply, targetRoot, rollback, bytesBefore,
+        return rejectTurn(
+          sessionId,
+          reply,
+          targetRoot,
+          rollback,
+          bytesBefore,
           withExecutedActionsNote(
             `rejected: Vivi modified your uncommitted work in progress (${tampered.join(", ")}) — code writes are forbidden — the whole turn was rolled back${restoreNote}`,
             allActions
-          ), allActions)
+          ),
+          allActions
+        )
       }
 
       const codeWrites = detectCodeWrites(targetRoot, preDirty)
@@ -1340,15 +1290,19 @@ async function runTurnLocked(
           allowedWrites: [...new Set([...wrote, ...diff.allowedWrites])].sort(),
           violations: diff.violations,
         }
-        const cleanupNote =
-          cleanupFailed.length > 0
-            ? `; WARNING: could not clean up: ${cleanupFailed.join(", ")} — remove manually`
-            : ""
-        return rejectTurn(sessionId, reply, targetRoot, rollback, bytesBefore,
+        const cleanupNote = cleanupFailed.length > 0 ? `; WARNING: could not clean up: ${cleanupFailed.join(", ")} — remove manually` : ""
+        return rejectTurn(
+          sessionId,
+          reply,
+          targetRoot,
+          rollback,
+          bytesBefore,
           withExecutedActionsNote(
             `rejected: Vivi wrote outside .vivicy — code writes are forbidden (${codeWrites.join(", ")}) — the whole turn was rolled back${cleanupNote}`,
             allActions
-          ), allActions)
+          ),
+          allActions
+        )
       }
     }
 
@@ -1357,11 +1311,18 @@ async function runTurnLocked(
         allowedWrites: [...new Set([...wrote, ...diff.allowedWrites])].sort(),
         violations: diff.violations,
       }
-      return rejectTurn(sessionId, reply, targetRoot, rollback, bytesBefore,
+      return rejectTurn(
+        sessionId,
+        reply,
+        targetRoot,
+        rollback,
+        bytesBefore,
         withExecutedActionsNote(
           `rejected: Vivi wrote outside its allowlist (${diff.violations.join(", ")}) — the whole turn was rolled back`,
           allActions
-        ), allActions)
+        ),
+        allActions
+      )
     }
 
     if ((frozen || isCanonicalFrozen(targetRoot)) && diff.allowedWrites.length > 0) {
@@ -1371,11 +1332,18 @@ async function runTurnLocked(
           allowedWrites: [...new Set([...wrote, ...diff.allowedWrites])].sort(),
           violations: diff.violations,
         }
-        return rejectTurn(sessionId, reply, targetRoot, rollback, bytesBefore,
+        return rejectTurn(
+          sessionId,
+          reply,
+          targetRoot,
+          rollback,
+          bytesBefore,
           withExecutedActionsNote(
             `rejected: Vivi's Change Request did not pass change-control (${invalid}) — the whole turn was rolled back`,
             allActions
-          ), allActions)
+          ),
+          allActions
+        )
       }
     }
 
@@ -1554,12 +1522,7 @@ function takeQuestions(reply: string): SpokenReply {
 }
 
 // The stack rides its OWN turn so the pile is an object in the thread, not prose: its id is server-minted (the fence never names it), and a reply that was the fence and nothing else leaves no bubble above the pile — unless she also wrote files, which the turn still speaks through its attachments.
-function appendViviReply(
-  sessionId: string,
-  text: string,
-  wrote: string[],
-  questions: ViviQuestion[] | null
-): void {
+function appendViviReply(sessionId: string, text: string, wrote: string[], questions: ViviQuestion[] | null): void {
   if (text.trim().length > 0 || wrote.length > 0 || questions === null) {
     appendTurn(sessionId, { role: "vivi", text, ts: new Date().toISOString(), wrote })
   }
@@ -1586,11 +1549,7 @@ function rejectTurn(
   return { sessionId, reply, wrote: [], rejected, actions: actions.length > 0 ? actions : undefined }
 }
 
-async function validateChangeControlSafely(
-  spawner: Spawner,
-  factoryRoot: string,
-  targetRoot: string
-): Promise<string | null> {
+async function validateChangeControlSafely(spawner: Spawner, factoryRoot: string, targetRoot: string): Promise<string | null> {
   const script = path.join(factoryRoot, CHANGE_CONTROL_SCRIPT)
   if (!existsSync(script)) return `${CHANGE_CONTROL_SCRIPT} not found under the factory`
   try {
@@ -1611,10 +1570,7 @@ async function validateChangeControlSafely(
 function resolveViviTurnScript(factoryRoot: string): string {
   const abs = path.join(factoryRoot, VIVI_TURN_SCRIPT)
   if (!existsSync(abs)) {
-    throw new ControlError(
-      `factory script not found: ${VIVI_TURN_SCRIPT} (looked under ${factoryRoot})`,
-      "missing_script"
-    )
+    throw new ControlError(`factory script not found: ${VIVI_TURN_SCRIPT} (looked under ${factoryRoot})`, "missing_script")
   }
   return abs
 }
@@ -1627,7 +1583,5 @@ function readReply(replyFile: string, stdout: string): string {
     } catch {}
   }
   const fallback = stdout.trim()
-  return fallback.length > 0
-    ? fallback
-    : "Vivi could not produce a reply this turn (the agent leg wrote nothing). Try again."
+  return fallback.length > 0 ? fallback : "Vivi could not produce a reply this turn (the agent leg wrote nothing). Try again."
 }

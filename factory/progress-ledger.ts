@@ -1,22 +1,12 @@
-import {
-  closeSync,
-  existsSync,
-  mkdirSync,
-  openSync,
-  readFileSync,
-  statSync,
-  type Stats,
-  unlinkSync,
-  writeSync,
-} from "node:fs";
-import { dirname, isAbsolute, relative, resolve } from "node:path";
-import { resolveTargetRoot } from "./target-root.ts";
-import { atomicWriteJson } from "./atomic-write.ts";
-import { sleepSync } from "./sleep-sync.ts";
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, statSync, type Stats, unlinkSync, writeSync } from "node:fs"
+import { dirname, isAbsolute, relative, resolve } from "node:path"
+import { resolveTargetRoot } from "./target-root.ts"
+import { atomicWriteJson } from "./atomic-write.ts"
+import { sleepSync } from "./sleep-sync.ts"
 
-const repoRoot = resolveTargetRoot();
-const issueIndexPath = ".vivicy/development/issue-index.json";
-const progressLedgerPath = ".vivicy/development/progress-ledger.json";
+const repoRoot = resolveTargetRoot()
+const issueIndexPath = ".vivicy/development/issue-index.json"
+const progressLedgerPath = ".vivicy/development/progress-ledger.json"
 
 export const progressEventTypes = [
   "issue_claimed",
@@ -42,15 +32,15 @@ export const progressEventTypes = [
   "post_merge_gate_failed",
   "merge_conflict_resolved",
   "merge_conflict_unresolved",
-] as const;
+] as const
 
-export type ProgressEventType = (typeof progressEventTypes)[number];
+export type ProgressEventType = (typeof progressEventTypes)[number]
 
-export const progressRoles = ["implementer", "reviewer", "spike_prover", "spike_verifier", "readiness-checker", "merge-resolver"] as const;
+export const progressRoles = ["implementer", "reviewer", "spike_prover", "spike_verifier", "readiness-checker", "merge-resolver"] as const
 
-export type ProgressRole = (typeof progressRoles)[number];
+export type ProgressRole = (typeof progressRoles)[number]
 
-export type ActiveItemState = "working" | "verifying" | "reviewing" | "blocked";
+export type ActiveItemState = "working" | "verifying" | "reviewing" | "blocked"
 
 const activeStateByEvent: Partial<Record<ProgressEventType, ActiveItemState>> = {
   gate_failed: "verifying",
@@ -71,9 +61,9 @@ const activeStateByEvent: Partial<Record<ProgressEventType, ActiveItemState>> = 
   post_merge_gate_failed: "blocked",
   merge_conflict_unresolved: "blocked",
   merge_conflict_resolved: "working",
-};
+}
 
-export type GraphItemStatus = "in_progress" | "blocked" | "reviewing" | "implemented" | "verified";
+export type GraphItemStatus = "in_progress" | "blocked" | "reviewing" | "implemented" | "verified"
 
 // Rank only moves forward (>=); blocked shares in_progress's rank so it can flip an in-progress item but never downgrade a verified one.
 const graphStatusRank: Record<GraphItemStatus, number> = {
@@ -82,202 +72,202 @@ const graphStatusRank: Record<GraphItemStatus, number> = {
   reviewing: 2,
   implemented: 3,
   verified: 4,
-};
+}
 
 // Hand-rolled O_EXCL lockfile: deliberately avoids adding a dependency.
-const LOCK_STALE_MS = 30_000;
-const LOCK_ACQUIRE_TIMEOUT_MS = 10_000;
-const LOCK_RETRY_MS = 25;
-const CAS_MAX_ATTEMPTS = 50;
+const LOCK_STALE_MS = 30_000
+const LOCK_ACQUIRE_TIMEOUT_MS = 10_000
+const LOCK_RETRY_MS = 25
+const CAS_MAX_ATTEMPTS = 50
 
 export interface ProgressEvent {
-  event_type: ProgressEventType;
-  issue_id: string;
-  actor: string;
-  session_ref: string;
-  graph_refs: string[];
-  active_item_id?: string;
-  evidence_refs?: string[];
-  role?: ProgressRole;
-  timestamp?: string;
-  transcript_refs?: string[];
-  worktree?: string;
+  event_type: ProgressEventType
+  issue_id: string
+  actor: string
+  session_ref: string
+  graph_refs: string[]
+  active_item_id?: string
+  evidence_refs?: string[]
+  role?: ProgressRole
+  timestamp?: string
+  transcript_refs?: string[]
+  worktree?: string
 }
 
 export interface ProgressIssue {
-  id: string;
-  graph_refs: string[];
-  verification_gate_ids?: string[];
+  id: string
+  graph_refs: string[]
+  verification_gate_ids?: string[]
 }
 
 export interface ProgressIssueIndex {
-  issues: ProgressIssue[];
-  verification_evidence_ref_grammar: string;
+  issues: ProgressIssue[]
+  verification_evidence_ref_grammar: string
 }
 
 // Written by the dev-loop gate runner (a separate module).
 export interface GateRunRecord {
-  gate_id: string;
-  issue_id: string;
-  command: string;
-  exit_code: number;
-  status: "pass" | "fail";
-  finished_at: string;
-  baseline_id: string;
+  gate_id: string
+  issue_id: string
+  command: string
+  exit_code: number
+  status: "pass" | "fail"
+  finished_at: string
+  baseline_id: string
 }
 
 export interface GraphItemState {
-  graph_ref: string;
-  status: GraphItemStatus;
-  issue_states: Record<string, GraphItemStatus>;
-  issue_ids: string[];
-  evidence_refs: string[];
-  transcript_refs?: string[];
-  updated_at: string | null;
+  graph_ref: string
+  status: GraphItemStatus
+  issue_states: Record<string, GraphItemStatus>
+  issue_ids: string[]
+  evidence_refs: string[]
+  transcript_refs?: string[]
+  updated_at: string | null
 }
 
 export interface ActiveItem {
-  id: string;
-  actor: string;
-  issue_id: string;
-  graph_refs: string[];
-  state: ActiveItemState;
-  heartbeat_at: string;
-  started_at: string;
-  role?: ProgressRole;
-  transcript_refs?: string[];
-  session_ref?: string;
-  worktree?: string;
+  id: string
+  actor: string
+  issue_id: string
+  graph_refs: string[]
+  state: ActiveItemState
+  heartbeat_at: string
+  started_at: string
+  role?: ProgressRole
+  transcript_refs?: string[]
+  session_ref?: string
+  worktree?: string
 }
 
 export interface ProgressLedger {
-  schema_version: number;
-  revision: number;
-  updated_at: string | null;
-  graph_item_states: GraphItemState[];
-  active_items: ActiveItem[];
+  schema_version: number
+  revision: number
+  updated_at: string | null
+  graph_item_states: GraphItemState[]
+  active_items: ActiveItem[]
   // Deliberately open: unknown fields (e.g. baseline identity data) are written by other code and pass through untouched.
-  [key: string]: unknown;
+  [key: string]: unknown
 }
 
 export interface ProgressLedgerPaths {
-  issueIndexPath?: string;
-  progressLedgerPath?: string;
+  issueIndexPath?: string
+  progressLedgerPath?: string
 }
 
 export function recordProgressEvent(event: ProgressEvent, paths: ProgressLedgerPaths = {}): ProgressLedger {
-  const issueIndexPathResolved = paths.issueIndexPath ?? issueIndexPath;
-  const ledgerRelPath = paths.progressLedgerPath ?? progressLedgerPath;
-  const issueIndex = readJson<ProgressIssueIndex>(issueIndexPathResolved, "issue index");
-  const absoluteLedgerPath = resolveRepoPath(ledgerRelPath);
-  const lockPath = `${absoluteLedgerPath}.lock`;
+  const issueIndexPathResolved = paths.issueIndexPath ?? issueIndexPath
+  const ledgerRelPath = paths.progressLedgerPath ?? progressLedgerPath
+  const issueIndex = readJson<ProgressIssueIndex>(issueIndexPathResolved, "issue index")
+  const absoluteLedgerPath = resolveRepoPath(ledgerRelPath)
+  const lockPath = `${absoluteLedgerPath}.lock`
 
-  mkdirSync(dirname(absoluteLedgerPath), { recursive: true });
+  mkdirSync(dirname(absoluteLedgerPath), { recursive: true })
 
-  const lock = acquireLock(lockPath);
+  const lock = acquireLock(lockPath)
   try {
     // Lock already serializes writers; CAS additionally guards against a lock force-stolen mid-write.
     for (let attempt = 0; attempt < CAS_MAX_ATTEMPTS; attempt += 1) {
-      const baseLedger = readProgressLedger(ledgerRelPath);
-      const baseRevision = baseLedger.revision ?? 0;
-      const nextLedger = applyProgressEvent({ event, issueIndex, ledger: baseLedger });
-      nextLedger.revision = baseRevision + 1;
+      const baseLedger = readProgressLedger(ledgerRelPath)
+      const baseRevision = baseLedger.revision ?? 0
+      const nextLedger = applyProgressEvent({ event, issueIndex, ledger: baseLedger })
+      nextLedger.revision = baseRevision + 1
 
-      const currentRevision = (readProgressLedger(ledgerRelPath).revision ?? 0);
+      const currentRevision = readProgressLedger(ledgerRelPath).revision ?? 0
       if (currentRevision !== baseRevision) {
-        continue;
+        continue
       }
 
-      atomicWriteJson(absoluteLedgerPath, nextLedger);
-      return nextLedger;
+      atomicWriteJson(absoluteLedgerPath, nextLedger)
+      return nextLedger
     }
-    throw new Error("Unable to record progress event: ledger revision kept changing (compare-and-swap exhausted)");
+    throw new Error("Unable to record progress event: ledger revision kept changing (compare-and-swap exhausted)")
   } finally {
-    releaseLock(lock);
+    releaseLock(lock)
   }
 }
 
 interface LockHandle {
-  lockPath: string;
+  lockPath: string
 }
 
 interface LockOwner {
-  pid?: number;
-  acquired_at?: string;
-  epoch_ms?: number;
+  pid?: number
+  acquired_at?: string
+  epoch_ms?: number
 }
 
 function acquireLock(lockPath: string): LockHandle {
-  const deadline = Date.now() + LOCK_ACQUIRE_TIMEOUT_MS;
+  const deadline = Date.now() + LOCK_ACQUIRE_TIMEOUT_MS
   for (;;) {
     try {
-      const fd = openSync(lockPath, "wx");
-      writeSync(fd, JSON.stringify({ pid: process.pid, acquired_at: new Date().toISOString(), epoch_ms: Date.now() }));
-      closeSync(fd);
-      return { lockPath };
+      const fd = openSync(lockPath, "wx")
+      writeSync(fd, JSON.stringify({ pid: process.pid, acquired_at: new Date().toISOString(), epoch_ms: Date.now() }))
+      closeSync(fd)
+      return { lockPath }
     } catch (error) {
       if (error && (error as NodeJS.ErrnoException).code === "EEXIST") {
         if (reclaimStaleLock(lockPath)) {
-          continue;
+          continue
         }
         if (Date.now() >= deadline) {
-          throw new Error(`Timed out acquiring progress ledger lock: ${lockPath}`);
+          throw new Error(`Timed out acquiring progress ledger lock: ${lockPath}`)
         }
-        sleepSync(LOCK_RETRY_MS);
-        continue;
+        sleepSync(LOCK_RETRY_MS)
+        continue
       }
-      throw error;
+      throw error
     }
   }
 }
 
 function releaseLock(lock: LockHandle): void {
   try {
-    unlinkSync(lock.lockPath);
+    unlinkSync(lock.lockPath)
   } catch {
     // Lock already removed (e.g. reclaimed as stale by another writer); ignore.
   }
 }
 
 function reclaimStaleLock(lockPath: string): boolean {
-  let stat: Stats;
+  let stat: Stats
   try {
-    stat = statSync(lockPath);
+    stat = statSync(lockPath)
   } catch {
     // Lock vanished between EEXIST and stat — treat as reclaimable, retry.
-    return true;
+    return true
   }
-  let owner: LockOwner | null = null;
+  let owner: LockOwner | null = null
   try {
-    owner = JSON.parse(readFileSync(lockPath, "utf8")) as LockOwner;
+    owner = JSON.parse(readFileSync(lockPath, "utf8")) as LockOwner
   } catch {
-    owner = null;
+    owner = null
   }
-  const ageMs = Date.now() - stat.mtimeMs;
-  const ownerEpoch = owner && typeof owner.epoch_ms === "number" ? owner.epoch_ms : null;
-  const effectiveAgeMs = ownerEpoch != null ? Date.now() - ownerEpoch : ageMs;
-  const tooOld = effectiveAgeMs > LOCK_STALE_MS;
-  const ownerDead = owner && typeof owner.pid === "number" && owner.pid !== process.pid && !isProcessAlive(owner.pid);
+  const ageMs = Date.now() - stat.mtimeMs
+  const ownerEpoch = owner && typeof owner.epoch_ms === "number" ? owner.epoch_ms : null
+  const effectiveAgeMs = ownerEpoch != null ? Date.now() - ownerEpoch : ageMs
+  const tooOld = effectiveAgeMs > LOCK_STALE_MS
+  const ownerDead = owner && typeof owner.pid === "number" && owner.pid !== process.pid && !isProcessAlive(owner.pid)
 
   if (!tooOld && !ownerDead) {
-    return false;
+    return false
   }
   try {
-    unlinkSync(lockPath);
-    return true;
+    unlinkSync(lockPath)
+    return true
   } catch {
     // Someone else reclaimed it first; retry the acquire loop anyway.
-    return true;
+    return true
   }
 }
 
 function isProcessAlive(pid: number): boolean {
   try {
-    process.kill(pid, 0);
-    return true;
+    process.kill(pid, 0)
+    return true
   } catch (error) {
     // ESRCH => no such process. EPERM => process exists but not ours (alive).
-    return (error && (error as NodeJS.ErrnoException).code === "EPERM") as boolean;
+    return (error && (error as NodeJS.ErrnoException).code === "EPERM") as boolean
   }
 }
 
@@ -286,16 +276,16 @@ export function applyProgressEvent({
   issueIndex,
   ledger,
 }: {
-  event: ProgressEvent;
-  issueIndex: ProgressIssueIndex;
-  ledger: ProgressLedger;
+  event: ProgressEvent
+  issueIndex: ProgressIssueIndex
+  ledger: ProgressLedger
 }): ProgressLedger {
-  const normalized = normalizeProgressEvent(event);
-  validateProgressEvent(normalized, issueIndex);
-  const now = normalized.timestamp;
+  const normalized = normalizeProgressEvent(event)
+  validateProgressEvent(normalized, issueIndex)
+  const now = normalized.timestamp
   // graphRefs come from the event, not the issue's full set — events declare their explicit graph focus (validated above).
-  const graphRefs = normalized.graph_refs;
-  const activeItemId = normalized.active_item_id ?? `${normalized.actor}:${normalized.session_ref}:${normalized.issue_id}`;
+  const graphRefs = normalized.graph_refs
+  const activeItemId = normalized.active_item_id ?? `${normalized.actor}:${normalized.session_ref}:${normalized.issue_id}`
   const nextLedger: ProgressLedger = {
     // Spread the ledger first: reordering would silently drop unknown fields (e.g. baseline identity data) instead of round-tripping them.
     ...ledger,
@@ -304,37 +294,47 @@ export function applyProgressEvent({
     revision: ledger.revision ?? 0,
     graph_item_states: cloneGraphStates(ledger.graph_item_states),
     active_items: [...(ledger.active_items ?? [])],
-  };
+  }
 
   if (normalized.event_type === "issue_completed" || normalized.event_type === "gate_passed") {
-    upsertGraphStates(nextLedger, graphRefs, normalized.issue_id, "verified", normalized.evidence_refs, now, { transcriptRefs: normalized.transcript_refs });
-    removeActiveItemsForIssue(nextLedger, normalized.issue_id);
-    return nextLedger;
+    upsertGraphStates(nextLedger, graphRefs, normalized.issue_id, "verified", normalized.evidence_refs, now, {
+      transcriptRefs: normalized.transcript_refs,
+    })
+    removeActiveItemsForIssue(nextLedger, normalized.issue_id)
+    return nextLedger
   }
 
   if (normalized.event_type === "issue_blocked") {
-    upsertGraphStates(nextLedger, graphRefs, normalized.issue_id, "blocked", normalized.evidence_refs, now, { transcriptRefs: normalized.transcript_refs });
-    upsertActiveItem(nextLedger, activeItemId, normalized, graphRefs, "blocked", now);
-    return nextLedger;
+    upsertGraphStates(nextLedger, graphRefs, normalized.issue_id, "blocked", normalized.evidence_refs, now, {
+      transcriptRefs: normalized.transcript_refs,
+    })
+    upsertActiveItem(nextLedger, activeItemId, normalized, graphRefs, "blocked", now)
+    return nextLedger
   }
 
   if (normalized.event_type === "issue_reopened") {
-    upsertGraphStates(nextLedger, graphRefs, normalized.issue_id, "in_progress", normalized.evidence_refs, now, { reopen: true, transcriptRefs: normalized.transcript_refs });
-    upsertActiveItem(nextLedger, activeItemId, normalized, graphRefs, "working", now);
-    return nextLedger;
+    upsertGraphStates(nextLedger, graphRefs, normalized.issue_id, "in_progress", normalized.evidence_refs, now, {
+      reopen: true,
+      transcriptRefs: normalized.transcript_refs,
+    })
+    upsertActiveItem(nextLedger, activeItemId, normalized, graphRefs, "working", now)
+    return nextLedger
   }
 
   if (normalized.event_type === "review_started" || normalized.event_type === "review_completed") {
-    const reviewStatus =
-      normalized.event_type === "review_completed" && normalized.evidence_refs.length > 0 ? "implemented" : "reviewing";
-    upsertGraphStates(nextLedger, graphRefs, normalized.issue_id, reviewStatus, normalized.evidence_refs, now, { transcriptRefs: normalized.transcript_refs });
-    upsertActiveItem(nextLedger, activeItemId, normalized, graphRefs, "reviewing", now);
-    return nextLedger;
+    const reviewStatus = normalized.event_type === "review_completed" && normalized.evidence_refs.length > 0 ? "implemented" : "reviewing"
+    upsertGraphStates(nextLedger, graphRefs, normalized.issue_id, reviewStatus, normalized.evidence_refs, now, {
+      transcriptRefs: normalized.transcript_refs,
+    })
+    upsertActiveItem(nextLedger, activeItemId, normalized, graphRefs, "reviewing", now)
+    return nextLedger
   }
 
-  upsertGraphStates(nextLedger, graphRefs, normalized.issue_id, "in_progress", normalized.evidence_refs, now, { transcriptRefs: normalized.transcript_refs });
-  upsertActiveItem(nextLedger, activeItemId, normalized, graphRefs, activeStateByEvent[normalized.event_type] ?? "working", now);
-  return nextLedger;
+  upsertGraphStates(nextLedger, graphRefs, normalized.issue_id, "in_progress", normalized.evidence_refs, now, {
+    transcriptRefs: normalized.transcript_refs,
+  })
+  upsertActiveItem(nextLedger, activeItemId, normalized, graphRefs, activeStateByEvent[normalized.event_type] ?? "working", now)
+  return nextLedger
 }
 
 export function createEmptyProgressLedger(): ProgressLedger {
@@ -344,22 +344,22 @@ export function createEmptyProgressLedger(): ProgressLedger {
     updated_at: null,
     graph_item_states: [],
     active_items: [],
-  };
+  }
 }
 
 // Casts below are sound only because validateProgressEvent, called right after, enforces event_type/role membership.
 interface NormalizedProgressEvent {
-  active_item_id: string | undefined;
-  actor: string;
-  evidence_refs: string[];
-  event_type: ProgressEventType;
-  graph_refs: string[];
-  issue_id: string;
-  role: ProgressRole | undefined;
-  session_ref: string;
-  timestamp: string;
-  transcript_refs: string[];
-  worktree: string | undefined;
+  active_item_id: string | undefined
+  actor: string
+  evidence_refs: string[]
+  event_type: ProgressEventType
+  graph_refs: string[]
+  issue_id: string
+  role: ProgressRole | undefined
+  session_ref: string
+  timestamp: string
+  transcript_refs: string[]
+  worktree: string | undefined
 }
 
 function normalizeProgressEvent(event: ProgressEvent): NormalizedProgressEvent {
@@ -376,65 +376,65 @@ function normalizeProgressEvent(event: ProgressEvent): NormalizedProgressEvent {
     // Gitignored JSONL transcript paths captured by the orchestrator; unlike evidence_refs, not existence-validated (may be absent in tests).
     transcript_refs: stringArray(event.transcript_refs ?? []),
     worktree: optionalString(event.worktree),
-  };
+  }
 }
 
 function validateProgressEvent(event: NormalizedProgressEvent, issueIndex: ProgressIssueIndex): ProgressIssue {
   if (!progressEventTypes.includes(event.event_type)) {
-    throw new Error(`Unsupported progress event_type: ${event.event_type}`);
+    throw new Error(`Unsupported progress event_type: ${event.event_type}`)
   }
   if (event.role !== undefined && !progressRoles.includes(event.role)) {
-    throw new Error(`Unsupported role: ${event.role} (expected one of ${progressRoles.join(", ")})`);
+    throw new Error(`Unsupported role: ${event.role} (expected one of ${progressRoles.join(", ")})`)
   }
   if (event.graph_refs.length === 0) {
-    throw new Error("graph_refs must be a non-empty array: events declare their explicit graph focus");
+    throw new Error("graph_refs must be a non-empty array: events declare their explicit graph focus")
   }
   if (!Array.isArray(issueIndex.issues)) {
-    throw new Error("Issue index must define issues[]");
+    throw new Error("Issue index must define issues[]")
   }
-  const verificationEvidenceMatcher = createVerificationEvidenceMatcher(issueIndex.verification_evidence_ref_grammar);
-  const issue = issueIndex.issues.find((entry) => entry.id === event.issue_id);
+  const verificationEvidenceMatcher = createVerificationEvidenceMatcher(issueIndex.verification_evidence_ref_grammar)
+  const issue = issueIndex.issues.find((entry) => entry.id === event.issue_id)
   if (!issue) {
-    throw new Error(`Unknown issue_id: ${event.issue_id}`);
+    throw new Error(`Unknown issue_id: ${event.issue_id}`)
   }
   for (const graphRef of event.graph_refs) {
     if (!issue.graph_refs.includes(graphRef)) {
-      throw new Error(`Event graph_ref ${graphRef} is not linked to issue ${event.issue_id}`);
+      throw new Error(`Event graph_ref ${graphRef} is not linked to issue ${event.issue_id}`)
     }
   }
   if ((event.event_type === "gate_passed" || event.event_type === "issue_completed") && event.evidence_refs.length === 0) {
-    throw new Error(`${event.event_type} requires evidence_refs`);
+    throw new Error(`${event.event_type} requires evidence_refs`)
   }
   if (
     (event.event_type === "gate_passed" || event.event_type === "issue_completed") &&
     !event.evidence_refs.some((ref) => verificationEvidenceMatcher.test(ref))
   ) {
-    throw new Error(`${event.event_type} requires at least one verification evidence_ref`);
+    throw new Error(`${event.event_type} requires at least one verification evidence_ref`)
   }
   if (event.event_type === "issue_blocked" && event.evidence_refs.length === 0) {
-    throw new Error("issue_blocked requires evidence_refs");
+    throw new Error("issue_blocked requires evidence_refs")
   }
-  validateEvidenceRefs(event.evidence_refs);
+  validateEvidenceRefs(event.evidence_refs)
   if (event.event_type === "gate_passed" || event.event_type === "issue_completed") {
-    validateVerificationGateBinding(event, issue, verificationEvidenceMatcher);
+    validateVerificationGateBinding(event, issue, verificationEvidenceMatcher)
   }
-  return issue;
+  return issue
 }
 
 function validateVerificationGateBinding(event: NormalizedProgressEvent, issue: ProgressIssue, matcher: RegExp): void {
-  const declaredGateIds = Array.isArray(issue.verification_gate_ids) ? issue.verification_gate_ids : [];
+  const declaredGateIds = Array.isArray(issue.verification_gate_ids) ? issue.verification_gate_ids : []
   if (declaredGateIds.length === 0) {
-    return;
+    return
   }
   const satisfied = event.evidence_refs.some((ref) => {
     if (!matcher.test(ref)) {
-      return false;
+      return false
     }
-    let record: GateRunRecord | null;
+    let record: GateRunRecord | null
     try {
-      record = JSON.parse(readFileSync(resolveRepoPath(parseEvidenceRef(ref).filePath), "utf8")) as GateRunRecord | null;
+      record = JSON.parse(readFileSync(resolveRepoPath(parseEvidenceRef(ref).filePath), "utf8")) as GateRunRecord | null
     } catch {
-      return false;
+      return false
     }
     return (
       record !== null &&
@@ -442,12 +442,12 @@ function validateVerificationGateBinding(event: NormalizedProgressEvent, issue: 
       record.status === "pass" &&
       record.exit_code === 0 &&
       declaredGateIds.includes(record.gate_id)
-    );
-  });
+    )
+  })
   if (!satisfied) {
     throw new Error(
-      `${event.event_type} requires a gate-run record evidence_ref with status "pass", exit_code 0, and a gate_id declared on the issue (${declaredGateIds.join(", ")})`,
-    );
+      `${event.event_type} requires a gate-run record evidence_ref with status "pass", exit_code 0, and a gate_id declared on the issue (${declaredGateIds.join(", ")})`
+    )
   }
 }
 
@@ -458,36 +458,36 @@ function upsertGraphStates(
   status: GraphItemStatus,
   evidenceRefs: string[],
   timestamp: string,
-  options: { reopen?: boolean; transcriptRefs?: string[] } = {},
+  options: { reopen?: boolean; transcriptRefs?: string[] } = {}
 ): void {
-  const reopen = options.reopen === true;
-  const transcriptRefs = options.transcriptRefs ?? [];
+  const reopen = options.reopen === true
+  const transcriptRefs = options.transcriptRefs ?? []
   for (const graphRef of graphRefs) {
-    const existing = ledger.graph_item_states.find((state) => state.graph_ref === graphRef);
+    const existing = ledger.graph_item_states.find((state) => state.graph_ref === graphRef)
     if (existing) {
-      existing.issue_ids = [...new Set([...existing.issue_ids, issueId])];
-      existing.evidence_refs = [...new Set([...existing.evidence_refs, ...evidenceRefs])];
+      existing.issue_ids = [...new Set([...existing.issue_ids, issueId])]
+      existing.evidence_refs = [...new Set([...existing.evidence_refs, ...evidenceRefs])]
       if (transcriptRefs.length) {
-        existing.transcript_refs = [...new Set([...(existing.transcript_refs ?? []), ...transcriptRefs])];
+        existing.transcript_refs = [...new Set([...(existing.transcript_refs ?? []), ...transcriptRefs])]
       }
 
-      const stale = timestamp !== undefined && existing.updated_at != null && timestamp < existing.updated_at;
+      const stale = timestamp !== undefined && existing.updated_at != null && timestamp < existing.updated_at
       if (reopen) {
-        existing.issue_states[issueId] = status;
-        existing.status = aggregateGraphStatus(existing.issue_states);
-        existing.updated_at = maxTimestamp(existing.updated_at, timestamp);
-        continue;
+        existing.issue_states[issueId] = status
+        existing.status = aggregateGraphStatus(existing.issue_states)
+        existing.updated_at = maxTimestamp(existing.updated_at, timestamp)
+        continue
       }
       if (stale) {
-        continue;
+        continue
       }
-      const currentIssueStatus = existing.issue_states[issueId];
+      const currentIssueStatus = existing.issue_states[issueId]
       if (currentIssueStatus === undefined || rankOf(status) >= rankOf(currentIssueStatus)) {
-        existing.issue_states[issueId] = status;
+        existing.issue_states[issueId] = status
       }
-      existing.status = aggregateGraphStatus(existing.issue_states);
-      existing.updated_at = maxTimestamp(existing.updated_at, timestamp);
-      continue;
+      existing.status = aggregateGraphStatus(existing.issue_states)
+      existing.updated_at = maxTimestamp(existing.updated_at, timestamp)
+      continue
     }
     ledger.graph_item_states.push({
       graph_ref: graphRef,
@@ -497,31 +497,31 @@ function upsertGraphStates(
       evidence_refs: [...evidenceRefs],
       ...(transcriptRefs.length ? { transcript_refs: [...transcriptRefs] } : {}),
       updated_at: timestamp ?? null,
-    });
+    })
   }
 }
 
 // Displays the least-advanced linked issue state; blocked wins ties so a blocker stays visible.
 function aggregateGraphStatus(issueStates: Record<string, GraphItemStatus>): GraphItemStatus {
-  const statuses = Object.values(issueStates);
-  let lowest = statuses[0];
+  const statuses = Object.values(issueStates)
+  let lowest = statuses[0]
   for (const status of statuses) {
     if (rankOf(status) < rankOf(lowest) || (rankOf(status) === rankOf(lowest) && status === "blocked")) {
-      lowest = status;
+      lowest = status
     }
   }
-  return lowest;
+  return lowest
 }
 
 function rankOf(status: GraphItemStatus): number {
-  return graphStatusRank[status] ?? 0;
+  return graphStatusRank[status] ?? 0
 }
 
 // ISO-8601 timestamps compare correctly lexicographically; null sorts first.
 function maxTimestamp(a: string | null, b: string | null): string | null {
-  if (a == null) return b ?? null;
-  if (b == null) return a;
-  return b > a ? b : a;
+  if (a == null) return b ?? null
+  if (b == null) return a
+  return b > a ? b : a
 }
 
 function cloneGraphStates(states: GraphItemState[] | undefined): GraphItemState[] {
@@ -531,7 +531,7 @@ function cloneGraphStates(states: GraphItemState[] | undefined): GraphItemState[
     evidence_refs: [...state.evidence_refs],
     ...(Array.isArray(state.transcript_refs) ? { transcript_refs: [...state.transcript_refs] } : {}),
     issue_states: { ...state.issue_states },
-  }));
+  }))
 }
 
 function upsertActiveItem(
@@ -540,7 +540,7 @@ function upsertActiveItem(
   event: NormalizedProgressEvent,
   graphRefs: string[],
   state: ActiveItemState,
-  heartbeatAt: string,
+  heartbeatAt: string
 ): void {
   const next: ActiveItem = {
     actor: event.actor,
@@ -554,95 +554,97 @@ function upsertActiveItem(
     ...(event.session_ref ? { session_ref: event.session_ref } : {}),
     ...(event.worktree ? { worktree: event.worktree } : {}),
     started_at: event.timestamp,
-  };
-  const index = ledger.active_items.findIndex((item) => item.id === id);
-  if (index >= 0) {
-    ledger.active_items[index] = { ...ledger.active_items[index], ...next, started_at: ledger.active_items[index].started_at ?? next.started_at };
-    return;
   }
-  ledger.active_items.push(next);
+  const index = ledger.active_items.findIndex((item) => item.id === id)
+  if (index >= 0) {
+    ledger.active_items[index] = {
+      ...ledger.active_items[index],
+      ...next,
+      started_at: ledger.active_items[index].started_at ?? next.started_at,
+    }
+    return
+  }
+  ledger.active_items.push(next)
 }
 
 // Clears every active item for the issue, not just the completing actor's — the reviewer runs under a different actor than the implementer, so a single-id removal would leave its item dangling and hold the aggregate below verified forever.
 function removeActiveItemsForIssue(ledger: ProgressLedger, issueId: string): void {
-  ledger.active_items = ledger.active_items.filter((item) => item.issue_id !== issueId);
+  ledger.active_items = ledger.active_items.filter((item) => item.issue_id !== issueId)
 }
 
 function readProgressLedger(path: string): ProgressLedger {
-  if (!existsSync(resolveRepoPath(path))) return createEmptyProgressLedger();
-  return readJson<ProgressLedger>(path, "progress ledger");
+  if (!existsSync(resolveRepoPath(path))) return createEmptyProgressLedger()
+  return readJson<ProgressLedger>(path, "progress ledger")
 }
 
 // T is the caller's trusted shape only — JSON.parse here isn't validated; downstream guards (validateProgressEvent, ?? defaults) tolerate drift.
 function readJson<T>(path: string, label: string): T {
   try {
-    return JSON.parse(readFileSync(resolveRepoPath(path), "utf8")) as T;
+    return JSON.parse(readFileSync(resolveRepoPath(path), "utf8")) as T
   } catch (error) {
-    throw new Error(`Unable to read ${label} at ${path}: ${error instanceof Error ? error.message : String(error)}`);
+    throw new Error(`Unable to read ${label} at ${path}: ${error instanceof Error ? error.message : String(error)}`)
   }
 }
 
 function validateEvidenceRefs(evidenceRefs: string[]): void {
   for (const ref of evidenceRefs) {
-    const { filePath, line } = parseEvidenceRef(ref);
-    const absolutePath = resolveRepoPath(filePath);
+    const { filePath, line } = parseEvidenceRef(ref)
+    const absolutePath = resolveRepoPath(filePath)
     if (!existsSync(absolutePath)) {
-      throw new Error(`Evidence ref points to a missing file: ${ref}`);
+      throw new Error(`Evidence ref points to a missing file: ${ref}`)
     }
     if (line !== undefined) {
-      const lineCount = readFileSync(absolutePath, "utf8").split(/\r?\n/).length;
+      const lineCount = readFileSync(absolutePath, "utf8").split(/\r?\n/).length
       if (line < 1 || line > lineCount) {
-        throw new Error(`Evidence ref points to a missing line: ${ref}`);
+        throw new Error(`Evidence ref points to a missing line: ${ref}`)
       }
     }
   }
 }
 
 function parseEvidenceRef(ref: string): { filePath: string; line?: number } {
-  const withoutAnchor = ref.split("#")[0];
-  const match = withoutAnchor.match(/^(.+):(\d+)$/);
+  const withoutAnchor = ref.split("#")[0]
+  const match = withoutAnchor.match(/^(.+):(\d+)$/)
   if (!match) {
-    return { filePath: withoutAnchor };
+    return { filePath: withoutAnchor }
   }
-  return { filePath: match[1], line: Number(match[2]) };
+  return { filePath: match[1], line: Number(match[2]) }
 }
 
 function createVerificationEvidenceMatcher(grammar: unknown): RegExp {
   if (typeof grammar !== "string" || !grammar) {
-    throw new Error("Issue index must define verification_evidence_ref_grammar");
+    throw new Error("Issue index must define verification_evidence_ref_grammar")
   }
   try {
-    return new RegExp(grammar, "i");
+    return new RegExp(grammar, "i")
   } catch (error) {
-    throw new Error(`Issue index verification_evidence_ref_grammar is invalid: ${error instanceof Error ? error.message : String(error)}`);
+    throw new Error(`Issue index verification_evidence_ref_grammar is invalid: ${error instanceof Error ? error.message : String(error)}`)
   }
 }
 
 function resolveRepoPath(path: string): string {
   if (!repoRoot) {
-    throw new Error(
-      "No target project configured. Set VIVICY_TARGET_ROOT to the absolute path of the project Vivicy should build.",
-    );
+    throw new Error("No target project configured. Set VIVICY_TARGET_ROOT to the absolute path of the project Vivicy should build.")
   }
-  if (isAbsolute(path)) throw new Error(`Path must be repository-relative: ${path}`);
-  const absolute = resolve(repoRoot, path);
-  const rel = relative(repoRoot, absolute);
-  if (!rel || rel.startsWith("..") || isAbsolute(rel)) throw new Error(`Path must stay inside repository: ${path}`);
-  return absolute;
+  if (isAbsolute(path)) throw new Error(`Path must be repository-relative: ${path}`)
+  const absolute = resolve(repoRoot, path)
+  const rel = relative(repoRoot, absolute)
+  if (!rel || rel.startsWith("..") || isAbsolute(rel)) throw new Error(`Path must stay inside repository: ${path}`)
+  return absolute
 }
 
 function requiredString(value: unknown, label: string): string {
-  if (typeof value !== "string" || !value.trim()) throw new Error(`${label} must be a non-empty string`);
-  return value;
+  if (typeof value !== "string" || !value.trim()) throw new Error(`${label} must be a non-empty string`)
+  return value
 }
 
 function optionalString(value: unknown): string | undefined {
-  return typeof value === "string" && value.trim() ? value : undefined;
+  return typeof value === "string" && value.trim() ? value : undefined
 }
 
 function stringArray(value: unknown): string[] {
   if (!Array.isArray(value) || !value.every((entry) => typeof entry === "string")) {
-    throw new Error("Expected string array");
+    throw new Error("Expected string array")
   }
-  return value;
+  return value
 }

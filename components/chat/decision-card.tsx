@@ -9,13 +9,7 @@ import { errorTextAcrossFamilies } from "@/lib/i18n-errors"
 import { IMPORT_ACCEPT_ATTR } from "@/lib/supported-extensions"
 import { Button } from "@/components/ui/button"
 import { Marker, MarkerContent, MarkerIcon } from "@/components/ui/marker"
-import {
-  MenuCard,
-  MenuCardActions,
-  MenuCardBody,
-  MenuCardStamp,
-  MenuCardTitle,
-} from "@/components/chat/menu-card"
+import { MenuCard, MenuCardActions, MenuCardBody, MenuCardStamp, MenuCardTitle } from "@/components/chat/menu-card"
 
 export function DecisionCard({
   sessionId,
@@ -31,24 +25,19 @@ export function DecisionCard({
   const t = useTranslations("chat")
   const tErrors = useTranslations("errors")
   const [pendingId, setPendingId] = useState<string | null>(null)
-  const [localDecision, setLocalDecision] = useState<ViviCardDecision | null>(
-    null
-  )
+  const [localDecision, setLocalDecision] = useState<ViviCardDecision | null>(null)
   const [error, setError] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const importActionRef = useRef<ViviCardAction | null>(null)
 
   const decision = decided ?? localDecision
   const disabled = decision !== null || pendingId !== null
-  const decidedAction = decision
-    ? card.actions.find((a) => a.id === decision.actionId)
-    : null
+  const decidedAction = decision ? card.actions.find((a) => a.id === decision.actionId) : null
   const hasImport = card.actions.some((a) => a.action.kind === "import_docs")
   const hasCr = card.actions.some((a) => a.action.kind === "cr_decide")
   const kind = hasImport ? "documents" : hasCr ? "changeRequest" : "decision"
   const outcome = decision
-    ? t("cardDecided", { label: decidedAction?.label ?? decision.actionId }) +
-      (decision.summary ? ` — ${decision.summary}` : "")
+    ? t("cardDecided", { label: decidedAction?.label ?? decision.actionId }) + (decision.summary ? ` — ${decision.summary}` : "")
     : null
 
   type Outcome = { ok?: boolean; summary?: string; error?: string; code?: string; decided?: ViviCardDecision }
@@ -98,10 +87,7 @@ export function DecisionCard({
       form.append("actionId", action.id)
       for (const file of files) {
         form.append("files", file)
-        form.append(
-          "paths",
-          (file as File & { webkitRelativePath?: string }).webkitRelativePath || file.name
-        )
+        form.append("paths", (file as File & { webkitRelativePath?: string }).webkitRelativePath || file.name)
       }
       const res = await fetch("/api/vivi/card/import", { method: "POST", body: form })
       const body = (await res.json().catch(() => ({}))) as Outcome
@@ -129,13 +115,7 @@ export function DecisionCard({
       <MenuCard
         eyebrow={t(`cardKind.${kind}`)}
         turned={hasImport && decision !== null}
-        back={
-          hasImport ? (
-            <MenuCardStamp role="status">
-              {decision?.summary ?? outcome}
-            </MenuCardStamp>
-          ) : undefined
-        }
+        back={hasImport ? <MenuCardStamp role="status">{decision?.summary ?? outcome}</MenuCardStamp> : undefined}
       >
         <MenuCardTitle>{card.title}</MenuCardTitle>
 
@@ -154,9 +134,7 @@ export function DecisionCard({
                 onClick={() => onActionClick(action)}
                 className={disabled ? "opacity-60" : undefined}
               >
-                {pendingId === action.id ? (
-                  <Loader2 className="animate-spin" />
-                ) : null}
+                {pendingId === action.id ? <Loader2 className="animate-spin" /> : null}
                 {action.label}
               </Button>
             ))}

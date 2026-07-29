@@ -13,10 +13,7 @@ export async function GET() {
     if (error instanceof ControlError) {
       return Response.json({ ok: false, error: error.message, code: error.code }, { status: 422 })
     }
-    return Response.json(
-      { ok: false, error: error instanceof Error ? error.message : "failed to read skills report" },
-      { status: 500 }
-    )
+    return Response.json({ ok: false, error: error instanceof Error ? error.message : "failed to read skills report" }, { status: 500 })
   }
 }
 
@@ -24,10 +21,7 @@ export async function POST(request: Request) {
   const body = (await request.json().catch(() => ({}))) as { ids?: unknown; remove?: unknown }
   if (body.remove !== undefined) {
     if (!isStringArray(body.remove) || body.remove.length === 0) {
-      return Response.json(
-        { ok: false, error: "remove must be a non-empty array of skill id strings" },
-        { status: 400 }
-      )
+      return Response.json({ ok: false, error: "remove must be a non-empty array of skill id strings" }, { status: 400 })
     }
     appendNotification({
       level: "info",
@@ -50,10 +44,7 @@ export async function POST(request: Request) {
     }
   }
   if (body.ids !== undefined && !isStringArray(body.ids)) {
-    return Response.json(
-      { ok: false, error: "ids must be an array of skill id strings" },
-      { status: 400 }
-    )
+    return Response.json({ ok: false, error: "ids must be an array of skill id strings" }, { status: 400 })
   }
   const ids = body.ids as string[] | undefined
   const mode = ids && ids.length > 0 ? "explicit" : "auto"

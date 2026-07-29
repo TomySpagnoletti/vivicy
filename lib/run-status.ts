@@ -22,9 +22,7 @@ export function resolveRunPhase(status: RunStatus): RunPhase {
 export function isResumable(status: RunStatus): boolean {
   const phase = resolveRunPhase(status)
   return (
-    (phase === "idle" || phase === "blocked" || phase === "stalled") &&
-    status.issues_done > 0 &&
-    status.issues_done < status.issues_total
+    (phase === "idle" || phase === "blocked" || phase === "stalled") && status.issues_done > 0 && status.issues_done < status.issues_total
   )
 }
 

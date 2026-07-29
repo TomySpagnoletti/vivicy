@@ -65,26 +65,22 @@ export function SectionWorkflow() {
         const res = await fetch("/api/control/prepare", { cache: "no-store" })
         const body = (await res.json().catch(() => ({}))) as DocPrepReportResponse
         if (!cancelled && res.ok && body.ok !== false) setDocPrep(body.report ?? null)
-      } catch {
-      }
+      } catch {}
       try {
         const res = await fetch("/api/control/extract", { cache: "no-store" })
         const body = (await res.json().catch(() => ({}))) as ExtractStatusResponse
         if (!cancelled && res.ok && body.ok !== false) setExtraction(body.status ?? null)
-      } catch {
-      }
+      } catch {}
       try {
         const res = await fetch("/api/control/skills", { cache: "no-store" })
         const body = (await res.json().catch(() => ({}))) as SkillsReportResponse
         if (!cancelled && res.ok && body.ok !== false) setSkills(body.report ?? null)
-      } catch {
-      }
+      } catch {}
       try {
         const res = await fetch("/api/control/acceptance", { cache: "no-store" })
         const body = (await res.json().catch(() => ({}))) as AcceptanceReportResponse
         if (!cancelled && res.ok && body.ok !== false) setAcceptance(body.report ?? null)
-      } catch {
-      }
+      } catch {}
     }
     void (async () => {
       await loadReports()
@@ -97,8 +93,7 @@ export function SectionWorkflow() {
         if (next.error) return
         setStatus(next)
         void loadReports()
-      } catch {
-      }
+      } catch {}
     }
     return () => {
       cancelled = true
@@ -113,17 +108,11 @@ export function SectionWorkflow() {
   return (
     <ul className="flex flex-col gap-2 text-xs">
       {WORKFLOW_STAGES.map((stage) => (
-        <li
-          key={stage.id}
-          data-stage={stage.id}
-          className="flex flex-col gap-1 rounded-md border border-border bg-card p-2"
-        >
+        <li key={stage.id} data-stage={stage.id} className="flex flex-col gap-1 rounded-md border border-border bg-card p-2">
           <div className="flex items-center gap-1.5">
             <span className="font-mono font-semibold text-foreground">{stage.id}</span>
             <span aria-hidden>{MARKER_GLYPH[stage.marker]}</span>
-            <span className="min-w-0 flex-1 truncate text-foreground">
-              {tWorkflow(`stages.${stage.id}`)}
-            </span>
+            <span className="min-w-0 flex-1 truncate text-foreground">{tWorkflow(`stages.${stage.id}`)}</span>
             <Badge
               variant={STATE_BADGE_VARIANT[states[stage.id]]}
               className={cn(states[stage.id] === "green" && "bg-status-verified text-white")}
@@ -131,7 +120,14 @@ export function SectionWorkflow() {
               {t(STATE_LABEL_KEY[states[stage.id]])}
             </Badge>
           </div>
-          <StageEvidence stageId={stage.id} extraction={extraction} skills={skills} docPrep={docPrep} acceptance={acceptance} status={status} />
+          <StageEvidence
+            stageId={stage.id}
+            extraction={extraction}
+            skills={skills}
+            docPrep={docPrep}
+            acceptance={acceptance}
+            status={status}
+          />
         </li>
       ))}
     </ul>

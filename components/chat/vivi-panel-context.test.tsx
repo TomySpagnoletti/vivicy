@@ -2,11 +2,7 @@ import { render, screen } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, describe, expect, test } from "vitest"
 
-import {
-  useViviPanel,
-  ViviPanelProvider,
-  VIVI_PANEL_OPEN_KEY,
-} from "@/components/chat/vivi-panel-context"
+import { useViviPanel, ViviPanelProvider, VIVI_PANEL_OPEN_KEY } from "@/components/chat/vivi-panel-context"
 import { __resetPersistedBooleanStoresForTests } from "@/hooks/use-persisted-boolean"
 
 function Probe() {

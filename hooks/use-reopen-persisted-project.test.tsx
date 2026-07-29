@@ -44,9 +44,7 @@ describe("useReopenPersistedProject", () => {
     rerender(<Probe project={GOVERNED} />)
     await flush()
 
-    expect(seamPosts()).toEqual([
-      { url: "/api/project", body: { root: GOVERNED.root, requireGoverned: true } },
-    ])
+    expect(seamPosts()).toEqual([{ url: "/api/project", body: { root: GOVERNED.root, requireGoverned: true } }])
   })
 
   test("never fires a second time, however often the project resolves again", async () => {

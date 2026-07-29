@@ -4,7 +4,7 @@
   "singleQuote": false,
   "tabWidth": 2,
   "trailingComma": "es5",
-  "printWidth": 80,
+  "printWidth": 140,
   "proseWrap": "preserve",
   "plugins": ["prettier-plugin-tailwindcss"],
   "tailwindStylesheet": "app/globals.css",

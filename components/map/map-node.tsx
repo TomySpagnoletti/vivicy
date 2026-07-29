@@ -29,9 +29,7 @@ function MapNodeComponent({ data }: NodeProps) {
   const { color } = node
   const dataLine =
     node.ownsData.slice(0, 3).join(", ") +
-    (node.linkedIssueCount > 0
-      ? ` • ${t("node.linkedIssueCount", { count: node.linkedIssueCount })}`
-      : "")
+    (node.linkedIssueCount > 0 ? ` • ${t("node.linkedIssueCount", { count: node.linkedIssueCount })}` : "")
 
   return (
     <div
@@ -51,13 +49,8 @@ function MapNodeComponent({ data }: NodeProps) {
         <span className="architecture-node-id">
           {node.id} • {t("node.edgeCount", { count: node.edgeCount })}
         </span>
-        {node.isActive ? (
-          <span className="map-work-pulse" title={t("node.activeWorkTitle")} />
-        ) : null}
-        <span
-          className="architecture-node-pill"
-          style={{ background: color.pill, borderColor: color.border }}
-        >
+        {node.isActive ? <span className="map-work-pulse" title={t("node.activeWorkTitle")} /> : null}
+        <span className="architecture-node-pill" style={{ background: color.pill, borderColor: color.border }}>
           {node.kind} · {node.scope}
         </span>
       </div>

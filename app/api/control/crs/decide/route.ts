@@ -19,10 +19,7 @@ export async function POST(request: Request) {
   const id = typeof body.id === "string" ? body.id : ""
   const decision = body.decision
   if (!/^CR-\d{4}$/.test(id) || (decision !== "approved" && decision !== "rejected")) {
-    return Response.json(
-      { ok: false, error: "body must be { id: 'CR-####', decision: 'approved' | 'rejected' }" },
-      { status: 400 }
-    )
+    return Response.json({ ok: false, error: "body must be { id: 'CR-####', decision: 'approved' | 'rejected' }" }, { status: 400 })
   }
 
   try {

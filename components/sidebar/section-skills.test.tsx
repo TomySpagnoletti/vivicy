@@ -65,20 +65,14 @@ const GREEN_REPORT = {
 describe("SectionSkills — installed list", () => {
   test("quiet empty state when no report exists", async () => {
     renderWithIntl(<SectionSkills />)
-    await waitFor(() =>
-      expect(
-        screen.getByText(/No skills installed yet — they are selected from the frozen spec/)
-      ).toBeInTheDocument()
-    )
+    await waitFor(() => expect(screen.getByText(/No skills installed yet — they are selected from the frozen spec/)).toBeInTheDocument())
   })
 
   test("renders name, muted id, and official vs community badges", async () => {
     vi.stubGlobal("fetch", stubFetch(GREEN_REPORT))
     renderWithIntl(<SectionSkills />)
 
-    await waitFor(() =>
-      expect(document.querySelector('[data-skill="anthropic/skills@pdf"]')).toBeTruthy()
-    )
+    await waitFor(() => expect(document.querySelector('[data-skill="anthropic/skills@pdf"]')).toBeTruthy())
     const official = document.querySelector('[data-skill="anthropic/skills@pdf"]') as HTMLElement
     expect(within(official).getByText("PDF toolkit")).toBeInTheDocument()
     expect(within(official).getByText("anthropic/skills@pdf")).toBeInTheDocument()
@@ -92,9 +86,7 @@ describe("SectionSkills — installed list", () => {
     vi.stubGlobal("fetch", stubFetch(GREEN_REPORT))
     renderWithIntl(<SectionSkills />)
 
-    await waitFor(() =>
-      expect(screen.getAllByText(/installed with audits waived — security not guaranteed/)).toHaveLength(1)
-    )
+    await waitFor(() => expect(screen.getAllByText(/installed with audits waived — security not guaranteed/)).toHaveLength(1))
     const official = document.querySelector('[data-skill="anthropic/skills@pdf"]') as HTMLElement
     expect(within(official).queryByText(/audits waived/)).toBeNull()
   })
@@ -139,10 +131,7 @@ describe("SectionSkills — find skills action (confirm flow)", () => {
   })
 
   test("the action is disabled while an install is in flight", async () => {
-    vi.stubGlobal(
-      "fetch",
-      stubFetch({ phase: "auditing", mode: "auto", installed: [], rejected: [], updated_at: "2026-07-04T09:00:00Z" })
-    )
+    vi.stubGlobal("fetch", stubFetch({ phase: "auditing", mode: "auto", installed: [], rejected: [], updated_at: "2026-07-04T09:00:00Z" }))
     renderWithIntl(<SectionSkills />)
 
     await waitFor(() => expect(screen.getByText(/Install in progress \(auditing\)/)).toBeInTheDocument())

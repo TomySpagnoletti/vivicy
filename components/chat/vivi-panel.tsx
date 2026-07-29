@@ -5,12 +5,7 @@ import { CircleAlert, Loader2, Paperclip, SendHorizontal, X } from "lucide-react
 import { useTranslations } from "next-intl"
 
 import type { ViviCardAction, ViviTurn } from "@/lib/vivi"
-import {
-  readAnsweredLine,
-  remainingQuestions,
-  threadRenderOrder,
-  type ViviQuestion,
-} from "@/lib/vivi-questions"
+import { readAnsweredLine, remainingQuestions, threadRenderOrder, type ViviQuestion } from "@/lib/vivi-questions"
 import { errorText, errorTextAcrossFamilies } from "@/lib/i18n-errors"
 import { VIVI_TURN_CEILING_MS } from "@/lib/leg-budget"
 import { IMPORT_ACCEPT_ATTR } from "@/lib/supported-extensions"
@@ -30,24 +25,14 @@ import {
 } from "@/components/ui/message-scroller"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip"
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { ViviAvatar } from "@/components/brand/vivi-avatar"
 import { DecisionCard } from "@/components/chat/decision-card"
 import { MessageBubble } from "@/components/chat/message-bubble"
 import { QuestionStack, type QuestionAnswerOutcome } from "@/components/chat/question-stack"
 import { useViviPanel } from "@/components/chat/vivi-panel-context"
 import { ViviOnboarding } from "@/components/chat/vivi-onboarding"
-import {
-  NotificationsFeed,
-  pendingCrs,
-  useNotificationsFeed,
-  visibleNotifications,
-} from "@/components/chat/vivi-notifications"
+import { NotificationsFeed, pendingCrs, useNotificationsFeed, visibleNotifications } from "@/components/chat/vivi-notifications"
 
 type PanelTab = "chat" | "notifications"
 
@@ -64,9 +49,7 @@ function stackComplete(turns: ViviTurn[], stackId: string): boolean {
 // A thread is awaiting Vivi when she owes it an answer: the last turn is a message the owner actually sent, or a batch anywhere in the thread is still being read (position-independent — the reading turn's own action rounds, or another turn finishing ahead of it, append after the acknowledgment).
 function awaitingVivi(turns: ViviTurn[]): boolean {
   const last = turns[turns.length - 1]
-  const sent =
-    last?.role === "user" &&
-    (last.answered === undefined || stackComplete(turns, last.answered.stackId))
+  const sent = last?.role === "user" && (last.answered === undefined || stackComplete(turns, last.answered.stackId))
   return sent || turns.some((turn) => turn.imported?.read?.status === "pending")
 }
 
@@ -83,9 +66,7 @@ interface SessionSnapshot {
   busy: boolean
 }
 
-async function fetchSessionTurns(
-  sessionId: string
-): Promise<SessionSnapshot | null> {
+async function fetchSessionTurns(sessionId: string): Promise<SessionSnapshot | null> {
   try {
     const res = await fetch(`/api/vivi/sessions/${sessionId}`, {
       cache: "no-store",
@@ -155,8 +136,7 @@ export function ViviPanel({
 
   // Deliberately unconditional (not gated on `open`) so the closed-panel launcher badge stays live.
   const { notifications, crs, reload: reloadFeed } = useNotificationsFeed()
-  const attentionCount =
-    visibleNotifications(notifications).length + pendingCrs(crs).length
+  const attentionCount = visibleNotifications(notifications).length + pendingCrs(crs).length
 
   // Sessions are per-project on the server; the initial undefined→known transition is a resolution, not a switch, so it skips the reset below.
   const prevRootRef = useRef(projectRoot)
@@ -201,8 +181,7 @@ export function ViviPanel({
         setTurns(restored.turns)
         // Latches only on a successful, non-cancelled restore, so a mid-fetch cancellation retries next run instead of getting stuck unhydrated.
         hydratedRef.current = true
-      } catch {
-      }
+      } catch {}
     })()
     return () => {
       cancelled = true
@@ -243,10 +222,7 @@ export function ViviPanel({
     setDraft("")
     setSendError(null)
     setImportNote(null)
-    setTurns((prev) => [
-      ...prev,
-      { role: "user", text: message, ts: new Date().toISOString() },
-    ])
+    setTurns((prev) => [...prev, { role: "user", text: message, ts: new Date().toISOString() }])
     setSending(true)
     try {
       const res = await fetch("/api/vivi", {
@@ -266,19 +242,12 @@ export function ViviPanel({
       }
       if (epoch !== epochRef.current) return
       if (!res.ok || body.ok === false || typeof body.reply !== "string") {
-        const fallback =
-          body.error ?? t("requestFailed", { status: res.status })
-        setSendError(
-          body.code
-            ? errorText(tErrors, `control.${body.code}`, fallback)
-            : fallback
-        )
+        const fallback = body.error ?? t("requestFailed", { status: res.status })
+        setSendError(body.code ? errorText(tErrors, `control.${body.code}`, fallback) : fallback)
         return
       }
       if (body.sessionId) setSessionId(body.sessionId)
-      const restored = body.sessionId
-        ? await fetchSessionTurns(body.sessionId)
-        : null
+      const restored = body.sessionId ? await fetchSessionTurns(body.sessionId) : null
       if (epoch !== epochRef.current) return
       if (restored !== null) {
         setTurns(restored.turns)
@@ -294,8 +263,7 @@ export function ViviPanel({
           },
         ])
       }
-      if ((body.wrote?.length ?? 0) > 0 || (body.actions?.length ?? 0) > 0)
-        onActivity?.()
+      if ((body.wrote?.length ?? 0) > 0 || (body.actions?.length ?? 0) > 0) onActivity?.()
     } catch (error) {
       if (epoch !== epochRef.current) return
       setSendError(error instanceof Error ? error.message : t("networkError"))
@@ -317,10 +285,7 @@ export function ViviPanel({
         if (sessionId) form.append("sessionId", sessionId)
         for (const file of files) {
           form.append("files", file)
-          form.append(
-            "paths",
-            (file as File & { webkitRelativePath?: string }).webkitRelativePath || file.name
-          )
+          form.append("paths", (file as File & { webkitRelativePath?: string }).webkitRelativePath || file.name)
         }
         const res = await fetch("/api/vivi/import", { method: "POST", body: form })
         const body = (await res.json().catch(() => ({}))) as {
@@ -333,17 +298,11 @@ export function ViviPanel({
         if (epoch !== epochRef.current) return
         if (!res.ok || body.ok === false) {
           const fallback = body.error ?? t("requestFailed", { status: res.status })
-          setSendError(
-            body.code
-              ? errorTextAcrossFamilies(tErrors, ["import", "control"], body.code, fallback)
-              : fallback
-          )
+          setSendError(body.code ? errorTextAcrossFamilies(tErrors, ["import", "control"], body.code, fallback) : fallback)
           return
         }
         if (body.sessionId) setSessionId(body.sessionId)
-        const restored = body.sessionId
-          ? await fetchSessionTurns(body.sessionId)
-          : null
+        const restored = body.sessionId ? await fetchSessionTurns(body.sessionId) : null
         if (epoch !== epochRef.current) return
         if (restored !== null) setTurns(restored.turns)
         const skipped = body.rejected ?? []
@@ -385,12 +344,7 @@ export function ViviPanel({
         void (async () => {
           const restored = await fetchSessionTurns(cardSession)
           // Discard if the thread moved on mid-resync: an epoch bump or the live sessionId changed underneath this card (project switch).
-          if (
-            epoch !== epochRef.current ||
-            sessionIdRef.current !== cardSession ||
-            restored === null
-          )
-            return
+          if (epoch !== epochRef.current || sessionIdRef.current !== cardSession || restored === null) return
           setTurns(restored.turns)
         })()
       }
@@ -441,12 +395,7 @@ export function ViviPanel({
       const epoch = epochRef.current
       void (async () => {
         const restored = await fetchSessionTurns(answerSession)
-        if (
-          epoch !== epochRef.current ||
-          sessionIdRef.current !== answerSession ||
-          restored === null
-        )
-          return
+        if (epoch !== epochRef.current || sessionIdRef.current !== answerSession || restored === null) return
         setTurns(restored.turns)
         if (remaining === 0 && takeFocus) focusComposer()
       })()
@@ -487,9 +436,7 @@ export function ViviPanel({
             aria-label={t("openAriaLabel")}
             className={cn(
               "size-12 overflow-hidden rounded-full p-1.5 shadow-lg transition-all duration-200",
-              open
-                ? "pointer-events-none scale-75 opacity-0"
-                : "pointer-events-auto scale-100 opacity-100"
+              open ? "pointer-events-none scale-75 opacity-0" : "pointer-events-auto scale-100 opacity-100"
             )}
           >
             <ViviAvatar className="size-full" />
@@ -534,11 +481,7 @@ export function ViviPanel({
           </Button>
         </header>
 
-        <Tabs
-          value={tab}
-          onValueChange={(value) => setTab(value as PanelTab)}
-          className="flex min-h-0 flex-1 flex-col gap-0"
-        >
+        <Tabs value={tab} onValueChange={(value) => setTab(value as PanelTab)} className="flex min-h-0 flex-1 flex-col gap-0">
           <div className="border-b border-border px-3 py-2">
             <TabsList className="grid w-full grid-cols-2">
               <TabsTrigger value="chat">{t("tabChat")}</TabsTrigger>
@@ -552,9 +495,7 @@ export function ViviPanel({
                       count: attentionCount,
                     })}
                   >
-                    {attentionCount > 99
-                      ? tNotifications("unreadOverflow")
-                      : attentionCount}
+                    {attentionCount > 99 ? tNotifications("unreadOverflow") : attentionCount}
                   </Badge>
                 ) : null}
               </TabsTrigger>
@@ -564,10 +505,7 @@ export function ViviPanel({
           <TabsContent value="chat" className="flex min-h-0 flex-1 flex-col">
             {hasTarget === false ? (
               <div className="min-h-0 flex-1 overflow-y-auto">
-                <ViviOnboarding
-                  onAcquired={onAcquired}
-                  onGoverned={onGoverned}
-                />
+                <ViviOnboarding onAcquired={onAcquired} onGoverned={onGoverned} />
               </div>
             ) : (
               <>
@@ -577,9 +515,7 @@ export function ViviPanel({
                       <MessageScrollerContent className="gap-3 p-4">
                         {threadRenderOrder(turns).map((i) => {
                           const turn = turns[i]
-                          const remaining = turn.questions
-                            ? remainingQuestions(turn.questions, turns)
-                            : null
+                          const remaining = turn.questions ? remainingQuestions(turn.questions, turns) : null
                           // A pile with nothing left on it leaves no trace: the answers are the lines it became.
                           if (remaining?.length === 0) return null
                           return (
@@ -606,9 +542,7 @@ export function ViviPanel({
                               <MarkerIcon>
                                 <CircleAlert />
                               </MarkerIcon>
-                              <MarkerContent>
-                                {t(reading ? "readingLost" : "pendingLost")}
-                              </MarkerContent>
+                              <MarkerContent>{t(reading ? "readingLost" : "pendingLost")}</MarkerContent>
                             </Marker>
                           </MessageScrollerItem>
                         ) : null}
@@ -669,16 +603,9 @@ export function ViviPanel({
                             }}
                             aria-disabled={importing || sending}
                             aria-label={t("attachAriaLabel")}
-                            className={cn(
-                              "absolute bottom-1.5 left-1.5 text-muted-foreground",
-                              (importing || sending) && "opacity-60"
-                            )}
+                            className={cn("absolute bottom-1.5 left-1.5 text-muted-foreground", (importing || sending) && "opacity-60")}
                           >
-                            {importing ? (
-                              <Loader2 className="animate-spin" />
-                            ) : (
-                              <Paperclip />
-                            )}
+                            {importing ? <Loader2 className="animate-spin" /> : <Paperclip />}
                           </Button>
                         </TooltipTrigger>
                         <TooltipContent>{t("attachTooltip")}</TooltipContent>
@@ -690,29 +617,18 @@ export function ViviPanel({
                       onClick={() => void send()}
                       aria-disabled={sending || importing || draft.trim().length === 0}
                       aria-label={t("sendAriaLabel")}
-                      className={cn(
-                        "absolute right-1.5 bottom-1.5",
-                        (sending || importing || draft.trim().length === 0) &&
-                          "opacity-60"
-                      )}
+                      className={cn("absolute right-1.5 bottom-1.5", (sending || importing || draft.trim().length === 0) && "opacity-60")}
                     >
                       <SendHorizontal />
                     </Button>
                   </div>
-                  {importNote ? (
-                    <p className="mt-1.5 text-xs text-muted-foreground">
-                      {importNote}
-                    </p>
-                  ) : null}
+                  {importNote ? <p className="mt-1.5 text-xs text-muted-foreground">{importNote}</p> : null}
                 </div>
               </>
             )}
           </TabsContent>
 
-          <TabsContent
-            value="notifications"
-            className="min-h-0 flex-1 overflow-y-auto"
-          >
+          <TabsContent value="notifications" className="min-h-0 flex-1 overflow-y-auto">
             <NotificationsFeed
               notifications={notifications}
               crs={crs}
@@ -746,14 +662,7 @@ function TurnView({
 
   if (turn.role === "questions") {
     if (!turn.questions || !remaining || remaining.length === 0 || !sessionId) return null
-    return (
-      <QuestionStack
-        sessionId={sessionId}
-        stack={turn.questions}
-        remaining={remaining}
-        onAnswered={onAnswered}
-      />
-    )
+    return <QuestionStack sessionId={sessionId} stack={turn.questions} remaining={remaining} onAnswered={onAnswered} />
   }
 
   if (answered) return <AnsweredLine question={answered.question} answer={answered.answer} />
@@ -777,9 +686,7 @@ function TurnView({
         <MessageContent>
           <MessageHeader>{t("actionsTitle")}</MessageHeader>
           <Bubble variant="muted" className="max-w-full">
-            <BubbleContent className="font-mono whitespace-pre-wrap text-muted-foreground">
-              {turn.text}
-            </BubbleContent>
+            <BubbleContent className="font-mono whitespace-pre-wrap text-muted-foreground">{turn.text}</BubbleContent>
           </Bubble>
         </MessageContent>
       </Message>
@@ -787,14 +694,7 @@ function TurnView({
   }
 
   if (turn.card && sessionId) {
-    return (
-      <DecisionCard
-        sessionId={sessionId}
-        card={turn.card}
-        decided={turn.decided}
-        onDecided={onDecided}
-      />
-    )
+    return <DecisionCard sessionId={sessionId} card={turn.card} decided={turn.decided} onDecided={onDecided} />
   }
 
   return null

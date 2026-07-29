@@ -57,8 +57,7 @@ export function describeProject(candidate: string): CurrentProject {
   // Resolve symlinks: the runtime key hashes this string, so an unresolved alias (e.g. macOS /tmp vs /private/tmp) would fork the project's runtime namespace.
   try {
     root = realpathSync(root)
-  } catch {
-  }
+  } catch {}
   const canonicalDir = path.join(root, ".vivicy", "canonical")
   let hasCanonicalSpec = false
   try {
@@ -69,22 +68,13 @@ export function describeProject(candidate: string): CurrentProject {
   return { root, name: path.basename(root), hasCanonicalSpec }
 }
 
-export function setCurrentProject(
-  candidate: string,
-  opts: { requireGoverned?: boolean } = {}
-): CurrentProject {
+export function setCurrentProject(candidate: string, opts: { requireGoverned?: boolean } = {}): CurrentProject {
   const described = describeProject(candidate)
   if (opts.requireGoverned && !isGovernedRoot(described.root)) {
-    throw new ProjectError(
-      `this folder is not governed by Vivicy: no .vivicy directory in ${described.root}`,
-      "not_governed"
-    )
+    throw new ProjectError(`this folder is not governed by Vivicy: no .vivicy directory in ${described.root}`, "not_governed")
   }
   mkdirSync(getRuntimeDir(), { recursive: true })
-  writeFileSync(
-    getCurrentProjectPath(),
-    `${JSON.stringify({ root: described.root }, null, 2)}\n`
-  )
+  writeFileSync(getCurrentProjectPath(), `${JSON.stringify({ root: described.root }, null, 2)}\n`)
   return described
 }
 

@@ -8,14 +8,8 @@ import { DEMO_TARGET_ROOT } from "../playwright.config"
 // Demo target is a committed git repo; snapshot/restore keeps it pristine. Serial: the test mutates shared files.
 test.describe.configure({ mode: "serial" })
 
-const MAP_YML = path.join(
-  DEMO_TARGET_ROOT,
-  ".vivicy/architecture-map/architecture-map.yml"
-)
-const VIEWER_JSON = path.join(
-  DEMO_TARGET_ROOT,
-  ".vivicy/architecture-map/architecture-data.json"
-)
+const MAP_YML = path.join(DEMO_TARGET_ROOT, ".vivicy/architecture-map/architecture-map.yml")
+const VIEWER_JSON = path.join(DEMO_TARGET_ROOT, ".vivicy/architecture-map/architecture-data.json")
 
 test.describe("Architecture map layout editing", () => {
   let ymlSnapshot = ""
@@ -31,9 +25,7 @@ test.describe("Architecture map layout editing", () => {
     writeFileSync(VIEWER_JSON, jsonSnapshot)
   })
 
-  test("toggles edit mode, drags a node, and saves the layout to the source map", async ({
-    page,
-  }) => {
+  test("toggles edit mode, drags a node, and saves the layout to the source map", async ({ page }) => {
     await page.goto("/")
 
     const nodes = page.locator(".react-flow__node")

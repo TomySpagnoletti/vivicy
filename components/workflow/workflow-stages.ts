@@ -39,15 +39,7 @@ export const MARKER_GLYPH: Record<StageMarker, string> = {
   mixed: "🖥️🤖",
 }
 
-const EXTRACTION_RUNNING_PHASES = new Set([
-  "authoring",
-  "fixing",
-  "refreezing",
-  "validating",
-  "mapping",
-  "verifying",
-  "map-review",
-])
+const EXTRACTION_RUNNING_PHASES = new Set(["authoring", "fixing", "refreezing", "validating", "mapping", "verifying", "map-review"])
 
 // Subset of @/lib/control's ExtractionStatus, redeclared here because this file and its consumers (the widget, SectionWorkflow) are client components that can't import the server-only control module.
 export interface ExtractionStatusLike {
@@ -87,10 +79,7 @@ export function deriveStageStates(
 
 const DOC_PREP_RUNNING_PHASES = new Set(["classifying", "extracting", "placing"])
 
-function applyDocPrepStates(
-  states: Record<string, StageState>,
-  docPrep: DocPrepReport | null
-): void {
+function applyDocPrepStates(states: Record<string, StageState>, docPrep: DocPrepReport | null): void {
   if (!docPrep?.phase) return
   if (DOC_PREP_RUNNING_PHASES.has(docPrep.phase)) states.SP = "running"
   else if (docPrep.phase === "green" || docPrep.phase === "skipped") states.SP = "green"
@@ -98,10 +87,7 @@ function applyDocPrepStates(
 }
 
 // New extraction phases must be added to EXTRACTION_RUNNING_PHASES and phaseToRunningStage, or they silently render as "pending".
-function applyExtractionStates(
-  states: Record<string, StageState>,
-  extraction: ExtractionStatusLike | null
-): void {
+function applyExtractionStates(states: Record<string, StageState>, extraction: ExtractionStatusLike | null): void {
   if (!extraction?.phase) return
   const { phase } = extraction
 
@@ -130,10 +116,7 @@ function applyExtractionStates(
 
 const SKILLS_RUNNING_PHASES = new Set(["selecting", "auditing", "installing"])
 
-function applySkillsStates(
-  states: Record<string, StageState>,
-  skills: SkillsReport | null
-): void {
+function applySkillsStates(states: Record<string, StageState>, skills: SkillsReport | null): void {
   if (!skills?.phase) return
   if (SKILLS_RUNNING_PHASES.has(skills.phase)) states.SK = "running"
   else if (skills.phase === "green" || skills.phase === "skipped") states.SK = "green"
@@ -157,10 +140,7 @@ function phaseToRunningStage(phase: string): string | null {
   }
 }
 
-function applyDevStates(
-  states: Record<string, StageState>,
-  status: RunStatus | null
-): void {
+function applyDevStates(states: Record<string, StageState>, status: RunStatus | null): void {
   if (!status) return
   const total = status.issues_total ?? 0
   const done = status.issues_done ?? 0
@@ -191,11 +171,7 @@ function applyDevStates(
 const ACCEPTANCE_RUNNING_PHASES = new Set<string>(ACCEPTANCE_IN_FLIGHT_PHASES)
 
 // SA is the whole-product acceptance leg; Done (S12) flips only once SA is green, so an all-issues-done build with a broken cross-issue seam never reads as delivered.
-function applyAcceptanceStates(
-  states: Record<string, StageState>,
-  status: RunStatus | null,
-  acceptance: AcceptanceReport | null
-): void {
+function applyAcceptanceStates(states: Record<string, StageState>, status: RunStatus | null, acceptance: AcceptanceReport | null): void {
   const total = status?.issues_total ?? 0
   const done = status?.issues_done ?? 0
   const allDone = total > 0 && done >= total

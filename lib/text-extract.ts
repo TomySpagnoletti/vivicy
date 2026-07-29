@@ -74,8 +74,21 @@ export function extractOdtText(bytes: Uint8Array): string {
 }
 
 const RTF_NON_TEXT_DESTINATIONS = new Set([
-  "fonttbl", "colortbl", "stylesheet", "info", "pict", "object", "themedata", "colorschememapping",
-  "latentstyles", "datastore", "generator", "listtable", "listoverridetable", "rsidtbl", "mmathPr",
+  "fonttbl",
+  "colortbl",
+  "stylesheet",
+  "info",
+  "pict",
+  "object",
+  "themedata",
+  "colorschememapping",
+  "latentstyles",
+  "datastore",
+  "generator",
+  "listtable",
+  "listoverridetable",
+  "rsidtbl",
+  "mmathPr",
 ])
 
 // RTF is 7-bit-ASCII markup: control words steer, groups nest, and only literal runs are text.

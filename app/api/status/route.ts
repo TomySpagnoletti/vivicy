@@ -12,9 +12,6 @@ export async function GET() {
     if (error instanceof ControlError) {
       return Response.json({ error: error.message, code: error.code }, { status: 422 })
     }
-    return Response.json(
-      { error: error instanceof Error ? error.message : "status failed" },
-      { status: 500 }
-    )
+    return Response.json({ error: error instanceof Error ? error.message : "status failed" }, { status: 500 })
   }
 }

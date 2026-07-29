@@ -9,9 +9,7 @@ const DOCKED_RAIL_WIDTHS = [768, 1024, 1600]
 test.describe.configure({ mode: "serial" })
 
 test.describe("Vivicy control plane", () => {
-  test("Run shows running, Stop returns idle, Extract is gated when issues exist", async ({
-    page,
-  }, testInfo) => {
+  test("Run shows running, Stop returns idle, Extract is gated when issues exist", async ({ page }, testInfo) => {
     await page.goto("/")
 
     const nodes = page.locator(".react-flow__node")
@@ -58,9 +56,7 @@ test.describe("Vivicy control plane", () => {
     await expect(nodes.first()).toBeVisible()
   })
 
-  test("a live toast never covers the control bar, at every docked-rail width", async ({
-    page,
-  }, testInfo) => {
+  test("a live toast never covers the control bar, at every docked-rail width", async ({ page }, testInfo) => {
     // The docked rail only exists at >= md; resizing a mobile project into that range would leave the Sheet mounted alongside it (two status badges).
     test.skip(isMobileProject(testInfo), "the docked rail is a >= md shape")
 
@@ -85,10 +81,7 @@ test.describe("Vivicy control plane", () => {
       const railBox = await rail.boundingBox()
       expect(toastBox, `no toast box at ${width}px`).not.toBeNull()
       expect(railBox, `no rail box at ${width}px`).not.toBeNull()
-      expect(
-        toastBox!.x + toastBox!.width,
-        `the toast stack reaches into the rail at ${width}px`
-      ).toBeLessThanOrEqual(railBox!.x)
+      expect(toastBox!.x + toastBox!.width, `the toast stack reaches into the rail at ${width}px`).toBeLessThanOrEqual(railBox!.x)
 
       const coveredBy = await statusBadge.evaluate((el) => {
         const box = el.getBoundingClientRect()

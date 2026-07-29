@@ -5,12 +5,7 @@ import type { useTranslations } from "next-intl"
 type ErrorsTranslator = ReturnType<typeof useTranslations<"errors">>
 
 // key is "<family>.<code>" matching messages/en/errors.json nesting (e.g. "control.missing_target"); values interpolates ICU placeholders for fallbacks like retry_stage_invalid's {supported}.
-export function errorText(
-  t: ErrorsTranslator,
-  key: string,
-  fallbackMessage: string,
-  values?: Record<string, string | number>
-): string {
+export function errorText(t: ErrorsTranslator, key: string, fallbackMessage: string, values?: Record<string, string | number>): string {
   return t.has(key) ? t(key, values) : fallbackMessage
 }
 

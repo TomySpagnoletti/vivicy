@@ -26,6 +26,7 @@ describe("cn", () => {
 
   it("keeps non-conflicting utilities from the same string", () => {
     expect(cn("px-2 py-4")).toBe("px-2 py-4")
+    // prettier-ignore
     expect(cn("text-red-500 bg-blue-500")).toBe("text-red-500 bg-blue-500")
   })
 

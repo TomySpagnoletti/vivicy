@@ -6,18 +6,11 @@ import { getTargetRoot } from "@/lib/target"
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 
-export async function GET(
-  _request: Request,
-  { params }: { params: Promise<{ path: string[] }> }
-) {
+export async function GET(_request: Request, { params }: { params: Promise<{ path: string[] }> }) {
   const { path: segments } = await params
   const rel = decodeURIComponent((segments ?? []).join("/"))
 
-  if (
-    rel.includes("..") ||
-    !rel.startsWith(".vivicy/development/transcripts/") ||
-    !rel.endsWith(".jsonl")
-  ) {
+  if (rel.includes("..") || !rel.startsWith(".vivicy/development/transcripts/") || !rel.endsWith(".jsonl")) {
     return new Response("bad transcript path", { status: 400 })
   }
 
@@ -26,16 +19,8 @@ export async function GET(
     return new Response("transcript not found", { status: 404 })
   }
   const absolute = path.resolve(targetRoot, rel)
-  const transcriptsDir = path.resolve(
-    targetRoot,
-    ".vivicy",
-    "development",
-    "transcripts"
-  )
-  if (
-    absolute !== transcriptsDir &&
-    !absolute.startsWith(transcriptsDir + path.sep)
-  ) {
+  const transcriptsDir = path.resolve(targetRoot, ".vivicy", "development", "transcripts")
+  if (absolute !== transcriptsDir && !absolute.startsWith(transcriptsDir + path.sep)) {
     return new Response("bad transcript path", { status: 400 })
   }
 

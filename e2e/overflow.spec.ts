@@ -60,10 +60,7 @@ async function measureBox(locator: Locator) {
 }
 
 function expectNothingClipped(escaping: string[], label: string) {
-  expect(
-    escaping,
-    `${label}: content clipped past the box that bounds it: ${escaping.join(", ")}`
-  ).toEqual([])
+  expect(escaping, `${label}: content clipped past the box that bounds it: ${escaping.join(", ")}`).toEqual([])
 }
 
 async function expectBoxContainsItsContent(locator: Locator, label: string) {
@@ -98,9 +95,7 @@ test.describe("No horizontal overflow anywhere", () => {
     expect(restored.ok()).toBe(true)
   })
 
-  test("demo target: map, Details, Tasks, and transcript modal all fit", async ({
-    page,
-  }) => {
+  test("demo target: map, Details, Tasks, and transcript modal all fit", async ({ page }) => {
     await page.setViewportSize({ width: 1320, height: 820 })
     await page.goto("/")
 
@@ -150,9 +145,7 @@ test.describe("No horizontal overflow anywhere", () => {
     }
   })
 
-  test("narrow viewport: the map fits, and so does the sidebar at its narrowest", async ({
-    page,
-  }) => {
+  test("narrow viewport: the map fits, and so does the sidebar at its narrowest", async ({ page }) => {
     await page.setViewportSize({ width: 760, height: 720 })
     await page.goto("/")
     await expect(page.locator(".react-flow__node").first()).toBeVisible({ timeout: 30_000 })
@@ -196,21 +189,15 @@ async function openViviPanel(page: Page, width: number, height: number) {
   await expect(page.locator(".react-flow__node").first()).toBeVisible({ timeout: 30_000 })
   await page.getByRole("button", { name: "Open Vivi" }).click()
   await expect(viviPanel(page)).toBeVisible()
-  await expect
-    .poll(async () => Math.abs((await measurePanel(page)).left))
-    .toBeLessThanOrEqual(TOLERANCE)
+  await expect.poll(async () => Math.abs((await measurePanel(page)).left)).toBeLessThanOrEqual(TOLERANCE)
 }
 
 async function expectPanelFitsViewport(page: Page, label: string): Promise<number> {
   const panel = await measurePanel(page)
-  expect(
-    panel.left,
-    `${label}: panel left edge (${panel.left}) must stay at the viewport edge`
-  ).toBeGreaterThanOrEqual(-TOLERANCE)
-  expect(
-    panel.right,
-    `${label}: panel right edge (${panel.right}) must be <= innerWidth (${panel.innerWidth})`
-  ).toBeLessThanOrEqual(panel.innerWidth + TOLERANCE)
+  expect(panel.left, `${label}: panel left edge (${panel.left}) must stay at the viewport edge`).toBeGreaterThanOrEqual(-TOLERANCE)
+  expect(panel.right, `${label}: panel right edge (${panel.right}) must be <= innerWidth (${panel.innerWidth})`).toBeLessThanOrEqual(
+    panel.innerWidth + TOLERANCE
+  )
   expectNothingClipped(panel.escaping, `${label}: panel`)
   return panel.width
 }
@@ -242,10 +229,7 @@ test.describe("Vivi panel width contract", () => {
     for (const [viewport, expected] of DESKTOP_PANEL_WIDTHS) {
       await page.setViewportSize({ width: viewport, height: 800 })
       const width = await expectPanelFitsViewport(page, `${viewport}px desktop`)
-      expect(
-        Math.abs(width - expected),
-        `${viewport}px: panel width (${width}) must stay ${expected}`
-      ).toBeLessThanOrEqual(TOLERANCE)
+      expect(Math.abs(width - expected), `${viewport}px: panel width (${width}) must stay ${expected}`).toBeLessThanOrEqual(TOLERANCE)
       await expectNoPageOverflow(page, `${viewport}px desktop`)
     }
   })

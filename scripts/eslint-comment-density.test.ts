@@ -52,10 +52,15 @@ describe("vivicy/comment-density", () => {
       "#!/usr/bin/env node",
       "// eslint-disable-next-line no-console",
       "// @ts-expect-error upstream types lag the runtime",
+      "// prettier-ignore",
       "/* eslint-disable no-alert */",
-      "/// <reference types=\"node\" />",
+      '/// <reference types="node" />',
       "// @ts-nocheck",
-    ].join("\n")
-    expect(lint(`${directives}\n${codeLines(10)}`)).toEqual([])
+    ]
+    expect(lint(`${directives.join("\n")}\n${codeLines(10)}`)).toEqual([])
+    for (const directive of directives.filter((line) => !line.startsWith("#!"))) {
+      const over = Array.from({ length: FREE_COMMENT_LINES + 1 }, () => directive).join("\n")
+      expect(lint(`${over}\n${codeLines(20)}`), directive).toEqual([])
+    }
   })
 })

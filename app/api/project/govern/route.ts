@@ -51,9 +51,6 @@ export async function POST(request: Request) {
         { status: STATUS_BY_CODE[error.code] ?? 400 }
       )
     }
-    return Response.json(
-      { ok: false, error: error instanceof Error ? error.message : "failed to start governance" },
-      { status: 500 }
-    )
+    return Response.json({ ok: false, error: error instanceof Error ? error.message : "failed to start governance" }, { status: 500 })
   }
 }

@@ -43,9 +43,34 @@ describe("nested checkouts are invisible to the repo's file-discovering tools", 
     expect(await eslint.isPathIgnored(LINTED_SOURCE_FILE)).toBe(false)
   })
 
+  // The format gate carries no ignore entry of its own for these: prettier defaults --ignore-path to .gitignore + .prettierignore, so the repo's own gitignore lines are what keep `npm run format:check` blind to a phantom copy of the whole tree.
+  it("prettier reads .gitignore, so neither nested checkout reaches the format gate", () => {
+    const root = syntheticRoot()
+    copyFileSync(path.join(REPO_ROOT, ".gitignore"), path.join(root, ".gitignore"))
+    const dirty = "const  x=1\nexport { x }\n"
+    seed(root, "lib/real.ts", dirty)
+    seed(root, ".unignored-dot-dir/lib/real.ts", dirty)
+    for (const { phantom } of NESTED_CHECKOUTS) seed(root, `${phantom}/lib/real.ts`, dirty)
+
+    const r = spawnSync(path.join(REPO_ROOT, "node_modules", ".bin", "prettier"), ["--list-different", "**/*.{ts,tsx}"], {
+      cwd: root,
+      encoding: "utf8",
+    })
+    const listed = (r.stdout ?? "").split("\n").filter(Boolean)
+    expect(listed, "control: the gate does reach a format-dirty file at a real path").toContain("lib/real.ts")
+    expect(listed, "and it is not merely blind to dot-prefixed segments — an unignored one IS listed").toContain(
+      ".unignored-dot-dir/lib/real.ts"
+    )
+    for (const { phantom } of NESTED_CHECKOUTS) {
+      expect(listed, `${phantom} is gitignored, so the format gate must never see it`).not.toContain(`${phantom}/lib/real.ts`)
+    }
+  })
+
   it("vitest.config.ts resolves to a repo-wide test glob that excludes both nested checkouts", async () => {
     const { vitestConfig } = await resolveConfig({ root: REPO_ROOT, config: path.join(REPO_ROOT, "vitest.config.ts") })
-    expect(vitestConfig.include, "discovery reaches every directory, so only the exclude keeps phantom copies out").toContain("**/*.test.ts")
+    expect(vitestConfig.include, "discovery reaches every directory, so only the exclude keeps phantom copies out").toContain(
+      "**/*.test.ts"
+    )
     for (const { root } of NESTED_CHECKOUTS) {
       expect(vitestConfig.exclude, `**/${root}/** must stay in the resolved exclude`).toContain(`**/${root}/**`)
     }
@@ -115,6 +140,9 @@ describe("the repo's own .gitignore covers node_modules in every form git can se
     })
     const listed = (r.stdout ?? "").split("\n").filter(Boolean)
     expect(listed, "control: the globber does reach a badly-formatted file at a real path").toContain("real/messy.js")
-    expect(listed.filter((p) => p.startsWith("linked")), "and never one reachable only through a symlinked directory").toEqual([])
+    expect(
+      listed.filter((p) => p.startsWith("linked")),
+      "and never one reachable only through a symlinked directory"
+    ).toEqual([])
   })
 })

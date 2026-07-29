@@ -139,9 +139,7 @@ describe("POST /api/control/retry-stage", () => {
   })
 
   it("rejects a missing/invalid body with 400", async () => {
-    const res = await POST(
-      new Request("http://localhost/api/control/retry-stage", { method: "POST", body: "not json" })
-    )
+    const res = await POST(new Request("http://localhost/api/control/retry-stage", { method: "POST", body: "not json" }))
     expect(res.status).toBe(400)
   })
 

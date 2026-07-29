@@ -11,9 +11,6 @@ export async function GET() {
     if (error instanceof ControlError) {
       return Response.json({ ok: false, error: error.message, code: error.code }, { status: 422 })
     }
-    return Response.json(
-      { ok: false, error: error instanceof Error ? error.message : "failed to list sessions" },
-      { status: 500 }
-    )
+    return Response.json({ ok: false, error: error instanceof Error ? error.message : "failed to list sessions" }, { status: 500 })
   }
 }

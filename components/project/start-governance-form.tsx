@@ -17,13 +17,7 @@ import { FolderBrowser } from "@/components/project/folder-browser"
 
 const EMPTY_SELECTION: DocSelection = { accepted: [], rejectedCount: 0 }
 
-export function StartGovernanceForm({
-  active,
-  onGoverned,
-}: {
-  active: boolean
-  onGoverned: (project: CurrentProject) => void
-}) {
+export function StartGovernanceForm({ active, onGoverned }: { active: boolean; onGoverned: (project: CurrentProject) => void }) {
   const t = useTranslations("project.startGovernance")
   const tErrors = useTranslations("errors")
   const locale = useLocale()
@@ -61,9 +55,7 @@ export function StartGovernanceForm({
       if (!res.ok || body.ok === false || !body.project) {
         const fallback = body.error ?? t("toast.httpError", { status: res.status })
         toast.error(t("toast.errorTitle"), {
-          description: body.code
-            ? errorTextAcrossFamilies(tErrors, ["import", "scaffold"], body.code, fallback)
-            : fallback,
+          description: body.code ? errorTextAcrossFamilies(tErrors, ["import", "scaffold"], body.code, fallback) : fallback,
         })
         return
       }
@@ -94,13 +86,7 @@ export function StartGovernanceForm({
       <div className="flex flex-col gap-1.5">
         <Label>{t("targetLabel")}</Label>
         <p className="text-xs text-muted-foreground">{t("targetHint", { brandName: BRAND.name })}</p>
-        <FolderBrowser
-          open={active}
-          allowCreate
-          disabled={submitting}
-          onListingChange={setListing}
-          onBusyChange={setBrowserBusy}
-        />
+        <FolderBrowser open={active} allowCreate disabled={submitting} onListingChange={setListing} onBusyChange={setBrowserBusy} />
         {targetDir.length > 0 ? (
           <p className="text-xs break-all text-muted-foreground">
             {t.rich("targetPreview", {
@@ -136,19 +122,9 @@ export function StartGovernanceForm({
         <DocPicker active={active} disabled={submitting} onChange={setSelection} />
       </div>
 
-      <Button
-        type="button"
-        variant="default"
-        disabled={!canSubmit}
-        onClick={() => void submit()}
-        className="w-full"
-      >
+      <Button type="button" variant="default" disabled={!canSubmit} onClick={() => void submit()} className="w-full">
         {submitting ? <Loader2 className="animate-spin" /> : <Sparkles />}
-        {submitting
-          ? t("submit.working")
-          : docCount > 0
-            ? t("submit.idleWithDocs", { count: docCount })
-            : t("submit.idle")}
+        {submitting ? t("submit.working") : docCount > 0 ? t("submit.idleWithDocs", { count: docCount }) : t("submit.idle")}
       </Button>
     </div>
   )

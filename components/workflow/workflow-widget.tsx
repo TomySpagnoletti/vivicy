@@ -127,46 +127,46 @@ export function WorkflowWidget({ open = false }: { open?: boolean } = {}) {
     return () => source.close()
   }, [open, fetchReports])
 
-  const runRetry = useCallback(async (stage: RetryableStage) => {
-    setRetryPending(stage)
-    try {
-      const res = await fetch("/api/control/retry-stage", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ stage }),
-      })
-      const body = (await res.json().catch(() => ({}))) as {
-        ok?: boolean
-        error?: string
-        code?: string
-        summary?: string
-      }
-      if (!res.ok || body.ok === false) {
-        const fallback = body.error ?? body.summary ?? `HTTP ${res.status}`
-        toast.error(t("widget.retryFailedToastTitle", { stageId: stage }), {
-          description: body.code ? errorText(tErrors, `control.${body.code}`, fallback) : fallback,
+  const runRetry = useCallback(
+    async (stage: RetryableStage) => {
+      setRetryPending(stage)
+      try {
+        const res = await fetch("/api/control/retry-stage", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ stage }),
         })
-        return
+        const body = (await res.json().catch(() => ({}))) as {
+          ok?: boolean
+          error?: string
+          code?: string
+          summary?: string
+        }
+        if (!res.ok || body.ok === false) {
+          const fallback = body.error ?? body.summary ?? `HTTP ${res.status}`
+          toast.error(t("widget.retryFailedToastTitle", { stageId: stage }), {
+            description: body.code ? errorText(tErrors, `control.${body.code}`, fallback) : fallback,
+          })
+          return
+        }
+        toast.success(t("widget.retrySucceededToastTitle", { stageId: stage }), { description: body.summary })
+      } catch (error) {
+        toast.error(t("widget.retryFailedToastTitle", { stageId: stage }), {
+          description: error instanceof Error ? error.message : t("widget.networkErrorDescription"),
+        })
+      } finally {
+        setRetryPending(null)
       }
-      toast.success(t("widget.retrySucceededToastTitle", { stageId: stage }), { description: body.summary })
-    } catch (error) {
-      toast.error(t("widget.retryFailedToastTitle", { stageId: stage }), {
-        description: error instanceof Error ? error.message : t("widget.networkErrorDescription"),
-      })
-    } finally {
-      setRetryPending(null)
-    }
-  }, [t, tErrors])
+    },
+    [t, tErrors]
+  )
 
   if (!open) return null
 
   const states = deriveStageStates(status, extraction, skills, docPrep, acceptance)
 
   return (
-    <div
-      className="pointer-events-auto absolute top-2 left-1/2 z-10 w-fit max-w-[calc(100%-1rem)] -translate-x-1/2"
-      data-workflow-widget
-    >
+    <div className="pointer-events-auto absolute top-2 left-1/2 z-10 w-fit max-w-[calc(100%-1rem)] -translate-x-1/2" data-workflow-widget>
       <div className="flex flex-col items-center gap-1 rounded-md border border-border bg-card/95 px-2 py-1.5 shadow-sm backdrop-blur-sm">
         {/* max-w-full is load-bearing: the shrink-0 chips' ~1100px min-content width would otherwise size this flex item past the card (intrinsic sizing ignores descendants' max-width), and on mobile Chromium that overflow expands the layout viewport (412->768), flipping md: into desktop mode. */}
         <div className="max-w-full">
@@ -176,16 +176,8 @@ export function WorkflowWidget({ open = false }: { open?: boolean } = {}) {
               const boundary = previousSide === "non_loop" && stage.side === "dev_loop"
               return (
                 <div key={stage.id} className="flex items-center gap-0.5">
-                  {boundary ? (
-                    <span
-                      aria-hidden
-                      data-boundary
-                      className="mx-1 h-8 w-0 border-l border-dashed border-border"
-                    />
-                  ) : null}
-                  {index > 0 && !boundary ? (
-                    <ChevronRight className="size-3 shrink-0 text-muted-foreground" aria-hidden />
-                  ) : null}
+                  {boundary ? <span aria-hidden data-boundary className="mx-1 h-8 w-0 border-l border-dashed border-border" /> : null}
+                  {index > 0 && !boundary ? <ChevronRight className="size-3 shrink-0 text-muted-foreground" aria-hidden /> : null}
                   <StageNode
                     stageId={stage.id}
                     label={t(`stages.${stage.id}`)}
@@ -272,16 +264,12 @@ function StageNode({
               </Button>
             </AlertDialogTrigger>
           </TooltipTrigger>
-          <TooltipContent>
-            {retryPending ? t("widget.retryPendingTooltip") : t("widget.retryTooltip", { label })}
-          </TooltipContent>
+          <TooltipContent>{retryPending ? t("widget.retryPendingTooltip") : t("widget.retryTooltip", { label })}</TooltipContent>
         </Tooltip>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>{t("widget.retryDialogTitle", { label })}</AlertDialogTitle>
-            <AlertDialogDescription>
-              {t(`widget.retryDialogDescription.${retryStage}`)}
-            </AlertDialogDescription>
+            <AlertDialogDescription>{t(`widget.retryDialogDescription.${retryStage}`)}</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>{t("widget.cancelButton")}</AlertDialogCancel>

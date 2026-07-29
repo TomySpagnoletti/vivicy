@@ -105,8 +105,7 @@ export function featureCycleOpenRefusal(targetRoot: string): CycleOpenRefusal | 
   if (!hasActiveFrozenBaseline(targetRoot)) {
     return {
       code: "no_frozen_baseline",
-      reason:
-        "no frozen baseline — before the first freeze the spec is already editable; a cycle is only needed to reopen a FROZEN spec",
+      reason: "no frozen baseline — before the first freeze the spec is already editable; a cycle is only needed to reopen a FROZEN spec",
     }
   }
   if (isSpecCycleOpen(targetRoot)) {
@@ -178,7 +177,7 @@ function readBatchManifest(abs: string): BatchManifest | null {
     language: typeof parsed.language === "string" && parsed.language.length > 0 ? parsed.language : UNDETERMINED,
     cycle: parsed.cycle,
     files: parsed.files.filter(
-      (f): f is ManifestFile => Boolean(f) && typeof f === "object" && typeof (f as ManifestFile).path === "string",
+      (f): f is ManifestFile => Boolean(f) && typeof f === "object" && typeof (f as ManifestFile).path === "string"
     ),
   }
 }
@@ -208,7 +207,5 @@ export function unconsumedActiveCycleBatches(repoRoot: string, report: ConsumedS
   const cycleId = activeCycleId(repoRoot)
   if (cycleId === null) return []
   const consumed = consumedSet(report)
-  return completeBatches(repoRoot).filter(
-    (b) => batchMatchesActiveCycle(b.manifest.cycle, cycleId) && !consumed.has(b.batchId),
-  )
+  return completeBatches(repoRoot).filter((b) => batchMatchesActiveCycle(b.manifest.cycle, cycleId) && !consumed.has(b.batchId))
 }

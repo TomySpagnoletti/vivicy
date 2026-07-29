@@ -1,10 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import {
-  deriveStageStates,
-  MARKER_GLYPH,
-  WORKFLOW_STAGES,
-} from "@/components/workflow/workflow-stages"
+import { deriveStageStates, MARKER_GLYPH, WORKFLOW_STAGES } from "@/components/workflow/workflow-stages"
 import type { RunStatus } from "@/lib/run-status"
 
 function status(overrides: Partial<RunStatus> = {}): RunStatus {
@@ -26,7 +22,22 @@ function status(overrides: Partial<RunStatus> = {}): RunStatus {
 describe("WORKFLOW_STAGES — full stage list + SP + SK + SA", () => {
   it("has exactly the 16 stages with SP before S2, SK between S7 and S8, and SA (acceptance) between S11 and S12, in order", () => {
     expect(WORKFLOW_STAGES.map((s) => s.id)).toEqual([
-      "S0", "S1", "SP", "S2", "S3", "S4", "S5", "S6", "S7", "SK", "S8", "S9", "S10", "S11", "SA", "S12",
+      "S0",
+      "S1",
+      "SP",
+      "S2",
+      "S3",
+      "S4",
+      "S5",
+      "S6",
+      "S7",
+      "SK",
+      "S8",
+      "S9",
+      "S10",
+      "S11",
+      "SA",
+      "S12",
     ])
   })
 
@@ -138,27 +149,20 @@ describe("deriveStageStates — honest state truth, no fake progress", () => {
   })
 
   it("an active dev-loop run pulses S8/S9 running regardless of progress", () => {
-    const states = deriveStageStates(
-      status({ run_active: true, issues_total: 8, issues_done: 2 }),
-      { phase: "green" }
-    )
+    const states = deriveStageStates(status({ run_active: true, issues_total: 8, issues_done: 2 }), { phase: "green" })
     expect(states.S8).toBe("running")
     expect(states.S9).toBe("running")
   })
 
   it("a failing gate while incomplete and NOT running marks S9 red", () => {
-    const states = deriveStageStates(
-      status({ run_active: false, issues_total: 8, issues_done: 3, gates: { pass: 3, fail: 1 } }),
-      { phase: "green" }
-    )
+    const states = deriveStageStates(status({ run_active: false, issues_total: 8, issues_done: 3, gates: { pass: 3, fail: 1 } }), {
+      phase: "green",
+    })
     expect(states.S9).toBe("red")
   })
 
   it("all issues done marks S8-S10 green but WITHHOLDS S12 until the acceptance pass reports (no acceptance report yet)", () => {
-    const states = deriveStageStates(
-      status({ run_active: false, issues_total: 8, issues_done: 8 }),
-      { phase: "green" }
-    )
+    const states = deriveStageStates(status({ run_active: false, issues_total: 8, issues_done: 8 }), { phase: "green" })
     expect(states.S8).toBe("green")
     expect(states.S9).toBe("green")
     expect(states.S10).toBe("green")
@@ -168,72 +172,49 @@ describe("deriveStageStates — honest state truth, no fake progress", () => {
   })
 
   it("all issues done PLUS a green acceptance pass flips SA and S12 green", () => {
-    const states = deriveStageStates(
-      status({ run_active: false, issues_total: 8, issues_done: 8 }),
-      { phase: "green" },
-      null,
-      null,
-      { phase: "green" }
-    )
+    const states = deriveStageStates(status({ run_active: false, issues_total: 8, issues_done: 8 }), { phase: "green" }, null, null, {
+      phase: "green",
+    })
     expect(states.SA).toBe("green")
     expect(states.S12).toBe("green")
   })
 
   it("acceptance in flight (checking) pulses SA running and keeps S12 pending", () => {
-    const states = deriveStageStates(
-      status({ run_active: false, issues_total: 8, issues_done: 8 }),
-      { phase: "green" },
-      null,
-      null,
-      { phase: "checking" }
-    )
+    const states = deriveStageStates(status({ run_active: false, issues_total: 8, issues_done: 8 }), { phase: "green" }, null, null, {
+      phase: "checking",
+    })
     expect(states.SA).toBe("running")
     expect(states.S12).toBe("pending")
   })
 
   it("acceptance findings mark SA red and WITHHOLD S12 — a build with a routed whole-product gap never reads as Done", () => {
-    const states = deriveStageStates(
-      status({ run_active: false, issues_total: 8, issues_done: 8 }),
-      { phase: "green" },
-      null,
-      null,
-      { phase: "findings", drafted_crs: ["CR-0007"] }
-    )
+    const states = deriveStageStates(status({ run_active: false, issues_total: 8, issues_done: 8 }), { phase: "green" }, null, null, {
+      phase: "findings",
+      drafted_crs: ["CR-0007"],
+    })
     expect(states.SA).toBe("red")
     expect(states.S12).toBe("pending")
   })
 
   it("a failed acceptance leg marks SA red and withholds S12 (never a silent Done)", () => {
-    const states = deriveStageStates(
-      status({ run_active: false, issues_total: 8, issues_done: 8 }),
-      { phase: "green" },
-      null,
-      null,
-      { phase: "failed" }
-    )
+    const states = deriveStageStates(status({ run_active: false, issues_total: 8, issues_done: 8 }), { phase: "green" }, null, null, {
+      phase: "failed",
+    })
     expect(states.SA).toBe("red")
     expect(states.S12).toBe("pending")
   })
 
   it("a green acceptance report while issues are still unfinished never fabricates S12 (allDone gate)", () => {
-    const states = deriveStageStates(
-      status({ run_active: false, issues_total: 8, issues_done: 5 }),
-      { phase: "green" },
-      null,
-      null,
-      { phase: "green" }
-    )
+    const states = deriveStageStates(status({ run_active: false, issues_total: 8, issues_done: 5 }), { phase: "green" }, null, null, {
+      phase: "green",
+    })
     expect(states.S12).toBe("pending")
   })
 
   it("never fabricates S11 green — it has no observed signal in this derivation", () => {
-    const states = deriveStageStates(
-      status({ run_active: false, issues_total: 8, issues_done: 8 }),
-      { phase: "green" },
-      null,
-      null,
-      { phase: "green" }
-    )
+    const states = deriveStageStates(status({ run_active: false, issues_total: 8, issues_done: 8 }), { phase: "green" }, null, null, {
+      phase: "green",
+    })
     expect(states.S11).not.toBe("green")
   })
 
@@ -292,10 +273,9 @@ describe("deriveStageStates — honest state truth, no fake progress", () => {
   })
 
   it("a paused mid-way run (0 < done < total, not running, no failing gate) leaves S8-S10 pending — never a fabricated green (P1; resolveRunPhase calls this exact condition 'idle')", () => {
-    const states = deriveStageStates(
-      status({ run_active: false, issues_total: 8, issues_done: 4, gates: { pass: 4, fail: 0 } }),
-      { phase: "green" }
-    )
+    const states = deriveStageStates(status({ run_active: false, issues_total: 8, issues_done: 4, gates: { pass: 4, fail: 0 } }), {
+      phase: "green",
+    })
     expect(states.S8).toBe("pending")
     expect(states.S9).toBe("pending")
     expect(states.S10).toBe("pending")

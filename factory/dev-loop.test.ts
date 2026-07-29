@@ -1,12 +1,12 @@
 // MUST be the first import: binds VIVICY_TARGET_ROOT before dev-loop.ts binds its target root at module load (see test-target-root.ts for why order matters).
-import { testTargetRoot as repoRoot } from "./test-target-root.ts";
-import assert from "node:assert/strict";
-import test, { after } from "node:test";
-import { spawnSync } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { dirname, relative, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { testTargetRoot as repoRoot } from "./test-target-root.ts"
+import assert from "node:assert/strict"
+import test, { after } from "node:test"
+import { spawnSync } from "node:child_process"
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { dirname, relative, resolve } from "node:path"
+import { fileURLToPath } from "node:url"
 import {
   ensureCleanTreeForRun,
   agentCliArgs,
@@ -53,78 +53,81 @@ import {
   runLoopParallel,
   selectIndependentBatch,
   spikeGatesSatisfied,
-} from "./dev-loop.ts";
-import type { Config, Issue, LoopSteps, ProcessedIssue } from "./dev-loop.ts";
-import { TRANSCRIPT_DIRS } from "./agent-spawn.ts";
-import { checkSkills, missingSkills, readDeclaredSkills } from "./dev-preflight.ts";
-import { nextSupervisorAction } from "./dev-loop-supervised.ts";
+} from "./dev-loop.ts"
+import type { Config, Issue, LoopSteps, ProcessedIssue } from "./dev-loop.ts"
+import { TRANSCRIPT_DIRS } from "./agent-spawn.ts"
+import { checkSkills, missingSkills, readDeclaredSkills } from "./dev-preflight.ts"
+import { nextSupervisorAction } from "./dev-loop-supervised.ts"
 
 after(() => {
-  rmSync(repoRoot, { recursive: true, force: true });
-});
+  rmSync(repoRoot, { recursive: true, force: true })
+})
 
 test("dependenciesSatisfied", () => {
-  assert.equal(dependenciesSatisfied({ depends_on: ["A"] }, new Set(["A"])), true);
-  assert.equal(dependenciesSatisfied({ depends_on: ["A", "B"] }, new Set(["A"])), false);
-  assert.equal(dependenciesSatisfied({}, new Set()), true);
-});
+  assert.equal(dependenciesSatisfied({ depends_on: ["A"] }, new Set(["A"])), true)
+  assert.equal(dependenciesSatisfied({ depends_on: ["A", "B"] }, new Set(["A"])), false)
+  assert.equal(dependenciesSatisfied({}, new Set()), true)
+})
 
 test("pickNextIssue respects done, dependencies, and order", () => {
   const issues = [
     { id: "A", depends_on: [] },
     { id: "B", depends_on: ["A"] },
-  ];
-  assert.equal(pickNextIssue(issues, new Set())!.id, "A");
-  assert.equal(pickNextIssue(issues, new Set(["A"]))!.id, "B");
-  assert.equal(pickNextIssue(issues, new Set(["A", "B"])), null);
-});
+  ]
+  assert.equal(pickNextIssue(issues, new Set())!.id, "A")
+  assert.equal(pickNextIssue(issues, new Set(["A"]))!.id, "B")
+  assert.equal(pickNextIssue(issues, new Set(["A", "B"])), null)
+})
 
 test("spikeGatesSatisfied gates an issue on its verified spikes", () => {
-  assert.equal(spikeGatesSatisfied({ spike_gates: [] }, new Set()), true);
-  assert.equal(spikeGatesSatisfied({}, new Set()), true);
-  assert.equal(spikeGatesSatisfied({ spike_gates: ["gate:phase0:s01-x"] }, new Set()), false);
-  assert.equal(spikeGatesSatisfied({ spike_gates: ["gate:phase0:s01-x"] }, new Set(["gate:phase0:s01-x"])), true);
-  assert.equal(
-    spikeGatesSatisfied({ spike_gates: ["gate:phase0:s01-x", "gate:phase0:s02-y"] }, new Set(["gate:phase0:s01-x"])),
-    false,
-  );
-});
+  assert.equal(spikeGatesSatisfied({ spike_gates: [] }, new Set()), true)
+  assert.equal(spikeGatesSatisfied({}, new Set()), true)
+  assert.equal(spikeGatesSatisfied({ spike_gates: ["gate:phase0:s01-x"] }, new Set()), false)
+  assert.equal(spikeGatesSatisfied({ spike_gates: ["gate:phase0:s01-x"] }, new Set(["gate:phase0:s01-x"])), true)
+  assert.equal(spikeGatesSatisfied({ spike_gates: ["gate:phase0:s01-x", "gate:phase0:s02-y"] }, new Set(["gate:phase0:s01-x"])), false)
+})
 
 test("readiness holds back issues whose spikes are not verified", () => {
   const issues = [
     { id: "A", depends_on: [], spike_gates: ["gate:phase0:s01-x"] },
     { id: "B", depends_on: [], spike_gates: [] },
-  ];
-  assert.equal(pickNextIssue(issues, new Set(), new Set())!.id, "B");
-  assert.deepEqual(computeReadySet(issues, new Set(), new Set(), new Set()).map((i) => i.id), ["B"]);
-  const verified = new Set(["gate:phase0:s01-x"]);
-  assert.equal(pickNextIssue(issues, new Set(), verified)!.id, "A");
-  assert.deepEqual(computeReadySet(issues, new Set(), new Set(), verified).map((i) => i.id), ["A", "B"]);
-});
+  ]
+  assert.equal(pickNextIssue(issues, new Set(), new Set())!.id, "B")
+  assert.deepEqual(
+    computeReadySet(issues, new Set(), new Set(), new Set()).map((i) => i.id),
+    ["B"]
+  )
+  const verified = new Set(["gate:phase0:s01-x"])
+  assert.equal(pickNextIssue(issues, new Set(), verified)!.id, "A")
+  assert.deepEqual(
+    computeReadySet(issues, new Set(), new Set(), verified).map((i) => i.id),
+    ["A", "B"]
+  )
+})
 
 test("computeDoneIds counts moved files and per-issue verified graph refs", () => {
   const issues = [
     { id: "A", graph_refs: ["node:x"] },
     { id: "B", graph_refs: ["node:y"] },
     { id: "C", graph_refs: ["node:y"] },
-  ];
+  ]
   const ledger = {
     graph_item_states: [{ graph_ref: "node:y", status: "verified", issue_states: { B: "verified" } }],
-  };
-  const done = computeDoneIds(issues, ledger, new Set(["A.md"]));
-  assert.ok(done.has("A"), "A is done via its moved file");
-  assert.ok(done.has("B"), "B is done via its own verified per-issue state");
-  assert.ok(!done.has("C"), "C is NOT done: node:y was verified by B, not C (no shared-node over-count)");
-});
+  }
+  const done = computeDoneIds(issues, ledger, new Set(["A.md"]))
+  assert.ok(done.has("A"), "A is done via its moved file")
+  assert.ok(done.has("B"), "B is done via its own verified per-issue state")
+  assert.ok(!done.has("C"), "C is NOT done: node:y was verified by B, not C (no shared-node over-count)")
+})
 
 test("composePrompt fills placeholders", () => {
   const out = composePrompt("Issue {{issue_id}} at {{issue_path}} refs {{graph_refs}}", {
     id: "ISSUE-1",
     issue_path: "p.md",
     graph_refs: ["a", "b"],
-  });
-  assert.equal(out, "Issue ISSUE-1 at p.md refs a, b");
-});
+  })
+  assert.equal(out, "Issue ISSUE-1 at p.md refs a, b")
+})
 
 test("agentCliArgs builds claude --model/--effort and codex -m/-c flags", () => {
   assert.deepEqual(agentCliArgs("claude", { model: "claude-opus-4-8", effort: "xhigh" }), [
@@ -132,24 +135,19 @@ test("agentCliArgs builds claude --model/--effort and codex -m/-c flags", () => 
     "claude-opus-4-8",
     "--effort",
     "xhigh",
-  ]);
-  assert.deepEqual(agentCliArgs("codex", { model: "gpt-5.5", effort: "high" }), [
-    "-m",
-    "gpt-5.5",
-    "-c",
-    'model_reasoning_effort="high"',
-  ]);
-});
+  ])
+  assert.deepEqual(agentCliArgs("codex", { model: "gpt-5.5", effort: "high" }), ["-m", "gpt-5.5", "-c", 'model_reasoning_effort="high"'])
+})
 
 test("agentCliArgs omits only the missing flag pair, never a bare flag", () => {
-  assert.deepEqual(agentCliArgs("claude", { effort: "max" }), ["--effort", "max"]);
-  assert.deepEqual(agentCliArgs("claude", { model: "claude-opus-4-8" }), ["--model", "claude-opus-4-8"]);
-  assert.deepEqual(agentCliArgs("codex", { effort: "minimal" }), ["-c", 'model_reasoning_effort="minimal"']);
-  assert.deepEqual(agentCliArgs("codex", { model: "gpt-5.5" }), ["-m", "gpt-5.5"]);
-  assert.deepEqual(agentCliArgs("claude", {}), []);
-  assert.deepEqual(agentCliArgs("codex", {}), []);
-  assert.deepEqual(agentCliArgs("other", { model: "x", effort: "high" }), []);
-});
+  assert.deepEqual(agentCliArgs("claude", { effort: "max" }), ["--effort", "max"])
+  assert.deepEqual(agentCliArgs("claude", { model: "claude-opus-4-8" }), ["--model", "claude-opus-4-8"])
+  assert.deepEqual(agentCliArgs("codex", { effort: "minimal" }), ["-c", 'model_reasoning_effort="minimal"'])
+  assert.deepEqual(agentCliArgs("codex", { model: "gpt-5.5" }), ["-m", "gpt-5.5"])
+  assert.deepEqual(agentCliArgs("claude", {}), [])
+  assert.deepEqual(agentCliArgs("codex", {}), [])
+  assert.deepEqual(agentCliArgs("other", { model: "x", effort: "high" }), [])
+})
 
 test("agentCliArgs appends fast flags ONLY for a fast-capable model", () => {
   assert.deepEqual(agentCliArgs("claude", { model: "claude-opus-4-8", effort: "xhigh", fast: true }), [
@@ -159,7 +157,7 @@ test("agentCliArgs appends fast flags ONLY for a fast-capable model", () => {
     "xhigh",
     "--settings",
     JSON.stringify({ fastMode: true }),
-  ]);
+  ])
   assert.deepEqual(agentCliArgs("codex", { model: "gpt-5.5", effort: "high", fast: true }), [
     "-m",
     "gpt-5.5",
@@ -167,8 +165,8 @@ test("agentCliArgs appends fast flags ONLY for a fast-capable model", () => {
     'model_reasoning_effort="high"',
     "-c",
     "fast_mode=true",
-  ]);
-});
+  ])
+})
 
 test("agentCliArgs OMITS fast for a model that cannot do fast (honest, even if asked)", () => {
   assert.deepEqual(agentCliArgs("claude", { model: "claude-opus-4-5", effort: "high", fast: true }), [
@@ -176,99 +174,96 @@ test("agentCliArgs OMITS fast for a model that cannot do fast (honest, even if a
     "claude-opus-4-5",
     "--effort",
     "high",
-  ]);
-  assert.deepEqual(agentCliArgs("codex", { model: "gpt-5.3-codex-spark", fast: true }), [
-    "-m",
-    "gpt-5.3-codex-spark",
-  ]);
-  assert.ok(!agentCliArgs("codex", { model: "gpt-5.4-mini", effort: "high", fast: true }).includes("fast_mode=true"));
-});
+  ])
+  assert.deepEqual(agentCliArgs("codex", { model: "gpt-5.3-codex-spark", fast: true }), ["-m", "gpt-5.3-codex-spark"])
+  assert.ok(!agentCliArgs("codex", { model: "gpt-5.4-mini", effort: "high", fast: true }).includes("fast_mode=true"))
+})
 
 test("DEFAULT_CONFIG pins the latest models with the documented default thinking levels", () => {
-  assert.equal(DEFAULT_CONFIG.implementer.provider, "claude");
-  assert.equal(DEFAULT_CONFIG.implementer.model, "claude-opus-4-8");
-  assert.equal(DEFAULT_CONFIG.implementer.effort, "xhigh");
-  assert.equal(DEFAULT_CONFIG.reviewer.provider, "codex");
-  assert.equal(DEFAULT_CONFIG.reviewer.model, "gpt-5.5");
-  assert.equal(DEFAULT_CONFIG.reviewer.effort, "high");
-});
+  assert.equal(DEFAULT_CONFIG.implementer.provider, "claude")
+  assert.equal(DEFAULT_CONFIG.implementer.model, "claude-opus-4-8")
+  assert.equal(DEFAULT_CONFIG.implementer.effort, "xhigh")
+  assert.equal(DEFAULT_CONFIG.reviewer.provider, "codex")
+  assert.equal(DEFAULT_CONFIG.reviewer.model, "gpt-5.5")
+  assert.equal(DEFAULT_CONFIG.reviewer.effort, "high")
+})
 
 // The seam passes several `-c key=value` pairs (the isolation set plus the effort), so the effort is asserted over ALL of them — never by the position of the first `-c`.
 function codexConfigValues(argv: string[]): string[] {
-  return argv.filter((arg, index) => index > 0 && argv[index - 1] === "-c");
+  return argv.filter((arg, index) => index > 0 && argv[index - 1] === "-c")
 }
 
 test("defaultRunImplementer / defaultRunReviewer spawn with the model + effort flags", () => {
-  const shimDir = mkdtempSync(resolve(repoRoot, "_tmp-agent-shim-"));
-  const shimRel = relative(repoRoot, shimDir);
-  const argvFile = resolve(shimDir, "argv.json");
+  const shimDir = mkdtempSync(resolve(repoRoot, "_tmp-agent-shim-"))
+  const shimRel = relative(repoRoot, shimDir)
+  const argvFile = resolve(shimDir, "argv.json")
   const shim = (name: string) =>
     `#!/usr/bin/env node\n` +
     `import { appendFileSync } from "node:fs";\n` +
-    `appendFileSync(process.env.AGENT_SHIM_OUT, JSON.stringify({ name: ${JSON.stringify(name)}, argv: process.argv.slice(2) }) + "\\n");\n`;
-  writeFileSync(resolve(shimDir, "claude"), shim("claude"), { mode: 0o755 });
-  writeFileSync(resolve(shimDir, "codex"), shim("codex"), { mode: 0o755 });
+    `appendFileSync(process.env.AGENT_SHIM_OUT, JSON.stringify({ name: ${JSON.stringify(name)}, argv: process.argv.slice(2) }) + "\\n");\n`
+  writeFileSync(resolve(shimDir, "claude"), shim("claude"), { mode: 0o755 })
+  writeFileSync(resolve(shimDir, "codex"), shim("codex"), { mode: 0o755 })
 
-  const prevPath = process.env.PATH;
-  const prevOut = process.env.AGENT_SHIM_OUT;
-  process.env.PATH = `${shimDir}:${prevPath}`;
-  process.env.AGENT_SHIM_OUT = argvFile;
+  const prevPath = process.env.PATH
+  const prevOut = process.env.AGENT_SHIM_OUT
+  process.env.PATH = `${shimDir}:${prevPath}`
+  process.env.AGENT_SHIM_OUT = argvFile
   try {
-    const issue = { id: "ISSUE-FLAGS", graph_refs: ["node:x"] };
+    const issue = { id: "ISSUE-FLAGS", graph_refs: ["node:x"] }
     const cfg = {
       ...DEFAULT_CONFIG,
       transcriptsDir: `${shimRel}/transcripts`,
       implementer: { ...DEFAULT_CONFIG.implementer, model: "claude-opus-4-8", effort: "max" },
       reviewer: { ...DEFAULT_CONFIG.reviewer, model: "gpt-5.5", effort: "minimal" },
-    };
-    defaultRunImplementer(issue, cfg);
-    defaultRunReviewer(issue, cfg);
+    }
+    defaultRunImplementer(issue, cfg)
+    defaultRunReviewer(issue, cfg)
 
     const records = readFileSync(argvFile, "utf8")
       .trim()
       .split("\n")
-      .map((line) => JSON.parse(line));
-    const claude = records.find((r) => r.name === "claude");
-    const codex = records.find((r) => r.name === "codex");
-    assert.ok(claude, "claude leg spawned");
-    assert.ok(codex, "codex leg spawned");
+      .map((line) => JSON.parse(line))
+    const claude = records.find((r) => r.name === "claude")
+    const codex = records.find((r) => r.name === "codex")
+    assert.ok(claude, "claude leg spawned")
+    assert.ok(codex, "codex leg spawned")
 
-    const cm = claude.argv.indexOf("--model");
-    assert.ok(cm !== -1 && claude.argv[cm + 1] === "claude-opus-4-8");
-    const ce = claude.argv.indexOf("--effort");
-    assert.ok(ce !== -1 && claude.argv[ce + 1] === "max");
+    const cm = claude.argv.indexOf("--model")
+    assert.ok(cm !== -1 && claude.argv[cm + 1] === "claude-opus-4-8")
+    const ce = claude.argv.indexOf("--effort")
+    assert.ok(ce !== -1 && claude.argv[ce + 1] === "max")
 
-    const xm = codex.argv.indexOf("-m");
-    assert.ok(xm !== -1 && codex.argv[xm + 1] === "gpt-5.5");
-    assert.ok(codexConfigValues(codex.argv).includes('model_reasoning_effort="minimal"'));
+    const xm = codex.argv.indexOf("-m")
+    assert.ok(xm !== -1 && codex.argv[xm + 1] === "gpt-5.5")
+    assert.ok(codexConfigValues(codex.argv).includes('model_reasoning_effort="minimal"'))
   } finally {
-    process.env.PATH = prevPath;
-    if (prevOut === undefined) delete process.env.AGENT_SHIM_OUT;
-    else process.env.AGENT_SHIM_OUT = prevOut;
-    rmSync(shimDir, { recursive: true, force: true });
+    process.env.PATH = prevPath
+    if (prevOut === undefined) delete process.env.AGENT_SHIM_OUT
+    else process.env.AGENT_SHIM_OUT = prevOut
+    rmSync(shimDir, { recursive: true, force: true })
   }
-});
+})
 
 test("resolveAgentLegs reads the role -> CLI assignment from the env", () => {
-  const def = resolveAgentLegs({});
-  assert.equal(def.implementer.provider, "claude");
-  assert.equal(def.implementer.actor, "claude");
-  assert.equal(def.implementer.role, "implementer");
-  assert.equal(def.reviewer.provider, "codex");
-  assert.equal(def.reviewer.actor, "codex");
-  assert.equal(def.reviewer.role, "reviewer");
+  const def = resolveAgentLegs({})
+  assert.equal(def.implementer.provider, "claude")
+  assert.equal(def.implementer.actor, "claude")
+  assert.equal(def.implementer.role, "implementer")
+  assert.equal(def.reviewer.provider, "codex")
+  assert.equal(def.reviewer.actor, "codex")
+  assert.equal(def.reviewer.role, "reviewer")
 
   const swap = resolveAgentLegs({
     VIVICY_IMPLEMENTER_CLI: "codex",
     VIVICY_REVIEWER_CLI: "claude",
     VIVICY_CLAUDE_EFFORT: "max",
     VIVICY_CODEX_EFFORT: "minimal",
-  });
-  assert.equal(swap.implementer.provider, "codex");
-  assert.equal(swap.implementer.effort, "minimal");
-  assert.equal(swap.reviewer.provider, "claude");
-  assert.equal(swap.reviewer.effort, "max");
-});
+  })
+  assert.equal(swap.implementer.provider, "codex")
+  assert.equal(swap.implementer.effort, "minimal")
+  assert.equal(swap.reviewer.provider, "claude")
+  assert.equal(swap.reviewer.effort, "max")
+})
 
 test("resolveAgentLegs honors fast ONLY for a fast-capable model (authoritative gate)", () => {
   const on = resolveAgentLegs({
@@ -276,157 +271,157 @@ test("resolveAgentLegs honors fast ONLY for a fast-capable model (authoritative 
     VIVICY_CLAUDE_FAST: "1",
     VIVICY_CODEX_MODEL: "gpt-5.5",
     VIVICY_CODEX_FAST: "1",
-  });
-  assert.equal(on.implementer.fast, true);
-  assert.equal(on.reviewer.fast, true);
+  })
+  assert.equal(on.implementer.fast, true)
+  assert.equal(on.reviewer.fast, true)
 
   const gated = resolveAgentLegs({
     VIVICY_CLAUDE_MODEL: "claude-opus-4-5",
     VIVICY_CLAUDE_FAST: "1",
     VIVICY_CODEX_MODEL: "gpt-5.3-codex-spark",
     VIVICY_CODEX_FAST: "1",
-  });
-  assert.equal(gated.implementer.fast, false);
-  assert.equal(gated.reviewer.fast, false);
+  })
+  assert.equal(gated.implementer.fast, false)
+  assert.equal(gated.reviewer.fast, false)
 
-  const def = resolveAgentLegs({});
-  assert.equal(def.implementer.fast, false);
-  assert.equal(def.reviewer.fast, false);
-});
+  const def = resolveAgentLegs({})
+  assert.equal(def.implementer.fast, false)
+  assert.equal(def.reviewer.fast, false)
+})
 
 test("resolveAgentLegs repairs an out-of-band INVALID effort to the CLI default", () => {
   const legs = resolveAgentLegs({
     VIVICY_CLAUDE_EFFORT: "extreme",
     VIVICY_CODEX_EFFORT: "max",
-  });
-  assert.equal(legs.implementer.effort, "xhigh");
-  assert.equal(legs.reviewer.effort, "high");
-  const ok = resolveAgentLegs({ VIVICY_CLAUDE_EFFORT: "low", VIVICY_CODEX_EFFORT: "minimal" });
-  assert.equal(ok.implementer.effort, "low");
-  assert.equal(ok.reviewer.effort, "minimal");
-});
+  })
+  assert.equal(legs.implementer.effort, "xhigh")
+  assert.equal(legs.reviewer.effort, "high")
+  const ok = resolveAgentLegs({ VIVICY_CLAUDE_EFFORT: "low", VIVICY_CODEX_EFFORT: "minimal" })
+  assert.equal(ok.implementer.effort, "low")
+  assert.equal(ok.reviewer.effort, "minimal")
+})
 
 test("a fast-enabled leg spawns the real fast flags in its argv", () => {
-  const shimDir = mkdtempSync(resolve(repoRoot, "_tmp-agent-fast-shim-"));
-  const shimRel = relative(repoRoot, shimDir);
-  const argvFile = resolve(shimDir, "argv.json");
+  const shimDir = mkdtempSync(resolve(repoRoot, "_tmp-agent-fast-shim-"))
+  const shimRel = relative(repoRoot, shimDir)
+  const argvFile = resolve(shimDir, "argv.json")
   const shim = (name: string) =>
     `#!/usr/bin/env node\n` +
     `import { appendFileSync } from "node:fs";\n` +
-    `appendFileSync(process.env.AGENT_SHIM_OUT, JSON.stringify({ name: ${JSON.stringify(name)}, argv: process.argv.slice(2) }) + "\\n");\n`;
-  writeFileSync(resolve(shimDir, "claude"), shim("claude"), { mode: 0o755 });
-  writeFileSync(resolve(shimDir, "codex"), shim("codex"), { mode: 0o755 });
+    `appendFileSync(process.env.AGENT_SHIM_OUT, JSON.stringify({ name: ${JSON.stringify(name)}, argv: process.argv.slice(2) }) + "\\n");\n`
+  writeFileSync(resolve(shimDir, "claude"), shim("claude"), { mode: 0o755 })
+  writeFileSync(resolve(shimDir, "codex"), shim("codex"), { mode: 0o755 })
 
-  const prevPath = process.env.PATH;
-  const prevOut = process.env.AGENT_SHIM_OUT;
-  process.env.PATH = `${shimDir}:${prevPath}`;
-  process.env.AGENT_SHIM_OUT = argvFile;
+  const prevPath = process.env.PATH
+  const prevOut = process.env.AGENT_SHIM_OUT
+  process.env.PATH = `${shimDir}:${prevPath}`
+  process.env.AGENT_SHIM_OUT = argvFile
   try {
-    const issue = { id: "ISSUE-FAST", graph_refs: ["node:x"] };
+    const issue = { id: "ISSUE-FAST", graph_refs: ["node:x"] }
     const cfg = {
       ...DEFAULT_CONFIG,
       transcriptsDir: `${shimRel}/transcripts`,
       implementer: { ...DEFAULT_CONFIG.implementer, model: "claude-opus-4-8", effort: "xhigh", fast: true },
       reviewer: { ...DEFAULT_CONFIG.reviewer, model: "gpt-5.5", effort: "high", fast: true },
-    };
-    defaultRunImplementer(issue, cfg);
-    defaultRunReviewer(issue, cfg);
+    }
+    defaultRunImplementer(issue, cfg)
+    defaultRunReviewer(issue, cfg)
 
     const records = readFileSync(argvFile, "utf8")
       .trim()
       .split("\n")
-      .map((line) => JSON.parse(line));
-    const claude = records.find((r) => r.name === "claude");
-    const codex = records.find((r) => r.name === "codex");
+      .map((line) => JSON.parse(line))
+    const claude = records.find((r) => r.name === "claude")
+    const codex = records.find((r) => r.name === "codex")
 
-    const cs = claude.argv.indexOf("--settings");
-    assert.ok(cs !== -1, "claude --settings present for fast");
-    assert.deepEqual(JSON.parse(claude.argv[cs + 1]), { fastMode: true });
+    const cs = claude.argv.indexOf("--settings")
+    assert.ok(cs !== -1, "claude --settings present for fast")
+    assert.deepEqual(JSON.parse(claude.argv[cs + 1]), { fastMode: true })
 
-    assert.ok(codex.argv.includes("fast_mode=true"), "codex fast_mode=true present");
+    assert.ok(codex.argv.includes("fast_mode=true"), "codex fast_mode=true present")
   } finally {
-    process.env.PATH = prevPath;
-    if (prevOut === undefined) delete process.env.AGENT_SHIM_OUT;
-    else process.env.AGENT_SHIM_OUT = prevOut;
-    rmSync(shimDir, { recursive: true, force: true });
+    process.env.PATH = prevPath
+    if (prevOut === undefined) delete process.env.AGENT_SHIM_OUT
+    else process.env.AGENT_SHIM_OUT = prevOut
+    rmSync(shimDir, { recursive: true, force: true })
   }
-});
+})
 
 test("resolveAgentLegs enforces distinct CLIs (rejects same CLI for both roles)", () => {
   const dupClaude = resolveAgentLegs({
     VIVICY_IMPLEMENTER_CLI: "claude",
     VIVICY_REVIEWER_CLI: "claude",
-  });
-  assert.equal(dupClaude.implementer.provider, "claude");
-  assert.equal(dupClaude.reviewer.provider, "codex");
-  assert.notEqual(dupClaude.implementer.provider, dupClaude.reviewer.provider);
+  })
+  assert.equal(dupClaude.implementer.provider, "claude")
+  assert.equal(dupClaude.reviewer.provider, "codex")
+  assert.notEqual(dupClaude.implementer.provider, dupClaude.reviewer.provider)
 
   const dupCodex = resolveAgentLegs({
     VIVICY_IMPLEMENTER_CLI: "codex",
     VIVICY_REVIEWER_CLI: "codex",
-  });
-  assert.equal(dupCodex.implementer.provider, "codex");
-  assert.equal(dupCodex.reviewer.provider, "claude");
-  assert.notEqual(dupCodex.implementer.provider, dupCodex.reviewer.provider);
+  })
+  assert.equal(dupCodex.implementer.provider, "codex")
+  assert.equal(dupCodex.reviewer.provider, "claude")
+  assert.notEqual(dupCodex.implementer.provider, dupCodex.reviewer.provider)
 
-  const bogus = resolveAgentLegs({ VIVICY_IMPLEMENTER_CLI: "gemini" });
-  assert.equal(bogus.implementer.provider, "claude");
-  assert.equal(bogus.reviewer.provider, "codex");
-});
+  const bogus = resolveAgentLegs({ VIVICY_IMPLEMENTER_CLI: "gemini" })
+  assert.equal(bogus.implementer.provider, "claude")
+  assert.equal(bogus.reviewer.provider, "codex")
+})
 
 test("defaultRunImplementer / defaultRunReviewer dispatch to the assigned CLI (roles swapped)", () => {
-  const shimDir = mkdtempSync(resolve(repoRoot, "_tmp-swap-shim-"));
-  const shimRel = relative(repoRoot, shimDir);
-  const argvFile = resolve(shimDir, "argv.json");
+  const shimDir = mkdtempSync(resolve(repoRoot, "_tmp-swap-shim-"))
+  const shimRel = relative(repoRoot, shimDir)
+  const argvFile = resolve(shimDir, "argv.json")
   const shim = (name: string) =>
     `#!/usr/bin/env node\n` +
     `import { appendFileSync } from "node:fs";\n` +
-    `appendFileSync(process.env.AGENT_SHIM_OUT, JSON.stringify({ name: ${JSON.stringify(name)}, argv: process.argv.slice(2) }) + "\\n");\n`;
-  writeFileSync(resolve(shimDir, "claude"), shim("claude"), { mode: 0o755 });
-  writeFileSync(resolve(shimDir, "codex"), shim("codex"), { mode: 0o755 });
+    `appendFileSync(process.env.AGENT_SHIM_OUT, JSON.stringify({ name: ${JSON.stringify(name)}, argv: process.argv.slice(2) }) + "\\n");\n`
+  writeFileSync(resolve(shimDir, "claude"), shim("claude"), { mode: 0o755 })
+  writeFileSync(resolve(shimDir, "codex"), shim("codex"), { mode: 0o755 })
 
-  const prevPath = process.env.PATH;
-  const prevOut = process.env.AGENT_SHIM_OUT;
-  process.env.PATH = `${shimDir}:${prevPath}`;
-  process.env.AGENT_SHIM_OUT = argvFile;
+  const prevPath = process.env.PATH
+  const prevOut = process.env.AGENT_SHIM_OUT
+  process.env.PATH = `${shimDir}:${prevPath}`
+  process.env.AGENT_SHIM_OUT = argvFile
   try {
-    const issue = { id: "ISSUE-SWAP", graph_refs: ["node:x"] };
+    const issue = { id: "ISSUE-SWAP", graph_refs: ["node:x"] }
     const legs = resolveAgentLegs({
       VIVICY_IMPLEMENTER_CLI: "codex",
       VIVICY_REVIEWER_CLI: "claude",
       VIVICY_CODEX_EFFORT: "minimal",
       VIVICY_CLAUDE_EFFORT: "max",
-    });
+    })
     const cfg = {
       ...DEFAULT_CONFIG,
       transcriptsDir: `${shimRel}/transcripts`,
       implementer: legs.implementer,
       reviewer: legs.reviewer,
-    };
-    defaultRunImplementer(issue, cfg);
-    defaultRunReviewer(issue, cfg);
+    }
+    defaultRunImplementer(issue, cfg)
+    defaultRunReviewer(issue, cfg)
 
     const records = readFileSync(argvFile, "utf8")
       .trim()
       .split("\n")
-      .map((line) => JSON.parse(line));
+      .map((line) => JSON.parse(line))
 
-    const codex = records.find((r) => r.name === "codex");
-    assert.ok(codex, "implementer leg spawned codex");
-    assert.ok(codex.argv.includes("exec"), "codex invoked in exec mode");
-    assert.ok(codexConfigValues(codex.argv).includes('model_reasoning_effort="minimal"'));
+    const codex = records.find((r) => r.name === "codex")
+    assert.ok(codex, "implementer leg spawned codex")
+    assert.ok(codex.argv.includes("exec"), "codex invoked in exec mode")
+    assert.ok(codexConfigValues(codex.argv).includes('model_reasoning_effort="minimal"'))
 
-    const claude = records.find((r) => r.name === "claude");
-    assert.ok(claude, "reviewer leg spawned claude");
-    const ce = claude.argv.indexOf("--effort");
-    assert.ok(ce !== -1 && claude.argv[ce + 1] === "max");
+    const claude = records.find((r) => r.name === "claude")
+    assert.ok(claude, "reviewer leg spawned claude")
+    const ce = claude.argv.indexOf("--effort")
+    assert.ok(ce !== -1 && claude.argv[ce + 1] === "max")
   } finally {
-    process.env.PATH = prevPath;
-    if (prevOut === undefined) delete process.env.AGENT_SHIM_OUT;
-    else process.env.AGENT_SHIM_OUT = prevOut;
-    rmSync(shimDir, { recursive: true, force: true });
+    process.env.PATH = prevPath
+    if (prevOut === undefined) delete process.env.AGENT_SHIM_OUT
+    else process.env.AGENT_SHIM_OUT = prevOut
+    rmSync(shimDir, { recursive: true, force: true })
   }
-});
+})
 
 test("env vars flow into DEFAULT_CONFIG -> argv when the module loads in a fresh process", () => {
   const probe = [
@@ -435,46 +430,46 @@ test("env vars flow into DEFAULT_CONFIG -> argv when the module loads in a fresh
     "  claude: agentCliArgs('claude', DEFAULT_CONFIG.implementer),",
     "  codex: agentCliArgs('codex', DEFAULT_CONFIG.reviewer),",
     "}));",
-  ].join("\n");
+  ].join("\n")
   const env = {
     ...process.env,
     VIVICY_CLAUDE_MODEL: "claude-opus-4-8",
     VIVICY_CLAUDE_EFFORT: "max",
     VIVICY_CODEX_MODEL: "gpt-5.5",
     VIVICY_CODEX_EFFORT: "minimal",
-  };
+  }
   const result = spawnSync(process.execPath, ["--input-type=module", "-e", probe], {
     cwd: repoRoot,
     env,
     encoding: "utf8",
-  });
-  assert.equal(result.status, 0, `child failed: ${result.stderr}`);
-  const out = JSON.parse(result.stdout);
-  assert.deepEqual(out.claude, ["--model", "claude-opus-4-8", "--effort", "max"]);
-  assert.deepEqual(out.codex, ["-m", "gpt-5.5", "-c", 'model_reasoning_effort="minimal"']);
-});
+  })
+  assert.equal(result.status, 0, `child failed: ${result.stderr}`)
+  const out = JSON.parse(result.stdout)
+  assert.deepEqual(out.claude, ["--model", "claude-opus-4-8", "--effort", "max"])
+  assert.deepEqual(out.codex, ["-m", "gpt-5.5", "-c", 'model_reasoning_effort="minimal"'])
+})
 
 function issueBodyWithProofs(title: string, proofs: string[] | null | undefined): string {
-  return !proofs ? `# ${title}\n` : `# ${title}\n\n## Proofs\n\n\`\`\`text\n${proofs.join("\n")}\n\`\`\`\n`;
+  return !proofs ? `# ${title}\n` : `# ${title}\n\n## Proofs\n\n\`\`\`text\n${proofs.join("\n")}\n\`\`\`\n`
 }
 
 function buildScratch(
   gateCommand: string | undefined,
-  { perIssueGate = true, proofs = null }: { perIssueGate?: boolean; proofs?: string[] | null } = {},
+  { perIssueGate = true, proofs = null }: { perIssueGate?: boolean; proofs?: string[] | null } = {}
 ) {
-  const dir = mkdtempSync(resolve(repoRoot, "_tmp-dev-loop-"));
-  const scratchRel = relative(repoRoot, dir);
-  const issuesDir = `${scratchRel}/issues`;
-  const doneDir = `${scratchRel}/issues/done`;
-  const gatesDir = `${scratchRel}/gates`;
-  const proofsDir = `${scratchRel}/proofs`;
-  const reportsDir = `${scratchRel}/reports`;
-  mkdirSync(resolve(repoRoot, issuesDir), { recursive: true });
-  writeFileSync(resolve(repoRoot, `${issuesDir}/ISSUE-A.md`), issueBodyWithProofs("A", proofs));
-  writeFileSync(resolve(repoRoot, `${issuesDir}/ISSUE-B.md`), "# B\n");
-  const indexRel = `${scratchRel}/issue-index.json`;
-  const ledgerRel = `${scratchRel}/progress-ledger.json`;
-  const gateField = perIssueGate ? { gate_command: gateCommand } : {};
+  const dir = mkdtempSync(resolve(repoRoot, "_tmp-dev-loop-"))
+  const scratchRel = relative(repoRoot, dir)
+  const issuesDir = `${scratchRel}/issues`
+  const doneDir = `${scratchRel}/issues/done`
+  const gatesDir = `${scratchRel}/gates`
+  const proofsDir = `${scratchRel}/proofs`
+  const reportsDir = `${scratchRel}/reports`
+  mkdirSync(resolve(repoRoot, issuesDir), { recursive: true })
+  writeFileSync(resolve(repoRoot, `${issuesDir}/ISSUE-A.md`), issueBodyWithProofs("A", proofs))
+  writeFileSync(resolve(repoRoot, `${issuesDir}/ISSUE-B.md`), "# B\n")
+  const indexRel = `${scratchRel}/issue-index.json`
+  const ledgerRel = `${scratchRel}/progress-ledger.json`
+  const gateField = perIssueGate ? { gate_command: gateCommand } : {}
   const index = {
     baseline_id: "baseline-test",
     verification_evidence_ref_grammar: `^${scratchRel}/(gates|reports)/.+`,
@@ -498,237 +493,294 @@ function buildScratch(
         issue_path: `${issuesDir}/ISSUE-B.md`,
       },
     ],
-  };
-  writeFileSync(resolve(repoRoot, indexRel), `${JSON.stringify(index, null, 2)}\n`);
-  const quotaStatePath = `${reportsDir}/quota-state.json`;
-  return { dir, cfg: { issueIndexPath: indexRel, progressLedgerPath: ledgerRel, issuesDir, doneDir, gatesDir, proofsDir, reportsDir, quotaStatePath, baselineId: "baseline-test", readiness: false } };
+  }
+  writeFileSync(resolve(repoRoot, indexRel), `${JSON.stringify(index, null, 2)}\n`)
+  const quotaStatePath = `${reportsDir}/quota-state.json`
+  return {
+    dir,
+    cfg: {
+      issueIndexPath: indexRel,
+      progressLedgerPath: ledgerRel,
+      issuesDir,
+      doneDir,
+      gatesDir,
+      proofsDir,
+      reportsDir,
+      quotaStatePath,
+      baselineId: "baseline-test",
+      readiness: false,
+    },
+  }
 }
 
 const stubLifecycle = {
   verifyBaseline: () => "baseline-test",
   verifyTraceability: () => true,
-};
-const stubSteps = { runImplementer: () => {}, runReviewer: () => {}, commit: () => {}, ...stubLifecycle };
+}
+const stubSteps = { runImplementer: () => {}, runReviewer: () => {}, commit: () => {}, ...stubLifecycle }
 
 test("runLoop drives two issues to verified, moved to done, in dependency order", () => {
-  const { dir, cfg } = buildScratch("true");
+  const { dir, cfg } = buildScratch("true")
   try {
-    const processed = runLoop(cfg, stubSteps);
+    const processed = runLoop(cfg, stubSteps)
     assert.deepEqual(processed, [
       { id: "ISSUE-A", status: "verified" },
       { id: "ISSUE-B", status: "verified" },
-    ]);
-    const doneFiles = new Set(readdirSync(resolve(repoRoot, cfg.doneDir)));
-    assert.ok(doneFiles.has("ISSUE-A.md"));
-    assert.ok(doneFiles.has("ISSUE-B.md"));
-    assert.ok(!existsSync(resolve(repoRoot, `${cfg.issuesDir}/ISSUE-A.md`)));
-    const indexAfter = JSON.parse(readFileSync(resolve(repoRoot, cfg.issueIndexPath), "utf8"));
-    assert.equal(indexAfter.issues[0].issue_path, `${cfg.doneDir}/ISSUE-A.md`);
+    ])
+    const doneFiles = new Set(readdirSync(resolve(repoRoot, cfg.doneDir)))
+    assert.ok(doneFiles.has("ISSUE-A.md"))
+    assert.ok(doneFiles.has("ISSUE-B.md"))
+    assert.ok(!existsSync(resolve(repoRoot, `${cfg.issuesDir}/ISSUE-A.md`)))
+    const indexAfter = JSON.parse(readFileSync(resolve(repoRoot, cfg.issueIndexPath), "utf8"))
+    assert.equal(indexAfter.issues[0].issue_path, `${cfg.doneDir}/ISSUE-A.md`)
   } finally {
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true })
   }
-});
+})
 
 test("POLYGLOT: runLoop resolves a NON-NODE gate from the project's vivicy.json (no npm/node assumption)", () => {
-  const configPath = resolve(repoRoot, "vivicy.json");
-  writeFileSync(configPath, JSON.stringify({ gateCommand: "echo go-test-ran" }));
-  const { dir, cfg } = buildScratch(undefined, { perIssueGate: false });
+  const configPath = resolve(repoRoot, "vivicy.json")
+  writeFileSync(configPath, JSON.stringify({ gateCommand: "echo go-test-ran" }))
+  const { dir, cfg } = buildScratch(undefined, { perIssueGate: false })
   try {
-    const processed = runLoop(cfg, stubSteps);
+    const processed = runLoop(cfg, stubSteps)
     assert.deepEqual(processed, [
       { id: "ISSUE-A", status: "verified" },
       { id: "ISSUE-B", status: "verified" },
-    ]);
-    const evidence = JSON.parse(
-      readFileSync(resolve(repoRoot, `${cfg.gatesDir}/ISSUE-A-gate.json`), "utf8"),
-    );
-    assert.equal(evidence.command, "echo go-test-ran");
-    assert.equal(evidence.status, "pass");
-    assert.ok(!/npm|node --test/.test(evidence.command), "gate command must carry no Node assumption");
+    ])
+    const evidence = JSON.parse(readFileSync(resolve(repoRoot, `${cfg.gatesDir}/ISSUE-A-gate.json`), "utf8"))
+    assert.equal(evidence.command, "echo go-test-ran")
+    assert.equal(evidence.status, "pass")
+    assert.ok(!/npm|node --test/.test(evidence.command), "gate command must carry no Node assumption")
   } finally {
-    rmSync(dir, { recursive: true, force: true });
-    rmSync(configPath, { force: true });
+    rmSync(dir, { recursive: true, force: true })
+    rmSync(configPath, { force: true })
   }
-});
+})
 
 test("GATE-COMMAND: the stack-setup implementer establishes the null sentinel -> gate resolves and the issue verifies", () => {
-  const configPath = resolve(repoRoot, "vivicy.json");
-  writeFileSync(configPath, JSON.stringify({ gateCommand: null }));
-  const { dir, cfg } = buildScratch(undefined, { perIssueGate: false });
+  const configPath = resolve(repoRoot, "vivicy.json")
+  writeFileSync(configPath, JSON.stringify({ gateCommand: null }))
+  const { dir, cfg } = buildScratch(undefined, { perIssueGate: false })
   try {
     const steps = {
       ...stubLifecycle,
       runReviewer: () => {},
       commit: () => {},
       runImplementer: () => {
-        writeFileSync(configPath, JSON.stringify({ gateCommand: "true" }));
+        writeFileSync(configPath, JSON.stringify({ gateCommand: "true" }))
       },
-    };
-    const processed = runLoop({ ...cfg, claudeQuotaProbeEnabled: false }, steps);
+    }
+    const processed = runLoop({ ...cfg, claudeQuotaProbeEnabled: false }, steps)
     assert.deepEqual(processed, [
       { id: "ISSUE-A", status: "verified" },
       { id: "ISSUE-B", status: "verified" },
-    ]);
-    const ev = JSON.parse(readFileSync(resolve(repoRoot, `${cfg.gatesDir}/ISSUE-A-gate.json`), "utf8"));
-    assert.equal(ev.command, "true");
-    assert.equal(ev.status, "pass");
+    ])
+    const ev = JSON.parse(readFileSync(resolve(repoRoot, `${cfg.gatesDir}/ISSUE-A-gate.json`), "utf8"))
+    assert.equal(ev.command, "true")
+    assert.equal(ev.status, "pass")
   } finally {
-    rmSync(dir, { recursive: true, force: true });
-    rmSync(configPath, { force: true });
+    rmSync(dir, { recursive: true, force: true })
+    rmSync(configPath, { force: true })
   }
-});
+})
 
 test("GATE-COMMAND: the sentinel stands after the owing issue -> gate refuses loudly, issue blocks, never marked done", () => {
-  const configPath = resolve(repoRoot, "vivicy.json");
-  writeFileSync(configPath, JSON.stringify({ gateCommand: null }));
-  const { dir, cfg } = buildScratch(undefined, { perIssueGate: false });
+  const configPath = resolve(repoRoot, "vivicy.json")
+  writeFileSync(configPath, JSON.stringify({ gateCommand: null }))
+  const { dir, cfg } = buildScratch(undefined, { perIssueGate: false })
   try {
-    const processed = runLoop({ ...cfg, claudeQuotaProbeEnabled: false }, stubSteps);
-    assert.deepEqual(processed, [{ id: "ISSUE-A", status: "blocked" }]);
+    const processed = runLoop({ ...cfg, claudeQuotaProbeEnabled: false }, stubSteps)
+    assert.deepEqual(processed, [{ id: "ISSUE-A", status: "blocked" }])
 
-    const block = JSON.parse(readFileSync(resolve(repoRoot, `${cfg.reportsDir}/ISSUE-A-blocked.json`), "utf8"));
-    assert.equal(block.kind, "gate_command_unset");
-    assert.match(block.reason, /not established/i);
+    const block = JSON.parse(readFileSync(resolve(repoRoot, `${cfg.reportsDir}/ISSUE-A-blocked.json`), "utf8"))
+    assert.equal(block.kind, "gate_command_unset")
+    assert.match(block.reason, /not established/i)
 
-    const ev = JSON.parse(readFileSync(resolve(repoRoot, `${cfg.gatesDir}/ISSUE-A-gate.json`), "utf8"));
-    assert.equal(ev.command, null);
-    assert.equal(ev.status, "fail");
-    assert.match(ev.reason, /not established/i);
+    const ev = JSON.parse(readFileSync(resolve(repoRoot, `${cfg.gatesDir}/ISSUE-A-gate.json`), "utf8"))
+    assert.equal(ev.command, null)
+    assert.equal(ev.status, "fail")
+    assert.match(ev.reason, /not established/i)
 
-    assert.ok(!existsSync(resolve(repoRoot, `${cfg.doneDir}/ISSUE-A.md`)), "blocked issue must NOT move to done/");
-    assert.ok(existsSync(resolve(repoRoot, `${cfg.issuesDir}/ISSUE-A.md`)));
+    assert.ok(!existsSync(resolve(repoRoot, `${cfg.doneDir}/ISSUE-A.md`)), "blocked issue must NOT move to done/")
+    assert.ok(existsSync(resolve(repoRoot, `${cfg.issuesDir}/ISSUE-A.md`)))
   } finally {
-    rmSync(dir, { recursive: true, force: true });
-    rmSync(configPath, { force: true });
+    rmSync(dir, { recursive: true, force: true })
+    rmSync(configPath, { force: true })
   }
-});
+})
 
 test("GATE-COMMAND: while the sentinel stands, the implementer/reviewer prompt carries the establish-it directive; once established it does not", () => {
-  const dir = mkdtempSync(resolve(repoRoot, "_tmp-gate-directive-"));
+  const dir = mkdtempSync(resolve(repoRoot, "_tmp-gate-directive-"))
   try {
-    const scratchCfg = { execRoot: dir } as unknown as Config;
-    writeFileSync(resolve(dir, "vivicy.json"), JSON.stringify({ gateCommand: null }));
-    const whileSentinel = gateCommandDirective(scratchCfg, undefined);
-    assert.match(whileSentinel, /Establish the verification gate command/);
-    assert.match(whileSentinel, /must NOT be reverted/i, "directive must tell the reviewer not to revert the establishment");
-    assert.match(whileSentinel, /never invent a placeholder or an `echo`/i);
+    const scratchCfg = { execRoot: dir } as unknown as Config
+    writeFileSync(resolve(dir, "vivicy.json"), JSON.stringify({ gateCommand: null }))
+    const whileSentinel = gateCommandDirective(scratchCfg, undefined)
+    assert.match(whileSentinel, /Establish the verification gate command/)
+    assert.match(whileSentinel, /must NOT be reverted/i, "directive must tell the reviewer not to revert the establishment")
+    assert.match(whileSentinel, /never invent a placeholder or an `echo`/i)
 
-    const composedImplementer = composePrompt("gate:\n{{gate_command_directive}}", { id: "ISSUE-A" }, { gate_command_directive: whileSentinel });
-    assert.match(composedImplementer, /Establish the verification gate command/);
+    const composedImplementer = composePrompt(
+      "gate:\n{{gate_command_directive}}",
+      { id: "ISSUE-A" },
+      { gate_command_directive: whileSentinel }
+    )
+    assert.match(composedImplementer, /Establish the verification gate command/)
 
-    writeFileSync(resolve(dir, "vivicy.json"), JSON.stringify({ gateCommand: "npm test" }));
-    assert.equal(gateCommandDirective(scratchCfg, undefined), "", "no directive once a real command is established");
+    writeFileSync(resolve(dir, "vivicy.json"), JSON.stringify({ gateCommand: "npm test" }))
+    assert.equal(gateCommandDirective(scratchCfg, undefined), "", "no directive once a real command is established")
   } finally {
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true })
   }
-});
+})
 
 test("RUN-COMMAND: while the runCommand sentinel stands, the implementer/reviewer prompt carries the establish-it directive; once established it does not", () => {
-  const dir = mkdtempSync(resolve(repoRoot, "_tmp-run-directive-"));
+  const dir = mkdtempSync(resolve(repoRoot, "_tmp-run-directive-"))
   try {
-    const scratchCfg = { execRoot: dir } as unknown as Config;
-    writeFileSync(resolve(dir, "vivicy.json"), JSON.stringify({ gateCommand: null, runCommand: null }));
-    const whileSentinel = runCommandDirective(scratchCfg);
-    assert.match(whileSentinel, /Establish the run command/);
-    assert.match(whileSentinel, /must NOT revert it/i, "directive must tell the reviewer not to revert the establishment");
-    assert.match(whileSentinel, /never point it at the test runner/i, "the run command is not the verification gate");
+    const scratchCfg = { execRoot: dir } as unknown as Config
+    writeFileSync(resolve(dir, "vivicy.json"), JSON.stringify({ gateCommand: null, runCommand: null }))
+    const whileSentinel = runCommandDirective(scratchCfg)
+    assert.match(whileSentinel, /Establish the run command/)
+    assert.match(whileSentinel, /must NOT revert it/i, "directive must tell the reviewer not to revert the establishment")
+    assert.match(whileSentinel, /never point it at the test runner/i, "the run command is not the verification gate")
 
-    const composedImplementer = composePrompt("run:\n{{run_command_directive}}", { id: "ISSUE-A" }, { run_command_directive: whileSentinel });
-    assert.match(composedImplementer, /Establish the run command/);
+    const composedImplementer = composePrompt(
+      "run:\n{{run_command_directive}}",
+      { id: "ISSUE-A" },
+      { run_command_directive: whileSentinel }
+    )
+    assert.match(composedImplementer, /Establish the run command/)
 
-    writeFileSync(resolve(dir, "vivicy.json"), JSON.stringify({ gateCommand: null, runCommand: "npm run dev" }));
-    assert.equal(runCommandDirective(scratchCfg), "", "no directive once a real run command is established");
+    writeFileSync(resolve(dir, "vivicy.json"), JSON.stringify({ gateCommand: null, runCommand: "npm run dev" }))
+    assert.equal(runCommandDirective(scratchCfg), "", "no directive once a real run command is established")
   } finally {
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true })
   }
-});
+})
 
 test("VISUAL-REVIEW: a web-serving runCommand injects the reviewer's boot-and-screenshot duty; an unestablished or non-UI runCommand injects nothing (byte-identical)", () => {
-  const dir = mkdtempSync(resolve(repoRoot, "_tmp-visual-directive-"));
+  const dir = mkdtempSync(resolve(repoRoot, "_tmp-visual-directive-"))
   try {
-    const scratchCfg = { execRoot: dir, transcriptsDir: DEFAULT_CONFIG.transcriptsDir } as unknown as Config;
-    const issue = { id: "ISSUE-A" } as unknown as Issue;
+    const scratchCfg = { execRoot: dir, transcriptsDir: DEFAULT_CONFIG.transcriptsDir } as unknown as Config
+    const issue = { id: "ISSUE-A" } as unknown as Issue
 
-    writeFileSync(resolve(dir, "vivicy.json"), JSON.stringify({ gateCommand: "npm test", runCommand: null }));
-    assert.equal(visualReviewDirective(scratchCfg, issue), "", "no visual duty while the runCommand is the null sentinel");
+    writeFileSync(resolve(dir, "vivicy.json"), JSON.stringify({ gateCommand: "npm test", runCommand: null }))
+    assert.equal(visualReviewDirective(scratchCfg, issue), "", "no visual duty while the runCommand is the null sentinel")
 
-    writeFileSync(resolve(dir, "vivicy.json"), JSON.stringify({ gateCommand: "go test ./...", runCommand: "go run ./..." }));
-    assert.equal(visualReviewDirective(scratchCfg, issue), "", "a compiled/CLI run command declares no UI — byte-identical reviewer");
+    writeFileSync(resolve(dir, "vivicy.json"), JSON.stringify({ gateCommand: "go test ./...", runCommand: "go run ./..." }))
+    assert.equal(visualReviewDirective(scratchCfg, issue), "", "a compiled/CLI run command declares no UI — byte-identical reviewer")
 
-    writeFileSync(resolve(dir, "vivicy.json"), JSON.stringify({ gateCommand: "npm test", runCommand: "npm run dev" }));
-    const directive = visualReviewDirective(scratchCfg, issue);
-    assert.match(directive, /Visual verification/i, "web-serving runCommand carries the visual-verification duty");
-    assert.match(directive, /vivicy\.json#runCommand/, "boots via the established run command, not a bespoke server");
-    assert.match(directive, /desktop-class AND a mobile-class/i, "screenshots at desktop + mobile-class viewports");
-    assert.match(directive, /clipped, overlapping/i, "names the human-eye defect vocabulary");
-    assert.match(directive, /legibility/i, "judges legibility");
-    assert.match(directive, /not_faithful/, "a damaged render is a review finding");
-    assert.match(directive, /fails to boot[\s\S]*broke the run story/i, "boot failure is itself a loud finding");
-    assert.match(directive, /transcripts\/ISSUES\/ISSUE-A\/screenshots\//, "screenshots land beside the leg's evidence, in this issue's own family directory, gitignored");
-    assert.match(directive, /never committed/i, "evidence is never committed");
-    assert.match(directive, /playwright|headless/i, "headless screenshot tooling with honest degradation");
-    assert.match(directive, /process tree/i, "kills the product's process tree when done");
+    writeFileSync(resolve(dir, "vivicy.json"), JSON.stringify({ gateCommand: "npm test", runCommand: "npm run dev" }))
+    const directive = visualReviewDirective(scratchCfg, issue)
+    assert.match(directive, /Visual verification/i, "web-serving runCommand carries the visual-verification duty")
+    assert.match(directive, /vivicy\.json#runCommand/, "boots via the established run command, not a bespoke server")
+    assert.match(directive, /desktop-class AND a mobile-class/i, "screenshots at desktop + mobile-class viewports")
+    assert.match(directive, /clipped, overlapping/i, "names the human-eye defect vocabulary")
+    assert.match(directive, /legibility/i, "judges legibility")
+    assert.match(directive, /not_faithful/, "a damaged render is a review finding")
+    assert.match(directive, /fails to boot[\s\S]*broke the run story/i, "boot failure is itself a loud finding")
+    assert.match(
+      directive,
+      /transcripts\/ISSUES\/ISSUE-A\/screenshots\//,
+      "screenshots land beside the leg's evidence, in this issue's own family directory, gitignored"
+    )
+    assert.match(directive, /never committed/i, "evidence is never committed")
+    assert.match(directive, /playwright|headless/i, "headless screenshot tooling with honest degradation")
+    assert.match(directive, /process tree/i, "kills the product's process tree when done")
 
-    const composed = composePrompt("review:\n{{visual_review_directive}}", { id: "ISSUE-A" }, { visual_review_directive: directive });
-    assert.match(composed, /Visual verification/i, "legDeps injects the visual duty through composePrompt");
+    const composed = composePrompt("review:\n{{visual_review_directive}}", { id: "ISSUE-A" }, { visual_review_directive: directive })
+    assert.match(composed, /Visual verification/i, "legDeps injects the visual duty through composePrompt")
   } finally {
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true })
   }
-});
+})
 
 test("a tracked issue's transcript home is the orchestrator's to name: an index-carried transcript_dir is OVERRIDDEN, never honoured", () => {
-  const dir = mkdtempSync(resolve(repoRoot, "_tmp-transcript-home-override-"));
+  const dir = mkdtempSync(resolve(repoRoot, "_tmp-transcript-home-override-"))
   try {
-    writeFileSync(resolve(dir, "vivicy.json"), JSON.stringify({ gateCommand: "npm test", runCommand: "npm run dev" }));
-    const scratchCfg = { execRoot: dir, transcriptsDir: DEFAULT_CONFIG.transcriptsDir } as unknown as Config;
+    writeFileSync(resolve(dir, "vivicy.json"), JSON.stringify({ gateCommand: "npm test", runCommand: "npm run dev" }))
+    const scratchCfg = { execRoot: dir, transcriptsDir: DEFAULT_CONFIG.transcriptsDir } as unknown as Config
     // The issue index is agent-written, so a rogue transcript_dir reaches the loop as data; legIssue's spread order is what disarms it.
     for (const rogue of [TRANSCRIPT_DIRS.extraction, "../../../etc", "ISSUES/ISSUE-0002"]) {
-      const directive = visualReviewDirective(scratchCfg, { id: "ISSUE-0001", transcript_dir: rogue } as unknown as Issue);
+      const directive = visualReviewDirective(scratchCfg, { id: "ISSUE-0001", transcript_dir: rogue } as unknown as Issue)
       assert.match(
         directive,
         /transcripts\/ISSUES\/ISSUE-0001\/screenshots\//,
-        `transcript_dir "${rogue}" must lose to the id-derived home — flipping legIssue's spread order lets the index pick another family's directory`,
-      );
+        `transcript_dir "${rogue}" must lose to the id-derived home — flipping legIssue's spread order lets the index pick another family's directory`
+      )
     }
   } finally {
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true })
   }
-});
+})
 
 test("the reviewer prompt carries the visual-review directive placeholder (the injection wiring cannot be silently dropped)", () => {
-  const text = readFileSync(fileURLToPath(new URL(`./prompts/reviewer.md`, import.meta.url)), "utf8");
-  assert.match(text, /\{\{visual_review_directive\}\}/, "reviewer.md exposes the visual_review_directive slot legDeps fills");
-});
+  const text = readFileSync(fileURLToPath(new URL(`./prompts/reviewer.md`, import.meta.url)), "utf8")
+  assert.match(text, /\{\{visual_review_directive\}\}/, "reviewer.md exposes the visual_review_directive slot legDeps fills")
+})
 
 test("VICIOUS DEFECTS: composePrompt itself carries the single-source class taxonomy, so every leg builder fills the slot without its own wiring", () => {
-  const injected = composePrompt("{{vicious_defect_classes}}", { id: "ISSUE-A" });
-  assert.doesNotMatch(injected, /\{\{/, "the taxonomy slot is a composePrompt default — no leg builder can leak the literal placeholder");
-  assert.match(injected, /## The vicious defect classes — the named hunting grounds/, "the injected block is a self-standing prompt section");
-  assert.match(injected, /never the whole of correctness — clearing all ten never licenses/, "the net is bounded: a cleared checklist is not a correctness proof");
+  const injected = composePrompt("{{vicious_defect_classes}}", { id: "ISSUE-A" })
+  assert.doesNotMatch(injected, /\{\{/, "the taxonomy slot is a composePrompt default — no leg builder can leak the literal placeholder")
+  assert.match(
+    injected,
+    /## The vicious defect classes — the named hunting grounds/,
+    "the injected block is a self-standing prompt section"
+  )
+  assert.match(
+    injected,
+    /never the whole of correctness — clearing all ten never licenses/,
+    "the net is bounded: a cleared checklist is not a correctness proof"
+  )
 
   const classProbes: Array<[string, RegExp]> = [
-    ["Concurrency", /read-modify-write races; check-then-act \(TOCTOU\); deadlock and livelock; double-fire; torn writes; two writers on one state/],
+    [
+      "Concurrency",
+      /read-modify-write races; check-then-act \(TOCTOU\); deadlock and livelock; double-fire; torn writes; two writers on one state/,
+    ],
     ["Time", /DST and timezone arithmetic; non-monotonic clocks; expiry mid-operation; calendar edges; retry storms without backoff/],
     ["Async and ordering", /floating promises; callbacks after teardown; out-of-order events; re-entrancy; stale closures/],
-    ["State and persistence", /uninvalidated caches; zombie state after a crash \(a lock held by a dead holder\); half-applied migrations; non-atomic multi-file writes; missing idempotence \(replay = double effect\)/],
-    ["Data boundaries", /encodings \(UTF-8, BOM, NFC vs NFD\); CRLF; Windows vs POSIX paths; null vs undefined vs empty; float arithmetic; integer and JSON-precision overflow; timezone-less serialized dates/],
-    ["Resources", /leaks \(file descriptors, listeners, timers\); orphan processes; ignored backpressure; disk full mid-write; degradation over a long run/],
+    [
+      "State and persistence",
+      /uninvalidated caches; zombie state after a crash \(a lock held by a dead holder\); half-applied migrations; non-atomic multi-file writes; missing idempotence \(replay = double effect\)/,
+    ],
+    [
+      "Data boundaries",
+      /encodings \(UTF-8, BOM, NFC vs NFD\); CRLF; Windows vs POSIX paths; null vs undefined vs empty; float arithmetic; integer and JSON-precision overflow; timezone-less serialized dates/,
+    ],
+    [
+      "Resources",
+      /leaks \(file descriptors, listeners, timers\); orphan processes; ignored backpressure; disk full mid-write; degradation over a long run/,
+    ],
     ["Network", /slow is not dead; retrying a non-idempotent action; out-of-order delivery; half-closed connections/],
-    ["Security", /injection \(SQL, command, prompt\); path traversal and zip-slip; secrets in logs; catastrophic regex backtracking \(ReDoS\); hostile deserialization; unicode homoglyphs/],
-    ["Environment", /dev is not prod \(inherited env\); locale-dependent behaviour; symlinks; missed watcher events; runtime-version drift/],
-    ["Human and UX", /double-click double-submit; back-navigation onto stale state; two tabs one session; autosave overwriting a concurrent edit/],
-  ];
+    [
+      "Security",
+      /injection \(SQL, command, prompt\); path traversal and zip-slip; secrets in logs; catastrophic regex backtracking \(ReDoS\); hostile deserialization; unicode homoglyphs/,
+    ],
+    [
+      "Environment",
+      /dev is not prod \(inherited env\); locale-dependent behaviour; symlinks; missed watcher events; runtime-version drift/,
+    ],
+    [
+      "Human and UX",
+      /double-click double-submit; back-navigation onto stale state; two tabs one session; autosave overwriting a concurrent edit/,
+    ],
+  ]
   classProbes.forEach(([label, probe], index) => {
-    assert.match(injected, new RegExp(`${index + 1}\\. \\*\\*${label}\\*\\* —`), `class ${index + 1} (${label}) must stay named and in order`);
-    assert.match(injected, probe, `class ${index + 1} (${label}) must keep its full vice inventory — a dropped vice is a vice nobody hunts`);
-  });
+    assert.match(
+      injected,
+      new RegExp(`${index + 1}\\. \\*\\*${label}\\*\\* —`),
+      `class ${index + 1} (${label}) must stay named and in order`
+    )
+    assert.match(injected, probe, `class ${index + 1} (${label}) must keep its full vice inventory — a dropped vice is a vice nobody hunts`)
+  })
   assert.equal(
     (injected.match(/^\d+\. \*\*/gm) ?? []).length,
     classProbes.length,
-    "the taxonomy is EXACTLY these ten classes — an eleventh added to the constant without a probe here would otherwise ride in unpinned",
-  );
+    "the taxonomy is EXACTLY these ten classes — an eleventh added to the constant without a probe here would otherwise ride in unpinned"
+  )
 
-  const criteria = composePrompt("{{vicious_torture_criteria}}", { id: "ISSUE-A" });
+  const criteria = composePrompt("{{vicious_torture_criteria}}", { id: "ISSUE-A" })
   for (const shape of [
     /kill it mid-write and reprove the invariant/,
     /deliver the action twice and prove one effect/,
@@ -737,776 +789,770 @@ test("VICIOUS DEFECTS: composePrompt itself carries the single-source class taxo
     /move the clock across the expiry and the DST edge/,
     /exhaust the resource and prove nothing leaked/,
   ]) {
-    assert.match(criteria, shape, "the torture-criteria proof shapes are single-sourced beside the classes, so the extractor that mints them and the verifier that checks them can never drift");
+    assert.match(
+      criteria,
+      shape,
+      "the torture-criteria proof shapes are single-sourced beside the classes, so the extractor that mints them and the verifier that checks them can never drift"
+    )
   }
 
-  const withIssueValues = composePrompt("{{issue_id}}\n{{vicious_defect_classes}}", { id: "ISSUE-B" });
-  assert.match(withIssueValues, /^ISSUE-B\n## The vicious defect classes/, "the taxonomy composes beside the ordinary issue values");
-});
+  const withIssueValues = composePrompt("{{issue_id}}\n{{vicious_defect_classes}}", { id: "ISSUE-B" })
+  assert.match(withIssueValues, /^ISSUE-B\n## The vicious defect classes/, "the taxonomy composes beside the ordinary issue values")
+})
 
-const RUN_LOG_PROOF = [
-  "- id: cli-report",
-  "  class: run_log",
-  "  evidences:",
-  "  - .vivicy/canonical/06-cli.md:13-16",
-];
+const RUN_LOG_PROOF = ["- id: cli-report", "  class: run_log", "  evidences:", "  - .vivicy/canonical/06-cli.md:13-16"]
 
-const GATE_PROOF = [
-  "- id: monthly-totals",
-  "  class: gate_evidence",
-  "  evidences:",
-  "  - .vivicy/canonical/04-reporting.md:21",
-];
+const GATE_PROOF = ["- id: monthly-totals", "  class: gate_evidence", "  evidences:", "  - .vivicy/canonical/04-reporting.md:21"]
 
 test("PROOFS: a declared proof the run never produced blocks the issue at its close — a green gate is not the observation", () => {
-  const { dir, cfg } = buildScratch("true", { proofs: RUN_LOG_PROOF });
+  const { dir, cfg } = buildScratch("true", { proofs: RUN_LOG_PROOF })
   try {
-    const processed = runLoop({ ...cfg, maxRetries: 2, claudeQuotaProbeEnabled: false }, stubSteps);
-    assert.deepEqual(processed, [{ id: "ISSUE-A", status: "blocked" }], "the loop stops on the unproven issue");
+    const processed = runLoop({ ...cfg, maxRetries: 2, claudeQuotaProbeEnabled: false }, stubSteps)
+    assert.deepEqual(processed, [{ id: "ISSUE-A", status: "blocked" }], "the loop stops on the unproven issue")
 
-    const gate = JSON.parse(readFileSync(resolve(repoRoot, `${cfg.gatesDir}/ISSUE-A-gate.json`), "utf8"));
-    assert.equal(gate.status, "pass", "the gate itself was green — the missing proof is what refused the close");
+    const gate = JSON.parse(readFileSync(resolve(repoRoot, `${cfg.gatesDir}/ISSUE-A-gate.json`), "utf8"))
+    assert.equal(gate.status, "pass", "the gate itself was green — the missing proof is what refused the close")
 
-    const block = JSON.parse(readFileSync(resolve(repoRoot, `${cfg.reportsDir}/ISSUE-A-blocked.json`), "utf8"));
-    assert.equal(block.kind, "proofs_missing");
-    assert.match(block.reason, /declared proof not produced: cli-report \(run_log\)/);
-    assert.match(block.reason, new RegExp(`${cfg.proofsDir}/ISSUE-A/cli-report with its recipe\\.txt`));
-    assert.match(block.reason, /still missing after 2 attempts/);
+    const block = JSON.parse(readFileSync(resolve(repoRoot, `${cfg.reportsDir}/ISSUE-A-blocked.json`), "utf8"))
+    assert.equal(block.kind, "proofs_missing")
+    assert.match(block.reason, /declared proof not produced: cli-report \(run_log\)/)
+    assert.match(block.reason, new RegExp(`${cfg.proofsDir}/ISSUE-A/cli-report with its recipe\\.txt`))
+    assert.match(block.reason, /still missing after 2 attempts/)
 
-    assert.ok(!existsSync(resolve(repoRoot, `${cfg.doneDir}/ISSUE-A.md`)), "an unproven issue never moves to done/");
-    const ledger = JSON.parse(readFileSync(resolve(repoRoot, cfg.progressLedgerPath), "utf8"));
-    const state = ledger.graph_item_states.find((s: { graph_ref: string }) => s.graph_ref === "node:x");
-    assert.notEqual(state.issue_states["ISSUE-A"], "verified", "the graph item never reaches verified without its proof");
+    assert.ok(!existsSync(resolve(repoRoot, `${cfg.doneDir}/ISSUE-A.md`)), "an unproven issue never moves to done/")
+    const ledger = JSON.parse(readFileSync(resolve(repoRoot, cfg.progressLedgerPath), "utf8"))
+    const state = ledger.graph_item_states.find((s: { graph_ref: string }) => s.graph_ref === "node:x")
+    assert.notEqual(state.issue_states["ISSUE-A"], "verified", "the graph item never reaches verified without its proof")
     assert.ok(
       ledger.active_items.some((item: { issue_id: string; state: string }) => item.issue_id === "ISSUE-A" && item.state === "blocked"),
-      "the live item reads blocked, so the owner sees where it stopped",
-    );
+      "the live item reads blocked, so the owner sees where it stopped"
+    )
   } finally {
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true })
   }
-});
+})
 
 test("PROOFS: the same issue closes once the real run produced the artifact AND its replayable recipe", () => {
-  const { dir, cfg } = buildScratch("true", { proofs: RUN_LOG_PROOF });
+  const { dir, cfg } = buildScratch("true", { proofs: RUN_LOG_PROOF })
   try {
-    const home = resolve(repoRoot, `${cfg.proofsDir}/ISSUE-A/cli-report`);
+    const home = resolve(repoRoot, `${cfg.proofsDir}/ISSUE-A/cli-report`)
     const steps = {
       ...stubSteps,
       runImplementer: (issue: Issue) => {
-        if (issue.id !== "ISSUE-A") return;
-        mkdirSync(home, { recursive: true });
-        writeFileSync(resolve(home, "report.log"), "2026-01 total 1234\n");
-        writeFileSync(resolve(home, "recipe.txt"), "node src/cli.js report 2026-01\n");
+        if (issue.id !== "ISSUE-A") return
+        mkdirSync(home, { recursive: true })
+        writeFileSync(resolve(home, "report.log"), "2026-01 total 1234\n")
+        writeFileSync(resolve(home, "recipe.txt"), "node src/cli.js report 2026-01\n")
       },
-    };
-    const processed = runLoop({ ...cfg, maxRetries: 2, claudeQuotaProbeEnabled: false }, steps);
+    }
+    const processed = runLoop({ ...cfg, maxRetries: 2, claudeQuotaProbeEnabled: false }, steps)
     assert.deepEqual(processed, [
       { id: "ISSUE-A", status: "verified" },
       { id: "ISSUE-B", status: "verified" },
-    ]);
-    assert.ok(existsSync(resolve(repoRoot, `${cfg.doneDir}/ISSUE-A.md`)));
+    ])
+    assert.ok(existsSync(resolve(repoRoot, `${cfg.doneDir}/ISSUE-A.md`)))
   } finally {
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true })
   }
-});
+})
 
 test("PROOFS: an artifact without its recipe is not a proof — replayability is the contract, not a courtesy", () => {
-  const { dir, cfg } = buildScratch("true", { proofs: RUN_LOG_PROOF });
+  const { dir, cfg } = buildScratch("true", { proofs: RUN_LOG_PROOF })
   try {
-    const home = resolve(repoRoot, `${cfg.proofsDir}/ISSUE-A/cli-report`);
+    const home = resolve(repoRoot, `${cfg.proofsDir}/ISSUE-A/cli-report`)
     const steps = {
       ...stubSteps,
       runImplementer: (issue: Issue) => {
-        if (issue.id !== "ISSUE-A") return;
-        mkdirSync(home, { recursive: true });
-        writeFileSync(resolve(home, "report.log"), "2026-01 total 1234\n");
+        if (issue.id !== "ISSUE-A") return
+        mkdirSync(home, { recursive: true })
+        writeFileSync(resolve(home, "report.log"), "2026-01 total 1234\n")
       },
-    };
-    const processed = runLoop({ ...cfg, maxRetries: 1, claudeQuotaProbeEnabled: false }, steps);
-    assert.deepEqual(processed, [{ id: "ISSUE-A", status: "blocked" }]);
-    const block = JSON.parse(readFileSync(resolve(repoRoot, `${cfg.reportsDir}/ISSUE-A-blocked.json`), "utf8"));
-    assert.match(block.reason, /with its recipe\.txt/);
+    }
+    const processed = runLoop({ ...cfg, maxRetries: 1, claudeQuotaProbeEnabled: false }, steps)
+    assert.deepEqual(processed, [{ id: "ISSUE-A", status: "blocked" }])
+    const block = JSON.parse(readFileSync(resolve(repoRoot, `${cfg.reportsDir}/ISSUE-A-blocked.json`), "utf8"))
+    assert.match(block.reason, /with its recipe\.txt/)
   } finally {
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true })
   }
-});
+})
 
 test("PROOFS: a STALE artifact from an earlier run can never satisfy a later close — the orchestrator clears the proof home before every attempt", () => {
-  const { dir, cfg } = buildScratch("true", { proofs: RUN_LOG_PROOF });
+  const { dir, cfg } = buildScratch("true", { proofs: RUN_LOG_PROOF })
   try {
-    const home = resolve(repoRoot, `${cfg.proofsDir}/ISSUE-A/cli-report`);
-    mkdirSync(home, { recursive: true });
-    writeFileSync(resolve(home, "observed.log"), "output from a PREVIOUS run\n");
-    writeFileSync(resolve(home, "recipe.txt"), "node src/cli.js report 2026-01\n");
-    const processed = runLoop({ ...cfg, maxRetries: 1, claudeQuotaProbeEnabled: false }, stubSteps);
-    assert.deepEqual(processed, [{ id: "ISSUE-A", status: "blocked" }], "replaying a run does not replay its observation");
-    assert.ok(!existsSync(resolve(home, "observed.log")), "the stale artifact was cleared before the attempt's legs ran");
+    const home = resolve(repoRoot, `${cfg.proofsDir}/ISSUE-A/cli-report`)
+    mkdirSync(home, { recursive: true })
+    writeFileSync(resolve(home, "observed.log"), "output from a PREVIOUS run\n")
+    writeFileSync(resolve(home, "recipe.txt"), "node src/cli.js report 2026-01\n")
+    const processed = runLoop({ ...cfg, maxRetries: 1, claudeQuotaProbeEnabled: false }, stubSteps)
+    assert.deepEqual(processed, [{ id: "ISSUE-A", status: "blocked" }], "replaying a run does not replay its observation")
+    assert.ok(!existsSync(resolve(home, "observed.log")), "the stale artifact was cleared before the attempt's legs ran")
     assert.ok(
       existsSync(resolve(home, "recipe.txt")),
-      "the recipe is the one committed file of the home — the reset never stages a deletion the loop did not ask for",
-    );
-    const block = JSON.parse(readFileSync(resolve(repoRoot, `${cfg.reportsDir}/ISSUE-A-blocked.json`), "utf8"));
-    assert.equal(block.kind, "proofs_missing");
+      "the recipe is the one committed file of the home — the reset never stages a deletion the loop did not ask for"
+    )
+    const block = JSON.parse(readFileSync(resolve(repoRoot, `${cfg.reportsDir}/ISSUE-A-blocked.json`), "utf8"))
+    assert.equal(block.kind, "proofs_missing")
   } finally {
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true })
   }
-});
+})
 
 test("PROOFS: a home the pre-attempt clear could NOT win refuses the close — an artifact this run may not have produced never counts as its observation", () => {
-  const { dir, cfg } = buildScratch("true", { proofs: RUN_LOG_PROOF });
-  const home = resolve(repoRoot, `${cfg.proofsDir}/ISSUE-A/cli-report`);
-  const held = resolve(home, "capture");
+  const { dir, cfg } = buildScratch("true", { proofs: RUN_LOG_PROOF })
+  const home = resolve(repoRoot, `${cfg.proofsDir}/ISSUE-A/cli-report`)
+  const held = resolve(home, "capture")
   try {
-    mkdirSync(held, { recursive: true });
-    writeFileSync(resolve(held, "shot.png"), "captured by a PREVIOUS attempt\n");
-    writeFileSync(resolve(home, "recipe.txt"), "node src/cli.js report 2026-01\n");
-    chmodSync(held, 0o500);
+    mkdirSync(held, { recursive: true })
+    writeFileSync(resolve(held, "shot.png"), "captured by a PREVIOUS attempt\n")
+    writeFileSync(resolve(home, "recipe.txt"), "node src/cli.js report 2026-01\n")
+    chmodSync(held, 0o500)
 
-    const processed = runLoop({ ...cfg, maxRetries: 1, claudeQuotaProbeEnabled: false }, stubSteps);
-    assert.deepEqual(processed, [{ id: "ISSUE-A", status: "blocked" }], "an unwitnessable proof blocks instead of closing");
+    const processed = runLoop({ ...cfg, maxRetries: 1, claudeQuotaProbeEnabled: false }, stubSteps)
+    assert.deepEqual(processed, [{ id: "ISSUE-A", status: "blocked" }], "an unwitnessable proof blocks instead of closing")
     assert.ok(
       existsSync(resolve(held, "shot.png")),
-      "the artifact really did survive the clear, so the refusal answers a real leftover and not a phantom",
-    );
+      "the artifact really did survive the clear, so the refusal answers a real leftover and not a phantom"
+    )
 
-    const gate = JSON.parse(readFileSync(resolve(repoRoot, `${cfg.gatesDir}/ISSUE-A-gate.json`), "utf8"));
-    assert.equal(gate.status, "pass", "the gate itself was green — the unclearable home is what refused the close");
-    const block = JSON.parse(readFileSync(resolve(repoRoot, `${cfg.reportsDir}/ISSUE-A-blocked.json`), "utf8"));
-    assert.equal(block.kind, "proofs_missing");
-    assert.match(block.reason, /declared proof home not cleared before this attempt: cli-report at/);
-    assert.match(block.reason, new RegExp(`${cfg.proofsDir}/ISSUE-A/cli-report`));
-    assert.match(block.reason, /nothing left in it can be attributed to this run/);
-    assert.ok(!existsSync(resolve(repoRoot, `${cfg.doneDir}/ISSUE-A.md`)), "the issue never moves to done/ on a proof nobody can attribute");
+    const gate = JSON.parse(readFileSync(resolve(repoRoot, `${cfg.gatesDir}/ISSUE-A-gate.json`), "utf8"))
+    assert.equal(gate.status, "pass", "the gate itself was green — the unclearable home is what refused the close")
+    const block = JSON.parse(readFileSync(resolve(repoRoot, `${cfg.reportsDir}/ISSUE-A-blocked.json`), "utf8"))
+    assert.equal(block.kind, "proofs_missing")
+    assert.match(block.reason, /declared proof home not cleared before this attempt: cli-report at/)
+    assert.match(block.reason, new RegExp(`${cfg.proofsDir}/ISSUE-A/cli-report`))
+    assert.match(block.reason, /nothing left in it can be attributed to this run/)
+    assert.ok(!existsSync(resolve(repoRoot, `${cfg.doneDir}/ISSUE-A.md`)), "the issue never moves to done/ on a proof nobody can attribute")
   } finally {
-    if (existsSync(held)) chmodSync(held, 0o700);
-    rmSync(dir, { recursive: true, force: true });
+    if (existsSync(held)) chmodSync(held, 0o700)
+    rmSync(dir, { recursive: true, force: true })
   }
-});
+})
 
 test("PROOFS: a gate_evidence proof needs NO ritual artifact — the green gate record is the observation", () => {
-  const { dir, cfg } = buildScratch("true", { proofs: GATE_PROOF });
+  const { dir, cfg } = buildScratch("true", { proofs: GATE_PROOF })
   try {
-    const processed = runLoop({ ...cfg, maxRetries: 2, claudeQuotaProbeEnabled: false }, stubSteps);
+    const processed = runLoop({ ...cfg, maxRetries: 2, claudeQuotaProbeEnabled: false }, stubSteps)
     assert.deepEqual(processed, [
       { id: "ISSUE-A", status: "verified" },
       { id: "ISSUE-B", status: "verified" },
-    ]);
+    ])
     assert.ok(
       !existsSync(resolve(repoRoot, `${cfg.proofsDir}/ISSUE-A`)),
-      "no proofs directory is created for a class the gate already witnesses",
-    );
+      "no proofs directory is created for a class the gate already witnesses"
+    )
   } finally {
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true })
   }
-});
+})
 
 test("PROOFS: an UNREADABLE declaration blocks IMMEDIATELY (typed), never burning attempts on a frozen file no leg may fix", () => {
   for (const [label, body] of [
     ["unknown class", ["- id: cli-report", "  class: vibes"]],
     ["declaration outside a fenced block", null],
   ] as Array<[string, string[] | null]>) {
-    const { dir, cfg } = buildScratch("true", { proofs: body ?? undefined });
+    const { dir, cfg } = buildScratch("true", { proofs: body ?? undefined })
     if (body === null) {
       writeFileSync(
         resolve(repoRoot, `${cfg.issuesDir}/ISSUE-A.md`),
-        "# A\n\n## Proofs\n\n- a run log of the CLI proving the report command\n",
-      );
+        "# A\n\n## Proofs\n\n- a run log of the CLI proving the report command\n"
+      )
     }
-    let implementerRuns = 0;
+    let implementerRuns = 0
     try {
       const processed = runLoop(
         { ...cfg, maxRetries: 3, claudeQuotaProbeEnabled: false },
-        { ...stubSteps, runImplementer: () => { implementerRuns += 1; } },
-      );
-      assert.deepEqual(processed, [{ id: "ISSUE-A", status: "blocked" }], label);
-      assert.equal(implementerRuns, 1, `${label}: the loop spent ONE attempt, not maxRetries, on an unfixable declaration`);
-      const block = JSON.parse(readFileSync(resolve(repoRoot, `${cfg.reportsDir}/ISSUE-A-blocked.json`), "utf8"));
-      assert.equal(block.kind, "proofs_unreadable", label);
-      assert.ok(!existsSync(resolve(repoRoot, `${cfg.doneDir}/ISSUE-A.md`)), `${label}: never moved to done/`);
+        {
+          ...stubSteps,
+          runImplementer: () => {
+            implementerRuns += 1
+          },
+        }
+      )
+      assert.deepEqual(processed, [{ id: "ISSUE-A", status: "blocked" }], label)
+      assert.equal(implementerRuns, 1, `${label}: the loop spent ONE attempt, not maxRetries, on an unfixable declaration`)
+      const block = JSON.parse(readFileSync(resolve(repoRoot, `${cfg.reportsDir}/ISSUE-A-blocked.json`), "utf8"))
+      assert.equal(block.kind, "proofs_unreadable", label)
+      assert.ok(!existsSync(resolve(repoRoot, `${cfg.doneDir}/ISSUE-A.md`)), `${label}: never moved to done/`)
     } finally {
-      rmSync(dir, { recursive: true, force: true });
+      rmSync(dir, { recursive: true, force: true })
     }
   }
-});
+})
 
 test("PROOFS: an unreadable declaration still outranks an unclearable home — the terminal one-attempt block is never downgraded to a retried miss", () => {
-  const { dir, cfg } = buildScratch("true", { proofs: [...RUN_LOG_PROOF, "- id: not a slug!", "  class: run_log"] });
-  const held = resolve(repoRoot, `${cfg.proofsDir}/ISSUE-A/cli-report/capture`);
-  let implementerRuns = 0;
+  const { dir, cfg } = buildScratch("true", { proofs: [...RUN_LOG_PROOF, "- id: not a slug!", "  class: run_log"] })
+  const held = resolve(repoRoot, `${cfg.proofsDir}/ISSUE-A/cli-report/capture`)
+  let implementerRuns = 0
   try {
-    mkdirSync(held, { recursive: true });
-    writeFileSync(resolve(held, "shot.png"), "captured by a PREVIOUS attempt\n");
-    chmodSync(held, 0o500);
+    mkdirSync(held, { recursive: true })
+    writeFileSync(resolve(held, "shot.png"), "captured by a PREVIOUS attempt\n")
+    chmodSync(held, 0o500)
     const processed = runLoop(
       { ...cfg, maxRetries: 3, claudeQuotaProbeEnabled: false },
-      { ...stubSteps, runImplementer: () => { implementerRuns += 1; } },
-    );
-    assert.deepEqual(processed, [{ id: "ISSUE-A", status: "blocked" }]);
-    assert.equal(implementerRuns, 1, "a frozen file no leg may fix still costs ONE attempt, not maxRetries");
-    const block = JSON.parse(readFileSync(resolve(repoRoot, `${cfg.reportsDir}/ISSUE-A-blocked.json`), "utf8"));
-    assert.equal(block.kind, "proofs_unreadable", "the unreadable declaration is the cause named, not the leftover home");
+      {
+        ...stubSteps,
+        runImplementer: () => {
+          implementerRuns += 1
+        },
+      }
+    )
+    assert.deepEqual(processed, [{ id: "ISSUE-A", status: "blocked" }])
+    assert.equal(implementerRuns, 1, "a frozen file no leg may fix still costs ONE attempt, not maxRetries")
+    const block = JSON.parse(readFileSync(resolve(repoRoot, `${cfg.reportsDir}/ISSUE-A-blocked.json`), "utf8"))
+    assert.equal(block.kind, "proofs_unreadable", "the unreadable declaration is the cause named, not the leftover home")
   } finally {
-    if (existsSync(held)) chmodSync(held, 0o700);
-    rmSync(dir, { recursive: true, force: true });
+    if (existsSync(held)) chmodSync(held, 0o700)
+    rmSync(dir, { recursive: true, force: true })
   }
-});
+})
 
 test("PROOFS: a MISSING issue file refuses the close too — the machine never assumes nothing was owed", () => {
-  const { dir, cfg } = buildScratch("true", { proofs: RUN_LOG_PROOF });
+  const { dir, cfg } = buildScratch("true", { proofs: RUN_LOG_PROOF })
   try {
-    rmSync(resolve(repoRoot, `${cfg.issuesDir}/ISSUE-A.md`), { force: true });
-    const processed = runLoop({ ...cfg, maxRetries: 2, claudeQuotaProbeEnabled: false }, stubSteps);
-    assert.deepEqual(processed, [{ id: "ISSUE-A", status: "blocked" }]);
-    const block = JSON.parse(readFileSync(resolve(repoRoot, `${cfg.reportsDir}/ISSUE-A-blocked.json`), "utf8"));
-    assert.equal(block.kind, "proofs_unreadable");
-    assert.match(block.reason, /missing or unreadable/);
+    rmSync(resolve(repoRoot, `${cfg.issuesDir}/ISSUE-A.md`), { force: true })
+    const processed = runLoop({ ...cfg, maxRetries: 2, claudeQuotaProbeEnabled: false }, stubSteps)
+    assert.deepEqual(processed, [{ id: "ISSUE-A", status: "blocked" }])
+    const block = JSON.parse(readFileSync(resolve(repoRoot, `${cfg.reportsDir}/ISSUE-A-blocked.json`), "utf8"))
+    assert.equal(block.kind, "proofs_unreadable")
+    assert.match(block.reason, /missing or unreadable/)
   } finally {
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true })
   }
-});
+})
 
 test("PROOFS: a block that has BOTH a leg timeout and a missing proof names both causes, hiding neither", () => {
-  const { dir, cfg } = buildScratch("true", { proofs: RUN_LOG_PROOF });
-  let attempt = 0;
+  const { dir, cfg } = buildScratch("true", { proofs: RUN_LOG_PROOF })
+  let attempt = 0
   const timingOutThenSilent = () => {
-    attempt += 1;
+    attempt += 1
     return attempt === 1
       ? { result: { status: 124, timedOut: true, timeoutReason: "leg timed out after 45 min (hard cap)" }, output: "" }
-      : undefined;
-  };
-  try {
-    runLoop(
-      { ...cfg, maxRetries: 2, claudeQuotaProbeEnabled: false },
-      { ...stubSteps, runImplementer: timingOutThenSilent },
-    );
-    const block = JSON.parse(readFileSync(resolve(repoRoot, `${cfg.reportsDir}/ISSUE-A-blocked.json`), "utf8"));
-    assert.equal(block.kind, "timeout", "the first observed cause types the block");
-    assert.match(block.reason, /leg timed out after 45 min/);
-    assert.match(block.reason, /also: declared proof not produced: cli-report/, "the proof miss is named, not swallowed");
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
+      : undefined
   }
-});
+  try {
+    runLoop({ ...cfg, maxRetries: 2, claudeQuotaProbeEnabled: false }, { ...stubSteps, runImplementer: timingOutThenSilent })
+    const block = JSON.parse(readFileSync(resolve(repoRoot, `${cfg.reportsDir}/ISSUE-A-blocked.json`), "utf8"))
+    assert.equal(block.kind, "timeout", "the first observed cause types the block")
+    assert.match(block.reason, /leg timed out after 45 min/)
+    assert.match(block.reason, /also: declared proof not produced: cli-report/, "the proof miss is named, not swallowed")
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
 
 test("PROOFS: the walk-away owner is notified the moment a declared proof is missing (P9)", () => {
-  const runtimeDir = mkdtempSync(resolve(repoRoot, "_tmp-proof-notify-"));
-  const prev = process.env.VIVICY_RUNTIME_DIR;
-  process.env.VIVICY_RUNTIME_DIR = runtimeDir;
-  const { dir, cfg } = buildScratch("true", { proofs: RUN_LOG_PROOF });
+  const runtimeDir = mkdtempSync(resolve(repoRoot, "_tmp-proof-notify-"))
+  const prev = process.env.VIVICY_RUNTIME_DIR
+  process.env.VIVICY_RUNTIME_DIR = runtimeDir
+  const { dir, cfg } = buildScratch("true", { proofs: RUN_LOG_PROOF })
   try {
-    runLoop({ ...cfg, maxRetries: 1, claudeQuotaProbeEnabled: false }, stubSteps);
+    runLoop({ ...cfg, maxRetries: 1, claudeQuotaProbeEnabled: false }, stubSteps)
     const rows = readFileSync(resolve(runtimeDir, "notifications.jsonl"), "utf8")
       .trim()
       .split("\n")
-      .map((line) => JSON.parse(line));
-    const proofsMissing = rows.find((row) => row.event === "proofs_missing");
-    assert.ok(proofsMissing, `expected a proofs_missing notification, got ${rows.map((r) => r.event).join(", ")}`);
-    assert.equal(proofsMissing.level, "warning");
-    assert.match(proofsMissing.message, /ISSUE-A: declared proof not produced/);
+      .map((line) => JSON.parse(line))
+    const proofsMissing = rows.find((row) => row.event === "proofs_missing")
+    assert.ok(proofsMissing, `expected a proofs_missing notification, got ${rows.map((r) => r.event).join(", ")}`)
+    assert.equal(proofsMissing.level, "warning")
+    assert.match(proofsMissing.message, /ISSUE-A: declared proof not produced/)
     assert.ok(
       rows.some((row) => row.event === "issue_blocked"),
-      "and the terminal block is announced too",
-    );
+      "and the terminal block is announced too"
+    )
   } finally {
-    if (prev === undefined) delete process.env.VIVICY_RUNTIME_DIR;
-    else process.env.VIVICY_RUNTIME_DIR = prev;
-    rmSync(runtimeDir, { recursive: true, force: true });
-    rmSync(dir, { recursive: true, force: true });
+    if (prev === undefined) delete process.env.VIVICY_RUNTIME_DIR
+    else process.env.VIVICY_RUNTIME_DIR = prev
+    rmSync(runtimeDir, { recursive: true, force: true })
+    rmSync(dir, { recursive: true, force: true })
   }
-});
+})
 
 test("PROOFS-DIRECTIVE: the declared proofs reach both legs with their class, canonical refs, durable home, and the produce/judge split; nothing when none are declared", () => {
-  const declared = buildScratch("true", { proofs: RUN_LOG_PROOF });
-  const bare = buildScratch("true");
+  const declared = buildScratch("true", { proofs: RUN_LOG_PROOF })
+  const bare = buildScratch("true")
   try {
-    const issue: Issue = { id: "ISSUE-A", issue_path: `${declared.cfg.issuesDir}/ISSUE-A.md` };
-    const directive = proofsDirective(declared.cfg as unknown as Config, issue);
-    assert.match(directive, /## The declared proofs of this issue/);
-    assert.match(directive, /never fabricated, never mocked/);
-    assert.match(directive, /refuses to close it while one is missing/);
-    assert.match(directive, /\*\*Implementer\*\*/);
-    assert.match(directive, /\*\*Reviewer\*\*/);
-    assert.match(directive, /recipe\.txt/);
-    assert.match(directive, /no recipe means no proof/);
-    assert.match(directive, /not_faithful/);
+    const issue: Issue = { id: "ISSUE-A", issue_path: `${declared.cfg.issuesDir}/ISSUE-A.md` }
+    const directive = proofsDirective(declared.cfg as unknown as Config, issue)
+    assert.match(directive, /## The declared proofs of this issue/)
+    assert.match(directive, /never fabricated, never mocked/)
+    assert.match(directive, /refuses to close it while one is missing/)
+    assert.match(directive, /\*\*Implementer\*\*/)
+    assert.match(directive, /\*\*Reviewer\*\*/)
+    assert.match(directive, /recipe\.txt/)
+    assert.match(directive, /no recipe means no proof/)
+    assert.match(directive, /not_faithful/)
     assert.match(
       directive,
       /never write into or overwrite the proof you are judging/,
-      "the reviewer re-derives into its own scratch: a proof belongs to the run that produced it",
-    );
-    assert.match(directive, /`cli-report` \(`run_log`\) — evidences \.vivicy\/canonical\/06-cli\.md:13-16/);
-    assert.match(directive, /Produce: run the real command against the built product/);
+      "the reviewer re-derives into its own scratch: a proof belongs to the run that produced it"
+    )
+    assert.match(directive, /`cli-report` \(`run_log`\) — evidences \.vivicy\/canonical\/06-cli\.md:13-16/)
+    assert.match(directive, /Produce: run the real command against the built product/)
     assert.match(
       directive,
       new RegExp(`Home: \`${resolve(repoRoot, `${declared.cfg.proofsDir}/ISSUE-A/cli-report`)}\``),
-      "the home is absolute so a worktree leg writes into the durable evidence home, not its throwaway tree",
-    );
+      "the home is absolute so a worktree leg writes into the durable evidence home, not its throwaway tree"
+    )
 
-    const composed = composePrompt("implement:\n{{proofs_directive}}", issue, { proofs_directive: directive });
-    assert.match(composed, /## The declared proofs of this issue/, "legDeps injects it through composePrompt");
+    const composed = composePrompt("implement:\n{{proofs_directive}}", issue, { proofs_directive: directive })
+    assert.match(composed, /## The declared proofs of this issue/, "legDeps injects it through composePrompt")
 
     assert.equal(
       proofsDirective(bare.cfg as unknown as Config, { id: "ISSUE-A", issue_path: `${bare.cfg.issuesDir}/ISSUE-A.md` }),
       "",
-      "an issue that declares no proof adds zero prompt mass",
-    );
-    assert.equal(proofsDirective(declared.cfg as unknown as Config, undefined), "");
+      "an issue that declares no proof adds zero prompt mass"
+    )
+    assert.equal(proofsDirective(declared.cfg as unknown as Config, undefined), "")
   } finally {
-    rmSync(declared.dir, { recursive: true, force: true });
-    rmSync(bare.dir, { recursive: true, force: true });
+    rmSync(declared.dir, { recursive: true, force: true })
+    rmSync(bare.dir, { recursive: true, force: true })
   }
-});
+})
 
 test("PROOFS: composePrompt itself carries the single-source proof-class taxonomy (extractor and verifier can never drift)", () => {
-  const injected = composePrompt("{{proof_classes}}", { id: "ISSUE-A" });
-  assert.doesNotMatch(injected, /\{\{/, "the taxonomy slot is a composePrompt default, never a leaked placeholder");
-  assert.match(injected, /## The proof classes — the a-posteriori observation an obligation owes/);
-  assert.match(injected, /A test is a PREDICTION authored by an intelligence; a PROOF is an OBSERVATION of the real thing/);
-  assert.match(injected, /requirement → code → test → PROOF/);
-  assert.match(injected, /replayable recipe/);
-  assert.match(injected, /proportional to the obligation/);
+  const injected = composePrompt("{{proof_classes}}", { id: "ISSUE-A" })
+  assert.doesNotMatch(injected, /\{\{/, "the taxonomy slot is a composePrompt default, never a leaked placeholder")
+  assert.match(injected, /## The proof classes — the a-posteriori observation an obligation owes/)
+  assert.match(injected, /A test is a PREDICTION authored by an intelligence; a PROOF is an OBSERVATION of the real thing/)
+  assert.match(injected, /requirement → code → test → PROOF/)
+  assert.match(injected, /replayable recipe/)
+  assert.match(injected, /proportional to the obligation/)
   for (const id of ["ui_flow", "http_transcript", "run_log", "gate_evidence"]) {
-    assert.match(injected, new RegExp(`- \`${id}\` — `), `class ${id} must stay named in the injected block`);
+    assert.match(injected, new RegExp(`- \`${id}\` — `), `class ${id} must stay named in the injected block`)
   }
   assert.equal(
     (injected.match(/^- `/gm) ?? []).length,
     4,
-    "the taxonomy is EXACTLY these four classes — a fifth added to the constant would otherwise ride in unpinned",
-  );
-});
+    "the taxonomy is EXACTLY these four classes — a fifth added to the constant would otherwise ride in unpinned"
+  )
+})
 
 test("runLoop REFUSES to develop on a tampered frozen baseline (integrity gate blocks)", () => {
-  const { dir, cfg } = buildScratch("true");
+  const { dir, cfg } = buildScratch("true")
   try {
-    let developed = false;
+    let developed = false
     assert.throws(
       () =>
         runLoop(cfg, {
           ...stubSteps,
           verifyBaseline: () => {
-            throw new Error("dev-loop refuses to develop on a tampered/invalid frozen baseline");
+            throw new Error("dev-loop refuses to develop on a tampered/invalid frozen baseline")
           },
           runImplementer: () => {
-            developed = true;
+            developed = true
           },
         }),
-      /tampered\/invalid frozen baseline/,
-    );
-    assert.equal(developed, false, "no issue ran after the baseline gate blocked");
+      /tampered\/invalid frozen baseline/
+    )
+    assert.equal(developed, false, "no issue ran after the baseline gate blocked")
   } finally {
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true })
   }
-});
+})
 
 test("runLoop REFUSES to develop on a failing traceability check (integrity gate blocks)", () => {
-  const { dir, cfg } = buildScratch("true");
+  const { dir, cfg } = buildScratch("true")
   try {
-    let developed = false;
+    let developed = false
     assert.throws(
       () =>
         runLoop(cfg, {
           ...stubSteps,
           verifyTraceability: () => {
-            throw new Error("dev-loop refuses to develop on a failing traceability check");
+            throw new Error("dev-loop refuses to develop on a failing traceability check")
           },
           runImplementer: () => {
-            developed = true;
+            developed = true
           },
         }),
-      /failing traceability check/,
-    );
-    assert.equal(developed, false, "no issue ran after the traceability gate blocked");
+      /failing traceability check/
+    )
+    assert.equal(developed, false, "no issue ran after the traceability gate blocked")
   } finally {
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true })
   }
-});
+})
 
 test("runLoop rejects absolute config paths", () => {
-  assert.throws(
-    () => runLoop({ issueIndexPath: "/abs/issue-index.json" }, stubSteps),
-    /must be repository-relative/,
-  );
-});
+  assert.throws(() => runLoop({ issueIndexPath: "/abs/issue-index.json" }, stubSteps), /must be repository-relative/)
+})
 
 test("runLoop records transcript_refs from agent legs onto graph item states", () => {
-  const { dir, cfg } = buildScratch("true");
+  const { dir, cfg } = buildScratch("true")
   try {
-    const scratchRel = relative(repoRoot, dir);
-    const legRel = (name: string) => `${scratchRel}/tx-${name}.jsonl`;
+    const scratchRel = relative(repoRoot, dir)
+    const legRel = (name: string) => `${scratchRel}/tx-${name}.jsonl`
     const writeLeg = (name: string) => {
-      writeFileSync(resolve(repoRoot, legRel(name)), "transcript\n");
-      return { transcriptRel: legRel(name) };
-    };
+      writeFileSync(resolve(repoRoot, legRel(name)), "transcript\n")
+      return { transcriptRel: legRel(name) }
+    }
     const steps = {
       runImplementer: () => writeLeg("claude"),
       runReviewer: () => writeLeg("codex"),
       commit: () => {},
       ...stubLifecycle,
-    };
-    runLoop(cfg, steps);
-    const ledger = JSON.parse(readFileSync(resolve(repoRoot, cfg.progressLedgerPath), "utf8"));
-    const stateA = ledger.graph_item_states.find((state: { graph_ref: string }) => state.graph_ref === "node:x");
-    assert.ok(stateA.transcript_refs.includes(legRel("claude")));
-    assert.ok(stateA.transcript_refs.includes(legRel("codex")));
+    }
+    runLoop(cfg, steps)
+    const ledger = JSON.parse(readFileSync(resolve(repoRoot, cfg.progressLedgerPath), "utf8"))
+    const stateA = ledger.graph_item_states.find((state: { graph_ref: string }) => state.graph_ref === "node:x")
+    assert.ok(stateA.transcript_refs.includes(legRel("claude")))
+    assert.ok(stateA.transcript_refs.includes(legRel("codex")))
   } finally {
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true })
   }
-});
+})
 
 test("supervisor relaunches while progressing and stops on done/block/stall/cap", () => {
-  const limits = { stallLimit: 3, maxRelaunches: 5 };
-  assert.equal(nextSupervisorAction({ done: 8, total: 8, blocked: 0, attempt: 2, stall: 0 }, limits).action, "done");
-  assert.equal(nextSupervisorAction({ done: 3, total: 8, blocked: 1, attempt: 2, stall: 0 }, limits).action, "blocked");
-  assert.equal(nextSupervisorAction({ done: 3, total: 8, blocked: 0, attempt: 5, stall: 0 }, limits).action, "max_relaunches");
-  assert.equal(nextSupervisorAction({ done: 3, total: 8, blocked: 0, attempt: 2, stall: 3 }, limits).action, "stalled");
-  assert.equal(nextSupervisorAction({ done: 3, total: 8, blocked: 0, attempt: 2, stall: 1 }, limits).action, "relaunch");
-});
+  const limits = { stallLimit: 3, maxRelaunches: 5 }
+  assert.equal(nextSupervisorAction({ done: 8, total: 8, blocked: 0, attempt: 2, stall: 0 }, limits).action, "done")
+  assert.equal(nextSupervisorAction({ done: 3, total: 8, blocked: 1, attempt: 2, stall: 0 }, limits).action, "blocked")
+  assert.equal(nextSupervisorAction({ done: 3, total: 8, blocked: 0, attempt: 5, stall: 0 }, limits).action, "max_relaunches")
+  assert.equal(nextSupervisorAction({ done: 3, total: 8, blocked: 0, attempt: 2, stall: 3 }, limits).action, "stalled")
+  assert.equal(nextSupervisorAction({ done: 3, total: 8, blocked: 0, attempt: 2, stall: 1 }, limits).action, "relaunch")
+})
 
 test("missingSkills detects absent skills against a project-defined list (substring-robust)", () => {
-  const declared = ["alpha-skill", "beta-skill", "gamma-skill"];
-  assert.deepEqual(missingSkills(declared.join(" "), declared), []);
-  assert.deepEqual(missingSkills("only alpha-skill installed", declared), ["beta-skill", "gamma-skill"]);
-  assert.deepEqual(missingSkills("anything"), []);
-});
+  const declared = ["alpha-skill", "beta-skill", "gamma-skill"]
+  assert.deepEqual(missingSkills(declared.join(" "), declared), [])
+  assert.deepEqual(missingSkills("only alpha-skill installed", declared), ["beta-skill", "gamma-skill"])
+  assert.deepEqual(missingSkills("anything"), [])
+})
 
 test("checkSkills is ok with no declared skills and never runs the CLI (generic project)", () => {
-  let ran = false;
+  let ran = false
   const result = checkSkills(
     () => {
-      ran = true;
-      return { ok: true, output: "" };
+      ran = true
+      return { ok: true, output: "" }
     },
-    { required: [], recommended: [] },
-  );
-  assert.equal(result.ok, true);
-  assert.deepEqual(result.missingRequired, []);
-  assert.deepEqual(result.notes, []);
-  assert.equal(ran, false, "no declared skills => the skills CLI is never invoked");
-});
+    { required: [], recommended: [] }
+  )
+  assert.equal(result.ok, true)
+  assert.deepEqual(result.missingRequired, [])
+  assert.deepEqual(result.notes, [])
+  assert.equal(ran, false, "no declared skills => the skills CLI is never invoked")
+})
 
 test("checkSkills only NOTES absent recommended skills, never fails", () => {
-  const result = checkSkills(() => ({ ok: true, output: "" }), { required: [], recommended: ["nice-to-have"] });
-  assert.equal(result.ok, true);
-  assert.deepEqual(result.missingRecommended, ["nice-to-have"]);
-  assert.equal(result.notes.length, 1);
-  assert.match(result.notes[0], /informational only/);
-});
+  const result = checkSkills(() => ({ ok: true, output: "" }), { required: [], recommended: ["nice-to-have"] })
+  assert.equal(result.ok, true)
+  assert.deepEqual(result.missingRecommended, ["nice-to-have"])
+  assert.equal(result.notes.length, 1)
+  assert.match(result.notes[0], /informational only/)
+})
 
 test("checkSkills fails only when a declared REQUIRED skill is missing", () => {
-  const present = checkSkills(() => ({ ok: true, output: "must-have other" }), { required: ["must-have"], recommended: [] });
-  assert.equal(present.ok, true);
-  assert.deepEqual(present.missingRequired, []);
+  const present = checkSkills(() => ({ ok: true, output: "must-have other" }), { required: ["must-have"], recommended: [] })
+  assert.equal(present.ok, true)
+  assert.deepEqual(present.missingRequired, [])
 
-  const absent = checkSkills(() => ({ ok: true, output: "other" }), { required: ["must-have"], recommended: [] });
-  assert.equal(absent.ok, false);
-  assert.deepEqual(absent.missingRequired, ["must-have"]);
-});
+  const absent = checkSkills(() => ({ ok: true, output: "other" }), { required: ["must-have"], recommended: [] })
+  assert.equal(absent.ok, false)
+  assert.deepEqual(absent.missingRequired, ["must-have"])
+})
 
 test("checkSkills blocks on an unavailable CLI only when required skills are declared", () => {
-  const blocked = checkSkills(() => ({ ok: false }), { required: ["must-have"], recommended: [] });
-  assert.equal(blocked.ok, false);
-  assert.deepEqual(blocked.missingRequired, ["must-have"]);
+  const blocked = checkSkills(() => ({ ok: false }), { required: ["must-have"], recommended: [] })
+  assert.equal(blocked.ok, false)
+  assert.deepEqual(blocked.missingRequired, ["must-have"])
 
-  const noted = checkSkills(() => ({ ok: false }), { required: [], recommended: ["nice-to-have"] });
-  assert.equal(noted.ok, true);
-  assert.equal(noted.notes.length, 1);
-});
+  const noted = checkSkills(() => ({ ok: false }), { required: [], recommended: ["nice-to-have"] })
+  assert.equal(noted.ok, true)
+  assert.equal(noted.notes.length, 1)
+})
 
 test("readDeclaredSkills returns no skills when the target declares none", () => {
-  assert.deepEqual(readDeclaredSkills(null), { required: [], recommended: [] });
-});
+  assert.deepEqual(readDeclaredSkills(null), { required: [], recommended: [] })
+})
 
 test("runLoop blocks an issue whose gate stays red after maxRetries and stops", () => {
-  const { dir, cfg } = buildScratch("false");
+  const { dir, cfg } = buildScratch("false")
   try {
-    const processed = runLoop({ ...cfg, maxRetries: 2 }, stubSteps);
-    assert.deepEqual(processed, [{ id: "ISSUE-A", status: "blocked" }]);
-    assert.ok(existsSync(resolve(repoRoot, `${cfg.reportsDir}/ISSUE-A-blocked.json`)));
-    assert.ok(!existsSync(resolve(repoRoot, cfg.doneDir)) || !readdirSync(resolve(repoRoot, cfg.doneDir)).includes("ISSUE-A.md"));
+    const processed = runLoop({ ...cfg, maxRetries: 2 }, stubSteps)
+    assert.deepEqual(processed, [{ id: "ISSUE-A", status: "blocked" }])
+    assert.ok(existsSync(resolve(repoRoot, `${cfg.reportsDir}/ISSUE-A-blocked.json`)))
+    assert.ok(!existsSync(resolve(repoRoot, cfg.doneDir)) || !readdirSync(resolve(repoRoot, cfg.doneDir)).includes("ISSUE-A.md"))
   } finally {
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true })
   }
-});
+})
 
 test("runLoop: a leg that keeps TIMING OUT is retried, then issue_blocked with the timeout reason (never hangs)", () => {
-  const { dir, cfg } = buildScratch("false");
+  const { dir, cfg } = buildScratch("false")
   const timedOutLeg = () => ({
     result: { status: 124, timedOut: true, timeoutReason: "leg timed out after 45 min (hard cap)" },
     output: "",
-  });
-  const steps = { runImplementer: timedOutLeg, runReviewer: timedOutLeg, commit: () => {}, ...stubLifecycle };
+  })
+  const steps = { runImplementer: timedOutLeg, runReviewer: timedOutLeg, commit: () => {}, ...stubLifecycle }
   try {
-    const processed = runLoop(
-      { ...cfg, maxRetries: 2, claudeQuotaProbeEnabled: false },
-      steps,
-    );
-    assert.deepEqual(processed, [{ id: "ISSUE-A", status: "blocked" }], "the timed-out issue blocked, the loop did not hang");
-    const blocked = JSON.parse(readFileSync(resolve(repoRoot, `${cfg.reportsDir}/ISSUE-A-blocked.json`), "utf8"));
-    assert.equal(blocked.kind, "timeout", "the block is attributed to a timeout, not a plain red gate");
-    assert.match(blocked.reason, /leg timed out after 45 min/);
-    assert.match(blocked.reason, /still red after 2 attempts/);
+    const processed = runLoop({ ...cfg, maxRetries: 2, claudeQuotaProbeEnabled: false }, steps)
+    assert.deepEqual(processed, [{ id: "ISSUE-A", status: "blocked" }], "the timed-out issue blocked, the loop did not hang")
+    const blocked = JSON.parse(readFileSync(resolve(repoRoot, `${cfg.reportsDir}/ISSUE-A-blocked.json`), "utf8"))
+    assert.equal(blocked.kind, "timeout", "the block is attributed to a timeout, not a plain red gate")
+    assert.match(blocked.reason, /leg timed out after 45 min/)
+    assert.match(blocked.reason, /still red after 2 attempts/)
   } finally {
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true })
   }
-});
+})
 
 test("detectRateLimit fires on quota signals and ignores plain test failures", () => {
-  assert.equal(detectRateLimit("Error: 429 rate_limit_error", undefined, 1).hit, true);
-  assert.equal(detectRateLimit("You have hit your usage limit reached", undefined, 1).hit, true);
-  assert.equal(detectRateLimit("Anthropic API overloaded, try again later", undefined, 1).hit, true);
-  assert.equal(detectRateLimit("rate limit reached; resets at 15:30", undefined, 1).hit, true);
-  assert.equal(detectRateLimit("HTTP 429 Too Many Requests", undefined, 1).hit, true);
-  assert.equal(detectRateLimit("FAIL src/foo.test.ts: expected 1 to equal 2", undefined, 1).hit, false);
-  assert.equal(detectRateLimit("TypeError: x is not a function", undefined, 1).hit, false);
-  assert.equal(detectRateLimit("", undefined, 1).hit, false);
-  const det = detectRateLimit("line one\nrate limit reached; resets at 16:00\nline three", undefined, 1);
-  assert.match(det.message!, /rate limit reached; resets at 16:00/);
-});
+  assert.equal(detectRateLimit("Error: 429 rate_limit_error", undefined, 1).hit, true)
+  assert.equal(detectRateLimit("You have hit your usage limit reached", undefined, 1).hit, true)
+  assert.equal(detectRateLimit("Anthropic API overloaded, try again later", undefined, 1).hit, true)
+  assert.equal(detectRateLimit("rate limit reached; resets at 15:30", undefined, 1).hit, true)
+  assert.equal(detectRateLimit("HTTP 429 Too Many Requests", undefined, 1).hit, true)
+  assert.equal(detectRateLimit("FAIL src/foo.test.ts: expected 1 to equal 2", undefined, 1).hit, false)
+  assert.equal(detectRateLimit("TypeError: x is not a function", undefined, 1).hit, false)
+  assert.equal(detectRateLimit("", undefined, 1).hit, false)
+  const det = detectRateLimit("line one\nrate limit reached; resets at 16:00\nline three", undefined, 1)
+  assert.match(det.message!, /rate limit reached; resets at 16:00/)
+})
 
 test("detectRateLimit never throttles a SUCCESSFUL leg, even one about quotas", () => {
   const greenSummaries = [
     "implemented per-account quota enforcement; all tests pass",
     "added rate-limit middleware and a 429 Too Many Requests handler",
     "usage limit policy wired; resets at midnight covered by a test",
-  ];
+  ]
   for (const out of greenSummaries) {
-    assert.equal(detectRateLimit(out, undefined, 0).hit, false, `green leg falsely throttled: ${out}`);
+    assert.equal(detectRateLimit(out, undefined, 0).hit, false, `green leg falsely throttled: ${out}`)
   }
-  assert.equal(detectRateLimit("429 Too Many Requests", undefined, 1).hit, true);
-});
+  assert.equal(detectRateLimit("429 Too Many Requests", undefined, 1).hit, true)
+})
 
 test("parseResetMs parses retry-after, relative, ISO, and clock-time resets", () => {
-  const now = Date.UTC(2026, 5, 24, 12, 0, 0);
-  assert.equal(parseResetMs("retry-after: 120", now), now + 120_000);
-  assert.equal(parseResetMs("please retry after 30 seconds", now), now + 30_000);
-  assert.equal(parseResetMs("resets in 2h 14m", now), now + (2 * 3600 + 14 * 60) * 1000);
-  assert.equal(parseResetMs("try again in 90s", now), now + 90_000);
-  assert.equal(parseResetMs("limit until 2026-06-24T13:00:00Z", now), Date.UTC(2026, 5, 24, 13, 0, 0));
-  assert.equal(parseResetMs("rate limited, sorry", now), null);
-  assert.equal(parseResetMs("", now), null);
-});
+  const now = Date.UTC(2026, 5, 24, 12, 0, 0)
+  assert.equal(parseResetMs("retry-after: 120", now), now + 120_000)
+  assert.equal(parseResetMs("please retry after 30 seconds", now), now + 30_000)
+  assert.equal(parseResetMs("resets in 2h 14m", now), now + (2 * 3600 + 14 * 60) * 1000)
+  assert.equal(parseResetMs("try again in 90s", now), now + 90_000)
+  assert.equal(parseResetMs("limit until 2026-06-24T13:00:00Z", now), Date.UTC(2026, 5, 24, 13, 0, 0))
+  assert.equal(parseResetMs("rate limited, sorry", now), null)
+  assert.equal(parseResetMs("", now), null)
+})
 
 test("parseResetMs rolls an already-past clock time to the next day", () => {
-  const base = new Date(2026, 5, 24, 12, 0, 0);
-  const now = base.getTime();
-  const reset = parseResetMs("available again at 9:00", now);
-  const expected = new Date(2026, 5, 25, 9, 0, 0, 0).getTime();
-  assert.equal(reset, expected);
-});
+  const base = new Date(2026, 5, 24, 12, 0, 0)
+  const now = base.getTime()
+  const reset = parseResetMs("available again at 9:00", now)
+  const expected = new Date(2026, 5, 25, 9, 0, 0, 0).getTime()
+  assert.equal(reset, expected)
+})
 
 test("computeWaitMs uses the parsed reset when present, capped at the window", () => {
-  const cfg = { quotaBackoffStartMs: 5 * 60_000, quotaBackoffCapMs: 5 * 3600_000 };
-  const now = 1_000_000;
-  const a = computeWaitMs({ message: "try again in 90s", nowMs: now, attempt: 1, cfg });
-  assert.equal(a.waitMs, 90_000 + 5000);
-  const b = computeWaitMs({ message: "resets in 10h", nowMs: now, attempt: 1, cfg });
-  assert.equal(b.waitMs, cfg.quotaBackoffCapMs);
-});
+  const cfg = { quotaBackoffStartMs: 5 * 60_000, quotaBackoffCapMs: 5 * 3600_000 }
+  const now = 1_000_000
+  const a = computeWaitMs({ message: "try again in 90s", nowMs: now, attempt: 1, cfg })
+  assert.equal(a.waitMs, 90_000 + 5000)
+  const b = computeWaitMs({ message: "resets in 10h", nowMs: now, attempt: 1, cfg })
+  assert.equal(b.waitMs, cfg.quotaBackoffCapMs)
+})
 
 test("computeWaitMs backs off exponentially (capped) when no reset is parseable", () => {
-  const cfg = { quotaBackoffStartMs: 5 * 60_000, quotaBackoffCapMs: 5 * 3600_000 };
-  const args = (attempt: number) => ({ message: "rate limited", nowMs: 0, attempt, cfg });
-  assert.equal(computeWaitMs(args(1)).waitMs, 5 * 60_000);
-  assert.equal(computeWaitMs(args(2)).waitMs, 10 * 60_000);
-  assert.equal(computeWaitMs(args(3)).waitMs, 20 * 60_000);
-  assert.equal(computeWaitMs(args(20)).waitMs, cfg.quotaBackoffCapMs);
-});
+  const cfg = { quotaBackoffStartMs: 5 * 60_000, quotaBackoffCapMs: 5 * 3600_000 }
+  const args = (attempt: number) => ({ message: "rate limited", nowMs: 0, attempt, cfg })
+  assert.equal(computeWaitMs(args(1)).waitMs, 5 * 60_000)
+  assert.equal(computeWaitMs(args(2)).waitMs, 10 * 60_000)
+  assert.equal(computeWaitMs(args(3)).waitMs, 20 * 60_000)
+  assert.equal(computeWaitMs(args(20)).waitMs, cfg.quotaBackoffCapMs)
+})
 
 function fakeClockCfg(overrides: Partial<Config> = {}) {
-  const waits: number[] = [];
-  let clock = 0;
+  const waits: number[] = []
+  let clock = 0
   const cfg: Config = {
     ...DEFAULT_CONFIG,
     quotaStatePath: null,
     claudeQuotaProbeEnabled: false,
     now: () => clock,
     sleep: (ms: number) => {
-      waits.push(ms);
-      clock += ms;
+      waits.push(ms)
+      clock += ms
     },
     ...overrides,
-  };
-  return { cfg, waits, advance: (ms: number) => (clock += ms) };
+  }
+  return { cfg, waits, advance: (ms: number) => (clock += ms) }
 }
 
 test("runLegWithQuota waits the parsed duration, retries the same leg, then proceeds", () => {
-  const { cfg, waits } = fakeClockCfg({ quotaStatePath: null, quotaMaxWaitMs: 8 * 3600_000 });
-  const noWriteCfg = { ...cfg, quotaStatePath: undefined };
-  let call = 0;
+  const { cfg, waits } = fakeClockCfg({ quotaStatePath: null, quotaMaxWaitMs: 8 * 3600_000 })
+  const noWriteCfg = { ...cfg, quotaStatePath: undefined }
+  let call = 0
   const runLeg = () => {
-    call += 1;
+    call += 1
     return call === 1
       ? { output: "Error: 429 rate_limit_error, try again in 120s", result: { status: 1 } }
-      : { output: "all good", result: { status: 0 }, transcriptRel: "tx.jsonl" };
-  };
-  const leg = { actor: "claude", role: "implementer", model: "opus" };
-  const out = runLegWithQuota(runLeg, leg, { id: "X" }, withQuotaStateOff(noWriteCfg));
-  assert.equal(call, 2, "the SAME leg was re-run exactly once after the wait");
-  assert.equal(out.quotaBlocked, false);
-  assert.equal(out.transcriptRel, "tx.jsonl");
-  assert.deepEqual(waits, [120_000 + 5000], "waited the parsed reset (+pad), nothing more");
-});
+      : { output: "all good", result: { status: 0 }, transcriptRel: "tx.jsonl" }
+  }
+  const leg = { actor: "claude", role: "implementer", model: "opus" }
+  const out = runLegWithQuota(runLeg, leg, { id: "X" }, withQuotaStateOff(noWriteCfg))
+  assert.equal(call, 2, "the SAME leg was re-run exactly once after the wait")
+  assert.equal(out.quotaBlocked, false)
+  assert.equal(out.transcriptRel, "tx.jsonl")
+  assert.deepEqual(waits, [120_000 + 5000], "waited the parsed reset (+pad), nothing more")
+})
 
 test("quotaTransitionNotification fires once per pause and once per resume, never per backoff tick", () => {
-  assert.equal(quotaTransitionNotification("available", "throttled", "claude")?.event, "quota_paused");
-  assert.equal(quotaTransitionNotification(undefined, "throttled", "claude")?.event, "quota_paused");
-  assert.equal(quotaTransitionNotification("available", "throttled", "claude")?.level, "warning");
-  assert.equal(quotaTransitionNotification("throttled", "throttled", "claude"), null);
-  assert.equal(quotaTransitionNotification("throttled", "available", "codex")?.event, "quota_resumed");
-  assert.equal(quotaTransitionNotification("throttled", "available", "codex")?.level, "success");
-  assert.equal(quotaTransitionNotification("available", "available", "codex"), null);
-  assert.equal(quotaTransitionNotification(undefined, "available", "codex"), null);
-});
+  assert.equal(quotaTransitionNotification("available", "throttled", "claude")?.event, "quota_paused")
+  assert.equal(quotaTransitionNotification(undefined, "throttled", "claude")?.event, "quota_paused")
+  assert.equal(quotaTransitionNotification("available", "throttled", "claude")?.level, "warning")
+  assert.equal(quotaTransitionNotification("throttled", "throttled", "claude"), null)
+  assert.equal(quotaTransitionNotification("throttled", "available", "codex")?.event, "quota_resumed")
+  assert.equal(quotaTransitionNotification("throttled", "available", "codex")?.level, "success")
+  assert.equal(quotaTransitionNotification("available", "available", "codex"), null)
+  assert.equal(quotaTransitionNotification(undefined, "available", "codex"), null)
+})
 
 test("runLegWithQuota notifies one pause + one resume across a multi-tick wait, never spamming per tick", () => {
-  const dir = mkdtempSync(resolve(repoRoot, "_tmp-quota-notif-"));
-  const prev = process.env.VIVICY_RUNTIME_DIR;
-  process.env.VIVICY_RUNTIME_DIR = dir;
+  const dir = mkdtempSync(resolve(repoRoot, "_tmp-quota-notif-"))
+  const prev = process.env.VIVICY_RUNTIME_DIR
+  process.env.VIVICY_RUNTIME_DIR = dir
   try {
-    const { cfg } = fakeClockCfg({ quotaStatePath: resolve(dir, "quota-state.json"), quotaMaxWaitMs: 8 * 3600_000 });
-    let call = 0;
+    const { cfg } = fakeClockCfg({ quotaStatePath: resolve(dir, "quota-state.json"), quotaMaxWaitMs: 8 * 3600_000 })
+    let call = 0
     const runLeg = () => {
-      call += 1;
+      call += 1
       return call <= 3
         ? { output: "Error: 429 rate_limit_error, try again in 120s", result: { status: 1 } }
-        : { output: "all good", result: { status: 0 }, transcriptRel: "tx.jsonl" };
-    };
-    const leg = { actor: "claude", role: "implementer", model: "opus" };
-    const out = runLegWithQuota(runLeg, leg, { id: "X" }, cfg);
-    assert.equal(out.quotaBlocked, false);
-    assert.equal(call, 4, "three rate-limited attempts then a clean one");
-    const events = readFileSync(resolve(dir, "notifications.jsonl"), "utf8").trim().split("\n").map((l) => JSON.parse(l).event);
-    assert.deepEqual(events, ["quota_paused", "quota_resumed"], "exactly one pause and one resume, no per-tick spam");
+        : { output: "all good", result: { status: 0 }, transcriptRel: "tx.jsonl" }
+    }
+    const leg = { actor: "claude", role: "implementer", model: "opus" }
+    const out = runLegWithQuota(runLeg, leg, { id: "X" }, cfg)
+    assert.equal(out.quotaBlocked, false)
+    assert.equal(call, 4, "three rate-limited attempts then a clean one")
+    const events = readFileSync(resolve(dir, "notifications.jsonl"), "utf8")
+      .trim()
+      .split("\n")
+      .map((l) => JSON.parse(l).event)
+    assert.deepEqual(events, ["quota_paused", "quota_resumed"], "exactly one pause and one resume, no per-tick spam")
   } finally {
-    if (prev === undefined) delete process.env.VIVICY_RUNTIME_DIR;
-    else process.env.VIVICY_RUNTIME_DIR = prev;
-    rmSync(dir, { recursive: true, force: true });
+    if (prev === undefined) delete process.env.VIVICY_RUNTIME_DIR
+    else process.env.VIVICY_RUNTIME_DIR = prev
+    rmSync(dir, { recursive: true, force: true })
   }
-});
+})
 
 test("runLegWithQuota never waits or throws on a clean (non-rate-limited) leg", () => {
-  const { cfg, waits } = fakeClockCfg();
-  let call = 0;
+  const { cfg, waits } = fakeClockCfg()
+  let call = 0
   const runLeg = () => {
-    call += 1;
-    return { output: "build complete\nFAIL one test", result: { status: 1 } };
-  };
-  const leg = { actor: "codex", role: "reviewer" };
-  const out = runLegWithQuota(runLeg, leg, { id: "X" }, withQuotaStateOff(cfg));
-  assert.equal(call, 1, "a normal failing leg runs exactly once (gate decides, not quota)");
-  assert.equal(out.quotaBlocked, false);
-  assert.deepEqual(waits, [], "no quota wait on a non-rate-limited leg");
-});
+    call += 1
+    return { output: "build complete\nFAIL one test", result: { status: 1 } }
+  }
+  const leg = { actor: "codex", role: "reviewer" }
+  const out = runLegWithQuota(runLeg, leg, { id: "X" }, withQuotaStateOff(cfg))
+  assert.equal(call, 1, "a normal failing leg runs exactly once (gate decides, not quota)")
+  assert.equal(out.quotaBlocked, false)
+  assert.deepEqual(waits, [], "no quota wait on a non-rate-limited leg")
+})
 
 test("runLegWithQuota leaves a SUCCESSFUL quota-mentioning leg alone (no false block)", () => {
-  const { cfg, waits } = fakeClockCfg();
-  let call = 0;
+  const { cfg, waits } = fakeClockCfg()
+  let call = 0
   const runLeg = () => {
-    call += 1;
-    return { output: "implemented rate-limit middleware; 429 handler added", result: { status: 0 } };
-  };
-  const leg = { actor: "claude", role: "implementer" };
-  const out = runLegWithQuota(runLeg, leg, { id: "X" }, withQuotaStateOff(cfg));
-  assert.equal(call, 1, "a successful leg runs exactly once even if it talks about quotas");
-  assert.equal(out.quotaBlocked, false);
-  assert.deepEqual(waits, [], "no quota wait on a successful leg");
-});
+    call += 1
+    return { output: "implemented rate-limit middleware; 429 handler added", result: { status: 0 } }
+  }
+  const leg = { actor: "claude", role: "implementer" }
+  const out = runLegWithQuota(runLeg, leg, { id: "X" }, withQuotaStateOff(cfg))
+  assert.equal(call, 1, "a successful leg runs exactly once even if it talks about quotas")
+  assert.equal(out.quotaBlocked, false)
+  assert.deepEqual(waits, [], "no quota wait on a successful leg")
+})
 
 test("computeWaitMs floors a near-zero parsed reset to avoid a busy-spin", () => {
-  const cfg = { quotaBackoffStartMs: 5 * 60_000, quotaBackoffCapMs: 5 * 3600_000 };
-  const out = computeWaitMs({ message: "retry-after: 0", nowMs: 0, attempt: 1, cfg });
-  assert.equal(out.waitMs, 30_000);
-  const ok = computeWaitMs({ message: "try again in 90s", nowMs: 0, attempt: 1, cfg });
-  assert.equal(ok.waitMs, 90_000 + 5000);
-});
+  const cfg = { quotaBackoffStartMs: 5 * 60_000, quotaBackoffCapMs: 5 * 3600_000 }
+  const out = computeWaitMs({ message: "retry-after: 0", nowMs: 0, attempt: 1, cfg })
+  assert.equal(out.waitMs, 30_000)
+  const ok = computeWaitMs({ message: "try again in 90s", nowMs: 0, attempt: 1, cfg })
+  assert.equal(ok.waitMs, 90_000 + 5000)
+})
 
 test("runLegWithQuota gives up (quotaBlocked) once the hard cap is exceeded, never throws", () => {
   const { cfg, waits } = fakeClockCfg({
     quotaMaxWaitMs: 6 * 60_000,
     quotaBackoffStartMs: 5 * 60_000,
     quotaBackoffCapMs: 5 * 3600_000,
-  });
-  const runLeg = () => ({ output: "rate limited, please slow down", result: { status: 1 } });
-  const leg = { actor: "claude", role: "implementer" };
-  const out = runLegWithQuota(runLeg, leg, { id: "X" }, withQuotaStateOff(cfg));
-  assert.equal(out.quotaBlocked, true, "blocks for a human past the cap instead of looping forever");
-  assert.deepEqual(waits, [5 * 60_000]);
-});
+  })
+  const runLeg = () => ({ output: "rate limited, please slow down", result: { status: 1 } })
+  const leg = { actor: "claude", role: "implementer" }
+  const out = runLegWithQuota(runLeg, leg, { id: "X" }, withQuotaStateOff(cfg))
+  assert.equal(out.quotaBlocked, true, "blocks for a human past the cap instead of looping forever")
+  assert.deepEqual(waits, [5 * 60_000])
+})
 
 function withQuotaStateOff(cfg: Config): Config {
-  return { ...cfg, quotaStatePath: null };
+  return { ...cfg, quotaStatePath: null }
 }
 
 test("runLegWithQuota writes throttled then available quota state to disk", () => {
-  const dir = mkdtempSync(resolve(repoRoot, "_tmp-quota-"));
-  const scratchRel = relative(repoRoot, dir);
-  const quotaRel = `${scratchRel}/quota-state.json`;
+  const dir = mkdtempSync(resolve(repoRoot, "_tmp-quota-"))
+  const scratchRel = relative(repoRoot, dir)
+  const quotaRel = `${scratchRel}/quota-state.json`
   try {
-    const { cfg } = fakeClockCfg({ quotaStatePath: quotaRel, quotaMaxWaitMs: 8 * 3600_000 });
-    let call = 0;
+    const { cfg } = fakeClockCfg({ quotaStatePath: quotaRel, quotaMaxWaitMs: 8 * 3600_000 })
+    let call = 0
     const runLeg = () => {
-      call += 1;
-      return call === 1
-        ? { output: "usage limit reached; resets in 1h", result: { status: 1 } }
-        : { output: "done", result: { status: 0 } };
-    };
-    const leg = { actor: "claude", role: "implementer", model: "claude-opus-4-8" };
-    const out = runLegWithQuota(runLeg, leg, { id: "X" }, cfg);
-    assert.equal(out.quotaBlocked, false);
-    const state = JSON.parse(readFileSync(resolve(repoRoot, quotaRel), "utf8"));
-    assert.equal(state.agents.claude.status, "available");
-    assert.equal(state.agents.claude.model, "claude-opus-4-8");
-    assert.equal(state.agents.claude.reset_at, null);
-    assert.ok(state.updated_at, "the file carries an updated_at timestamp");
+      call += 1
+      return call === 1 ? { output: "usage limit reached; resets in 1h", result: { status: 1 } } : { output: "done", result: { status: 0 } }
+    }
+    const leg = { actor: "claude", role: "implementer", model: "claude-opus-4-8" }
+    const out = runLegWithQuota(runLeg, leg, { id: "X" }, cfg)
+    assert.equal(out.quotaBlocked, false)
+    const state = JSON.parse(readFileSync(resolve(repoRoot, quotaRel), "utf8"))
+    assert.equal(state.agents.claude.status, "available")
+    assert.equal(state.agents.claude.model, "claude-opus-4-8")
+    assert.equal(state.agents.claude.reset_at, null)
+    assert.ok(state.updated_at, "the file carries an updated_at timestamp")
   } finally {
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true })
   }
-});
+})
 
 test("parseCodexQuotaWindows extracts REAL 5h + weekly percentages from a rollout", () => {
   const rollout = [
     `{"type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":100}}}}`,
     `{"timestamp":"2026-06-24T16:50:57Z","type":"event_msg","payload":{"type":"token_count","rate_limits":{"primary":{"used_percent":38,"window_minutes":300,"resets_at":1782337221},"secondary":{"used_percent":12,"window_minutes":10080,"resets_at":1782373367},"plan_type":"pro"}}}`,
-  ].join("\n");
-  const w = parseCodexQuotaWindows(rollout);
-  assert.equal(w["5h"].used_pct, 38, "real 5h percentage (primary)");
-  assert.equal(w["5h"].remaining, 62);
-  assert.equal(w["5h"].reset_at, new Date(1782337221 * 1000).toISOString());
-  assert.equal(w.weekly.used_pct, 12, "real weekly percentage (secondary)");
-  assert.equal(w.weekly.reset_at, new Date(1782373367 * 1000).toISOString());
-});
+  ].join("\n")
+  const w = parseCodexQuotaWindows(rollout)
+  assert.equal(w["5h"].used_pct, 38, "real 5h percentage (primary)")
+  assert.equal(w["5h"].remaining, 62)
+  assert.equal(w["5h"].reset_at, new Date(1782337221 * 1000).toISOString())
+  assert.equal(w.weekly.used_pct, 12, "real weekly percentage (secondary)")
+  assert.equal(w.weekly.reset_at, new Date(1782373367 * 1000).toISOString())
+})
 
 test("parseCodexQuotaWindows uses the LAST rate_limits and tolerates junk lines", () => {
   const rollout = [
     `not json at all`,
     `{"payload":{"rate_limits":{"primary":{"used_percent":5,"resets_at":1782300000}}}}`,
     `{"payload":{"rate_limits":{"primary":{"used_percent":41,"resets_at":1782337221},"secondary":{"used_percent":12,"resets_at":1782373367}}}}`,
-  ].join("\n");
-  const w = parseCodexQuotaWindows(rollout);
-  assert.equal(w["5h"].used_pct, 41, "the newest token_count state wins");
-  assert.equal(w.weekly.used_pct, 12);
-});
+  ].join("\n")
+  const w = parseCodexQuotaWindows(rollout)
+  assert.equal(w["5h"].used_pct, 41, "the newest token_count state wins")
+  assert.equal(w.weekly.used_pct, 12)
+})
 
 test("parseCodexQuotaWindows clamps out-of-range and returns {} for no data", () => {
-  assert.deepEqual(parseCodexQuotaWindows(""), {});
-  assert.deepEqual(parseCodexQuotaWindows("plain log\nno rate limits here"), {});
-  const clamped = parseCodexQuotaWindows(
-    `{"payload":{"rate_limits":{"primary":{"used_percent":150,"resets_at":1782337221}}}}`,
-  );
-  assert.equal(clamped["5h"].used_pct, 100, "percentages clamp to [0,100]");
-});
+  assert.deepEqual(parseCodexQuotaWindows(""), {})
+  assert.deepEqual(parseCodexQuotaWindows("plain log\nno rate limits here"), {})
+  const clamped = parseCodexQuotaWindows(`{"payload":{"rate_limits":{"primary":{"used_percent":150,"resets_at":1782337221}}}}`)
+  assert.equal(clamped["5h"].used_pct, 100, "percentages clamp to [0,100]")
+})
 
 test("parseClaudeQuotaWindows falls back to a REAL 5h reset + null percentage from rate_limit_event", () => {
   const transcript = [
     `{"type":"assistant","message":{"content":[{"type":"text","text":"hi"}]}}`,
     `{"type":"rate_limit_event","rate_limit_info":{"status":"allowed","resetsAt":1782328800,"rateLimitType":"five_hour"}}`,
-  ].join("\n");
-  const w = parseClaudeQuotaWindows(transcript);
-  assert.equal(w["5h"].used_pct, null, "no status-line capture => honest null, never fabricated");
-  assert.equal(w["5h"].remaining, null);
-  assert.equal(w["5h"].reset_at, new Date(1782328800 * 1000).toISOString(), "but the 5h reset IS real");
-  assert.equal(w.weekly, undefined, "no weekly window from the rate_limit_event fallback");
-});
+  ].join("\n")
+  const w = parseClaudeQuotaWindows(transcript)
+  assert.equal(w["5h"].used_pct, null, "no status-line capture => honest null, never fabricated")
+  assert.equal(w["5h"].remaining, null)
+  assert.equal(w["5h"].reset_at, new Date(1782328800 * 1000).toISOString(), "but the 5h reset IS real")
+  assert.equal(w.weekly, undefined, "no weekly window from the rate_limit_event fallback")
+})
 
 const REAL_CLAUDE_STATUSLINE = {
   session_id: "a5fba7fe-105c-4cc4-b345-b88adece075c",
@@ -1517,274 +1563,285 @@ const REAL_CLAUDE_STATUSLINE = {
     five_hour: { used_percentage: 1, resets_at: 1782395400 },
     seven_day: { used_percentage: 10, resets_at: 1782792000 },
   },
-};
+}
 
 test("parseClaudeStatusRateLimits extracts REAL 5h + weekly % from a captured status-line payload", () => {
-  const w = parseClaudeStatusRateLimits(REAL_CLAUDE_STATUSLINE);
-  assert.equal(w["5h"].used_pct, 1, "real 5h percentage (five_hour)");
-  assert.equal(w["5h"].remaining, 99);
-  assert.equal(w["5h"].reset_at, new Date(1782395400 * 1000).toISOString());
-  assert.equal(w.weekly.used_pct, 10, "real weekly percentage (seven_day)");
-  assert.equal(w.weekly.remaining, 90);
-  assert.equal(w.weekly.reset_at, new Date(1782792000 * 1000).toISOString());
-});
+  const w = parseClaudeStatusRateLimits(REAL_CLAUDE_STATUSLINE)
+  assert.equal(w["5h"].used_pct, 1, "real 5h percentage (five_hour)")
+  assert.equal(w["5h"].remaining, 99)
+  assert.equal(w["5h"].reset_at, new Date(1782395400 * 1000).toISOString())
+  assert.equal(w.weekly.used_pct, 10, "real weekly percentage (seven_day)")
+  assert.equal(w.weekly.remaining, 90)
+  assert.equal(w.weekly.reset_at, new Date(1782792000 * 1000).toISOString())
+})
 
 test("parseClaudeStatusRateLimits also accepts a bare rate_limits object and tolerates absence", () => {
-  const w = parseClaudeStatusRateLimits(REAL_CLAUDE_STATUSLINE.rate_limits);
-  assert.equal(w["5h"].used_pct, 1);
-  assert.equal(w.weekly.used_pct, 10);
-  assert.deepEqual(parseClaudeStatusRateLimits(null), {});
-  assert.deepEqual(parseClaudeStatusRateLimits({}), {});
-  assert.deepEqual(parseClaudeStatusRateLimits({ rate_limits: null }), {});
-  const oneWin = parseClaudeStatusRateLimits({ five_hour: { used_percentage: 42, resets_at: 1782395400 } });
-  assert.equal(oneWin["5h"].used_pct, 42);
-  assert.equal(oneWin.weekly, undefined, "absent seven_day => no weekly window, never zero");
-});
+  const w = parseClaudeStatusRateLimits(REAL_CLAUDE_STATUSLINE.rate_limits)
+  assert.equal(w["5h"].used_pct, 1)
+  assert.equal(w.weekly.used_pct, 10)
+  assert.deepEqual(parseClaudeStatusRateLimits(null), {})
+  assert.deepEqual(parseClaudeStatusRateLimits({}), {})
+  assert.deepEqual(parseClaudeStatusRateLimits({ rate_limits: null }), {})
+  const oneWin = parseClaudeStatusRateLimits({ five_hour: { used_percentage: 42, resets_at: 1782395400 } })
+  assert.equal(oneWin["5h"].used_pct, 42)
+  assert.equal(oneWin.weekly, undefined, "absent seven_day => no weekly window, never zero")
+})
 
 test("parseClaudeQuotaWindows PREFERS a captured status-line rate_limits line (real %) over the event", () => {
   const transcript = [
     `{"type":"rate_limit_event","rate_limit_info":{"resetsAt":1782328800,"rateLimitType":"five_hour"}}`,
     JSON.stringify(REAL_CLAUDE_STATUSLINE),
-  ].join("\n");
-  const w = parseClaudeQuotaWindows(transcript);
-  assert.equal(w["5h"].used_pct, 1, "real 5h percentage from the status-line capture wins");
-  assert.equal(w["5h"].reset_at, new Date(1782395400 * 1000).toISOString());
-  assert.equal(w.weekly.used_pct, 10, "real weekly percentage surfaced");
-});
+  ].join("\n")
+  const w = parseClaudeQuotaWindows(transcript)
+  assert.equal(w["5h"].used_pct, 1, "real 5h percentage from the status-line capture wins")
+  assert.equal(w["5h"].reset_at, new Date(1782395400 * 1000).toISOString())
+  assert.equal(w.weekly.used_pct, 10, "real weekly percentage surfaced")
+})
 
 test("parseClaudeQuotaWindows uses the LAST status-line capture when several are present", () => {
   const transcript = [
     JSON.stringify({ rate_limits: { five_hour: { used_percentage: 5, resets_at: 1782395400 } } }),
-    JSON.stringify({ rate_limits: { five_hour: { used_percentage: 7, resets_at: 1782399000 }, seven_day: { used_percentage: 11, resets_at: 1782792000 } } }),
-  ].join("\n");
-  const w = parseClaudeQuotaWindows(transcript);
-  assert.equal(w["5h"].used_pct, 7, "newest status-line state wins");
-  assert.equal(w.weekly.used_pct, 11);
-});
+    JSON.stringify({
+      rate_limits: { five_hour: { used_percentage: 7, resets_at: 1782399000 }, seven_day: { used_percentage: 11, resets_at: 1782792000 } },
+    }),
+  ].join("\n")
+  const w = parseClaudeQuotaWindows(transcript)
+  assert.equal(w["5h"].used_pct, 7, "newest status-line state wins")
+  assert.equal(w.weekly.used_pct, 11)
+})
 
 test("parseClaudeQuotaWindows returns {} when no rate_limit_event is present", () => {
-  assert.deepEqual(parseClaudeQuotaWindows(""), {});
+  assert.deepEqual(parseClaudeQuotaWindows(""), {})
   assert.deepEqual(
     parseClaudeQuotaWindows(`{"type":"assistant","message":{"content":[]}}`),
     {},
-    "a transcript with no rate_limit_event yields no windows (unknown)",
-  );
-});
+    "a transcript with no rate_limit_event yields no windows (unknown)"
+  )
+})
 
 test("parseQuotaWindows dispatches by actor and is unknown for others", () => {
-  const codex = `{"payload":{"rate_limits":{"primary":{"used_percent":7,"resets_at":1782337221}}}}`;
-  assert.equal(parseQuotaWindows("codex", codex)["5h"].used_pct, 7);
-  const claude = `{"type":"rate_limit_event","rate_limit_info":{"resetsAt":1782328800,"rateLimitType":"five_hour"}}`;
-  assert.equal(parseQuotaWindows("claude", claude)["5h"].used_pct, null);
-  assert.deepEqual(parseQuotaWindows("someone-else", codex), {}, "unknown actor => no windows");
-});
+  const codex = `{"payload":{"rate_limits":{"primary":{"used_percent":7,"resets_at":1782337221}}}}`
+  assert.equal(parseQuotaWindows("codex", codex)["5h"].used_pct, 7)
+  const claude = `{"type":"rate_limit_event","rate_limit_info":{"resetsAt":1782328800,"rateLimitType":"five_hour"}}`
+  assert.equal(parseQuotaWindows("claude", claude)["5h"].used_pct, null)
+  assert.deepEqual(parseQuotaWindows("someone-else", codex), {}, "unknown actor => no windows")
+})
 
 test("runLegWithQuota records REAL windows from a Codex rollout on an available leg", () => {
-  const dir = mkdtempSync(resolve(repoRoot, "_tmp-quota-win-"));
-  const scratchRel = relative(repoRoot, dir);
-  const quotaRel = `${scratchRel}/quota-state.json`;
-  const rolloutRel = `${scratchRel}/codex-rollout.jsonl`;
+  const dir = mkdtempSync(resolve(repoRoot, "_tmp-quota-win-"))
+  const scratchRel = relative(repoRoot, dir)
+  const quotaRel = `${scratchRel}/quota-state.json`
+  const rolloutRel = `${scratchRel}/codex-rollout.jsonl`
   try {
     writeFileSync(
       resolve(repoRoot, rolloutRel),
-      `{"payload":{"type":"token_count","rate_limits":{"primary":{"used_percent":38,"resets_at":1782337221},"secondary":{"used_percent":12,"resets_at":1782373367}}}}\n`,
-    );
-    const { cfg } = fakeClockCfg({ quotaStatePath: quotaRel, quotaMaxWaitMs: 8 * 3600_000 });
-    const runLeg = () => ({ output: "review done", result: { status: 0 }, transcriptRel: rolloutRel });
-    const leg = { actor: "codex", role: "reviewer", model: "gpt-5.5" };
-    const out = runLegWithQuota(runLeg, leg, { id: "X" }, cfg);
-    assert.equal(out.quotaBlocked, false);
-    const state = JSON.parse(readFileSync(resolve(repoRoot, quotaRel), "utf8"));
-    assert.equal(state.agents.codex.status, "available");
-    assert.equal(state.agents.codex.windows["5h"].used_pct, 38);
-    assert.equal(state.agents.codex.windows.weekly.used_pct, 12);
+      `{"payload":{"type":"token_count","rate_limits":{"primary":{"used_percent":38,"resets_at":1782337221},"secondary":{"used_percent":12,"resets_at":1782373367}}}}\n`
+    )
+    const { cfg } = fakeClockCfg({ quotaStatePath: quotaRel, quotaMaxWaitMs: 8 * 3600_000 })
+    const runLeg = () => ({ output: "review done", result: { status: 0 }, transcriptRel: rolloutRel })
+    const leg = { actor: "codex", role: "reviewer", model: "gpt-5.5" }
+    const out = runLegWithQuota(runLeg, leg, { id: "X" }, cfg)
+    assert.equal(out.quotaBlocked, false)
+    const state = JSON.parse(readFileSync(resolve(repoRoot, quotaRel), "utf8"))
+    assert.equal(state.agents.codex.status, "available")
+    assert.equal(state.agents.codex.windows["5h"].used_pct, 38)
+    assert.equal(state.agents.codex.windows.weekly.used_pct, 12)
   } finally {
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true })
   }
-});
+})
 
 test("runLegWithQuota records REAL Claude 5h + weekly % from the status-line probe on an available leg", () => {
-  const dir = mkdtempSync(resolve(repoRoot, "_tmp-claude-quota-"));
-  const scratchRel = relative(repoRoot, dir);
-  const quotaRel = `${scratchRel}/quota-state.json`;
-  const transcriptRel = `${scratchRel}/claude-transcript.jsonl`;
+  const dir = mkdtempSync(resolve(repoRoot, "_tmp-claude-quota-"))
+  const scratchRel = relative(repoRoot, dir)
+  const quotaRel = `${scratchRel}/quota-state.json`
+  const transcriptRel = `${scratchRel}/claude-transcript.jsonl`
   try {
     writeFileSync(
       resolve(repoRoot, transcriptRel),
-      `{"type":"rate_limit_event","rate_limit_info":{"resetsAt":1782395400,"rateLimitType":"five_hour"}}\n`,
-    );
-    let probeCalls = 0;
+      `{"type":"rate_limit_event","rate_limit_info":{"resetsAt":1782395400,"rateLimitType":"five_hour"}}\n`
+    )
+    let probeCalls = 0
     const claudeQuotaProbe = () => {
-      probeCalls += 1;
-      return REAL_CLAUDE_STATUSLINE.rate_limits;
-    };
+      probeCalls += 1
+      return REAL_CLAUDE_STATUSLINE.rate_limits
+    }
     const { cfg } = fakeClockCfg({
       quotaStatePath: quotaRel,
       quotaMaxWaitMs: 8 * 3600_000,
       claudeQuotaProbeEnabled: true,
       claudeQuotaProbeMinIntervalMs: 0,
       claudeQuotaProbe,
-    });
-    const runLeg = () => ({ output: "impl done", result: { status: 0 }, transcriptRel });
-    const leg = { actor: "claude", role: "implementer", model: "claude-opus-4-8" };
-    const out = runLegWithQuota(runLeg, leg, { id: "X" }, cfg);
-    assert.equal(out.quotaBlocked, false);
-    assert.equal(probeCalls, 1, "the status-line probe ran once for the available Claude leg");
-    const state = JSON.parse(readFileSync(resolve(repoRoot, quotaRel), "utf8"));
-    assert.equal(state.agents.claude.status, "available");
-    assert.equal(state.agents.claude.windows["5h"].used_pct, 1, "real 5h % from the status-line capture");
-    assert.equal(state.agents.claude.windows.weekly.used_pct, 10, "real weekly % from the status-line capture");
-    assert.equal(state.agents.claude.windows["5h"].reset_at, new Date(1782395400 * 1000).toISOString());
+    })
+    const runLeg = () => ({ output: "impl done", result: { status: 0 }, transcriptRel })
+    const leg = { actor: "claude", role: "implementer", model: "claude-opus-4-8" }
+    const out = runLegWithQuota(runLeg, leg, { id: "X" }, cfg)
+    assert.equal(out.quotaBlocked, false)
+    assert.equal(probeCalls, 1, "the status-line probe ran once for the available Claude leg")
+    const state = JSON.parse(readFileSync(resolve(repoRoot, quotaRel), "utf8"))
+    assert.equal(state.agents.claude.status, "available")
+    assert.equal(state.agents.claude.windows["5h"].used_pct, 1, "real 5h % from the status-line capture")
+    assert.equal(state.agents.claude.windows.weekly.used_pct, 10, "real weekly % from the status-line capture")
+    assert.equal(state.agents.claude.windows["5h"].reset_at, new Date(1782395400 * 1000).toISOString())
   } finally {
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true })
   }
-});
+})
 
 test("runLegWithQuota keeps the honest reset-only 5h window when the Claude probe yields nothing", () => {
-  const dir = mkdtempSync(resolve(repoRoot, "_tmp-claude-quota-none-"));
-  const scratchRel = relative(repoRoot, dir);
-  const quotaRel = `${scratchRel}/quota-state.json`;
-  const transcriptRel = `${scratchRel}/claude-transcript.jsonl`;
+  const dir = mkdtempSync(resolve(repoRoot, "_tmp-claude-quota-none-"))
+  const scratchRel = relative(repoRoot, dir)
+  const quotaRel = `${scratchRel}/quota-state.json`
+  const transcriptRel = `${scratchRel}/claude-transcript.jsonl`
   try {
     writeFileSync(
       resolve(repoRoot, transcriptRel),
-      `{"type":"rate_limit_event","rate_limit_info":{"resetsAt":1782395400,"rateLimitType":"five_hour"}}\n`,
-    );
+      `{"type":"rate_limit_event","rate_limit_info":{"resetsAt":1782395400,"rateLimitType":"five_hour"}}\n`
+    )
     const { cfg } = fakeClockCfg({
       quotaStatePath: quotaRel,
       quotaMaxWaitMs: 8 * 3600_000,
       claudeQuotaProbeEnabled: true,
       claudeQuotaProbeMinIntervalMs: 0,
       claudeQuotaProbe: () => null,
-    });
-    const runLeg = () => ({ output: "impl done", result: { status: 0 }, transcriptRel });
-    const leg = { actor: "claude", role: "implementer", model: "claude-opus-4-8" };
-    runLegWithQuota(runLeg, leg, { id: "X" }, cfg);
-    const state = JSON.parse(readFileSync(resolve(repoRoot, quotaRel), "utf8"));
-    assert.equal(state.agents.claude.windows["5h"].used_pct, null, "honest null %, never fabricated");
-    assert.equal(state.agents.claude.windows["5h"].reset_at, new Date(1782395400 * 1000).toISOString(), "but the real 5h reset is kept");
-    assert.equal(state.agents.claude.windows.weekly, undefined, "no weekly window invented");
+    })
+    const runLeg = () => ({ output: "impl done", result: { status: 0 }, transcriptRel })
+    const leg = { actor: "claude", role: "implementer", model: "claude-opus-4-8" }
+    runLegWithQuota(runLeg, leg, { id: "X" }, cfg)
+    const state = JSON.parse(readFileSync(resolve(repoRoot, quotaRel), "utf8"))
+    assert.equal(state.agents.claude.windows["5h"].used_pct, null, "honest null %, never fabricated")
+    assert.equal(state.agents.claude.windows["5h"].reset_at, new Date(1782395400 * 1000).toISOString(), "but the real 5h reset is kept")
+    assert.equal(state.agents.claude.windows.weekly, undefined, "no weekly window invented")
   } finally {
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true })
   }
-});
+})
 
 test("runLegWithQuota does NOT run the status-line probe for a Codex leg or when disabled", () => {
-  const dir = mkdtempSync(resolve(repoRoot, "_tmp-claude-quota-skip-"));
-  const scratchRel = relative(repoRoot, dir);
-  const quotaRel = `${scratchRel}/quota-state.json`;
+  const dir = mkdtempSync(resolve(repoRoot, "_tmp-claude-quota-skip-"))
+  const scratchRel = relative(repoRoot, dir)
+  const quotaRel = `${scratchRel}/quota-state.json`
   try {
-    let probeCalls = 0;
+    let probeCalls = 0
     const probe = () => {
-      probeCalls += 1;
-      return REAL_CLAUDE_STATUSLINE.rate_limits;
-    };
+      probeCalls += 1
+      return REAL_CLAUDE_STATUSLINE.rate_limits
+    }
     const { cfg: codexCfg } = fakeClockCfg({
       quotaStatePath: quotaRel,
       quotaMaxWaitMs: 8 * 3600_000,
       claudeQuotaProbeMinIntervalMs: 0,
       claudeQuotaProbe: probe,
-    });
+    })
     runLegWithQuota(
       () => ({ output: "ok", result: { status: 0 } }),
       { actor: "codex", role: "reviewer", model: "gpt-5.5" },
       { id: "X" },
-      codexCfg,
-    );
-    assert.equal(probeCalls, 0, "Codex legs never invoke the Claude status-line probe");
+      codexCfg
+    )
+    assert.equal(probeCalls, 0, "Codex legs never invoke the Claude status-line probe")
     const { cfg: offCfg } = fakeClockCfg({
       quotaStatePath: quotaRel,
       quotaMaxWaitMs: 8 * 3600_000,
       claudeQuotaProbeEnabled: false,
       claudeQuotaProbe: probe,
-    });
+    })
     runLegWithQuota(
       () => ({ output: "ok", result: { status: 0 } }),
       { actor: "claude", role: "implementer", model: "claude-opus-4-8" },
       { id: "X" },
-      offCfg,
-    );
-    assert.equal(probeCalls, 0, "a disabled probe is never invoked");
+      offCfg
+    )
+    assert.equal(probeCalls, 0, "a disabled probe is never invoked")
   } finally {
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true })
   }
-});
+})
 
 test("runLegWithQuota throttles the Claude status-line probe to once per window", () => {
-  const dir = mkdtempSync(resolve(repoRoot, "_tmp-claude-quota-throttle-"));
-  const scratchRel = relative(repoRoot, dir);
-  const quotaRel = `${scratchRel}/quota-state.json`;
+  const dir = mkdtempSync(resolve(repoRoot, "_tmp-claude-quota-throttle-"))
+  const scratchRel = relative(repoRoot, dir)
+  const quotaRel = `${scratchRel}/quota-state.json`
   try {
-    let probeCalls = 0;
+    let probeCalls = 0
     const probe = () => {
-      probeCalls += 1;
-      return REAL_CLAUDE_STATUSLINE.rate_limits;
-    };
-    const window = 30 * 60 * 1000;
+      probeCalls += 1
+      return REAL_CLAUDE_STATUSLINE.rate_limits
+    }
+    const window = 30 * 60 * 1000
     const { cfg, advance } = fakeClockCfg({
       quotaStatePath: quotaRel,
       quotaMaxWaitMs: 8 * 3600_000,
       claudeQuotaProbeEnabled: true,
       claudeQuotaProbeMinIntervalMs: window,
       claudeQuotaProbe: probe,
-    });
-    advance(10 * 24 * 3600_000);
-    const leg = { actor: "claude", role: "implementer", model: "claude-opus-4-8" };
-    const runLeg = () => ({ output: "ok", result: { status: 0 } });
-    runLegWithQuota(runLeg, leg, { id: "X" }, cfg);
-    runLegWithQuota(runLeg, leg, { id: "Y" }, cfg);
-    assert.equal(probeCalls, 1, "second leg within the same window reuses the throttled probe");
-    advance(window + 60_000);
-    runLegWithQuota(runLeg, leg, { id: "Z" }, cfg);
-    assert.equal(probeCalls, 2, "after the window elapses, the probe runs again");
+    })
+    advance(10 * 24 * 3600_000)
+    const leg = { actor: "claude", role: "implementer", model: "claude-opus-4-8" }
+    const runLeg = () => ({ output: "ok", result: { status: 0 } })
+    runLegWithQuota(runLeg, leg, { id: "X" }, cfg)
+    runLegWithQuota(runLeg, leg, { id: "Y" }, cfg)
+    assert.equal(probeCalls, 1, "second leg within the same window reuses the throttled probe")
+    advance(window + 60_000)
+    runLegWithQuota(runLeg, leg, { id: "Z" }, cfg)
+    assert.equal(probeCalls, 2, "after the window elapses, the probe runs again")
   } finally {
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true })
   }
-});
+})
 
 test("DEFAULT_QUOTA_PATTERNS is configurable and case-insensitive", () => {
-  const custom = [/please wait/i];
-  assert.equal(detectRateLimit("RATE LIMIT hit", custom).hit, false);
-  assert.equal(detectRateLimit("Please Wait and retry", custom).hit, true);
-  assert.equal(detectRateLimit("RATE_LIMIT", DEFAULT_QUOTA_PATTERNS).hit, true);
-});
+  const custom = [/please wait/i]
+  assert.equal(detectRateLimit("RATE LIMIT hit", custom).hit, false)
+  assert.equal(detectRateLimit("Please Wait and retry", custom).hit, true)
+  assert.equal(detectRateLimit("RATE_LIMIT", DEFAULT_QUOTA_PATTERNS).hit, true)
+})
 
 test("clampConcurrency floors bad values to 1 (sequential default)", () => {
-  assert.equal(clampConcurrency(undefined), 1);
-  assert.equal(clampConcurrency("0"), 1);
-  assert.equal(clampConcurrency(-3), 1);
-  assert.equal(clampConcurrency("abc"), 1);
-  assert.equal(clampConcurrency("3"), 3);
-  assert.equal(clampConcurrency(2.9), 2);
-});
+  assert.equal(clampConcurrency(undefined), 1)
+  assert.equal(clampConcurrency("0"), 1)
+  assert.equal(clampConcurrency(-3), 1)
+  assert.equal(clampConcurrency("abc"), 1)
+  assert.equal(clampConcurrency("3"), 3)
+  assert.equal(clampConcurrency(2.9), 2)
+})
 
 test("computeReadySet returns deps-satisfied, not-done, not-running issues in index order", () => {
   const issues = [
     { id: "A", depends_on: [] },
     { id: "B", depends_on: ["A"] },
     { id: "C", depends_on: [] },
-  ];
-  assert.deepEqual(computeReadySet(issues, new Set()).map((i) => i.id), ["A", "C"]);
-  assert.deepEqual(computeReadySet(issues, new Set(["A"])).map((i) => i.id), ["B", "C"]);
-  assert.deepEqual(computeReadySet(issues, new Set(), new Set(["C"])).map((i) => i.id), ["A"]);
-});
+  ]
+  assert.deepEqual(
+    computeReadySet(issues, new Set()).map((i) => i.id),
+    ["A", "C"]
+  )
+  assert.deepEqual(
+    computeReadySet(issues, new Set(["A"])).map((i) => i.id),
+    ["B", "C"]
+  )
+  assert.deepEqual(
+    computeReadySet(issues, new Set(), new Set(["C"])).map((i) => i.id),
+    ["A"]
+  )
+})
 
 test("issueClaim is the issue's graph_refs — the one footprint the index carries", () => {
-  assert.deepEqual([...issueClaim({ graph_refs: ["node:x", "node:y"] })], ["node:x", "node:y"]);
-  assert.deepEqual([...issueClaim({})], []);
-});
+  assert.deepEqual([...issueClaim({ graph_refs: ["node:x", "node:y"] })], ["node:x", "node:y"])
+  assert.deepEqual([...issueClaim({})], [])
+})
 
 test("buildDepsClosure resolves transitive dependencies", () => {
   const issues = [
     { id: "A", depends_on: [] },
     { id: "B", depends_on: ["A"] },
     { id: "C", depends_on: ["B"] },
-  ];
-  const closure = buildDepsClosure(issues);
-  assert.deepEqual([...closure.get("C")!].sort(), ["A", "B"]);
-  assert.deepEqual([...closure.get("B")!], ["A"]);
-  assert.deepEqual([...closure.get("A")!], []);
-});
+  ]
+  const closure = buildDepsClosure(issues)
+  assert.deepEqual([...closure.get("C")!].sort(), ["A", "B"])
+  assert.deepEqual([...closure.get("B")!], ["A"])
+  assert.deepEqual([...closure.get("A")!], [])
+})
 
 test("issuesIndependent requires NO dependency path AND disjoint claims", () => {
   const issues = [
@@ -1792,23 +1849,26 @@ test("issuesIndependent requires NO dependency path AND disjoint claims", () => 
     { id: "B", depends_on: ["A"], graph_refs: ["node:y"] },
     { id: "C", depends_on: [], graph_refs: ["node:x"] },
     { id: "D", depends_on: [], graph_refs: ["node:z"] },
-  ];
-  const closure = buildDepsClosure(issues);
-  const byId = Object.fromEntries(issues.map((i) => [i.id, i]));
-  assert.equal(issuesIndependent(byId.A, byId.B, closure), false);
-  assert.equal(issuesIndependent(byId.A, byId.C, closure), false);
-  assert.equal(issuesIndependent(byId.A, byId.D, closure), true);
-});
+  ]
+  const closure = buildDepsClosure(issues)
+  const byId = Object.fromEntries(issues.map((i) => [i.id, i]))
+  assert.equal(issuesIndependent(byId.A, byId.B, closure), false)
+  assert.equal(issuesIndependent(byId.A, byId.C, closure), false)
+  assert.equal(issuesIndependent(byId.A, byId.D, closure), true)
+})
 
 test("selectIndependentBatch with limit 1 returns exactly one ready issue (sequential)", () => {
   const issues = [
     { id: "A", depends_on: [], graph_refs: ["node:x"] },
     { id: "B", depends_on: [], graph_refs: ["node:y"] },
-  ];
-  const closure = buildDepsClosure(issues);
-  const batch = selectIndependentBatch(issues, [], 1, closure);
-  assert.deepEqual(batch.map((i) => i.id), ["A"]);
-});
+  ]
+  const closure = buildDepsClosure(issues)
+  const batch = selectIndependentBatch(issues, [], 1, closure)
+  assert.deepEqual(
+    batch.map((i) => i.id),
+    ["A"]
+  )
+})
 
 test("selectIndependentBatch picks only mutually-independent issues up to the limit", () => {
   const issues = [
@@ -1816,37 +1876,43 @@ test("selectIndependentBatch picks only mutually-independent issues up to the li
     { id: "B", depends_on: [], graph_refs: ["node:x"] },
     { id: "C", depends_on: [], graph_refs: ["node:y"] },
     { id: "D", depends_on: [], graph_refs: ["node:z"] },
-  ];
-  const closure = buildDepsClosure(issues);
-  const batch = selectIndependentBatch(issues, [], 3, closure);
-  assert.deepEqual(batch.map((i) => i.id), ["A", "C", "D"]);
-});
+  ]
+  const closure = buildDepsClosure(issues)
+  const batch = selectIndependentBatch(issues, [], 3, closure)
+  assert.deepEqual(
+    batch.map((i) => i.id),
+    ["A", "C", "D"]
+  )
+})
 
 test("selectIndependentBatch respects already-running issues (no shared claim with them)", () => {
   const issues = [
     { id: "B", depends_on: [], graph_refs: ["node:x"] },
     { id: "C", depends_on: [], graph_refs: ["node:y"] },
-  ];
-  const running = [{ id: "A", depends_on: [], graph_refs: ["node:x"] }];
-  const closure = buildDepsClosure([...issues, ...running]);
-  const batch = selectIndependentBatch(issues, running, 2, closure);
-  assert.deepEqual(batch.map((i) => i.id), ["C"]);
-});
+  ]
+  const running = [{ id: "A", depends_on: [], graph_refs: ["node:x"] }]
+  const closure = buildDepsClosure([...issues, ...running])
+  const batch = selectIndependentBatch(issues, running, 2, closure)
+  assert.deepEqual(
+    batch.map((i) => i.id),
+    ["C"]
+  )
+})
 
 test("clampConcurrency caps at MAX_CONCURRENCY = 12 (range 1..12)", () => {
-  assert.equal(MAX_CONCURRENCY, 12);
-  assert.equal(clampConcurrency(0), 1);
-  assert.equal(clampConcurrency(-7), 1);
-  assert.equal(clampConcurrency("nope"), 1);
-  assert.equal(clampConcurrency(1), 1);
-  assert.equal(clampConcurrency(8), 8);
-  assert.equal(clampConcurrency(12), 12);
-  assert.equal(clampConcurrency("12"), 12);
-  assert.equal(clampConcurrency(11.9), 11);
-  assert.equal(clampConcurrency(13), 12);
-  assert.equal(clampConcurrency(100), 12);
-  assert.equal(clampConcurrency("999"), 12);
-});
+  assert.equal(MAX_CONCURRENCY, 12)
+  assert.equal(clampConcurrency(0), 1)
+  assert.equal(clampConcurrency(-7), 1)
+  assert.equal(clampConcurrency("nope"), 1)
+  assert.equal(clampConcurrency(1), 1)
+  assert.equal(clampConcurrency(8), 8)
+  assert.equal(clampConcurrency(12), 12)
+  assert.equal(clampConcurrency("12"), 12)
+  assert.equal(clampConcurrency(11.9), 11)
+  assert.equal(clampConcurrency(13), 12)
+  assert.equal(clampConcurrency(100), 12)
+  assert.equal(clampConcurrency("999"), 12)
+})
 
 function spreadArchitecture() {
   return {
@@ -1859,7 +1925,7 @@ function spreadArchitecture() {
       { id: "g2", layout_cluster: "gamma" },
     ],
     edges: [{ from: "a1", to: "b1", relation: "calls", protocol: "module" }],
-  };
+  }
 }
 
 function spreadIssues() {
@@ -1870,142 +1936,161 @@ function spreadIssues() {
     { id: "I-b2", depends_on: [], graph_refs: ["node:b2"] },
     { id: "I-g1", depends_on: [], graph_refs: ["node:g1"] },
     { id: "I-g2", depends_on: [], graph_refs: ["node:g2"] },
-  ];
+  ]
 }
 
 test("buildArchitectureIndex maps node clusters and symmetric edge adjacency", () => {
-  const idx = buildArchitectureIndex(spreadArchitecture());
-  assert.equal(idx.clusterByNode.get("a1"), "alpha");
-  assert.equal(idx.clusterByNode.get("g2"), "gamma");
-  assert.ok(idx.adjacencyByNode.get("a1")!.has("b1"));
-  assert.ok(idx.adjacencyByNode.get("b1")!.has("a1"));
-  assert.equal(idx.adjacencyByNode.get("g1")!.size, 0);
-});
+  const idx = buildArchitectureIndex(spreadArchitecture())
+  assert.equal(idx.clusterByNode.get("a1"), "alpha")
+  assert.equal(idx.clusterByNode.get("g2"), "gamma")
+  assert.ok(idx.adjacencyByNode.get("a1")!.has("b1"))
+  assert.ok(idx.adjacencyByNode.get("b1")!.has("a1"))
+  assert.equal(idx.adjacencyByNode.get("g1")!.size, 0)
+})
 
 test("buildArchitectureIndex tolerates missing / malformed input (graceful)", () => {
   for (const bad of [null, undefined, {}, { nodes: "x" }, { nodes: [{ noId: 1 }], edges: [{}] }]) {
-    const idx = buildArchitectureIndex(bad);
-    assert.equal(idx.clusterByNode.size, 0);
+    const idx = buildArchitectureIndex(bad)
+    assert.equal(idx.clusterByNode.size, 0)
   }
-});
+})
 
 test("issueFootprint unions claims, source files, clusters, and graph neighborhood", () => {
-  const idx = buildArchitectureIndex(spreadArchitecture());
-  const fp = issueFootprint(
-    { graph_refs: ["node:a1"], source_line_refs: ["docs/x.md:7-13", "docs/x.md:20"] },
-    idx,
-  );
-  assert.ok(fp.files.has("file:node:a1"));
-  assert.ok(fp.sources.has("src:docs/x.md"));
-  assert.ok(fp.clusters.has("cluster:alpha"));
-  assert.ok(fp.nodes.has("node:a1"));
-  assert.ok(fp.nodes.has("node:b1"));
-});
+  const idx = buildArchitectureIndex(spreadArchitecture())
+  const fp = issueFootprint({ graph_refs: ["node:a1"], source_line_refs: ["docs/x.md:7-13", "docs/x.md:20"] }, idx)
+  assert.ok(fp.files.has("file:node:a1"))
+  assert.ok(fp.sources.has("src:docs/x.md"))
+  assert.ok(fp.clusters.has("cluster:alpha"))
+  assert.ok(fp.nodes.has("node:a1"))
+  assert.ok(fp.nodes.has("node:b1"))
+})
 
 test("footprintDistance follows the ordered risk ladder (file<source<cluster<adjacent<far)", () => {
-  const idx = buildArchitectureIndex(spreadArchitecture());
-  const fpA1 = issueFootprint({ graph_refs: ["node:a1"], source_line_refs: ["docs/s.md:1"] }, idx);
-  const fpA2 = issueFootprint({ graph_refs: ["node:a2"] }, idx);
-  const fpB1 = issueFootprint({ graph_refs: ["node:b1"] }, idx);
-  const fpG1 = issueFootprint({ graph_refs: ["node:g1"] }, idx);
-  const fpA1bis = issueFootprint({ graph_refs: ["node:a1"] }, idx);
-  assert.equal(footprintDistance(fpA1, fpA1bis), 0);
-  const fpShareSrc = issueFootprint({ graph_refs: ["node:g2"], source_line_refs: ["docs/s.md:9"] }, idx);
-  assert.equal(footprintDistance(fpA1, fpShareSrc), 1);
-  assert.equal(footprintDistance(fpA1, fpA2), 2);
-  assert.equal(footprintDistance(fpA1, fpB1), 3);
-  assert.equal(footprintDistance(fpA1, fpG1), CONFLICT_DISTANCE_FAR);
-});
+  const idx = buildArchitectureIndex(spreadArchitecture())
+  const fpA1 = issueFootprint({ graph_refs: ["node:a1"], source_line_refs: ["docs/s.md:1"] }, idx)
+  const fpA2 = issueFootprint({ graph_refs: ["node:a2"] }, idx)
+  const fpB1 = issueFootprint({ graph_refs: ["node:b1"] }, idx)
+  const fpG1 = issueFootprint({ graph_refs: ["node:g1"] }, idx)
+  const fpA1bis = issueFootprint({ graph_refs: ["node:a1"] }, idx)
+  assert.equal(footprintDistance(fpA1, fpA1bis), 0)
+  const fpShareSrc = issueFootprint({ graph_refs: ["node:g2"], source_line_refs: ["docs/s.md:9"] }, idx)
+  assert.equal(footprintDistance(fpA1, fpShareSrc), 1)
+  assert.equal(footprintDistance(fpA1, fpA2), 2)
+  assert.equal(footprintDistance(fpA1, fpB1), 3)
+  assert.equal(footprintDistance(fpA1, fpG1), CONFLICT_DISTANCE_FAR)
+})
 
 test("max-spread selection spreads across DIFFERENT clusters (vs index-order siblings)", () => {
-  const issues = spreadIssues();
-  const idx = buildArchitectureIndex(spreadArchitecture());
-  const closure = buildDepsClosure(issues);
-  const batch = selectIndependentBatch(issues, [], 3, closure, idx);
-  assert.deepEqual(batch.map((i) => i.id), ["I-a1", "I-b2", "I-g1"]);
-  assert.ok(!batch.some((i) => i.id === "I-a2"));
-  const clusters = new Set(
-    batch.flatMap((i) => i.graph_refs!.map((r) => idx.clusterByNode.get(r.slice("node:".length)))),
-  );
-  assert.equal(clusters.size, 3);
+  const issues = spreadIssues()
+  const idx = buildArchitectureIndex(spreadArchitecture())
+  const closure = buildDepsClosure(issues)
+  const batch = selectIndependentBatch(issues, [], 3, closure, idx)
+  assert.deepEqual(
+    batch.map((i) => i.id),
+    ["I-a1", "I-b2", "I-g1"]
+  )
+  assert.ok(!batch.some((i) => i.id === "I-a2"))
+  const clusters = new Set(batch.flatMap((i) => i.graph_refs!.map((r) => idx.clusterByNode.get(r.slice("node:".length)))))
+  assert.equal(clusters.size, 3)
 
-  const indexOrder = selectIndependentBatch(issues, [], 3, closure);
-  assert.deepEqual(indexOrder.map((i) => i.id), ["I-a1", "I-a2", "I-b1"]);
-  assert.notDeepEqual(batch.map((i) => i.id), indexOrder.map((i) => i.id));
-});
+  const indexOrder = selectIndependentBatch(issues, [], 3, closure)
+  assert.deepEqual(
+    indexOrder.map((i) => i.id),
+    ["I-a1", "I-a2", "I-b1"]
+  )
+  assert.notDeepEqual(
+    batch.map((i) => i.id),
+    indexOrder.map((i) => i.id)
+  )
+})
 
 test("max-spread NEVER co-schedules dependent issues (hard gate intact, spread on top)", () => {
   const issues = [
     { id: "I-a1", depends_on: [], graph_refs: ["node:a1"] },
     { id: "I-b1", depends_on: ["I-a1"], graph_refs: ["node:b1"] },
     { id: "I-g1", depends_on: [], graph_refs: ["node:g1"] },
-  ];
-  const idx = buildArchitectureIndex(spreadArchitecture());
-  const closure = buildDepsClosure(issues);
-  const batch = selectIndependentBatch(issues, [], 3, closure, idx);
-  assert.ok(!batch.some((i) => i.id === "I-b1"));
-  assert.deepEqual(batch.map((i) => i.id), ["I-a1", "I-g1"]);
-});
+  ]
+  const idx = buildArchitectureIndex(spreadArchitecture())
+  const closure = buildDepsClosure(issues)
+  const batch = selectIndependentBatch(issues, [], 3, closure, idx)
+  assert.ok(!batch.some((i) => i.id === "I-b1"))
+  assert.deepEqual(
+    batch.map((i) => i.id),
+    ["I-a1", "I-g1"]
+  )
+})
 
 test("max-spread NEVER co-schedules claim-overlapping issues (disjoint-claim gate intact)", () => {
   const issues = [
     { id: "I-a1", depends_on: [], graph_refs: ["node:a1"] },
     { id: "I-a1dup", depends_on: [], graph_refs: ["node:a1"] },
     { id: "I-g1", depends_on: [], graph_refs: ["node:g1"] },
-  ];
-  const idx = buildArchitectureIndex(spreadArchitecture());
-  const closure = buildDepsClosure(issues);
-  const batch = selectIndependentBatch(issues, [], 3, closure, idx);
-  assert.ok(!batch.some((i) => i.id === "I-a1dup"));
-  assert.deepEqual(batch.map((i) => i.id), ["I-a1", "I-g1"]);
-});
+  ]
+  const idx = buildArchitectureIndex(spreadArchitecture())
+  const closure = buildDepsClosure(issues)
+  const batch = selectIndependentBatch(issues, [], 3, closure, idx)
+  assert.ok(!batch.some((i) => i.id === "I-a1dup"))
+  assert.deepEqual(
+    batch.map((i) => i.id),
+    ["I-a1", "I-g1"]
+  )
+})
 
 test("max-spread is deterministic (stable batch across repeated runs)", () => {
-  const idx = buildArchitectureIndex(spreadArchitecture());
-  const closure = buildDepsClosure(spreadIssues());
-  const first = selectIndependentBatch(spreadIssues(), [], 4, closure, idx).map((i) => i.id);
+  const idx = buildArchitectureIndex(spreadArchitecture())
+  const closure = buildDepsClosure(spreadIssues())
+  const first = selectIndependentBatch(spreadIssues(), [], 4, closure, idx).map((i) => i.id)
   for (let i = 0; i < 5; i += 1) {
-    const again = selectIndependentBatch(spreadIssues(), [], 4, closure, idx).map((j) => j.id);
-    assert.deepEqual(again, first);
+    const again = selectIndependentBatch(spreadIssues(), [], 4, closure, idx).map((j) => j.id)
+    assert.deepEqual(again, first)
   }
-});
+})
 
 test("max-spread degrades gracefully with NO cluster/edge data (falls back to index order)", () => {
-  const issues = spreadIssues();
-  const closure = buildDepsClosure(issues);
-  const batch = selectIndependentBatch(issues, [], 3, closure);
-  assert.deepEqual(batch.map((i) => i.id), ["I-a1", "I-a2", "I-b1"]);
-});
+  const issues = spreadIssues()
+  const closure = buildDepsClosure(issues)
+  const batch = selectIndependentBatch(issues, [], 3, closure)
+  assert.deepEqual(
+    batch.map((i) => i.id),
+    ["I-a1", "I-a2", "I-b1"]
+  )
+})
 
 test("max-spread with limit 1 returns exactly one issue, identical with or without the architecture index", () => {
-  const issues = spreadIssues();
-  const idx = buildArchitectureIndex(spreadArchitecture());
-  const closure = buildDepsClosure(issues);
-  const withIdx = selectIndependentBatch(issues, [], 1, closure, idx);
-  const withoutIdx = selectIndependentBatch(issues, [], 1, closure);
-  assert.deepEqual(withIdx.map((i) => i.id), ["I-a1"]);
-  assert.deepEqual(withIdx.map((i) => i.id), withoutIdx.map((i) => i.id));
-});
+  const issues = spreadIssues()
+  const idx = buildArchitectureIndex(spreadArchitecture())
+  const closure = buildDepsClosure(issues)
+  const withIdx = selectIndependentBatch(issues, [], 1, closure, idx)
+  const withoutIdx = selectIndependentBatch(issues, [], 1, closure)
+  assert.deepEqual(
+    withIdx.map((i) => i.id),
+    ["I-a1"]
+  )
+  assert.deepEqual(
+    withIdx.map((i) => i.id),
+    withoutIdx.map((i) => i.id)
+  )
+})
 
 interface TimelineEntry {
-  id: string;
-  who: string;
-  phase: "start" | "end";
-  t: number;
+  id: string
+  who: string
+  phase: "start" | "end"
+  t: number
 }
 
-let parallelGitReady = false;
+let parallelGitReady = false
 function ensureRepoRootGit() {
-  if (parallelGitReady) return;
-  const git = (a: string[]) => spawnSync("git", a, { cwd: repoRoot, encoding: "utf8" });
+  if (parallelGitReady) return
+  const git = (a: string[]) => spawnSync("git", a, { cwd: repoRoot, encoding: "utf8" })
   if (!existsSync(resolve(repoRoot, ".git"))) {
-    git(["init", "-q"]);
-    git(["config", "user.email", "t@local"]);
-    git(["config", "user.name", "t"]);
-    git(["config", "commit.gpgsign", "false"]);
-    git(["commit", "--allow-empty", "-qm", "root"]);
+    git(["init", "-q"])
+    git(["config", "user.email", "t@local"])
+    git(["config", "user.name", "t"])
+    git(["config", "commit.gpgsign", "false"])
+    git(["commit", "--allow-empty", "-qm", "root"])
   }
-  parallelGitReady = true;
+  parallelGitReady = true
 }
 
 function buildParallelScratch({
@@ -2013,28 +2098,25 @@ function buildParallelScratch({
   gateById = {},
   proofsById = {},
 }: {
-  issues: Issue[];
-  gateById?: Record<string, string>;
-  proofsById?: Record<string, string[]>;
+  issues: Issue[]
+  gateById?: Record<string, string>
+  proofsById?: Record<string, string[]>
 }) {
-  ensureRepoRootGit();
-  const dir = mkdtempSync(resolve(repoRoot, "_tmp-parallel-"));
-  const scratchRel = relative(repoRoot, dir);
-  const issuesDir = `${scratchRel}/issues`;
-  const doneDir = `${scratchRel}/issues/done`;
-  const gatesDir = `${scratchRel}/gates`;
-  const proofsDir = `${scratchRel}/proofs`;
-  const reportsDir = `${scratchRel}/reports`;
-  const transcriptsDir = `${scratchRel}/transcripts`;
-  mkdirSync(resolve(repoRoot, issuesDir), { recursive: true });
+  ensureRepoRootGit()
+  const dir = mkdtempSync(resolve(repoRoot, "_tmp-parallel-"))
+  const scratchRel = relative(repoRoot, dir)
+  const issuesDir = `${scratchRel}/issues`
+  const doneDir = `${scratchRel}/issues/done`
+  const gatesDir = `${scratchRel}/gates`
+  const proofsDir = `${scratchRel}/proofs`
+  const reportsDir = `${scratchRel}/reports`
+  const transcriptsDir = `${scratchRel}/transcripts`
+  mkdirSync(resolve(repoRoot, issuesDir), { recursive: true })
   for (const issue of issues) {
-    writeFileSync(
-      resolve(repoRoot, `${issuesDir}/${issue.id}.md`),
-      issueBodyWithProofs(issue.id, proofsById[issue.id] ?? null),
-    );
+    writeFileSync(resolve(repoRoot, `${issuesDir}/${issue.id}.md`), issueBodyWithProofs(issue.id, proofsById[issue.id] ?? null))
   }
-  const indexRel = `${scratchRel}/issue-index.json`;
-  const ledgerRel = `${scratchRel}/progress-ledger.json`;
+  const indexRel = `${scratchRel}/issue-index.json`
+  const ledgerRel = `${scratchRel}/progress-ledger.json`
   const index = {
     baseline_id: "baseline-test",
     verification_evidence_ref_grammar: `^${scratchRel}/(gates|reports)/.+`,
@@ -2045,11 +2127,11 @@ function buildParallelScratch({
       gate_command: gateById[issue.id] ?? "true",
       issue_path: `${issuesDir}/${issue.id}.md`,
     })),
-  };
-  writeFileSync(resolve(repoRoot, indexRel), `${JSON.stringify(index, null, 2)}\n`);
-  const git = (a: string[]) => spawnSync("git", a, { cwd: repoRoot, encoding: "utf8" });
-  git(["add", "--", scratchRel]);
-  git(["commit", "-qm", `scratch ${scratchRel}`]);
+  }
+  writeFileSync(resolve(repoRoot, indexRel), `${JSON.stringify(index, null, 2)}\n`)
+  const git = (a: string[]) => spawnSync("git", a, { cwd: repoRoot, encoding: "utf8" })
+  git(["add", "--", scratchRel])
+  git(["commit", "-qm", `scratch ${scratchRel}`])
   const cfg = {
     issueIndexPath: indexRel,
     progressLedgerPath: ledgerRel,
@@ -2063,28 +2145,28 @@ function buildParallelScratch({
     baselineId: "baseline-test",
     worktreesDir: `${scratchRel}/.wt`,
     readiness: false,
-  };
-  return { dir, scratchRel, cfg };
+  }
+  return { dir, scratchRel, cfg }
 }
 
 function parallelFakeSteps(timeline: TimelineEntry[], scratchRel: string) {
   const leg = (who: string) => async (issue: Issue, cfg?: Config) => {
-    timeline.push({ id: issue.id, who, phase: "start", t: Date.now() });
-    await new Promise((r) => setTimeout(r, 20));
+    timeline.push({ id: issue.id, who, phase: "start", t: Date.now() })
+    await new Promise((r) => setTimeout(r, 20))
     if (cfg?.execRoot) {
-      const genDir = resolve(cfg.execRoot, scratchRel, "gen");
-      mkdirSync(genDir, { recursive: true });
-      writeFileSync(resolve(genDir, `${issue.id}.txt`), `${who} ${issue.id}\n`);
+      const genDir = resolve(cfg.execRoot, scratchRel, "gen")
+      mkdirSync(genDir, { recursive: true })
+      writeFileSync(resolve(genDir, `${issue.id}.txt`), `${who} ${issue.id}\n`)
     }
-    timeline.push({ id: issue.id, who, phase: "end", t: Date.now() });
-    return { output: `${who} ${issue.id}`, result: { status: 0 } };
-  };
+    timeline.push({ id: issue.id, who, phase: "end", t: Date.now() })
+    return { output: `${who} ${issue.id}`, result: { status: 0 } }
+  }
   return {
     runImplementer: leg("impl"),
     runReviewer: leg("rev"),
     verifyBaseline: () => "baseline-test",
     verifyTraceability: () => true,
-  };
+  }
 }
 
 test("runLoopParallel runs independent issues concurrently in distinct worktrees and integrates them", async () => {
@@ -2093,263 +2175,257 @@ test("runLoopParallel runs independent issues concurrently in distinct worktrees
     { id: "ISSUE-B", depends_on: ["ISSUE-A"], graph_refs: ["node:ledger"] },
     { id: "ISSUE-D", depends_on: [], graph_refs: ["node:cat"] },
     { id: "ISSUE-E", depends_on: ["ISSUE-D"], graph_refs: ["node:cat"] },
-  ];
-  const { dir, scratchRel, cfg } = buildParallelScratch({ issues });
-  const timeline: TimelineEntry[] = [];
+  ]
+  const { dir, scratchRel, cfg } = buildParallelScratch({ issues })
+  const timeline: TimelineEntry[] = []
   try {
     const processed = await runLoopParallel(
       { ...cfg, maxParallel: 2, defaultGateCommand: "true" },
-      { ...parallelFakeSteps(timeline, scratchRel), skipWorktreeIgnore: true },
-    );
-    const verified = processed.filter((p) => p.status === "verified").map((p) => p.id).sort();
-    assert.deepEqual(verified, ["ISSUE-A", "ISSUE-B", "ISSUE-D", "ISSUE-E"]);
-    assert.equal(new Set(processed.map((p) => p.id)).size, 4, "no issue settled twice");
+      { ...parallelFakeSteps(timeline, scratchRel), skipWorktreeIgnore: true }
+    )
+    const verified = processed
+      .filter((p) => p.status === "verified")
+      .map((p) => p.id)
+      .sort()
+    assert.deepEqual(verified, ["ISSUE-A", "ISSUE-B", "ISSUE-D", "ISSUE-E"])
+    assert.equal(new Set(processed.map((p) => p.id)).size, 4, "no issue settled twice")
     const win = (id: string) => {
-      const s = Math.min(...timeline.filter((e) => e.id === id && e.phase === "start").map((e) => e.t));
-      const e = Math.max(...timeline.filter((e) => e.id === id && e.phase === "end").map((e) => e.t));
-      return [s, e];
-    };
-    const [as, ae] = win("ISSUE-A");
-    const [ds, de] = win("ISSUE-D");
-    assert.ok(as < de && ds < ae, "ISSUE-A and ISSUE-D execution windows overlapped (ran concurrently)");
-    const bStart = Math.min(...timeline.filter((e) => e.id === "ISSUE-B" && e.phase === "start").map((e) => e.t));
-    assert.ok(bStart >= ae, "ISSUE-B started after ISSUE-A finished (dependency order)");
+      const s = Math.min(...timeline.filter((e) => e.id === id && e.phase === "start").map((e) => e.t))
+      const e = Math.max(...timeline.filter((e) => e.id === id && e.phase === "end").map((e) => e.t))
+      return [s, e]
+    }
+    const [as, ae] = win("ISSUE-A")
+    const [ds, de] = win("ISSUE-D")
+    assert.ok(as < de && ds < ae, "ISSUE-A and ISSUE-D execution windows overlapped (ran concurrently)")
+    const bStart = Math.min(...timeline.filter((e) => e.id === "ISSUE-B" && e.phase === "start").map((e) => e.t))
+    assert.ok(bStart >= ae, "ISSUE-B started after ISSUE-A finished (dependency order)")
     for (const id of ["ISSUE-A", "ISSUE-B", "ISSUE-D", "ISSUE-E"]) {
-      assert.ok(
-        existsSync(resolve(repoRoot, scratchRel, "gen", `${id}.txt`)),
-        `${id} merged its worktree file onto main`,
-      );
+      assert.ok(existsSync(resolve(repoRoot, scratchRel, "gen", `${id}.txt`)), `${id} merged its worktree file onto main`)
     }
-    const ledger = JSON.parse(readFileSync(resolve(repoRoot, cfg.progressLedgerPath), "utf8"));
+    const ledger = JSON.parse(readFileSync(resolve(repoRoot, cfg.progressLedgerPath), "utf8"))
     for (const id of verified) {
-      const node = issues.find((i) => i.id === id)!.graph_refs![0];
-      const state = ledger.graph_item_states.find((s: { graph_ref: string }) => s.graph_ref === node);
-      assert.equal(state.issue_states[id], "verified", `${id} verified in ledger`);
+      const node = issues.find((i) => i.id === id)!.graph_refs![0]
+      const state = ledger.graph_item_states.find((s: { graph_ref: string }) => s.graph_ref === node)
+      assert.equal(state.issue_states[id], "verified", `${id} verified in ledger`)
     }
-    assert.equal((ledger.active_items ?? []).length, 0, "no dangling active items after completion");
-    const wtDir = resolve(repoRoot, cfg.worktreesDir);
-    const leftover = existsSync(wtDir) ? readdirSync(wtDir).filter((f) => !f.startsWith(".")) : [];
-    assert.deepEqual(leftover, [], "all worktrees removed");
+    assert.equal((ledger.active_items ?? []).length, 0, "no dangling active items after completion")
+    const wtDir = resolve(repoRoot, cfg.worktreesDir)
+    const leftover = existsSync(wtDir) ? readdirSync(wtDir).filter((f) => !f.startsWith(".")) : []
+    assert.deepEqual(leftover, [], "all worktrees removed")
   } finally {
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true })
   }
-});
+})
 
 test("runLoopParallel blocks a forced-red issue WITHOUT blocking the independent others", async () => {
   const issues = [
     { id: "ISSUE-A", depends_on: [], graph_refs: ["node:a"] },
     { id: "ISSUE-B", depends_on: [], graph_refs: ["node:b"] },
     { id: "ISSUE-C", depends_on: [], graph_refs: ["node:c"] },
-  ];
-  const { dir, scratchRel, cfg } = buildParallelScratch({ issues, gateById: { "ISSUE-B": "false" } });
-  const timeline: TimelineEntry[] = [];
+  ]
+  const { dir, scratchRel, cfg } = buildParallelScratch({ issues, gateById: { "ISSUE-B": "false" } })
+  const timeline: TimelineEntry[] = []
   try {
     const processed = await runLoopParallel(
       { ...cfg, maxParallel: 3, maxRetries: 1, defaultGateCommand: "true" },
-      { ...parallelFakeSteps(timeline, scratchRel), skipWorktreeIgnore: true },
-    );
-    const byId = Object.fromEntries(processed.map((p) => [p.id, p.status]));
-    assert.equal(byId["ISSUE-B"], "blocked", "forced-red B is blocked");
-    assert.equal(byId["ISSUE-A"], "verified", "independent A still verified");
-    assert.equal(byId["ISSUE-C"], "verified", "independent C still verified");
-    assert.ok(existsSync(resolve(repoRoot, `${cfg.reportsDir}/ISSUE-B-blocked.json`)), "B has a blocked report");
-    const done = readdirSync(resolve(repoRoot, cfg.doneDir));
-    assert.ok(done.includes("ISSUE-A.md") && done.includes("ISSUE-C.md"), "A and C moved to done/");
-    assert.ok(!done.includes("ISSUE-B.md"), "blocked B NOT moved to done/");
-    const wtDir = resolve(repoRoot, cfg.worktreesDir);
-    const leftover = existsSync(wtDir) ? readdirSync(wtDir).filter((f) => !f.startsWith(".")) : [];
-    assert.deepEqual(leftover, [], "worktrees removed including the blocked issue's");
+      { ...parallelFakeSteps(timeline, scratchRel), skipWorktreeIgnore: true }
+    )
+    const byId = Object.fromEntries(processed.map((p) => [p.id, p.status]))
+    assert.equal(byId["ISSUE-B"], "blocked", "forced-red B is blocked")
+    assert.equal(byId["ISSUE-A"], "verified", "independent A still verified")
+    assert.equal(byId["ISSUE-C"], "verified", "independent C still verified")
+    assert.ok(existsSync(resolve(repoRoot, `${cfg.reportsDir}/ISSUE-B-blocked.json`)), "B has a blocked report")
+    const done = readdirSync(resolve(repoRoot, cfg.doneDir))
+    assert.ok(done.includes("ISSUE-A.md") && done.includes("ISSUE-C.md"), "A and C moved to done/")
+    assert.ok(!done.includes("ISSUE-B.md"), "blocked B NOT moved to done/")
+    const wtDir = resolve(repoRoot, cfg.worktreesDir)
+    const leftover = existsSync(wtDir) ? readdirSync(wtDir).filter((f) => !f.startsWith(".")) : []
+    assert.deepEqual(leftover, [], "worktrees removed including the blocked issue's")
   } finally {
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true })
   }
-});
+})
 
 test("PROOFS (parallel): the worktree path shares the same presence seam, and a proof written to the DURABLE home survives the worktree's removal", async () => {
   const issues = [
     { id: "ISSUE-A", depends_on: [], graph_refs: ["node:a"] },
     { id: "ISSUE-B", depends_on: [], graph_refs: ["node:b"] },
     { id: "ISSUE-C", depends_on: [], graph_refs: ["node:c"] },
-  ];
+  ]
   const { dir, scratchRel, cfg } = buildParallelScratch({
     issues,
     proofsById: { "ISSUE-A": RUN_LOG_PROOF, "ISSUE-C": RUN_LOG_PROOF },
-  });
-  const timeline: TimelineEntry[] = [];
+  })
+  const timeline: TimelineEntry[] = []
   try {
-    const steps = parallelFakeSteps(timeline, scratchRel);
+    const steps = parallelFakeSteps(timeline, scratchRel)
     const producingImplementer = async (issue: Issue, legCfg?: Config) => {
-      const result = await steps.runImplementer(issue, legCfg);
+      const result = await steps.runImplementer(issue, legCfg)
       if (issue.id === "ISSUE-C") {
         // The durable home is main-root anchored on purpose: a worktree-local write would die with the worktree.
-        const home = resolve(repoRoot, cfg.proofsDir, issue.id, "cli-report");
-        mkdirSync(home, { recursive: true });
-        writeFileSync(resolve(home, "observed.log"), "real run output\n");
-        writeFileSync(resolve(home, "recipe.txt"), "node src/cli.js report 2026-01\n");
+        const home = resolve(repoRoot, cfg.proofsDir, issue.id, "cli-report")
+        mkdirSync(home, { recursive: true })
+        writeFileSync(resolve(home, "observed.log"), "real run output\n")
+        writeFileSync(resolve(home, "recipe.txt"), "node src/cli.js report 2026-01\n")
       }
-      return result;
-    };
+      return result
+    }
     const processed = await runLoopParallel(
       { ...cfg, maxParallel: 3, maxRetries: 1, defaultGateCommand: "true" },
-      { ...steps, runImplementer: producingImplementer, skipWorktreeIgnore: true },
-    );
-    const byId = Object.fromEntries(processed.map((p) => [p.id, p.status]));
-    assert.equal(byId["ISSUE-A"], "blocked", "the parallel close refuses an unproduced declared proof too");
-    assert.equal(byId["ISSUE-B"], "verified", "an issue declaring no proof is unaffected");
-    assert.equal(byId["ISSUE-C"], "verified", "a proof produced into the durable home closes the issue");
+      { ...steps, runImplementer: producingImplementer, skipWorktreeIgnore: true }
+    )
+    const byId = Object.fromEntries(processed.map((p) => [p.id, p.status]))
+    assert.equal(byId["ISSUE-A"], "blocked", "the parallel close refuses an unproduced declared proof too")
+    assert.equal(byId["ISSUE-B"], "verified", "an issue declaring no proof is unaffected")
+    assert.equal(byId["ISSUE-C"], "verified", "a proof produced into the durable home closes the issue")
 
-    const block = JSON.parse(readFileSync(resolve(repoRoot, `${cfg.reportsDir}/ISSUE-A-blocked.json`), "utf8"));
-    assert.equal(block.kind, "proofs_missing");
-    const done = readdirSync(resolve(repoRoot, cfg.doneDir));
-    assert.ok(!done.includes("ISSUE-A.md"), "the unproven issue never lands in done/");
-    assert.ok(done.includes("ISSUE-C.md"));
+    const block = JSON.parse(readFileSync(resolve(repoRoot, `${cfg.reportsDir}/ISSUE-A-blocked.json`), "utf8"))
+    assert.equal(block.kind, "proofs_missing")
+    const done = readdirSync(resolve(repoRoot, cfg.doneDir))
+    assert.ok(!done.includes("ISSUE-A.md"), "the unproven issue never lands in done/")
+    assert.ok(done.includes("ISSUE-C.md"))
     assert.ok(
       existsSync(resolve(repoRoot, cfg.proofsDir, "ISSUE-C", "cli-report", "observed.log")),
-      "the observation outlived the worktree it was produced from",
-    );
-    const tracked = spawnSync("git", ["ls-files", "--", `${cfg.proofsDir}/ISSUE-C/cli-report`], { cwd: repoRoot, encoding: "utf8" }).stdout;
-    assert.match(tracked, /recipe\.txt/, "the recipe a worktree leg wrote to the main root is staged by the done-move commit");
-    const wtDir = resolve(repoRoot, cfg.worktreesDir);
-    assert.deepEqual(
-      existsSync(wtDir) ? readdirSync(wtDir).filter((f) => !f.startsWith(".")) : [],
-      [],
-      "worktrees removed",
-    );
+      "the observation outlived the worktree it was produced from"
+    )
+    const tracked = spawnSync("git", ["ls-files", "--", `${cfg.proofsDir}/ISSUE-C/cli-report`], { cwd: repoRoot, encoding: "utf8" }).stdout
+    assert.match(tracked, /recipe\.txt/, "the recipe a worktree leg wrote to the main root is staged by the done-move commit")
+    const wtDir = resolve(repoRoot, cfg.worktreesDir)
+    assert.deepEqual(existsSync(wtDir) ? readdirSync(wtDir).filter((f) => !f.startsWith(".")) : [], [], "worktrees removed")
   } finally {
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true })
   }
-});
+})
 
 test("commitDoneMove lands EVERY per-issue checkpoint commit even when a lazily-created path (proofs, reports) does not exist yet — a batched pathspec that matches nothing aborts the whole add", async () => {
   const issues = [
     { id: "ISSUE-A", depends_on: [], graph_refs: ["node:a"] },
     { id: "ISSUE-B", depends_on: [], graph_refs: ["node:b"] },
-  ];
+  ]
   // No issue declares a proof here on purpose: proofsDir is never created, which is exactly the shape that silently killed every done-move commit.
-  const { dir, scratchRel, cfg } = buildParallelScratch({ issues });
-  const timeline: TimelineEntry[] = [];
+  const { dir, scratchRel, cfg } = buildParallelScratch({ issues })
+  const timeline: TimelineEntry[] = []
   try {
-    assert.ok(!existsSync(resolve(repoRoot, cfg.proofsDir)), "precondition: the proofs dir does not exist");
+    assert.ok(!existsSync(resolve(repoRoot, cfg.proofsDir)), "precondition: the proofs dir does not exist")
     const processed = await runLoopParallel(
       { ...cfg, maxParallel: 2, defaultGateCommand: "true" },
-      { ...parallelFakeSteps(timeline, scratchRel), skipWorktreeIgnore: true },
-    );
-    assert.deepEqual(
-      processed.map((p) => p.status).sort(),
-      ["verified", "verified"],
-      "both issues verified",
-    );
-    const subjects = spawnSync("git", ["log", "--format=%s", "-40"], { cwd: repoRoot, encoding: "utf8" }).stdout ?? "";
+      { ...parallelFakeSteps(timeline, scratchRel), skipWorktreeIgnore: true }
+    )
+    assert.deepEqual(processed.map((p) => p.status).sort(), ["verified", "verified"], "both issues verified")
+    const subjects = spawnSync("git", ["log", "--format=%s", "-40"], { cwd: repoRoot, encoding: "utf8" }).stdout ?? ""
     for (const id of ["ISSUE-A", "ISSUE-B"]) {
       assert.match(
         subjects,
         new RegExp(`^${id}: move to done/ \\(integrated`, "m"),
-        `${id}'s done-move checkpoint actually landed as a commit`,
-      );
+        `${id}'s done-move checkpoint actually landed as a commit`
+      )
     }
     // Scoped to the paths the checkpoint owns: the transient integration lock is gitignored in a real target but not in this in-repo scratch.
-    const checkpointPaths = [cfg.issuesDir, cfg.doneDir, cfg.issueIndexPath, cfg.progressLedgerPath];
-    const dirty = (spawnSync("git", ["status", "--porcelain", "--", ...checkpointPaths], { cwd: repoRoot, encoding: "utf8" }).stdout ?? "").trim();
-    assert.equal(dirty, "", `the checkpoint left nothing uncommitted behind:\n${dirty}`);
+    const checkpointPaths = [cfg.issuesDir, cfg.doneDir, cfg.issueIndexPath, cfg.progressLedgerPath]
+    const dirty = (
+      spawnSync("git", ["status", "--porcelain", "--", ...checkpointPaths], { cwd: repoRoot, encoding: "utf8" }).stdout ?? ""
+    ).trim()
+    assert.equal(dirty, "", `the checkpoint left nothing uncommitted behind:\n${dirty}`)
   } finally {
-    rmSync(dir, { recursive: true, force: true });
-    spawnSync("git", ["add", "--", scratchRel], { cwd: repoRoot, encoding: "utf8" });
-    spawnSync("git", ["commit", "-qm", `cleanup ${scratchRel}`], { cwd: repoRoot, encoding: "utf8" });
+    rmSync(dir, { recursive: true, force: true })
+    spawnSync("git", ["add", "--", scratchRel], { cwd: repoRoot, encoding: "utf8" })
+    spawnSync("git", ["commit", "-qm", `cleanup ${scratchRel}`], { cwd: repoRoot, encoding: "utf8" })
   }
-});
+})
 
 test("CHECKPOINT: a failed done-move commit is CONSUMED — the issue still completes (it is genuinely integrated) and the absent owner is told loudly (CRITICAL + error notification)", async () => {
-  const runtimeDir = mkdtempSync(resolve(repoRoot, "_tmp-checkpoint-"));
-  const prevRuntime = process.env.VIVICY_RUNTIME_DIR;
-  process.env.VIVICY_RUNTIME_DIR = runtimeDir;
-  const issues = [{ id: "ISSUE-A", depends_on: [], graph_refs: ["node:a"] }];
-  const { dir, scratchRel, cfg } = buildParallelScratch({ issues });
-  const timeline: TimelineEntry[] = [];
-  const captured: string[] = [];
-  const realWrite = process.stderr.write.bind(process.stderr);
+  const runtimeDir = mkdtempSync(resolve(repoRoot, "_tmp-checkpoint-"))
+  const prevRuntime = process.env.VIVICY_RUNTIME_DIR
+  process.env.VIVICY_RUNTIME_DIR = runtimeDir
+  const issues = [{ id: "ISSUE-A", depends_on: [], graph_refs: ["node:a"] }]
+  const { dir, scratchRel, cfg } = buildParallelScratch({ issues })
+  const timeline: TimelineEntry[] = []
+  const captured: string[] = []
+  const realWrite = process.stderr.write.bind(process.stderr)
   try {
     // A nested .gitignore makes one staged path un-addable (`git add` exits 1 on an explicitly named ignored path) while a file another tool already staged means a bare `git commit` would still SUCCEED — so this isolates the add-status check from the commit-status check.
-    writeFileSync(resolve(repoRoot, scratchRel, ".gitignore"), "reports/\n");
-    mkdirSync(resolve(repoRoot, cfg.reportsDir), { recursive: true });
-    writeFileSync(resolve(repoRoot, cfg.reportsDir, "quota-state.json"), "{}\n");
-    const steps = parallelFakeSteps(timeline, scratchRel);
+    writeFileSync(resolve(repoRoot, scratchRel, ".gitignore"), "reports/\n")
+    mkdirSync(resolve(repoRoot, cfg.reportsDir), { recursive: true })
+    writeFileSync(resolve(repoRoot, cfg.reportsDir, "quota-state.json"), "{}\n")
+    const steps = parallelFakeSteps(timeline, scratchRel)
     process.stderr.write = ((chunk: string | Uint8Array) => {
-      captured.push(String(chunk));
-      return true;
-    }) as typeof process.stderr.write;
+      captured.push(String(chunk))
+      return true
+    }) as typeof process.stderr.write
     const processed = await runLoopParallel(
       { ...cfg, maxParallel: 1, defaultGateCommand: "true" },
       {
         ...steps,
         skipWorktreeIgnore: true,
         runGate: async (iss: Issue, c?: Config) => {
-          const result = await defaultRunGateAsync(iss, (c ?? cfg) as Config);
+          const result = await defaultRunGateAsync(iss, (c ?? cfg) as Config)
           if (!c?.execRoot) {
-            writeFileSync(resolve(repoRoot, scratchRel, "staged-by-another-tool.txt"), "x\n");
-            spawnSync("git", ["add", "--", `${scratchRel}/staged-by-another-tool.txt`], { cwd: repoRoot, encoding: "utf8" });
+            writeFileSync(resolve(repoRoot, scratchRel, "staged-by-another-tool.txt"), "x\n")
+            spawnSync("git", ["add", "--", `${scratchRel}/staged-by-another-tool.txt`], { cwd: repoRoot, encoding: "utf8" })
           }
-          return result;
+          return result
         },
-      },
-    );
-    process.stderr.write = realWrite;
+      }
+    )
+    process.stderr.write = realWrite
 
     assert.deepEqual(
       processed,
       [{ id: "ISSUE-A", status: "verified" }],
-      "the issue COMPLETES: its code is merged, its gate was green, and it sits in done/ — only the git checkpoint is missing",
-    );
-    assert.ok(existsSync(resolve(repoRoot, cfg.doneDir, "ISSUE-A.md")), "the done-move itself stands");
+      "the issue COMPLETES: its code is merged, its gate was green, and it sits in done/ — only the git checkpoint is missing"
+    )
+    assert.ok(existsSync(resolve(repoRoot, cfg.doneDir, "ISSUE-A.md")), "the done-move itself stands")
 
-    const stderr = captured.join("");
-    assert.match(stderr, /\[parallel\] CRITICAL: ISSUE-A was integrated and moved to done\/ but its checkpoint commit did not land/);
-    assert.match(stderr, /git add exited 1/, "the CRITICAL line quotes git's own failure, never a paraphrase");
-    assert.match(stderr, /manual intervention required/);
+    const stderr = captured.join("")
+    assert.match(stderr, /\[parallel\] CRITICAL: ISSUE-A was integrated and moved to done\/ but its checkpoint commit did not land/)
+    assert.match(stderr, /git add exited 1/, "the CRITICAL line quotes git's own failure, never a paraphrase")
+    assert.match(stderr, /manual intervention required/)
 
     const rows = readFileSync(resolve(runtimeDir, "notifications.jsonl"), "utf8")
       .trim()
       .split("\n")
-      .map((line) => JSON.parse(line));
-    const checkpoint = rows.find((row) => row.event === "checkpoint_commit_failed");
-    assert.ok(checkpoint, `expected a checkpoint_commit_failed notification, got ${rows.map((r) => r.event).join(", ")}`);
-    assert.equal(checkpoint.level, "error", "an actionable level, so the owner's pill fires on return");
-    assert.match(checkpoint.message, /ISSUE-A: integrated and moved to done\//);
-    assert.match(checkpoint.message, /git add exited 1/, "the notification carries the detail, not just a category");
-    assert.match(checkpoint.message, /next run refuses to start until it is committed or reset/);
+      .map((line) => JSON.parse(line))
+    const checkpoint = rows.find((row) => row.event === "checkpoint_commit_failed")
+    assert.ok(checkpoint, `expected a checkpoint_commit_failed notification, got ${rows.map((r) => r.event).join(", ")}`)
+    assert.equal(checkpoint.level, "error", "an actionable level, so the owner's pill fires on return")
+    assert.match(checkpoint.message, /ISSUE-A: integrated and moved to done\//)
+    assert.match(checkpoint.message, /git add exited 1/, "the notification carries the detail, not just a category")
+    assert.match(checkpoint.message, /next run refuses to start until it is committed or reset/)
   } finally {
-    process.stderr.write = realWrite;
-    if (prevRuntime === undefined) delete process.env.VIVICY_RUNTIME_DIR;
-    else process.env.VIVICY_RUNTIME_DIR = prevRuntime;
-    rmSync(runtimeDir, { recursive: true, force: true });
-    spawnSync("git", ["reset", "-q", "--", scratchRel], { cwd: repoRoot, encoding: "utf8" });
-    rmSync(dir, { recursive: true, force: true });
-    spawnSync("git", ["add", "--", scratchRel], { cwd: repoRoot, encoding: "utf8" });
-    spawnSync("git", ["commit", "-qm", `cleanup ${scratchRel}`], { cwd: repoRoot, encoding: "utf8" });
+    process.stderr.write = realWrite
+    if (prevRuntime === undefined) delete process.env.VIVICY_RUNTIME_DIR
+    else process.env.VIVICY_RUNTIME_DIR = prevRuntime
+    rmSync(runtimeDir, { recursive: true, force: true })
+    spawnSync("git", ["reset", "-q", "--", scratchRel], { cwd: repoRoot, encoding: "utf8" })
+    rmSync(dir, { recursive: true, force: true })
+    spawnSync("git", ["add", "--", scratchRel], { cwd: repoRoot, encoding: "utf8" })
+    spawnSync("git", ["commit", "-qm", `cleanup ${scratchRel}`], { cwd: repoRoot, encoding: "utf8" })
   }
-});
+})
 
 test("runLoopParallel: an EARLY block never stops LATER independent issues from being scheduled", async () => {
   const issues = Array.from({ length: 5 }, (_, i) => ({
     id: `ISSUE-${i + 1}`,
     depends_on: [],
     graph_refs: [`node:m${i + 1}`],
-  }));
-  const { dir, scratchRel, cfg } = buildParallelScratch({ issues, gateById: { "ISSUE-1": "false" } });
+  }))
+  const { dir, scratchRel, cfg } = buildParallelScratch({ issues, gateById: { "ISSUE-1": "false" } })
   try {
     const processed = await runLoopParallel(
       { ...cfg, maxParallel: 1, maxRetries: 1, defaultGateCommand: "true" },
-      { ...parallelFakeSteps([], scratchRel), skipWorktreeIgnore: true },
-    );
-    const byId = Object.fromEntries(processed.map((p) => [p.id, p.status]));
-    assert.equal(byId["ISSUE-1"], "blocked", "the early-blocked issue is blocked");
+      { ...parallelFakeSteps([], scratchRel), skipWorktreeIgnore: true }
+    )
+    const byId = Object.fromEntries(processed.map((p) => [p.id, p.status]))
+    assert.equal(byId["ISSUE-1"], "blocked", "the early-blocked issue is blocked")
     for (const id of ["ISSUE-2", "ISSUE-3", "ISSUE-4", "ISSUE-5"]) {
-      assert.equal(byId[id], "verified", `${id} (scheduled AFTER the block) still ran and verified`);
+      assert.equal(byId[id], "verified", `${id} (scheduled AFTER the block) still ran and verified`)
     }
-    const done = readdirSync(resolve(repoRoot, cfg.doneDir)).sort();
-    assert.deepEqual(done, ["ISSUE-2.md", "ISSUE-3.md", "ISSUE-4.md", "ISSUE-5.md"]);
+    const done = readdirSync(resolve(repoRoot, cfg.doneDir)).sort()
+    assert.deepEqual(done, ["ISSUE-2.md", "ISSUE-3.md", "ISSUE-4.md", "ISSUE-5.md"])
   } finally {
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true })
   }
-});
+})
 
 test("runLoopParallel: a worktree-cleanup failure never masks a verified result", async () => {
   const issues = [{ id: "ISSUE-A", depends_on: [], graph_refs: ["node:a"] }]
@@ -2363,63 +2439,63 @@ test("runLoopParallel: a worktree-cleanup failure never masks a verified result"
         removeWorktree: () => {
           throw new Error("simulated EBUSY on worktree removal")
         },
-      },
-    );
-    assert.deepEqual(processed, [{ id: "ISSUE-A", status: "verified" }], "verified despite cleanup throwing");
-    assert.ok(readdirSync(resolve(repoRoot, cfg.doneDir)).includes("ISSUE-A.md"), "still moved to done/");
+      }
+    )
+    assert.deepEqual(processed, [{ id: "ISSUE-A", status: "verified" }], "verified despite cleanup throwing")
+    assert.ok(readdirSync(resolve(repoRoot, cfg.doneDir)).includes("ISSUE-A.md"), "still moved to done/")
   } finally {
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true })
   }
-});
+})
 
 test("runLoopParallel keeps the ledger consistent under many concurrent completions (no lost events)", async () => {
   const issues = Array.from({ length: 6 }, (_, i) => ({
     id: `ISSUE-${i + 1}`,
     depends_on: [],
     graph_refs: [`node:n${i + 1}`],
-  }));
-  const { dir, scratchRel, cfg } = buildParallelScratch({ issues });
+  }))
+  const { dir, scratchRel, cfg } = buildParallelScratch({ issues })
   try {
     const processed = await runLoopParallel(
       { ...cfg, maxParallel: 6, defaultGateCommand: "true" },
-      { ...parallelFakeSteps([], scratchRel), skipWorktreeIgnore: true },
-    );
-    const verified = processed.filter((p) => p.status === "verified").map((p) => p.id);
-    assert.equal(verified.length, 6, "all six verified");
-    assert.equal(new Set(verified).size, 6, "each verified exactly once (no duplicate completion)");
-    const ledger = JSON.parse(readFileSync(resolve(repoRoot, cfg.progressLedgerPath), "utf8"));
+      { ...parallelFakeSteps([], scratchRel), skipWorktreeIgnore: true }
+    )
+    const verified = processed.filter((p) => p.status === "verified").map((p) => p.id)
+    assert.equal(verified.length, 6, "all six verified")
+    assert.equal(new Set(verified).size, 6, "each verified exactly once (no duplicate completion)")
+    const ledger = JSON.parse(readFileSync(resolve(repoRoot, cfg.progressLedgerPath), "utf8"))
     for (const issue of issues) {
-      const state = ledger.graph_item_states.find((s: { graph_ref: string }) => s.graph_ref === issue.graph_refs![0]);
-      assert.equal(state?.issue_states[issue.id], "verified", `${issue.id} verified, no lost event`);
+      const state = ledger.graph_item_states.find((s: { graph_ref: string }) => s.graph_ref === issue.graph_refs![0])
+      assert.equal(state?.issue_states[issue.id], "verified", `${issue.id} verified, no lost event`)
     }
-    assert.ok(typeof ledger.revision === "number" && ledger.revision >= 6, "ledger revision advanced per write");
-    assert.equal((ledger.active_items ?? []).length, 0, "no dangling active items");
+    assert.ok(typeof ledger.revision === "number" && ledger.revision >= 6, "ledger revision advanced per write")
+    assert.equal((ledger.active_items ?? []).length, 0, "no dangling active items")
   } finally {
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true })
   }
-});
+})
 
 function seedFrozenArtifact(relPath: string, baseline: string) {
-  ensureRepoRootGit();
-  const git = (a: string[]) => spawnSync("git", a, { cwd: repoRoot, encoding: "utf8" });
-  const abs = resolve(repoRoot, relPath);
-  mkdirSync(dirname(abs), { recursive: true });
-  writeFileSync(abs, baseline);
-  git(["add", "--", relPath]);
-  git(["commit", "-qm", `seed frozen ${relPath}`]);
+  ensureRepoRootGit()
+  const git = (a: string[]) => spawnSync("git", a, { cwd: repoRoot, encoding: "utf8" })
+  const abs = resolve(repoRoot, relPath)
+  mkdirSync(dirname(abs), { recursive: true })
+  writeFileSync(abs, baseline)
+  git(["add", "--", relPath])
+  git(["commit", "-qm", `seed frozen ${relPath}`])
   return {
     relPath,
     baseline,
     headContent: () => readFileSync(abs, "utf8"),
     cleanup: () => {
-      spawnSync("git", ["rm", "-q", "-f", "--", relPath], { cwd: repoRoot, encoding: "utf8" });
-      spawnSync("git", ["commit", "-qm", `unseed frozen ${relPath}`], { cwd: repoRoot, encoding: "utf8" });
+      spawnSync("git", ["rm", "-q", "-f", "--", relPath], { cwd: repoRoot, encoding: "utf8" })
+      spawnSync("git", ["commit", "-qm", `unseed frozen ${relPath}`], { cwd: repoRoot, encoding: "utf8" })
     },
-  };
+  }
 }
 
 test("frozenIntegrationPaths covers the locked extraction corpus, not loop lifecycle files", () => {
-  const paths = frozenIntegrationPaths({ issueIndexPath: ".vivicy/development/issue-index.json" });
+  const paths = frozenIntegrationPaths({ issueIndexPath: ".vivicy/development/issue-index.json" })
   for (const p of [
     ".vivicy/canonical/",
     ".vivicy/baselines/",
@@ -2427,7 +2503,7 @@ test("frozenIntegrationPaths covers the locked extraction corpus, not loop lifec
     ".vivicy/architecture-map/architecture-map.yml",
     ".vivicy/development/issue-index.json",
   ]) {
-    assert.ok(paths.includes(p), `frozen set includes ${p}`);
+    assert.ok(paths.includes(p), `frozen set includes ${p}`)
   }
   for (const notFrozen of [
     ".vivicy/development/issues",
@@ -2436,200 +2512,194 @@ test("frozenIntegrationPaths covers the locked extraction corpus, not loop lifec
     ".vivicy/development/gates",
     "package.json",
   ]) {
-    assert.ok(!paths.includes(notFrozen), `${notFrozen} is loop-managed / dependency-bearing, never auto-discarded`);
+    assert.ok(!paths.includes(notFrozen), `${notFrozen} is loop-managed / dependency-bearing, never auto-discarded`)
   }
-});
+})
 
 test("defaultResetWorktreeFrozenArtifacts drops a worktree's frozen-artifact edit while keeping legit src changes", () => {
-  const frozenRel = ".vivicy/requirements/catalog.json";
-  const frozen = seedFrozenArtifact(frozenRel, `${JSON.stringify({ requirements: ["R1"] }, null, 2)}\n`);
-  const issues = [{ id: "ISSUE-FZ", depends_on: [], graph_refs: ["node:fz"] }];
-  const { dir, scratchRel, cfg } = buildParallelScratch({ issues });
+  const frozenRel = ".vivicy/requirements/catalog.json"
+  const frozen = seedFrozenArtifact(frozenRel, `${JSON.stringify({ requirements: ["R1"] }, null, 2)}\n`)
+  const issues = [{ id: "ISSUE-FZ", depends_on: [], graph_refs: ["node:fz"] }]
+  const { dir, scratchRel, cfg } = buildParallelScratch({ issues })
   try {
-    const created = defaultCreateWorktree(issues[0], cfg as Config);
-    const wtFrozen = resolve(created.worktreeRoot, frozenRel);
-    writeFileSync(wtFrozen, `${JSON.stringify({ requirements: ["R1", "INJECTED-DRIFT"] }, null, 2)}\n`);
-    const legitRel = `${scratchRel}/gen/impl.txt`;
-    mkdirSync(resolve(created.worktreeRoot, scratchRel, "gen"), { recursive: true });
-    writeFileSync(resolve(created.worktreeRoot, legitRel), "legit implementation\n");
-    spawnSync("git", ["add", "-A"], { cwd: created.worktreeRoot, encoding: "utf8" });
-    spawnSync("git", ["commit", "-qm", "ISSUE-FZ: work + drift"], { cwd: created.worktreeRoot, encoding: "utf8" });
+    const created = defaultCreateWorktree(issues[0], cfg as Config)
+    const wtFrozen = resolve(created.worktreeRoot, frozenRel)
+    writeFileSync(wtFrozen, `${JSON.stringify({ requirements: ["R1", "INJECTED-DRIFT"] }, null, 2)}\n`)
+    const legitRel = `${scratchRel}/gen/impl.txt`
+    mkdirSync(resolve(created.worktreeRoot, scratchRel, "gen"), { recursive: true })
+    writeFileSync(resolve(created.worktreeRoot, legitRel), "legit implementation\n")
+    spawnSync("git", ["add", "-A"], { cwd: created.worktreeRoot, encoding: "utf8" })
+    spawnSync("git", ["commit", "-qm", "ISSUE-FZ: work + drift"], { cwd: created.worktreeRoot, encoding: "utf8" })
 
-    const didReset = defaultResetWorktreeFrozenArtifacts(issues[0], cfg as Config, created.worktreeRoot);
-    assert.equal(didReset, true, "guard reported it neutralized a frozen-artifact edit");
-    assert.equal(readFileSync(wtFrozen, "utf8"), frozen.baseline, "frozen file reset to integration head in the worktree");
+    const didReset = defaultResetWorktreeFrozenArtifacts(issues[0], cfg as Config, created.worktreeRoot)
+    assert.equal(didReset, true, "guard reported it neutralized a frozen-artifact edit")
+    assert.equal(readFileSync(wtFrozen, "utf8"), frozen.baseline, "frozen file reset to integration head in the worktree")
     assert.equal(
       readFileSync(resolve(created.worktreeRoot, legitRel), "utf8"),
       "legit implementation\n",
-      "legitimate src change is preserved (not discarded by the guard)",
-    );
-    const status = spawnSync("git", ["status", "--porcelain"], { cwd: created.worktreeRoot, encoding: "utf8" });
-    assert.equal((status.stdout ?? "").trim(), "", "guard committed the reset; worktree tree is clean");
+      "legitimate src change is preserved (not discarded by the guard)"
+    )
+    const status = spawnSync("git", ["status", "--porcelain"], { cwd: created.worktreeRoot, encoding: "utf8" })
+    assert.equal((status.stdout ?? "").trim(), "", "guard committed the reset; worktree tree is clean")
 
-    const again = defaultResetWorktreeFrozenArtifacts(issues[0], cfg as Config, created.worktreeRoot);
-    assert.equal(again, false, "no frozen edit remaining -> guard is a no-op");
+    const again = defaultResetWorktreeFrozenArtifacts(issues[0], cfg as Config, created.worktreeRoot)
+    assert.equal(again, false, "no frozen edit remaining -> guard is a no-op")
 
-    defaultRemoveWorktree(issues[0], cfg as Config, created.worktreeRoot, created.branch);
+    defaultRemoveWorktree(issues[0], cfg as Config, created.worktreeRoot, created.branch)
   } finally {
-    frozen.cleanup();
-    rmSync(dir, { recursive: true, force: true });
+    frozen.cleanup()
+    rmSync(dir, { recursive: true, force: true })
   }
-});
+})
 
 test("WORKTREE: a tree that resists removal never surfaces as a raw filesystem crash — removal returns, creation fails with the loop's own typed error", () => {
-  ensureRepoRootGit();
-  const dir = mkdtempSync(resolve(repoRoot, "_tmp-worktree-stuck-"));
-  const worktreesDir = relative(repoRoot, dir);
+  ensureRepoRootGit()
+  const dir = mkdtempSync(resolve(repoRoot, "_tmp-worktree-stuck-"))
+  const worktreesDir = relative(repoRoot, dir)
   const seal = (root: string): string => {
-    const inner = resolve(root, "held");
-    mkdirSync(inner, { recursive: true });
-    writeFileSync(resolve(inner, "capture.log"), "a leg child still holds this\n");
-    chmodSync(inner, 0o500);
-    return inner;
-  };
-  const stuck = resolve(dir, "ISSUE-STUCK");
-  const leftover = resolve(dir, "ISSUE-CREATE");
-  const sealed = [seal(stuck), seal(leftover)];
+    const inner = resolve(root, "held")
+    mkdirSync(inner, { recursive: true })
+    writeFileSync(resolve(inner, "capture.log"), "a leg child still holds this\n")
+    chmodSync(inner, 0o500)
+    return inner
+  }
+  const stuck = resolve(dir, "ISSUE-STUCK")
+  const leftover = resolve(dir, "ISSUE-CREATE")
+  const sealed = [seal(stuck), seal(leftover)]
   try {
     assert.doesNotThrow(
       () => defaultRemoveWorktree({ id: "ISSUE-STUCK" } as Issue, {} as Config, stuck, ""),
-      "worktree removal runs AFTER the issue is already integrated: a throw there would replace that outcome",
-    );
-    assert.ok(existsSync(stuck), "the tree is left standing and announced, never half-reported as gone");
+      "worktree removal runs AFTER the issue is already integrated: a throw there would replace that outcome"
+    )
+    assert.ok(existsSync(stuck), "the tree is left standing and announced, never half-reported as gone")
 
     assert.throws(
       () => defaultCreateWorktree({ id: "ISSUE-CREATE" } as Issue, { worktreesDir } as Config),
       /dev-loop: failed to create worktree for ISSUE-CREATE: [\s\S]*fatal/,
-      "a leftover the clear cannot win surfaces as the loop's own create failure carrying git's own words, never a bare filesystem error",
-    );
+      "a leftover the clear cannot win surfaces as the loop's own create failure carrying git's own words, never a bare filesystem error"
+    )
   } finally {
-    for (const inner of sealed) if (existsSync(inner)) chmodSync(inner, 0o700);
-    spawnSync("git", ["branch", "-D", "vivicy/ISSUE-CREATE"], { cwd: repoRoot, encoding: "utf8" });
-    rmSync(dir, { recursive: true, force: true });
+    for (const inner of sealed) if (existsSync(inner)) chmodSync(inner, 0o700)
+    spawnSync("git", ["branch", "-D", "vivicy/ISSUE-CREATE"], { cwd: repoRoot, encoding: "utf8" })
+    rmSync(dir, { recursive: true, force: true })
   }
-});
+})
 
 test("runLoopParallel: two parallel branches both editing a frozen artifact integrate WITHOUT a conflict (edits dropped, legit work kept)", async () => {
-  const frozenRel = ".vivicy/requirements/traceability-matrix.json";
-  const frozen = seedFrozenArtifact(frozenRel, `${JSON.stringify({ matrix: "BASELINE" }, null, 2)}\n`);
+  const frozenRel = ".vivicy/requirements/traceability-matrix.json"
+  const frozen = seedFrozenArtifact(frozenRel, `${JSON.stringify({ matrix: "BASELINE" }, null, 2)}\n`)
   const issues = [
     { id: "ISSUE-P", depends_on: [], graph_refs: ["node:p"] },
     { id: "ISSUE-Q", depends_on: [], graph_refs: ["node:q"] },
-  ];
-  const { dir, scratchRel, cfg } = buildParallelScratch({ issues });
+  ]
+  const { dir, scratchRel, cfg } = buildParallelScratch({ issues })
   const driftingLegs = () => {
     const leg = (who: string) => async (issue: Issue, c?: Config) => {
-      await new Promise((r) => setTimeout(r, 10));
+      await new Promise((r) => setTimeout(r, 10))
       if (c?.execRoot) {
-        writeFileSync(
-          resolve(c.execRoot, frozenRel),
-          `${JSON.stringify({ matrix: `DRIFT-${issue.id}-${who}` }, null, 2)}\n`,
-        );
-        const genDir = resolve(c.execRoot, scratchRel, "gen");
-        mkdirSync(genDir, { recursive: true });
-        writeFileSync(resolve(genDir, `${issue.id}.txt`), `${who} ${issue.id}\n`);
+        writeFileSync(resolve(c.execRoot, frozenRel), `${JSON.stringify({ matrix: `DRIFT-${issue.id}-${who}` }, null, 2)}\n`)
+        const genDir = resolve(c.execRoot, scratchRel, "gen")
+        mkdirSync(genDir, { recursive: true })
+        writeFileSync(resolve(genDir, `${issue.id}.txt`), `${who} ${issue.id}\n`)
       }
-      return { output: `${who} ${issue.id}`, result: { status: 0 } };
-    };
+      return { output: `${who} ${issue.id}`, result: { status: 0 } }
+    }
     return {
       runImplementer: leg("impl"),
       runReviewer: leg("rev"),
       verifyBaseline: () => "baseline-test",
       verifyTraceability: () => true,
-    };
-  };
+    }
+  }
   try {
     const processed = await runLoopParallel(
       { ...cfg, maxParallel: 2, defaultGateCommand: "true" },
-      { ...driftingLegs(), skipWorktreeIgnore: true },
-    );
-    const byId = Object.fromEntries(processed.map((p) => [p.id, p.status]));
-    assert.equal(byId["ISSUE-P"], "verified", "ISSUE-P integrated despite editing the frozen file");
-    assert.equal(byId["ISSUE-Q"], "verified", "ISSUE-Q integrated despite editing the frozen file");
+      { ...driftingLegs(), skipWorktreeIgnore: true }
+    )
+    const byId = Object.fromEntries(processed.map((p) => [p.id, p.status]))
+    assert.equal(byId["ISSUE-P"], "verified", "ISSUE-P integrated despite editing the frozen file")
+    assert.equal(byId["ISSUE-Q"], "verified", "ISSUE-Q integrated despite editing the frozen file")
     assert.ok(
       !existsSync(resolve(repoRoot, `${cfg.reportsDir}/ISSUE-P-blocked.json`)) &&
         !existsSync(resolve(repoRoot, `${cfg.reportsDir}/ISSUE-Q-blocked.json`)),
-      "no integration-conflict block was written for either branch",
-    );
-    assert.equal(frozen.headContent(), frozen.baseline, "frozen artifact at HEAD is byte-identical to its baseline");
+      "no integration-conflict block was written for either branch"
+    )
+    assert.equal(frozen.headContent(), frozen.baseline, "frozen artifact at HEAD is byte-identical to its baseline")
     for (const id of ["ISSUE-P", "ISSUE-Q"]) {
-      assert.ok(
-        existsSync(resolve(repoRoot, scratchRel, "gen", `${id}.txt`)),
-        `${id}'s legit file was integrated onto main`,
-      );
+      assert.ok(existsSync(resolve(repoRoot, scratchRel, "gen", `${id}.txt`)), `${id}'s legit file was integrated onto main`)
     }
   } finally {
-    frozen.cleanup();
-    rmSync(dir, { recursive: true, force: true });
+    frozen.cleanup()
+    rmSync(dir, { recursive: true, force: true })
   }
-});
+})
 
 test("the implementer and reviewer prompts pin the frozen-corpus read-only scope", () => {
-  const read = (name: string) => readFileSync(fileURLToPath(new URL(`./prompts/${name}`, import.meta.url)), "utf8");
+  const read = (name: string) => readFileSync(fileURLToPath(new URL(`./prompts/${name}`, import.meta.url)), "utf8")
   for (const name of ["implementer.md", "reviewer.md"]) {
-    const text = read(name);
-    assert.match(text, /FROZEN/, `${name} declares the corpus FROZEN`);
-    assert.match(text, /READ-ONLY/, `${name} declares the corpus READ-ONLY`);
-    assert.match(text, /\.vivicy\/requirements/, `${name} names .vivicy/requirements as frozen`);
-    assert.match(text, /\.vivicy\/canonical/, `${name} names .vivicy/canonical as frozen`);
-    assert.match(text, /\.vivicy\/baselines/, `${name} names .vivicy/baselines as frozen`);
-    assert.match(text, /issue-index\.json/, `${name} names the issue index as frozen`);
-    assert.match(text, /architecture-map\.yml/, `${name} names the architecture map as frozen`);
-    assert.match(text, /package\.json/, `${name} addresses package.json scope`);
+    const text = read(name)
+    assert.match(text, /FROZEN/, `${name} declares the corpus FROZEN`)
+    assert.match(text, /READ-ONLY/, `${name} declares the corpus READ-ONLY`)
+    assert.match(text, /\.vivicy\/requirements/, `${name} names .vivicy/requirements as frozen`)
+    assert.match(text, /\.vivicy\/canonical/, `${name} names .vivicy/canonical as frozen`)
+    assert.match(text, /\.vivicy\/baselines/, `${name} names .vivicy/baselines as frozen`)
+    assert.match(text, /issue-index\.json/, `${name} names the issue index as frozen`)
+    assert.match(text, /architecture-map\.yml/, `${name} names the architecture map as frozen`)
+    assert.match(text, /package\.json/, `${name} addresses package.json scope`)
   }
-});
+})
 
 test("the implementer and reviewer prompts carry the public-API quality bar (the two audit-defect levers)", () => {
-  const read = (name: string) => readFileSync(fileURLToPath(new URL(`./prompts/${name}`, import.meta.url)), "utf8");
+  const read = (name: string) => readFileSync(fileURLToPath(new URL(`./prompts/${name}`, import.meta.url)), "utf8")
   for (const name of ["implementer.md", "reviewer.md"]) {
-    const text = read(name);
-    assert.match(text, /end-to-end/i, `${name} requires end-to-end public-path testing`);
-    assert.match(text, /public entry point/i, `${name} names the public entry point`);
-    assert.match(text, /helper/i, `${name} distinguishes the public path from internal helpers`);
-    assert.match(text, /(type-fuzz|garbage|wrong-type)/i, `${name} requires type-fuzzing public input`);
-    assert.match(text, /null/, `${name} names null as a fuzz case`);
-    assert.match(text, /undefined/, `${name} names undefined as a fuzz case`);
-    assert.match(text, /typed error/i, `${name} requires the documented typed error / safe degradation`);
-    assert.match(text, /(raw|uncaught).{0,40}throw|throw.{0,40}(raw|garbage)/i, `${name} forbids a raw throw on garbage input`);
-    assert.match(text, /side-channel/i, `${name} forbids side-channel reconciliation`);
+    const text = read(name)
+    assert.match(text, /end-to-end/i, `${name} requires end-to-end public-path testing`)
+    assert.match(text, /public entry point/i, `${name} names the public entry point`)
+    assert.match(text, /helper/i, `${name} distinguishes the public path from internal helpers`)
+    assert.match(text, /(type-fuzz|garbage|wrong-type)/i, `${name} requires type-fuzzing public input`)
+    assert.match(text, /null/, `${name} names null as a fuzz case`)
+    assert.match(text, /undefined/, `${name} names undefined as a fuzz case`)
+    assert.match(text, /typed error/i, `${name} requires the documented typed error / safe degradation`)
+    assert.match(text, /(raw|uncaught).{0,40}throw|throw.{0,40}(raw|garbage)/i, `${name} forbids a raw throw on garbage input`)
+    assert.match(text, /side-channel/i, `${name} forbids side-channel reconciliation`)
     assert.match(
       text,
       /surface (?:the contradiction|it)[^.]*\bblocker\b|\bblocker\b[^.]*\bspec\b/i,
-      `${name} surfaces a contract conflict as a blocker instead of hacking it`,
-    );
-    assert.match(text, /(dead|unreferenced|orphan)/i, `${name} forbids dead/unreferenced exports`);
-    assert.match(text, /production path/i, `${name} requires exports be reachable from the production path`);
+      `${name} surfaces a contract conflict as a blocker instead of hacking it`
+    )
+    assert.match(text, /(dead|unreferenced|orphan)/i, `${name} forbids dead/unreferenced exports`)
+    assert.match(text, /production path/i, `${name} requires exports be reachable from the production path`)
   }
-});
+})
 
 test("the extraction-fidelity verifier prompt enforces cross-document consistency (defect #1's root cause)", () => {
-  const text = readFileSync(fileURLToPath(new URL(`./prompts/extraction-verifier.md`, import.meta.url)), "utf8");
-  assert.match(text, /cross-document consistency/i, "verifier prompt has a cross-document consistency check");
-  assert.match(text, /contradict/i, "verifier prompt flags self-contradiction across docs");
-  assert.match(text, /cross_document_contradiction/, "verifier prompt defines the cross_document_contradiction verdict kind");
-  assert.match(text, /across/i, "verifier prompt requires reading across docs");
-});
+  const text = readFileSync(fileURLToPath(new URL(`./prompts/extraction-verifier.md`, import.meta.url)), "utf8")
+  assert.match(text, /cross-document consistency/i, "verifier prompt has a cross-document consistency check")
+  assert.match(text, /contradict/i, "verifier prompt flags self-contradiction across docs")
+  assert.match(text, /cross_document_contradiction/, "verifier prompt defines the cross_document_contradiction verdict kind")
+  assert.match(text, /across/i, "verifier prompt requires reading across docs")
+})
 
 test("runLoop(maxParallel=1) is the sequential path: returns an array, identical behavior", () => {
   const issues = [
     { id: "ISSUE-A", depends_on: [], graph_refs: ["node:x"] },
     { id: "ISSUE-B", depends_on: ["ISSUE-A"], graph_refs: ["node:y"] },
-  ];
-  const { dir, cfg } = buildParallelScratch({ issues });
+  ]
+  const { dir, cfg } = buildParallelScratch({ issues })
   try {
     const processed = runLoop(
       { ...cfg, maxParallel: 1, defaultGateCommand: "true" },
-      { runImplementer: () => {}, runReviewer: () => {}, commit: () => {}, ...stubLifecycle },
-    );
-    assert.ok(Array.isArray(processed), "N=1 returns an array synchronously");
+      { runImplementer: () => {}, runReviewer: () => {}, commit: () => {}, ...stubLifecycle }
+    )
+    assert.ok(Array.isArray(processed), "N=1 returns an array synchronously")
     assert.deepEqual(processed, [
       { id: "ISSUE-A", status: "verified" },
       { id: "ISSUE-B", status: "verified" },
-    ]);
+    ])
   } finally {
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true })
   }
-});
+})
 
 function issueBody({ id = "ISSUE-A", exec = "Original scope prose.", refs = ["node:x"] } = {}) {
   return [
@@ -2659,38 +2729,35 @@ function issueBody({ id = "ISSUE-A", exec = "Original scope prose.", refs = ["no
     "",
     exec,
     "",
-  ].join("\n");
+  ].join("\n")
 }
 
 function fakeReadiness(verdictById: Record<string, unknown>, calls: Record<string, number> = {}) {
   return (issue: Issue, cfg: Config) => {
-    calls[issue.id] = (calls[issue.id] ?? 0) + 1;
-    const verdict = verdictById[issue.id];
+    calls[issue.id] = (calls[issue.id] ?? 0) + 1
+    const verdict = verdictById[issue.id]
     if (verdict !== undefined) {
-      mkdirSync(resolve(repoRoot, cfg.reportsDir!), { recursive: true });
-      writeFileSync(
-        resolve(repoRoot, `${cfg.reportsDir}/${issue.id}-readiness.json`),
-        `${JSON.stringify(verdict, null, 2)}\n`,
-      );
+      mkdirSync(resolve(repoRoot, cfg.reportsDir!), { recursive: true })
+      writeFileSync(resolve(repoRoot, `${cfg.reportsDir}/${issue.id}-readiness.json`), `${JSON.stringify(verdict, null, 2)}\n`)
     }
-    return { output: `readiness ${issue.id}`, result: { status: 0 } };
-  };
+    return { output: `readiness ${issue.id}`, result: { status: 0 } }
+  }
 }
 
 function buildReadinessScratch(issues: Issue[]) {
-  ensureRepoRootGit();
-  const dir = mkdtempSync(resolve(repoRoot, "_tmp-readiness-"));
-  const scratchRel = relative(repoRoot, dir);
-  const issuesDir = `${scratchRel}/issues`;
-  const doneDir = `${scratchRel}/issues/done`;
-  const gatesDir = `${scratchRel}/gates`;
-  const reportsDir = `${scratchRel}/reports`;
-  mkdirSync(resolve(repoRoot, issuesDir), { recursive: true });
+  ensureRepoRootGit()
+  const dir = mkdtempSync(resolve(repoRoot, "_tmp-readiness-"))
+  const scratchRel = relative(repoRoot, dir)
+  const issuesDir = `${scratchRel}/issues`
+  const doneDir = `${scratchRel}/issues/done`
+  const gatesDir = `${scratchRel}/gates`
+  const reportsDir = `${scratchRel}/reports`
+  mkdirSync(resolve(repoRoot, issuesDir), { recursive: true })
   for (const issue of issues) {
-    writeFileSync(resolve(repoRoot, `${issuesDir}/${issue.id}.md`), issueBody({ id: issue.id, refs: issue.graph_refs }));
+    writeFileSync(resolve(repoRoot, `${issuesDir}/${issue.id}.md`), issueBody({ id: issue.id, refs: issue.graph_refs }))
   }
-  const indexRel = `${scratchRel}/issue-index.json`;
-  const ledgerRel = `${scratchRel}/progress-ledger.json`;
+  const indexRel = `${scratchRel}/issue-index.json`
+  const ledgerRel = `${scratchRel}/progress-ledger.json`
   const index = {
     baseline_id: "baseline-test",
     verification_evidence_ref_grammar: `^${scratchRel}/(gates|reports)/.+`,
@@ -2701,8 +2768,8 @@ function buildReadinessScratch(issues: Issue[]) {
       gate_command: "true",
       issue_path: `${issuesDir}/${issue.id}.md`,
     })),
-  };
-  writeFileSync(resolve(repoRoot, indexRel), `${JSON.stringify(index, null, 2)}\n`);
+  }
+  writeFileSync(resolve(repoRoot, indexRel), `${JSON.stringify(index, null, 2)}\n`)
   const cfg = {
     issueIndexPath: indexRel,
     progressLedgerPath: ledgerRel,
@@ -2714,58 +2781,58 @@ function buildReadinessScratch(issues: Issue[]) {
     baselineId: "baseline-test",
     readiness: true,
     claudeQuotaProbeEnabled: false,
-  };
-  return { dir, scratchRel, cfg };
+  }
+  return { dir, scratchRel, cfg }
 }
 
 test("extractTraceabilityBlock returns the fenced block under ## Traceability, ignoring stray fences", () => {
-  const body = issueBody({ id: "ISSUE-A" });
-  const block = extractTraceabilityBlock(body);
-  assert.ok(block && block.includes("issue_id: ISSUE-A"), "the traceability block is extracted");
-  assert.ok(block.includes("verification_gate_ids:"), "the whole block is captured");
-  const withStray = "```text\nnot the block\n```\n\n" + body;
-  assert.equal(extractTraceabilityBlock(withStray), block, "anchors on ## Traceability, not a stray fence");
-  assert.equal(extractTraceabilityBlock("# just a title\n\nno block here"), null);
-});
+  const body = issueBody({ id: "ISSUE-A" })
+  const block = extractTraceabilityBlock(body)
+  assert.ok(block && block.includes("issue_id: ISSUE-A"), "the traceability block is extracted")
+  assert.ok(block.includes("verification_gate_ids:"), "the whole block is captured")
+  const withStray = "```text\nnot the block\n```\n\n" + body
+  assert.equal(extractTraceabilityBlock(withStray), block, "anchors on ## Traceability, not a stray fence")
+  assert.equal(extractTraceabilityBlock("# just a title\n\nno block here"), null)
+})
 
 test("issueUpdatePreservesTraceability accepts prose-only edits and rejects block edits", () => {
-  const before = issueBody({ id: "ISSUE-A", exec: "Original prose." });
-  const proseOnly = issueBody({ id: "ISSUE-A", exec: "Revised execution prose, same refs." });
-  assert.equal(issueUpdatePreservesTraceability(before, proseOnly), true);
-  const blockEdited = issueBody({ id: "ISSUE-A", exec: "Original prose.", refs: ["node:y"] });
-  assert.equal(issueUpdatePreservesTraceability(before, blockEdited), false);
-  assert.equal(issueUpdatePreservesTraceability(before, "# ISSUE-A\n\nno traceability block"), false);
-});
+  const before = issueBody({ id: "ISSUE-A", exec: "Original prose." })
+  const proseOnly = issueBody({ id: "ISSUE-A", exec: "Revised execution prose, same refs." })
+  assert.equal(issueUpdatePreservesTraceability(before, proseOnly), true)
+  const blockEdited = issueBody({ id: "ISSUE-A", exec: "Original prose.", refs: ["node:y"] })
+  assert.equal(issueUpdatePreservesTraceability(before, blockEdited), false)
+  assert.equal(issueUpdatePreservesTraceability(before, "# ISSUE-A\n\nno traceability block"), false)
+})
 
 test("readiness implementable -> the implementer runs and the issue verifies", () => {
-  const issues = [{ id: "ISSUE-A", depends_on: [], graph_refs: ["node:x"] }];
-  const { dir, cfg } = buildReadinessScratch(issues);
-  let implemented = 0;
+  const issues = [{ id: "ISSUE-A", depends_on: [], graph_refs: ["node:x"] }]
+  const { dir, cfg } = buildReadinessScratch(issues)
+  let implemented = 0
   try {
     const processed = runLoop(cfg, {
       ...stubLifecycle,
       runReadiness: fakeReadiness({ "ISSUE-A": { verdict: "implementable", reason: "clean" } }),
       runImplementer: () => {
-        implemented += 1;
+        implemented += 1
       },
       runReviewer: () => {},
       commit: () => {},
-    });
-    assert.deepEqual(processed, [{ id: "ISSUE-A", status: "verified" }]);
-    assert.equal(implemented, 1, "an implementable verdict runs the implementer");
-    const ledger = JSON.parse(readFileSync(resolve(repoRoot, cfg.progressLedgerPath), "utf8"));
-    const node = ledger.graph_item_states.find((s: { graph_ref: string }) => s.graph_ref === "node:x");
-    assert.equal(node.issue_states["ISSUE-A"], "verified");
+    })
+    assert.deepEqual(processed, [{ id: "ISSUE-A", status: "verified" }])
+    assert.equal(implemented, 1, "an implementable verdict runs the implementer")
+    const ledger = JSON.parse(readFileSync(resolve(repoRoot, cfg.progressLedgerPath), "utf8"))
+    const node = ledger.graph_item_states.find((s: { graph_ref: string }) => s.graph_ref === "node:x")
+    assert.equal(node.issue_states["ISSUE-A"], "verified")
   } finally {
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true })
   }
-});
+})
 
 test("readiness issue_update: a prose-only patch is applied to the issue file, then it implements", () => {
-  const issues = [{ id: "ISSUE-A", depends_on: [], graph_refs: ["node:x"] }];
-  const { dir, cfg } = buildReadinessScratch(issues);
-  const patched = issueBody({ id: "ISSUE-A", exec: "PATCHED execution detail (ordering fixed)." });
-  let implemented = 0;
+  const issues = [{ id: "ISSUE-A", depends_on: [], graph_refs: ["node:x"] }]
+  const { dir, cfg } = buildReadinessScratch(issues)
+  const patched = issueBody({ id: "ISSUE-A", exec: "PATCHED execution detail (ordering fixed)." })
+  let implemented = 0
   try {
     const processed = runLoop(cfg, {
       ...stubLifecycle,
@@ -2773,32 +2840,32 @@ test("readiness issue_update: a prose-only patch is applied to the issue file, t
         "ISSUE-A": { verdict: "issue_update", reason: "ordering drifted", updates: { body_patch: patched } },
       }),
       runImplementer: () => {
-        implemented += 1;
+        implemented += 1
       },
       runReviewer: () => {},
       commit: () => {},
-    });
-    assert.deepEqual(processed, [{ id: "ISSUE-A", status: "verified" }]);
-    assert.equal(implemented, 1, "after a bounded update the issue implements");
-    const activePath = resolve(repoRoot, `${cfg.issuesDir}/ISSUE-A.md`);
+    })
+    assert.deepEqual(processed, [{ id: "ISSUE-A", status: "verified" }])
+    assert.equal(implemented, 1, "after a bounded update the issue implements")
+    const activePath = resolve(repoRoot, `${cfg.issuesDir}/ISSUE-A.md`)
     const body = existsSync(activePath)
       ? readFileSync(activePath, "utf8")
-      : readFileSync(resolve(repoRoot, `${cfg.doneDir}/ISSUE-A.md`), "utf8");
-    assert.ok(body.includes("PATCHED execution detail"), "the bounded prose patch was applied");
+      : readFileSync(resolve(repoRoot, `${cfg.doneDir}/ISSUE-A.md`), "utf8")
+    assert.ok(body.includes("PATCHED execution detail"), "the bounded prose patch was applied")
   } finally {
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true })
   }
-});
+})
 
 test("readiness issue_update touching the traceability block is REFUSED, routed to parked, patch NOT applied", () => {
   const issues = [
     { id: "ISSUE-A", depends_on: [], graph_refs: ["node:x"] },
     { id: "ISSUE-B", depends_on: [], graph_refs: ["node:y"] },
-  ];
-  const { dir, cfg } = buildReadinessScratch(issues);
-  const illegalPatch = issueBody({ id: "ISSUE-A", exec: "prose", refs: ["node:HIJACKED"] });
-  const original = readFileSync(resolve(repoRoot, `${cfg.issuesDir}/ISSUE-A.md`), "utf8");
-  let implementedA = 0;
+  ]
+  const { dir, cfg } = buildReadinessScratch(issues)
+  const illegalPatch = issueBody({ id: "ISSUE-A", exec: "prose", refs: ["node:HIJACKED"] })
+  const original = readFileSync(resolve(repoRoot, `${cfg.issuesDir}/ISSUE-A.md`), "utf8")
+  let implementedA = 0
   try {
     const processed = runLoop(cfg, {
       ...stubLifecycle,
@@ -2807,29 +2874,29 @@ test("readiness issue_update touching the traceability block is REFUSED, routed 
         "ISSUE-B": { verdict: "implementable", reason: "fine" },
       }),
       runImplementer: (iss: Issue) => {
-        if (iss.id === "ISSUE-A") implementedA += 1;
+        if (iss.id === "ISSUE-A") implementedA += 1
       },
       runReviewer: () => {},
       commit: () => {},
-    });
-    const byId = Object.fromEntries((processed as ProcessedIssue[]).map((p) => [p.id, p.status]));
-    assert.equal(byId["ISSUE-A"], "parked", "the traceability-touching update is parked (routed to needs_cr)");
-    assert.equal(byId["ISSUE-B"], "verified", "the loop continued to the next ready issue");
-    assert.equal(implementedA, 0, "the refused issue never reached the implementer");
-    assert.equal(readFileSync(resolve(repoRoot, `${cfg.issuesDir}/ISSUE-A.md`), "utf8"), original, "issue file untouched");
-    assert.ok(existsSync(resolve(repoRoot, `${cfg.reportsDir}/ISSUE-A-parked.json`)), "parked report written");
+    })
+    const byId = Object.fromEntries((processed as ProcessedIssue[]).map((p) => [p.id, p.status]))
+    assert.equal(byId["ISSUE-A"], "parked", "the traceability-touching update is parked (routed to needs_cr)")
+    assert.equal(byId["ISSUE-B"], "verified", "the loop continued to the next ready issue")
+    assert.equal(implementedA, 0, "the refused issue never reached the implementer")
+    assert.equal(readFileSync(resolve(repoRoot, `${cfg.issuesDir}/ISSUE-A.md`), "utf8"), original, "issue file untouched")
+    assert.ok(existsSync(resolve(repoRoot, `${cfg.reportsDir}/ISSUE-A-parked.json`)), "parked report written")
   } finally {
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true })
   }
-});
+})
 
 test("readiness needs_cr: the issue is parked, the implementer is NEVER called, the loop continues", () => {
   const issues = [
     { id: "ISSUE-A", depends_on: [], graph_refs: ["node:x"] },
     { id: "ISSUE-B", depends_on: [], graph_refs: ["node:y"] },
-  ];
-  const { dir, cfg } = buildReadinessScratch(issues);
-  const implementedIds: string[] = [];
+  ]
+  const { dir, cfg } = buildReadinessScratch(issues)
+  const implementedIds: string[] = []
   try {
     const processed = runLoop(cfg, {
       ...stubLifecycle,
@@ -2838,51 +2905,51 @@ test("readiness needs_cr: the issue is parked, the implementer is NEVER called, 
         "ISSUE-B": { verdict: "implementable", reason: "fine" },
       }),
       runImplementer: (iss: Issue) => {
-        implementedIds.push(iss.id);
+        implementedIds.push(iss.id)
       },
       runReviewer: () => {},
       commit: () => {},
-    });
-    const byId = Object.fromEntries((processed as ProcessedIssue[]).map((p) => [p.id, p.status]));
-    assert.equal(byId["ISSUE-A"], "parked");
-    assert.equal(byId["ISSUE-B"], "verified");
-    assert.deepEqual(implementedIds, ["ISSUE-B"], "the parked issue never reached the implementer; the loop continued");
-    const report = JSON.parse(readFileSync(resolve(repoRoot, `${cfg.reportsDir}/ISSUE-A-parked.json`), "utf8"));
-    assert.match(report.reason, /requirement false/);
-    assert.ok(typeof report.issue_hash === "string" && report.issue_hash.length > 0, "identity hash stamped for unparking");
+    })
+    const byId = Object.fromEntries((processed as ProcessedIssue[]).map((p) => [p.id, p.status]))
+    assert.equal(byId["ISSUE-A"], "parked")
+    assert.equal(byId["ISSUE-B"], "verified")
+    assert.deepEqual(implementedIds, ["ISSUE-B"], "the parked issue never reached the implementer; the loop continued")
+    const report = JSON.parse(readFileSync(resolve(repoRoot, `${cfg.reportsDir}/ISSUE-A-parked.json`), "utf8"))
+    assert.match(report.reason, /requirement false/)
+    assert.ok(typeof report.issue_hash === "string" && report.issue_hash.length > 0, "identity hash stamped for unparking")
   } finally {
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true })
   }
-});
+})
 
 test("readiness leg death (no verdict file) -> ONE retry then parked with reason readiness_leg_failed", () => {
-  const issues = [{ id: "ISSUE-A", depends_on: [], graph_refs: ["node:x"] }];
-  const { dir, cfg } = buildReadinessScratch(issues);
-  const calls: Record<string, number> = {};
-  let implemented = 0;
+  const issues = [{ id: "ISSUE-A", depends_on: [], graph_refs: ["node:x"] }]
+  const { dir, cfg } = buildReadinessScratch(issues)
+  const calls: Record<string, number> = {}
+  let implemented = 0
   try {
     const processed = runLoop(cfg, {
       ...stubLifecycle,
       runReadiness: fakeReadiness({}, calls),
       runImplementer: () => {
-        implemented += 1;
+        implemented += 1
       },
       runReviewer: () => {},
       commit: () => {},
-    });
-    assert.deepEqual(processed, [{ id: "ISSUE-A", status: "parked" }]);
-    assert.equal(calls["ISSUE-A"], 2, "the readiness leg was retried exactly once (2 total attempts)");
-    assert.equal(implemented, 0, "a leg that never yields a verdict never proceeds to implement");
-    const report = JSON.parse(readFileSync(resolve(repoRoot, `${cfg.reportsDir}/ISSUE-A-parked.json`), "utf8"));
-    assert.equal(report.reason, "readiness_leg_failed", "parked as a transient failure, never silently proceeded");
+    })
+    assert.deepEqual(processed, [{ id: "ISSUE-A", status: "parked" }])
+    assert.equal(calls["ISSUE-A"], 2, "the readiness leg was retried exactly once (2 total attempts)")
+    assert.equal(implemented, 0, "a leg that never yields a verdict never proceeds to implement")
+    const report = JSON.parse(readFileSync(resolve(repoRoot, `${cfg.reportsDir}/ISSUE-A-parked.json`), "utf8"))
+    assert.equal(report.reason, "readiness_leg_failed", "parked as a transient failure, never silently proceeded")
   } finally {
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true })
   }
-});
+})
 
 test("a parked report is CLEARED when its issue file changes (CR-driven unpark)", () => {
-  const issues = [{ id: "ISSUE-A", depends_on: [], graph_refs: ["node:x"] }];
-  const { dir, cfg } = buildReadinessScratch(issues);
+  const issues = [{ id: "ISSUE-A", depends_on: [], graph_refs: ["node:x"] }]
+  const { dir, cfg } = buildReadinessScratch(issues)
   try {
     let processed = runLoop(cfg, {
       ...stubLifecycle,
@@ -2890,43 +2957,43 @@ test("a parked report is CLEARED when its issue file changes (CR-driven unpark)"
       runImplementer: () => {},
       runReviewer: () => {},
       commit: () => {},
-    });
-    assert.deepEqual(processed, [{ id: "ISSUE-A", status: "parked" }]);
-    assert.ok(existsSync(resolve(repoRoot, `${cfg.reportsDir}/ISSUE-A-parked.json`)));
+    })
+    assert.deepEqual(processed, [{ id: "ISSUE-A", status: "parked" }])
+    assert.ok(existsSync(resolve(repoRoot, `${cfg.reportsDir}/ISSUE-A-parked.json`)))
 
     writeFileSync(
       resolve(repoRoot, `${cfg.issuesDir}/ISSUE-A.md`),
-      issueBody({ id: "ISSUE-A", exec: "REVISED after CR — now implementable." }),
-    );
-    let implemented = 0;
+      issueBody({ id: "ISSUE-A", exec: "REVISED after CR — now implementable." })
+    )
+    let implemented = 0
     processed = runLoop(cfg, {
       ...stubLifecycle,
       runReadiness: fakeReadiness({ "ISSUE-A": { verdict: "implementable", reason: "CR resolved" } }),
       runImplementer: () => {
-        implemented += 1;
+        implemented += 1
       },
       runReviewer: () => {},
       commit: () => {},
-    });
-    assert.deepEqual(processed, [{ id: "ISSUE-A", status: "verified" }], "the changed issue unparked and verified");
-    assert.equal(implemented, 1);
+    })
+    assert.deepEqual(processed, [{ id: "ISSUE-A", status: "verified" }], "the changed issue unparked and verified")
+    assert.equal(implemented, 1)
     assert.ok(
       !existsSync(resolve(repoRoot, `${cfg.reportsDir}/ISSUE-A-parked.json`)),
-      "the stale parked report was cleared when the issue file changed",
-    );
+      "the stale parked report was cleared when the issue file changed"
+    )
   } finally {
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true })
   }
-});
+})
 
 test("parallel readiness: a batch member that parks gets NO worktree (excluded pre-worktree)", async () => {
   const issues = [
     { id: "ISSUE-A", depends_on: [], graph_refs: ["node:a"] },
     { id: "ISSUE-B", depends_on: [], graph_refs: ["node:b"] },
-  ];
-  const { dir, cfg } = buildParallelScratch({ issues });
-  const hermetic = hermeticWorktreeSteps();
-  const worktreesCreated: string[] = [];
+  ]
+  const { dir, cfg } = buildParallelScratch({ issues })
+  const hermetic = hermeticWorktreeSteps()
+  const worktreesCreated: string[] = []
   try {
     const processed = await runLoopParallel(
       { ...cfg, maxParallel: 2, defaultGateCommand: "true", readiness: true, claudeQuotaProbeEnabled: false },
@@ -2939,45 +3006,45 @@ test("parallel readiness: a batch member that parks gets NO worktree (excluded p
           "ISSUE-B": { verdict: "needs_cr", reason: "blocked" },
         }),
         createWorktree: (issue: Issue) => {
-          worktreesCreated.push(issue.id);
-          return hermetic.createWorktree!(issue);
+          worktreesCreated.push(issue.id)
+          return hermetic.createWorktree!(issue)
         },
         integrateWorktree: () => ({ ok: true, conflict: false, message: "merged" }),
         runGate: makeFakeGate(() => true),
         captureHead: () => "PRE_SHA",
         resetHard: () => {},
-      },
-    );
-    const byId = Object.fromEntries(processed.map((p) => [p.id, p.status]));
-    assert.equal(byId["ISSUE-A"], "verified", "the implementable member ran and verified");
-    assert.equal(byId["ISSUE-B"], "parked", "the needs_cr member is parked");
-    assert.ok(worktreesCreated.includes("ISSUE-A"), "the admitted issue got a worktree");
-    assert.ok(!worktreesCreated.includes("ISSUE-B"), "the parked issue got NO worktree (excluded pre-worktree)");
-    assert.ok(existsSync(resolve(repoRoot, `${cfg.reportsDir}/ISSUE-B-parked.json`)), "B parked report written");
+      }
+    )
+    const byId = Object.fromEntries(processed.map((p) => [p.id, p.status]))
+    assert.equal(byId["ISSUE-A"], "verified", "the implementable member ran and verified")
+    assert.equal(byId["ISSUE-B"], "parked", "the needs_cr member is parked")
+    assert.ok(worktreesCreated.includes("ISSUE-A"), "the admitted issue got a worktree")
+    assert.ok(!worktreesCreated.includes("ISSUE-B"), "the parked issue got NO worktree (excluded pre-worktree)")
+    assert.ok(existsSync(resolve(repoRoot, `${cfg.reportsDir}/ISSUE-B-parked.json`)), "B parked report written")
   } finally {
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true })
   }
-});
+})
 
 function fakeMergeResolver(resolvedById: Record<string, boolean>) {
   return (issue: Issue, cfg: Config) => {
-    mkdirSync(resolve(repoRoot, cfg.reportsDir!), { recursive: true });
+    mkdirSync(resolve(repoRoot, cfg.reportsDir!), { recursive: true })
     writeFileSync(
       resolve(repoRoot, `${cfg.reportsDir}/${issue.id}-merge-resolution.json`),
-      `${JSON.stringify({ resolved: resolvedById[issue.id] ?? false, reason: "fake" }, null, 2)}\n`,
-    );
-    return { output: `resolve ${issue.id}`, result: { status: 0 } };
-  };
+      `${JSON.stringify({ resolved: resolvedById[issue.id] ?? false, reason: "fake" }, null, 2)}\n`
+    )
+    return { output: `resolve ${issue.id}`, result: { status: 0 } }
+  }
 }
 
 function makeFakeGate(verdict: (issue: Issue, ctx: { stage: string; worktreeCall: number }) => boolean) {
-  const worktreeCallsByIssue: Record<string, number> = {};
+  const worktreeCallsByIssue: Record<string, number> = {}
   return (issue: Issue, cfg: Config) => {
-    const stage = cfg.execRoot ? "worktree" : "post_merge";
-    if (stage === "worktree") worktreeCallsByIssue[issue.id] = (worktreeCallsByIssue[issue.id] ?? 0) + 1;
-    const pass = verdict(issue, { stage, worktreeCall: worktreeCallsByIssue[issue.id] ?? 0 });
-    mkdirSync(resolve(repoRoot, cfg.gatesDir!), { recursive: true });
-    const evidenceRel = `${cfg.gatesDir}/${issue.id}-gate.json`;
+    const stage = cfg.execRoot ? "worktree" : "post_merge"
+    if (stage === "worktree") worktreeCallsByIssue[issue.id] = (worktreeCallsByIssue[issue.id] ?? 0) + 1
+    const pass = verdict(issue, { stage, worktreeCall: worktreeCallsByIssue[issue.id] ?? 0 })
+    mkdirSync(resolve(repoRoot, cfg.gatesDir!), { recursive: true })
+    const evidenceRel = `${cfg.gatesDir}/${issue.id}-gate.json`
     writeFileSync(
       resolve(repoRoot, evidenceRel),
       `${JSON.stringify(
@@ -2991,22 +3058,22 @@ function makeFakeGate(verdict: (issue: Issue, ctx: { stage: string; worktreeCall
           baseline_id: "baseline-test",
         },
         null,
-        2,
-      )}\n`,
-    );
-    return { pass, evidenceRel, exitCode: pass ? 0 : 1 };
-  };
+        2
+      )}\n`
+    )
+    return { pass, evidenceRel, exitCode: pass ? 0 : 1 }
+  }
 }
 
 function hermeticWorktreeSteps(): LoopSteps {
   return {
     createWorktree: (issue: Issue) => {
-      const wt = resolve(repoRoot, `_tmp-wt-${issue.id}-${Math.random().toString(36).slice(2)}`);
-      mkdirSync(wt, { recursive: true });
-      return { worktreeRoot: wt, branch: `vivicy/${issue.id}` };
+      const wt = resolve(repoRoot, `_tmp-wt-${issue.id}-${Math.random().toString(36).slice(2)}`)
+      mkdirSync(wt, { recursive: true })
+      return { worktreeRoot: wt, branch: `vivicy/${issue.id}` }
     },
     removeWorktree: (issue: Issue, worktreeRoot: string) => {
-      if (worktreeRoot) rmSync(worktreeRoot, { recursive: true, force: true });
+      if (worktreeRoot) rmSync(worktreeRoot, { recursive: true, force: true })
     },
     resetFrozenArtifacts: () => false,
     rebaseWorktree: () => ({ ok: true, message: "rebased" }),
@@ -3014,22 +3081,22 @@ function hermeticWorktreeSteps(): LoopSteps {
     commit: () => {},
     verifyBaseline: () => "baseline-test",
     verifyTraceability: () => true,
-  };
+  }
 }
 
 function hermeticLegs() {
   return {
     runImplementer: async () => ({ output: "impl", result: { status: 0 } }),
     runReviewer: async () => ({ output: "rev", result: { status: 0 } }),
-  };
+  }
 }
 
 test("merge conflict -> resolver resolved + worktree gate green -> merge retried once -> success", async () => {
-  const issues = [{ id: "ISSUE-A", depends_on: [], graph_refs: ["node:a"] }];
-  const { dir, cfg } = buildParallelScratch({ issues });
-  let mergeCalls = 0;
-  let resolverCalls = 0;
-  let rebased = 0;
+  const issues = [{ id: "ISSUE-A", depends_on: [], graph_refs: ["node:a"] }]
+  const { dir, cfg } = buildParallelScratch({ issues })
+  let mergeCalls = 0
+  let resolverCalls = 0
+  let rebased = 0
   try {
     const processed = await runLoopParallel(
       { ...cfg, maxParallel: 1, defaultGateCommand: "true", claudeQuotaProbeEnabled: false },
@@ -3038,40 +3105,40 @@ test("merge conflict -> resolver resolved + worktree gate green -> merge retried
         ...hermeticLegs(),
         skipWorktreeIgnore: true,
         integrateWorktree: () => {
-          mergeCalls += 1;
+          mergeCalls += 1
           return mergeCalls === 1
             ? { ok: false, conflict: true, message: "CONFLICT in src/x" }
-            : { ok: true, conflict: false, message: "merged" };
+            : { ok: true, conflict: false, message: "merged" }
         },
         rebaseWorktree: () => {
-          rebased += 1;
-          return { ok: true, message: "rebased" };
+          rebased += 1
+          return { ok: true, message: "rebased" }
         },
         runMergeResolver: (issue, c) => {
-          resolverCalls += 1;
-          return fakeMergeResolver({ "ISSUE-A": true })(issue, c);
+          resolverCalls += 1
+          return fakeMergeResolver({ "ISSUE-A": true })(issue, c)
         },
         runGate: makeFakeGate(() => true),
         captureHead: () => "PRE_SHA",
         resetHard: () => {
-          throw new Error("resetHard must NOT be called on a clean post-merge gate");
+          throw new Error("resetHard must NOT be called on a clean post-merge gate")
         },
-      },
-    );
-    assert.deepEqual(processed, [{ id: "ISSUE-A", status: "verified" }], "resolved conflict + green gates -> verified");
-    assert.equal(mergeCalls, 2, "the merge was retried exactly once after resolution");
-    assert.equal(resolverCalls, 1, "the merge-resolver leg ran once");
-    assert.equal(rebased, 1, "the worktree was rebased onto integration HEAD before resolving");
-    assert.ok(existsSync(resolve(repoRoot, `${cfg.reportsDir}/ISSUE-A-merge-resolution.json`)), "resolution verdict written");
+      }
+    )
+    assert.deepEqual(processed, [{ id: "ISSUE-A", status: "verified" }], "resolved conflict + green gates -> verified")
+    assert.equal(mergeCalls, 2, "the merge was retried exactly once after resolution")
+    assert.equal(resolverCalls, 1, "the merge-resolver leg ran once")
+    assert.equal(rebased, 1, "the worktree was rebased onto integration HEAD before resolving")
+    assert.ok(existsSync(resolve(repoRoot, `${cfg.reportsDir}/ISSUE-A-merge-resolution.json`)), "resolution verdict written")
   } finally {
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true })
   }
-});
+})
 
 test("the resolver CLAIMS resolved but the orchestrator's worktree gate re-run is RED -> blocked (trust nothing)", async () => {
-  const issues = [{ id: "ISSUE-A", depends_on: [], graph_refs: ["node:a"] }];
-  const { dir, cfg } = buildParallelScratch({ issues });
-  let mergeCalls = 0;
+  const issues = [{ id: "ISSUE-A", depends_on: [], graph_refs: ["node:a"] }]
+  const { dir, cfg } = buildParallelScratch({ issues })
+  let mergeCalls = 0
   try {
     const processed = await runLoopParallel(
       { ...cfg, maxParallel: 1, defaultGateCommand: "true", claudeQuotaProbeEnabled: false },
@@ -3080,33 +3147,33 @@ test("the resolver CLAIMS resolved but the orchestrator's worktree gate re-run i
         ...hermeticLegs(),
         skipWorktreeIgnore: true,
         integrateWorktree: () => {
-          mergeCalls += 1;
-          return { ok: false, conflict: true, message: "CONFLICT" };
+          mergeCalls += 1
+          return { ok: false, conflict: true, message: "CONFLICT" }
         },
         rebaseWorktree: () => ({ ok: true, message: "rebased" }),
         runMergeResolver: fakeMergeResolver({ "ISSUE-A": true }),
         runGate: makeFakeGate((issue, { stage, worktreeCall }) => stage === "worktree" && worktreeCall <= 1),
         captureHead: () => "PRE_SHA",
         resetHard: () => {},
-      },
-    );
-    assert.deepEqual(processed, [{ id: "ISSUE-A", status: "blocked" }], "a lying resolver is caught by the orchestrator's own gate");
-    assert.equal(mergeCalls, 1, "the merge was NOT retried (the orchestrator's gate re-run was red)");
-    assert.ok(existsSync(resolve(repoRoot, `${cfg.reportsDir}/ISSUE-A-blocked.json`)), "an integration block was written");
-    const block = JSON.parse(readFileSync(resolve(repoRoot, `${cfg.reportsDir}/ISSUE-A-blocked.json`), "utf8"));
-    assert.match(block.reason, /unresolved/i);
+      }
+    )
+    assert.deepEqual(processed, [{ id: "ISSUE-A", status: "blocked" }], "a lying resolver is caught by the orchestrator's own gate")
+    assert.equal(mergeCalls, 1, "the merge was NOT retried (the orchestrator's gate re-run was red)")
+    assert.ok(existsSync(resolve(repoRoot, `${cfg.reportsDir}/ISSUE-A-blocked.json`)), "an integration block was written")
+    const block = JSON.parse(readFileSync(resolve(repoRoot, `${cfg.reportsDir}/ISSUE-A-blocked.json`), "utf8"))
+    assert.match(block.reason, /unresolved/i)
   } finally {
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true })
   }
-});
+})
 
 test("post-merge re-gate RED -> integration reset to pre-merge sha + issue blocked + others continue", async () => {
   const issues = [
     { id: "ISSUE-A", depends_on: [], graph_refs: ["node:a"] },
     { id: "ISSUE-C", depends_on: [], graph_refs: ["node:c"] },
-  ];
-  const { dir, cfg } = buildParallelScratch({ issues });
-  const resetCalls: string[] = [];
+  ]
+  const { dir, cfg } = buildParallelScratch({ issues })
+  const resetCalls: string[] = []
   try {
     const processed = await runLoopParallel(
       { ...cfg, maxParallel: 1, defaultGateCommand: "true", claudeQuotaProbeEnabled: false },
@@ -3117,116 +3184,123 @@ test("post-merge re-gate RED -> integration reset to pre-merge sha + issue block
         integrateWorktree: () => ({ ok: true, conflict: false, message: "merged" }),
         captureHead: () => "PRE_SHA_A",
         resetHard: (sha) => {
-          resetCalls.push(sha);
-          return { status: 0 };
+          resetCalls.push(sha)
+          return { status: 0 }
         },
         runGate: makeFakeGate((issue, { stage }) => !(issue.id === "ISSUE-A" && stage === "post_merge")),
-      },
-    );
-    const byId = Object.fromEntries(processed.map((p) => [p.id, p.status]));
-    assert.equal(byId["ISSUE-A"], "blocked", "the damaging issue is blocked");
-    assert.equal(byId["ISSUE-C"], "verified", "the independent issue still verifies");
-    assert.deepEqual(resetCalls, ["PRE_SHA_A"], "the merge was reverted to the pre-merge HEAD sha");
-    const block = JSON.parse(readFileSync(resolve(repoRoot, `${cfg.reportsDir}/ISSUE-A-integration-blocked.json`), "utf8"));
-    assert.equal(block.kind, "post_merge_gate");
-    assert.equal(block.reverted_to_sha, "PRE_SHA_A");
-    assert.equal(block.pre_merge_gate_evidence?.record?.status, "pass", "the green pre-merge verdict is preserved");
-    assert.equal(block.post_merge_gate_evidence?.record?.status, "fail", "the red post-merge verdict is recorded");
-    const done = readdirSync(resolve(repoRoot, cfg.doneDir));
-    assert.ok(!done.includes("ISSUE-A.md"), "damaged issue NOT moved to done/");
-    assert.ok(done.includes("ISSUE-C.md"), "independent issue moved to done/");
+      }
+    )
+    const byId = Object.fromEntries(processed.map((p) => [p.id, p.status]))
+    assert.equal(byId["ISSUE-A"], "blocked", "the damaging issue is blocked")
+    assert.equal(byId["ISSUE-C"], "verified", "the independent issue still verifies")
+    assert.deepEqual(resetCalls, ["PRE_SHA_A"], "the merge was reverted to the pre-merge HEAD sha")
+    const block = JSON.parse(readFileSync(resolve(repoRoot, `${cfg.reportsDir}/ISSUE-A-integration-blocked.json`), "utf8"))
+    assert.equal(block.kind, "post_merge_gate")
+    assert.equal(block.reverted_to_sha, "PRE_SHA_A")
+    assert.equal(block.pre_merge_gate_evidence?.record?.status, "pass", "the green pre-merge verdict is preserved")
+    assert.equal(block.post_merge_gate_evidence?.record?.status, "fail", "the red post-merge verdict is recorded")
+    const done = readdirSync(resolve(repoRoot, cfg.doneDir))
+    assert.ok(!done.includes("ISSUE-A.md"), "damaged issue NOT moved to done/")
+    assert.ok(done.includes("ISSUE-C.md"), "independent issue moved to done/")
   } finally {
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true })
   }
-});
+})
 
 function managedRefreshRepo(): {
-  root: string;
-  git: (a: string[]) => { stdout: string; stderr: string };
-  status: () => string[];
-  head: () => string;
+  root: string
+  git: (a: string[]) => { stdout: string; stderr: string }
+  status: () => string[]
+  head: () => string
 } {
-  const root = mkdtempSync(resolve(tmpdir(), "vivicy-governance-absorb-"));
+  const root = mkdtempSync(resolve(tmpdir(), "vivicy-governance-absorb-"))
   const git = (a: string[]) => {
-    const r = spawnSync("git", a, { cwd: root, encoding: "utf8" });
-    return { stdout: r.stdout ?? "", stderr: r.stderr ?? "" };
-  };
-  git(["init", "-q"]);
-  git(["config", "user.email", "owner@example.com"]);
-  git(["config", "user.name", "Owner"]);
-  git(["config", "commit.gpgsign", "false"]);
-  mkdirSync(resolve(root, "src"), { recursive: true });
-  writeFileSync(resolve(root, "AGENTS.md"), "# owner guide\n");
-  writeFileSync(resolve(root, ".gitignore"), "node_modules/\n");
-  writeFileSync(resolve(root, "src/app.ts"), "export const a = 1;\n");
-  git(["add", "-A"]);
-  git(["commit", "-qm", "the owner's own commit"]);
+    const r = spawnSync("git", a, { cwd: root, encoding: "utf8" })
+    return { stdout: r.stdout ?? "", stderr: r.stderr ?? "" }
+  }
+  git(["init", "-q"])
+  git(["config", "user.email", "owner@example.com"])
+  git(["config", "user.name", "Owner"])
+  git(["config", "commit.gpgsign", "false"])
+  mkdirSync(resolve(root, "src"), { recursive: true })
+  writeFileSync(resolve(root, "AGENTS.md"), "# owner guide\n")
+  writeFileSync(resolve(root, ".gitignore"), "node_modules/\n")
+  writeFileSync(resolve(root, "src/app.ts"), "export const a = 1;\n")
+  git(["add", "-A"])
+  git(["commit", "-qm", "the owner's own commit"])
   return {
     root,
     git,
-    status: () => git(["status", "--porcelain"]).stdout.split("\n").filter((l) => l.trim().length > 0).sort(),
+    status: () =>
+      git(["status", "--porcelain"])
+        .stdout.split("\n")
+        .filter((l) => l.trim().length > 0)
+        .sort(),
     head: () => git(["rev-parse", "HEAD"]).stdout.trim(),
-  };
+  }
 }
 
 test("ensureCleanTreeForRun absorbs a managed-ONLY dirty set so the owner's run starts instead of being refused for bytes Vivicy wrote", () => {
-  const repo = managedRefreshRepo();
+  const repo = managedRefreshRepo()
   try {
-    writeFileSync(resolve(repo.root, "AGENTS.md"), "# owner guide\n\n<!-- vivicy:method:begin -->\ncurrent block\n<!-- vivicy:method:end -->\n");
-    writeFileSync(resolve(repo.root, ".gitignore"), "node_modules/\n.env\n");
-    writeFileSync(resolve(repo.root, "CLAUDE.md"), "@AGENTS.md\n");
-    const before = repo.head();
+    writeFileSync(
+      resolve(repo.root, "AGENTS.md"),
+      "# owner guide\n\n<!-- vivicy:method:begin -->\ncurrent block\n<!-- vivicy:method:end -->\n"
+    )
+    writeFileSync(resolve(repo.root, ".gitignore"), "node_modules/\n.env\n")
+    writeFileSync(resolve(repo.root, "CLAUDE.md"), "@AGENTS.md\n")
+    const before = repo.head()
 
-    ensureCleanTreeForRun(repo.root);
+    ensureCleanTreeForRun(repo.root)
 
-    assert.deepEqual(repo.status(), [], "the tree is clean, so the run proceeds");
-    assert.equal(repo.git(["rev-list", "--count", `${before}..HEAD`]).stdout.trim(), "1", "exactly one commit");
+    assert.deepEqual(repo.status(), [], "the tree is clean, so the run proceeds")
+    assert.equal(repo.git(["rev-list", "--count", `${before}..HEAD`]).stdout.trim(), "1", "exactly one commit")
     assert.deepEqual(
       repo.git(["show", "--name-only", "--format=", "HEAD"]).stdout.split("\n").filter(Boolean).sort(),
       [".gitignore", "AGENTS.md", "CLAUDE.md"],
-      "the commit carries the managed files — including the untracked recreation — and nothing else",
-    );
+      "the commit carries the managed files — including the untracked recreation — and nothing else"
+    )
     assert.match(
       repo.git(["log", "-1", "--format=%s"]).stdout.trim(),
       /^chore: refresh the Vivicy-managed governance blocks$/,
-      "conventional subject naming the refresh, so the owner reading git log knows Vivicy wrote it",
-    );
+      "conventional subject naming the refresh, so the owner reading git log knows Vivicy wrote it"
+    )
   } finally {
-    rmSync(repo.root, { recursive: true, force: true });
+    rmSync(repo.root, { recursive: true, force: true })
   }
-});
+})
 
 test("ensureCleanTreeForRun absorbs NOTHING when anything else is dirty — the refusal stays verbatim and the tree untouched", () => {
-  const repo = managedRefreshRepo();
+  const repo = managedRefreshRepo()
   try {
-    mkdirSync(resolve(repo.root, "docs"), { recursive: true });
-    writeFileSync(resolve(repo.root, "AGENTS.md"), "# owner guide\n\nrefreshed block\n");
-    writeFileSync(resolve(repo.root, "src/app.ts"), "export const a = 2;\n");
-    writeFileSync(resolve(repo.root, "docs/CLAUDE.md"), "a same-named file that is NOT the managed root one\n");
-    const before = repo.head();
-    const dirtyBefore = repo.status();
+    mkdirSync(resolve(repo.root, "docs"), { recursive: true })
+    writeFileSync(resolve(repo.root, "AGENTS.md"), "# owner guide\n\nrefreshed block\n")
+    writeFileSync(resolve(repo.root, "src/app.ts"), "export const a = 2;\n")
+    writeFileSync(resolve(repo.root, "docs/CLAUDE.md"), "a same-named file that is NOT the managed root one\n")
+    const before = repo.head()
+    const dirtyBefore = repo.status()
 
     assert.throws(
       () => ensureCleanTreeForRun(repo.root),
       /refuses to start on a dirty working tree/,
-      "a mixed set is never partially absorbed — the owner still owns the refusal",
-    );
-    assert.equal(repo.head(), before, "no commit");
-    assert.equal(repo.git(["diff", "--cached", "--name-only"]).stdout.trim(), "", "nothing staged either");
-    assert.deepEqual(repo.status(), dirtyBefore, "the working tree is exactly the state the gate refused");
+      "a mixed set is never partially absorbed — the owner still owns the refusal"
+    )
+    assert.equal(repo.head(), before, "no commit")
+    assert.equal(repo.git(["diff", "--cached", "--name-only"]).stdout.trim(), "", "nothing staged either")
+    assert.deepEqual(repo.status(), dirtyBefore, "the working tree is exactly the state the gate refused")
   } finally {
-    rmSync(repo.root, { recursive: true, force: true });
+    rmSync(repo.root, { recursive: true, force: true })
   }
-});
+})
 
 test("ensureCleanTreeForRun creates no empty commit on an already-clean tree", () => {
-  const repo = managedRefreshRepo();
+  const repo = managedRefreshRepo()
   try {
-    const before = repo.head();
-    ensureCleanTreeForRun(repo.root);
-    assert.equal(repo.head(), before);
-    assert.deepEqual(repo.status(), []);
+    const before = repo.head()
+    ensureCleanTreeForRun(repo.root)
+    assert.equal(repo.head(), before)
+    assert.deepEqual(repo.status(), [])
   } finally {
-    rmSync(repo.root, { recursive: true, force: true });
+    rmSync(repo.root, { recursive: true, force: true })
   }
-});
+})

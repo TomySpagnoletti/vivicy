@@ -28,14 +28,8 @@ export async function POST(request: Request) {
     })
   } catch (error) {
     if (error instanceof ControlError) {
-      return Response.json(
-        { ok: false, error: error.message, code: error.code },
-        { status: error.code === "missing_target" ? 422 : 400 }
-      )
+      return Response.json({ ok: false, error: error.message, code: error.code }, { status: error.code === "missing_target" ? 422 : 400 })
     }
-    return Response.json(
-      { ok: false, error: error instanceof Error ? error.message : "vivi turn failed" },
-      { status: 500 }
-    )
+    return Response.json({ ok: false, error: error instanceof Error ? error.message : "vivi turn failed" }, { status: 500 })
   }
 }

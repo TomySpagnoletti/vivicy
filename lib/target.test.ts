@@ -40,10 +40,7 @@ describe("getTargetRoot", () => {
     const real = realpathSync(mkdtempSync(path.join(tmpdir(), "vivicy-target-persisted-")))
     try {
       mkdirSync(process.env.VIVICY_RUNTIME_DIR!, { recursive: true })
-      writeFileSync(
-        path.join(process.env.VIVICY_RUNTIME_DIR!, "current-project.json"),
-        JSON.stringify({ root: real })
-      )
+      writeFileSync(path.join(process.env.VIVICY_RUNTIME_DIR!, "current-project.json"), JSON.stringify({ root: real }))
       process.env.VIVICY_TARGET_ROOT = tmp
       expect(getTargetRoot()).toBe(real)
     } finally {
@@ -60,9 +57,7 @@ describe("getTargetRoot", () => {
 describe("getArchitectureDataPath", () => {
   it("joins the target root with the committed map relative path", () => {
     process.env.VIVICY_TARGET_ROOT = tmp
-    expect(getArchitectureDataPath()).toBe(
-      path.join(path.resolve(tmp), ARCHITECTURE_DATA_RELATIVE_PATH)
-    )
+    expect(getArchitectureDataPath()).toBe(path.join(path.resolve(tmp), ARCHITECTURE_DATA_RELATIVE_PATH))
   })
 
   it("is null when no target is set", () => {

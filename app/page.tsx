@@ -5,29 +5,17 @@ import { Loader2, TriangleAlert } from "lucide-react"
 import { useTranslations } from "next-intl"
 import { toast } from "sonner"
 
-import type {
-  ArchitectureMapData,
-  MapEmptyReason,
-  MapEmptyState as MapEmptyStatePayload,
-  ViewMode,
-} from "@/lib/types"
+import type { ArchitectureMapData, MapEmptyReason, MapEmptyState as MapEmptyStatePayload, ViewMode } from "@/lib/types"
 import type { AgentsHealth } from "@/lib/agents-health-types"
 import type { CurrentProject } from "@/lib/project-types"
 import { edgeIndexFromId } from "@/lib/map-data"
 import { errorText } from "@/lib/i18n-errors"
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
-import {
-  AgentsAuthBanner,
-  AgentsGate,
-  agentsGateBlocked,
-} from "@/components/agents/agents-gate"
+import { AgentsAuthBanner, AgentsGate, agentsGateBlocked } from "@/components/agents/agents-gate"
 import { ViviPanel } from "@/components/chat/vivi-panel"
 import { ViviPanelProvider } from "@/components/chat/vivi-panel-context"
 import { AgentsHealthDialog } from "@/components/agents/agents-health-dialog"
-import {
-  ArchitectureMap,
-  type SelectedItem,
-} from "@/components/map/architecture-map"
+import { ArchitectureMap, type SelectedItem } from "@/components/map/architecture-map"
 import { MapEmptyState } from "@/components/map/map-empty-state"
 import { WorkflowWidget } from "@/components/workflow/workflow-widget"
 import { OnboardingEmptyState } from "@/components/project/onboarding-empty-state"
@@ -112,15 +100,10 @@ export default function Page() {
         if (!mountedRef.current) return
         if (!res.ok) {
           if (foreground) {
-            const fallback =
-              body?.detail ??
-              body?.error ??
-              t("loadError.requestFailed", { status: res.status })
+            const fallback = body?.detail ?? body?.error ?? t("loadError.requestFailed", { status: res.status })
             setState({
               kind: "error",
-              message: body?.code
-                ? errorText(tErrors, `route.${body.code}`, fallback)
-                : fallback,
+              message: body?.code ? errorText(tErrors, `route.${body.code}`, fallback) : fallback,
             })
           }
           return
@@ -134,8 +117,7 @@ export default function Page() {
         if (!mountedRef.current || !foreground) return
         setState({
           kind: "error",
-          message:
-            err instanceof Error ? err.message : t("loadError.genericFailure"),
+          message: err instanceof Error ? err.message : t("loadError.genericFailure"),
         })
       }
     },
@@ -175,14 +157,9 @@ export default function Page() {
             description: body.summary ?? t("extract.blockedDefaultDescription"),
           })
         } else {
-          const fallback =
-            body.summary ??
-            body.error ??
-            t("extract.failedHttpDescription", { status: res.status })
+          const fallback = body.summary ?? body.error ?? t("extract.failedHttpDescription", { status: res.status })
           toast.error(t("extract.failedTitle"), {
-            description: body.code
-              ? errorText(tErrors, `control.${body.code}`, fallback)
-              : fallback,
+            description: body.code ? errorText(tErrors, `control.${body.code}`, fallback) : fallback,
           })
         }
         return
@@ -191,10 +168,7 @@ export default function Page() {
       await loadMap(true)
     } catch (err) {
       toast.error(t("extract.failedTitle"), {
-        description:
-          err instanceof Error
-            ? err.message
-            : t("extract.failedNetworkDescription"),
+        description: err instanceof Error ? err.message : t("extract.failedNetworkDescription"),
       })
     } finally {
       if (mountedRef.current) setExtracting(false)
@@ -237,10 +211,7 @@ export default function Page() {
     return edge ? { type: "edge", id: selectedRef.id, item: edge } : null
   }, [state, selectedRef])
 
-  const hasTarget =
-    state.kind === "ready" || state.kind === "empty"
-      ? !(state.kind === "empty" && state.reason === "no_target")
-      : undefined
+  const hasTarget = state.kind === "ready" || state.kind === "empty" ? !(state.kind === "empty" && state.reason === "no_target") : undefined
 
   return (
     <TranscriptProvider>
@@ -262,13 +233,7 @@ export default function Page() {
             <SidebarInset className="relative min-w-0">
               <AgentsHealthDialog onWarning={onAgentsWarning} />
 
-              {state.kind === "ready" ? (
-                <PanelToggle
-                  next={panel.next}
-                  open={panel.open}
-                  onCycle={panel.cycle}
-                />
-              ) : null}
+              {state.kind === "ready" ? <PanelToggle next={panel.next} open={panel.open} onCycle={panel.cycle} /> : null}
 
               {state.kind === "loading" ? (
                 <CenteredMessage>
@@ -280,15 +245,11 @@ export default function Page() {
               {state.kind === "error" ? (
                 <CenteredMessage>
                   <TriangleAlert className="size-4 text-destructive" />
-                  <span className="max-w-md text-center text-muted-foreground">
-                    {state.message}
-                  </span>
+                  <span className="max-w-md text-center text-muted-foreground">{state.message}</span>
                 </CenteredMessage>
               ) : null}
 
-              {state.kind === "empty" && state.reason === "no_target" ? (
-                <OnboardingEmptyState />
-              ) : null}
+              {state.kind === "empty" && state.reason === "no_target" ? <OnboardingEmptyState /> : null}
 
               {state.kind === "empty" && state.reason !== "no_target" ? (
                 <>
@@ -318,8 +279,7 @@ export default function Page() {
                     selected={selected}
                     onSelect={(next) => {
                       if (!next) setSelectedRef(null)
-                      else if (next.type === "node")
-                        setSelectedRef({ type: "node", id: next.item.id })
+                      else if (next.type === "node") setSelectedRef({ type: "node", id: next.item.id })
                       else setSelectedRef({ type: "edge", id: next.id })
                     }}
                   />
@@ -349,9 +309,7 @@ export default function Page() {
           </SidebarProvider>
         )}
 
-        {agentsHealth && !gateBlocked ? (
-          <AgentsAuthBanner health={agentsHealth} />
-        ) : null}
+        {agentsHealth && !gateBlocked ? <AgentsAuthBanner health={agentsHealth} /> : null}
 
         {agentsHealth !== undefined && !gateBlocked ? (
           <ViviPanel
@@ -366,19 +324,11 @@ export default function Page() {
 }
 
 function isEmptyPayload(body: unknown): body is MapEmptyStatePayload {
-  return (
-    !!body &&
-    typeof body === "object" &&
-    (body as { empty?: unknown }).empty === true
-  )
+  return !!body && typeof body === "object" && (body as { empty?: unknown }).empty === true
 }
 
 type SelectedRef = { type: "node"; id: string } | { type: "edge"; id: string }
 
 function CenteredMessage({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="flex h-svh w-full flex-col items-center justify-center gap-2 p-6 text-sm text-foreground">
-      {children}
-    </div>
-  )
+  return <div className="flex h-svh w-full flex-col items-center justify-center gap-2 p-6 text-sm text-foreground">{children}</div>
 }

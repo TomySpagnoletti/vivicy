@@ -38,21 +38,10 @@ import {
   snapXY,
   type XY,
 } from "@/lib/map-data"
-import {
-  CLUSTER_TONES,
-  kindColor,
-  progressStatusColor,
-  UNKNOWN_KIND_COLOR,
-  type ColorToken,
-} from "@/lib/map-palette"
+import { CLUSTER_TONES, kindColor, progressStatusColor, UNKNOWN_KIND_COLOR, type ColorToken } from "@/lib/map-palette"
 import { errorText } from "@/lib/i18n-errors"
-import type {
-  ArchitectureMapData,
-  MapEdge,
-  MapNode,
-  NodeStatus,
-  ViewMode,
-} from "@/lib/types"
+import { cn } from "@/lib/utils"
+import type { ArchitectureMapData, MapEdge, MapNode, NodeStatus, ViewMode } from "@/lib/types"
 import { MapNode as MapNodeCard, type MapNodeData } from "@/components/map/map-node"
 
 const NODE_WIDTH = 320
@@ -67,10 +56,7 @@ const SNAP_GRID: [number, number] = [LAYOUT_SNAP_GRID, LAYOUT_SNAP_GRID]
 
 type SaveStatus = "idle" | "saving" | "saved" | "error"
 
-export type SelectedItem =
-  | { type: "node"; item: MapNode }
-  | { type: "edge"; id: string; item: MapEdge }
-  | null
+export type SelectedItem = { type: "node"; item: MapNode } | { type: "edge"; id: string; item: MapEdge } | null
 
 interface EdgeData extends Record<string, unknown> {
   protocol: string
@@ -109,31 +95,13 @@ interface ArchitectureMapProps {
   onSelect: (selected: SelectedItem) => void
 }
 
-function ArchitectureMapInner({
-  data,
-  view,
-  query,
-  laneFilter,
-  statusFilter,
-  scopeFilter,
-  selected,
-  onSelect,
-}: ArchitectureMapProps) {
+function ArchitectureMapInner({ data, view, query, laneFilter, statusFilter, scopeFilter, selected, onSelect }: ArchitectureMapProps) {
   const t = useTranslations("map")
   const tErrors = useTranslations("errors")
   const edgeCounts = useMemo(() => buildEdgeCounts(data.edges), [data.edges])
-  const statesByRef = useMemo(
-    () => buildGraphStatesByRef(data.development?.graph_item_states),
-    [data.development]
-  )
-  const issuesByRef = useMemo(
-    () => buildIssuesByGraphRef(data.development?.issues),
-    [data.development]
-  )
-  const activeRefs = useMemo(
-    () => buildActiveGraphRefs(data.development?.active_items),
-    [data.development]
-  )
+  const statesByRef = useMemo(() => buildGraphStatesByRef(data.development?.graph_item_states), [data.development])
+  const issuesByRef = useMemo(() => buildIssuesByGraphRef(data.development?.issues), [data.development])
+  const activeRefs = useMemo(() => buildActiveGraphRefs(data.development?.active_items), [data.development])
 
   const [editMode, setEditMode] = useState(false)
   const [nodePositions, setNodePositions] = useState<Record<string, XY>>({})
@@ -151,29 +119,16 @@ function ArchitectureMapInner({
     data.edges.forEach((edge, i) => map.set(edgeId(edge, i), { edge, index: i }))
     return map
   }, [data.edges])
-  const initialNodePositions = useMemo(
-    () => new Map(data.nodes.map((n) => [n.id, { x: n.layout_x, y: n.layout_y }])),
-    [data.nodes]
-  )
+  const initialNodePositions = useMemo(() => new Map(data.nodes.map((n) => [n.id, { x: n.layout_x, y: n.layout_y }])), [data.nodes])
   const initialEdgeRatios = useMemo(
-    () =>
-      new Map(
-        data.edges.map((e, i) => [
-          edgeId(e, i),
-          clampRatio(e.layout_label_ratio ?? DEFAULT_LABEL_RATIO),
-        ])
-      ),
+    () => new Map(data.edges.map((e, i) => [edgeId(e, i), clampRatio(e.layout_label_ratio ?? DEFAULT_LABEL_RATIO)])),
     [data.edges]
   )
 
-  const nodeGraphRef = useCallback(
-    (node: MapNode) => node.graph_ref ?? `node:${node.id}`,
-    []
-  )
+  const nodeGraphRef = useCallback((node: MapNode) => node.graph_ref ?? `node:${node.id}`, [])
 
   const effectiveStatus = useCallback(
-    (node: MapNode): NodeStatus =>
-      statesByRef.get(nodeGraphRef(node))?.status ?? node.status ?? "not_started",
+    (node: MapNode): NodeStatus => statesByRef.get(nodeGraphRef(node))?.status ?? node.status ?? "not_started",
     [nodeGraphRef, statesByRef]
   )
 
@@ -246,25 +201,12 @@ function ArchitectureMapInner({
     return new Set(
       data.nodes
         .filter((n) => laneFilter === "all" || n.lane === laneFilter)
-        .filter(
-          (n) =>
-            statusFilter === "all" ||
-            effectiveStatus(n) === statusFilter ||
-            statusMatchedEndpoints.has(n.id)
-        )
+        .filter((n) => statusFilter === "all" || effectiveStatus(n) === statusFilter || statusMatchedEndpoints.has(n.id))
         .filter((n) => scopeFilter === "all" || n.scope === scopeFilter)
         .filter((n) => nodeMatchesQuery(n, query))
         .map((n) => n.id)
     )
-  }, [
-    data.nodes,
-    effectiveStatus,
-    laneFilter,
-    query,
-    scopeFilter,
-    statusFilter,
-    statusMatchedEndpoints,
-  ])
+  }, [data.nodes, effectiveStatus, laneFilter, query, scopeFilter, statusFilter, statusMatchedEndpoints])
 
   const flowNodes = useMemo<Node<MapNodeData>[]>(() => {
     const selectedNodeId = selected?.type === "node" ? selected.item.id : undefined
@@ -272,8 +214,7 @@ function ArchitectureMapInner({
       .filter((n) => visibleNodeIds.has(n.id))
       .map((node) => {
         const status = effectiveStatus(node)
-        const color: ColorToken =
-          view === "target" ? kindColor(node.kind) : progressStatusColor(status)
+        const color: ColorToken = view === "target" ? kindColor(node.kind) : progressStatusColor(status)
         const ref = nodeGraphRef(node)
         const position = nodePositions[node.id] ?? { x: node.layout_x, y: node.layout_y }
         return {
@@ -325,9 +266,7 @@ function ArchitectureMapInner({
       .filter(({ id }) => statusFilter === "all" || statusMatchedEdgeIds.has(id))
       .map(({ edge, id }) => {
         const isSelected = selected?.type === "edge" && selected.id === id
-        const isConnected = Boolean(
-          selectedNodeId && (edge.from === selectedNodeId || edge.to === selectedNodeId)
-        )
+        const isConnected = Boolean(selectedNodeId && (edge.from === selectedNodeId || edge.to === selectedNodeId))
         const isDimmed = !isSelected && !isConnected
         const ref = edge.graph_ref
         const progressStatus = statesByRef.get(ref)?.status ?? "not_started"
@@ -350,24 +289,14 @@ function ArchitectureMapInner({
             isDimmed,
             isSelected,
             isConnected,
-            labelRatio: clampRatio(
-              edgeLabelRatios[id] ?? edge.layout_label_ratio ?? DEFAULT_LABEL_RATIO
-            ),
+            labelRatio: clampRatio(edgeLabelRatios[id] ?? edge.layout_label_ratio ?? DEFAULT_LABEL_RATIO),
             editable: editMode,
             onMoveEdgeLabel: moveEdgeLabel,
           },
           style: {
-            stroke: isSelected
-              ? "#0f172a"
-              : view === "progress" && progressStatus !== "not_started"
-                ? progressColor.border
-                : "#64748b",
+            stroke: isSelected ? "#0f172a" : view === "progress" && progressStatus !== "not_started" ? progressColor.border : "#64748b",
             strokeOpacity: isDimmed ? 0.3 : 1,
-            strokeWidth: isSelected
-              ? 2.2
-              : view === "progress" && progressStatus !== "not_started"
-                ? 1.9
-                : 1.35,
+            strokeWidth: isSelected ? 2.2 : view === "progress" && progressStatus !== "not_started" ? 1.9 : 1.35,
           },
         }
       })
@@ -406,9 +335,7 @@ function ArchitectureMapInner({
   const commitNodePosition = useCallback(
     (_event: React.MouseEvent | MouseEvent | TouchEvent, node: Node<MapNodeData>) => {
       const snapped = snapXY(node.position)
-      setNodes((current) =>
-        current.map((n) => (n.id === node.id ? { ...n, position: snapped, dragging: false } : n))
-      )
+      setNodes((current) => current.map((n) => (n.id === node.id ? { ...n, position: snapped, dragging: false } : n)))
       const current = nodePositions[node.id]
       if (current && samePosition(current, snapped)) return
       setNodePositions((positions) => ({ ...positions, [node.id]: snapped }))
@@ -425,15 +352,9 @@ function ArchitectureMapInner({
       if (memberIds.length === 0) return
 
       if (!clusterDragStartPositionsRef.current) {
-        clusterDragStartPositionsRef.current = new Map(
-          nodes.map((n) => [n.id, { ...n.position }])
-        )
+        clusterDragStartPositionsRef.current = new Map(nodes.map((n) => [n.id, { ...n.position }]))
       }
-      const moved = clusterMovedPositions(
-        clusterDragStartPositionsRef.current,
-        memberIds,
-        delta
-      )
+      const moved = clusterMovedPositions(clusterDragStartPositionsRef.current, memberIds, delta)
 
       setNodes((current) =>
         current.map((n) => {
@@ -489,9 +410,7 @@ function ArchitectureMapInner({
             to: edge.to,
             relation: edge.relation ?? "",
             protocol: edge.protocol ?? "",
-            layout_label_ratio: round4(
-              clampRatio(edgeLabelRatios[id] ?? edge.layout_label_ratio ?? DEFAULT_LABEL_RATIO)
-            ),
+            layout_label_ratio: round4(clampRatio(edgeLabelRatios[id] ?? edge.layout_label_ratio ?? DEFAULT_LABEL_RATIO)),
           }
         }),
       }
@@ -501,13 +420,7 @@ function ArchitectureMapInner({
         body: JSON.stringify(payload),
       })
       if (!response.ok) {
-        throw new Error(
-          await readErrorMessage(
-            response,
-            t("editToolbar.saveFailedHttpStatus", { status: response.status }),
-            tErrors
-          )
-        )
+        throw new Error(await readErrorMessage(response, t("editToolbar.saveFailedHttpStatus", { status: response.status }), tErrors))
       }
       dirtyNodeIdsRef.current.clear()
       dirtyEdgeLabelIdsRef.current.clear()
@@ -595,7 +508,7 @@ function ArchitectureMapInner({
         <div className="map-edit-toolbar">
           <button
             type="button"
-            className={`map-edit-toggle${editMode ? " active" : ""}`}
+            className={cn("map-edit-toggle", editMode && "active")}
             aria-pressed={editMode}
             onClick={() => setEditMode((on) => !on)}
             title={editMode ? t("editToolbar.editingTitle") : t("editToolbar.editTitle")}
@@ -603,12 +516,7 @@ function ArchitectureMapInner({
             {editMode ? t("editToolbar.editingLabel") : t("editToolbar.editLabel")}
           </button>
           {showSave ? (
-            <button
-              type="button"
-              className="map-save-button"
-              onClick={saveLayout}
-              disabled={saveStatus === "saving" || !layoutDirty}
-            >
+            <button type="button" className="map-save-button" onClick={saveLayout} disabled={saveStatus === "saving" || !layoutDirty}>
               {saveStatus === "saving"
                 ? t("editToolbar.savingButton")
                 : saveStatus === "error"
@@ -616,15 +524,10 @@ function ArchitectureMapInner({
                   : t("editToolbar.saveButton")}
             </button>
           ) : null}
-          {editMode && saveStatus === "saved" ? (
-            <span className="map-save-status">{t("editToolbar.savedStatus")}</span>
-          ) : null}
-          {saveStatus === "error" && saveError ? (
-            <p className="map-save-error">{saveError}</p>
-          ) : null}
+          {editMode && saveStatus === "saved" ? <span className="map-save-status">{t("editToolbar.savedStatus")}</span> : null}
+          {saveStatus === "error" && saveError ? <p className="map-save-error">{saveError}</p> : null}
         </div>
       </div>
-
     </div>
   )
 }
@@ -634,16 +537,7 @@ function nodeMinimapColor(node: { data?: unknown }): ColorToken {
   return data?.color ?? UNKNOWN_KIND_COLOR
 }
 
-function ArchitectureEdge({
-  id,
-  sourceX,
-  sourceY,
-  targetX,
-  targetY,
-  markerEnd,
-  style,
-  data,
-}: EdgeProps) {
+function ArchitectureEdge({ id, sourceX, sourceY, targetX, targetY, markerEnd, style, data }: EdgeProps) {
   const t = useTranslations("map")
   const { screenToFlowPosition } = useReactFlow()
   const edgeData = data as EdgeData | undefined
@@ -669,9 +563,7 @@ function ArchitectureEdge({
     showProgress && progressStatus !== "not_started" ? ` status-${progressStatus}` : ""
   }${isActive ? " active-work" : ""}`
   const foreignClass = `${isSelected || !isDimmed ? "" : " dimmed"}${progressClass}`
-  const floatingClass = `${
-    isSelected ? " selected" : isConnected ? " connected" : ""
-  }${progressClass}`
+  const floatingClass = `${isSelected ? " selected" : isConnected ? " connected" : ""}${progressClass}`
 
   const startLabelDrag = (event: React.PointerEvent<HTMLButtonElement>) => {
     if (!editable || !edgeData) return
@@ -688,17 +580,12 @@ function ArchitectureEdge({
 
     const moveTo = (clientX: number, clientY: number) => {
       const point = screenToFlowPosition({ x: clientX, y: clientY })
-      edgeData.onMoveEdgeLabel(
-        id,
-        projectedEdgeRatio(point, { x: sourceX, y: sourceY }, { x: targetX, y: targetY })
-      )
+      edgeData.onMoveEdgeLabel(id, projectedEdgeRatio(point, { x: sourceX, y: sourceY }, { x: targetX, y: targetY }))
     }
     const onMove = (moveEvent: PointerEvent) => {
       moveEvent.preventDefault()
       if (!didDrag) {
-        didDrag =
-          Math.hypot(moveEvent.clientX - startX, moveEvent.clientY - startY) >=
-          EDGE_LABEL_DRAG_THRESHOLD_PX
+        didDrag = Math.hypot(moveEvent.clientX - startX, moveEvent.clientY - startY) >= EDGE_LABEL_DRAG_THRESHOLD_PX
       }
       if (didDrag) moveTo(moveEvent.clientX, moveEvent.clientY)
     }
@@ -730,23 +617,11 @@ function ArchitectureEdge({
           {isSelected ? (
             <svg className="map-selected-edge-overlay" aria-hidden="true">
               <defs>
-                <marker
-                  id={markerId}
-                  markerHeight="12"
-                  markerUnits="strokeWidth"
-                  markerWidth="12"
-                  orient="auto"
-                  refX="10"
-                  refY="6"
-                >
+                <marker id={markerId} markerHeight="12" markerUnits="strokeWidth" markerWidth="12" orient="auto" refX="10" refY="6">
                   <path d="M2,2 L10,6 L2,10 Z" fill="#0f172a" />
                 </marker>
               </defs>
-              <path
-                className="map-selected-edge-overlay-path"
-                d={edgePath}
-                markerEnd={`url(#${markerId})`}
-              />
+              <path className="map-selected-edge-overlay-path" d={edgePath} markerEnd={`url(#${markerId})`} />
             </svg>
           ) : null}
           <button
@@ -802,10 +677,7 @@ function ClusterBackdrops({
   const [draggingClusterId, setDraggingClusterId] = useState<string | null>(null)
 
   const groups = useMemo(() => {
-    const bounds = new Map<
-      string,
-      { minX: number; minY: number; maxX: number; maxY: number }
-    >()
+    const bounds = new Map<string, { minX: number; minY: number; maxX: number; maxY: number }>()
     for (const node of nodes) {
       const cluster = (node.data as MapNodeData).cluster as string
       const minX = node.position.x
@@ -835,10 +707,7 @@ function ClusterBackdrops({
       .sort((a, b) => b.width * b.height - a.width * a.height)
   }, [nodes])
 
-  const startClusterDrag = (
-    event: React.PointerEvent<HTMLButtonElement>,
-    clusterId: string
-  ) => {
+  const startClusterDrag = (event: React.PointerEvent<HTMLButtonElement>, clusterId: string) => {
     event.preventDefault()
     event.stopPropagation()
     try {
@@ -892,9 +761,7 @@ function ClusterBackdrops({
             {editMode ? (
               <button
                 type="button"
-                className={`map-cluster-handle nodrag nopan${
-                  draggingClusterId === group.id ? " dragging" : ""
-                }`}
+                className={cn("map-cluster-handle nodrag nopan", draggingClusterId === group.id && "dragging")}
                 onPointerDown={(event) => startClusterDrag(event, group.id)}
                 title={t("editToolbar.moveClusterTitle", { clusterLabel: group.label })}
               >

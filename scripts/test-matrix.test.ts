@@ -47,7 +47,9 @@ describe("TEST-MATRIX reconciliation guard", () => {
     const current = computeBehaviorFingerprint()
     if (stamp!.fingerprint !== current) {
       const changed = changedBehaviorFilesSince(stamp!.commit)
-      expect.fail(`behavior sources changed since the last matrix reconciliation (stamped @ ${stamp!.commit.slice(0, 12)}). Reconcile test/TEST-MATRIX.md for these files, then run \`npm run matrix:stamp\`:\n${changed.map((f) => `  - ${f}`).join("\n") || "  (delta unavailable — no git baseline; check your working tree)"}`)
+      expect.fail(
+        `behavior sources changed since the last matrix reconciliation (stamped @ ${stamp!.commit.slice(0, 12)}). Reconcile test/TEST-MATRIX.md for these files, then run \`npm run matrix:stamp\`:\n${changed.map((f) => `  - ${f}`).join("\n") || "  (delta unavailable — no git baseline; check your working tree)"}`
+      )
     }
   })
 
@@ -71,7 +73,10 @@ describe("TEST-MATRIX reconciliation guard", () => {
     for (const area of counted.keys()) {
       if (!table.has(area)) mismatches.push(`${area}: cases exist but area missing from the status table`)
     }
-    const sum = [...table.values()].reduce((acc, r) => ({ cases: acc.cases + r.cases, gaps: acc.gaps + r.gaps, covered: acc.covered + r.covered }), { cases: 0, gaps: 0, covered: 0 })
+    const sum = [...table.values()].reduce(
+      (acc, r) => ({ cases: acc.cases + r.cases, gaps: acc.gaps + r.gaps, covered: acc.covered + r.covered }),
+      { cases: 0, gaps: 0, covered: 0 }
+    )
     if (total && (total.cases !== sum.cases || total.gaps !== sum.gaps || total.covered !== sum.covered)) {
       mismatches.push(`TOTAL row (${total.cases}/${total.gaps}/${total.covered}) != column sums (${sum.cases}/${sum.gaps}/${sum.covered})`)
     }

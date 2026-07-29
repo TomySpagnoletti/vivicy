@@ -49,10 +49,7 @@ function writeFakeExtractionStatus(targetRoot: string): void {
   try {
     const file = path.join(targetRoot, ".vivicy/development/reports/extraction-status.json")
     mkdirSync(path.dirname(file), { recursive: true })
-    writeFileSync(
-      file,
-      `${JSON.stringify({ phase: "green", summary: "extraction green (fake spawn)" }, null, 2)}\n`
-    )
+    writeFileSync(file, `${JSON.stringify({ phase: "green", summary: "extraction green (fake spawn)" }, null, 2)}\n`)
   } catch {
     // Best-effort: the fake path must never throw and break the demo flow.
   }

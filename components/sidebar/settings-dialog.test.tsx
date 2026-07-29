@@ -316,9 +316,7 @@ describe("recommended markers and reset affordance", () => {
     expect(screen.queryByRole("button", { name: "Reset to recommended" })).not.toBeInTheDocument()
 
     const fetchMock = globalThis.fetch as unknown as ReturnType<typeof vi.fn>
-    const putCall = fetchMock.mock.calls.find(
-      ([, init]) => (init as RequestInit | undefined)?.method === "PUT"
-    )
+    const putCall = fetchMock.mock.calls.find(([, init]) => (init as RequestInit | undefined)?.method === "PUT")
     expect(putCall).toBeDefined()
     expect(JSON.parse((putCall![1] as RequestInit).body as string)).toEqual(DEFAULT_SETTINGS)
   })

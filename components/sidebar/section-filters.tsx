@@ -5,13 +5,7 @@ import { useTranslations } from "next-intl"
 
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import type { ArchitectureMapData, ViewMode } from "@/lib/types"
 
@@ -77,17 +71,11 @@ export function SectionFilters({
       </div>
 
       <div className="flex flex-col gap-1.5">
-        <Label
-          htmlFor="map-search"
-          className="text-xs font-medium text-muted-foreground"
-        >
+        <Label htmlFor="map-search" className="text-xs font-medium text-muted-foreground">
           {t("searchLabel")}
         </Label>
         <div className="relative">
-          <Search
-            aria-hidden
-            className="pointer-events-none absolute top-1/2 left-2 size-3.5 -translate-y-1/2 text-muted-foreground"
-          />
+          <Search aria-hidden className="pointer-events-none absolute top-1/2 left-2 size-3.5 -translate-y-1/2 text-muted-foreground" />
           <Input
             id="map-search"
             type="search"
@@ -100,10 +88,7 @@ export function SectionFilters({
       </div>
 
       <div className="flex flex-col gap-1.5">
-        <Label
-          htmlFor="filter-lane"
-          className="text-xs font-medium text-muted-foreground"
-        >
+        <Label htmlFor="filter-lane" className="text-xs font-medium text-muted-foreground">
           {t("laneLabel")}
         </Label>
         <Select value={laneFilter} onValueChange={onLaneFilterChange}>
@@ -122,10 +107,7 @@ export function SectionFilters({
       </div>
 
       <div className="flex flex-col gap-1.5">
-        <Label
-          htmlFor="filter-status"
-          className="text-xs font-medium text-muted-foreground"
-        >
+        <Label htmlFor="filter-status" className="text-xs font-medium text-muted-foreground">
           {t("statusLabel")}
         </Label>
         <Select value={statusFilter} onValueChange={onStatusFilterChange}>
@@ -144,10 +126,7 @@ export function SectionFilters({
       </div>
 
       <div className="flex flex-col gap-1.5">
-        <Label
-          htmlFor="filter-scope"
-          className="text-xs font-medium text-muted-foreground"
-        >
+        <Label htmlFor="filter-scope" className="text-xs font-medium text-muted-foreground">
           {t("scopeLabel")}
         </Label>
         <Select value={scopeFilter} onValueChange={onScopeFilterChange}>

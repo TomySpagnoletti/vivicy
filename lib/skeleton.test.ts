@@ -28,10 +28,7 @@ describe("pruneGitkeeps", () => {
 
     const pruned = pruneGitkeeps(root)
 
-    expect(pruned.sort()).toEqual([
-      ".vivicy/canonical/.gitkeep",
-      ".vivicy/development/reports/.gitkeep",
-    ])
+    expect(pruned.sort()).toEqual([".vivicy/canonical/.gitkeep", ".vivicy/development/reports/.gitkeep"])
     expect(existsSync(path.join(root, ".vivicy/canonical/.gitkeep"))).toBe(false)
     expect(existsSync(path.join(root, ".vivicy/development/reports/.gitkeep"))).toBe(false)
     expect(existsSync(path.join(root, ".vivicy/baselines/.gitkeep"))).toBe(true)

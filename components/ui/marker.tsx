@@ -29,14 +29,7 @@ function Marker({
   }) {
   const Comp = asChild ? Slot.Root : "div"
 
-  return (
-    <Comp
-      data-slot="marker"
-      data-variant={variant}
-      className={cn(markerVariants({ variant, className }))}
-      {...props}
-    />
-  )
+  return <Comp data-slot="marker" data-variant={variant} className={cn(markerVariants({ variant, className }))} {...props} />
 }
 
 function MarkerIcon({ className, ...props }: React.ComponentProps<"span">) {
@@ -44,10 +37,7 @@ function MarkerIcon({ className, ...props }: React.ComponentProps<"span">) {
     <span
       data-slot="marker-icon"
       aria-hidden="true"
-      className={cn(
-        "size-3.5 shrink-0 [&_svg:not([class*='size-'])]:size-3.5",
-        className
-      )}
+      className={cn("size-3.5 shrink-0 [&_svg:not([class*='size-'])]:size-3.5", className)}
       {...props}
     />
   )

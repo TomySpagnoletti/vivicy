@@ -6,10 +6,7 @@ import { AgentsHealthDialog } from "@/components/agents/agents-health-dialog"
 import type { AgentHealth, AgentsHealth } from "@/lib/agents-health-types"
 import { renderWithIntl } from "@/test/render"
 
-function health(overrides?: {
-  claude?: Partial<AgentHealth>
-  codex?: Partial<AgentHealth>
-}): AgentsHealth {
+function health(overrides?: { claude?: Partial<AgentHealth>; codex?: Partial<AgentHealth> }): AgentsHealth {
   const base = (version: string, plan: string): AgentHealth => ({
     present: true,
     version,
@@ -23,12 +20,7 @@ function health(overrides?: {
   }
 }
 
-function stubFetch(opts: {
-  current: AgentsHealth
-  updateBody?: unknown
-  updateStatus?: number
-  updateReject?: boolean
-}) {
+function stubFetch(opts: { current: AgentsHealth; updateBody?: unknown; updateStatus?: number; updateReject?: boolean }) {
   return vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
     const href = String(url)
     if (href.includes("/api/agents/update")) {
@@ -78,12 +70,8 @@ describe("AgentsHealthDialog — dynamic cost note (subscription vs api_key)", (
   test("subscription shows the quota note", async () => {
     vi.stubGlobal("fetch", stubFetch({ current: health() }))
     await openDialog()
-    expect(
-      await screen.findAllByText("Usage counts against your plan quota — no per-token charge.")
-    ).not.toHaveLength(0)
-    expect(
-      screen.queryByText("Billed pay-per-token against your provider API account.")
-    ).not.toBeInTheDocument()
+    expect(await screen.findAllByText("Usage counts against your plan quota — no per-token charge.")).not.toHaveLength(0)
+    expect(screen.queryByText("Billed pay-per-token against your provider API account.")).not.toBeInTheDocument()
   })
 
   test("api_key shows the pay-per-token note (provably dynamic)", async () => {
@@ -93,24 +81,16 @@ describe("AgentsHealthDialog — dynamic cost note (subscription vs api_key)", (
     })
     vi.stubGlobal("fetch", stubFetch({ current: apiKeyHealth }))
     await openDialog()
-    expect(
-      await screen.findAllByText("Billed pay-per-token against your provider API account.")
-    ).not.toHaveLength(0)
-    expect(
-      screen.queryByText("Usage counts against your plan quota — no per-token charge.")
-    ).not.toBeInTheDocument()
+    expect(await screen.findAllByText("Billed pay-per-token against your provider API account.")).not.toHaveLength(0)
+    expect(screen.queryByText("Usage counts against your plan quota — no per-token charge.")).not.toBeInTheDocument()
   })
 
   test("mixed: one subscription, one api_key → BOTH notes render", async () => {
     const mixed = health({ codex: { authMethod: "api_key", plan: null } })
     vi.stubGlobal("fetch", stubFetch({ current: mixed }))
     await openDialog()
-    expect(
-      await screen.findByText("Usage counts against your plan quota — no per-token charge.")
-    ).toBeInTheDocument()
-    expect(
-      screen.getByText("Billed pay-per-token against your provider API account.")
-    ).toBeInTheDocument()
+    expect(await screen.findByText("Usage counts against your plan quota — no per-token charge.")).toBeInTheDocument()
+    expect(screen.getByText("Billed pay-per-token against your provider API account.")).toBeInTheDocument()
   })
 })
 
@@ -166,9 +146,7 @@ describe("AgentsHealthDialog — per-agent Update button", () => {
     expect(screen.getAllByText("Updating…").length).toBeGreaterThan(0)
 
     release()
-    await waitFor(() =>
-      expect(screen.getByRole("button", { name: "Update Codex CLI" })).toBeEnabled()
-    )
+    await waitFor(() => expect(screen.getByRole("button", { name: "Update Codex CLI" })).toBeEnabled())
   })
 
   test("a failed update surfaces the error state honestly", async () => {

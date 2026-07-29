@@ -15,8 +15,7 @@ export interface ProductRunView {
 }
 
 // Loopback / bind-all hosts only — we surface a URL the owner can click on their own machine, never an arbitrary host printed in the log.
-const LOOPBACK_URL_RE =
-  /https?:\/\/(?:localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1?\])(?::\d{2,5})?(?:\/[^\s"'<>)\]]*)?/gi
+const LOOPBACK_URL_RE = /https?:\/\/(?:localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1?\])(?::\d{2,5})?(?:\/[^\s"'<>)\]]*)?/gi
 
 function normalizeLoopbackUrl(url: string): string {
   return url
@@ -36,11 +35,7 @@ function inRange(port: number): boolean {
 }
 
 export function detectPortFromCommand(command: string): number | null {
-  const patterns = [
-    /(?:^|\s)PORT=(\d{2,5})(?=\s|$)/,
-    /(?:^|\s)--port[=\s]+(\d{2,5})(?=\s|$)/,
-    /(?:^|\s)-p[=\s]+(\d{2,5})(?=\s|$)/,
-  ]
+  const patterns = [/(?:^|\s)PORT=(\d{2,5})(?=\s|$)/, /(?:^|\s)--port[=\s]+(\d{2,5})(?=\s|$)/, /(?:^|\s)-p[=\s]+(\d{2,5})(?=\s|$)/]
   for (const re of patterns) {
     const match = command.match(re)
     if (match) {

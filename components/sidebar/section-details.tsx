@@ -6,46 +6,22 @@ import { StatusDot } from "@/components/map/status-dot"
 import { useTranscript } from "@/components/transcript/transcript-modal"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import {
-  asNodeStatus,
-  buildEdgeCounts,
-  buildGraphStatesByRef,
-  buildIssuesByGraphRef,
-  buildProofsByIssue,
-} from "@/lib/map-data"
+import { asNodeStatus, buildEdgeCounts, buildGraphStatesByRef, buildIssuesByGraphRef, buildProofsByIssue } from "@/lib/map-data"
 import { transcriptName } from "@/lib/transcript"
 import type { ArchitectureMapData, MapEdge, MapNode } from "@/lib/types"
 import type { SelectedItem } from "@/components/map/architecture-map"
 
-export function SectionDetails({
-  selected,
-  data,
-}: {
-  selected: SelectedItem
-  data: ArchitectureMapData
-}) {
+export function SectionDetails({ selected, data }: { selected: SelectedItem; data: ArchitectureMapData }) {
   const t = useTranslations("sidebar.details")
 
   if (!selected) {
-    return (
-      <p className="text-xs text-muted-foreground">{t("emptyState")}</p>
-    )
+    return <p className="text-xs text-muted-foreground">{t("emptyState")}</p>
   }
 
-  return selected.type === "node" ? (
-    <NodeDetails node={selected.item} data={data} />
-  ) : (
-    <EdgeDetails edge={selected.item} data={data} />
-  )
+  return selected.type === "node" ? <NodeDetails node={selected.item} data={data} /> : <EdgeDetails edge={selected.item} data={data} />
 }
 
-function NodeDetails({
-  node,
-  data,
-}: {
-  node: MapNode
-  data: ArchitectureMapData
-}) {
+function NodeDetails({ node, data }: { node: MapNode; data: ArchitectureMapData }) {
   const t = useTranslations("sidebar.details")
   const graphRef = node.graph_ref
   const statesByRef = buildGraphStatesByRef(data.development?.graph_item_states)
@@ -61,18 +37,13 @@ function NodeDetails({
     <div className="flex flex-col gap-3 text-xs">
       <div className="flex items-start gap-2">
         <StatusDot status={asNodeStatus(status)} className="mt-1 shrink-0" />
-        <p className="min-w-0 text-sm font-semibold break-words text-foreground">
-          {node.label}
-        </p>
+        <p className="min-w-0 text-sm font-semibold break-words text-foreground">{node.label}</p>
       </div>
 
       <dl className="flex flex-col gap-1.5">
         <Field label={t("idLabel")} value={node.id} mono />
         <Field label={t("graphRefLabel")} value={graphRef} mono />
-        <Field
-          label={t("edgesLabel")}
-          value={t("edgesValue", { count: edgeCount })}
-        />
+        <Field label={t("edgesLabel")} value={t("edgesValue", { count: edgeCount })} />
         <Field label={t("kindLabel")} value={node.kind} />
         <Field label={t("laneLabel")} value={node.lane || unknown} />
         <Field label={t("scopeLabel")} value={node.scope ?? unknown} />
@@ -90,13 +61,7 @@ function NodeDetails({
   )
 }
 
-function EdgeDetails({
-  edge,
-  data,
-}: {
-  edge: MapEdge
-  data: ArchitectureMapData
-}) {
+function EdgeDetails({ edge, data }: { edge: MapEdge; data: ArchitectureMapData }) {
   const t = useTranslations("sidebar.details")
   const graphRef = edge.graph_ref
   const statesByRef = buildGraphStatesByRef(data.development?.graph_item_states)
@@ -132,9 +97,7 @@ function EdgeDetails({
 function Proofs({ issues, data }: { issues: string[]; data: ArchitectureMapData }) {
   const t = useTranslations("sidebar.details")
   const byIssue = buildProofsByIssue(data.development?.proofs)
-  const rows = issues.flatMap((issueId) =>
-    (byIssue.get(issueId) ?? []).map((proof) => ({ issueId, proof }))
-  )
+  const rows = issues.flatMap((issueId) => (byIssue.get(issueId) ?? []).map((proof) => ({ issueId, proof })))
   if (rows.length === 0) return null
   return (
     <div className="flex flex-col gap-1.5">
@@ -149,9 +112,7 @@ function Proofs({ issues, data }: { issues: string[]; data: ArchitectureMapData 
               </Badge>
             </div>
             <p className="text-muted-foreground">
-              {proof.produced
-                ? t("proofProduced", { issue: issueId })
-                : t("proofPending", { issue: issueId })}
+              {proof.produced ? t("proofProduced", { issue: issueId }) : t("proofPending", { issue: issueId })}
             </p>
             <ProofPaths label={t("proofEvidencesLabel")} paths={proof.evidences} />
             <ProofPaths label={t("proofHomeLabel")} paths={[proof.path]} />
@@ -199,13 +160,7 @@ function CoveredBy({ issues }: { issues: string[] }) {
   )
 }
 
-function RefBadges({
-  label,
-  refs,
-}: {
-  label: string
-  refs: string[] | undefined
-}) {
+function RefBadges({ label, refs }: { label: string; refs: string[] | undefined }) {
   if (!refs || refs.length === 0) return null
   return (
     <div className="flex flex-col gap-1.5">
@@ -213,11 +168,7 @@ function RefBadges({
       <ul className="flex flex-col items-start gap-1">
         {refs.map((ref) => (
           <li key={ref} className="max-w-full">
-            <Badge
-              variant="outline"
-              title={ref}
-              className="h-auto max-w-full py-0.5 font-mono break-all whitespace-normal"
-            >
+            <Badge variant="outline" title={ref} className="h-auto max-w-full py-0.5 font-mono break-all whitespace-normal">
               {ref}
             </Badge>
           </li>
@@ -269,15 +220,7 @@ export function TranscriptRefs({ refs }: { refs: string[] }) {
   )
 }
 
-function Field({
-  label,
-  value,
-  mono = false,
-}: {
-  label: string
-  value: string
-  mono?: boolean
-}) {
+function Field({ label, value, mono = false }: { label: string; value: string; mono?: boolean }) {
   return (
     <div className="flex items-baseline justify-between gap-3">
       <dt className="shrink-0 text-muted-foreground">{label}</dt>

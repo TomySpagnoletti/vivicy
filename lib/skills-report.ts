@@ -5,14 +5,7 @@ export const SKILLS_REPORT_FILE = ".vivicy/development/reports/skills-report.jso
 
 export const SKILLS_IN_FLIGHT_PHASES = ["selecting", "auditing", "installing", "removing"] as const
 
-export type SkillsPhase =
-  | "selecting"
-  | "auditing"
-  | "installing"
-  | "removing"
-  | "green"
-  | "failed"
-  | "skipped"
+export type SkillsPhase = "selecting" | "auditing" | "installing" | "removing" | "green" | "failed" | "skipped"
 
 export interface SkillAudit {
   provider: string

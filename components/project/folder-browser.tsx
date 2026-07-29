@@ -41,14 +41,11 @@ export function FolderBrowser({
       try {
         const url = path ? `/api/fs/list?path=${encodeURIComponent(path)}` : "/api/fs/list"
         const res = await fetch(url, { cache: "no-store" })
-        const body = (await res.json().catch(() => ({}))) as
-          | (DirListing & { ok: true })
-          | { ok: false; error?: string; code?: string }
+        const body = (await res.json().catch(() => ({}))) as (DirListing & { ok: true }) | { ok: false; error?: string; code?: string }
         if (!res.ok || body.ok === false) {
           const fallback = ("error" in body && body.error) || t("toast.httpError", { status: res.status })
           toast.error(t("toast.openErrorTitle"), {
-            description:
-              "code" in body && body.code ? errorText(tErrors, `fsBrowse.${body.code}`, fallback) : fallback,
+            description: "code" in body && body.code ? errorText(tErrors, `fsBrowse.${body.code}`, fallback) : fallback,
           })
           return
         }
@@ -129,9 +126,7 @@ export function FolderBrowser({
           <ol className="flex flex-wrap items-center text-xs text-muted-foreground">
             {crumbs.map((crumb, i) => (
               <li key={crumb.path} className="flex items-center">
-                {i > 0 ? (
-                  <ChevronRight aria-hidden className="size-3 shrink-0 text-muted-foreground/50" />
-                ) : null}
+                {i > 0 ? <ChevronRight aria-hidden className="size-3 shrink-0 text-muted-foreground/50" /> : null}
                 <Button
                   type="button"
                   variant="ghost"
@@ -250,17 +245,7 @@ export function FolderBrowser({
   )
 }
 
-function FolderRow({
-  icon,
-  label,
-  onClick,
-  disabled,
-}: {
-  icon: React.ReactNode
-  label: string
-  onClick: () => void
-  disabled: boolean
-}) {
+function FolderRow({ icon, label, onClick, disabled }: { icon: React.ReactNode; label: string; onClick: () => void; disabled: boolean }) {
   return (
     <button
       type="button"

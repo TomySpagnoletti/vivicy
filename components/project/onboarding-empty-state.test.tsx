@@ -2,10 +2,7 @@ import { screen } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, expect, test } from "vitest"
 
-import {
-  useViviPanel,
-  ViviPanelProvider,
-} from "@/components/chat/vivi-panel-context"
+import { useViviPanel, ViviPanelProvider } from "@/components/chat/vivi-panel-context"
 import { OnboardingEmptyState } from "@/components/project/onboarding-empty-state"
 import { __resetPersistedBooleanStoresForTests } from "@/hooks/use-persisted-boolean"
 import { renderWithIntl } from "@/test/render"
@@ -36,9 +33,7 @@ test("renders the insieme brand illustration above the copy, not a decorative ic
     </ViviPanelProvider>
   )
 
-  expect(
-    screen.getByRole("img", { name: "La Nonna and il Nonno" })
-  ).toBeInTheDocument()
+  expect(screen.getByRole("img", { name: "La Nonna and il Nonno" })).toBeInTheDocument()
 })
 
 test("mounting never opens the panel; the icon-free Talk to Vivi button does, and again after a close", async () => {
@@ -50,9 +45,7 @@ test("mounting never opens the panel; the icon-free Talk to Vivi button does, an
     </ViviPanelProvider>
   )
 
-  expect(
-    screen.getByText(/turns your spec into working software/)
-  ).toBeInTheDocument()
+  expect(screen.getByText(/turns your spec into working software/)).toBeInTheDocument()
   expect(screen.getByTestId("panel-open")).toHaveTextContent("false")
 
   const cta = screen.getByRole("button", { name: "Talk to Vivi" })

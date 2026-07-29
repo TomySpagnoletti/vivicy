@@ -61,8 +61,7 @@ describe("SectionWorkflow — full process view", () => {
     renderWithIntl(<SectionWorkflow />)
     await act(() => FakeEventSource.last?.emit(IDLE_STATUS))
 
-    const rendered = () =>
-      [...document.querySelectorAll("[data-stage]")].map((el) => el.getAttribute("data-stage"))
+    const rendered = () => [...document.querySelectorAll("[data-stage]")].map((el) => el.getAttribute("data-stage"))
     await waitFor(() => expect(rendered()).toEqual(WORKFLOW_STAGES.map((stage) => stage.id)))
 
     for (const el of document.querySelectorAll("[data-stage]")) {
@@ -99,10 +98,7 @@ describe("SectionWorkflow — full process view", () => {
   })
 
   test("shows the extraction phase and summary as evidence text for S6 when present", async () => {
-    vi.stubGlobal(
-      "fetch",
-      stubFetch({ phase: "green", summary: "extraction green: 8 issues", updated_at: "2026-07-02T10:00:00Z" })
-    )
+    vi.stubGlobal("fetch", stubFetch({ phase: "green", summary: "extraction green: 8 issues", updated_at: "2026-07-02T10:00:00Z" }))
     renderWithIntl(<SectionWorkflow />)
     await act(() => FakeEventSource.last?.emit(IDLE_STATUS))
 
@@ -122,17 +118,13 @@ describe("SectionWorkflow — full process view", () => {
   test("S9 shows the issue-progress line once issues exist", async () => {
     vi.stubGlobal("fetch", stubFetch({ phase: "green" }))
     renderWithIntl(<SectionWorkflow />)
-    await act(() =>
-      FakeEventSource.last?.emit({ ...IDLE_STATUS, issues_total: 8, issues_done: 3, gates: { pass: 3, fail: 1 } })
-    )
+    await act(() => FakeEventSource.last?.emit({ ...IDLE_STATUS, issues_total: 8, issues_done: 3, gates: { pass: 3, fail: 1 } }))
 
     const s9 = await waitFor(() => document.querySelector('[data-stage="S9"]') as HTMLElement)
     await waitFor(() => expect(s9.textContent).toMatch(/3\/8 issues verified/))
     expect(s9.textContent).toMatch(/1 gate failing/)
 
-    await act(() =>
-      FakeEventSource.last?.emit({ ...IDLE_STATUS, issues_total: 8, issues_done: 3, gates: { pass: 3, fail: 4 } })
-    )
+    await act(() => FakeEventSource.last?.emit({ ...IDLE_STATUS, issues_total: 8, issues_done: 3, gates: { pass: 3, fail: 4 } }))
     await waitFor(() => expect(s9.textContent).toMatch(/4 gates failing/))
   })
 })

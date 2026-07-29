@@ -2,10 +2,7 @@ import { act, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest"
 
-import {
-  extractedGateMessage,
-  ProcessControlBar,
-} from "@/components/sidebar/process-control-bar"
+import { extractedGateMessage, ProcessControlBar } from "@/components/sidebar/process-control-bar"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import type { DevelopmentBlock, DevelopmentIssue } from "@/lib/types"
 import { renderWithIntl } from "@/test/render"

@@ -8,9 +8,7 @@ const { validateLayoutSavePayload, applyLayoutSave } = vi.hoisted(() => ({
 }))
 
 vi.mock("@/lib/map-layout-save", async () => {
-  const actual = await vi.importActual<typeof import("@/lib/map-layout-save")>(
-    "@/lib/map-layout-save"
-  )
+  const actual = await vi.importActual<typeof import("@/lib/map-layout-save")>("@/lib/map-layout-save")
   return { ...actual, validateLayoutSavePayload, applyLayoutSave }
 })
 

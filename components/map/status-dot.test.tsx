@@ -19,15 +19,12 @@ function renderDot(status: NodeStatus | null | undefined) {
 }
 
 describe("StatusDot — status maps to a background token", () => {
-  test.each(Object.entries(EXPECTED_BG))(
-    "%s renders the %s background class",
-    (status, expectedClass) => {
-      const dot = renderDot(status as NodeStatus)
-      expect(dot).toHaveClass(expectedClass)
-      expect(dot).toHaveAttribute("aria-hidden")
-      expect(dot).toHaveClass("rounded-full")
-    }
-  )
+  test.each(Object.entries(EXPECTED_BG))("%s renders the %s background class", (status, expectedClass) => {
+    const dot = renderDot(status as NodeStatus)
+    expect(dot).toHaveClass(expectedClass)
+    expect(dot).toHaveAttribute("aria-hidden")
+    expect(dot).toHaveClass("rounded-full")
+  })
 
   test("null and undefined fall back to the neutral not_started token", () => {
     expect(renderDot(null)).toHaveClass("bg-border")

@@ -108,11 +108,7 @@ describe("normalizeMapData", () => {
         { id: "a", graph_ref: "node:a", layout_x: 0, layout_y: 0 },
         { id: "b", graph_ref: "node:b", layout_x: 0, layout_y: 0 },
       ],
-      edges: [
-        { from: "a", to: "b", graph_ref: "edge:a->b" },
-        { from: "a", to: "ghost", graph_ref: "edge:a->ghost" },
-        { from: "a" },
-      ],
+      edges: [{ from: "a", to: "b", graph_ref: "edge:a->b" }, { from: "a", to: "ghost", graph_ref: "edge:a->ghost" }, { from: "a" }],
     })
     expect(data!.edges).toHaveLength(1)
     expect(data!.edges[0].graph_ref).toBe("edge:a->b")
@@ -200,10 +196,7 @@ describe("edge graph_ref", () => {
 
 describe("buildEdgeCounts", () => {
   it("counts incidence in both directions", () => {
-    const counts = buildEdgeCounts([
-      makeEdge({ from: "a", to: "b" }),
-      makeEdge({ from: "b", to: "c" }),
-    ])
+    const counts = buildEdgeCounts([makeEdge({ from: "a", to: "b" }), makeEdge({ from: "b", to: "c" })])
     expect(counts.get("a")).toBe(1)
     expect(counts.get("b")).toBe(2)
     expect(counts.get("c")).toBe(1)
@@ -282,33 +275,23 @@ describe("issueDisplayStatus", () => {
       { graph_ref: "node:b", status: "blocked" },
       { graph_ref: "node:c", status: "verified" },
     ],
-    active_items: [
-      { id: "ai", issue_id: "ISSUE-ACTIVE", graph_refs: ["node:a"], state: "reviewing" },
-    ],
+    active_items: [{ id: "ai", issue_id: "ISSUE-ACTIVE", graph_refs: ["node:a"], state: "reviewing" }],
   }
 
   it("uses an active item's live state when present", () => {
-    expect(
-      issueDisplayStatus({ id: "ISSUE-ACTIVE", graph_refs: ["node:a"] }, development)
-    ).toBe("reviewing")
+    expect(issueDisplayStatus({ id: "ISSUE-ACTIVE", graph_refs: ["node:a"] }, development)).toBe("reviewing")
   })
 
   it("surfaces blocked over verified across graph items", () => {
-    expect(
-      issueDisplayStatus({ id: "ISSUE-1", graph_refs: ["node:a", "node:b"] }, development)
-    ).toBe("blocked")
+    expect(issueDisplayStatus({ id: "ISSUE-1", graph_refs: ["node:a", "node:b"] }, development)).toBe("blocked")
   })
 
   it("reports verified only when every graph item is verified", () => {
-    expect(
-      issueDisplayStatus({ id: "ISSUE-2", graph_refs: ["node:a", "node:c"] }, development)
-    ).toBe("verified")
+    expect(issueDisplayStatus({ id: "ISSUE-2", graph_refs: ["node:a", "node:c"] }, development)).toBe("verified")
   })
 
   it("defaults to not_started with no graph items", () => {
-    expect(issueDisplayStatus({ id: "ISSUE-3", graph_refs: [] }, development)).toBe(
-      "not_started"
-    )
+    expect(issueDisplayStatus({ id: "ISSUE-3", graph_refs: [] }, development)).toBe("not_started")
   })
 })
 
@@ -334,10 +317,7 @@ describe("issueTranscriptRefs", () => {
         },
       ],
     }
-    const refs = issueTranscriptRefs(
-      { id: "ISSUE-1", graph_refs: ["node:a"] },
-      development
-    )
+    const refs = issueTranscriptRefs({ id: "ISSUE-1", graph_refs: ["node:a"] }, development)
     expect(refs).toContain(".vivicy/development/transcripts/ISSUES/ISSUE-1/claude.jsonl")
     expect(refs).toContain(".vivicy/development/transcripts/ISSUES/ISSUE-1/codex.jsonl")
     expect(refs).not.toContain(".vivicy/development/transcripts/ISSUES/ISSUE-9/other.jsonl")
@@ -346,9 +326,7 @@ describe("issueTranscriptRefs", () => {
 
 describe("formatLineCoverage", () => {
   it("formats the issue-linked percentage", () => {
-    expect(
-      formatLineCoverage({ total_doc_lines: 100, issue_linked_doc_lines: 37 })
-    ).toBe("37.0%")
+    expect(formatLineCoverage({ total_doc_lines: 100, issue_linked_doc_lines: 37 })).toBe("37.0%")
   })
 
   it("returns 0% for missing or empty totals", () => {
@@ -365,10 +343,7 @@ describe("computeVisibleCounts", () => {
       makeNode({ id: "b", graph_ref: "node:b", lane: "y", scope: "future", label: "Beta" }),
       makeNode({ id: "c", graph_ref: "node:c", lane: "x", scope: "mvp", label: "Gamma" }),
     ],
-    edges: [
-      makeEdge({ from: "a", to: "b", graph_ref: "edge:ab" }),
-      makeEdge({ from: "a", to: "c", graph_ref: "edge:ac" }),
-    ],
+    edges: [makeEdge({ from: "a", to: "b", graph_ref: "edge:ab" }), makeEdge({ from: "a", to: "c", graph_ref: "edge:ac" })],
   }
   const base = {
     view: "target" as const,

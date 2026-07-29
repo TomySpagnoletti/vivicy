@@ -56,10 +56,7 @@ function emptyPayload(overrides: Partial<LayoutSavePayload> = {}): LayoutSavePay
 
 describe("patchArchitectureMapLayout — nodes", () => {
   it("rewrites only the moved node's coordinates and preserves everything else", () => {
-    const next = patchArchitectureMapLayout(
-      SOURCE,
-      emptyPayload({ nodes: [{ id: "alpha", layout_x: 120, layout_y: 240 }] })
-    )
+    const next = patchArchitectureMapLayout(SOURCE, emptyPayload({ nodes: [{ id: "alpha", layout_x: 120, layout_y: 240 }] }))
     expect(next).toContain("    layout_x: 120")
     expect(next).toContain("    layout_y: 240")
     expect(next).toContain('    label: "Alpha"')
@@ -70,21 +67,15 @@ describe("patchArchitectureMapLayout — nodes", () => {
   })
 
   it("rounds coordinates to two decimals", () => {
-    const next = patchArchitectureMapLayout(
-      SOURCE,
-      emptyPayload({ nodes: [{ id: "alpha", layout_x: 12.005, layout_y: -7.5 }] })
-    )
+    const next = patchArchitectureMapLayout(SOURCE, emptyPayload({ nodes: [{ id: "alpha", layout_x: 12.005, layout_y: -7.5 }] }))
     expect(next).toContain("    layout_x: 12.01")
     expect(next).toContain("    layout_y: -7.5")
   })
 
   it("rejects an unknown node id", () => {
-    expect(() =>
-      patchArchitectureMapLayout(
-        SOURCE,
-        emptyPayload({ nodes: [{ id: "ghost", layout_x: 1, layout_y: 2 }] })
-      )
-    ).toThrowError(/Unknown node layout patch: ghost/)
+    expect(() => patchArchitectureMapLayout(SOURCE, emptyPayload({ nodes: [{ id: "ghost", layout_x: 1, layout_y: 2 }] }))).toThrowError(
+      /Unknown node layout patch: ghost/
+    )
   })
 
   it("rejects a duplicate node patch", () => {
@@ -121,9 +112,7 @@ describe("patchArchitectureMapLayout — edge labels", () => {
     )
     const lines = next.split("\n")
     const ratioLine = lines.findIndex((l) => l.trim() === "layout_label_ratio: 0.7")
-    const protocolLine = lines.findIndex(
-      (l, i) => l.trim() === 'protocol: "Module call"' && i < ratioLine
-    )
+    const protocolLine = lines.findIndex((l, i) => l.trim() === 'protocol: "Module call"' && i < ratioLine)
     expect(ratioLine).toBeGreaterThan(-1)
     expect(ratioLine).toBe(protocolLine + 1)
   })
@@ -145,7 +134,7 @@ describe("patchArchitectureMapLayout — edge labels", () => {
       })
     )
     expect(next).not.toContain("layout_label_ratio")
-    expect(next).toContain("    relation: \"returns\"")
+    expect(next).toContain('    relation: "returns"')
     expect(next).toContain('    data: ["y"]')
   })
 
@@ -312,9 +301,9 @@ describe("applyLayoutSave", () => {
   })
 
   it("refuses a target with no architecture map", async () => {
-    await expect(
-      applyLayoutSave({ targetRoot: root, payload: emptyPayload(), regenerate: async () => {} })
-    ).rejects.toMatchObject({ code: "no_map" })
+    await expect(applyLayoutSave({ targetRoot: root, payload: emptyPayload(), regenerate: async () => {} })).rejects.toMatchObject({
+      code: "no_map",
+    })
   })
 
   it("refuses to write (and never touches the file) when the kill-switch is off", async () => {

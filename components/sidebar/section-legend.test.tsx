@@ -54,20 +54,12 @@ describe("SectionLegend — title reflects the current view", () => {
 
   test("progress view labels the legend 'Progress colors'", () => {
     renderWithIntl(<SectionLegend view="progress" nodes={NODES} />)
-    expect(
-      screen.getByRole("button", { name: /Legend · Progress colors/ })
-    ).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: /Legend · Progress colors/ })).toBeInTheDocument()
   })
 
   test("progress view, once opened, shows status swatches from the status legend", async () => {
     const user = userEvent.setup()
-    renderWithIntl(
-      <SectionLegend
-        view="progress"
-        nodes={NODES}
-        statusLegend={{ in_progress: "#dbeafe", verified: "#dcfce7" }}
-      />
-    )
+    renderWithIntl(<SectionLegend view="progress" nodes={NODES} statusLegend={{ in_progress: "#dbeafe", verified: "#dcfce7" }} />)
     expect(screen.queryByText("verified")).not.toBeInTheDocument()
 
     await user.click(screen.getByRole("button", { name: /Legend ·/ }))

@@ -26,9 +26,6 @@ export async function PUT(request: Request) {
     if (error instanceof SettingsValidationError) {
       return Response.json({ ok: false, error: error.message }, { status: 400 })
     }
-    return Response.json(
-      { ok: false, error: error instanceof Error ? error.message : "failed to save settings" },
-      { status: 500 }
-    )
+    return Response.json({ ok: false, error: error instanceof Error ? error.message : "failed to save settings" }, { status: 500 })
   }
 }

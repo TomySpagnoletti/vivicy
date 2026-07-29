@@ -1,28 +1,12 @@
 import { createHash } from "node:crypto"
-import {
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  readdirSync,
-  realpathSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs"
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import path from "node:path"
 
 import { strToU8, zipSync } from "fflate"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
-import {
-  importIntoGoverned,
-  mintBatchId,
-  startGovernance,
-  UPLOADS_DIR,
-  type BatchManifest,
-  type RawEntry,
-} from "@/lib/import-docs"
+import { importIntoGoverned, mintBatchId, startGovernance, UPLOADS_DIR, type BatchManifest, type RawEntry } from "@/lib/import-docs"
 import { dominantLanguage } from "@/lib/dominant-language"
 import { GITIGNORE_MARKERS, METHOD_MARKERS } from "@/lib/managed-block"
 import { readNotifications } from "@/lib/notifications"
@@ -42,7 +26,9 @@ let prevTarget: string | undefined
 
 const ENGLISH = "The quick brown fox jumps over the lazy dog near the riverbank every single morning. ".repeat(6)
 const FRENCH =
-  "Le cahier des charges décrit précisément les exigences fonctionnelles du système de gestion des utilisateurs et des commandes pour chaque client. ".repeat(6)
+  "Le cahier des charges décrit précisément les exigences fonctionnelles du système de gestion des utilisateurs et des commandes pour chaque client. ".repeat(
+    6
+  )
 
 function u8(text: string): Uint8Array {
   return new Uint8Array(Buffer.from(text, "utf8"))
@@ -197,14 +183,17 @@ describe("govern-only (zero documents)", () => {
     ]
     for (const [rel, owner, begin, end] of managed) {
       const after = readFileSync(path.join(target, rel), "utf8")
-      expect(after.startsWith(owner), `${rel}: owner content outside the block must be byte-identical (overwrite would fail this)`).toBe(true)
+      expect(after.startsWith(owner), `${rel}: owner content outside the block must be byte-identical (overwrite would fail this)`).toBe(
+        true
+      )
       expect(after.split(begin).length - 1, `${rel}: exactly one managed block`).toBe(1)
       expect(after, `${rel}: the block must be present (dropping the append would fail this)`).toContain(end)
       expect(after.endsWith(`${end}\n`), `${rel}: clean trailing newline after the block`).toBe(true)
     }
-    expect(readFileSync(path.join(target, "AGENTS.md"), "utf8"), "owner prose that merely resembles a marker is preserved verbatim and not treated as a marker").toContain(
-      "We keep a vivicy:method note here by hand — do not touch it."
-    )
+    expect(
+      readFileSync(path.join(target, "AGENTS.md"), "utf8"),
+      "owner prose that merely resembles a marker is preserved verbatim and not treated as a marker"
+    ).toContain("We keep a vivicy:method note here by hand — do not touch it.")
     expect(readFileSync(path.join(target, ".gitignore"), "utf8")).toContain(".vivicy-runtime/")
   })
 
@@ -274,9 +263,9 @@ describe("per-file type filtering", () => {
 
   it("refuses the whole acquisition when documents are supplied but none is supported, before governing", async () => {
     const target = targetPath("all-bad")
-    await expect(
-      startGovernance({ targetDir: target, entries: [fileEntry("a.exe", "x"), fileEntry("b.bin", "y")] })
-    ).rejects.toMatchObject({ code: "no_supported_files" })
+    await expect(startGovernance({ targetDir: target, entries: [fileEntry("a.exe", "x"), fileEntry("b.bin", "y")] })).rejects.toMatchObject(
+      { code: "no_supported_files" }
+    )
     expect(existsSync(target)).toBe(false)
   })
 })
@@ -368,8 +357,22 @@ describe("manifest", () => {
 
   it("dominantLanguage weights by count and breaks ties lexicographically", () => {
     expect(dominantLanguage(new Map())).toBe("und")
-    expect(dominantLanguage(new Map([["fra", 200], ["eng", 100]]))).toBe("fra")
-    expect(dominantLanguage(new Map([["fra", 100], ["eng", 100]]))).toBe("eng")
+    expect(
+      dominantLanguage(
+        new Map([
+          ["fra", 200],
+          ["eng", 100],
+        ])
+      )
+    ).toBe("fra")
+    expect(
+      dominantLanguage(
+        new Map([
+          ["fra", 100],
+          ["eng", 100],
+        ])
+      )
+    ).toBe("eng")
   })
 })
 

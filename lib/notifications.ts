@@ -43,8 +43,7 @@ export function readNotifications(): Notification[] {
     if (!trimmed) continue
     try {
       out.push(JSON.parse(trimmed) as Notification)
-    } catch {
-    }
+    } catch {}
   }
   return out
 }

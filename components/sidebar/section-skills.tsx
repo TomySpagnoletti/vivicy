@@ -94,9 +94,7 @@ export function SectionSkills() {
     <div className="flex flex-col gap-3 text-xs">
       <div className="flex items-center justify-between gap-2">
         <span className="text-muted-foreground">
-          {running
-            ? t("installInProgress", { phase: report?.phase ?? "" })
-            : report?.summary ?? ""}
+          {running ? t("installInProgress", { phase: report?.phase ?? "" }) : (report?.summary ?? "")}
         </span>
         <AlertDialog>
           <AlertDialogTrigger asChild>
@@ -112,9 +110,7 @@ export function SectionSkills() {
             </AlertDialogHeader>
             <AlertDialogFooter>
               <AlertDialogCancel>{t("confirmCancel")}</AlertDialogCancel>
-              <AlertDialogAction onClick={() => void findSkills()}>
-                {t("confirmConfirm")}
-              </AlertDialogAction>
+              <AlertDialogAction onClick={() => void findSkills()}>{t("confirmConfirm")}</AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
@@ -138,20 +134,10 @@ export function SectionSkills() {
 function SkillCard({ skill }: { skill: InstalledSkill }) {
   const t = useTranslations("sidebar.skills")
   return (
-    <li
-      data-skill={skill.id}
-      className="flex flex-col gap-1 rounded-md border border-border bg-card p-2"
-    >
+    <li data-skill={skill.id} className="flex flex-col gap-1 rounded-md border border-border bg-card p-2">
       <div className="flex items-center gap-1.5">
-        <span className="min-w-0 flex-1 truncate font-medium text-foreground">
-          {skill.name}
-        </span>
-        <Badge
-          className={cn(
-            "shrink-0 text-white",
-            skill.official ? "bg-status-verified" : "bg-status-implemented"
-          )}
-        >
+        <span className="min-w-0 flex-1 truncate font-medium text-foreground">{skill.name}</span>
+        <Badge className={cn("shrink-0 text-white", skill.official ? "bg-status-verified" : "bg-status-implemented")}>
           {skill.official ? t("official") : t("community")}
         </Badge>
       </div>

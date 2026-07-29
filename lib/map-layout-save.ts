@@ -26,13 +26,7 @@ export interface LayoutSavePayload {
   edgeLabels: EdgeLabelLayoutPatch[]
 }
 
-export type LayoutSaveErrorCode =
-  | "read_only"
-  | "no_target"
-  | "no_map"
-  | "invalid_payload"
-  | "patch_failed"
-  | "regen_failed"
+export type LayoutSaveErrorCode = "read_only" | "no_target" | "no_map" | "invalid_payload" | "patch_failed" | "regen_failed"
 
 export class LayoutSaveError extends Error {
   constructor(
@@ -57,10 +51,7 @@ interface YamlRecord {
 
 export function validateLayoutSavePayload(input: unknown): LayoutSavePayload {
   if (!isRecord(input) || !Array.isArray(input.nodes) || !Array.isArray(input.edgeLabels)) {
-    throw new LayoutSaveError(
-      "Layout save payload must define nodes and edgeLabels arrays.",
-      "invalid_payload"
-    )
+    throw new LayoutSaveError("Layout save payload must define nodes and edgeLabels arrays.", "invalid_payload")
   }
   return {
     nodes: input.nodes.map(validateNodeLayoutPatch),
@@ -69,16 +60,8 @@ export function validateLayoutSavePayload(input: unknown): LayoutSavePayload {
 }
 
 function validateNodeLayoutPatch(input: unknown): NodeLayoutPatch {
-  if (
-    !isRecord(input) ||
-    typeof input.id !== "string" ||
-    !Number.isFinite(input.layout_x) ||
-    !Number.isFinite(input.layout_y)
-  ) {
-    throw new LayoutSaveError(
-      "Every node layout patch must define id, layout_x, and layout_y.",
-      "invalid_payload"
-    )
+  if (!isRecord(input) || typeof input.id !== "string" || !Number.isFinite(input.layout_x) || !Number.isFinite(input.layout_y)) {
+    throw new LayoutSaveError("Every node layout patch must define id, layout_x, and layout_y.", "invalid_payload")
   }
   return {
     id: input.id,
@@ -169,10 +152,7 @@ function applyLayoutPatch(source: string, payload: LayoutSavePayload): string {
   }
   if (patchedNodeIds.size !== nodePatches.size) {
     const missing = [...nodePatches.keys()].filter((id) => !patchedNodeIds.has(id))
-    throw new LayoutSaveError(
-      `Cannot save layout: node records were not patched: ${missing.join(", ")}`,
-      "patch_failed"
-    )
+    throw new LayoutSaveError(`Cannot save layout: node records were not patched: ${missing.join(", ")}`, "patch_failed")
   }
 
   // Iterate in reverse: node patches never change line count, but a splice here would shift indices for not-yet-processed records if we went forward.
@@ -187,13 +167,7 @@ function applyLayoutPatch(source: string, payload: LayoutSavePayload): string {
       removeRecordValue(lines, record, "layout_label_ratio")
       continue
     }
-    replaceOrInsertRecordValue(
-      lines,
-      record,
-      "layout_label_ratio",
-      formatRatio(patch.layout_label_ratio),
-      "protocol"
-    )
+    replaceOrInsertRecordValue(lines, record, "layout_label_ratio", formatRatio(patch.layout_label_ratio), "protocol")
   }
 
   return lines.join("\n")
@@ -204,16 +178,8 @@ function assertSameEdge(index: number, record: YamlRecord, patch: EdgeLabelLayou
   const to = unquoteYamlValue(record.values.to)
   const relation = unquoteYamlValue(record.values.relation)
   const protocol = unquoteYamlValue(record.values.protocol)
-  if (
-    from !== patch.from ||
-    to !== patch.to ||
-    relation !== patch.relation ||
-    protocol !== patch.protocol
-  ) {
-    throw new LayoutSaveError(
-      `Cannot save edge label ${index}: payload does not match architecture-map.yml.`,
-      "patch_failed"
-    )
+  if (from !== patch.from || to !== patch.to || relation !== patch.relation || protocol !== patch.protocol) {
+    throw new LayoutSaveError(`Cannot save edge label ${index}: payload does not match architecture-map.yml.`, "patch_failed")
   }
 }
 
@@ -283,21 +249,12 @@ function parseRecordLine(line: string): [string, string] | null {
 function replaceRecordValue(lines: string[], record: YamlRecord, key: string, value: string): void {
   const lineIndex = record.keyLines.get(key)
   if (lineIndex === undefined) {
-    throw new LayoutSaveError(
-      `Cannot save layout: missing ${key} for record at line ${record.start + 1}.`,
-      "patch_failed"
-    )
+    throw new LayoutSaveError(`Cannot save layout: missing ${key} for record at line ${record.start + 1}.`, "patch_failed")
   }
   lines[lineIndex] = `    ${key}: ${value}`
 }
 
-function replaceOrInsertRecordValue(
-  lines: string[],
-  record: YamlRecord,
-  key: string,
-  value: string,
-  insertAfterKey: string
-): void {
+function replaceOrInsertRecordValue(lines: string[], record: YamlRecord, key: string, value: string, insertAfterKey: string): void {
   const lineIndex = record.keyLines.get(key)
   if (lineIndex !== undefined) {
     lines[lineIndex] = `    ${key}: ${value}`
@@ -330,9 +287,7 @@ function formatRatio(value: number): string {
   return Number(value.toFixed(4)).toString()
 }
 
-export function isLayoutWriteEnabled(
-  env: Record<string, string | undefined> = process.env
-): boolean {
+export function isLayoutWriteEnabled(env: Record<string, string | undefined> = process.env): boolean {
   const flag = env.VIVICY_MAP_LAYOUT_WRITE
   if (flag === undefined) return true
   const normalized = flag.trim().toLowerCase()
@@ -361,12 +316,7 @@ async function regenerateViewerData(targetRoot: string): Promise<void> {
       { cwd: factoryRoot, env: { ...process.env, VIVICY_TARGET_ROOT: targetRoot } },
       (error, _stdout, stderr) => {
         if (error) {
-          reject(
-            new LayoutSaveError(
-              `viewer-data regeneration failed: ${stderr.trim() || error.message}`,
-              "regen_failed"
-            )
-          )
+          reject(new LayoutSaveError(`viewer-data regeneration failed: ${stderr.trim() || error.message}`, "regen_failed"))
         } else {
           resolve()
         }
@@ -381,14 +331,9 @@ export interface LayoutSaveOptions {
   regenerate?: (targetRoot: string) => Promise<void>
 }
 
-export async function applyLayoutSave(
-  options: LayoutSaveOptions
-): Promise<{ ok: true; mapPath: string }> {
+export async function applyLayoutSave(options: LayoutSaveOptions): Promise<{ ok: true; mapPath: string }> {
   if (!isLayoutWriteEnabled()) {
-    throw new LayoutSaveError(
-      "Layout saving is disabled (VIVICY_MAP_LAYOUT_WRITE is off); the architecture map is read-only.",
-      "read_only"
-    )
+    throw new LayoutSaveError("Layout saving is disabled (VIVICY_MAP_LAYOUT_WRITE is off); the architecture map is read-only.", "read_only")
   }
   const targetRoot = options.targetRoot ?? getTargetRoot()
   if (!targetRoot || !existsSync(targetRoot)) {
@@ -411,10 +356,7 @@ export async function applyLayoutSave(
     writeFileSync(mapPath, original)
     throw error instanceof LayoutSaveError
       ? error
-      : new LayoutSaveError(
-          error instanceof Error ? error.message : "viewer-data regeneration failed",
-          "regen_failed"
-        )
+      : new LayoutSaveError(error instanceof Error ? error.message : "viewer-data regeneration failed", "regen_failed")
   }
 
   return { ok: true, mapPath }

@@ -2,18 +2,20 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import type { GovernanceResult } from "@/lib/import-docs"
 
-const { startGovernance, seedViviWelcome, appendCardTurn, dispatchImportRead, getSpawner, WELCOME_IMPORT_CARD, SPAWNER } = vi.hoisted(() => {
-  const SPAWNER = { id: "fake-spawner" }
-  return {
-    startGovernance: vi.fn(),
-    seedViviWelcome: vi.fn(),
-    appendCardTurn: vi.fn(),
-    dispatchImportRead: vi.fn(async () => true),
-    getSpawner: vi.fn(() => SPAWNER),
-    WELCOME_IMPORT_CARD: { id: "welcome-import-docs", title: "T", actions: [] },
-    SPAWNER,
+const { startGovernance, seedViviWelcome, appendCardTurn, dispatchImportRead, getSpawner, WELCOME_IMPORT_CARD, SPAWNER } = vi.hoisted(
+  () => {
+    const SPAWNER = { id: "fake-spawner" }
+    return {
+      startGovernance: vi.fn(),
+      seedViviWelcome: vi.fn(),
+      appendCardTurn: vi.fn(),
+      dispatchImportRead: vi.fn(async () => true),
+      getSpawner: vi.fn(() => SPAWNER),
+      WELCOME_IMPORT_CARD: { id: "welcome-import-docs", title: "T", actions: [] },
+      SPAWNER,
+    }
   }
-})
+)
 
 vi.mock("@/lib/import-docs", async () => {
   const actual = await vi.importActual<typeof import("@/lib/import-docs")>("@/lib/import-docs")
@@ -46,10 +48,7 @@ const WITH_DOCS: GovernanceResult = {
 }
 
 // The route only calls request.formData(); a real multipart round-trip is fragile across the jsdom/undici global split, so stub the parsed form directly.
-function postForm(
-  fields: Record<string, string>,
-  files: Array<{ name: string; content: string }> = []
-): Request {
+function postForm(fields: Record<string, string>, files: Array<{ name: string; content: string }> = []): Request {
   const form = new FormData()
   for (const [key, value] of Object.entries(fields)) form.append(key, value)
   for (const file of files) {
@@ -106,7 +105,10 @@ describe("POST /api/project/govern", () => {
     seedViviWelcome.mockReturnValue("session-3")
     let settle: () => void = () => {}
     dispatchImportRead.mockImplementationOnce(
-      () => new Promise<boolean>((resolve) => { settle = () => resolve(true) })
+      () =>
+        new Promise<boolean>((resolve) => {
+          settle = () => resolve(true)
+        })
     )
 
     const res = await POST(postForm({ targetDir: "/abs/new" }, [{ name: "spec.md", content: "hello" }]))

@@ -81,20 +81,10 @@ export function __resetPanelStateStoreForTests(): void {
 }
 
 export function usePanelState() {
-  const state = useSyncExternalStore(
-    subscribe,
-    getPanelStateSnapshot,
-    getPanelStateServerSnapshot
-  )
+  const state = useSyncExternalStore(subscribe, getPanelStateSnapshot, getPanelStateServerSnapshot)
 
-  const cycle = useCallback(
-    () => setPanelState(CYCLE[getPanelStateSnapshot()]),
-    []
-  )
-  const setOpen = useCallback(
-    (nextOpen: boolean) => setPanelState(nextOpen ? "peek" : "closed"),
-    []
-  )
+  const cycle = useCallback(() => setPanelState(CYCLE[getPanelStateSnapshot()]), [])
+  const setOpen = useCallback((nextOpen: boolean) => setPanelState(nextOpen ? "peek" : "closed"), [])
 
   const open = state !== "closed"
   const width = PANEL_WIDTHS[state === "closed" ? "peek" : state]

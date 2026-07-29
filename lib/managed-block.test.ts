@@ -1,11 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import {
-  ensureManagedBlock,
-  GITIGNORE_MARKERS,
-  METHOD_MARKERS,
-  type ManagedSpec,
-} from "@/lib/managed-block"
+import { ensureManagedBlock, GITIGNORE_MARKERS, METHOD_MARKERS, type ManagedSpec } from "@/lib/managed-block"
 
 const MARKERS = { begin: "<!-- b -->", end: "<!-- e -->" }
 const BLOCK = `${MARKERS.begin}\ncanonical line\n${MARKERS.end}`
@@ -142,9 +137,21 @@ describe("ensureManagedBlock — damaged markers self-repair, never block", () =
     { name: "begin without end", current: `head\n${MARKERS.begin}\nx\ny\n`, owner: "head\nx\ny\n" },
     { name: "end without begin", current: `head\nx\n${MARKERS.end}\ntail\n`, owner: "head\nx\ntail\n" },
     { name: "end before begin", current: `${MARKERS.end}\nx\n${MARKERS.begin}\n`, owner: "x\n" },
-    { name: "two whole blocks around owner prose", current: `${MARKERS.begin}\nA\n${MARKERS.end}\nmine\n${MARKERS.begin}\nB\n${MARKERS.end}\n`, owner: "mine\n" },
-    { name: "a stray begin above a real block — the owner lines between the two begins are NOT swallowed", current: `keep1\n${MARKERS.begin}\nkeep2\n${MARKERS.begin}\nblock\n${MARKERS.end}\n`, owner: "keep1\nkeep2\n" },
-    { name: "nested begins with two ends pair innermost-first, the outer line survives", current: `${MARKERS.begin}\nkeep\n${MARKERS.begin}\nblock\n${MARKERS.end}\n${MARKERS.end}\n`, owner: "keep\n" },
+    {
+      name: "two whole blocks around owner prose",
+      current: `${MARKERS.begin}\nA\n${MARKERS.end}\nmine\n${MARKERS.begin}\nB\n${MARKERS.end}\n`,
+      owner: "mine\n",
+    },
+    {
+      name: "a stray begin above a real block — the owner lines between the two begins are NOT swallowed",
+      current: `keep1\n${MARKERS.begin}\nkeep2\n${MARKERS.begin}\nblock\n${MARKERS.end}\n`,
+      owner: "keep1\nkeep2\n",
+    },
+    {
+      name: "nested begins with two ends pair innermost-first, the outer line survives",
+      current: `${MARKERS.begin}\nkeep\n${MARKERS.begin}\nblock\n${MARKERS.end}\n${MARKERS.end}\n`,
+      owner: "keep\n",
+    },
   ]
   for (const { name, current, owner } of cases) {
     it(`${name} → residues cleaned, one pristine block restored, owner lines byte-preserved`, () => {
@@ -191,9 +198,7 @@ describe("ensureManagedBlock — totality is exhaustive, not sampled", () => {
       if (b === undefined || ends.find((candidate) => candidate > b) !== e) continue
       for (let i = b; i <= e; i += 1) owned.add(i)
     }
-    return lines.filter(
-      (line, i) => !owned.has(i) && line !== MARKERS.begin && line !== MARKERS.end && line.trim().length > 0
-    )
+    return lines.filter((line, i) => !owned.has(i) && line !== MARKERS.begin && line !== MARKERS.end && line.trim().length > 0)
   }
 
   function* arrangements(): Generator<string> {
@@ -214,8 +219,14 @@ describe("ensureManagedBlock — totality is exhaustive, not sampled", () => {
       const out = apply(input)
       const outLines = out.split("\n").map(bare)
       const why = JSON.stringify(input)
-      expect(outLines.filter((line) => line === MARKERS.begin), `one begin marker for ${why}`).toHaveLength(1)
-      expect(outLines.filter((line) => line === MARKERS.end), `one end marker for ${why}`).toHaveLength(1)
+      expect(
+        outLines.filter((line) => line === MARKERS.begin),
+        `one begin marker for ${why}`
+      ).toHaveLength(1)
+      expect(
+        outLines.filter((line) => line === MARKERS.end),
+        `one end marker for ${why}`
+      ).toHaveLength(1)
       expect(outLines.indexOf(MARKERS.begin), `begin before end for ${why}`).toBeLessThan(outLines.indexOf(MARKERS.end))
       expect(out, `canonical block content for ${why}`).toContain(BLOCK)
       expect(apply(out), `fixpoint for ${why}`).toBe(out)

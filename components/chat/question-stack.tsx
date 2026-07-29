@@ -4,22 +4,13 @@ import { useEffect, useId, useRef, useState } from "react"
 import { CircleAlert, CornerDownLeft, Loader2 } from "lucide-react"
 import { useTranslations } from "next-intl"
 
-import {
-  MAX_OTHER_ANSWER_LENGTH,
-  type ViviQuestion,
-  type ViviQuestionStack,
-} from "@/lib/vivi-questions"
+import { MAX_OTHER_ANSWER_LENGTH, type ViviQuestion, type ViviQuestionStack } from "@/lib/vivi-questions"
 import { cn } from "@/lib/utils"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Marker, MarkerContent, MarkerIcon } from "@/components/ui/marker"
-import {
-  MenuCard,
-  MenuCardActions,
-  MenuCardPile,
-  MenuCardTitle,
-} from "@/components/chat/menu-card"
+import { MenuCard, MenuCardActions, MenuCardPile, MenuCardTitle } from "@/components/chat/menu-card"
 
 export interface QuestionAnswerOutcome {
   remaining: number
@@ -63,9 +54,7 @@ export function QuestionStack({
 
   const answer = async (key: string, payload: { optionIndex?: number; other?: string }) => {
     if (pending !== null || active === undefined) return
-    const held =
-      document.activeElement === document.body ||
-      rootRef.current?.contains(document.activeElement) === true
+    const held = document.activeElement === document.body || rootRef.current?.contains(document.activeElement) === true
     setPending(key)
     setError(null)
     try {
@@ -108,7 +97,7 @@ export function QuestionStack({
         <MenuCard
           key={active.id}
           eyebrow={t("questionCounter", { index, total })}
-          className="motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-1 motion-safe:duration-300"
+          className="motion-safe:animate-in motion-safe:duration-300 motion-safe:fade-in motion-safe:slide-in-from-bottom-1"
         >
           <MenuCardTitle id={titleId}>{active.question}</MenuCardTitle>
 
@@ -162,10 +151,7 @@ export function QuestionStack({
                 variant="ghost"
                 aria-disabled={busy || draft.trim().length === 0}
                 aria-label={t("questionOtherSubmit")}
-                className={cn(
-                  "shrink-0 text-muted-foreground",
-                  (busy || draft.trim().length === 0) && "opacity-60"
-                )}
+                className={cn("shrink-0 text-muted-foreground", (busy || draft.trim().length === 0) && "opacity-60")}
               >
                 {pending === OTHER_KEY ? <Loader2 className="animate-spin" /> : <CornerDownLeft />}
               </Button>

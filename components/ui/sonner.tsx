@@ -17,7 +17,7 @@ const variantColorVars = Object.fromEntries(
     [`--${variant}-bg`, `color-mix(in oklab, var(${token}) 12%, var(--popover))`],
     [`--${variant}-border`, `color-mix(in oklab, var(${token}) 38%, var(--popover))`],
     [`--${variant}-text`, `color-mix(in oklab, var(${token}) 70%, var(--foreground))`],
-  ]),
+  ])
 )
 
 // Centred on the CANVAS, not the viewport: the stack is shifted by half the live rail width (0 while the rail is undocked — below `md`, or panel closed) so it can never overlap the process control bar it announces — see AGENTS.md "Platform traps".
@@ -33,21 +33,11 @@ const Toaster = ({ ...props }: ToasterProps) => {
       richColors
       toastOptions={{ classNames: { icon: "size-6!" } }}
       icons={{
-        success: (
-          <CircleCheckIcon className="size-6" />
-        ),
-        info: (
-          <InfoIcon className="size-6" />
-        ),
-        warning: (
-          <TriangleAlertIcon className="size-6" />
-        ),
-        error: (
-          <OctagonXIcon className="size-6" />
-        ),
-        loading: (
-          <Loader2Icon className="size-6 animate-spin" />
-        ),
+        success: <CircleCheckIcon className="size-6" />,
+        info: <InfoIcon className="size-6" />,
+        warning: <TriangleAlertIcon className="size-6" />,
+        error: <OctagonXIcon className="size-6" />,
+        loading: <Loader2Icon className="size-6 animate-spin" />,
       }}
       style={
         {

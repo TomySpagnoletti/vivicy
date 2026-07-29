@@ -20,9 +20,6 @@ export async function POST() {
       const status = error.code === "already_running" ? 409 : 422
       return Response.json({ ok: false, error: error.message, code: error.code }, { status })
     }
-    return Response.json(
-      { ok: false, error: error instanceof Error ? error.message : "start failed" },
-      { status: 500 }
-    )
+    return Response.json({ ok: false, error: error instanceof Error ? error.message : "start failed" }, { status: 500 })
   }
 }

@@ -9,13 +9,7 @@ type PlatformPath = typeof path.posix
 export class FsBrowseError extends Error {
   constructor(
     message: string,
-    readonly code:
-      | "not_absolute"
-      | "not_found"
-      | "not_a_directory"
-      | "unsafe"
-      | "invalid_name"
-      | "exists"
+    readonly code: "not_absolute" | "not_found" | "not_a_directory" | "unsafe" | "invalid_name" | "exists"
   ) {
     super(message)
     this.name = "FsBrowseError"

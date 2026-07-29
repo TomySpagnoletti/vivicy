@@ -48,12 +48,7 @@ const VIVICY_CONFIG_FILENAME = "vivicy.json"
 export class ScaffoldError extends Error {
   constructor(
     message: string,
-    readonly code:
-      | "not_absolute"
-      | "not_a_directory"
-      | "invalid_name"
-      | "templates_missing"
-      | "unsupported_encoding",
+    readonly code: "not_absolute" | "not_a_directory" | "invalid_name" | "templates_missing" | "unsupported_encoding",
     // The same refusal without its subject, for the surfaces that already name the file; carried, never parsed back out of the message.
     readonly detail?: string
   ) {
@@ -479,10 +474,8 @@ function writeManaged(abs: string, spec: ManagedSpec): string | null {
 }
 
 const MANAGED_SPECS: Record<ManagedGovernanceFile, (projectName: string) => ManagedSpec> = {
-  "AGENTS.md": (projectName) =>
-    managedSpec(renderTemplate("AGENTS.md", { [PROJECT_NAME_TOKEN]: projectName }), METHOD_MARKERS),
-  "CLAUDE.md": (projectName) =>
-    managedSpec(renderTemplate("CLAUDE.md", { [PROJECT_NAME_TOKEN]: projectName }), METHOD_MARKERS),
+  "AGENTS.md": (projectName) => managedSpec(renderTemplate("AGENTS.md", { [PROJECT_NAME_TOKEN]: projectName }), METHOD_MARKERS),
+  "CLAUDE.md": (projectName) => managedSpec(renderTemplate("CLAUDE.md", { [PROJECT_NAME_TOKEN]: projectName }), METHOD_MARKERS),
   ".gitignore": () => managedSpec(gitignore(), GITIGNORE_MARKERS),
 }
 
@@ -529,8 +522,7 @@ function announceRenormalization(root: string, written: string[], failures: Mana
           .join("; ")}. Fix ${countForm(failures.length, "it", "them")} and reopen the project to retry.`,
       })
     }
-  } catch {
-  }
+  } catch {}
 }
 
 export function renormalizeManagedFiles(root: string): ManagedRenormalization {
@@ -589,8 +581,7 @@ export function scaffoldProject(input: { targetDir: unknown; projectName: unknow
   }
 
   // Must run after .gitignore is written above — otherwise this git add -A would pick up node_modules/logs/runtime noise.
-  const gitResult =
-    mode === "from_scratch" ? initFromScratchRepo(target, placeholder) : { initialized: false, committed: false }
+  const gitResult = mode === "from_scratch" ? initFromScratchRepo(target, placeholder) : { initialized: false, committed: false }
 
   const project = setCurrentProject(target)
 

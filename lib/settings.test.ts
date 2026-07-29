@@ -194,15 +194,9 @@ describe("fast-mode validation", () => {
   })
 
   it("isAgentCompatible rejects an impossible fast/effort combo", () => {
-    expect(
-      isAgentCompatible({ provider: "claude", model: "claude-opus-4-5", effort: "high", fast: true })
-    ).toBe(false)
-    expect(
-      isAgentCompatible({ provider: "codex", model: "gpt-5.3-codex-spark", effort: "high", fast: false })
-    ).toBe(false)
-    expect(
-      isAgentCompatible({ provider: "claude", model: "claude-opus-4-8", effort: "xhigh", fast: true })
-    ).toBe(true)
+    expect(isAgentCompatible({ provider: "claude", model: "claude-opus-4-5", effort: "high", fast: true })).toBe(false)
+    expect(isAgentCompatible({ provider: "codex", model: "gpt-5.3-codex-spark", effort: "high", fast: false })).toBe(false)
+    expect(isAgentCompatible({ provider: "claude", model: "claude-opus-4-8", effort: "xhigh", fast: true })).toBe(true)
   })
 })
 

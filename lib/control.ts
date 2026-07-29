@@ -21,23 +21,11 @@ import type { ActiveCycle, CyclesView, PastCycle } from "@/lib/cycles"
 import type { CycleKind } from "@/lib/doc-prep-report"
 import { settingsToEnv } from "@/lib/settings"
 import { readSettings } from "@/lib/settings-store"
-import {
-  SKILLS_IN_FLIGHT_PHASES,
-  SKILLS_REPORT_FILE,
-  type SkillsReport,
-} from "@/lib/skills-report"
-import {
-  DOC_PREP_IN_FLIGHT_PHASES,
-  DOC_PREP_REPORT_FILE,
-  type DocPrepReport,
-} from "@/lib/doc-prep-report"
+import { SKILLS_IN_FLIGHT_PHASES, SKILLS_REPORT_FILE, type SkillsReport } from "@/lib/skills-report"
+import { DOC_PREP_IN_FLIGHT_PHASES, DOC_PREP_REPORT_FILE, type DocPrepReport } from "@/lib/doc-prep-report"
 import { ACCEPTANCE_REPORT_FILE, type AcceptanceReport } from "@/lib/acceptance-report"
 import { RETRO_REPORT_FILE, type RetroReport } from "@/lib/retro-report"
-import {
-  deriveProductRunUrl,
-  normalizeRunCommandValue,
-  type ProductRunView,
-} from "@/lib/product-run"
+import { deriveProductRunUrl, normalizeRunCommandValue, type ProductRunView } from "@/lib/product-run"
 import { canonicalHasSpecDoc, getTargetRoot } from "@/lib/target"
 
 export interface DetachedHandle {
@@ -196,10 +184,7 @@ function assertInside(root: string, child: string): string {
 function resolveScript(factoryRoot: string, relativeScript: string): string {
   const abs = assertInside(factoryRoot, relativeScript)
   if (!existsSync(abs)) {
-    throw new ControlError(
-      `factory script not found: ${relativeScript} (looked under ${factoryRoot})`,
-      "missing_script"
-    )
+    throw new ControlError(`factory script not found: ${relativeScript} (looked under ${factoryRoot})`, "missing_script")
   }
   return abs
 }
@@ -277,10 +262,7 @@ function resolveContext(): ControlContext {
   return { factoryRoot: getFactoryRoot(), targetRoot }
 }
 
-export function startSupervisor(
-  spawner: Spawner,
-  mode: "start" | "resume" = "start"
-): RunState {
+export function startSupervisor(spawner: Spawner, mode: "start" | "resume" = "start"): RunState {
   const { factoryRoot, targetRoot } = resolveContext()
 
   if (!existsSync(targetRoot)) {
@@ -320,10 +302,7 @@ export function startSupervisor(
     })
   } catch (error) {
     clearRunState()
-    throw new ControlError(
-      `failed to spawn supervisor: ${error instanceof Error ? error.message : String(error)}`,
-      "spawn_failed"
-    )
+    throw new ControlError(`failed to spawn supervisor: ${error instanceof Error ? error.message : String(error)}`, "spawn_failed")
   }
 
   state.pid = handle.pid
@@ -341,10 +320,7 @@ export function openSpecCycle(spawner: Spawner, openedBy: string): SpecCycle {
     throw new ControlError(refusal.reason, "cycle_state")
   }
   if (isRunActive(spawner)) {
-    throw new ControlError(
-      "a supervised run is active — stop it (or let it finish) before opening a spec cycle",
-      "already_running"
-    )
+    throw new ControlError("a supervised run is active — stop it (or let it finish) before opening a spec cycle", "already_running")
   }
   const cycle: SpecCycle = {
     status: "drafting",
@@ -447,8 +423,7 @@ function toPastCycle(manifest: FrozenManifestLite): PastCycle {
     version: typeof manifest.version === "string" ? manifest.version : "",
     kind: toCycleKind(manifest.spec_kind),
     approval_ref: typeof manifest.approval?.approval_ref === "string" ? manifest.approval.approval_ref : null,
-    closed_at:
-      typeof approvedAt === "string" ? approvedAt : typeof generatedAt === "string" ? generatedAt : null,
+    closed_at: typeof approvedAt === "string" ? approvedAt : typeof generatedAt === "string" ? generatedAt : null,
     superseded: Boolean(manifest.superseded),
   }
 }
@@ -635,10 +610,7 @@ export function startProductRun(spawner: Spawner): ProductRunState {
     })
   } catch (error) {
     clearProductRunState(targetRoot)
-    throw new ControlError(
-      `failed to start the product: ${error instanceof Error ? error.message : String(error)}`,
-      "spawn_failed"
-    )
+    throw new ControlError(`failed to start the product: ${error instanceof Error ? error.message : String(error)}`, "spawn_failed")
   }
 
   state.pid = handle.pid
@@ -701,9 +673,7 @@ export function readProductRun(spawner: Spawner): ProductRunView {
   }
 }
 
-export async function readDevStatus(
-  spawner: Spawner
-): Promise<DevStatus & { run_active: boolean }> {
+export async function readDevStatus(spawner: Spawner): Promise<DevStatus & { run_active: boolean }> {
   const { factoryRoot, targetRoot } = resolveContext()
   if (!existsSync(targetRoot)) {
     throw new ControlError(`target root does not exist: ${targetRoot}`, "missing_target")
@@ -721,10 +691,7 @@ export async function readDevStatus(
   try {
     parsed = JSON.parse(result.stdout) as DevStatus
   } catch {
-    throw new ControlError(
-      `dev-status did not return JSON (exit ${result.code}): ${result.stderr || result.lastLine}`,
-      "spawn_failed"
-    )
+    throw new ControlError(`dev-status did not return JSON (exit ${result.code}): ${result.stderr || result.lastLine}`, "spawn_failed")
   }
   return { ...parsed, run_active: isRunActive(spawner) }
 }
@@ -759,8 +726,7 @@ export async function runExtract(spawner: Spawner): Promise<ExtractResult> {
     env: devEnv(targetRoot),
   })
 
-  const lastLine =
-    result.lastLine || result.stderr.trim().split("\n").filter(Boolean).at(-1) || ""
+  const lastLine = result.lastLine || result.stderr.trim().split("\n").filter(Boolean).at(-1) || ""
 
   const status = readExtractionStatus(targetRoot)
   const blocked = status?.phase === "extraction_blocked"
@@ -904,10 +870,7 @@ export interface SkillsInstallStart {
   ids: string[]
 }
 
-export function startSkillsInstall(
-  spawner: Spawner,
-  opts: { ids?: string[] } = {}
-): SkillsInstallStart {
+export function startSkillsInstall(spawner: Spawner, opts: { ids?: string[] } = {}): SkillsInstallStart {
   const { factoryRoot, targetRoot } = resolveContext()
   if (!existsSync(targetRoot)) {
     throw new ControlError(`target root does not exist: ${targetRoot}`, "missing_target")
@@ -931,19 +894,13 @@ export function startSkillsInstall(
     })
   } catch (error) {
     clearSkillsLock(targetRoot)
-    throw new ControlError(
-      `failed to spawn skills install: ${error instanceof Error ? error.message : String(error)}`,
-      "spawn_failed"
-    )
+    throw new ControlError(`failed to spawn skills install: ${error instanceof Error ? error.message : String(error)}`, "spawn_failed")
   }
   writeFileSync(skillsLockPath(targetRoot), `${JSON.stringify({ pid: handle.pid, started_at: new Date().toISOString() }, null, 2)}\n`)
   return { pid: handle.pid, mode: ids.length > 0 ? "explicit" : "auto", ids }
 }
 
-export async function removeSkills(
-  spawner: Spawner,
-  opts: { ids: string[] }
-): Promise<SkillsReport> {
+export async function removeSkills(spawner: Spawner, opts: { ids: string[] }): Promise<SkillsReport> {
   const { factoryRoot, targetRoot } = resolveContext()
   if (!existsSync(targetRoot)) {
     throw new ControlError(`target root does not exist: ${targetRoot}`, "missing_target")
@@ -1231,7 +1188,8 @@ export async function decideCr(
     ok: applyRun.code === 0 && applyStatus === "green",
     blocked: applyStatus === "blocked",
     status: applyStatus,
-    summary: report?.summary ?? applyRun.lastLine ?? applyRun.stderr.trim().split("\n").filter(Boolean).at(-1) ?? "cr-apply produced no report",
+    summary:
+      report?.summary ?? applyRun.lastLine ?? applyRun.stderr.trim().split("\n").filter(Boolean).at(-1) ?? "cr-apply produced no report",
   }
   return {
     ok: applied.ok,
@@ -1268,8 +1226,7 @@ function parseJsonLine(text: string): Record<string, unknown> | null {
     if (!trimmed.startsWith("{")) continue
     try {
       return JSON.parse(trimmed) as Record<string, unknown>
-    } catch {
-    }
+    } catch {}
   }
   return null
 }

@@ -36,16 +36,18 @@ const HIGH_DETECTORS: Detector[] = [
   { name: "google_api_key", re: /\bAIza[0-9A-Za-z_-]{35}\b/g },
   { name: "google_oauth_client_secret", re: /\bGOCSPX-[A-Za-z0-9_-]{20,}\b/g },
   { name: "stripe_secret_key", re: /\b(?:sk|rk)_(?:live|test)_[A-Za-z0-9]{20,}\b/g },
-  { name: "openai_anthropic_key", re: /\bsk-(?:ant-|proj-|svcacct-)?[A-Za-z0-9]{2,}(?:[-_][A-Za-z0-9]+)*/g, minLen: 24, validate: looksRandom },
+  {
+    name: "openai_anthropic_key",
+    re: /\bsk-(?:ant-|proj-|svcacct-)?[A-Za-z0-9]{2,}(?:[-_][A-Za-z0-9]+)*/g,
+    minLen: 24,
+    validate: looksRandom,
+  },
   { name: "private_key_block", re: /-----BEGIN (?:[A-Z0-9]+ )*PRIVATE KEY-----/g },
 ]
 
 const SECRET_KEYWORD =
   "api[_-]?key|apikey|secret|token|password|passwd|pwd|access[_-]?key|auth[_-]?token|client[_-]?secret|private[_-]?key|credential"
-const GENERIC_ASSIGNMENT = new RegExp(
-  `(?:^|[^\\w.])[\\w.]*(?:${SECRET_KEYWORD})[\\w.]*\\s*[:=]\\s*["'\`]?([^\\s"'\`,;]{16,})`,
-  "gi"
-)
+const GENERIC_ASSIGNMENT = new RegExp(`(?:^|[^\\w.])[\\w.]*(?:${SECRET_KEYWORD})[\\w.]*\\s*[:=]\\s*["'\`]?([^\\s"'\`,;]{16,})`, "gi")
 
 const PLACEHOLDER_RE =
   /example|placeholder|dummy|change[_-]?me|redacted|your[_-]?(?:api|key|token|secret|password)|<[^>]+>|x{4,}|\.\.\.|…|\*{3,}|\bfake\b|\bsample\b|test[_-]key|0000+|123456789|abcdefghij|deadbeef|notreal|replace[_-]?(?:me|with)/i

@@ -14,19 +14,10 @@ import {
 } from "../playwright.config"
 
 // Must stay in lock-step with playwright.config's BROWSERS list.
-const BROWSER_KEYS = [
-  "chromium-desktop",
-  "chromium-mobile",
-  "firefox-desktop",
-  "webkit-desktop",
-] as const
+const BROWSER_KEYS = ["chromium-desktop", "chromium-mobile", "firefox-desktop", "webkit-desktop"] as const
 const SHAPES = ["demo", "empty", "onboarding"] as const
 
-const DEMO_FIXTURE_ROOT = path.join(
-  path.dirname(fileURLToPath(import.meta.url)),
-  "fixtures",
-  "demo-target"
-)
+const DEMO_FIXTURE_ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "fixtures", "demo-target")
 
 function copyTarget(from: string, to: string): void {
   cpSync(from, to, {
@@ -45,10 +36,7 @@ export default function globalSetup() {
   rmSync(EMPTY_TARGET_ROOT, { recursive: true, force: true })
   const emptyCanonicalDir = path.join(EMPTY_TARGET_ROOT, ".vivicy", "canonical")
   mkdirSync(emptyCanonicalDir, { recursive: true })
-  writeFileSync(
-    path.join(emptyCanonicalDir, "01-overview.md"),
-    "# Overview\n\nA canonical spec with no architecture map generated yet.\n"
-  )
+  writeFileSync(path.join(emptyCanonicalDir, "01-overview.md"), "# Overview\n\nA canonical spec with no architecture map generated yet.\n")
 
   rmSync(ONBOARD_TARGET_ROOT, { recursive: true, force: true })
   mkdirSync(ONBOARD_TARGET_ROOT, { recursive: true })
@@ -71,10 +59,7 @@ export default function globalSetup() {
   for (const browserKey of BROWSER_KEYS) {
     const runtimeDir = RUNTIME_DIR("demo", browserKey)
     mkdirSync(runtimeDir, { recursive: true })
-    writeFileSync(
-      path.join(runtimeDir, "current-project.json"),
-      `${JSON.stringify({ root: demoRoot }, null, 2)}\n`
-    )
+    writeFileSync(path.join(runtimeDir, "current-project.json"), `${JSON.stringify({ root: demoRoot }, null, 2)}\n`)
   }
   for (const browserKey of BROWSER_KEYS) {
     const parent = onboardScaffoldParent(browserKey)

@@ -109,11 +109,7 @@ export function SectionRun() {
             {pending === "stop" ? t("stopping") : t("stop")}
           </Button>
         ) : (
-          <Button
-            size="sm"
-            disabled={pending !== null}
-            onClick={() => void act("start", "/api/control/run/start", t("run"))}
-          >
+          <Button size="sm" disabled={pending !== null} onClick={() => void act("start", "/api/control/run/start", t("run"))}>
             <Play aria-hidden />
             {pending === "start" ? t("starting") : t("run")}
           </Button>
@@ -122,9 +118,7 @@ export function SectionRun() {
 
       {phase === "stopped" ? <p className="text-muted-foreground">{t("stoppedHint")}</p> : null}
 
-      {phase === "exited" ? (
-        <p className="font-medium text-destructive">{t("exitedTitle")}</p>
-      ) : null}
+      {phase === "exited" ? <p className="font-medium text-destructive">{t("exitedTitle")}</p> : null}
 
       {phase === "running" ? (
         <>
@@ -166,9 +160,7 @@ function UrlBlock({ run }: { run: ProductRunView }) {
         </a>
       </Button>
       <span className="sr-only">{t("openUrl")}</span>
-      {run.url_source === "command" ? (
-        <span className="text-[11px] text-muted-foreground">{t("urlGuessNote")}</span>
-      ) : null}
+      {run.url_source === "command" ? <span className="text-[11px] text-muted-foreground">{t("urlGuessNote")}</span> : null}
     </div>
   )
 }

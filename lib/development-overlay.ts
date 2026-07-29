@@ -1,13 +1,6 @@
 // Framework-free (no filesystem access): loads under both the Next.js bundler and the factory generator's raw Node TS execution; both /api/map and generate-viewer-data.ts share this derivation so the ledger->overlay mapping can't diverge between them.
 
-export const OVERLAY_STATUSES = [
-  "not_started",
-  "in_progress",
-  "reviewing",
-  "implemented",
-  "verified",
-  "blocked",
-] as const
+export const OVERLAY_STATUSES = ["not_started", "in_progress", "reviewing", "implemented", "verified", "blocked"] as const
 
 export type OverlayStatus = (typeof OVERLAY_STATUSES)[number]
 
@@ -58,21 +51,13 @@ export type DeriveOverlayOptions = {
   evidenceRefChecker?: EvidenceRefChecker
 }
 
-const ISO_8601_TIMESTAMP =
-  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/
+const ISO_8601_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/
 
 export function deriveDevelopmentOverlay(options: DeriveOverlayOptions): DevelopmentOverlayState {
   const { graphRefs, issues, ledger, verificationGateMatcher, evidenceRefChecker } = options
   const issuesById = new Map(issues.map((issue) => [issue.id, issue]))
   const activeItems = deriveActiveItems(ledger, graphRefs, issuesById)
-  const graphItemStates = deriveGraphItemStates(
-    ledger,
-    graphRefs,
-    issuesById,
-    verificationGateMatcher,
-    activeItems,
-    evidenceRefChecker
-  )
+  const graphItemStates = deriveGraphItemStates(ledger, graphRefs, issuesById, verificationGateMatcher, activeItems, evidenceRefChecker)
   return { graph_item_states: graphItemStates, active_items: activeItems }
 }
 
@@ -89,15 +74,7 @@ function deriveGraphItemStates(
     throw new Error("Development progress ledger must define a graph_item_states array")
   }
   const states = ledger.graph_item_states.map((entry, index) =>
-    validateGraphItemState(
-      entry,
-      index,
-      graphRefs,
-      issuesById,
-      verificationGateMatcher,
-      activeItems,
-      evidenceRefChecker
-    )
+    validateGraphItemState(entry, index, graphRefs, issuesById, verificationGateMatcher, activeItems, evidenceRefChecker)
   )
   const seen = new Set<string>()
   for (const state of states) {
@@ -143,9 +120,7 @@ function validateGraphItemState(
   }
   if (
     input.status === "in_progress" &&
-    !activeItems.some(
-      (item) => issueIds.includes(item.issue_id) && item.graph_refs.includes(graph_ref) && item.heartbeat_at
-    )
+    !activeItems.some((item) => issueIds.includes(item.issue_id) && item.graph_refs.includes(graph_ref) && item.heartbeat_at)
   ) {
     throw new Error(`Progress graph item state ${graph_ref} in_progress requires a matching active item heartbeat`)
   }
@@ -164,11 +139,7 @@ function validateGraphItemState(
   }
 }
 
-function deriveActiveItems(
-  ledger: unknown,
-  graphRefs: Set<string>,
-  issuesById: Map<string, OverlayIssue>
-): OverlayActiveItem[] {
+function deriveActiveItems(ledger: unknown, graphRefs: Set<string>, issuesById: Map<string, OverlayIssue>): OverlayActiveItem[] {
   if (ledger === undefined || ledger === null) return []
   if (!isRecord(ledger) || !Array.isArray(ledger.active_items)) {
     throw new Error("Development progress ledger must define an active_items array")
@@ -202,9 +173,7 @@ function validateActiveItem(
     ...(input.role === "implementer" || input.role === "reviewer" ? { role: input.role } : {}),
     ...(Array.isArray(input.transcript_refs)
       ? {
-          transcript_refs: input.transcript_refs.map((ref, i) =>
-            requiredString(ref, `Progress active item ${id}.transcript_refs[${i}]`)
-          ),
+          transcript_refs: input.transcript_refs.map((ref, i) => requiredString(ref, `Progress active item ${id}.transcript_refs[${i}]`)),
         }
       : {}),
     ...(typeof input.worktree === "string" ? { worktree: input.worktree } : {}),
@@ -251,15 +220,8 @@ export function nodeGraphRef(nodeId: string): string {
 }
 
 // Edges are structural only — EdgeSpec carries no status/evidence field, so edge-level progress isn't tracked (deliberately, not an oversight).
-export function edgeGraphRef(edge: {
-  from: string
-  to: string
-  relation?: string
-  protocol?: string
-}): string {
-  return `edge:${edge.from}->${edge.to}:${slugGraphRefPart(edge.relation ?? "")}:${slugGraphRefPart(
-    edge.protocol ?? ""
-  )}`
+export function edgeGraphRef(edge: { from: string; to: string; relation?: string; protocol?: string }): string {
+  return `edge:${edge.from}->${edge.to}:${slugGraphRefPart(edge.relation ?? "")}:${slugGraphRefPart(edge.protocol ?? "")}`
 }
 
 // Must stay byte-for-byte identical to generate-viewer-data.ts's slugGraphRefPart — overlay code consumes generator-emitted graph_refs verbatim and never recomputes them independently.

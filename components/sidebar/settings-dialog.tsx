@@ -39,20 +39,9 @@ import {
 } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
 import { NumberStepper } from "@/components/ui/number-stepper"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip"
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 
 const OTHER_ROLE: Record<Role, Role> = {
   implementer: "reviewer",
@@ -70,10 +59,7 @@ export interface RecommendedFlags {
   all: boolean
 }
 
-export function recommendedFlags(
-  draft: AgentsSettings,
-  defaults: AgentsSettings = DEFAULT_SETTINGS
-): RecommendedFlags {
+export function recommendedFlags(draft: AgentsSettings, defaults: AgentsSettings = DEFAULT_SETTINGS): RecommendedFlags {
   const forRole = (role: Role): AgentFieldFlags => {
     const cur = draft[role]
     const def = defaults[role]
@@ -109,11 +95,7 @@ function RecommendedMarker({ show }: { show: boolean }) {
 }
 
 // @/lib/settings is the validation source of truth — this form only mirrors it, never re-implements the rules.
-export function SettingsDialog({
-  onSaved,
-}: {
-  onSaved?: (settings: AgentsSettings) => void
-}) {
+export function SettingsDialog({ onSaved }: { onSaved?: (settings: AgentsSettings) => void }) {
   const t = useTranslations("sidebar.settings")
   const [open, setOpen] = useState(false)
   const [draft, setDraft] = useState<AgentsSettings>(DEFAULT_SETTINGS)
@@ -246,13 +228,8 @@ export function SettingsDialog({
               />
             ))}
 
-            <fieldset
-              className="flex flex-col gap-2 border border-border p-3"
-              disabled={loading || saving}
-            >
-              <legend className="px-1 text-xs font-medium text-foreground">
-                {t("concurrencyLegend")}
-              </legend>
+            <fieldset className="flex flex-col gap-2 border border-border p-3" disabled={loading || saving}>
+              <legend className="px-1 text-xs font-medium text-foreground">{t("concurrencyLegend")}</legend>
               <div className="flex flex-col gap-1.5">
                 <div className="flex items-center justify-between gap-2">
                   <Label htmlFor="settings-max-parallel">{t("maxParallelLabel")}</Label>
@@ -275,13 +252,8 @@ export function SettingsDialog({
               </div>
             </fieldset>
 
-            <fieldset
-              className="flex flex-col gap-2 border border-border p-3"
-              disabled={loading || saving}
-            >
-              <legend className="px-1 text-xs font-medium text-foreground">
-                {t("skillsLegend")}
-              </legend>
+            <fieldset className="flex flex-col gap-2 border border-border p-3" disabled={loading || saving}>
+              <legend className="px-1 text-xs font-medium text-foreground">{t("skillsLegend")}</legend>
               <div className="flex items-start justify-between gap-3">
                 <div className="flex flex-col gap-0.5">
                   <div className="flex items-center gap-2">
@@ -298,9 +270,7 @@ export function SettingsDialog({
                 <Switch
                   id="settings-allow-unsafe-skills"
                   checked={draft.allowUnsafeSkills}
-                  onCheckedChange={(checked) =>
-                    setDraft((prev) => ({ ...prev, allowUnsafeSkills: checked === true }))
-                  }
+                  onCheckedChange={(checked) => setDraft((prev) => ({ ...prev, allowUnsafeSkills: checked === true }))}
                   aria-describedby="settings-allow-unsafe-skills-help"
                   aria-label={t("allowRiskySkillsLabel")}
                 />
@@ -309,19 +279,11 @@ export function SettingsDialog({
           </div>
         </TooltipProvider>
 
-        {!distinct ? (
-          <p className="text-xs text-destructive">{t("distinctError")}</p>
-        ) : null}
+        {!distinct ? <p className="text-xs text-destructive">{t("distinctError")}</p> : null}
 
         <DialogFooter>
           {!flags.all ? (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={resetToRecommended}
-              disabled={loading || saving}
-              className="sm:mr-auto"
-            >
+            <Button variant="ghost" size="sm" onClick={resetToRecommended} disabled={loading || saving} className="sm:mr-auto">
               <RotateCcw aria-hidden="true" />
               {t("resetToRecommended")}
             </Button>
@@ -442,9 +404,7 @@ function AgentFields({
           </Select>
         </div>
       ) : (
-        <p className="text-xs text-muted-foreground">
-          {t("noEffortLevel", { model: agent.model })}
-        </p>
+        <p className="text-xs text-muted-foreground">{t("noEffortLevel", { model: agent.model })}</p>
       )}
 
       <div className="flex items-start justify-between gap-3 pt-1">
@@ -469,17 +429,8 @@ function AgentFields({
           <Tooltip>
             <TooltipTrigger asChild>
               {/* disabled switch swallows pointer events — span wrapper keeps the tooltip reachable on hover/focus */}
-              <span
-                tabIndex={0}
-                className="inline-flex"
-                aria-label={t("fastModeUnavailableAriaLabel", { role: roleLabel })}
-              >
-                <Switch
-                  id={fastId}
-                  checked={false}
-                  disabled
-                  aria-label={t("fastModeAriaLabel", { role: roleLabel })}
-                />
+              <span tabIndex={0} className="inline-flex" aria-label={t("fastModeUnavailableAriaLabel", { role: roleLabel })}>
+                <Switch id={fastId} checked={false} disabled aria-label={t("fastModeAriaLabel", { role: roleLabel })} />
               </span>
             </TooltipTrigger>
             <TooltipContent>{fastDisabledReason}</TooltipContent>
@@ -490,12 +441,7 @@ function AgentFields({
   )
 }
 
-function fastReason(
-  t: ReturnType<typeof useTranslations<"sidebar.settings">>,
-  provider: Provider,
-  model: string,
-  fastOk: boolean
-): string {
+function fastReason(t: ReturnType<typeof useTranslations<"sidebar.settings">>, provider: Provider, model: string, fastOk: boolean): string {
   if (fastOk) return ""
   if (provider === "codex" && model === "gpt-5.3-codex-spark") {
     return t("fastReasonSpark")

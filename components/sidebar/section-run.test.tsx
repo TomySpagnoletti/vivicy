@@ -46,9 +46,7 @@ describe("SectionRun states", () => {
   test("not_established shows the honest empty state and no run button", async () => {
     vi.stubGlobal("fetch", stubFetch(view({ phase: "not_established" })))
     renderWithIntl(<SectionRun />)
-    await waitFor(() =>
-      expect(screen.getByText(/Vivicy sets the run command while it builds/)).toBeInTheDocument()
-    )
+    await waitFor(() => expect(screen.getByText(/Vivicy sets the run command while it builds/)).toBeInTheDocument())
     expect(screen.queryByRole("button", { name: /^Run$/ })).toBeNull()
   })
 
@@ -92,10 +90,7 @@ describe("SectionRun states", () => {
   })
 
   test("exited surfaces the failure loudly with the log auto-opened", async () => {
-    vi.stubGlobal(
-      "fetch",
-      stubFetch(view({ phase: "exited", command: "npm run dev", log_tail: "Error: EADDRINUSE :::3000" }))
-    )
+    vi.stubGlobal("fetch", stubFetch(view({ phase: "exited", command: "npm run dev", log_tail: "Error: EADDRINUSE :::3000" })))
     renderWithIntl(<SectionRun />)
     await waitFor(() => expect(screen.getByText(/stopped on its own/)).toBeInTheDocument())
     expect(screen.getByText(/EADDRINUSE/)).toBeInTheDocument()
@@ -149,7 +144,10 @@ describe("SectionRun states", () => {
 describe("SectionRun actions (the click is the owner's)", () => {
   test("Run POSTs the start endpoint", async () => {
     const posted: string[] = []
-    vi.stubGlobal("fetch", stubFetch(view({ phase: "stopped", command: "npm run dev" }), (u) => posted.push(u)))
+    vi.stubGlobal(
+      "fetch",
+      stubFetch(view({ phase: "stopped", command: "npm run dev" }), (u) => posted.push(u))
+    )
     renderWithIntl(<SectionRun />)
     const user = userEvent.setup()
     await user.click(await screen.findByRole("button", { name: /Run/ }))

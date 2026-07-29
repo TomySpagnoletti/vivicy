@@ -105,12 +105,7 @@ function addIssue(issues: BrowserIssue[], seen: Set<string>, issue: BrowserIssue
   issues.push(issue)
 }
 
-async function trackResponse(
-  response: Response,
-  baseURL: string | undefined,
-  issues: BrowserIssue[],
-  seen: Set<string>
-): Promise<void> {
+async function trackResponse(response: Response, baseURL: string | undefined, issues: BrowserIssue[], seen: Set<string>): Promise<void> {
   const status = response.status()
   if (status < 400) return
 

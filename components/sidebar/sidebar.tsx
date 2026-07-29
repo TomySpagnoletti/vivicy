@@ -7,19 +7,9 @@ import { BRAND } from "@/lib/brand"
 import { DEFAULT_SETTINGS, type AgentsSettings } from "@/lib/settings"
 import type { ArchitectureMapData, ViewMode } from "@/lib/types"
 import type { SelectedItem } from "@/components/map/architecture-map"
-import {
-  Accordion,
-  AccordionContent,
-  AccordionItem,
-  AccordionTrigger,
-} from "@/components/ui/accordion"
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion"
 import { Separator } from "@/components/ui/separator"
-import {
-  Sidebar,
-  SidebarContent,
-  SidebarFooter,
-  SidebarHeader,
-} from "@/components/ui/sidebar"
+import { Sidebar, SidebarContent, SidebarFooter, SidebarHeader } from "@/components/ui/sidebar"
 import { ProcessControlBar } from "@/components/sidebar/process-control-bar"
 import { QuotaFooter } from "@/components/sidebar/quota-footer"
 import { SectionCycles } from "@/components/sidebar/section-cycles"
@@ -71,8 +61,7 @@ export function VivicySidebar({
         const res = await fetch("/api/settings", { cache: "no-store" })
         const body = (await res.json()) as { settings?: AgentsSettings }
         if (!cancelled && body.settings) setSettings(body.settings)
-      } catch {
-      }
+      } catch {}
     })()
     return () => {
       cancelled = true
@@ -80,17 +69,10 @@ export function VivicySidebar({
   }, [])
 
   return (
-    <Sidebar
-      side="right"
-      collapsible="offcanvas"
-      role="complementary"
-      aria-label={t("panel.ariaLabel", { brandName: BRAND.name })}
-    >
+    <Sidebar side="right" collapsible="offcanvas" role="complementary" aria-label={t("panel.ariaLabel", { brandName: BRAND.name })}>
       <SidebarHeader className="flex-row items-start justify-between gap-2">
         <div className="flex flex-col gap-0.5">
-          <p className="text-sm font-semibold tracking-tight text-foreground">
-            {BRAND.name}
-          </p>
+          <p className="text-sm font-semibold tracking-tight text-foreground">{BRAND.name}</p>
           <p className="text-xs text-muted-foreground">{BRAND.tagline}</p>
         </div>
         <SettingsDialog onSaved={setSettings} />
@@ -182,11 +164,7 @@ export function VivicySidebar({
       </SidebarContent>
 
       <SidebarFooter className="p-0">
-        <SectionLegend
-          view={view}
-          nodes={data.nodes}
-          statusLegend={data.statusLegend}
-        />
+        <SectionLegend view={view} nodes={data.nodes} statusLegend={data.statusLegend} />
         <QuotaFooter settings={settings} />
       </SidebarFooter>
     </Sidebar>

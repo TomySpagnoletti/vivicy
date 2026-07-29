@@ -161,9 +161,7 @@ describe("readDevStatusFromDisk — per-issue done rule", () => {
   it("does NOT count an issue done when only SOME of its graph_refs are verified", () => {
     writeIndex({ issues: [{ id: "ISSUE-1", graph_refs: ["ref-a", "ref-b"] }] })
     writeLedger({
-      graph_item_states: [
-        { graph_ref: "ref-a", issue_states: { "ISSUE-1": "verified" } },
-      ],
+      graph_item_states: [{ graph_ref: "ref-a", issue_states: { "ISSUE-1": "verified" } }],
     })
 
     const status = readDevStatusFromDisk(root)

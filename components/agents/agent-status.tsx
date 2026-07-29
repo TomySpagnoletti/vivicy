@@ -34,27 +34,13 @@ export function AgentStatusBadge({
   }
   return (
     <Badge variant="outline" className="gap-1">
-      {ok ? (
-        <CheckCircle2 className="size-3 text-primary" />
-      ) : (
-        <XCircle className="size-3 text-destructive" />
-      )}
+      {ok ? <CheckCircle2 className="size-3 text-primary" /> : <XCircle className="size-3 text-destructive" />}
       {ok ? okLabel : badLabel}
     </Badge>
   )
 }
 
-export function InstallDocsLink({
-  hint,
-  href,
-  label,
-  className,
-}: {
-  hint: string
-  href: string
-  label: string
-  className?: string
-}) {
+export function InstallDocsLink({ hint, href, label, className }: { hint: string; href: string; label: string; className?: string }) {
   const t = useTranslations("agents")
   return (
     <div className={cn("flex flex-col gap-1.5", className)}>
@@ -71,15 +57,7 @@ export function InstallDocsLink({
   )
 }
 
-export function CopyableCommand({
-  hint,
-  command,
-  label,
-}: {
-  hint: string
-  command: string
-  label: string
-}) {
+export function CopyableCommand({ hint, command, label }: { hint: string; command: string; label: string }) {
   const t = useTranslations("agents")
   const copy = useCallback(async () => {
     try {
@@ -103,12 +81,7 @@ export function CopyableCommand({
         >
           {command}
         </code>
-        <Button
-          variant="outline"
-          size="icon-sm"
-          aria-label={t("copyAriaLabel", { label })}
-          onClick={copy}
-        >
+        <Button variant="outline" size="icon-sm" aria-label={t("copyAriaLabel", { label })} onClick={copy}>
           <Copy />
         </Button>
       </div>

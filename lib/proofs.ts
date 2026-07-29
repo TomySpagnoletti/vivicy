@@ -222,9 +222,7 @@ export function parseDeclaredProofs(body: string | null | undefined): DeclaredPr
     const declaredClass = pending.class
     pending = null
     if (!isProofSlug(id)) {
-      problems.push(
-        `proof id "${id}" is not a safe slug (letters, digits, dot, underscore, hyphen; at most ${PROOF_SLUG_MAX} characters)`,
-      )
+      problems.push(`proof id "${id}" is not a safe slug (letters, digits, dot, underscore, hyphen; at most ${PROOF_SLUG_MAX} characters)`)
       return
     }
     if (seen.has(id)) {

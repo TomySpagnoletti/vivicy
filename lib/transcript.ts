@@ -14,17 +14,13 @@ function asText(value: unknown): string {
 
 function msgText(p: Record<string, unknown>): string {
   return Array.isArray(p.content)
-    ? (p.content as Record<string, unknown>[])
-        .map((c) => (c.text as string) ?? "")
-        .join("")
+    ? (p.content as Record<string, unknown>[]).map((c) => (c.text as string) ?? "").join("")
     : asText(p.content)
 }
 
 function reasoningText(p: Record<string, unknown>): string {
   const blocks = (p.summary ?? p.content) as Record<string, unknown>[] | undefined
-  return Array.isArray(blocks)
-    ? blocks.map((s) => (s.text as string) ?? "").join("\n\n")
-    : asText(p.text)
+  return Array.isArray(blocks) ? blocks.map((s) => (s.text as string) ?? "").join("\n\n") : asText(p.text)
 }
 
 function parseClaude(lines: Record<string, unknown>[]): TranscriptEntry[] {
@@ -88,15 +84,10 @@ function parseCodex(lines: Record<string, unknown>[]): TranscriptEntry[] {
     const p = o.payload as Record<string, unknown> | undefined
     if (!p) continue
     if (o.type === "event_msg") {
-      if (p.type === "user_message" && (p.message as string)?.trim())
-        entries.push({ kind: "user", text: p.message as string })
+      if (p.type === "user_message" && (p.message as string)?.trim()) entries.push({ kind: "user", text: p.message as string })
       else if (p.type === "reasoning" && !riHasReasoning && reasoningText(p).trim())
         entries.push({ kind: "thinking", text: reasoningText(p) })
-      else if (
-        p.type === "agent_message" &&
-        !riHasAssistant &&
-        (p.message as string)?.trim()
-      )
+      else if (p.type === "agent_message" && !riHasAssistant && (p.message as string)?.trim())
         entries.push({ kind: "assistant", text: p.message as string })
       continue
     }
@@ -121,10 +112,7 @@ function parseCodex(lines: Record<string, unknown>[]): TranscriptEntry[] {
     } else if (p.type === "function_call_output") {
       const id = (p.call_id ?? p.id) as string | undefined
       const tool = id ? toolById.get(id) : undefined
-      if (tool)
-        tool.output = asText(
-          (p.output as { content?: unknown })?.content ?? p.output
-        )
+      if (tool) tool.output = asText((p.output as { content?: unknown })?.content ?? p.output)
     }
   }
   return entries
@@ -140,40 +128,19 @@ export function parseTranscript(jsonl: string): {
     if (!line) continue
     try {
       lines.push(JSON.parse(line))
-    } catch {
-    }
+    } catch {}
   }
-  const isCodex = lines.some(
-    (o) => o.type === "session_meta" || o.type === "response_item"
-  )
+  const isCodex = lines.some((o) => o.type === "session_meta" || o.type === "response_item")
   const isClaude = lines.some((o) => o.type === "assistant" || o.type === "user")
-  const format: TranscriptFormat = isCodex
-    ? "codex"
-    : isClaude
-      ? "claude"
-      : "unknown"
-  const raw =
-    format === "codex"
-      ? parseCodex(lines)
-      : format === "claude"
-        ? parseClaude(lines)
-        : []
+  const format: TranscriptFormat = isCodex ? "codex" : isClaude ? "claude" : "unknown"
+  const raw = format === "codex" ? parseCodex(lines) : format === "claude" ? parseClaude(lines) : []
   // Drop consecutive duplicates (Codex emits user_message twice, etc.).
   const entries: TranscriptEntry[] = []
   for (const e of raw) {
     const prev = entries[entries.length - 1]
     const sameText =
-      prev &&
-      prev.kind === e.kind &&
-      "text" in prev &&
-      "text" in e &&
-      (prev as { text: string }).text === (e as { text: string }).text
-    const sameTool =
-      prev &&
-      prev.kind === "tool" &&
-      e.kind === "tool" &&
-      prev.name === e.name &&
-      prev.input === e.input
+      prev && prev.kind === e.kind && "text" in prev && "text" in e && (prev as { text: string }).text === (e as { text: string }).text
+    const sameTool = prev && prev.kind === "tool" && e.kind === "tool" && prev.name === e.name && prev.input === e.input
     if (sameText || sameTool) continue
     entries.push(e)
   }

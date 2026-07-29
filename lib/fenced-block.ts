@@ -47,7 +47,5 @@ export function readFencedBlock(text: string, tag: string): FencedBlock | null {
 export function stripFencedBlock(text: string, tag: string): string {
   const block = readFencedBlock(text, tag)
   if (block === null) return text
-  return `${text.slice(0, block.start)}${text.slice(block.end)}`
-    .replace(/\n{3,}/g, "\n\n")
-    .trim()
+  return `${text.slice(0, block.start)}${text.slice(block.end)}`.replace(/\n{3,}/g, "\n\n").trim()
 }

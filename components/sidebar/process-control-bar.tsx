@@ -6,12 +6,7 @@ import { useTranslations } from "next-intl"
 import { createTranslator } from "next-intl"
 import { toast } from "sonner"
 
-import {
-  isResumable,
-  resolveRunPhase,
-  type RunPhase,
-  type StatusResponse,
-} from "@/lib/run-status"
+import { isResumable, resolveRunPhase, type RunPhase, type StatusResponse } from "@/lib/run-status"
 import type { DevelopmentBlock } from "@/lib/types"
 import { LOCALE } from "@/lib/i18n"
 import { errorText } from "@/lib/i18n-errors"
@@ -30,11 +25,7 @@ import {
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Progress } from "@/components/ui/progress"
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 
 type Action = "start" | "stop" | "resume" | "extract"
 
@@ -51,13 +42,7 @@ const PHASE_DOT: Record<RunPhase, string> = {
   stalled: "bg-destructive",
 }
 
-export function ProcessControlBar({
-  development,
-  onMapRefresh,
-}: {
-  development?: DevelopmentBlock
-  onMapRefresh?: () => void
-}) {
+export function ProcessControlBar({ development, onMapRefresh }: { development?: DevelopmentBlock; onMapRefresh?: () => void }) {
   const [status, setStatus] = useState<StatusResponse | null>(null)
   const [streamError, setStreamError] = useState(false)
   const [pending, setPending] = useState<Action | null>(null)
@@ -226,7 +211,7 @@ export function ProcessControlBar({
 
       <div className="flex items-center gap-2">
         <Progress value={percent} className="flex-1" aria-label={t("issuesVerifiedAriaLabel")} />
-        <span className="text-xs tabular-nums text-muted-foreground" aria-label={t("progressAriaLabel")}>
+        <span className="text-xs text-muted-foreground tabular-nums" aria-label={t("progressAriaLabel")}>
           {done}/{total || "?"}
         </span>
       </div>
@@ -251,13 +236,7 @@ function IconControl({
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          aria-label={label}
-          disabled={disabled}
-          onClick={onClick}
-        >
+        <Button variant="ghost" size="icon-sm" aria-label={label} disabled={disabled} onClick={onClick}>
           {icon}
         </Button>
       </TooltipTrigger>
@@ -266,15 +245,7 @@ function IconControl({
   )
 }
 
-function StopControl({
-  onConfirm,
-  pending,
-  disabled,
-}: {
-  onConfirm: () => void
-  pending: boolean
-  disabled: boolean
-}) {
+function StopControl({ onConfirm, pending, disabled }: { onConfirm: () => void; pending: boolean; disabled: boolean }) {
   const t = useTranslations("sidebar.processControl")
   return (
     <AlertDialog>

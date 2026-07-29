@@ -128,9 +128,7 @@ clusters:
     title: "Pipeline"
     description: "The processing pipeline."
 `
-    expect(() => parseArchitectureMap(withTopLevelClusters)).toThrow(
-      /Unsupported architecture-map\.yml line:\s+- id: pipeline/,
-    )
+    expect(() => parseArchitectureMap(withTopLevelClusters)).toThrow(/Unsupported architecture-map\.yml line:\s+- id: pipeline/)
   })
 
   it("throws on any other unsupported top-level section", () => {

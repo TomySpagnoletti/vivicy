@@ -27,9 +27,7 @@ export function ViviOnboarding({
   if (view === "choices") {
     return (
       <div className="flex flex-col gap-4 p-4">
-        <h3 className="text-center font-heading text-base font-medium text-foreground">
-          {t("heading")}
-        </h3>
+        <h3 className="text-center font-heading text-base font-medium text-foreground">{t("heading")}</h3>
         <div className="flex flex-col gap-2">
           <ChoiceButton
             icon={<FolderOpen className="size-4" />}
@@ -84,10 +82,7 @@ function ChoiceButton({
       onClick={onClick}
       className="h-auto w-full justify-start gap-3 px-3 py-3 text-left whitespace-normal"
     >
-      <span
-        aria-hidden
-        className="flex size-8 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground"
-      >
+      <span aria-hidden className="flex size-8 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground">
         {icon}
       </span>
       <span className="flex min-w-0 flex-col gap-0.5">

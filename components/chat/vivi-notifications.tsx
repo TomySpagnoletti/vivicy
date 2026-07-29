@@ -1,17 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useRef, useState } from "react"
-import {
-  Check,
-  CircleAlert,
-  CircleCheck,
-  GitPullRequestArrow,
-  Info,
-  Loader2,
-  Sparkles,
-  TriangleAlert,
-  X,
-} from "lucide-react"
+import { Check, CircleAlert, CircleCheck, GitPullRequestArrow, Info, Loader2, Sparkles, TriangleAlert, X } from "lucide-react"
 import { useTranslations } from "next-intl"
 
 import { errorText, notificationText } from "@/lib/i18n-errors"
@@ -30,13 +20,7 @@ import {
 } from "@/components/ui/alert-dialog"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import {
-  Card,
-  CardDescription,
-  CardFooter,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card"
+import { Card, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Marker, MarkerContent, MarkerIcon } from "@/components/ui/marker"
 
 const POLL_INTERVAL_MS = 10_000
@@ -81,10 +65,7 @@ export function useNotificationsFeed(): {
   }, [])
 
   const load = useCallback(async () => {
-    const [nextNotifications, nextCrs] = await Promise.all([
-      fetchNotifications(),
-      fetchCrs(),
-    ])
+    const [nextNotifications, nextCrs] = await Promise.all([fetchNotifications(), fetchCrs()])
     if (!mountedRef.current) return
     if (nextNotifications) setNotifications(nextNotifications)
     if (nextCrs) setCrs(nextCrs)
@@ -117,8 +98,7 @@ export function useNotificationsFeed(): {
           void load()
         }
         lastSignatureRef.current = signature
-      } catch {
-      }
+      } catch {}
     }
     return () => source.close()
   }, [load])
@@ -134,8 +114,7 @@ async function fetchNotifications(): Promise<Notification[] | null> {
       notifications?: Notification[]
     }
     if (Array.isArray(body.notifications)) return body.notifications
-  } catch {
-  }
+  } catch {}
   return null
 }
 
@@ -147,8 +126,7 @@ async function fetchCrs(): Promise<ChangeRequestSummary[] | null> {
       crs?: ChangeRequestSummary[]
     }
     if (body.ok && Array.isArray(body.crs)) return body.crs
-  } catch {
-  }
+  } catch {}
   return null
 }
 
@@ -199,11 +177,7 @@ export function NotificationsFeed({
 
   return (
     <div className="flex flex-col gap-3 p-4">
-      <CrReviewCards
-        crs={crs}
-        onReload={onReload}
-        onDecided={() => onDecided?.()}
-      />
+      <CrReviewCards crs={crs} onReload={onReload} onDecided={() => onDecided?.()} />
 
       {error ? (
         <Marker role="status" className="text-destructive">
@@ -277,9 +251,7 @@ function NotificationRow({
         <Badge variant="secondary" className="shrink-0">
           {notification.stage}
         </Badge>
-        <span className="ml-auto shrink-0 text-[10px] text-muted-foreground">
-          {relativeTime(notification.ts, t)}
-        </span>
+        <span className="ml-auto shrink-0 text-[10px] text-muted-foreground">{relativeTime(notification.ts, t)}</span>
         <Button
           variant="ghost"
           size="icon-sm"
@@ -293,12 +265,7 @@ function NotificationRow({
       </div>
       <p className="break-words text-foreground">{text}</p>
       {isActionableNotification(notification) ? (
-        <Button
-          variant="default"
-          size="xs"
-          onClick={() => onAskVivi(text)}
-          className="self-start rounded-full"
-        >
+        <Button variant="default" size="xs" onClick={() => onAskVivi(text)} className="self-start rounded-full">
           <Sparkles />
           {t("askVivi")}
         </Button>
@@ -344,15 +311,7 @@ interface DecisionOutcome {
 }
 
 /** Approving a CR runs the server-side docs_applied chain (apply → re-freeze → re-extract) — not visible from this file alone. Both approve and reject require a confirm click since both are sensitive and irreversible. */
-function CrReviewCards({
-  crs,
-  onReload,
-  onDecided,
-}: {
-  crs: ChangeRequestSummary[]
-  onReload: () => void
-  onDecided: () => void
-}) {
+function CrReviewCards({ crs, onReload, onDecided }: { crs: ChangeRequestSummary[]; onReload: () => void; onDecided: () => void }) {
   const t = useTranslations("crs")
   const tErrors = useTranslations("errors")
   const [deciding, setDeciding] = useState<string | null>(null)
@@ -375,8 +334,7 @@ function CrReviewCards({
         }
         if (!res.ok || body.ok === false) {
           const fallback = body.summary ?? body.error ?? `HTTP ${res.status}`
-          const text =
-            !body.summary && body.code ? errorText(tErrors, `control.${body.code}`, fallback) : fallback
+          const text = !body.summary && body.code ? errorText(tErrors, `control.${body.code}`, fallback) : fallback
           setOutcomes((prev) => ({
             ...prev,
             [id]: {
@@ -435,11 +393,7 @@ function CrReviewCards({
                 <Badge variant="secondary" className="shrink-0">
                   {cr.classification}
                 </Badge>
-                {cr.created_at ? (
-                  <span className="ml-auto shrink-0 text-[10px] text-muted-foreground">
-                    {cr.created_at}
-                  </span>
-                ) : null}
+                {cr.created_at ? <span className="ml-auto shrink-0 text-[10px] text-muted-foreground">{cr.created_at}</span> : null}
               </CardDescription>
               <CardTitle className="text-xs/relaxed break-words">{cr.title}</CardTitle>
             </CardHeader>
@@ -506,12 +460,8 @@ function ConfirmDecision({
       </AlertDialogTrigger>
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogTitle>
-            {approve ? t("approveDialogTitle", { id }) : t("rejectDialogTitle", { id })}
-          </AlertDialogTitle>
-          <AlertDialogDescription>
-            {approve ? t("approveDialogDescription") : t("rejectDialogDescription")}
-          </AlertDialogDescription>
+          <AlertDialogTitle>{approve ? t("approveDialogTitle", { id }) : t("rejectDialogTitle", { id })}</AlertDialogTitle>
+          <AlertDialogDescription>{approve ? t("approveDialogDescription") : t("rejectDialogDescription")}</AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
           <AlertDialogCancel>{t("cancel")}</AlertDialogCancel>

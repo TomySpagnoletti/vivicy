@@ -11,8 +11,7 @@ const COMPONENTS: Components = {
   ),
   img: ({ src, alt, title }) => {
     const url = typeof src === "string" && src.length > 0 ? src : undefined
-    const label =
-      (typeof alt === "string" && alt.trim().length > 0 ? alt : url) ?? "image"
+    const label = (typeof alt === "string" && alt.trim().length > 0 ? alt : url) ?? "image"
     return (
       <span title={title} className="text-muted-foreground">
         {label}

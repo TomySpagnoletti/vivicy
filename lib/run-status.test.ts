@@ -28,17 +28,13 @@ describe("resolveRunPhase", () => {
   })
 
   it("is done when every issue is verified", () => {
-    expect(
-      resolveRunPhase(makeStatus({ issues_total: 3, issues_done: 3, verdict: "DONE" }))
-    ).toBe("done")
+    expect(resolveRunPhase(makeStatus({ issues_total: 3, issues_done: 3, verdict: "DONE" }))).toBe("done")
   })
 
   it("is blocked when a gate failed mid-way without an active lock", () => {
-    expect(
-      resolveRunPhase(
-        makeStatus({ issues_done: 1, gates: { pass: 1, fail: 1 }, verdict: "STOPPED (last gate failed)" })
-      )
-    ).toBe("blocked")
+    expect(resolveRunPhase(makeStatus({ issues_done: 1, gates: { pass: 1, fail: 1 }, verdict: "STOPPED (last gate failed)" }))).toBe(
+      "blocked"
+    )
   })
 
   it("is idle when nothing is running and nothing failed", () => {

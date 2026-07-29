@@ -3,9 +3,7 @@ import { expect, test } from "./browser-issues"
 import { clickPastOverlap, ensurePanelOpen, isMobileProject } from "./helpers"
 
 test.describe("Vivicy architecture map viewer", () => {
-  test("renders the map and the interactive shadcn sidebar shell", async ({
-    page,
-  }, testInfo) => {
+  test("renders the map and the interactive shadcn sidebar shell", async ({ page }, testInfo) => {
     await page.goto("/")
 
     // The panel toggle only renders once the map reaches its ready state; wait for a node before opening the panel on mobile.
@@ -41,9 +39,7 @@ test.describe("Vivicy architecture map viewer", () => {
     const toggle = page.locator("[data-panel-toggle]")
     const widthOf = () =>
       page.evaluate(() =>
-        getComputedStyle(document.querySelector('[data-slot="sidebar-wrapper"]')!)
-          .getPropertyValue("--sidebar-width")
-          .trim()
+        getComputedStyle(document.querySelector('[data-slot="sidebar-wrapper"]')!).getPropertyValue("--sidebar-width").trim()
       )
 
     await expect(container).toHaveAttribute("data-state", "expanded")
@@ -66,9 +62,7 @@ test.describe("Vivicy architecture map viewer", () => {
     expect(await widthOf()).toBe(peekWidth)
   })
 
-  test("quota footer collapses and expands (honest, persisted)", async ({
-    page,
-  }, testInfo) => {
+  test("quota footer collapses and expands (honest, persisted)", async ({ page }, testInfo) => {
     await page.goto("/")
     await expect(page.locator(".react-flow__node").first()).toBeVisible({
       timeout: 30_000,
@@ -79,9 +73,7 @@ test.describe("Vivicy architecture map viewer", () => {
 
     const footer = sidebar.locator('[data-sidebar="footer"]')
     await expect(footer.getByText("Quota", { exact: true })).toBeVisible()
-    await expect(
-      footer.getByText(/Agent quota status appears here/i)
-    ).toBeVisible()
+    await expect(footer.getByText(/Agent quota status appears here/i)).toBeVisible()
     await expect(footer.getByText(/\d+%/)).toHaveCount(0)
   })
 })

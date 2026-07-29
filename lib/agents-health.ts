@@ -64,7 +64,10 @@ function safeExec(bin: string, args: string[]): string | null {
       timeout: 5_000,
       stdio: ["ignore", "pipe", "ignore"],
     })
-    const firstLine = out.split("\n").map((l) => l.trim()).find((l) => l.length > 0)
+    const firstLine = out
+      .split("\n")
+      .map((l) => l.trim())
+      .find((l) => l.length > 0)
     return firstLine ?? null
   } catch {
     return null
@@ -73,11 +76,7 @@ function safeExec(bin: string, args: string[]): string | null {
 
 export type ExecFirstLine = (bin: string, args: string[]) => string | null
 
-export function resolveOnPath(
-  bin: string,
-  platform: NodeJS.Platform,
-  exec: ExecFirstLine = safeExec
-): string | null {
+export function resolveOnPath(bin: string, platform: NodeJS.Platform, exec: ExecFirstLine = safeExec): string | null {
   if (platform === "win32") {
     const resolved = exec("cmd.exe", ["/c", "where", bin])
     return resolved && path.win32.isAbsolute(resolved) ? resolved : null
@@ -109,8 +108,7 @@ function runSecurity(args: string[]): SecurityRun {
       signal?: NodeJS.Signals | null
       code?: string
     }
-    const timedOut =
-      err.killed === true || err.signal === "SIGTERM" || err.code === "ETIMEDOUT"
+    const timedOut = err.killed === true || err.signal === "SIGTERM" || err.code === "ETIMEDOUT"
     return {
       code: typeof err.status === "number" ? err.status : null,
       stdout: "",
@@ -171,8 +169,7 @@ export function parseCodexAuth(text: string | null): AuthSignal {
       OPENAI_API_KEY?: unknown
       tokens?: unknown
     }
-    const hasApiKey =
-      typeof parsed.OPENAI_API_KEY === "string" && parsed.OPENAI_API_KEY.length > 0
+    const hasApiKey = typeof parsed.OPENAI_API_KEY === "string" && parsed.OPENAI_API_KEY.length > 0
     if (hasApiKey || parsed.auth_mode === "apikey") {
       return { authenticated: true, authMethod: "api_key", plan: null }
     }
@@ -197,15 +194,10 @@ export function parseClaudeCredentials(text: string | null): AuthSignal | null {
   if (typeof parsed !== "object" || parsed === null) return null
   const root = parsed as Record<string, unknown>
   const wrapped = root.claudeAiOauth
-  const inner =
-    typeof wrapped === "object" && wrapped !== null
-      ? (wrapped as Record<string, unknown>)
-      : root
+  const inner = typeof wrapped === "object" && wrapped !== null ? (wrapped as Record<string, unknown>) : root
   const token = inner.accessToken
   if (typeof token !== "string" || token.length === 0) return null
-  const authMethod: AuthMethod = token.startsWith(CLAUDE_API_KEY_PREFIX)
-    ? "api_key"
-    : "subscription"
+  const authMethod: AuthMethod = token.startsWith(CLAUDE_API_KEY_PREFIX) ? "api_key" : "subscription"
   const sub = inner.subscriptionType
   const plan = typeof sub === "string" && sub.length > 0 ? sub : null
   return { authenticated: true, authMethod, plan }

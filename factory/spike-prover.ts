@@ -1,124 +1,140 @@
 #!/usr/bin/env node
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { resolve } from "node:path"
 
-import { countOf } from "../lib/count-form.ts";
+import { countOf } from "../lib/count-form.ts"
 
-import { runClaudeLeg, runCodexLeg, TRANSCRIPT_DIRS } from "./agent-spawn.ts";
-import type { AgentLeg, LegConfig, LegDeps, LegRunResult } from "./agent-spawn.ts";
-import { legDepsForTarget } from "./leg-deps.ts";
-import { CLI_DEFAULTS } from "./dev-loop.ts";
-import { createChangeRequest } from "./change-control.ts";
-import { notify } from "./notify.ts";
-import { readSpikes } from "./spike-check.ts";
-import type { Spike, SpikeStatus } from "./spike-check.ts";
-import { FACTORY_PROMPTS_DIR } from "./target-root.ts";
+import { runClaudeLeg, runCodexLeg, TRANSCRIPT_DIRS } from "./agent-spawn.ts"
+import type { AgentLeg, LegConfig, LegDeps, LegRunResult } from "./agent-spawn.ts"
+import { legDepsForTarget } from "./leg-deps.ts"
+import { CLI_DEFAULTS } from "./dev-loop.ts"
+import { createChangeRequest } from "./change-control.ts"
+import { notify } from "./notify.ts"
+import { readSpikes } from "./spike-check.ts"
+import type { Spike, SpikeStatus } from "./spike-check.ts"
+import { FACTORY_PROMPTS_DIR } from "./target-root.ts"
 
 interface SpikeLegResult {
-  result?: { status?: number | null; timedOut?: boolean; timeoutReason?: string };
-  output?: string;
-  transcriptRel?: string;
+  result?: { status?: number | null; timedOut?: boolean; timeoutReason?: string }
+  output?: string
+  transcriptRel?: string
 }
 
 interface Legs {
-  implementer: Omit<AgentLeg, "role">;
-  reviewer: Omit<AgentLeg, "role">;
+  implementer: Omit<AgentLeg, "role">
+  reviewer: Omit<AgentLeg, "role">
 }
 
 interface LegCfg {
-  transcriptsDir: string;
-  promptsDir?: string;
-  execRoot?: string;
+  transcriptsDir: string
+  promptsDir?: string
+  execRoot?: string
 }
 
 interface SpikeIssue {
-  id: string;
-  transcript_dir: string;
-  graph_refs: string[];
-  path: string;
+  id: string
+  transcript_dir: string
+  graph_refs: string[]
+  path: string
 }
 
 interface ProofReport {
-  verdict: "verified" | "failed" | "no_report";
-  reason: string;
+  verdict: "verified" | "failed" | "no_report"
+  reason: string
 }
 
 interface VerifierReport {
-  agree: boolean;
-  problems: unknown[];
+  agree: boolean
+  problems: unknown[]
 }
 
 interface ChangeRequestRef {
-  file: string;
-  id: string;
+  file: string
+  id: string
 }
 
-type SpawnProver = (ctx: { repoRoot: string; spike: Spike; cfg: LegCfg; attempt: number; disagreement: string | null }) => Promise<SpikeLegResult>;
-type SpawnSpikeVerifier = (ctx: { repoRoot: string; spike: Spike; cfg: LegCfg; attempt: number }) => Promise<SpikeLegResult>;
-type WriteChangeRequest = (args: { repoRoot: string; spike: Spike; proof: string; verdict: string; reason: string; kind: string; now: () => string }) => ChangeRequestRef | null;
+type SpawnProver = (ctx: {
+  repoRoot: string
+  spike: Spike
+  cfg: LegCfg
+  attempt: number
+  disagreement: string | null
+}) => Promise<SpikeLegResult>
+type SpawnSpikeVerifier = (ctx: { repoRoot: string; spike: Spike; cfg: LegCfg; attempt: number }) => Promise<SpikeLegResult>
+type WriteChangeRequest = (args: {
+  repoRoot: string
+  spike: Spike
+  proof: string
+  verdict: string
+  reason: string
+  kind: string
+  now: () => string
+}) => ChangeRequestRef | null
 
 interface SpikeOutcome {
-  status: SpikeStatus;
-  reason: string;
-  changeRequest: ChangeRequestRef | null;
+  status: SpikeStatus
+  reason: string
+  changeRequest: ChangeRequestRef | null
 }
 
-type LedgerEvent = Record<string, unknown>;
+type LedgerEvent = Record<string, unknown>
 
 interface RunSpikeProvingArgs {
-  repoRoot?: string;
-  legs?: Legs;
-  cfg?: LegCfg;
-  recordEvent?: ((event: LedgerEvent) => void) | null;
-  now?: () => string;
-  spawnProver?: SpawnProver;
-  spawnSpikeVerifier?: SpawnSpikeVerifier;
-  writeChangeRequest?: WriteChangeRequest;
+  repoRoot?: string
+  legs?: Legs
+  cfg?: LegCfg
+  recordEvent?: ((event: LedgerEvent) => void) | null
+  now?: () => string
+  spawnProver?: SpawnProver
+  spawnSpikeVerifier?: SpawnSpikeVerifier
+  writeChangeRequest?: WriteChangeRequest
 }
 
 interface RunSpikeProvingResult {
-  proved: Array<{ file: string; gate_id: string; verdict: string }>;
-  failed: Array<{ file: string; gate_id: string; verdict: string; reason: string }>;
-  skipped: Array<{ file: string; gate_id: string; reason: string }>;
-  changeRequests: ChangeRequestRef[];
+  proved: Array<{ file: string; gate_id: string; verdict: string }>
+  failed: Array<{ file: string; gate_id: string; verdict: string; reason: string }>
+  skipped: Array<{ file: string; gate_id: string; reason: string }>
+  changeRequests: ChangeRequestRef[]
 }
 
-const REPORTS_DIR = ".vivicy/development/reports";
+const REPORTS_DIR = ".vivicy/development/reports"
 // graph_refs is required by the shared leg-spawn infra but never consumed for a spike leg.
-const SPIKE_GRAPH_REF = "node:spike-proof";
+const SPIKE_GRAPH_REF = "node:spike-proof"
 
 export async function runSpikeProving(args: RunSpikeProvingArgs = {}): Promise<RunSpikeProvingResult> {
-  const repoRoot = args.repoRoot;
+  const repoRoot = args.repoRoot
   if (!repoRoot) {
-    throw new Error(
-      "No target project configured. Set VIVICY_TARGET_ROOT to the absolute path of the project to prove, or pass repoRoot.",
-    );
+    throw new Error("No target project configured. Set VIVICY_TARGET_ROOT to the absolute path of the project to prove, or pass repoRoot.")
   }
-  const cfg: LegCfg = args.cfg ?? { transcriptsDir: ".vivicy/development/transcripts", promptsDir: FACTORY_PROMPTS_DIR };
-  const legs = args.legs ?? defaultLegs();
-  const now = args.now ?? (() => new Date().toISOString());
-  const recordEvent = args.recordEvent ?? null;
-  const spawnProver = args.spawnProver ?? makeDefaultSpawnProver(cfg, legs);
-  const spawnSpikeVerifier = args.spawnSpikeVerifier ?? makeDefaultSpawnSpikeVerifier(cfg, legs);
-  const writeChangeRequest = args.writeChangeRequest ?? defaultWriteChangeRequest;
+  const cfg: LegCfg = args.cfg ?? { transcriptsDir: ".vivicy/development/transcripts", promptsDir: FACTORY_PROMPTS_DIR }
+  const legs = args.legs ?? defaultLegs()
+  const now = args.now ?? (() => new Date().toISOString())
+  const recordEvent = args.recordEvent ?? null
+  const spawnProver = args.spawnProver ?? makeDefaultSpawnProver(cfg, legs)
+  const spawnSpikeVerifier = args.spawnSpikeVerifier ?? makeDefaultSpawnSpikeVerifier(cfg, legs)
+  const writeChangeRequest = args.writeChangeRequest ?? defaultWriteChangeRequest
 
-  const spikes = readSpikes(repoRoot);
-  const statusByGate = new Map(spikes.map((s) => [s.gate_id, s.status]));
-  const byGate = new Map(spikes.map((s) => [s.gate_id, s]));
+  const spikes = readSpikes(repoRoot)
+  const statusByGate = new Map(spikes.map((s) => [s.gate_id, s.status]))
+  const byGate = new Map(spikes.map((s) => [s.gate_id, s]))
 
-  const proved: RunSpikeProvingResult["proved"] = [];
-  const failed: RunSpikeProvingResult["failed"] = [];
-  const skipped: RunSpikeProvingResult["skipped"] = [];
-  const changeRequests: ChangeRequestRef[] = [];
+  const proved: RunSpikeProvingResult["proved"] = []
+  const failed: RunSpikeProvingResult["failed"] = []
+  const skipped: RunSpikeProvingResult["skipped"] = []
+  const changeRequests: ChangeRequestRef[] = []
 
   for (const spike of topoOrder(spikes)) {
-    if (spike.status !== "pending") continue;
+    if (spike.status !== "pending") continue
 
-    const chain = transitiveGatedBy(spike.gate_id, byGate);
-    const blocker = chain.find((g) => statusByGate.get(g) !== "verified");
+    const chain = transitiveGatedBy(spike.gate_id, byGate)
+    const blocker = chain.find((g) => statusByGate.get(g) !== "verified")
     if (blocker) {
-      skipped.push({ file: spike.file, gate_id: spike.gate_id, reason: `gated_by ${blocker} is ${statusByGate.get(blocker) ?? "unknown"} (not verified)` });
-      continue;
+      skipped.push({
+        file: spike.file,
+        gate_id: spike.gate_id,
+        reason: `gated_by ${blocker} is ${statusByGate.get(blocker) ?? "unknown"} (not verified)`,
+      })
+      continue
     }
 
     const outcome = await proveOneSpike({
@@ -130,49 +146,49 @@ export async function runSpikeProving(args: RunSpikeProvingArgs = {}): Promise<R
       writeChangeRequest,
       recordEvent,
       now,
-    });
-    statusByGate.set(spike.gate_id, outcome.status);
+    })
+    statusByGate.set(spike.gate_id, outcome.status)
     if (outcome.status === "verified") {
-      proved.push({ file: spike.file, gate_id: spike.gate_id, verdict: "verified" });
+      proved.push({ file: spike.file, gate_id: spike.gate_id, verdict: "verified" })
     } else {
-      failed.push({ file: spike.file, gate_id: spike.gate_id, verdict: "failed", reason: outcome.reason });
+      failed.push({ file: spike.file, gate_id: spike.gate_id, verdict: "failed", reason: outcome.reason })
     }
-    if (outcome.changeRequest) changeRequests.push(outcome.changeRequest);
+    if (outcome.changeRequest) changeRequests.push(outcome.changeRequest)
   }
 
-  const crNotification = spikeProvingCrNotification(changeRequests);
-  if (crNotification) notify(crNotification);
-  return { proved, failed, skipped, changeRequests };
+  const crNotification = spikeProvingCrNotification(changeRequests)
+  if (crNotification) notify(crNotification)
+  return { proved, failed, skipped, changeRequests }
 }
 
 // Spike proving runs inside the autonomous extraction, so a CR it drafts would otherwise sit silent in the list until the owner happens to look; one notification per run, never per CR.
 export function spikeProvingCrNotification(
-  changeRequests: ChangeRequestRef[],
+  changeRequests: ChangeRequestRef[]
 ): { level: "warning"; stage: string; event: string; message: string } | null {
-  if (changeRequests.length === 0) return null;
-  const ids = changeRequests.map((cr) => cr.id).join(", ");
+  if (changeRequests.length === 0) return null
+  const ids = changeRequests.map((cr) => cr.id).join(", ")
   return {
     level: "warning",
     stage: "S3",
     event: "spike_change_request_drafted",
     message: `spike proving drafted ${countOf(changeRequests.length, "change request", "change requests")} (${ids}) — a hypothesis did not hold; decide before the build proceeds`,
-  };
+  }
 }
 
 async function proveOneSpike(ctx: {
-  repoRoot: string;
-  spike: Spike;
-  cfg: LegCfg;
-  spawnProver: SpawnProver;
-  spawnSpikeVerifier: SpawnSpikeVerifier;
-  writeChangeRequest: WriteChangeRequest;
-  recordEvent: ((event: LedgerEvent) => void) | null;
-  now: () => string;
+  repoRoot: string
+  spike: Spike
+  cfg: LegCfg
+  spawnProver: SpawnProver
+  spawnSpikeVerifier: SpawnSpikeVerifier
+  writeChangeRequest: WriteChangeRequest
+  recordEvent: ((event: LedgerEvent) => void) | null
+  now: () => string
 }): Promise<SpikeOutcome> {
-  const { repoRoot, spike, cfg, spawnProver, spawnSpikeVerifier, writeChangeRequest, recordEvent, now } = ctx;
-  const stem = spikeStem(spike.file);
-  const proofRel = `${REPORTS_DIR}/spike-${stem}-proof.json`;
-  const verdictRel = `${REPORTS_DIR}/spike-${stem}-verdict.json`;
+  const { repoRoot, spike, cfg, spawnProver, spawnSpikeVerifier, writeChangeRequest, recordEvent, now } = ctx
+  const stem = spikeStem(spike.file)
+  const proofRel = `${REPORTS_DIR}/spike-${stem}-proof.json`
+  const verdictRel = `${REPORTS_DIR}/spike-${stem}-verdict.json`
 
   emit(recordEvent, {
     event_type: "spike_proof_started",
@@ -182,110 +198,125 @@ async function proveOneSpike(ctx: {
     gate_id: spike.gate_id,
     file: spike.file,
     timestamp: now(),
-  });
+  })
 
-  let last: { attempt: number; proof: ProofReport; verdict: VerifierReport; proverLeg: SpikeLegResult; verdictLeg: SpikeLegResult; disagreement?: string } | null = null;
+  let last: {
+    attempt: number
+    proof: ProofReport
+    verdict: VerifierReport
+    proverLeg: SpikeLegResult
+    verdictLeg: SpikeLegResult
+    disagreement?: string
+  } | null = null
   for (let attempt = 1; attempt <= 2; attempt += 1) {
-    clearFile(repoRoot, proofRel);
-    clearFile(repoRoot, verdictRel);
-    const proverLeg = await spawnProver({ repoRoot, spike, cfg, attempt, disagreement: last?.disagreement ?? null });
-    const proof = readProofReport(repoRoot, proofRel, proverLeg);
-    const verdictLeg = await spawnSpikeVerifier({ repoRoot, spike, cfg, attempt });
-    const verdict = readVerifierReport(repoRoot, verdictRel, verdictLeg);
+    clearFile(repoRoot, proofRel)
+    clearFile(repoRoot, verdictRel)
+    const proverLeg = await spawnProver({ repoRoot, spike, cfg, attempt, disagreement: last?.disagreement ?? null })
+    const proof = readProofReport(repoRoot, proofRel, proverLeg)
+    const verdictLeg = await spawnSpikeVerifier({ repoRoot, spike, cfg, attempt })
+    const verdict = readVerifierReport(repoRoot, verdictRel, verdictLeg)
 
-    last = { attempt, proof, verdict, proverLeg, verdictLeg };
+    last = { attempt, proof, verdict, proverLeg, verdictLeg }
 
     if (verdict.agree === true && proof.verdict === "verified") {
-      flipSpikeStatus(repoRoot, spike, "verified");
-      emit(recordEvent, spikeProofCompleted(spike, "verified", now, [proofRel, verdictRel]));
-      return { status: "verified", reason: proof.reason ?? "proof verified", changeRequest: null };
+      flipSpikeStatus(repoRoot, spike, "verified")
+      emit(recordEvent, spikeProofCompleted(spike, "verified", now, [proofRel, verdictRel]))
+      return { status: "verified", reason: proof.reason ?? "proof verified", changeRequest: null }
     }
     if (verdict.agree === true && proof.verdict === "failed") {
-      flipSpikeStatus(repoRoot, spike, "failed");
-      const reason = proof.reason || "the prover disproved the spike's hypothesis";
-      const cr = writeChangeRequest({ repoRoot, spike, proof: proofRel, verdict: verdictRel, reason, kind: "disproven", now });
-      emit(recordEvent, spikeProofCompleted(spike, "failed", now, [proofRel, verdictRel, ...(cr?.file ? [cr.file] : [])]));
-      return { status: "failed", reason, changeRequest: cr };
+      flipSpikeStatus(repoRoot, spike, "failed")
+      const reason = proof.reason || "the prover disproved the spike's hypothesis"
+      const cr = writeChangeRequest({ repoRoot, spike, proof: proofRel, verdict: verdictRel, reason, kind: "disproven", now })
+      emit(recordEvent, spikeProofCompleted(spike, "failed", now, [proofRel, verdictRel, ...(cr?.file ? [cr.file] : [])]))
+      return { status: "failed", reason, changeRequest: cr }
     }
-    last.disagreement = disagreementFeedback(proof, verdict);
+    last.disagreement = disagreementFeedback(proof, verdict)
   }
 
-  flipSpikeStatus(repoRoot, spike, "failed");
-  const reason = `prover and spike-verifier did not agree after a bounded retry: ${last!.disagreement}`;
-  const cr = writeChangeRequest({ repoRoot, spike, proof: proofRel, verdict: verdictRel, reason, kind: "disagreement", now });
-  emit(recordEvent, spikeProofCompleted(spike, "failed", now, [proofRel, verdictRel, ...(cr?.file ? [cr.file] : [])]));
-  return { status: "failed", reason, changeRequest: cr };
+  flipSpikeStatus(repoRoot, spike, "failed")
+  const reason = `prover and spike-verifier did not agree after a bounded retry: ${last!.disagreement}`
+  const cr = writeChangeRequest({ repoRoot, spike, proof: proofRel, verdict: verdictRel, reason, kind: "disagreement", now })
+  emit(recordEvent, spikeProofCompleted(spike, "failed", now, [proofRel, verdictRel, ...(cr?.file ? [cr.file] : [])]))
+  return { status: "failed", reason, changeRequest: cr }
 }
 
 function readProofReport(repoRoot: string, rel: string, leg: SpikeLegResult): ProofReport {
-  const parsed = readJsonOrNull(resolve(repoRoot, rel)) as { verdict?: unknown; reason?: unknown } | null;
+  const parsed = readJsonOrNull(resolve(repoRoot, rel)) as { verdict?: unknown; reason?: unknown } | null
   if (!parsed || (parsed.verdict !== "verified" && parsed.verdict !== "failed")) {
-    return { verdict: "no_report", reason: legFailureReason(leg) ?? `prover wrote no valid verdict at ${rel}` };
+    return { verdict: "no_report", reason: legFailureReason(leg) ?? `prover wrote no valid verdict at ${rel}` }
   }
-  return { verdict: parsed.verdict, reason: typeof parsed.reason === "string" ? parsed.reason : "" };
+  return { verdict: parsed.verdict, reason: typeof parsed.reason === "string" ? parsed.reason : "" }
 }
 
 function readVerifierReport(repoRoot: string, rel: string, leg: SpikeLegResult): VerifierReport {
-  const parsed = readJsonOrNull(resolve(repoRoot, rel)) as { agree?: unknown; problems?: unknown } | null;
+  const parsed = readJsonOrNull(resolve(repoRoot, rel)) as { agree?: unknown; problems?: unknown } | null
   if (!parsed) {
-    return { agree: false, problems: [legFailureReason(leg) ?? `spike-verifier wrote no verdict at ${rel}`] };
+    return { agree: false, problems: [legFailureReason(leg) ?? `spike-verifier wrote no verdict at ${rel}`] }
   }
   return {
     agree: parsed.agree === true,
     problems: Array.isArray(parsed.problems) ? parsed.problems : [],
-  };
+  }
 }
 
 function disagreementFeedback(proof: ProofReport, verdict: VerifierReport): string {
-  const problems = (verdict.problems ?? []).map((p) => (typeof p === "string" ? p : JSON.stringify(p))).join("; ");
-  return `prover said "${proof.verdict}" (${proof.reason || "no reason"}); spike-verifier agree=${verdict.agree}${problems ? ` — problems: ${problems}` : ""}`;
+  const problems = (verdict.problems ?? []).map((p) => (typeof p === "string" ? p : JSON.stringify(p))).join("; ")
+  return `prover said "${proof.verdict}" (${proof.reason || "no reason"}); spike-verifier agree=${verdict.agree}${problems ? ` — problems: ${problems}` : ""}`
 }
 
 function legFailureReason(leg: SpikeLegResult | undefined): string | null {
-  if (leg?.result?.timedOut) return leg.result.timeoutReason || "leg timed out";
-  const status = leg?.result?.status;
-  if (typeof status === "number" && status !== 0) return `leg exited non-zero (status ${status})`;
-  return null;
+  if (leg?.result?.timedOut) return leg.result.timeoutReason || "leg timed out"
+  const status = leg?.result?.status
+  if (typeof status === "number" && status !== 0) return `leg exited non-zero (status ${status})`
+  return null
 }
 
 export function flipSpikeStatus(repoRoot: string, spike: { file: string }, status: SpikeStatus): void {
-  const abs = resolve(repoRoot, spike.file);
-  const text = readFileSync(abs, "utf8");
-  const eol = text.includes("\r\n") ? "\r\n" : "\n";
-  const lines = text.split(/\r?\n/);
-  const headingIndex = lines.findIndex((line) => /^##\s+Traceability\s*$/.test(line));
+  const abs = resolve(repoRoot, spike.file)
+  const text = readFileSync(abs, "utf8")
+  const eol = text.includes("\r\n") ? "\r\n" : "\n"
+  const lines = text.split(/\r?\n/)
+  const headingIndex = lines.findIndex((line) => /^##\s+Traceability\s*$/.test(line))
   if (headingIndex === -1) {
-    throw new Error(`spike-prover: ${spike.file} has no "## Traceability" block to update`);
+    throw new Error(`spike-prover: ${spike.file} has no "## Traceability" block to update`)
   }
-  let updated = false;
+  let updated = false
   for (let i = headingIndex + 1; i < lines.length; i += 1) {
-    if (/^#{1,2}\s/.test(lines[i])) break;
-    const m = lines[i].match(/^(\s*status:\s*)(.*)$/);
+    if (/^#{1,2}\s/.test(lines[i])) break
+    const m = lines[i].match(/^(\s*status:\s*)(.*)$/)
     if (m) {
-      lines[i] = `${m[1]}${status}`;
-      updated = true;
-      break;
+      lines[i] = `${m[1]}${status}`
+      updated = true
+      break
     }
   }
   if (!updated) {
-    throw new Error(`spike-prover: ${spike.file} Traceability block has no "status:" line to update`);
+    throw new Error(`spike-prover: ${spike.file} Traceability block has no "status:" line to update`)
   }
-  writeFileSync(abs, lines.join(eol), "utf8");
+  writeFileSync(abs, lines.join(eol), "utf8")
 }
 
 // spike.gate_id rides on affected_verification_gates — cr-apply reads it to retire this spike (failed -> deferred) once the CR is folded.
-export function defaultWriteChangeRequest({ repoRoot, spike, proof, verdict, reason, kind, now }: {
-  repoRoot: string;
-  spike: Spike;
-  proof: string;
-  verdict: string;
-  reason: string;
-  kind: string;
-  now: () => string;
+export function defaultWriteChangeRequest({
+  repoRoot,
+  spike,
+  proof,
+  verdict,
+  reason,
+  kind,
+  now,
+}: {
+  repoRoot: string
+  spike: Spike
+  proof: string
+  verdict: string
+  reason: string
+  kind: string
+  now: () => string
 }): ChangeRequestRef {
-  const handle = spike.gate_id.replace(/^gate:phase0:/, "");
-  const title = kind === "disagreement" ? `Spike ${handle} proof unresolved` : `Spike ${handle} hypothesis disproven`;
-  const body = renderChangeRequest({ title, spike, proof, verdict, reason, kind });
+  const handle = spike.gate_id.replace(/^gate:phase0:/, "")
+  const title = kind === "disagreement" ? `Spike ${handle} proof unresolved` : `Spike ${handle} hypothesis disproven`
+  const body = renderChangeRequest({ title, spike, proof, verdict, reason, kind })
   const { id, path } = createChangeRequest({
     repoRoot,
     title,
@@ -294,23 +325,30 @@ export function defaultWriteChangeRequest({ repoRoot, spike, proof, verdict, rea
     affectedVerificationGates: [spike.gate_id],
     body,
     now,
-  });
-  return { file: path, id };
+  })
+  return { file: path, id }
 }
 
 // Everything returned here goes AFTER the frontmatter; createChangeRequest prepends the frontmatter itself.
-function renderChangeRequest({ title, spike, proof, verdict, reason, kind }: {
-  title: string;
-  spike: Spike;
-  proof: string;
-  verdict: string;
-  reason: string;
-  kind: string;
+function renderChangeRequest({
+  title,
+  spike,
+  proof,
+  verdict,
+  reason,
+  kind,
+}: {
+  title: string
+  spike: Spike
+  proof: string
+  verdict: string
+  reason: string
+  kind: string
 }): string {
   const outcome =
     kind === "disagreement"
       ? "The prover and the independent spike-verifier could not agree after a bounded retry, so the proof is untrustworthy."
-      : "The prover ran the spike's experiments and DISPROVED its hypothesis; the independent spike-verifier agreed.";
+      : "The prover ran the spike's experiments and DISPROVED its hypothesis; the independent spike-verifier agreed."
   return [
     `# ${title}`,
     "",
@@ -360,58 +398,58 @@ function renderChangeRequest({ title, spike, proof, verdict, reason, kind }: {
     `CR created by the spike prover (source: agent) after ${kind === "disagreement" ? "an unresolved proof disagreement" : "a disproven spike hypothesis"}.`,
     "```",
     "",
-  ].join("\n");
+  ].join("\n")
 }
 
 function formatRequirementIds(spike: Spike): string {
-  const ids = spike.requirement_ids;
-  if (!ids) return "(recorded in the spike's Traceability block)";
-  return Array.isArray(ids) ? ids.join(", ") : String(ids);
+  const ids = spike.requirement_ids
+  if (!ids) return "(recorded in the spike's Traceability block)"
+  return Array.isArray(ids) ? ids.join(", ") : String(ids)
 }
 
 function defaultLegs(): Legs {
   return {
     implementer: { actor: "claude", provider: "claude", model: CLI_DEFAULTS.claude.model, effort: CLI_DEFAULTS.claude.effort, fast: false },
     reviewer: { actor: "codex", provider: "codex", model: CLI_DEFAULTS.codex.model, effort: CLI_DEFAULTS.codex.effort, fast: false },
-  };
+  }
 }
 
 function makeDefaultSpawnProver(baseCfg: LegCfg, legs: Legs): SpawnProver {
-  const implementer = legs?.implementer ?? defaultLegs().implementer;
-  const leg: AgentLeg = { ...implementer, role: "spike-prover" };
+  const implementer = legs?.implementer ?? defaultLegs().implementer
+  const leg: AgentLeg = { ...implementer, role: "spike-prover" }
   return async ({ repoRoot, spike, cfg, attempt, disagreement }) => {
-    const legCfg = { ...cfg, promptsDir: cfg?.promptsDir ?? FACTORY_PROMPTS_DIR, execRoot: repoRoot };
-    const issue = spikeIssue(spike);
-    const context = proverContext({ spike, attempt, disagreement });
-    const deps = legDepsForTarget(repoRoot, context);
-    return runLegForProvider(leg, issue, legCfg, deps);
-  };
+    const legCfg = { ...cfg, promptsDir: cfg?.promptsDir ?? FACTORY_PROMPTS_DIR, execRoot: repoRoot }
+    const issue = spikeIssue(spike)
+    const context = proverContext({ spike, attempt, disagreement })
+    const deps = legDepsForTarget(repoRoot, context)
+    return runLegForProvider(leg, issue, legCfg, deps)
+  }
 }
 
 function makeDefaultSpawnSpikeVerifier(baseCfg: LegCfg, legs: Legs): SpawnSpikeVerifier {
-  const reviewer = legs?.reviewer ?? defaultLegs().reviewer;
-  const leg: AgentLeg = { ...reviewer, role: "spike-verifier" };
+  const reviewer = legs?.reviewer ?? defaultLegs().reviewer
+  const leg: AgentLeg = { ...reviewer, role: "spike-verifier" }
   return async ({ repoRoot, spike, cfg, attempt }) => {
-    const legCfg = { ...cfg, promptsDir: cfg?.promptsDir ?? FACTORY_PROMPTS_DIR, execRoot: repoRoot };
-    const issue = spikeIssue(spike);
-    const context = verifierContext({ spike, attempt });
-    const deps = legDepsForTarget(repoRoot, context);
-    return runLegForProvider(leg, issue, legCfg, deps);
-  };
+    const legCfg = { ...cfg, promptsDir: cfg?.promptsDir ?? FACTORY_PROMPTS_DIR, execRoot: repoRoot }
+    const issue = spikeIssue(spike)
+    const context = verifierContext({ spike, attempt })
+    const deps = legDepsForTarget(repoRoot, context)
+    return runLegForProvider(leg, issue, legCfg, deps)
+  }
 }
 
 function runLegForProvider(leg: AgentLeg, issue: SpikeIssue, legCfg: LegConfig, deps: LegDeps): LegRunResult {
-  if (leg.provider === "codex") return runCodexLeg(leg, issue, legCfg, deps);
-  return runClaudeLeg(leg, issue, legCfg, deps);
+  if (leg.provider === "codex") return runCodexLeg(leg, issue, legCfg, deps)
+  return runClaudeLeg(leg, issue, legCfg, deps)
 }
 
 function spikeIssue(spike: Spike): SpikeIssue {
-  const id = `SPIKE-${spikeStem(spike.file)}`;
-  return { id, transcript_dir: `${TRANSCRIPT_DIRS.spikes}/${id}`, graph_refs: [SPIKE_GRAPH_REF], path: spike.file };
+  const id = `SPIKE-${spikeStem(spike.file)}`
+  return { id, transcript_dir: `${TRANSCRIPT_DIRS.spikes}/${id}`, graph_refs: [SPIKE_GRAPH_REF], path: spike.file }
 }
 
 function proverContext({ spike, attempt, disagreement }: { spike: Spike; attempt: number; disagreement: string | null }): string {
-  const stem = spikeStem(spike.file);
+  const stem = spikeStem(spike.file)
   return (
     `\n\n---\n\n## Spike proving context for this run\n\n` +
     `- Spike to prove: \`${spike.file}\` (gate_id \`${spike.gate_id}\`).\n` +
@@ -422,16 +460,13 @@ function proverContext({ spike, attempt, disagreement }: { spike: Spike; attempt
     `\`{ "verdict": "verified" | "failed", "reason": string }\`. \`verified\` only if the hypothesis held; \`failed\` if reality differed.\n` +
     `- Attempt: ${attempt}.\n` +
     (disagreement
-      ? `\n### Address this — the previous attempt did not survive independent verification\n\n` +
-        "```text\n" +
-        disagreement +
-        "\n```\n"
+      ? `\n### Address this — the previous attempt did not survive independent verification\n\n` + "```text\n" + disagreement + "\n```\n"
       : "")
-  );
+  )
 }
 
 function verifierContext({ spike, attempt }: { spike: Spike; attempt: number }): string {
-  const stem = spikeStem(spike.file);
+  const stem = spikeStem(spike.file)
   return (
     `\n\n---\n\n## Proof verification context for this run\n\n` +
     `- Spike under review: \`${spike.file}\` (gate_id \`${spike.gate_id}\`), including the evidence the prover recorded ` +
@@ -441,11 +476,11 @@ function verifierContext({ spike, attempt }: { spike: Spike; attempt: number }):
     `- Write your verdict — and nothing else — to \`${REPORTS_DIR}/spike-${stem}-verdict.json\` as JSON ` +
     `\`{ "agree": boolean, "problems": [string] }\`. \`agree\` true only when the evidence genuinely supports the prover's verdict.\n` +
     `- Attempt under review: ${attempt}.\n`
-  );
+  )
 }
 
 function emit(recordEvent: ((event: LedgerEvent) => void) | null, event: LedgerEvent): void {
-  if (typeof recordEvent === "function") recordEvent(event);
+  if (typeof recordEvent === "function") recordEvent(event)
 }
 
 function spikeProofCompleted(spike: Spike, verdict: string, now: () => string, evidence: string[]): LedgerEvent {
@@ -458,58 +493,58 @@ function spikeProofCompleted(spike: Spike, verdict: string, now: () => string, e
     verdict,
     evidence_refs: evidence,
     timestamp: now(),
-  };
+  }
 }
 
 // Assumes the graph is validated acyclic upstream by spike-check; the stack-based guard below is a defensive fallback, not the primary correctness mechanism.
 function topoOrder(spikes: Spike[]): Spike[] {
-  const byGate = new Map(spikes.map((s) => [s.gate_id, s]));
-  const visited = new Set<string>();
-  const order: Spike[] = [];
+  const byGate = new Map(spikes.map((s) => [s.gate_id, s]))
+  const visited = new Set<string>()
+  const order: Spike[] = []
   const visit = (gate: string, stack: Set<string>) => {
-    if (visited.has(gate) || !byGate.has(gate) || stack.has(gate)) return;
-    stack.add(gate);
-    for (const dep of byGate.get(gate)!.gated_by ?? []) visit(dep, stack);
-    stack.delete(gate);
-    visited.add(gate);
-    order.push(byGate.get(gate)!);
-  };
-  for (const spike of spikes) visit(spike.gate_id, new Set());
-  return order;
+    if (visited.has(gate) || !byGate.has(gate) || stack.has(gate)) return
+    stack.add(gate)
+    for (const dep of byGate.get(gate)!.gated_by ?? []) visit(dep, stack)
+    stack.delete(gate)
+    visited.add(gate)
+    order.push(byGate.get(gate)!)
+  }
+  for (const spike of spikes) visit(spike.gate_id, new Set())
+  return order
 }
 
 // Mirrors spike-check's own (private) transitiveGatedBy; kept local rather than imported since that one isn't exported.
 function transitiveGatedBy(gate: string, byGate: Map<string, Spike>): string[] {
-  const seen = new Set<string>();
-  const stack = [...(byGate.get(gate)?.gated_by ?? [])];
+  const seen = new Set<string>()
+  const stack = [...(byGate.get(gate)?.gated_by ?? [])]
   while (stack.length) {
-    const g = stack.pop()!;
-    if (seen.has(g) || !byGate.has(g)) continue;
-    seen.add(g);
-    stack.push(...(byGate.get(g)!.gated_by ?? []));
+    const g = stack.pop()!
+    if (seen.has(g) || !byGate.has(g)) continue
+    seen.add(g)
+    stack.push(...(byGate.get(g)!.gated_by ?? []))
   }
-  return [...seen];
+  return [...seen]
 }
 
 function spikeStem(file: string): string {
-  const base = file.split("/").pop() ?? file;
-  return base.replace(/\.md$/i, "");
+  const base = file.split("/").pop() ?? file
+  return base.replace(/\.md$/i, "")
 }
 
 function readJsonOrNull(abs: string): unknown {
-  if (!existsSync(abs)) return null;
+  if (!existsSync(abs)) return null
   try {
-    return JSON.parse(readFileSync(abs, "utf8"));
+    return JSON.parse(readFileSync(abs, "utf8"))
   } catch {
-    return null;
+    return null
   }
 }
 
 // Cleared before each attempt so a leg that dies before writing reads back as no_report, never a stale prior-attempt result.
 function clearFile(repoRoot: string, rel: string): void {
-  rmSync(resolve(repoRoot, rel), { force: true });
+  rmSync(resolve(repoRoot, rel), { force: true })
 }
 
 export function ensureReportsDir(repoRoot: string): void {
-  mkdirSync(resolve(repoRoot, REPORTS_DIR), { recursive: true });
+  mkdirSync(resolve(repoRoot, REPORTS_DIR), { recursive: true })
 }

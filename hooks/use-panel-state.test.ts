@@ -22,9 +22,7 @@ describe("usePanelState — widths", () => {
   test("exposes the open widths: peek 24rem, wide 36rem (1.5x the peek)", () => {
     expect(PANEL_WIDTHS.peek).toBe("24rem")
     expect(PANEL_WIDTHS.wide).toBe("36rem")
-    expect(parseFloat(PANEL_WIDTHS.wide)).toBeCloseTo(
-      parseFloat(PANEL_WIDTHS.peek) * 1.5
-    )
+    expect(parseFloat(PANEL_WIDTHS.wide)).toBeCloseTo(parseFloat(PANEL_WIDTHS.peek) * 1.5)
   })
 })
 

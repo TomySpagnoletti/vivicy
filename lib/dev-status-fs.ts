@@ -33,9 +33,7 @@ export function readDevStatusFromDisk(root: string): DevStatus {
   })
 
   const doneDir = path.join(dev, "issues", "done")
-  const doneFiles = existsSync(doneDir)
-    ? readdirSync(doneDir).filter((f) => f.endsWith(".md"))
-    : []
+  const doneFiles = existsSync(doneDir) ? readdirSync(doneDir).filter((f) => f.endsWith(".md")) : []
 
   const verifiedByRef = new Map<string, Set<string>>()
   for (const state of ledger.graph_item_states ?? []) {

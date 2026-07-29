@@ -18,10 +18,7 @@ export async function POST(request: Request) {
     const body: unknown = await request.json().catch(() => null)
     parsed = UpdateRequest.parse(body)
   } catch {
-    return Response.json(
-      { ok: false, error: "Body must be { agent: 'claude' | 'codex' }." },
-      { status: 400 }
-    )
+    return Response.json({ ok: false, error: "Body must be { agent: 'claude' | 'codex' }." }, { status: 400 })
   }
 
   try {
@@ -41,9 +38,6 @@ export async function POST(request: Request) {
     if (error instanceof UnknownAgentError) {
       return Response.json({ ok: false, error: error.message }, { status: 400 })
     }
-    return Response.json(
-      { ok: false, error: error instanceof Error ? error.message : "update failed" },
-      { status: 500 }
-    )
+    return Response.json({ ok: false, error: error instanceof Error ? error.message : "update failed" }, { status: 500 })
   }
 }

@@ -46,9 +46,7 @@ describe("SectionTasks — issue cards", () => {
     const card = screen.getByText("ISSUE-0001").closest("li") as HTMLElement
     expect(card).toBeTruthy()
     expect(within(card).getByText("Bootstrap the workspace")).toBeInTheDocument()
-    expect(
-      within(card).getByText(".vivicy/development/issues/ISSUE-0001.md")
-    ).toBeInTheDocument()
+    expect(within(card).getByText(".vivicy/development/issues/ISSUE-0001.md")).toBeInTheDocument()
     expect(within(card).getByText("in progress")).toBeInTheDocument()
     expect(within(card).getByText("REQ-1, REQ-2")).toBeInTheDocument()
   })

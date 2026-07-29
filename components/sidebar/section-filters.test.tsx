@@ -57,14 +57,8 @@ describe("SectionFilters — view toggle", () => {
 
   test("the current view is reflected as the pressed toggle", () => {
     setup({ view: "progress" })
-    expect(screen.getByRole("radio", { name: "Progress" })).toHaveAttribute(
-      "aria-checked",
-      "true"
-    )
-    expect(screen.getByRole("radio", { name: "Target" })).toHaveAttribute(
-      "aria-checked",
-      "false"
-    )
+    expect(screen.getByRole("radio", { name: "Progress" })).toHaveAttribute("aria-checked", "true")
+    expect(screen.getByRole("radio", { name: "Target" })).toHaveAttribute("aria-checked", "false")
   })
 })
 

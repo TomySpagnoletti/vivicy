@@ -46,11 +46,7 @@ describe("parseQuestionsDirective — the validated fence", () => {
         JSON.stringify([
           card({
             question: "  Which datastore\n  should v1 run on?  ",
-            options: [
-              { label: "SQLite" },
-              { label: "  Postgres  ", recommended: true },
-              { label: "MongoDB" },
-            ],
+            options: [{ label: "SQLite" }, { label: "  Postgres  ", recommended: true }, { label: "MongoDB" }],
           }),
         ])
       )
@@ -87,9 +83,7 @@ describe("parseQuestionsDirective — the validated fence", () => {
 
   it("refuses an oversized body on SIZE, before it is parsed or normalized", () => {
     const huge = JSON.stringify([card({ question: "q".repeat(20_000) })])
-    expect(malformed(huge)).toBe(
-      `the vivicy-questions block runs to ${huge.length} characters — one stack takes at most 16384`
-    )
+    expect(malformed(huge)).toBe(`the vivicy-questions block runs to ${huge.length} characters — one stack takes at most 16384`)
   })
 
   it("strips the invisible characters that would make a label read as one thing and record as another", () => {
@@ -103,23 +97,17 @@ describe("parseQuestionsDirective — the validated fence", () => {
   })
 
   it("leaves ONE space where an invisible sat between two whitespace runs, never the double it hides", () => {
-    const directive = parseQuestionsDirective(
-      fenced(JSON.stringify([card({ question: "Ship it \u200B now, or wait \u202E for v2?" })]))
-    )
+    const directive = parseQuestionsDirective(fenced(JSON.stringify([card({ question: "Ship it \u200B now, or wait \u202E for v2?" })])))
     expect(directive).toMatchObject({ questions: [{ question: "Ship it now, or wait for v2?" }] })
   })
 
   it("closes up around an invisible with no whitespace to keep, since it renders as nothing", () => {
-    const directive = parseQuestionsDirective(
-      fenced(JSON.stringify([card({ question: "one\ttwo\u200Bthree\nfour\uFEFFfive" })]))
-    )
+    const directive = parseQuestionsDirective(fenced(JSON.stringify([card({ question: "one\ttwo\u200Bthree\nfour\uFEFFfive" })])))
     expect(directive).toMatchObject({ questions: [{ question: "one twothree fourfive" }] })
   })
 
   it("keeps the word break a LINE SEPARATOR carries — it renders as a break, so it collapses instead of vanishing", () => {
-    const directive = parseQuestionsDirective(
-      fenced(JSON.stringify([card({ question: "one\u2028two\u2029three" })]))
-    )
+    const directive = parseQuestionsDirective(fenced(JSON.stringify([card({ question: "one\u2028two\u2029three" })])))
     expect(directive).toMatchObject({ questions: [{ question: "one two three" }] })
   })
 
@@ -153,9 +141,7 @@ describe("parseQuestionsDirective — the validated fence", () => {
   })
 
   it("leaves an Arabic number sign alone — it carries meaning, unlike the zero-width family", () => {
-    const directive = parseQuestionsDirective(
-      fenced(JSON.stringify([card({ question: "Budget ؀100 ?" })]))
-    )
+    const directive = parseQuestionsDirective(fenced(JSON.stringify([card({ question: "Budget ؀100 ?" })])))
     expect(directive).toMatchObject({ questions: [{ question: "Budget ؀100 ?" }] })
   })
 
@@ -191,25 +177,18 @@ describe("parseQuestionsDirective — the validated fence", () => {
       malformed(
         JSON.stringify([
           card({
-            options: [
-              { label: "a", recommended: true },
-              { label: "b" },
-              { label: "c" },
-              { label: "d" },
-            ],
+            options: [{ label: "a", recommended: true }, { label: "b" }, { label: "c" }, { label: "d" }],
           }),
         ])
       )
     ).toBe('question card "datastore" needs 2 or 3 options')
-    expect(malformed(JSON.stringify([card({ options: ["Postgres", "SQLite"] })]))).toContain(
-      "must be a JSON object"
+    expect(malformed(JSON.stringify([card({ options: ["Postgres", "SQLite"] })]))).toContain("must be a JSON object")
+    expect(malformed(JSON.stringify([card({ options: [{ label: "x".repeat(81), recommended: true }, { label: "b" }] })]))).toContain(
+      'needs a "label"'
     )
-    expect(
-      malformed(JSON.stringify([card({ options: [{ label: "x".repeat(81), recommended: true }, { label: "b" }] })]))
-    ).toContain('needs a "label"')
-    expect(
-      malformed(JSON.stringify([card({ options: [{ label: "Same", recommended: true }, { label: "Same" }] })]))
-    ).toBe('question card "datastore" offers "Same" twice — every option must be distinct')
+    expect(malformed(JSON.stringify([card({ options: [{ label: "Same", recommended: true }, { label: "Same" }] })]))).toBe(
+      'question card "datastore" offers "Same" twice — every option must be distinct'
+    )
   })
 
   it("refuses zero, several, or non-boolean recommendations — exactly one is the law", () => {
@@ -218,12 +197,19 @@ describe("parseQuestionsDirective — the validated fence", () => {
     )
     expect(
       malformed(
-        JSON.stringify([card({ options: [{ label: "a", recommended: true }, { label: "b", recommended: true }] })])
+        JSON.stringify([
+          card({
+            options: [
+              { label: "a", recommended: true },
+              { label: "b", recommended: true },
+            ],
+          }),
+        ])
       )
     ).toBe('question card "datastore" must mark exactly one option as recommended — this one marks 2')
-    expect(
-      malformed(JSON.stringify([card({ options: [{ label: "a", recommended: "yes" }, { label: "b" }] })]))
-    ).toContain('must mark "recommended" with true or false')
+    expect(malformed(JSON.stringify([card({ options: [{ label: "a", recommended: "yes" }, { label: "b" }] })]))).toContain(
+      'must mark "recommended" with true or false'
+    )
   })
 
   it("refuses a card trying to switch the free answer off, and accepts its absence", () => {
@@ -271,18 +257,12 @@ describe("remainingQuestions — the pile derived from the thread", () => {
   })
 
   it("retires exactly the answered question, ignoring another stack's answers", () => {
-    const turns = [
-      { answered: { stackId: "stack-1", questionId: "a" } },
-      { answered: { stackId: "other", questionId: "b" } },
-    ]
+    const turns = [{ answered: { stackId: "stack-1", questionId: "a" } }, { answered: { stackId: "other", questionId: "b" } }]
     expect(remainingQuestions(stack, turns).map((q) => q.id)).toEqual(["b"])
   })
 
   it("is idempotent under a replayed answer line", () => {
-    const twice = [
-      { answered: { stackId: "stack-1", questionId: "a" } },
-      { answered: { stackId: "stack-1", questionId: "a" } },
-    ]
+    const twice = [{ answered: { stackId: "stack-1", questionId: "a" } }, { answered: { stackId: "stack-1", questionId: "a" } }]
     expect(remainingQuestions(stack, twice).map((q) => q.id)).toEqual(["b"])
   })
 })

@@ -31,8 +31,7 @@ const EDGE: MapEdge = {
   graph_ref: "edge:telegram->mcp",
 }
 
-const NODE_TRANSCRIPT =
-  ".vivicy/development/transcripts/ISSUES/ISSUE-0100/codex-reviewer-b91c05e7-2d4a-4f36-8c17-6e0b93a5d281.jsonl"
+const NODE_TRANSCRIPT = ".vivicy/development/transcripts/ISSUES/ISSUE-0100/codex-reviewer-b91c05e7-2d4a-4f36-8c17-6e0b93a5d281.jsonl"
 const NODE_TRANSCRIPT_NAME = "codex-reviewer-b91c05e7-2d4a-4f36-8c17-6e0b93a5d281.jsonl"
 
 const DATA: ArchitectureMapData = {
@@ -112,9 +111,7 @@ function renderDetails(selected: SelectedItem, data: ArchitectureMapData = DATA)
 describe("SectionDetails — nothing selected", () => {
   test("renders the none-selected guidance", () => {
     renderDetails(null)
-    expect(
-      screen.getByText(/Select a node or an edge to inspect protocol/)
-    ).toBeInTheDocument()
+    expect(screen.getByText(/Select a node or an edge to inspect protocol/)).toBeInTheDocument()
   })
 })
 
@@ -130,9 +127,7 @@ describe("SectionDetails — a selected node", () => {
 
     const sourceLabel = screen.getByText("Source refs")
     const sourceGroup = sourceLabel.parentElement as HTMLElement
-    expect(
-      within(sourceGroup).getByText(".vivicy/canonical/09-telegram-channel-interface.md:12")
-    ).toBeInTheDocument()
+    expect(within(sourceGroup).getByText(".vivicy/canonical/09-telegram-channel-interface.md:12")).toBeInTheDocument()
     expect(screen.getByText("Evidence refs")).toBeInTheDocument()
     expect(screen.getByText(".vivicy/development/gates/ISSUE-0100-gate.json")).toBeInTheDocument()
   })
@@ -141,9 +136,7 @@ describe("SectionDetails — a selected node", () => {
     renderDetails({ type: "node", item: NODE })
     expect(screen.getByText("Covered by")).toBeInTheDocument()
     expect(screen.getByText("ISSUE-0100")).toBeInTheDocument()
-    expect(
-      screen.getByRole("button", { name: NODE_TRANSCRIPT_NAME })
-    ).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: NODE_TRANSCRIPT_NAME })).toBeInTheDocument()
   })
 
   test("lists the declared proofs of its covering issues — class, produced state, canonical refs, and where they sit on disk", () => {
@@ -156,28 +149,18 @@ describe("SectionDetails — a selected node", () => {
 
     expect(screen.getByText("claim-token-request")).toBeInTheDocument()
     expect(screen.getByText("http transcript")).toBeInTheDocument()
-    expect(
-      screen.getByText("ISSUE-0100 · not produced yet"),
-      "an owed-but-absent observation is visible, never hidden"
-    ).toBeInTheDocument()
+    expect(screen.getByText("ISSUE-0100 · not produced yet"), "an owed-but-absent observation is visible, never hidden").toBeInTheDocument()
 
     const produced = screen.getByText("claim-flow-screens").closest("li") as HTMLElement
-    expect(
-      within(produced).getByText(/\.vivicy\/canonical\/09-telegram-channel-interface\.md:12/)
-    ).toBeInTheDocument()
-    expect(
-      within(produced).getByText(/\.vivicy\/development\/proofs\/ISSUE-0100\/claim-flow-screens/)
-    ).toBeInTheDocument()
+    expect(within(produced).getByText(/\.vivicy\/canonical\/09-telegram-channel-interface\.md:12/)).toBeInTheDocument()
+    expect(within(produced).getByText(/\.vivicy\/development\/proofs\/ISSUE-0100\/claim-flow-screens/)).toBeInTheDocument()
     expect(within(produced).getByText("Evidences")).toBeInTheDocument()
     expect(within(produced).getByText("On disk")).toBeInTheDocument()
   })
 
   test("falls back to the node's own status when no overlay state exists", () => {
     const lonelyNode: MapNode = { ...NODE, id: "lonely", graph_ref: "node:lonely", status: "blocked" }
-    renderDetails(
-      { type: "node", item: lonelyNode },
-      { name: "m", nodes: [lonelyNode], edges: [] }
-    )
+    renderDetails({ type: "node", item: lonelyNode }, { name: "m", nodes: [lonelyNode], edges: [] })
     expect(screen.getByText("blocked")).toBeInTheDocument()
     expect(screen.getByText("None yet")).toBeInTheDocument()
     expect(screen.queryByText("Proofs"), "a node no issue covers shows no proofs block at all").toBeNull()
@@ -189,10 +172,7 @@ describe("SectionDetails — transcript buttons", () => {
     renderDetails({ type: "node", item: NODE })
     const button = screen.getByRole("button", { name: NODE_TRANSCRIPT_NAME })
 
-    expect(button, "the full ref stays reachable without opening it").toHaveAttribute(
-      "title",
-      NODE_TRANSCRIPT
-    )
+    expect(button, "the full ref stays reachable without opening it").toHaveAttribute("title", NODE_TRANSCRIPT)
     expect(button, "the box sizes the button, never the 57-character label").toHaveClass("w-full")
     expect(button, "no label can paint past the button's own edge").toHaveClass("overflow-hidden")
 
@@ -200,10 +180,9 @@ describe("SectionDetails — transcript buttons", () => {
     expect(head, "the head is the part that gives way").toHaveClass("truncate")
     expect(tail, "the run id at the tail is never the part that gives way").toHaveClass("shrink-0")
     expect(tail).toHaveTextContent("a5d281.jsonl")
-    expect(
-      `${head.textContent}${tail.textContent}`,
-      "truncation is visual only — the label itself loses nothing"
-    ).toBe(NODE_TRANSCRIPT_NAME)
+    expect(`${head.textContent}${tail.textContent}`, "truncation is visual only — the label itself loses nothing").toBe(
+      NODE_TRANSCRIPT_NAME
+    )
   })
 
   test("a state with no transcripts renders no Transcripts block at all", () => {
@@ -215,9 +194,7 @@ describe("SectionDetails — transcript buttons", () => {
         nodes: [quiet],
         edges: [],
         development: {
-          graph_item_states: [
-            { graph_ref: "node:quiet", status: "implemented", transcript_refs: [] },
-          ],
+          graph_item_states: [{ graph_ref: "node:quiet", status: "implemented", transcript_refs: [] }],
         },
       }
     )

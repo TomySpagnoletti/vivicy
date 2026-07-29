@@ -2,14 +2,7 @@ import { render, screen } from "@testing-library/react"
 import { describe, expect, test } from "vitest"
 
 import { Card } from "@/components/ui/card"
-import {
-  MenuCard,
-  MenuCardActions,
-  MenuCardBody,
-  MenuCardPile,
-  MenuCardStamp,
-  MenuCardTitle,
-} from "@/components/chat/menu-card"
+import { MenuCard, MenuCardActions, MenuCardBody, MenuCardPile, MenuCardStamp, MenuCardTitle } from "@/components/chat/menu-card"
 
 function root(): HTMLElement {
   return document.querySelector('[data-slot="menu-card"]') as HTMLElement
@@ -228,11 +221,7 @@ describe("MenuCardPile — the count made physical, bounded by the row that pain
 })
 
 describe("MenuCard — one physical box, two faces", () => {
-  const TURN_ONLY_CLASSES = [
-    "motion-reduce:opacity-0",
-    "motion-reduce:opacity-100",
-    "pointer-events-none",
-  ]
+  const TURN_ONLY_CLASSES = ["motion-reduce:opacity-0", "motion-reduce:opacity-100", "pointer-events-none"]
 
   function classes(face: HTMLElement): string[] {
     return face.className.split(/\s+/).filter(Boolean)
@@ -253,10 +242,7 @@ describe("MenuCard — one physical box, two faces", () => {
       expect(face).not.toContain("absolute")
     }
     for (const [index, face] of before.entries()) {
-      const swapped = [
-        ...face.filter((name) => !after[index].includes(name)),
-        ...after[index].filter((name) => !face.includes(name)),
-      ]
+      const swapped = [...face.filter((name) => !after[index].includes(name)), ...after[index].filter((name) => !face.includes(name))]
       expect(swapped.sort()).toEqual([...TURN_ONLY_CLASSES].sort())
     }
   })

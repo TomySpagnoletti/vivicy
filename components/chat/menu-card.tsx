@@ -12,29 +12,16 @@ const FACE =
 
 const RULE = "border-foreground/10"
 
-const SHEET =
-  "absolute inset-x-1.5 rounded-lg bg-linear-to-b from-card to-muted ring-1 ring-foreground/15"
+const SHEET = "absolute inset-x-1.5 rounded-lg bg-linear-to-b from-card to-muted ring-1 ring-foreground/15"
 
 // Deepest first: DOM order IS the stacking order here, so the sheet that peeks furthest paints furthest back and the live card, the only positioned sibling after them, paints on top.
 const SHEETS = ["top-5 bottom-3 rotate-[1.4deg]", "top-4 bottom-5 rotate-[-1deg]"] as const
 
 // The count made physical: the sheets behind are paper, never content. Their resting offset and rotation are geometry, not motion, and they stay INSIDE this box's padding — a transcript row is paint-contained (`components/ui/message-scroller.tsx` `[content-visibility:auto]`), so a rotated corner reaching past it is shaved. The horizontal padding is constant across the pile's whole life so the live card never changes width as the pile shrinks.
-export function MenuCardPile({
-  depth,
-  className,
-  children,
-}: {
-  depth: number
-  className?: string
-  children: ReactNode
-}) {
+export function MenuCardPile({ depth, className, children }: { depth: number; className?: string; children: ReactNode }) {
   const sheets = Math.max(0, Math.min(depth, SHEETS.length))
   return (
-    <div
-      data-slot="menu-card-pile"
-      data-depth={sheets}
-      className={cn("relative px-3 pt-1", sheets > 0 ? "pb-7" : "pb-1", className)}
-    >
+    <div data-slot="menu-card-pile" data-depth={sheets} className={cn("relative px-3 pt-1", sheets > 0 ? "pb-7" : "pb-1", className)}>
       {SHEETS.slice(SHEETS.length - sheets).map((sheet) => (
         <div key={sheet} aria-hidden data-slot="menu-card-sheet" className={cn(SHEET, sheet)} />
       ))}
@@ -69,8 +56,7 @@ export function MenuCard({
     wasTurned.current = showBack
     if (!showBack || previously) return
     const active = document.activeElement
-    const stolen =
-      active === null || active === document.body || rootRef.current?.contains(active) === true
+    const stolen = active === null || active === document.body || rootRef.current?.contains(active) === true
     if (stolen) backRef.current?.focus({ preventScroll: true })
   }, [showBack])
 
@@ -100,7 +86,7 @@ export function MenuCard({
             tabIndex={-1}
             covered={!showBack}
             animated={animated}
-            className="motion-safe:rotate-y-180 focus:outline-none"
+            className="focus:outline-none motion-safe:rotate-y-180"
           >
             {eyebrow !== undefined ? <MenuCardEyebrow>{eyebrow}</MenuCardEyebrow> : null}
             {back}
@@ -111,12 +97,7 @@ export function MenuCard({
   )
 }
 
-function MenuCardFace({
-  covered,
-  animated,
-  className,
-  ...props
-}: ComponentProps<typeof Card> & { covered: boolean; animated: boolean }) {
+function MenuCardFace({ covered, animated, className, ...props }: ComponentProps<typeof Card> & { covered: boolean; animated: boolean }) {
   return (
     <Card
       data-slot="menu-card-face"
@@ -136,10 +117,7 @@ function MenuCardFace({
 
 function MenuCardEyebrow({ children }: { children: ReactNode }) {
   return (
-    <Marker
-      variant="separator"
-      className="px-(--card-spacing) text-[10px] font-medium tracking-[0.16em] text-muted-foreground uppercase"
-    >
+    <Marker variant="separator" className="px-(--card-spacing) text-[10px] font-medium tracking-[0.16em] text-muted-foreground uppercase">
       <MarkerContent>{children}</MarkerContent>
     </Marker>
   )
@@ -148,35 +126,20 @@ function MenuCardEyebrow({ children }: { children: ReactNode }) {
 export function MenuCardTitle({ className, ...props }: ComponentProps<"div">) {
   return (
     <CardHeader className="gap-1">
-      <CardTitle
-        className={cn("text-[13px] leading-snug wrap-break-word", className)}
-        {...props}
-      />
+      <CardTitle className={cn("text-[13px] leading-snug wrap-break-word", className)} {...props} />
     </CardHeader>
   )
 }
 
 export function MenuCardBody({ className, ...props }: ComponentProps<"div">) {
-  return (
-    <CardContent
-      className={cn(
-        "text-xs/relaxed whitespace-pre-wrap text-muted-foreground",
-        className
-      )}
-      {...props}
-    />
-  )
+  return <CardContent className={cn("text-xs/relaxed whitespace-pre-wrap text-muted-foreground", className)} {...props} />
 }
 
 export function MenuCardActions({ className, ...props }: ComponentProps<"div">) {
   return (
     <div
       data-slot="menu-card-actions"
-      className={cn(
-        "mx-(--card-spacing) flex flex-col items-start gap-2 border-t pt-3",
-        RULE,
-        className
-      )}
+      className={cn("mx-(--card-spacing) flex flex-col items-start gap-2 border-t pt-3", RULE, className)}
       {...props}
     />
   )
@@ -186,24 +149,13 @@ export function MenuCardStamp({ className, children, ...props }: ComponentProps<
   return (
     <div
       data-slot="menu-card-stamp"
-      className={cn(
-        "flex grow flex-col items-center justify-center gap-2 px-(--card-spacing) py-2 text-center",
-        className
-      )}
+      className={cn("flex grow flex-col items-center justify-center gap-2 px-(--card-spacing) py-2 text-center", className)}
       {...props}
     >
-      <span
-        aria-hidden
-        className={cn(
-          "flex size-7 items-center justify-center rounded-full border text-primary",
-          RULE
-        )}
-      >
+      <span aria-hidden className={cn("flex size-7 items-center justify-center rounded-full border text-primary", RULE)}>
         <Check className="size-4" />
       </span>
-      <span className="text-xs/relaxed font-medium wrap-break-word text-foreground">
-        {children}
-      </span>
+      <span className="text-xs/relaxed font-medium wrap-break-word text-foreground">{children}</span>
     </div>
   )
 }

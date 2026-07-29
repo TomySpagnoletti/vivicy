@@ -55,7 +55,7 @@ export function parseActionDirective(reply: string): ActionDirective {
   for (const entry of actions) {
     const tool = (entry as { tool?: unknown } | null)?.tool
     if (typeof tool !== "string" || tool.trim().length === 0) {
-      return { malformed: "every action must carry a non-empty string \"tool\"" }
+      return { malformed: 'every action must carry a non-empty string "tool"' }
     }
     const args = (entry as { args?: unknown }).args
     if (args !== undefined && (typeof args !== "object" || args === null || Array.isArray(args))) {
@@ -158,18 +158,13 @@ export async function executeViviActions(
         event: `action_${action.tool.replace(/\./g, "_")}${result.ok ? "" : "_error"}`,
         message: `Vivi action ${action.tool}: ${result.summary}`,
       })
-    } catch {
-    }
+    } catch {}
     results.push(result)
   }
   return results
 }
 
-async function executeOne(
-  spawner: Spawner,
-  action: ViviActionRequest,
-  deps: ViviActionDeps
-): Promise<ViviActionResult> {
+async function executeOne(spawner: Spawner, action: ViviActionRequest, deps: ViviActionDeps): Promise<ViviActionResult> {
   const { tool, args } = action
   if (!isKnownTool(tool)) {
     return {
@@ -238,15 +233,20 @@ async function executeOne(
       case "skills.install": {
         const ids = stringList(args, "ids")
         if (!ids) {
-          return { tool, ok: false, summary: 'args.ids must be a non-empty list of skill ids/URLs' }
+          return { tool, ok: false, summary: "args.ids must be a non-empty list of skill ids/URLs" }
         }
         const run = deps.startSkillsInstall(spawner, { ids })
-        return { tool, ok: true, summary: `skills install started (explicit mode, pid ${run.pid}): ${ids.join(", ")}`, data: { ids, pid: run.pid } }
+        return {
+          tool,
+          ok: true,
+          summary: `skills install started (explicit mode, pid ${run.pid}): ${ids.join(", ")}`,
+          data: { ids, pid: run.pid },
+        }
       }
       case "skills.remove": {
         const ids = stringList(args, "ids")
         if (!ids) {
-          return { tool, ok: false, summary: 'args.ids must be a non-empty list of skill ids/URLs' }
+          return { tool, ok: false, summary: "args.ids must be a non-empty list of skill ids/URLs" }
         }
         const report = await deps.removeSkills(spawner, { ids })
         const removed = report.removed?.length ?? 0
@@ -313,9 +313,7 @@ async function executeOne(
 }
 
 export function renderActionResults(results: ViviActionResult[]): string {
-  return results
-    .map((r) => `${r.ok ? "✓" : "✗"} ${r.tool}: ${r.summary}`)
-    .join("\n")
+  return results.map((r) => `${r.ok ? "✓" : "✗"} ${r.tool}: ${r.summary}`).join("\n")
 }
 
 export function stripActionFence(reply: string): string {

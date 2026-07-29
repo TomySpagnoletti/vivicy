@@ -25,13 +25,7 @@ const ZIP_EXTENSION = ZIP_TRANSPORT_EXTENSION
 const MAX_ZIP_DEPTH = 2
 const UNDETERMINED_LANGUAGE = "und"
 
-export type ImportErrorCode =
-  | "no_files"
-  | "no_supported_files"
-  | "already_governed"
-  | "not_governed"
-  | "zip_slip"
-  | "zip_unreadable"
+export type ImportErrorCode = "no_files" | "no_supported_files" | "already_governed" | "not_governed" | "zip_slip" | "zip_unreadable"
 
 export class ImportError extends Error {
   constructor(
@@ -128,11 +122,9 @@ function unzip(bytes: Uint8Array, source: string): Record<string, Uint8Array> {
   try {
     return unzipSync(bytes)
   } catch (error) {
-    throw new ImportError(
-      `could not read zip: ${source} (${error instanceof Error ? error.message : "unreadable"})`,
-      "zip_unreadable",
-      { source }
-    )
+    throw new ImportError(`could not read zip: ${source} (${error instanceof Error ? error.message : "unreadable"})`, "zip_unreadable", {
+      source,
+    })
   }
 }
 
@@ -246,11 +238,7 @@ function writeBatchFile(batchDir: string, rel: string, bytes: Uint8Array): void 
 function explodeOrThrow(entries: RawEntry[]): { accepted: AcceptedEntry[]; rejected: RejectedFile[] } {
   const exploded = explode(entries)
   if (exploded.accepted.length === 0) {
-    throw new ImportError(
-      "none of the uploaded files are a supported document type",
-      "no_supported_files",
-      { rejected: exploded.rejected }
-    )
+    throw new ImportError("none of the uploaded files are a supported document type", "no_supported_files", { rejected: exploded.rejected })
   }
   return exploded
 }
@@ -298,17 +286,12 @@ export async function startGovernance(input: {
 }): Promise<GovernanceResult> {
   const { target } = resolveTargetDir(input.targetDir)
   if (isGovernedRoot(target)) {
-    throw new ImportError(
-      `this folder is already governed by Vivicy — importing would overwrite it: ${target}`,
-      "already_governed"
-    )
+    throw new ImportError(`this folder is already governed by Vivicy — importing would overwrite it: ${target}`, "already_governed")
   }
 
   const exploded = input.entries.length > 0 ? explodeOrThrow(input.entries) : null
   const projectName =
-    typeof input.projectName === "string" && input.projectName.trim().length > 0
-      ? input.projectName
-      : deriveProjectName(target)
+    typeof input.projectName === "string" && input.projectName.trim().length > 0 ? input.projectName : deriveProjectName(target)
   const scaffold = scaffoldProject({ targetDir: target, projectName })
   const batch = exploded ? await persistBatch(scaffold.project.root, exploded) : null
   return { mode: scaffold.mode, project: scaffold.project, batch }
@@ -319,10 +302,7 @@ export async function importIntoGoverned(input: { root: string; entries: RawEntr
     throw new ImportError("no files were uploaded", "no_files")
   }
   if (!isGovernedRoot(input.root)) {
-    throw new ImportError(
-      `this folder is not governed by Vivicy: no .vivicy directory in ${input.root}`,
-      "not_governed"
-    )
+    throw new ImportError(`this folder is not governed by Vivicy: no .vivicy directory in ${input.root}`, "not_governed")
   }
   return persistBatch(input.root, explodeOrThrow(input.entries))
 }

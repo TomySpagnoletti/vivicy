@@ -20,10 +20,7 @@ export async function POST(request: Request) {
   }
   const { sessionId, stackId, questionId } = body
   if (typeof sessionId !== "string" || typeof stackId !== "string" || typeof questionId !== "string") {
-    return Response.json(
-      { ok: false, error: "sessionId, stackId, and questionId are required strings" },
-      { status: 400 }
-    )
+    return Response.json({ ok: false, error: "sessionId, stackId, and questionId are required strings" }, { status: 400 })
   }
   try {
     const result = answerViviQuestion(getSpawner(), {
@@ -39,9 +36,6 @@ export async function POST(request: Request) {
     if (error instanceof ControlError) {
       return Response.json({ ok: false, error: error.message, code: error.code }, { status: 422 })
     }
-    return Response.json(
-      { ok: false, error: error instanceof Error ? error.message : "the answer could not be recorded" },
-      { status: 500 }
-    )
+    return Response.json({ ok: false, error: error instanceof Error ? error.message : "the answer could not be recorded" }, { status: 500 })
   }
 }

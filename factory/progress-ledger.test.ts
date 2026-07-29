@@ -1,7 +1,7 @@
 // Must be the first import: binds VIVICY_TARGET_ROOT as a side effect before any later import reads resolveTargetRoot() at load time.
-import { testTargetRoot as repoRoot } from "./test-target-root.ts";
-import assert from "node:assert/strict";
-import test, { after, before } from "node:test";
+import { testTargetRoot as repoRoot } from "./test-target-root.ts"
+import assert from "node:assert/strict"
+import test, { after, before } from "node:test"
 import {
   closeSync,
   existsSync,
@@ -13,12 +13,12 @@ import {
   rmSync,
   writeFileSync,
   writeSync,
-} from "node:fs";
-import { dirname, relative, resolve } from "node:path";
-import { applyProgressEvent, createEmptyProgressLedger, recordProgressEvent } from "./progress-ledger.ts";
-import type { GateRunRecord, ProgressEvent, ProgressLedger } from "./progress-ledger.ts";
+} from "node:fs"
+import { dirname, relative, resolve } from "node:path"
+import { applyProgressEvent, createEmptyProgressLedger, recordProgressEvent } from "./progress-ledger.ts"
+import type { GateRunRecord, ProgressEvent, ProgressLedger } from "./progress-ledger.ts"
 
-const MANIFEST_REL = ".vivicy/baselines/test-baseline.json";
+const MANIFEST_REL = ".vivicy/baselines/test-baseline.json"
 const MANIFEST = {
   schema_version: 1,
   status: "frozen",
@@ -27,9 +27,9 @@ const MANIFEST = {
   manifest_hash: "test-manifest-hash",
   document_set_hash: "test-document-set-hash",
   files: [] as Array<{ path: string }>,
-};
+}
 
-const VERIFICATION_EVIDENCE_REF_GRAMMAR = "^.vivicy/development/(gates|reports)/.+";
+const VERIFICATION_EVIDENCE_REF_GRAMMAR = "^.vivicy/development/(gates|reports)/.+"
 
 const placeholderIssueIndex = {
   schema_version: 1,
@@ -48,7 +48,7 @@ const placeholderIssueIndex = {
     issue_linked_doc_lines: 0,
   },
   verification_evidence_ref_grammar: VERIFICATION_EVIDENCE_REF_GRAMMAR,
-};
+}
 
 const placeholderProgressLedger = {
   schema_version: 1,
@@ -60,29 +60,28 @@ const placeholderProgressLedger = {
   updated_at: null,
   graph_item_states: [],
   active_items: [],
-};
+}
 
-const ARCHITECTURE_MAP =
-  `schema_version: 1\nverification_gate_ref_grammar: "${VERIFICATION_EVIDENCE_REF_GRAMMAR}"\n`;
+const ARCHITECTURE_MAP = `schema_version: 1\nverification_gate_ref_grammar: "${VERIFICATION_EVIDENCE_REF_GRAMMAR}"\n`
 
 function writeJson(rel: string, value: unknown) {
-  const abs = resolve(repoRoot, rel);
-  mkdirSync(dirname(abs), { recursive: true });
-  writeFileSync(abs, `${JSON.stringify(value, null, 2)}\n`);
+  const abs = resolve(repoRoot, rel)
+  mkdirSync(dirname(abs), { recursive: true })
+  writeFileSync(abs, `${JSON.stringify(value, null, 2)}\n`)
 }
 
 function writeRealArtifacts() {
-  writeJson(MANIFEST_REL, MANIFEST);
-  writeJson(".vivicy/development/issue-index.json", placeholderIssueIndex);
-  writeJson(".vivicy/development/progress-ledger.json", placeholderProgressLedger);
-  const mapAbs = resolve(repoRoot, ".vivicy/architecture-map/architecture-map.yml");
-  mkdirSync(dirname(mapAbs), { recursive: true });
-  writeFileSync(mapAbs, ARCHITECTURE_MAP);
-  writeFileSync(resolve(repoRoot, "README.md"), "# Test target\n");
+  writeJson(MANIFEST_REL, MANIFEST)
+  writeJson(".vivicy/development/issue-index.json", placeholderIssueIndex)
+  writeJson(".vivicy/development/progress-ledger.json", placeholderProgressLedger)
+  const mapAbs = resolve(repoRoot, ".vivicy/architecture-map/architecture-map.yml")
+  mkdirSync(dirname(mapAbs), { recursive: true })
+  writeFileSync(mapAbs, ARCHITECTURE_MAP)
+  writeFileSync(resolve(repoRoot, "README.md"), "# Test target\n")
 }
 
-const realIssueIndex = placeholderIssueIndex;
-const realManifest = MANIFEST;
+const realIssueIndex = placeholderIssueIndex
+const realManifest = MANIFEST
 
 const issueIndex = {
   verification_evidence_ref_grammar: VERIFICATION_EVIDENCE_REF_GRAMMAR,
@@ -92,16 +91,16 @@ const issueIndex = {
       id: "ISSUE-MANAGER-0001",
     },
   ],
-};
+}
 
-const gateEvidenceRel = ".vivicy/development/gates/_test-iss-manager-0001-gate.json";
-const gateEvidenceAbs = resolve(repoRoot, gateEvidenceRel);
-const gateEvidenceDir = dirname(gateEvidenceAbs);
+const gateEvidenceRel = ".vivicy/development/gates/_test-iss-manager-0001-gate.json"
+const gateEvidenceAbs = resolve(repoRoot, gateEvidenceRel)
+const gateEvidenceDir = dirname(gateEvidenceAbs)
 
-const wrongGateEvidenceRel = ".vivicy/development/gates/_test-other-issue-gate.json";
-const wrongGateEvidenceAbs = resolve(repoRoot, wrongGateEvidenceRel);
-const failedGateEvidenceRel = ".vivicy/development/gates/_test-iss-manager-0001-gate-failed.json";
-const failedGateEvidenceAbs = resolve(repoRoot, failedGateEvidenceRel);
+const wrongGateEvidenceRel = ".vivicy/development/gates/_test-other-issue-gate.json"
+const wrongGateEvidenceAbs = resolve(repoRoot, wrongGateEvidenceRel)
+const failedGateEvidenceRel = ".vivicy/development/gates/_test-iss-manager-0001-gate-failed.json"
+const failedGateEvidenceAbs = resolve(repoRoot, failedGateEvidenceRel)
 
 function gateRunRecord(overrides: Partial<GateRunRecord> = {}): GateRunRecord {
   return {
@@ -113,20 +112,20 @@ function gateRunRecord(overrides: Partial<GateRunRecord> = {}): GateRunRecord {
     finished_at: "2026-06-08T12:09:00.000Z",
     baseline_id: "baseline-v0.2.0",
     ...overrides,
-  };
+  }
 }
 
 before(() => {
-  writeRealArtifacts();
-  mkdirSync(gateEvidenceDir, { recursive: true });
-  writeFileSync(gateEvidenceAbs, `${JSON.stringify(gateRunRecord(), null, 2)}\n`);
-  writeFileSync(wrongGateEvidenceAbs, `${JSON.stringify(gateRunRecord({ gate_id: "gate:test:some-other-issue" }), null, 2)}\n`);
-  writeFileSync(failedGateEvidenceAbs, `${JSON.stringify(gateRunRecord({ exit_code: 1, status: "fail" }), null, 2)}\n`);
-});
+  writeRealArtifacts()
+  mkdirSync(gateEvidenceDir, { recursive: true })
+  writeFileSync(gateEvidenceAbs, `${JSON.stringify(gateRunRecord(), null, 2)}\n`)
+  writeFileSync(wrongGateEvidenceAbs, `${JSON.stringify(gateRunRecord({ gate_id: "gate:test:some-other-issue" }), null, 2)}\n`)
+  writeFileSync(failedGateEvidenceAbs, `${JSON.stringify(gateRunRecord({ exit_code: 1, status: "fail" }), null, 2)}\n`)
+})
 
 after(() => {
-  rmSync(repoRoot, { recursive: true, force: true });
-});
+  rmSync(repoRoot, { recursive: true, force: true })
+})
 
 test("records in-progress heartbeat for linked graph refs", () => {
   const ledger = applyProgressEvent({
@@ -141,12 +140,12 @@ test("records in-progress heartbeat for linked graph refs", () => {
     },
     issueIndex,
     ledger: createEmptyProgressLedger(),
-  });
+  })
 
-  assert.equal(ledger.active_items.length, 1);
-  assert.equal(ledger.active_items[0].state, "working");
-  assert.equal(ledger.graph_item_states[0].status, "in_progress");
-});
+  assert.equal(ledger.active_items.length, 1)
+  assert.equal(ledger.active_items[0].state, "working")
+  assert.equal(ledger.graph_item_states[0].status, "in_progress")
+})
 
 test("carries the actor role on the active item", () => {
   const ledger = applyProgressEvent({
@@ -161,12 +160,12 @@ test("carries the actor role on the active item", () => {
     },
     issueIndex,
     ledger: createEmptyProgressLedger(),
-  });
+  })
 
-  assert.equal(ledger.active_items[0].role, "reviewer");
-  assert.equal(ledger.active_items[0].state, "reviewing");
-  assert.equal(ledger.graph_item_states[0].status, "reviewing");
-});
+  assert.equal(ledger.active_items[0].role, "reviewer")
+  assert.equal(ledger.active_items[0].state, "reviewing")
+  assert.equal(ledger.graph_item_states[0].status, "reviewing")
+})
 
 test("completing an issue clears active items from both legs (implementer + reviewer)", () => {
   const afterReview = applyProgressEvent({
@@ -181,8 +180,8 @@ test("completing an issue clears active items from both legs (implementer + revi
     },
     issueIndex,
     ledger: createEmptyProgressLedger(),
-  });
-  assert.equal(afterReview.active_items.length, 1);
+  })
+  assert.equal(afterReview.active_items.length, 1)
 
   const afterGate = applyProgressEvent({
     event: {
@@ -197,14 +196,14 @@ test("completing an issue clears active items from both legs (implementer + revi
     },
     issueIndex,
     ledger: afterReview,
-  });
+  })
   assert.equal(
     afterGate.active_items.filter((item) => item.issue_id === "ISSUE-MANAGER-0001").length,
     0,
-    "no active item lingers for a completed issue, including the reviewer leg's",
-  );
-  assert.equal(afterGate.graph_item_states[0].status, "verified");
-});
+    "no active item lingers for a completed issue, including the reviewer leg's"
+  )
+  assert.equal(afterGate.graph_item_states[0].status, "verified")
+})
 
 test("rejects an unknown actor role", () => {
   assert.throws(
@@ -223,12 +222,12 @@ test("rejects an unknown actor role", () => {
         issueIndex,
         ledger: createEmptyProgressLedger(),
       }),
-    /Unsupported role/,
-  );
-});
+    /Unsupported role/
+  )
+})
 
 test("accumulates transcript_refs on the graph item state and active item", () => {
-  const ref = ".vivicy/development/transcripts/ISSUES/ISSUE-MANAGER-0001/claude-implementer-x.jsonl";
+  const ref = ".vivicy/development/transcripts/ISSUES/ISSUE-MANAGER-0001/claude-implementer-x.jsonl"
   const ledger = applyProgressEvent({
     event: {
       actor: "claude",
@@ -242,18 +241,18 @@ test("accumulates transcript_refs on the graph item state and active item", () =
     },
     issueIndex,
     ledger: createEmptyProgressLedger(),
-  });
+  })
 
-  assert.deepEqual(ledger.graph_item_states[0].transcript_refs, [ref]);
-  assert.deepEqual(ledger.active_items[0].transcript_refs, [ref]);
-});
+  assert.deepEqual(ledger.graph_item_states[0].transcript_refs, [ref])
+  assert.deepEqual(ledger.active_items[0].transcript_refs, [ref])
+})
 
 test("the orchestrator write path records a review event with role + reviewing state", () => {
-  const scratchDir = mkdtempSync(resolve(repoRoot, "_tmp-progress-orchestrator-test-"));
+  const scratchDir = mkdtempSync(resolve(repoRoot, "_tmp-progress-orchestrator-test-"))
   try {
-    const issueIndexRel = relative(repoRoot, resolve(scratchDir, "issue-index.json"));
-    const ledgerRel = relative(repoRoot, resolve(scratchDir, "progress-ledger.json"));
-    writeFileSync(resolve(repoRoot, issueIndexRel), `${JSON.stringify(issueIndex, null, 2)}\n`);
+    const issueIndexRel = relative(repoRoot, resolve(scratchDir, "issue-index.json"))
+    const ledgerRel = relative(repoRoot, resolve(scratchDir, "progress-ledger.json"))
+    writeFileSync(resolve(repoRoot, issueIndexRel), `${JSON.stringify(issueIndex, null, 2)}\n`)
 
     recordProgressEvent(
       {
@@ -264,16 +263,16 @@ test("the orchestrator write path records a review event with role + reviewing s
         role: "reviewer",
         session_ref: "dev-loop:ISSUE-MANAGER-0001",
       },
-      { issueIndexPath: issueIndexRel, progressLedgerPath: ledgerRel },
-    );
+      { issueIndexPath: issueIndexRel, progressLedgerPath: ledgerRel }
+    )
 
-    const ledger = JSON.parse(readFileSync(resolve(repoRoot, ledgerRel), "utf8")) as ProgressLedger;
-    assert.equal(ledger.active_items[0].role, "reviewer");
-    assert.equal(ledger.active_items[0].state, "reviewing");
+    const ledger = JSON.parse(readFileSync(resolve(repoRoot, ledgerRel), "utf8")) as ProgressLedger
+    assert.equal(ledger.active_items[0].role, "reviewer")
+    assert.equal(ledger.active_items[0].state, "reviewing")
   } finally {
-    rmSync(scratchDir, { recursive: true, force: true });
+    rmSync(scratchDir, { recursive: true, force: true })
   }
-});
+})
 
 test("records verified state and clears active item on completion (tool-owned gate evidence)", () => {
   const activeLedger = applyProgressEvent({
@@ -287,7 +286,7 @@ test("records verified state and clears active item on completion (tool-owned ga
     },
     issueIndex,
     ledger: createEmptyProgressLedger(),
-  });
+  })
 
   const verifiedLedger = applyProgressEvent({
     event: {
@@ -301,12 +300,12 @@ test("records verified state and clears active item on completion (tool-owned ga
     },
     issueIndex,
     ledger: activeLedger,
-  });
+  })
 
-  assert.equal(verifiedLedger.active_items.length, 0);
-  assert.equal(verifiedLedger.graph_item_states[0].status, "verified");
-  assert.deepEqual(verifiedLedger.graph_item_states[0].evidence_refs, [gateEvidenceRel]);
-});
+  assert.equal(verifiedLedger.active_items.length, 0)
+  assert.equal(verifiedLedger.graph_item_states[0].status, "verified")
+  assert.deepEqual(verifiedLedger.graph_item_states[0].evidence_refs, [gateEvidenceRel])
+})
 
 test("#31: rejects completion evidence that is a docs/ prose doc (not under the gate dir)", () => {
   assert.throws(
@@ -324,9 +323,9 @@ test("#31: rejects completion evidence that is a docs/ prose doc (not under the 
         issueIndex,
         ledger: createEmptyProgressLedger(),
       }),
-    /verification evidence_ref/,
-  );
-});
+    /verification evidence_ref/
+  )
+})
 
 test("rejects graph refs outside the linked issue", () => {
   assert.throws(
@@ -343,9 +342,9 @@ test("rejects graph refs outside the linked issue", () => {
         issueIndex,
         ledger: createEmptyProgressLedger(),
       }),
-    /not linked to issue/,
-  );
-});
+    /not linked to issue/
+  )
+})
 
 test("rejects completion without evidence", () => {
   assert.throws(
@@ -362,9 +361,9 @@ test("rejects completion without evidence", () => {
         issueIndex,
         ledger: createEmptyProgressLedger(),
       }),
-    /requires evidence_refs/,
-  );
-});
+    /requires evidence_refs/
+  )
+})
 
 test("rejects completion evidence that does not match verification grammar", () => {
   assert.throws(
@@ -382,9 +381,9 @@ test("rejects completion evidence that does not match verification grammar", () 
         issueIndex,
         ledger: createEmptyProgressLedger(),
       }),
-    /verification evidence_ref/,
-  );
-});
+    /verification evidence_ref/
+  )
+})
 
 test("rejects evidence refs pointing to missing lines", () => {
   assert.throws(
@@ -402,9 +401,9 @@ test("rejects evidence refs pointing to missing lines", () => {
         issueIndex,
         ledger: createEmptyProgressLedger(),
       }),
-    /missing line/,
-  );
-});
+    /missing line/
+  )
+})
 
 test("rejects absolute evidence refs even when they point inside the repository", () => {
   assert.throws(
@@ -422,11 +421,11 @@ test("rejects absolute evidence refs even when they point inside the repository"
         issueIndex,
         ledger: createEmptyProgressLedger(),
       }),
-    /repository-relative/,
-  );
-});
+    /repository-relative/
+  )
+})
 
-const VERIFICATION_EVIDENCE = gateEvidenceRel;
+const VERIFICATION_EVIDENCE = gateEvidenceRel
 
 function verifiedLedgerAt(timestamp: string) {
   return applyProgressEvent({
@@ -441,14 +440,14 @@ function verifiedLedgerAt(timestamp: string) {
     },
     issueIndex,
     ledger: createEmptyProgressLedger(),
-  });
+  })
 }
 
 test("late heartbeat after gate_passed does not un-verify or rewind updated_at", () => {
-  const verified = verifiedLedgerAt("2026-06-08T12:10:00.000Z");
-  assert.equal(verified.graph_item_states[0].status, "verified");
-  assert.equal(verified.graph_item_states[0].updated_at, "2026-06-08T12:10:00.000Z");
-  assert.equal(verified.updated_at, "2026-06-08T12:10:00.000Z");
+  const verified = verifiedLedgerAt("2026-06-08T12:10:00.000Z")
+  assert.equal(verified.graph_item_states[0].status, "verified")
+  assert.equal(verified.graph_item_states[0].updated_at, "2026-06-08T12:10:00.000Z")
+  assert.equal(verified.updated_at, "2026-06-08T12:10:00.000Z")
 
   const afterLateHeartbeat = applyProgressEvent({
     event: {
@@ -461,19 +460,15 @@ test("late heartbeat after gate_passed does not un-verify or rewind updated_at",
     },
     issueIndex,
     ledger: verified,
-  });
+  })
 
-  assert.equal(afterLateHeartbeat.graph_item_states[0].status, "verified", "status must stay verified");
-  assert.equal(
-    afterLateHeartbeat.graph_item_states[0].updated_at,
-    "2026-06-08T12:10:00.000Z",
-    "item updated_at must not rewind",
-  );
-  assert.equal(afterLateHeartbeat.updated_at, "2026-06-08T12:10:00.000Z", "ledger updated_at must not rewind");
-});
+  assert.equal(afterLateHeartbeat.graph_item_states[0].status, "verified", "status must stay verified")
+  assert.equal(afterLateHeartbeat.graph_item_states[0].updated_at, "2026-06-08T12:10:00.000Z", "item updated_at must not rewind")
+  assert.equal(afterLateHeartbeat.updated_at, "2026-06-08T12:10:00.000Z", "ledger updated_at must not rewind")
+})
 
 test("newer heartbeat after gate_passed still does not downgrade verified status", () => {
-  const verified = verifiedLedgerAt("2026-06-08T12:10:00.000Z");
+  const verified = verifiedLedgerAt("2026-06-08T12:10:00.000Z")
 
   const afterNewerHeartbeat = applyProgressEvent({
     event: {
@@ -486,14 +481,14 @@ test("newer heartbeat after gate_passed still does not downgrade verified status
     },
     issueIndex,
     ledger: verified,
-  });
+  })
 
-  assert.equal(afterNewerHeartbeat.graph_item_states[0].status, "verified", "status stays verified");
-  assert.equal(afterNewerHeartbeat.graph_item_states[0].updated_at, "2026-06-08T12:20:00.000Z");
-});
+  assert.equal(afterNewerHeartbeat.graph_item_states[0].status, "verified", "status stays verified")
+  assert.equal(afterNewerHeartbeat.graph_item_states[0].updated_at, "2026-06-08T12:20:00.000Z")
+})
 
 test("explicit issue_reopened downgrades verified back to in_progress", () => {
-  const verified = verifiedLedgerAt("2026-06-08T12:10:00.000Z");
+  const verified = verifiedLedgerAt("2026-06-08T12:10:00.000Z")
 
   const reopened = applyProgressEvent({
     event: {
@@ -506,30 +501,30 @@ test("explicit issue_reopened downgrades verified back to in_progress", () => {
     },
     issueIndex,
     ledger: verified,
-  });
+  })
 
-  assert.equal(reopened.graph_item_states[0].status, "in_progress", "re-open moves status back");
-  assert.equal(reopened.graph_item_states[0].updated_at, "2026-06-08T12:30:00.000Z");
-  assert.equal(reopened.active_items.length, 1);
-  assert.equal(reopened.active_items[0].state, "working");
-});
+  assert.equal(reopened.graph_item_states[0].status, "in_progress", "re-open moves status back")
+  assert.equal(reopened.graph_item_states[0].updated_at, "2026-06-08T12:30:00.000Z")
+  assert.equal(reopened.active_items.length, 1)
+  assert.equal(reopened.active_items[0].state, "working")
+})
 
 // recordProgressEvent only accepts repository-relative paths, so the scratch dir must live under the repo root.
 function makeScratch() {
-  const absDir = mkdtempSync(resolve(repoRoot, "_tmp-progress-ledger-test-"));
-  const rel = (name: string) => relative(repoRoot, resolve(absDir, name)).split("\\").join("/");
-  const issueIndexRel = rel("issue-index.json");
-  const ledgerRel = rel("progress-ledger.json");
-  writeFileSync(resolve(repoRoot, issueIndexRel), `${JSON.stringify(issueIndex, null, 2)}\n`);
+  const absDir = mkdtempSync(resolve(repoRoot, "_tmp-progress-ledger-test-"))
+  const rel = (name: string) => relative(repoRoot, resolve(absDir, name)).split("\\").join("/")
+  const issueIndexRel = rel("issue-index.json")
+  const ledgerRel = rel("progress-ledger.json")
+  writeFileSync(resolve(repoRoot, issueIndexRel), `${JSON.stringify(issueIndex, null, 2)}\n`)
   return {
     absDir,
     issueIndexRel,
     ledgerRel,
     ledgerAbs: resolve(repoRoot, ledgerRel),
     cleanup() {
-      rmSync(absDir, { recursive: true, force: true });
+      rmSync(absDir, { recursive: true, force: true })
     },
-  };
+  }
 }
 
 const startedEvent: ProgressEvent = {
@@ -539,42 +534,42 @@ const startedEvent: ProgressEvent = {
   issue_id: "ISSUE-MANAGER-0001",
   session_ref: "thread-1",
   timestamp: "2026-06-08T12:00:00.000Z",
-};
+}
 
 test("recordProgressEvent writes atomically and leaves no partial/temp file", () => {
-  const scratch = makeScratch();
+  const scratch = makeScratch()
   try {
     const ledger = recordProgressEvent(startedEvent, {
       issueIndexPath: scratch.issueIndexRel,
       progressLedgerPath: scratch.ledgerRel,
-    });
+    })
 
-    assert.ok(existsSync(scratch.ledgerAbs), "ledger file exists");
-    const onDisk = JSON.parse(readFileSync(scratch.ledgerAbs, "utf8")) as ProgressLedger;
-    assert.equal(onDisk.graph_item_states[0].status, "in_progress");
-    assert.equal(onDisk.revision, ledger.revision);
+    assert.ok(existsSync(scratch.ledgerAbs), "ledger file exists")
+    const onDisk = JSON.parse(readFileSync(scratch.ledgerAbs, "utf8")) as ProgressLedger
+    assert.equal(onDisk.graph_item_states[0].status, "in_progress")
+    assert.equal(onDisk.revision, ledger.revision)
 
-    const stray = readdirSync(scratch.absDir).filter((name) => name.endsWith(".tmp") || name.endsWith(".lock"));
-    assert.deepEqual(stray, [], `unexpected stray files: ${stray.join(", ")}`);
+    const stray = readdirSync(scratch.absDir).filter((name) => name.endsWith(".tmp") || name.endsWith(".lock"))
+    assert.deepEqual(stray, [], `unexpected stray files: ${stray.join(", ")}`)
   } finally {
-    scratch.cleanup();
+    scratch.cleanup()
   }
-});
+})
 
 test("recordProgressEvent increments revision monotonically across writes", () => {
-  const scratch = makeScratch();
+  const scratch = makeScratch()
   try {
     const first = recordProgressEvent(startedEvent, {
       issueIndexPath: scratch.issueIndexRel,
       progressLedgerPath: scratch.ledgerRel,
-    });
-    assert.equal(first.revision, 1, "first write starts revision at 1");
+    })
+    assert.equal(first.revision, 1, "first write starts revision at 1")
 
     const second = recordProgressEvent(
       { ...startedEvent, event_type: "heartbeat", timestamp: "2026-06-08T12:01:00.000Z" },
-      { issueIndexPath: scratch.issueIndexRel, progressLedgerPath: scratch.ledgerRel },
-    );
-    assert.equal(second.revision, 2, "revision increments on the next write");
+      { issueIndexPath: scratch.issueIndexRel, progressLedgerPath: scratch.ledgerRel }
+    )
+    assert.equal(second.revision, 2, "revision increments on the next write")
 
     const third = recordProgressEvent(
       {
@@ -583,44 +578,41 @@ test("recordProgressEvent increments revision monotonically across writes", () =
         evidence_refs: [VERIFICATION_EVIDENCE],
         timestamp: "2026-06-08T12:02:00.000Z",
       },
-      { issueIndexPath: scratch.issueIndexRel, progressLedgerPath: scratch.ledgerRel },
-    );
-    assert.equal(third.revision, 3);
-    assert.equal((JSON.parse(readFileSync(scratch.ledgerAbs, "utf8")) as ProgressLedger).revision, 3);
+      { issueIndexPath: scratch.issueIndexRel, progressLedgerPath: scratch.ledgerRel }
+    )
+    assert.equal(third.revision, 3)
+    assert.equal((JSON.parse(readFileSync(scratch.ledgerAbs, "utf8")) as ProgressLedger).revision, 3)
   } finally {
-    scratch.cleanup();
+    scratch.cleanup()
   }
-});
+})
 
 test("recordProgressEvent reclaims a stale lock left by a dead writer", () => {
-  const scratch = makeScratch();
+  const scratch = makeScratch()
   try {
     recordProgressEvent(startedEvent, {
       issueIndexPath: scratch.issueIndexRel,
       progressLedgerPath: scratch.ledgerRel,
-    });
+    })
 
     // PID 999999999 is outside any real range, so isProcessAlive() reports it dead and the lock reclaims without waiting for the age TTL.
-    const lockPath = `${scratch.ledgerAbs}.lock`;
-    const fd = openSync(lockPath, "wx");
-    writeSync(
-      fd,
-      JSON.stringify({ pid: 999999999, acquired_at: "2000-01-01T00:00:00.000Z", epoch_ms: 0 }),
-    );
-    closeSync(fd);
-    assert.ok(existsSync(lockPath), "stale lock is present before the write");
+    const lockPath = `${scratch.ledgerAbs}.lock`
+    const fd = openSync(lockPath, "wx")
+    writeSync(fd, JSON.stringify({ pid: 999999999, acquired_at: "2000-01-01T00:00:00.000Z", epoch_ms: 0 }))
+    closeSync(fd)
+    assert.ok(existsSync(lockPath), "stale lock is present before the write")
 
     const recovered = recordProgressEvent(
       { ...startedEvent, event_type: "heartbeat", timestamp: "2026-06-08T12:05:00.000Z" },
-      { issueIndexPath: scratch.issueIndexRel, progressLedgerPath: scratch.ledgerRel },
-    );
+      { issueIndexPath: scratch.issueIndexRel, progressLedgerPath: scratch.ledgerRel }
+    )
 
-    assert.equal(recovered.revision, 2, "write succeeded after reclaiming the stale lock");
-    assert.ok(!existsSync(lockPath), "lock is released after the write");
+    assert.equal(recovered.revision, 2, "write succeeded after reclaiming the stale lock")
+    assert.ok(!existsSync(lockPath), "lock is released after the write")
   } finally {
-    scratch.cleanup();
+    scratch.cleanup()
   }
-});
+})
 
 const gateBoundIssueIndex = {
   verification_evidence_ref_grammar: VERIFICATION_EVIDENCE_REF_GRAMMAR,
@@ -631,7 +623,7 @@ const gateBoundIssueIndex = {
       verification_gate_ids: ["gate:test:iss-manager-0001"],
     },
   ],
-};
+}
 
 function gateBoundCompletion(evidenceRefs: string[]) {
   return applyProgressEvent({
@@ -646,21 +638,21 @@ function gateBoundCompletion(evidenceRefs: string[]) {
     },
     issueIndex: gateBoundIssueIndex,
     ledger: createEmptyProgressLedger(),
-  });
+  })
 }
 
 test("#31b: accepts a green gate-run record whose gate_id is declared on the issue", () => {
-  const ledger = gateBoundCompletion([gateEvidenceRel]);
-  assert.equal(ledger.graph_item_states[0].status, "verified");
-});
+  const ledger = gateBoundCompletion([gateEvidenceRel])
+  assert.equal(ledger.graph_item_states[0].status, "verified")
+})
 
 test("#31b: rejects a green gate-run record for a gate the issue did not declare", () => {
-  assert.throws(() => gateBoundCompletion([wrongGateEvidenceRel]), /gate_id declared on the issue/);
-});
+  assert.throws(() => gateBoundCompletion([wrongGateEvidenceRel]), /gate_id declared on the issue/)
+})
 
 test("#31b: rejects a failed gate-run record for the declared gate", () => {
-  assert.throws(() => gateBoundCompletion([failedGateEvidenceRel]), /gate_id declared on the issue/);
-});
+  assert.throws(() => gateBoundCompletion([failedGateEvidenceRel]), /gate_id declared on the issue/)
+})
 
 test("rejects events without session_ref", () => {
   assert.throws(
@@ -677,9 +669,9 @@ test("rejects events without session_ref", () => {
         issueIndex,
         ledger: createEmptyProgressLedger(),
       }),
-    /session_ref must be a non-empty string/,
-  );
-});
+    /session_ref must be a non-empty string/
+  )
+})
 
 test("rejects events with empty graph_refs (no fallback to the issue's full set)", () => {
   assert.throws(
@@ -696,9 +688,9 @@ test("rejects events with empty graph_refs (no fallback to the issue's full set)
         issueIndex,
         ledger: createEmptyProgressLedger(),
       }),
-    /explicit graph focus/,
-  );
-});
+    /explicit graph focus/
+  )
+})
 
 const sharedGraphIssueIndex = {
   verification_evidence_ref_grammar: VERIFICATION_EVIDENCE_REF_GRAMMAR,
@@ -706,7 +698,7 @@ const sharedGraphIssueIndex = {
     { graph_refs: ["node:manager_service"], id: "ISSUE-A" },
     { graph_refs: ["node:manager_service"], id: "ISSUE-B" },
   ],
-};
+}
 
 test("#34: one issue going verified does not overstate a graph item another issue still works on", () => {
   const working = applyProgressEvent({
@@ -720,7 +712,7 @@ test("#34: one issue going verified does not overstate a graph item another issu
     },
     issueIndex: sharedGraphIssueIndex,
     ledger: createEmptyProgressLedger(),
-  });
+  })
 
   const afterGate = applyProgressEvent({
     event: {
@@ -734,12 +726,12 @@ test("#34: one issue going verified does not overstate a graph item another issu
     },
     issueIndex: sharedGraphIssueIndex,
     ledger: working,
-  });
+  })
 
-  const item = afterGate.graph_item_states[0];
-  assert.equal(item.issue_states["ISSUE-A"], "verified", "the gated issue is recorded verified");
-  assert.equal(item.issue_states["ISSUE-B"], "in_progress", "the other issue stays in_progress");
-  assert.equal(item.status, "in_progress", "displayed status is the conservative aggregate");
+  const item = afterGate.graph_item_states[0]
+  assert.equal(item.issue_states["ISSUE-A"], "verified", "the gated issue is recorded verified")
+  assert.equal(item.issue_states["ISSUE-B"], "in_progress", "the other issue stays in_progress")
+  assert.equal(item.status, "in_progress", "displayed status is the conservative aggregate")
 
   const afterSecondGate = applyProgressEvent({
     event: {
@@ -753,61 +745,61 @@ test("#34: one issue going verified does not overstate a graph item another issu
     },
     issueIndex: sharedGraphIssueIndex,
     ledger: afterGate,
-  });
+  })
 
-  assert.equal(afterSecondGate.graph_item_states[0].status, "verified", "all linked issues verified -> verified");
-});
+  assert.equal(afterSecondGate.graph_item_states[0].status, "verified", "all linked issues verified -> verified")
+})
 
 test("real issue-index artifact carries schema, frozen-baseline identity, and grammar", () => {
-  assert.equal(realIssueIndex.schema_version, 1);
-  assert.ok(typeof realIssueIndex.status === "string" && realIssueIndex.status.length > 0);
-  assert.ok(Array.isArray(realIssueIndex.source_corpus) && realIssueIndex.source_corpus.length > 0);
-  assert.ok(Array.isArray(realIssueIndex.issues));
+  assert.equal(realIssueIndex.schema_version, 1)
+  assert.ok(typeof realIssueIndex.status === "string" && realIssueIndex.status.length > 0)
+  assert.ok(Array.isArray(realIssueIndex.source_corpus) && realIssueIndex.source_corpus.length > 0)
+  assert.ok(Array.isArray(realIssueIndex.issues))
 
-  const manifestPath = realIssueIndex.manifest_path;
-  assert.ok(typeof manifestPath === "string" && existsSync(resolve(repoRoot, manifestPath)), "manifest_path resolves");
-  const manifest = JSON.parse(readFileSync(resolve(repoRoot, manifestPath), "utf8")) as typeof MANIFEST;
-  assert.equal(manifest.status, "frozen", "pinned manifest must be frozen");
-  assert.equal(realIssueIndex.baseline_id, manifest.baseline_id);
-  assert.equal(realIssueIndex.baseline_version, manifest.version);
-  assert.equal(realIssueIndex.manifest_hash, manifest.manifest_hash);
-  assert.equal(realIssueIndex.document_set_hash, manifest.document_set_hash);
+  const manifestPath = realIssueIndex.manifest_path
+  assert.ok(typeof manifestPath === "string" && existsSync(resolve(repoRoot, manifestPath)), "manifest_path resolves")
+  const manifest = JSON.parse(readFileSync(resolve(repoRoot, manifestPath), "utf8")) as typeof MANIFEST
+  assert.equal(manifest.status, "frozen", "pinned manifest must be frozen")
+  assert.equal(realIssueIndex.baseline_id, manifest.baseline_id)
+  assert.equal(realIssueIndex.baseline_version, manifest.version)
+  assert.equal(realIssueIndex.manifest_hash, manifest.manifest_hash)
+  assert.equal(realIssueIndex.document_set_hash, manifest.document_set_hash)
 
-  const mapText = readFileSync(resolve(repoRoot, ".vivicy/architecture-map/architecture-map.yml"), "utf8");
-  const mapGrammar = mapText.match(/^verification_gate_ref_grammar:\s*"([^"]+)"/m);
-  assert.ok(mapGrammar, "architecture map declares verification_gate_ref_grammar");
-  assert.equal(realIssueIndex.verification_evidence_ref_grammar, mapGrammar[1]);
-});
+  const mapText = readFileSync(resolve(repoRoot, ".vivicy/architecture-map/architecture-map.yml"), "utf8")
+  const mapGrammar = mapText.match(/^verification_gate_ref_grammar:\s*"([^"]+)"/m)
+  assert.ok(mapGrammar, "architecture map declares verification_gate_ref_grammar")
+  assert.equal(realIssueIndex.verification_evidence_ref_grammar, mapGrammar[1])
+})
 
 test("real issue-index coverage_summary follows the computed total_doc_lines rule", () => {
-  const summary = realIssueIndex.coverage_summary;
+  const summary = realIssueIndex.coverage_summary
   for (const field of ["total_doc_lines", "classified_doc_lines", "requirement_linked_doc_lines", "issue_linked_doc_lines"] as const) {
-    assert.equal(typeof summary[field], "number", `${field} is a number`);
+    assert.equal(typeof summary[field], "number", `${field} is a number`)
   }
   if (realIssueIndex.issues.length === 0) {
-    assert.equal(summary.total_doc_lines, 0, "placeholder total_doc_lines must be 0 until extraction computes it");
+    assert.equal(summary.total_doc_lines, 0, "placeholder total_doc_lines must be 0 until extraction computes it")
   } else {
     const computed = realManifest.files.reduce((sum, file) => {
-      const text = readFileSync(resolve(repoRoot, file.path), "utf8");
-      return sum + text.split(/\r?\n/).filter((line) => line.trim().length > 0).length;
-    }, 0);
-    assert.equal(summary.total_doc_lines, computed, "total_doc_lines must equal the non-blank manifest files[] count");
+      const text = readFileSync(resolve(repoRoot, file.path), "utf8")
+      return sum + text.split(/\r?\n/).filter((line) => line.trim().length > 0).length
+    }, 0)
+    assert.equal(summary.total_doc_lines, computed, "total_doc_lines must equal the non-blank manifest files[] count")
   }
-});
+})
 
 test("real progress-ledger placeholder is bound to the same frozen baseline", () => {
-  const realLedger = JSON.parse(readFileSync(resolve(repoRoot, ".vivicy/development/progress-ledger.json"), "utf8")) as ProgressLedger;
-  assert.equal(realLedger.schema_version, 1);
-  assert.ok(Array.isArray(realLedger.graph_item_states));
-  assert.ok(Array.isArray(realLedger.active_items));
-  assert.equal(realLedger.baseline_id, realManifest.baseline_id);
-  assert.equal(realLedger.baseline_version, realManifest.version);
-  assert.equal(realLedger.manifest_hash, realManifest.manifest_hash);
-  assert.equal(realLedger.document_set_hash, realManifest.document_set_hash);
-});
+  const realLedger = JSON.parse(readFileSync(resolve(repoRoot, ".vivicy/development/progress-ledger.json"), "utf8")) as ProgressLedger
+  assert.equal(realLedger.schema_version, 1)
+  assert.ok(Array.isArray(realLedger.graph_item_states))
+  assert.ok(Array.isArray(realLedger.active_items))
+  assert.equal(realLedger.baseline_id, realManifest.baseline_id)
+  assert.equal(realLedger.baseline_version, realManifest.version)
+  assert.equal(realLedger.manifest_hash, realManifest.manifest_hash)
+  assert.equal(realLedger.document_set_hash, realManifest.document_set_hash)
+})
 
 test("progress recording is inert against the real empty issue index (Unknown issue_id)", () => {
-  const scratch = makeScratch();
+  const scratch = makeScratch()
   try {
     assert.throws(
       () =>
@@ -823,17 +815,17 @@ test("progress recording is inert against the real empty issue index (Unknown is
           {
             issueIndexPath: ".vivicy/development/issue-index.json",
             progressLedgerPath: scratch.ledgerRel,
-          },
+          }
         ),
-      /Unknown issue_id/,
-    );
+      /Unknown issue_id/
+    )
   } finally {
-    scratch.cleanup();
+    scratch.cleanup()
   }
-});
+})
 
 test("baseline identity fields on the ledger survive a recorded event", () => {
-  const scratch = makeScratch();
+  const scratch = makeScratch()
   try {
     writeFileSync(
       resolve(repoRoot, scratch.ledgerRel),
@@ -850,18 +842,18 @@ test("baseline identity fields on the ledger survive a recorded event", () => {
           active_items: [],
         },
         null,
-        2,
-      )}\n`,
-    );
+        2
+      )}\n`
+    )
     const ledger = recordProgressEvent(startedEvent, {
       issueIndexPath: scratch.issueIndexRel,
       progressLedgerPath: scratch.ledgerRel,
-    });
-    assert.equal(ledger.baseline_id, realManifest.baseline_id, "baseline_id preserved");
-    assert.equal(ledger.manifest_hash, realManifest.manifest_hash, "manifest_hash preserved");
-    const onDisk = JSON.parse(readFileSync(scratch.ledgerAbs, "utf8")) as ProgressLedger;
-    assert.equal(onDisk.document_set_hash, realManifest.document_set_hash, "identity persisted on disk");
+    })
+    assert.equal(ledger.baseline_id, realManifest.baseline_id, "baseline_id preserved")
+    assert.equal(ledger.manifest_hash, realManifest.manifest_hash, "manifest_hash preserved")
+    const onDisk = JSON.parse(readFileSync(scratch.ledgerAbs, "utf8")) as ProgressLedger
+    assert.equal(onDisk.document_set_hash, realManifest.document_set_hash, "identity persisted on disk")
   } finally {
-    scratch.cleanup();
+    scratch.cleanup()
   }
-});
+})

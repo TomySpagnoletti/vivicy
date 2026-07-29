@@ -771,7 +771,17 @@ describe("startDocPrep", () => {
 
   it("readDocPrepReport returns null when the stage has not run and the report verbatim otherwise", () => {
     expect(readDocPrepReport()).toBeNull()
-    writeDocPrepReport({ phase: "green", cycle_id: "project", batches_consumed: ["b1"], batches_pending: [], language: "eng", placed: [], rejected: [], summary: "ok", updated_at: "2026-07-05T09:00:00Z" })
+    writeDocPrepReport({
+      phase: "green",
+      cycle_id: "project",
+      batches_consumed: ["b1"],
+      batches_pending: [],
+      language: "eng",
+      placed: [],
+      rejected: [],
+      summary: "ok",
+      updated_at: "2026-07-05T09:00:00Z",
+    })
     expect(readDocPrepReport()?.phase).toBe("green")
     expect(readDocPrepReport()?.cycle_id).toBe("project")
   })
@@ -787,9 +797,7 @@ describe("path safety", () => {
     expect(lock.startsWith(getRuntimeDir())).toBe(true)
     const other = mkdtempSync(path.join(tmpdir(), "control-other-"))
     try {
-      expect(getProjectRuntimeDir(getRuntimeDir(), other)).not.toBe(
-        getProjectRuntimeDir(getRuntimeDir(), targetRoot)
-      )
+      expect(getProjectRuntimeDir(getRuntimeDir(), other)).not.toBe(getProjectRuntimeDir(getRuntimeDir(), targetRoot))
     } finally {
       rmSync(other, { recursive: true, force: true })
     }
@@ -811,15 +819,36 @@ function writeCrApplyReport(id: string, report: { status: string; summary: strin
 
 describe("listChangeRequests", () => {
   it("parses seeded CR files into display rows, skipping the template and readme", () => {
-    writeCr("CR-0001-first.md", { id: "CR-0001", title: "First", status: "idea", classification: "minor_product_change", created_at: "2026-07-01", source: "agent" })
-    writeCr("CR-0002-second.md", { id: "CR-0002", title: "Second", status: "accepted_current_build", classification: "major_product_change", created_at: "2026-07-02", source: "owner" })
+    writeCr("CR-0001-first.md", {
+      id: "CR-0001",
+      title: "First",
+      status: "idea",
+      classification: "minor_product_change",
+      created_at: "2026-07-01",
+      source: "agent",
+    })
+    writeCr("CR-0002-second.md", {
+      id: "CR-0002",
+      title: "Second",
+      status: "accepted_current_build",
+      classification: "major_product_change",
+      created_at: "2026-07-02",
+      source: "owner",
+    })
     writeCr("CR-TEMPLATE.md", { id: "CR-0000", title: "tpl", status: "idea", classification: "pending", created_at: "x", source: "owner" })
     writeFileSync(path.join(targetRoot, ".vivicy", "change-requests", "README.md"), "# Change Requests\n")
 
     const { crs } = listChangeRequests()
 
     expect(crs.map((c) => c.id)).toEqual(["CR-0001", "CR-0002"])
-    expect(crs[0]).toEqual({ id: "CR-0001", title: "First", status: "idea", classification: "minor_product_change", created_at: "2026-07-01", source: "agent" })
+    expect(crs[0]).toEqual({
+      id: "CR-0001",
+      title: "First",
+      status: "idea",
+      classification: "minor_product_change",
+      created_at: "2026-07-01",
+      source: "agent",
+    })
     expect(crs[1].status).toBe("accepted_current_build")
   })
 
@@ -830,13 +859,25 @@ describe("listChangeRequests", () => {
 
 describe("decideCr", () => {
   it("approves: records the decision, runs cr-apply, and reports the chain green", async () => {
-    writeCr("CR-0001-x.md", { id: "CR-0001", title: "x", status: "idea", classification: "minor_product_change", created_at: "2026-07-01", source: "agent" })
+    writeCr("CR-0001-x.md", {
+      id: "CR-0001",
+      title: "x",
+      status: "idea",
+      classification: "minor_product_change",
+      created_at: "2026-07-01",
+      source: "agent",
+    })
     const seen: string[][] = []
     const { spawner } = makeFakeSpawner({
       run: async ({ args }) => {
         seen.push(args)
         if (args.some((a) => a.endsWith("change-control.ts"))) {
-          return { code: 0, lastLine: "{}", stdout: JSON.stringify({ ok: true, id: "CR-0001", status: "accepted_current_build" }), stderr: "" }
+          return {
+            code: 0,
+            lastLine: "{}",
+            stdout: JSON.stringify({ ok: true, id: "CR-0001", status: "accepted_current_build" }),
+            stderr: "",
+          }
         }
         writeCrApplyReport("CR-0001", { status: "green", summary: "CR-0001 applied — re-frozen, re-extracted green" })
         return { code: 0, lastLine: "green", stdout: "green\n", stderr: "" }
@@ -861,13 +902,28 @@ describe("decideCr", () => {
   })
 
   it("approves but surfaces a blocked apply chain honestly (ok:false, blocked:true)", async () => {
-    writeCr("CR-0001-x.md", { id: "CR-0001", title: "x", status: "idea", classification: "minor_product_change", created_at: "2026-07-01", source: "agent" })
+    writeCr("CR-0001-x.md", {
+      id: "CR-0001",
+      title: "x",
+      status: "idea",
+      classification: "minor_product_change",
+      created_at: "2026-07-01",
+      source: "agent",
+    })
     const { spawner } = makeFakeSpawner({
       run: async ({ args }) => {
         if (args.some((a) => a.endsWith("change-control.ts"))) {
-          return { code: 0, lastLine: "{}", stdout: JSON.stringify({ ok: true, id: "CR-0001", status: "accepted_current_build" }), stderr: "" }
+          return {
+            code: 0,
+            lastLine: "{}",
+            stdout: JSON.stringify({ ok: true, id: "CR-0001", status: "accepted_current_build" }),
+            stderr: "",
+          }
         }
-        writeCrApplyReport("CR-0001", { status: "blocked", summary: "cr-apply: reference-check stayed red — CR left accepted_current_build" })
+        writeCrApplyReport("CR-0001", {
+          status: "blocked",
+          summary: "cr-apply: reference-check stayed red — CR left accepted_current_build",
+        })
         return { code: 1, lastLine: "blocked", stdout: "", stderr: "blocked\n" }
       },
     })
@@ -881,7 +937,14 @@ describe("decideCr", () => {
   })
 
   it("rejects: records the decision only, never launching the apply chain", async () => {
-    writeCr("CR-0001-x.md", { id: "CR-0001", title: "x", status: "idea", classification: "minor_product_change", created_at: "2026-07-01", source: "agent" })
+    writeCr("CR-0001-x.md", {
+      id: "CR-0001",
+      title: "x",
+      status: "idea",
+      classification: "minor_product_change",
+      created_at: "2026-07-01",
+      source: "agent",
+    })
     const scripts: string[] = []
     const { spawner } = makeFakeSpawner({
       run: async ({ args }) => {
@@ -900,7 +963,12 @@ describe("decideCr", () => {
 
   it("maps an unknown CR id to an unknown_cr ControlError", async () => {
     const { spawner } = makeFakeSpawner({
-      run: async () => ({ code: 1, lastLine: "{}", stdout: JSON.stringify({ ok: false, error: "decideChangeRequest: no CR with id CR-9999 under .vivicy/change-requests" }), stderr: "" }),
+      run: async () => ({
+        code: 1,
+        lastLine: "{}",
+        stdout: JSON.stringify({ ok: false, error: "decideChangeRequest: no CR with id CR-9999 under .vivicy/change-requests" }),
+        stderr: "",
+      }),
     })
     await expect(decideCr(spawner, { id: "CR-9999", decision: "approved", decidedBy: "owner:ui" })).rejects.toThrow(ControlError)
     try {
@@ -912,7 +980,15 @@ describe("decideCr", () => {
 
   it("maps an undecidable CR (already decided) to a cr_not_decidable ControlError", async () => {
     const { spawner } = makeFakeSpawner({
-      run: async () => ({ code: 1, lastLine: "{}", stdout: JSON.stringify({ ok: false, error: 'decideChangeRequest: CR CR-0001 is "docs_applied", only idea|under_review CRs can be decided' }), stderr: "" }),
+      run: async () => ({
+        code: 1,
+        lastLine: "{}",
+        stdout: JSON.stringify({
+          ok: false,
+          error: 'decideChangeRequest: CR CR-0001 is "docs_applied", only idea|under_review CRs can be decided',
+        }),
+        stderr: "",
+      }),
     })
     try {
       await decideCr(spawner, { id: "CR-0001", decision: "approved", decidedBy: "owner:ui" })
@@ -1002,7 +1078,11 @@ describe("getCycles (active cycle + history reader)", () => {
   function seedBatch(batchId: string, cycle?: unknown): void {
     const dir = path.join(targetRoot, ".vivicy", "uploads", batchId)
     mkdirSync(dir, { recursive: true })
-    const manifest: Record<string, unknown> = { batchId, createdAt: "2026-01-01T00:00:00Z", files: [{ path: `${batchId}.md`, size: 1, sha256: "x" }] }
+    const manifest: Record<string, unknown> = {
+      batchId,
+      createdAt: "2026-01-01T00:00:00Z",
+      files: [{ path: `${batchId}.md`, size: 1, sha256: "x" }],
+    }
     if (cycle !== undefined) manifest.cycle = cycle
     writeFileSync(path.join(dir, "manifest.json"), JSON.stringify(manifest))
   }
@@ -1041,8 +1121,17 @@ describe("getCycles (active cycle + history reader)", () => {
   })
 
   it("history lists superseded baselines most-recent-first, excluding the current live baseline", () => {
-    seedBaseline("baseline-v1.0.0", "1.0.0", { spec_kind: "project", approval_ref: "project", approved_at: "2026-02-01T00:00:00Z", superseded: "baseline-v1.1.0" })
-    seedBaseline("baseline-v1.0.5", "1.0.5", { approval_ref: "cycle-mid", approved_at: "2026-03-01T00:00:00Z", superseded: "baseline-v1.1.0" })
+    seedBaseline("baseline-v1.0.0", "1.0.0", {
+      spec_kind: "project",
+      approval_ref: "project",
+      approved_at: "2026-02-01T00:00:00Z",
+      superseded: "baseline-v1.1.0",
+    })
+    seedBaseline("baseline-v1.0.5", "1.0.5", {
+      approval_ref: "cycle-mid",
+      approved_at: "2026-03-01T00:00:00Z",
+      superseded: "baseline-v1.1.0",
+    })
     seedBaseline("baseline-v1.1.0", "1.1.0", { approval_ref: "cycle-latest", approved_at: "2026-04-01T00:00:00Z" })
 
     const view = getCycles()

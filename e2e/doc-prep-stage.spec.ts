@@ -22,9 +22,7 @@ test.describe("Document-preparation stage (SP) in the workflow status surface", 
     await expect(sp).toContainText(/doc-prep green: 2 canonical documents placed/)
 
     // SP sits first in the dev-loop, immediately after the S1 non-loop stage and before extraction (S2).
-    const stageIds = await page.locator("[data-stage]").evaluateAll((nodes) =>
-      nodes.map((n) => n.getAttribute("data-stage"))
-    )
+    const stageIds = await page.locator("[data-stage]").evaluateAll((nodes) => nodes.map((n) => n.getAttribute("data-stage")))
     expect(stageIds.indexOf("SP")).toBe(stageIds.indexOf("S1") + 1)
     expect(stageIds.indexOf("SP")).toBeLessThan(stageIds.indexOf("S2"))
   })

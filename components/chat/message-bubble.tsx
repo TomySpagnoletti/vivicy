@@ -2,13 +2,7 @@
 
 import { CircleAlert, FileText } from "lucide-react"
 
-import {
-  Attachment,
-  AttachmentContent,
-  AttachmentGroup,
-  AttachmentMedia,
-  AttachmentTitle,
-} from "@/components/ui/attachment"
+import { Attachment, AttachmentContent, AttachmentGroup, AttachmentMedia, AttachmentTitle } from "@/components/ui/attachment"
 import { Bubble, BubbleContent } from "@/components/ui/bubble"
 import { Marker, MarkerContent, MarkerIcon } from "@/components/ui/marker"
 import { Message, MessageContent, MessageFooter } from "@/components/ui/message"
@@ -32,9 +26,7 @@ export function MessageBubble({ message }: { message: ChatMessage }) {
       <MessageContent>
         {isUser ? (
           <Bubble variant="muted" align="end">
-            <BubbleContent className="whitespace-pre-wrap">
-              {message.text}
-            </BubbleContent>
+            <BubbleContent className="whitespace-pre-wrap">{message.text}</BubbleContent>
           </Bubble>
         ) : (
           <ChatMarkdown text={message.text} />

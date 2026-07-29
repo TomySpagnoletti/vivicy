@@ -60,10 +60,7 @@ describe("SectionCycles — active cycle + history", () => {
   })
 
   test("active pre-freeze cycle shows kind, editable phase, and the pending-batch count", async () => {
-    vi.stubGlobal(
-      "fetch",
-      stubFetch({ active: { id: null, kind: "project", editable: true, pending_batches: 3 }, history: [] })
-    )
+    vi.stubGlobal("fetch", stubFetch({ active: { id: null, kind: "project", editable: true, pending_batches: 3 }, history: [] }))
     renderWithIntl(<SectionCycles />)
     await act(() => FakeEventSource.last?.emit(IDLE_STATUS))
 

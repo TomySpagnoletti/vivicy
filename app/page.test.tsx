@@ -85,9 +85,7 @@ describe("Page — Vivi launcher gated on the agent-CLI install state", () => {
     vi.stubGlobal("fetch", stubFetch({ claude: agent(), codex: agent() }, NO_MAP))
     renderWithIntl(<Page />)
 
-    expect(
-      await screen.findByRole("button", { name: "Open Vivi" })
-    ).toBeInTheDocument()
+    expect(await screen.findByRole("button", { name: "Open Vivi" })).toBeInTheDocument()
     expect(screen.queryByText("Install the agent CLIs")).not.toBeInTheDocument()
   })
 
@@ -96,9 +94,7 @@ describe("Page — Vivi launcher gated on the agent-CLI install state", () => {
     renderWithIntl(<Page />)
 
     expect(await screen.findByText("Install the agent CLIs")).toBeInTheDocument()
-    expect(
-      screen.queryByRole("button", { name: "Open Vivi" })
-    ).not.toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "Open Vivi" })).not.toBeInTheDocument()
   })
 
   test("one CLI missing: still gated — the launcher bubble is absent from the DOM", async () => {
@@ -106,9 +102,7 @@ describe("Page — Vivi launcher gated on the agent-CLI install state", () => {
     renderWithIntl(<Page />)
 
     expect(await screen.findByText("Install the agent CLIs")).toBeInTheDocument()
-    expect(
-      screen.queryByRole("button", { name: "Open Vivi" })
-    ).not.toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "Open Vivi" })).not.toBeInTheDocument()
   })
 
   test("health probe fails (no agents in the body): the app fails open — no gate, launcher still renders", async () => {
@@ -126,9 +120,7 @@ describe("Page — Vivi launcher gated on the agent-CLI install state", () => {
     vi.stubGlobal("fetch", failOpen)
     renderWithIntl(<Page />)
 
-    expect(
-      await screen.findByRole("button", { name: "Open Vivi" })
-    ).toBeInTheDocument()
+    expect(await screen.findByRole("button", { name: "Open Vivi" })).toBeInTheDocument()
     expect(screen.queryByText("Install the agent CLIs")).not.toBeInTheDocument()
   })
 })
@@ -140,9 +132,7 @@ describe("Page — first-boot loading state", () => {
 
     expect(screen.getByText("Loading…")).toBeInTheDocument()
 
-    expect(
-      await screen.findByRole("button", { name: "Open Vivi" })
-    ).toBeInTheDocument()
+    expect(await screen.findByRole("button", { name: "Open Vivi" })).toBeInTheDocument()
   })
 })
 

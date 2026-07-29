@@ -14,22 +14,14 @@ export function getTargetRoot(): string | null {
   return null
 }
 
-export const ARCHITECTURE_DATA_RELATIVE_PATH = path.join(
-  ".vivicy",
-  "architecture-map",
-  "architecture-data.json"
-)
+export const ARCHITECTURE_DATA_RELATIVE_PATH = path.join(".vivicy", "architecture-map", "architecture-data.json")
 
 export function getArchitectureDataPath(): string | null {
   const root = getTargetRoot()
   return root === null ? null : path.join(root, ARCHITECTURE_DATA_RELATIVE_PATH)
 }
 
-export const PROGRESS_LEDGER_RELATIVE_PATH = path.join(
-  ".vivicy",
-  "development",
-  "progress-ledger.json"
-)
+export const PROGRESS_LEDGER_RELATIVE_PATH = path.join(".vivicy", "development", "progress-ledger.json")
 
 // architecture-data.json is a static snapshot from extraction; this ledger is the live overlay (graph_item_states, active_items) computed at request time — no regeneration.
 export function getProgressLedgerPath(): string | null {

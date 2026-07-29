@@ -16,13 +16,7 @@ import { cn } from "@/lib/utils"
 
 const EMPTY_SELECTION: DocSelection = { accepted: [], rejectedCount: 0 }
 
-export function ImportDocsFlow({
-  active,
-  onImported,
-}: {
-  active: boolean
-  onImported: (project: CurrentProject) => void
-}) {
+export function ImportDocsFlow({ active, onImported }: { active: boolean; onImported: (project: CurrentProject) => void }) {
   const t = useTranslations("project.importDocsDialog")
   const tErrors = useTranslations("errors")
   const locale = useLocale()
@@ -65,9 +59,7 @@ export function ImportDocsFlow({
       if (!res.ok || body.ok === false || !body.project || !body.batch) {
         const fallback = body.error ?? t("toast.httpError", { status: res.status })
         toast.error(t("toast.importErrorTitle"), {
-          description: body.code
-            ? errorTextAcrossFamilies(tErrors, ["import", "scaffold"], body.code, fallback)
-            : fallback,
+          description: body.code ? errorTextAcrossFamilies(tErrors, ["import", "scaffold"], body.code, fallback) : fallback,
         })
         return
       }
@@ -97,16 +89,10 @@ export function ImportDocsFlow({
       </section>
 
       <section className="flex flex-col gap-2">
-        <StepHeader
-          index={2}
-          label={t("step2.label")}
-          state={!step1Ready ? "locked" : listing ? "done" : "active"}
-        />
+        <StepHeader index={2} label={t("step2.label")} state={!step1Ready ? "locked" : listing ? "done" : "active"} />
 
         {step1Ready ? (
-          <p className="text-xs text-muted-foreground">
-            {t("step2.hint", { brandName: BRAND.name })}
-          </p>
+          <p className="text-xs text-muted-foreground">{t("step2.hint", { brandName: BRAND.name })}</p>
         ) : (
           <p className="text-xs text-muted-foreground">{t("step2.lockedHint")}</p>
         )}
@@ -146,15 +132,7 @@ export function ImportDocsFlow({
   )
 }
 
-function StepHeader({
-  index,
-  label,
-  state,
-}: {
-  index: number
-  label: string
-  state: "locked" | "active" | "done"
-}) {
+function StepHeader({ index, label, state }: { index: number; label: string; state: "locked" | "active" | "done" }) {
   return (
     <div className={cn("flex items-center gap-2", state === "locked" && "opacity-50")}>
       <span

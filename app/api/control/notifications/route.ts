@@ -8,10 +8,7 @@ export async function GET() {
   try {
     return Response.json({ ok: true, notifications: readNotifications() })
   } catch (error) {
-    return Response.json(
-      { ok: false, error: error instanceof Error ? error.message : "failed to read notifications" },
-      { status: 500 }
-    )
+    return Response.json({ ok: false, error: error instanceof Error ? error.message : "failed to read notifications" }, { status: 500 })
   }
 }
 
@@ -27,18 +24,12 @@ export async function POST(request: Request) {
     return Response.json({ ok: true, dismissed: dismissNotifications() })
   }
   if (typeof body.id !== "string" || body.id.length === 0) {
-    return Response.json(
-      { ok: false, error: "body must be { id: string } or { all: true }" },
-      { status: 400 }
-    )
+    return Response.json({ ok: false, error: "body must be { id: string } or { all: true }" }, { status: 400 })
   }
   try {
     const dismissed = dismissNotifications([body.id])
     return Response.json({ ok: true, dismissed })
   } catch (error) {
-    return Response.json(
-      { ok: false, error: error instanceof Error ? error.message : "failed to dismiss notification" },
-      { status: 500 }
-    )
+    return Response.json({ ok: false, error: error instanceof Error ? error.message : "failed to dismiss notification" }, { status: 500 })
   }
 }

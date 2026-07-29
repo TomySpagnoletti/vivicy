@@ -1,8 +1,4 @@
-import {
-  applyLayoutSave,
-  LayoutSaveError,
-  validateLayoutSavePayload,
-} from "@/lib/map-layout-save"
+import { applyLayoutSave, LayoutSaveError, validateLayoutSavePayload } from "@/lib/map-layout-save"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -29,10 +25,7 @@ export async function POST(request: Request) {
   try {
     body = await request.json()
   } catch {
-    return Response.json(
-      { ok: false, error: "Request body must be valid JSON.", code: "invalid_payload" },
-      { status: 400 }
-    )
+    return Response.json({ ok: false, error: "Request body must be valid JSON.", code: "invalid_payload" }, { status: 400 })
   }
 
   try {
@@ -41,14 +34,8 @@ export async function POST(request: Request) {
     return Response.json({ ok: true })
   } catch (error) {
     if (error instanceof LayoutSaveError) {
-      return Response.json(
-        { ok: false, error: error.message, code: error.code },
-        { status: statusFor(error.code) }
-      )
+      return Response.json({ ok: false, error: error.message, code: error.code }, { status: statusFor(error.code) })
     }
-    return Response.json(
-      { ok: false, error: error instanceof Error ? error.message : "layout save failed" },
-      { status: 500 }
-    )
+    return Response.json({ ok: false, error: error instanceof Error ? error.message : "layout save failed" }, { status: 500 })
   }
 }

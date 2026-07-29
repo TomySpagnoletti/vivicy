@@ -5,13 +5,7 @@ import { Slot } from "radix-ui"
 import { cn } from "@/lib/utils"
 
 function BubbleGroup({ className, ...props }: React.ComponentProps<"div">) {
-  return (
-    <div
-      data-slot="bubble-group"
-      className={cn("flex min-w-0 flex-col gap-2", className)}
-      {...props}
-    />
-  )
+  return <div data-slot="bubble-group" className={cn("flex min-w-0 flex-col gap-2", className)} {...props} />
 }
 
 const bubbleVariants = cva(
@@ -51,13 +45,7 @@ function Bubble({
     align?: "start" | "end"
   }) {
   return (
-    <div
-      data-slot="bubble"
-      data-variant={variant}
-      data-align={align}
-      className={cn(bubbleVariants({ variant }), className)}
-      {...props}
-    />
+    <div data-slot="bubble" data-variant={variant} data-align={align} className={cn(bubbleVariants({ variant }), className)} {...props} />
   )
 }
 

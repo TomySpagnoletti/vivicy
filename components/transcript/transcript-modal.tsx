@@ -1,29 +1,10 @@
 "use client"
 
-import {
-  createContext,
-  useCallback,
-  useContext,
-  useEffect,
-  useMemo,
-  useState,
-  type ReactNode,
-} from "react"
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react"
 
-import {
-  parseTranscript,
-  transcriptUrl,
-  type TranscriptEntry,
-  type TranscriptFormat,
-} from "@/lib/transcript"
+import { parseTranscript, transcriptUrl, type TranscriptEntry, type TranscriptFormat } from "@/lib/transcript"
 import { Badge } from "@/components/ui/badge"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { cn } from "@/lib/utils"
 
@@ -75,13 +56,7 @@ type LoadState = {
   error?: string
 }
 
-function TranscriptDialog({
-  target,
-  onOpenChange,
-}: {
-  target: TranscriptTarget | null
-  onOpenChange: (open: boolean) => void
-}) {
+function TranscriptDialog({ target, onOpenChange }: { target: TranscriptTarget | null; onOpenChange: (open: boolean) => void }) {
   return (
     <Dialog open={target !== null} onOpenChange={onOpenChange}>
       <DialogContent className="flex max-h-[88vh] w-full max-w-3xl flex-col gap-0 overflow-hidden p-0">
@@ -118,18 +93,14 @@ function TranscriptBody({ target }: { target: TranscriptTarget }) {
         setState({ status: "ok", entries, format })
       })
       .catch((e) => {
-        if (alive)
-          setState({ status: "error", entries: [], format: "", error: String(e) })
+        if (alive) setState({ status: "error", entries: [], format: "", error: String(e) })
       })
     return () => {
       alive = false
     }
   }, [target.ref])
 
-  const meta =
-    state.status === "ok"
-      ? `${state.format ? `${state.format} · ` : ""}${state.entries.length} entries`
-      : state.status
+  const meta = state.status === "ok" ? `${state.format ? `${state.format} · ` : ""}${state.entries.length} entries` : state.status
 
   return (
     <>
@@ -139,14 +110,8 @@ function TranscriptBody({ target }: { target: TranscriptTarget }) {
       </DialogHeader>
       <ScrollArea className="min-h-0 min-w-0 flex-1 bg-muted/40">
         <div className="flex min-w-0 flex-col gap-2.5 px-5 py-4">
-          {state.status === "error" ? (
-            <p className="text-xs text-destructive">
-              Could not load transcript: {state.error}
-            </p>
-          ) : null}
-          {state.status === "loading" ? (
-            <p className="text-xs text-muted-foreground">Loading transcript…</p>
-          ) : null}
+          {state.status === "error" ? <p className="text-xs text-destructive">Could not load transcript: {state.error}</p> : null}
+          {state.status === "loading" ? <p className="text-xs text-muted-foreground">Loading transcript…</p> : null}
           {state.status === "ok" && state.entries.length === 0 ? (
             <p className="text-xs text-muted-foreground">No renderable entries.</p>
           ) : null}
@@ -178,24 +143,16 @@ function RichText({ text }: { text: string }) {
     <>
       {parts.map((part, i) =>
         part.code ? (
-          <details
-            key={i}
-            className="my-2 rounded-md border border-border bg-muted"
-          >
+          <details key={i} className="my-2 rounded-md border border-border bg-muted">
             <summary className="cursor-pointer px-2.5 py-1.5 text-xs text-muted-foreground select-none">
-              {`code${part.lang ? ` · ${part.lang}` : ""} · ${
-                part.body.split("\n").length
-              } lines`}
+              {`code${part.lang ? ` · ${part.lang}` : ""} · ${part.body.split("\n").length} lines`}
             </summary>
             <pre className="m-2 overflow-auto rounded-md bg-foreground p-3 font-mono text-xs leading-relaxed text-background">
               {part.body.replace(/\n$/, "")}
             </pre>
           </details>
         ) : (
-          <p
-            key={i}
-            className="mb-2 text-xs leading-relaxed break-words whitespace-pre-wrap text-foreground last:mb-0"
-          >
+          <p key={i} className="mb-2 text-xs leading-relaxed break-words whitespace-pre-wrap text-foreground last:mb-0">
             {part.body.trim()}
           </p>
         )
@@ -212,9 +169,7 @@ function EntryView({ entry }: { entry: TranscriptEntry }) {
           <Badge variant="secondary" className="uppercase">
             Thinking
           </Badge>
-          <span className="text-xs text-muted-foreground">
-            {entry.text.length.toLocaleString()} chars
-          </span>
+          <span className="text-xs text-muted-foreground">{entry.text.length.toLocaleString()} chars</span>
         </summary>
         <div className="px-3 pb-3">
           <RichText text={entry.text} />
@@ -232,17 +187,11 @@ function EntryView({ entry }: { entry: TranscriptEntry }) {
           <span className="font-mono text-xs break-all text-foreground">{entry.name}</span>
         </summary>
         <div className="min-w-0 px-3 pb-3">
-          <p className="mt-2 mb-1 text-xs font-medium tracking-wide text-muted-foreground uppercase">
-            Input
-          </p>
-          <pre className="overflow-auto rounded-md bg-foreground p-3 font-mono text-xs leading-relaxed text-background">
-            {entry.input}
-          </pre>
+          <p className="mt-2 mb-1 text-xs font-medium tracking-wide text-muted-foreground uppercase">Input</p>
+          <pre className="overflow-auto rounded-md bg-foreground p-3 font-mono text-xs leading-relaxed text-background">{entry.input}</pre>
           {entry.output !== undefined ? (
             <>
-              <p className="mt-2 mb-1 text-xs font-medium tracking-wide text-muted-foreground uppercase">
-                Output
-              </p>
+              <p className="mt-2 mb-1 text-xs font-medium tracking-wide text-muted-foreground uppercase">Output</p>
               <pre className="overflow-auto rounded-md bg-foreground p-3 font-mono text-xs leading-relaxed text-background">
                 {entry.output.slice(0, 4000)}
                 {entry.output.length > 4000 ? "\n… (truncated)" : ""}
@@ -256,26 +205,14 @@ function EntryView({ entry }: { entry: TranscriptEntry }) {
   if (entry.kind === "user") {
     return (
       <div className="min-w-0 rounded-md border-l-2 border-muted-foreground bg-muted px-3.5 py-3">
-        <p className="mb-1.5 text-xs font-semibold tracking-wide text-muted-foreground uppercase">
-          User
-        </p>
+        <p className="mb-1.5 text-xs font-semibold tracking-wide text-muted-foreground uppercase">User</p>
         <RichText text={entry.text} />
       </div>
     )
   }
   return (
-    <div
-      className={cn(
-        "min-w-0 rounded-md border px-3.5 py-3",
-        entry.final ? "border-primary bg-primary/5" : "border-border bg-card"
-      )}
-    >
-      <p
-        className={cn(
-          "mb-1.5 text-xs font-semibold tracking-wide uppercase",
-          entry.final ? "text-primary" : "text-muted-foreground"
-        )}
-      >
+    <div className={cn("min-w-0 rounded-md border px-3.5 py-3", entry.final ? "border-primary bg-primary/5" : "border-border bg-card")}>
+      <p className={cn("mb-1.5 text-xs font-semibold tracking-wide uppercase", entry.final ? "text-primary" : "text-muted-foreground")}>
         {entry.final ? "Final response" : "Assistant"}
       </p>
       <RichText text={entry.text} />

@@ -71,9 +71,7 @@ describe("ImportDocsFlow — docs first, folder second", () => {
     vi.stubGlobal("fetch", stubFetch())
     renderWithIntl(<ImportDocsFlow active onImported={vi.fn()} />)
 
-    expect(
-      screen.getByText("Add at least one document above to choose where it lands.")
-    ).toBeInTheDocument()
+    expect(screen.getByText("Add at least one document above to choose where it lands.")).toBeInTheDocument()
     expect(screen.getByRole("button", { name: "Import documents" })).toBeDisabled()
   })
 
@@ -99,9 +97,7 @@ describe("ImportDocsFlow — docs first, folder second", () => {
 
     expect(await screen.findByText("1 document ready")).toBeInTheDocument()
     expect(screen.getByText(/Vivicy will govern it/)).toBeInTheDocument()
-    await waitFor(() =>
-      expect(screen.getByRole("button", { name: "Import documents" })).toBeEnabled()
-    )
+    await waitFor(() => expect(screen.getByRole("button", { name: "Import documents" })).toBeEnabled())
   })
 
   test("a dropped unsupported file is marked skipped; only the supported one satisfies the gate", async () => {

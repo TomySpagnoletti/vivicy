@@ -1,12 +1,6 @@
 import { describe, expect, test } from "vitest"
 
-import {
-  kindColor,
-  KIND_COLORS,
-  progressStatusColor,
-  STATUS_COLORS,
-  UNKNOWN_KIND_COLOR,
-} from "@/lib/map-palette"
+import { kindColor, KIND_COLORS, progressStatusColor, STATUS_COLORS, UNKNOWN_KIND_COLOR } from "@/lib/map-palette"
 
 function parseHex(hex: string): [number, number, number] {
   const m = /^#([0-9a-f]{6})$/i.exec(hex)

@@ -5,22 +5,10 @@ import { CreditCard, Gauge, Loader2, RefreshCw } from "lucide-react"
 import { useTranslations } from "next-intl"
 import { toast } from "sonner"
 
-import {
-  AGENT_GUIDANCE,
-  type AgentHealth,
-  type AgentKey,
-  type AgentsHealth,
-  type AuthMethod,
-} from "@/lib/agents-health-types"
+import { AGENT_GUIDANCE, type AgentHealth, type AgentKey, type AgentsHealth, type AuthMethod } from "@/lib/agents-health-types"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { AgentStatusBadge, CopyableCommand, InstallDocsLink } from "@/components/agents/agent-status"
 
 const MAX_LOG_LINES = 500
@@ -85,13 +73,7 @@ export function AgentsHealthDialog({
 
         <div className="flex flex-col gap-4">
           {(["claude", "codex"] as AgentKey[]).map((key) => (
-            <AgentCard
-              key={key}
-              agentKey={key}
-              health={health?.[key] ?? null}
-              loading={loading && !health}
-              onHealth={setHealth}
-            />
+            <AgentCard key={key} agentKey={key} health={health?.[key] ?? null} loading={loading && !health} onHealth={setHealth} />
           ))}
         </div>
       </DialogContent>
@@ -121,9 +103,7 @@ function AgentCard({
     <fieldset className="flex flex-col gap-2 border border-border p-3">
       <legend className="flex items-center gap-2 px-1 text-xs font-medium text-foreground">
         {guidance.label}
-        {health?.version ? (
-          <span className="font-normal text-muted-foreground">· {health.version}</span>
-        ) : null}
+        {health?.version ? <span className="font-normal text-muted-foreground">· {health.version}</span> : null}
       </legend>
 
       {loading ? (
@@ -133,12 +113,7 @@ function AgentCard({
       ) : (
         <>
           <div className="flex flex-wrap items-center gap-1.5">
-            <AgentStatusBadge
-              ok={present}
-              okLabel={t("installed")}
-              badLabel={t("notInstalled")}
-              unknown={false}
-            />
+            <AgentStatusBadge ok={present} okLabel={t("installed")} badLabel={t("notInstalled")} unknown={false} />
             <AgentStatusBadge
               ok={auth === true}
               okLabel={t("authenticated")}
@@ -146,23 +121,15 @@ function AgentCard({
               unknown={auth === null}
               unknownLabel={t("authUnknown")}
             />
-            {auth === true && authMethod ? (
-              <MethodBadge authMethod={authMethod} plan={plan} />
-            ) : null}
+            {auth === true && authMethod ? <MethodBadge authMethod={authMethod} plan={plan} /> : null}
           </div>
-          {auth === true && authMethod ? (
-            <p className="px-0.5 text-xs text-muted-foreground">{costNote(authMethod, t)}</p>
-          ) : null}
+          {auth === true && authMethod ? <p className="px-0.5 text-xs text-muted-foreground">{costNote(authMethod, t)}</p> : null}
           {present ? <UpdateAction agentKey={agentKey} onHealth={onHealth} /> : null}
         </>
       )}
 
       {!loading && !present ? (
-        <InstallDocsLink
-          hint={guidance.installHint}
-          href={guidance.docsUrl}
-          label={t("installGuide", { label: guidance.label })}
-        />
+        <InstallDocsLink hint={guidance.installHint} href={guidance.docsUrl} label={t("installGuide", { label: guidance.label })} />
       ) : null}
       {!loading && present && auth === false ? (
         <CopyableCommand hint={guidance.authHint} command={guidance.authCommand} label={t("signIn")} />
@@ -193,13 +160,7 @@ function costNote(authMethod: AuthMethod, t: ReturnType<typeof useTranslations<"
 }
 
 /** Caller must gate on `authenticated === true` before rendering — this trusts authMethod without re-checking. */
-function MethodBadge({
-  authMethod,
-  plan,
-}: {
-  authMethod: AuthMethod
-  plan: string | null
-}) {
+function MethodBadge({ authMethod, plan }: { authMethod: AuthMethod; plan: string | null }) {
   const t = useTranslations("agents")
   const Icon = authMethod === "api_key" ? CreditCard : Gauge
   return (
@@ -219,13 +180,7 @@ interface UpdateResponse {
   agents?: AgentsHealth
 }
 
-function UpdateAction({
-  agentKey,
-  onHealth,
-}: {
-  agentKey: AgentKey
-  onHealth: (health: AgentsHealth) => void
-}) {
+function UpdateAction({ agentKey, onHealth }: { agentKey: AgentKey; onHealth: (health: AgentsHealth) => void }) {
   const t = useTranslations("agents")
   const guidance = AGENT_GUIDANCE[agentKey]
   const [running, setRunning] = useState(false)

@@ -10,18 +10,12 @@ const BG_BY_STATUS: Record<NodeStatus, string> = {
   blocked: "bg-status-blocked",
 }
 
-export function StatusDot({
-  status,
-  className,
-}: {
-  status: NodeStatus | null | undefined
-  className?: string
-}) {
+export function StatusDot({ status, className }: { status: NodeStatus | null | undefined; className?: string }) {
   return (
     <span
       aria-hidden
       className={cn(
-        "inline-block size-2 shrink-0 rounded-full ring-1 ring-inset ring-border",
+        "inline-block size-2 shrink-0 rounded-full ring-1 ring-border ring-inset",
         BG_BY_STATUS[status ?? "not_started"],
         className
       )}

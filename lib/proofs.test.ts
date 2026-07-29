@@ -30,19 +30,9 @@ function issueFile(proofsBlock: string, { fence = true }: { fence?: boolean } = 
   ].join("\n")
 }
 
-const RUN_LOG_PROOF = [
-  "- id: cli-report",
-  "  class: run_log",
-  "  evidences:",
-  "    - .vivicy/canonical/06-cli.md:13-16",
-].join("\n")
+const RUN_LOG_PROOF = ["- id: cli-report", "  class: run_log", "  evidences:", "    - .vivicy/canonical/06-cli.md:13-16"].join("\n")
 
-const GATE_PROOF = [
-  "- id: totals",
-  "  class: gate_evidence",
-  "  evidences:",
-  "    - .vivicy/canonical/02-model.md:31",
-].join("\n")
+const GATE_PROOF = ["- id: totals", "  class: gate_evidence", "  evidences:", "    - .vivicy/canonical/02-model.md:31"].join("\n")
 
 describe("the proof-class taxonomy", () => {
   it("is a closed, proportional set: one class per honest observation shape", () => {
@@ -88,9 +78,7 @@ describe("parseDeclaredProofs", () => {
   it("reads a CRLF-authored issue file identically — the boundary is normalized once, never left to chance", () => {
     const crlf = parseDeclaredProofs(issueFile(RUN_LOG_PROOF).replace(/\n/g, "\r\n"))
     expect(crlf.problems).toEqual([])
-    expect(crlf.proofs).toEqual([
-      { id: "cli-report", class: "run_log", evidences: [".vivicy/canonical/06-cli.md:13-16"] },
-    ])
+    expect(crlf.proofs).toEqual([{ id: "cli-report", class: "run_log", evidences: [".vivicy/canonical/06-cli.md:13-16"] }])
   })
 
   it("declares nothing silently only when NO Proofs section is reachable (absent, or quoted inside a closed fence)", () => {
@@ -158,7 +146,10 @@ describe("parseDeclaredProofs", () => {
         "",
       ].join("\n")
     )
-    expect(afterFence.proofs.map((p) => p.id), "the block itself still parses").toEqual(["cli-report"])
+    expect(
+      afterFence.proofs.map((p) => p.id),
+      "the block itself still parses"
+    ).toEqual(["cli-report"])
     expect(afterFence.problems[0]).toMatch(/declaration content outside its one `text` block/)
 
     const secondBlock = parseDeclaredProofs(
@@ -166,9 +157,7 @@ describe("parseDeclaredProofs", () => {
     )
     expect(secondBlock.problems[0]).toMatch(/declaration content outside its one `text` block/)
 
-    const spacedInfoString = parseDeclaredProofs(
-      ["# ISSUE", "", "## Proofs", "", "``` text", RUN_LOG_PROOF, "```", ""].join("\n")
-    )
+    const spacedInfoString = parseDeclaredProofs(["# ISSUE", "", "## Proofs", "", "``` text", RUN_LOG_PROOF, "```", ""].join("\n"))
     expect(spacedInfoString.problems, "a space before the info string is still a fence (CommonMark)").toEqual([])
     expect(spacedInfoString.proofs.map((p) => p.id)).toEqual(["cli-report"])
   })
@@ -186,18 +175,16 @@ describe("parseDeclaredProofs", () => {
       ["# ISSUE", "", "## Verification", "", "```text", "an unterminated fence", "", "## Proofs", "", RUN_LOG_PROOF, ""].join("\n")
     )
     expect(swallowed.proofs).toEqual([])
-    expect(
-      swallowed.problems[0],
-      "a section hidden by an earlier unterminated fence is a defect, never silence"
-    ).toMatch(/inside an unterminated code fence/)
+    expect(swallowed.problems[0], "a section hidden by an earlier unterminated fence is a defect, never silence").toMatch(
+      /inside an unterminated code fence/
+    )
 
     const nextSectionIndented = parseDeclaredProofs(
       ["# ISSUE", "", "## Proofs", "", "  ### Notes", "", "```text", RUN_LOG_PROOF, "```", ""].join("\n")
     )
-    expect(
-      nextSectionIndented.problems[0],
-      "the section ends at the next heading of ANY level, so a later block is never adopted"
-    ).toMatch(/carries no closed, non-empty `text` block/)
+    expect(nextSectionIndented.problems[0], "the section ends at the next heading of ANY level, so a later block is never adopted").toMatch(
+      /carries no closed, non-empty `text` block/
+    )
   })
 
   it("ignores a Proofs heading quoted inside another fenced block", () => {
@@ -209,9 +196,7 @@ describe("parseDeclaredProofs", () => {
   })
 
   it("reports every malformed declaration instead of silently declaring nothing", () => {
-    const unknownClass = parseDeclaredProofs(
-      issueFile("- id: shot\n  class: vibes\n  evidences:\n    - .vivicy/canonical/01-a.md:3")
-    )
+    const unknownClass = parseDeclaredProofs(issueFile("- id: shot\n  class: vibes\n  evidences:\n    - .vivicy/canonical/01-a.md:3"))
     expect(unknownClass.proofs).toEqual([])
     expect(unknownClass.problems[0]).toMatch(/unknown class "vibes"/)
 
@@ -303,8 +288,7 @@ afterEach(() => {
 
 describe("inspectDeclaredProofs", () => {
   it("reports a proof as produced only once BOTH its artifact and its replayable recipe are on disk", () => {
-    const inspect = () =>
-      inspectDeclaredProofs({ targetRoot: root, issueId: "ISSUE-0008", body: issueFile(RUN_LOG_PROOF) })
+    const inspect = () => inspectDeclaredProofs({ targetRoot: root, issueId: "ISSUE-0008", body: issueFile(RUN_LOG_PROOF) })
 
     expect(inspect().statuses[0]).toMatchObject({
       id: "cli-report",
@@ -333,8 +317,7 @@ describe("inspectDeclaredProofs", () => {
   it("counts a nested capture, ignores an empty placeholder, and refuses a symlinked stand-in", () => {
     write(".vivicy/development/proofs/ISSUE-0008/cli-report/recipe.txt", "node src/cli.js report 2026-01\n")
     write(".vivicy/development/proofs/ISSUE-0008/cli-report/empty.log", "")
-    const inspect = () =>
-      inspectDeclaredProofs({ targetRoot: root, issueId: "ISSUE-0008", body: issueFile(RUN_LOG_PROOF) }).statuses[0]
+    const inspect = () => inspectDeclaredProofs({ targetRoot: root, issueId: "ISSUE-0008", body: issueFile(RUN_LOG_PROOF) }).statuses[0]
     expect(inspect()).toMatchObject({ produced: false, artifacts: ["recipe.txt"] })
 
     write("elsewhere/other-run.log", "someone else's output\n")
@@ -352,8 +335,7 @@ describe("inspectDeclaredProofs", () => {
   })
 
   it("takes a gate_evidence proof from the green gate record itself — no ritual artifact", () => {
-    const inspect = () =>
-      inspectDeclaredProofs({ targetRoot: root, issueId: "ISSUE-0003", body: issueFile(GATE_PROOF) }).statuses[0]
+    const inspect = () => inspectDeclaredProofs({ targetRoot: root, issueId: "ISSUE-0003", body: issueFile(GATE_PROOF) }).statuses[0]
 
     expect(inspect()).toMatchObject({
       path: ".vivicy/development/gates/ISSUE-0003-gate.json",

@@ -4,12 +4,7 @@ import path from "node:path"
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 
-import {
-  appendNotification,
-  dismissNotifications,
-  getNotificationsPath,
-  readNotifications,
-} from "@/lib/notifications"
+import { appendNotification, dismissNotifications, getNotificationsPath, readNotifications } from "@/lib/notifications"
 
 let runtimeDir: string
 let prevRuntimeEnv: string | undefined
@@ -43,7 +38,15 @@ describe("readNotifications (shared read contract)", () => {
         JSON.stringify({ id: "aaa-1", ts: "2026-07-02T10:00:00Z", level: "info", stage: "extract", event: "green", message: "done" }),
         "",
         "not json — a partial write",
-        JSON.stringify({ id: "bbb-2", ts: "2026-07-02T10:05:00Z", level: "warning", stage: "dev", event: "stall", message: "idle", dismissed: false }),
+        JSON.stringify({
+          id: "bbb-2",
+          ts: "2026-07-02T10:05:00Z",
+          level: "warning",
+          stage: "dev",
+          event: "stall",
+          message: "idle",
+          dismissed: false,
+        }),
       ].join("\n")
     )
 
@@ -127,7 +130,14 @@ describe("dismissNotifications (dismissal mechanism: rewrite dismissed in place,
     writeFileSync(
       getNotificationsPath(),
       [
-        JSON.stringify({ id: "aaa-1", ts: "2026-07-03T10:00:00.000Z", level: "info", stage: "extract", event: "started", message: "twin A" }),
+        JSON.stringify({
+          id: "aaa-1",
+          ts: "2026-07-03T10:00:00.000Z",
+          level: "info",
+          stage: "extract",
+          event: "started",
+          message: "twin A",
+        }),
         JSON.stringify({ id: "bbb-2", ts: "2026-07-03T10:00:00.000Z", level: "info", stage: "dev", event: "started", message: "twin B" }),
       ].join("\n") + "\n"
     )

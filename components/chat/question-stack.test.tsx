@@ -40,9 +40,7 @@ function answeredTurns(...questionIds: string[]) {
 
 function mount(answered: string[] = [], onAnswered = vi.fn()) {
   const remaining = remainingQuestions(STACK, answeredTurns(...answered))
-  const view = renderWithIntl(
-    <QuestionStack sessionId={SESSION} stack={STACK} remaining={remaining} onAnswered={onAnswered} />
-  )
+  const view = renderWithIntl(<QuestionStack sessionId={SESSION} stack={STACK} remaining={remaining} onAnswered={onAnswered} />)
   return { view, onAnswered, remaining }
 }
 
@@ -74,11 +72,7 @@ describe("QuestionStack — one card at a time, the pile behind it", () => {
     expect(screen.getByText("Question 1 of 4")).toBeInTheDocument()
     expect(screen.getByText("Which datastore should v1 run on?")).toBeInTheDocument()
     const options = screen.getAllByRole("listitem")
-    expect(options.map((li) => li.textContent)).toEqual([
-      "PostgresRecommended",
-      "SQLite",
-      "MongoDB",
-    ])
+    expect(options.map((li) => li.textContent)).toEqual(["PostgresRecommended", "SQLite", "MongoDB"])
     expect(within(options[0]).getByText("Recommended")).toBeInTheDocument()
     expect(screen.queryByText("How do people sign in?")).not.toBeInTheDocument()
   })
@@ -92,11 +86,7 @@ describe("QuestionStack — one card at a time, the pile behind it", () => {
     expect(screen.getByText("Question 4 of 4")).toBeInTheDocument()
 
     renderWithIntl(
-      <QuestionStack
-        sessionId={SESSION}
-        stack={{ id: "solo", questions: [STACK.questions[0]] }}
-        remaining={[STACK.questions[0]]}
-      />
+      <QuestionStack sessionId={SESSION} stack={{ id: "solo", questions: [STACK.questions[0]] }} remaining={[STACK.questions[0]]} />
     )
     expect(screen.getByText("Question")).toBeInTheDocument()
   })
@@ -240,17 +230,9 @@ describe("QuestionStack — read as a list, handed over by the keyboard", () => 
     await user.click(screen.getByRole("button", { name: /Postgres/ }))
     await waitFor(() => expect(post).toHaveBeenCalled())
 
-    view.rerender(
-      <QuestionStack
-        sessionId={SESSION}
-        stack={STACK}
-        remaining={remainingQuestions(STACK, answeredTurns("datastore"))}
-      />
-    )
+    view.rerender(<QuestionStack sessionId={SESSION} stack={STACK} remaining={remainingQuestions(STACK, answeredTurns("datastore"))} />)
 
-    await waitFor(() =>
-      expect(document.activeElement).toBe(screen.getByRole("button", { name: /Email \+ password/ }))
-    )
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("button", { name: /Email \+ password/ })))
   })
 
   test("a focus outside the pile is never stolen", async () => {

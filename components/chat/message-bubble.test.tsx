@@ -10,23 +10,15 @@ describe("MessageBubble — user/Vivi asymmetry", () => {
 
     const text = screen.getByText("Add auth.")
     expect(text.closest('[data-slot="bubble"]')).not.toBeNull()
-    expect(text.closest('[data-slot="message"]')).toHaveAttribute(
-      "data-align",
-      "end"
-    )
+    expect(text.closest('[data-slot="message"]')).toHaveAttribute("data-align", "end")
   })
 
   test("a Vivi message is plain text — no bubble — aligned to the start", () => {
-    renderWithIntl(
-      <MessageBubble message={{ role: "vivi", text: "Magic links it is." }} />
-    )
+    renderWithIntl(<MessageBubble message={{ role: "vivi", text: "Magic links it is." }} />)
 
     const text = screen.getByText("Magic links it is.")
     expect(text.closest('[data-slot="bubble"]')).toBeNull()
-    expect(text.closest('[data-slot="message"]')).toHaveAttribute(
-      "data-align",
-      "start"
-    )
+    expect(text.closest('[data-slot="message"]')).toHaveAttribute("data-align", "start")
   })
 
   test("a Vivi message's written files survive the restyle as attachments", () => {
@@ -40,9 +32,7 @@ describe("MessageBubble — user/Vivi asymmetry", () => {
       />
     )
 
-    expect(
-      screen.getByText(".vivicy/canonical/02-scope.md")
-    ).toBeInTheDocument()
+    expect(screen.getByText(".vivicy/canonical/02-scope.md")).toBeInTheDocument()
   })
 
   test("a rejected turn still surfaces its reason line", () => {
@@ -56,9 +46,7 @@ describe("MessageBubble — user/Vivi asymmetry", () => {
       />
     )
 
-    expect(
-      screen.getByText("Vivi wrote outside its allowlist")
-    ).toBeInTheDocument()
+    expect(screen.getByText("Vivi wrote outside its allowlist")).toBeInTheDocument()
   })
 })
 
@@ -75,13 +63,9 @@ describe("MessageBubble — Vivi turns render Markdown", () => {
 
     expect(container.querySelector("strong")?.textContent).toBe("Site 1 — AIM.")
     expect(container.querySelector("em")?.textContent).toBe("ricetta")
-    expect(container.querySelector("code")?.textContent).toBe(
-      "Cahier_des_charges.docx"
-    )
+    expect(container.querySelector("code")?.textContent).toBe("Cahier_des_charges.docx")
     expect(container.querySelectorAll("ol > li")).toHaveLength(2)
-    expect(container.querySelector("ol li strong")?.textContent).toBe(
-      "What are we building?"
-    )
+    expect(container.querySelector("ol li strong")?.textContent).toBe("What are we building?")
     expect(container.textContent).not.toContain("**")
     expect(container.textContent).not.toContain("`")
   })
@@ -113,9 +97,7 @@ describe("MessageBubble — Vivi turns render Markdown", () => {
       />
     )
 
-    expect(container.querySelector("pre code")?.textContent).toContain(
-      "npm run build"
-    )
+    expect(container.querySelector("pre code")?.textContent).toContain("npm run build")
     const prose = container.querySelector('[data-slot="chat-markdown"]')
     expect(prose?.className).toContain("[&_pre]:overflow-x-auto")
   })
@@ -168,9 +150,7 @@ describe("MessageBubble — Vivi turns render Markdown", () => {
       expect(anchors).toHaveLength(1)
       expect(anchors[0]).toHaveAttribute("href", "https://example.com/home")
       expect(container.querySelector("a a")).toBeNull()
-      const nestingWarning = errorSpy.mock.calls.find((call) =>
-        /descendant of|validateDOMNesting|hydration/i.test(String(call[0]))
-      )
+      const nestingWarning = errorSpy.mock.calls.find((call) => /descendant of|validateDOMNesting|hydration/i.test(String(call[0])))
       expect(nestingWarning).toBeUndefined()
     } finally {
       errorSpy.mockRestore()
@@ -179,11 +159,7 @@ describe("MessageBubble — Vivi turns render Markdown", () => {
 
   test("partial Markdown mid-stream — unclosed bold and fence — never throws", () => {
     expect(() =>
-      renderWithIntl(
-        <MessageBubble
-          message={{ role: "vivi", text: "Drafting the **spec and ```ts\nconst x =" }}
-        />
-      )
+      renderWithIntl(<MessageBubble message={{ role: "vivi", text: "Drafting the **spec and ```ts\nconst x =" }} />)
     ).not.toThrow()
   })
 })
@@ -201,8 +177,6 @@ describe("MessageBubble — user turns stay literal", () => {
 
     expect(container.querySelector("strong")).toBeNull()
     expect(container.querySelector("code")).toBeNull()
-    expect(
-      screen.getByText("Use **exactly** this `--flag`, verbatim.")
-    ).toBeInTheDocument()
+    expect(screen.getByText("Use **exactly** this `--flag`, verbatim.")).toBeInTheDocument()
   })
 })

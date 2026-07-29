@@ -113,8 +113,6 @@ export function ensureManagedBlock(current: Buffer | null, spec: ManagedSpec): B
   const block = asBytes(spec.block)
   const scanned = scan(content, { begin: asBytes(spec.markers.begin), end: asBytes(spec.markers.end) })
   const span = soleSpan(scanned)
-  const next = span
-    ? content.slice(0, span.start) + block + content.slice(span.end)
-    : appendBlock(withoutManagedLines(scanned), block)
+  const next = span ? content.slice(0, span.start) + block + content.slice(span.end) : appendBlock(withoutManagedLines(scanned), block)
   return Buffer.from(next, BYTEWISE)
 }

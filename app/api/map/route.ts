@@ -2,13 +2,7 @@ import { readFile } from "node:fs/promises"
 
 import { applyLiveOverlay, normalizeMapData } from "@/lib/map-data"
 import { readProofsByIssue } from "@/lib/proofs"
-import {
-  canonicalHasSpecDoc,
-  getArchitectureDataPath,
-  getProgressLedgerPath,
-  getTargetRoot,
-  isTargetResolved,
-} from "@/lib/target"
+import { canonicalHasSpecDoc, getArchitectureDataPath, getProgressLedgerPath, getTargetRoot, isTargetResolved } from "@/lib/target"
 import type { ArchitectureMapData, MapEmptyState } from "@/lib/types"
 
 // Filesystem reads require the Node runtime, not Edge.
@@ -40,9 +34,7 @@ export async function GET() {
     contents = await readFile(filePath, "utf8")
   } catch {
     const targetRoot = getTargetRoot()
-    return emptyState(
-      targetRoot !== null && canonicalHasSpecDoc(targetRoot) ? "no_map" : "empty_canonical"
-    )
+    return emptyState(targetRoot !== null && canonicalHasSpecDoc(targetRoot) ? "no_map" : "empty_canonical")
   }
 
   let parsed: unknown

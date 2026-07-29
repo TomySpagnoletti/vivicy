@@ -14,10 +14,7 @@ function shot(projectName: string, name: string): string {
 
 test.describe("cross-browser screenshots — main app (demo shape)", () => {
   test("capture map, sidebar, and the key modals", async ({ page }, testInfo) => {
-    test.skip(
-      !testInfo.project.name.startsWith("demo-"),
-      "Main-app captures run on the demo shape only."
-    )
+    test.skip(!testInfo.project.name.startsWith("demo-"), "Main-app captures run on the demo shape only.")
     const project = testInfo.project.name
     await page.goto("/")
 

@@ -88,7 +88,9 @@ function makeDeps(overrides: Partial<ViviActionDeps> = {}) {
     }) as ViviActionDeps["cancelSpecCycle"],
     listChangeRequests: (() => {
       record("listChangeRequests")
-      return { crs: [{ id: "CR-0001", title: "T", status: "idea", classification: "minor_product_change", created_at: null, source: "user" }] }
+      return {
+        crs: [{ id: "CR-0001", title: "T", status: "idea", classification: "minor_product_change", created_at: null, source: "user" }],
+      }
     }) as ViviActionDeps["listChangeRequests"],
     readNotifications: () => {
       record("readNotifications")
@@ -185,7 +187,13 @@ describe("executeViviActions — registry dispatch", () => {
     expect(result.ok).toBe(true)
     expect(result.summary).toContain("run_active=true")
     expect(result.summary).toContain("issues 3/12 done")
-    expect(result.data).toMatchObject({ run_active: true, issues_done: 3, issues_total: 12, extraction_phase: "green", skills_phase: "green" })
+    expect(result.data).toMatchObject({
+      run_active: true,
+      issues_done: 3,
+      issues_total: 12,
+      extraction_phase: "green",
+      skills_phase: "green",
+    })
   })
 
   it("maps workflow.start/resume/stop onto the supervisor verbs", async () => {
@@ -207,7 +215,13 @@ describe("executeViviActions — registry dispatch", () => {
 
   it("workflow.extract mirrors the honest extract outcome (blocked is not ok)", async () => {
     const { deps } = makeDeps({
-      runExtract: (async () => ({ ok: false, blocked: true, status: "extraction_blocked", summary: "3 checks red", lastLine: "" })) as ViviActionDeps["runExtract"],
+      runExtract: (async () => ({
+        ok: false,
+        blocked: true,
+        status: "extraction_blocked",
+        summary: "3 checks red",
+        lastLine: "",
+      })) as ViviActionDeps["runExtract"],
     })
     const [result] = await executeViviActions(inertSpawner, [{ tool: "workflow.extract", args: {} }], deps)
     expect(result.ok).toBe(false)
@@ -291,9 +305,7 @@ describe("executeViviActions — registry dispatch", () => {
     const [result] = await executeViviActions(inertSpawner, [{ tool: "map.move", args: payload }], deps)
 
     expect(result.ok).toBe(true)
-    expect(result.summary, "one node and no edge label, each in its own number").toBe(
-      "map layout saved (1 node, 0 edge labels)"
-    )
+    expect(result.summary, "one node and no edge label, each in its own number").toBe("map layout saved (1 node, 0 edge labels)")
     expect(calls.validateLayoutSavePayload?.[0]?.[0]).toEqual(payload)
     expect(calls.applyLayoutSave).toHaveLength(1)
   })
@@ -414,9 +426,7 @@ describe("renderActionResults / stripActionFence", () => {
       { tool: "workflow.start", ok: true, summary: "supervisor started (pid 1)" },
       { tool: "map.move", ok: false, summary: "read-only" },
     ]
-    expect(renderActionResults(results)).toBe(
-      "✓ workflow.start: supervisor started (pid 1)\n✗ map.move: read-only"
-    )
+    expect(renderActionResults(results)).toBe("✓ workflow.start: supervisor started (pid 1)\n✗ map.move: read-only")
   })
 
   it("strips the fence and collapses the leftover blank run", () => {

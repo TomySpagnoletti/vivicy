@@ -122,23 +122,12 @@ export function DocPicker({
           dragActive && "border-primary/50 bg-muted"
         )}
       >
-        <span
-          aria-hidden
-          className="flex size-9 items-center justify-center rounded-full bg-muted text-muted-foreground"
-        >
+        <span aria-hidden className="flex size-9 items-center justify-center rounded-full bg-muted text-muted-foreground">
           <Upload className="size-5" />
         </span>
         <p className="text-sm text-foreground">{t("dropzone.prompt")}</p>
-        <p className="text-xs text-muted-foreground">
-          {t("dropzone.accepted", { extensions: IMPORT_ACCEPT_EXTENSIONS.join(", ") })}
-        </p>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          disabled={disabled}
-          onClick={() => fileInputRef.current?.click()}
-        >
+        <p className="text-xs text-muted-foreground">{t("dropzone.accepted", { extensions: IMPORT_ACCEPT_EXTENSIONS.join(", ") })}</p>
+        <Button type="button" variant="outline" size="sm" disabled={disabled} onClick={() => fileInputRef.current?.click()}>
           <FileText />
           {t("dropzone.choose")}
         </Button>
@@ -156,12 +145,7 @@ export function DocPicker({
       </div>
 
       {entries.length > 0 ? (
-        <SelectedList
-          accepted={acceptedEntries}
-          rejected={rejectedEntries}
-          disabled={disabled}
-          onClear={() => setEntries([])}
-        />
+        <SelectedList accepted={acceptedEntries} rejected={rejectedEntries} disabled={disabled} onClear={() => setEntries([])} />
       ) : null}
     </div>
   )
@@ -209,13 +193,7 @@ function FileRow({ rel, bytes, rejected = false }: { rel: string; bytes: number;
   const t = useTranslations("project.docPicker")
   return (
     <div className="flex items-center justify-between gap-2 px-2 py-1.5 text-sm">
-      <span
-        className={cn(
-          "min-w-0 flex-1 truncate",
-          rejected ? "text-muted-foreground line-through" : "text-foreground"
-        )}
-        title={rel}
-      >
+      <span className={cn("min-w-0 flex-1 truncate", rejected ? "text-muted-foreground line-through" : "text-foreground")} title={rel}>
         {rel}
       </span>
       <span className="shrink-0 text-xs text-muted-foreground">{formatBytes(bytes)}</span>
@@ -257,9 +235,7 @@ async function entriesFromDataTransfer(dataTransfer: DataTransfer): Promise<RawE
     return Array.from(dataTransfer.files).map((file) => ({ file, rel: file.name }))
   }
 
-  const entries = items
-    .map((item) => item.webkitGetAsEntry())
-    .filter((entry): entry is FileSystemEntry => entry !== null)
+  const entries = items.map((item) => item.webkitGetAsEntry()).filter((entry): entry is FileSystemEntry => entry !== null)
 
   const out: RawEntry[] = []
   await Promise.all(entries.map((entry) => walkEntry(entry, entry.name, out)))

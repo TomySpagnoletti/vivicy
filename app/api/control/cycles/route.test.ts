@@ -24,7 +24,14 @@ describe("GET /api/control/cycles", () => {
     const view = {
       active: { id: null, kind: "project", editable: true, pending_batches: 2 },
       history: [
-        { baseline_id: "baseline-v1.0.0", version: "1.0.0", kind: "project", approval_ref: "project", closed_at: "2026-02-01T00:00:00Z", superseded: true },
+        {
+          baseline_id: "baseline-v1.0.0",
+          version: "1.0.0",
+          kind: "project",
+          approval_ref: "project",
+          closed_at: "2026-02-01T00:00:00Z",
+          superseded: true,
+        },
       ],
     }
     getCycles.mockReturnValue(view)

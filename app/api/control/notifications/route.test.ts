@@ -78,9 +78,7 @@ describe("POST /api/control/notifications (dismiss)", () => {
   })
 
   it("rejects invalid JSON (400)", async () => {
-    const res = await POST(
-      new Request("http://localhost/api/control/notifications", { method: "POST", body: "not json" })
-    )
+    const res = await POST(new Request("http://localhost/api/control/notifications", { method: "POST", body: "not json" }))
     expect(res.status).toBe(400)
   })
 

@@ -19,10 +19,7 @@ export async function POST(request: Request) {
   const cardId = form.get("cardId")
   const actionId = form.get("actionId")
   if (typeof sessionId !== "string" || typeof cardId !== "string" || typeof actionId !== "string") {
-    return Response.json(
-      { ok: false, error: "sessionId, cardId, and actionId are required strings" },
-      { status: 400 }
-    )
+    return Response.json({ ok: false, error: "sessionId, cardId, and actionId are required strings" }, { status: 400 })
   }
 
   try {
@@ -39,9 +36,6 @@ export async function POST(request: Request) {
     if (error instanceof ControlError) {
       return Response.json({ ok: false, error: error.message, code: error.code }, { status: 422 })
     }
-    return Response.json(
-      { ok: false, error: error instanceof Error ? error.message : "document import failed" },
-      { status: 500 }
-    )
+    return Response.json({ ok: false, error: error instanceof Error ? error.message : "document import failed" }, { status: 500 })
   }
 }

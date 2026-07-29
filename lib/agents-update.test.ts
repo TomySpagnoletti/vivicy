@@ -51,18 +51,14 @@ describe("agents-update allow-list", () => {
 
   it("rejects an injection-shaped agent string (no shell, no passthrough)", async () => {
     const { exec, calls } = recordingExec()
-    await expect(runAgentUpdate("claude; rm -rf /", exec)).rejects.toBeInstanceOf(
-      UnknownAgentError
-    )
+    await expect(runAgentUpdate("claude; rm -rf /", exec)).rejects.toBeInstanceOf(UnknownAgentError)
     expect(calls).toEqual([])
   })
 
   it("rejects non-string / object agents", async () => {
     const { exec } = recordingExec()
     await expect(runAgentUpdate(undefined, exec)).rejects.toBeInstanceOf(UnknownAgentError)
-    await expect(runAgentUpdate({ agent: "claude" }, exec)).rejects.toBeInstanceOf(
-      UnknownAgentError
-    )
+    await expect(runAgentUpdate({ agent: "claude" }, exec)).rejects.toBeInstanceOf(UnknownAgentError)
   })
 
   it("surfaces a non-zero exit honestly (ok=false, code, stderr)", async () => {

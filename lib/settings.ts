@@ -132,10 +132,7 @@ function defaultAgentFor(provider: Provider): AgentSettings {
 
 function coerceAgent(input: unknown, provider: Provider): AgentSettings {
   const raw = (input ?? {}) as Partial<AgentSettings>
-  const model =
-    typeof raw.model === "string" && raw.model.trim().length > 0
-      ? raw.model.trim()
-      : DEFAULT_MODEL[provider]
+  const model = typeof raw.model === "string" && raw.model.trim().length > 0 ? raw.model.trim() : DEFAULT_MODEL[provider]
   const effort = isValidEffort(provider, model, raw.effort) ? raw.effort : defaultEffortFor(provider, model)
   const fast = raw.fast === true && modelSupportsFast(provider, model)
   return { provider, model, effort, fast }
@@ -146,9 +143,7 @@ export function resolveAssignment(input: unknown): Record<Role, Provider> {
   const implementer = isProvider(raw.implementer?.provider)
     ? (raw.implementer!.provider as Provider)
     : DEFAULT_SETTINGS.implementer.provider
-  let reviewer = isProvider(raw.reviewer?.provider)
-    ? (raw.reviewer!.provider as Provider)
-    : DEFAULT_SETTINGS.reviewer.provider
+  let reviewer = isProvider(raw.reviewer?.provider) ? (raw.reviewer!.provider as Provider) : DEFAULT_SETTINGS.reviewer.provider
   if (reviewer === implementer) reviewer = otherProvider(implementer)
   return { implementer, reviewer }
 }
@@ -177,11 +172,7 @@ export function isAgentCompatible(agent: AgentSettings): boolean {
 }
 
 export function isSettingsValid(settings: AgentsSettings): boolean {
-  return (
-    isDistinctAssignment(settings) &&
-    isAgentCompatible(settings.implementer) &&
-    isAgentCompatible(settings.reviewer)
-  )
+  return isDistinctAssignment(settings) && isAgentCompatible(settings.implementer) && isAgentCompatible(settings.reviewer)
 }
 
 export function agentDefaultsFor(provider: Provider): AgentSettings {
