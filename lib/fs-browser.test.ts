@@ -117,10 +117,10 @@ describe("listDirectories", () => {
 
 describe("pathCrumbs (platform-correct segments, no client-side split)", () => {
   it("builds POSIX crumbs from the root down", () => {
-    expect(pathCrumbs("/Users/tomy", path.posix)).toEqual([
+    expect(pathCrumbs("/Users/test-user", path.posix)).toEqual([
       { label: "/", path: "/" },
       { label: "Users", path: "/Users" },
-      { label: "tomy", path: "/Users/tomy" },
+      { label: "test-user", path: "/Users/test-user" },
     ])
   })
 
@@ -129,10 +129,10 @@ describe("pathCrumbs (platform-correct segments, no client-side split)", () => {
   })
 
   it("builds Windows crumbs from the drive root with backslash separators", () => {
-    expect(pathCrumbs("C:\\Users\\tomy", path.win32)).toEqual([
+    expect(pathCrumbs("C:\\Users\\test-user", path.win32)).toEqual([
       { label: "C:\\", path: "C:\\" },
       { label: "Users", path: "C:\\Users" },
-      { label: "tomy", path: "C:\\Users\\tomy" },
+      { label: "test-user", path: "C:\\Users\\test-user" },
     ])
   })
 
@@ -150,7 +150,7 @@ describe("pathCrumbs (platform-correct segments, no client-side split)", () => {
 
 describe("browseParent (up-navigation stops at every OS root)", () => {
   it("returns the POSIX parent and null at the root", () => {
-    expect(browseParent("/Users/tomy", path.posix)).toBe("/Users")
+    expect(browseParent("/Users/test-user", path.posix)).toBe("/Users")
     expect(browseParent("/", path.posix)).toBe(null)
   })
 
