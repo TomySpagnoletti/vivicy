@@ -29,7 +29,7 @@ pocket-ledger/
       architecture-map.yml                   minimal valid map (6 nodes, 7 edges, 2 lanes)
     development/
       issue-index.json                       extracted index: 8 issues, topologically ordered
-      issues/ISS-0001.md … ISS-0008.md       8 vertical issues (the extraction write step)
+      issues/ISSUE-0001.md … ISSUE-0008.md   8 vertical issues (the extraction write step)
       progress-ledger.json                   progress ledger (orchestrator-written)
     requirements/
       catalog.json                           Requirement Catalog (21 requirements)

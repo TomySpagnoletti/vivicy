@@ -1,6 +1,6 @@
 {
   "gate_id": "gate:test:ledger-total",
-  "issue_id": "ISS-0003",
+  "issue_id": "ISSUE-0003",
   "graph_ref": "node:ledger",
   "kind": "test",
   "status": "passed",

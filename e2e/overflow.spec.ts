@@ -61,7 +61,7 @@ test.describe("No horizontal overflow anywhere", () => {
     await expectNoPageOverflow(page, "long target: Details panel")
 
     await page.getByRole("button", { name: "Tasks" }).click()
-    await expect(sidebar.getByText("ISS-0001", { exact: true })).toBeVisible({ timeout: 15_000 })
+    await expect(sidebar.getByText("ISSUE-0001", { exact: true })).toBeVisible({ timeout: 15_000 })
     await expectNoPageOverflow(page, "long target: Tasks panel")
 
     await page.getByRole("button", { name: "Cycles" }).click()

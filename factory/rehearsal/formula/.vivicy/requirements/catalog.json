@@ -14,7 +14,7 @@
       "sourceRefs": [".vivicy/canonical/07-errors.md:5-7"],
       "maturity": "mvp",
       "disposition": "must_implement",
-      "coveredByIssues": ["ISS-0001"]
+      "coveredByIssues": ["ISSUE-0001"]
     },
     {
       "id": "REQ-ERR-002",
@@ -22,7 +22,7 @@
       "sourceRefs": [".vivicy/canonical/07-errors.md:9-11"],
       "maturity": "mvp",
       "disposition": "must_implement",
-      "coveredByIssues": ["ISS-0001"]
+      "coveredByIssues": ["ISSUE-0001"]
     },
     {
       "id": "REQ-ERR-003",
@@ -30,7 +30,7 @@
       "sourceRefs": [".vivicy/canonical/07-errors.md:13-15"],
       "maturity": "mvp",
       "disposition": "must_implement",
-      "coveredByIssues": ["ISS-0001"]
+      "coveredByIssues": ["ISSUE-0001"]
     },
     {
       "id": "REQ-ERR-004",
@@ -38,7 +38,7 @@
       "sourceRefs": [".vivicy/canonical/07-errors.md:17-19"],
       "maturity": "mvp",
       "disposition": "must_implement",
-      "coveredByIssues": ["ISS-0001"]
+      "coveredByIssues": ["ISSUE-0001"]
     },
     {
       "id": "REQ-ARCH-005",
@@ -46,7 +46,7 @@
       "sourceRefs": [".vivicy/canonical/01-architecture.md:25-27"],
       "maturity": "mvp",
       "disposition": "must_implement",
-      "coveredByIssues": ["ISS-0001"]
+      "coveredByIssues": ["ISSUE-0001"]
     },
     {
       "id": "REQ-CELLREF-001",
@@ -54,7 +54,7 @@
       "sourceRefs": [".vivicy/canonical/05-sheet-model.md:5-7"],
       "maturity": "mvp",
       "disposition": "must_implement",
-      "coveredByIssues": ["ISS-0002"]
+      "coveredByIssues": ["ISSUE-0002"]
     },
     {
       "id": "REQ-CELLREF-002",
@@ -62,7 +62,7 @@
       "sourceRefs": [".vivicy/canonical/05-sheet-model.md:9-11"],
       "maturity": "mvp",
       "disposition": "must_implement",
-      "coveredByIssues": ["ISS-0002"]
+      "coveredByIssues": ["ISSUE-0002"]
     },
     {
       "id": "REQ-SHEET-001",
@@ -70,7 +70,7 @@
       "sourceRefs": [".vivicy/canonical/05-sheet-model.md:13-15"],
       "maturity": "mvp",
       "disposition": "must_implement",
-      "coveredByIssues": ["ISS-0003"]
+      "coveredByIssues": ["ISSUE-0003"]
     },
     {
       "id": "REQ-SHEET-002",
@@ -78,7 +78,7 @@
       "sourceRefs": [".vivicy/canonical/05-sheet-model.md:17-19"],
       "maturity": "mvp",
       "disposition": "must_implement",
-      "coveredByIssues": ["ISS-0003"]
+      "coveredByIssues": ["ISSUE-0003"]
     },
     {
       "id": "REQ-TOK-001",
@@ -86,7 +86,7 @@
       "sourceRefs": [".vivicy/canonical/02-tokenizer.md:5-7"],
       "maturity": "mvp",
       "disposition": "must_implement",
-      "coveredByIssues": ["ISS-0004"]
+      "coveredByIssues": ["ISSUE-0004"]
     },
     {
       "id": "REQ-TOK-002",
@@ -94,7 +94,7 @@
       "sourceRefs": [".vivicy/canonical/02-tokenizer.md:9-11"],
       "maturity": "mvp",
       "disposition": "must_implement",
-      "coveredByIssues": ["ISS-0004"]
+      "coveredByIssues": ["ISSUE-0004"]
     },
     {
       "id": "REQ-TOK-003",
@@ -102,7 +102,7 @@
       "sourceRefs": [".vivicy/canonical/02-tokenizer.md:13-15"],
       "maturity": "mvp",
       "disposition": "must_implement",
-      "coveredByIssues": ["ISS-0004"]
+      "coveredByIssues": ["ISSUE-0004"]
     },
     {
       "id": "REQ-TOK-004",
@@ -110,7 +110,7 @@
       "sourceRefs": [".vivicy/canonical/02-tokenizer.md:17-19"],
       "maturity": "mvp",
       "disposition": "must_implement",
-      "coveredByIssues": ["ISS-0004"]
+      "coveredByIssues": ["ISSUE-0004"]
     },
     {
       "id": "REQ-TOK-005",
@@ -118,7 +118,7 @@
       "sourceRefs": [".vivicy/canonical/02-tokenizer.md:21-23"],
       "maturity": "mvp",
       "disposition": "must_implement",
-      "coveredByIssues": ["ISS-0004"]
+      "coveredByIssues": ["ISSUE-0004"]
     },
     {
       "id": "REQ-PARSE-001",
@@ -126,7 +126,7 @@
       "sourceRefs": [".vivicy/canonical/03-parser.md:5-7"],
       "maturity": "mvp",
       "disposition": "must_implement",
-      "coveredByIssues": ["ISS-0005"]
+      "coveredByIssues": ["ISSUE-0005"]
     },
     {
       "id": "REQ-PARSE-002",
@@ -134,7 +134,7 @@
       "sourceRefs": [".vivicy/canonical/03-parser.md:9-11"],
       "maturity": "mvp",
       "disposition": "must_implement",
-      "coveredByIssues": ["ISS-0005"]
+      "coveredByIssues": ["ISSUE-0005"]
     },
     {
       "id": "REQ-PARSE-003",
@@ -142,7 +142,7 @@
       "sourceRefs": [".vivicy/canonical/03-parser.md:13-15"],
       "maturity": "mvp",
       "disposition": "must_implement",
-      "coveredByIssues": ["ISS-0005"]
+      "coveredByIssues": ["ISSUE-0005"]
     },
     {
       "id": "REQ-PARSE-004",
@@ -150,7 +150,7 @@
       "sourceRefs": [".vivicy/canonical/03-parser.md:17-19"],
       "maturity": "mvp",
       "disposition": "must_implement",
-      "coveredByIssues": ["ISS-0005"]
+      "coveredByIssues": ["ISSUE-0005"]
     },
     {
       "id": "REQ-PARSE-005",
@@ -158,7 +158,7 @@
       "sourceRefs": [".vivicy/canonical/03-parser.md:21-23"],
       "maturity": "mvp",
       "disposition": "must_implement",
-      "coveredByIssues": ["ISS-0005"]
+      "coveredByIssues": ["ISSUE-0005"]
     },
     {
       "id": "REQ-REG-001",
@@ -166,7 +166,7 @@
       "sourceRefs": [".vivicy/canonical/08-functions-core.md:5-7"],
       "maturity": "mvp",
       "disposition": "must_implement",
-      "coveredByIssues": ["ISS-0006"]
+      "coveredByIssues": ["ISSUE-0006"]
     },
     {
       "id": "REQ-REG-002",
@@ -174,7 +174,7 @@
       "sourceRefs": [".vivicy/canonical/08-functions-core.md:9-11"],
       "maturity": "mvp",
       "disposition": "must_implement",
-      "coveredByIssues": ["ISS-0006"]
+      "coveredByIssues": ["ISSUE-0006"]
     },
     {
       "id": "REQ-REG-003",
@@ -182,7 +182,7 @@
       "sourceRefs": [".vivicy/canonical/08-functions-core.md:13-15"],
       "maturity": "mvp",
       "disposition": "must_implement",
-      "coveredByIssues": ["ISS-0006"]
+      "coveredByIssues": ["ISSUE-0006"]
     },
     {
       "id": "REQ-REG-004",
@@ -190,7 +190,7 @@
       "sourceRefs": [".vivicy/canonical/08-functions-core.md:17-19"],
       "maturity": "mvp",
       "disposition": "must_implement",
-      "coveredByIssues": ["ISS-0006"]
+      "coveredByIssues": ["ISSUE-0006"]
     },
     {
       "id": "REQ-FNMATH-001",
@@ -198,7 +198,7 @@
       "sourceRefs": [".vivicy/canonical/09-functions-math.md:5-7"],
       "maturity": "mvp",
       "disposition": "must_implement",
-      "coveredByIssues": ["ISS-0007"]
+      "coveredByIssues": ["ISSUE-0007"]
     },
     {
       "id": "REQ-FNMATH-002",
@@ -206,7 +206,7 @@
       "sourceRefs": [".vivicy/canonical/09-functions-math.md:9-11"],
       "maturity": "mvp",
       "disposition": "must_implement",
-      "coveredByIssues": ["ISS-0007"]
+      "coveredByIssues": ["ISSUE-0007"]
     },
     {
       "id": "REQ-FNMATH-003",
@@ -214,7 +214,7 @@
       "sourceRefs": [".vivicy/canonical/09-functions-math.md:13-15"],
       "maturity": "mvp",
       "disposition": "must_implement",
-      "coveredByIssues": ["ISS-0007"]
+      "coveredByIssues": ["ISSUE-0007"]
     },
     {
       "id": "REQ-FNMATH-004",
@@ -222,7 +222,7 @@
       "sourceRefs": [".vivicy/canonical/09-functions-math.md:17-19"],
       "maturity": "mvp",
       "disposition": "must_implement",
-      "coveredByIssues": ["ISS-0007"]
+      "coveredByIssues": ["ISSUE-0007"]
     },
     {
       "id": "REQ-FNLOGIC-001",
@@ -230,7 +230,7 @@
       "sourceRefs": [".vivicy/canonical/10-functions-logical.md:5-7"],
       "maturity": "mvp",
       "disposition": "must_implement",
-      "coveredByIssues": ["ISS-0008"]
+      "coveredByIssues": ["ISSUE-0008"]
     },
     {
       "id": "REQ-FNLOGIC-002",
@@ -238,7 +238,7 @@
       "sourceRefs": [".vivicy/canonical/10-functions-logical.md:9-11"],
       "maturity": "mvp",
       "disposition": "must_implement",
-      "coveredByIssues": ["ISS-0008"]
+      "coveredByIssues": ["ISSUE-0008"]
     },
     {
       "id": "REQ-FNLOGIC-003",
@@ -246,7 +246,7 @@
       "sourceRefs": [".vivicy/canonical/10-functions-logical.md:13-15"],
       "maturity": "mvp",
       "disposition": "must_implement",
-      "coveredByIssues": ["ISS-0008"]
+      "coveredByIssues": ["ISSUE-0008"]
     },
     {
       "id": "REQ-FNLOGIC-004",
@@ -254,7 +254,7 @@
       "sourceRefs": [".vivicy/canonical/10-functions-logical.md:17-19"],
       "maturity": "mvp",
       "disposition": "must_implement",
-      "coveredByIssues": ["ISS-0008"]
+      "coveredByIssues": ["ISSUE-0008"]
     },
     {
       "id": "REQ-FNTEXT-001",
@@ -262,7 +262,7 @@
       "sourceRefs": [".vivicy/canonical/11-functions-text.md:5-7"],
       "maturity": "mvp",
       "disposition": "must_implement",
-      "coveredByIssues": ["ISS-0009"]
+      "coveredByIssues": ["ISSUE-0009"]
     },
     {
       "id": "REQ-FNTEXT-002",
@@ -270,7 +270,7 @@
       "sourceRefs": [".vivicy/canonical/11-functions-text.md:9-11"],
       "maturity": "mvp",
       "disposition": "must_implement",
-      "coveredByIssues": ["ISS-0009"]
+      "coveredByIssues": ["ISSUE-0009"]
     },
     {
       "id": "REQ-FNTEXT-003",
@@ -278,7 +278,7 @@
       "sourceRefs": [".vivicy/canonical/11-functions-text.md:13-15"],
       "maturity": "mvp",
       "disposition": "must_implement",
-      "coveredByIssues": ["ISS-0009"]
+      "coveredByIssues": ["ISSUE-0009"]
     },
     {
       "id": "REQ-FNTEXT-004",
@@ -286,7 +286,7 @@
       "sourceRefs": [".vivicy/canonical/11-functions-text.md:17-19"],
       "maturity": "mvp",
       "disposition": "must_implement",
-      "coveredByIssues": ["ISS-0009"]
+      "coveredByIssues": ["ISSUE-0009"]
     },
     {
       "id": "REQ-FNLOOKUP-001",
@@ -294,7 +294,7 @@
       "sourceRefs": [".vivicy/canonical/12-functions-lookup.md:5-7"],
       "maturity": "mvp",
       "disposition": "must_implement",
-      "coveredByIssues": ["ISS-0010"]
+      "coveredByIssues": ["ISSUE-0010"]
     },
     {
       "id": "REQ-FNLOOKUP-002",
@@ -302,7 +302,7 @@
       "sourceRefs": [".vivicy/canonical/12-functions-lookup.md:9-11"],
       "maturity": "mvp",
       "disposition": "must_implement",
-      "coveredByIssues": ["ISS-0010"]
+      "coveredByIssues": ["ISSUE-0010"]
     },
     {
       "id": "REQ-FNLOOKUP-003",
@@ -310,7 +310,7 @@
       "sourceRefs": [".vivicy/canonical/12-functions-lookup.md:13-15"],
       "maturity": "mvp",
       "disposition": "must_implement",
-      "coveredByIssues": ["ISS-0010"]
+      "coveredByIssues": ["ISSUE-0010"]
     },
     {
       "id": "REQ-EVAL-001",
@@ -318,7 +318,7 @@
       "sourceRefs": [".vivicy/canonical/04-evaluator.md:5-7"],
       "maturity": "mvp",
       "disposition": "must_implement",
-      "coveredByIssues": ["ISS-0011"]
+      "coveredByIssues": ["ISSUE-0011"]
     },
     {
       "id": "REQ-EVAL-002",
@@ -326,7 +326,7 @@
       "sourceRefs": [".vivicy/canonical/04-evaluator.md:9-11"],
       "maturity": "mvp",
       "disposition": "must_implement",
-      "coveredByIssues": ["ISS-0011"]
+      "coveredByIssues": ["ISSUE-0011"]
     },
     {
       "id": "REQ-EVAL-003",
@@ -334,7 +334,7 @@
       "sourceRefs": [".vivicy/canonical/04-evaluator.md:13-15"],
       "maturity": "mvp",
       "disposition": "must_implement",
-      "coveredByIssues": ["ISS-0011"]
+      "coveredByIssues": ["ISSUE-0011"]
     },
     {
       "id": "REQ-EVAL-004",
@@ -342,7 +342,7 @@
       "sourceRefs": [".vivicy/canonical/04-evaluator.md:17-19"],
       "maturity": "mvp",
       "disposition": "must_implement",
-      "coveredByIssues": ["ISS-0011"]
+      "coveredByIssues": ["ISSUE-0011"]
     },
     {
       "id": "REQ-EVAL-005",
@@ -350,7 +350,7 @@
       "sourceRefs": [".vivicy/canonical/04-evaluator.md:21-23"],
       "maturity": "mvp",
       "disposition": "must_implement",
-      "coveredByIssues": ["ISS-0011"]
+      "coveredByIssues": ["ISSUE-0011"]
     },
     {
       "id": "REQ-DEP-001",
@@ -358,7 +358,7 @@
       "sourceRefs": [".vivicy/canonical/05-sheet-model.md:21-23"],
       "maturity": "mvp",
       "disposition": "must_implement",
-      "coveredByIssues": ["ISS-0012"]
+      "coveredByIssues": ["ISSUE-0012"]
     },
     {
       "id": "REQ-RECALC-001",
@@ -366,7 +366,7 @@
       "sourceRefs": [".vivicy/canonical/06-recalculation.md:5-7"],
       "maturity": "mvp",
       "disposition": "must_implement",
-      "coveredByIssues": ["ISS-0012"]
+      "coveredByIssues": ["ISSUE-0012"]
     },
     {
       "id": "REQ-RECALC-002",
@@ -374,7 +374,7 @@
       "sourceRefs": [".vivicy/canonical/06-recalculation.md:9-11"],
       "maturity": "mvp",
       "disposition": "must_implement",
-      "coveredByIssues": ["ISS-0012"]
+      "coveredByIssues": ["ISSUE-0012"]
     },
     {
       "id": "REQ-RECALC-003",
@@ -382,7 +382,7 @@
       "sourceRefs": [".vivicy/canonical/06-recalculation.md:13-15"],
       "maturity": "mvp",
       "disposition": "must_implement",
-      "coveredByIssues": ["ISS-0012"]
+      "coveredByIssues": ["ISSUE-0012"]
     },
     {
       "id": "REQ-RECALC-004",
@@ -390,7 +390,7 @@
       "sourceRefs": [".vivicy/canonical/06-recalculation.md:17-19"],
       "maturity": "mvp",
       "disposition": "must_implement",
-      "coveredByIssues": ["ISS-0012"]
+      "coveredByIssues": ["ISSUE-0012"]
     },
     {
       "id": "REQ-API-001",
@@ -398,7 +398,7 @@
       "sourceRefs": [".vivicy/canonical/13-public-api.md:5-7"],
       "maturity": "mvp",
       "disposition": "must_implement",
-      "coveredByIssues": ["ISS-0013"]
+      "coveredByIssues": ["ISSUE-0013"]
     },
     {
       "id": "REQ-API-002",
@@ -406,7 +406,7 @@
       "sourceRefs": [".vivicy/canonical/13-public-api.md:9-11"],
       "maturity": "mvp",
       "disposition": "must_implement",
-      "coveredByIssues": ["ISS-0013"]
+      "coveredByIssues": ["ISSUE-0013"]
     },
     {
       "id": "REQ-API-003",
@@ -414,7 +414,7 @@
       "sourceRefs": [".vivicy/canonical/13-public-api.md:13-15"],
       "maturity": "mvp",
       "disposition": "must_implement",
-      "coveredByIssues": ["ISS-0013"]
+      "coveredByIssues": ["ISSUE-0013"]
     },
     {
       "id": "REQ-API-004",
@@ -422,7 +422,7 @@
       "sourceRefs": [".vivicy/canonical/13-public-api.md:17-19"],
       "maturity": "mvp",
       "disposition": "must_implement",
-      "coveredByIssues": ["ISS-0013"]
+      "coveredByIssues": ["ISSUE-0013"]
     },
     {
       "id": "REQ-ARCH-002",
@@ -430,7 +430,7 @@
       "sourceRefs": [".vivicy/canonical/01-architecture.md:5-7"],
       "maturity": "mvp",
       "disposition": "must_implement",
-      "coveredByIssues": ["ISS-0013"]
+      "coveredByIssues": ["ISSUE-0013"]
     },
     {
       "id": "REQ-ARCH-001",
@@ -438,7 +438,7 @@
       "sourceRefs": [".vivicy/canonical/01-architecture.md:17-19"],
       "maturity": "mvp",
       "disposition": "must_implement",
-      "coveredByIssues": ["ISS-0013"]
+      "coveredByIssues": ["ISSUE-0013"]
     },
     {
       "id": "REQ-ARCH-003",
@@ -446,7 +446,7 @@
       "sourceRefs": [".vivicy/canonical/01-architecture.md:21-23"],
       "maturity": "mvp",
       "disposition": "must_implement",
-      "coveredByIssues": ["ISS-0013"]
+      "coveredByIssues": ["ISSUE-0013"]
     }
   ]
 }

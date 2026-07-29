@@ -210,20 +210,20 @@ describe("buildEdgeCounts", () => {
 describe("buildIssuesByGraphRef / buildActiveGraphRefs / buildGraphStatesByRef", () => {
   const development: DevelopmentBlock = {
     issues: [
-      { id: "ISS-1", graph_refs: ["node:a", "node:b"] },
-      { id: "ISS-2", graph_refs: ["node:b"] },
+      { id: "ISSUE-1", graph_refs: ["node:a", "node:b"] },
+      { id: "ISSUE-2", graph_refs: ["node:b"] },
     ],
     graph_item_states: [
       { graph_ref: "node:a", status: "verified" },
       { graph_ref: "node:b", status: "in_progress" },
     ],
-    active_items: [{ id: "ai-1", issue_id: "ISS-1", graph_refs: ["node:b"] }],
+    active_items: [{ id: "ai-1", issue_id: "ISSUE-1", graph_refs: ["node:b"] }],
   }
 
   it("indexes issues by every graph_ref they touch", () => {
     const byRef = buildIssuesByGraphRef(development.issues)
-    expect(byRef.get("node:a")?.map((i) => i.id)).toEqual(["ISS-1"])
-    expect(byRef.get("node:b")?.map((i) => i.id)).toEqual(["ISS-1", "ISS-2"])
+    expect(byRef.get("node:a")?.map((i) => i.id)).toEqual(["ISSUE-1"])
+    expect(byRef.get("node:b")?.map((i) => i.id)).toEqual(["ISSUE-1", "ISSUE-2"])
   })
 
   it("collects the active graph refs", () => {
@@ -241,7 +241,7 @@ describe("buildProofsByIssue", () => {
     id,
     class: "run_log",
     evidences: [".vivicy/canonical/06-cli.md:13"],
-    path: `.vivicy/development/proofs/ISS-1/${id}`,
+    path: `.vivicy/development/proofs/ISSUE-1/${id}`,
     produced,
     recipe: produced,
     artifacts: produced ? ["observed.log", "recipe.txt"] : [],
@@ -249,15 +249,15 @@ describe("buildProofsByIssue", () => {
 
   it("indexes the declared proofs by issue id, produced or not", () => {
     const byIssue = buildProofsByIssue([
-      { issue_id: "ISS-1", proofs: [proof("cli-run", true), proof("cli-error", false)] },
-      { issue_id: "ISS-2", proofs: [proof("api-call", true)] },
+      { issue_id: "ISSUE-1", proofs: [proof("cli-run", true), proof("cli-error", false)] },
+      { issue_id: "ISSUE-2", proofs: [proof("api-call", true)] },
     ])
-    expect(byIssue.get("ISS-1")?.map((p) => [p.id, p.produced])).toEqual([
+    expect(byIssue.get("ISSUE-1")?.map((p) => [p.id, p.produced])).toEqual([
       ["cli-run", true],
       ["cli-error", false],
     ])
-    expect(byIssue.get("ISS-2")).toHaveLength(1)
-    expect(byIssue.get("ISS-3")).toBeUndefined()
+    expect(byIssue.get("ISSUE-2")).toHaveLength(1)
+    expect(byIssue.get("ISSUE-3")).toBeUndefined()
   })
 
   it("is empty for a target that declares none, and skips malformed entries", () => {
@@ -265,7 +265,7 @@ describe("buildProofsByIssue", () => {
     expect(buildProofsByIssue([]).size).toBe(0)
     expect(
       buildProofsByIssue([
-        { issue_id: "ISS-1", proofs: [] },
+        { issue_id: "ISSUE-1", proofs: [] },
         { issue_id: "", proofs: [proof("x", true)] },
       ]).size
     ).toBe(0)
@@ -280,30 +280,30 @@ describe("issueDisplayStatus", () => {
       { graph_ref: "node:c", status: "verified" },
     ],
     active_items: [
-      { id: "ai", issue_id: "ISS-ACTIVE", graph_refs: ["node:a"], state: "reviewing" },
+      { id: "ai", issue_id: "ISSUE-ACTIVE", graph_refs: ["node:a"], state: "reviewing" },
     ],
   }
 
   it("uses an active item's live state when present", () => {
     expect(
-      issueDisplayStatus({ id: "ISS-ACTIVE", graph_refs: ["node:a"] }, development)
+      issueDisplayStatus({ id: "ISSUE-ACTIVE", graph_refs: ["node:a"] }, development)
     ).toBe("reviewing")
   })
 
   it("surfaces blocked over verified across graph items", () => {
     expect(
-      issueDisplayStatus({ id: "ISS-1", graph_refs: ["node:a", "node:b"] }, development)
+      issueDisplayStatus({ id: "ISSUE-1", graph_refs: ["node:a", "node:b"] }, development)
     ).toBe("blocked")
   })
 
   it("reports verified only when every graph item is verified", () => {
     expect(
-      issueDisplayStatus({ id: "ISS-2", graph_refs: ["node:a", "node:c"] }, development)
+      issueDisplayStatus({ id: "ISSUE-2", graph_refs: ["node:a", "node:c"] }, development)
     ).toBe("verified")
   })
 
   it("defaults to not_started with no graph items", () => {
-    expect(issueDisplayStatus({ id: "ISS-3", graph_refs: [] }, development)).toBe(
+    expect(issueDisplayStatus({ id: "ISSUE-3", graph_refs: [] }, development)).toBe(
       "not_started"
     )
   })
@@ -317,27 +317,27 @@ describe("issueTranscriptRefs", () => {
           graph_ref: "node:a",
           status: "verified",
           transcript_refs: [
-            ".vivicy/development/transcripts/ISSUES/ISS-1/claude.jsonl",
-            ".vivicy/development/transcripts/ISSUES/ISS-9/other.jsonl",
+            ".vivicy/development/transcripts/ISSUES/ISSUE-1/claude.jsonl",
+            ".vivicy/development/transcripts/ISSUES/ISSUE-9/other.jsonl",
           ],
         },
       ],
       active_items: [
         {
           id: "ai",
-          issue_id: "ISS-1",
+          issue_id: "ISSUE-1",
           graph_refs: ["node:a"],
-          transcript_refs: [".vivicy/development/transcripts/ISSUES/ISS-1/codex.jsonl"],
+          transcript_refs: [".vivicy/development/transcripts/ISSUES/ISSUE-1/codex.jsonl"],
         },
       ],
     }
     const refs = issueTranscriptRefs(
-      { id: "ISS-1", graph_refs: ["node:a"] },
+      { id: "ISSUE-1", graph_refs: ["node:a"] },
       development
     )
-    expect(refs).toContain(".vivicy/development/transcripts/ISSUES/ISS-1/claude.jsonl")
-    expect(refs).toContain(".vivicy/development/transcripts/ISSUES/ISS-1/codex.jsonl")
-    expect(refs).not.toContain(".vivicy/development/transcripts/ISSUES/ISS-9/other.jsonl")
+    expect(refs).toContain(".vivicy/development/transcripts/ISSUES/ISSUE-1/claude.jsonl")
+    expect(refs).toContain(".vivicy/development/transcripts/ISSUES/ISSUE-1/codex.jsonl")
+    expect(refs).not.toContain(".vivicy/development/transcripts/ISSUES/ISSUE-9/other.jsonl")
   })
 })
 

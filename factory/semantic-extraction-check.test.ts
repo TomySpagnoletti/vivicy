@@ -207,7 +207,7 @@ function makeIssue(overrides: Partial<TestIssue> = {}): TestIssue {
     dependsOn: [],
     gates: ["gate:test:sample"],
     graphRefs: ["node:sample"],
-    id: "ISS-SAMPLE-0001",
+    id: "ISSUE-0001",
     requirements: [`${SAMPLE_DOC_PATH}:5-6`, `${SAMPLE_DOC_PATH}:10`],
     requirementIds: ["REQ-SAMPLE-001"],
     spikeGates: [],
@@ -461,6 +461,30 @@ test("requirement ref outside the canonical grammar fails", () => {
   }
 });
 
+test("the issue id grammar is ISSUE-NNNN and nothing else — the dead contraction and every other shape are REFUSED at extraction", () => {
+  const control = makeFixture({ issues: [makeIssue({ id: "ISSUE-0042" })] });
+  try {
+    assert.equal(control.run().exitCode, 0, "the living format is the one shape the gate accepts");
+  } finally {
+    control.cleanup();
+  }
+
+  for (const id of ["ISS-0001", "issue-0001", "Issue-0001", "ISSUE-1", "ISSUE-00001", "ISSUE-ABCD", "ISSUE-0001-B", "0001"]) {
+    const fixture = makeFixture({ issues: [makeIssue({ id })] });
+    try {
+      const result = fixture.run();
+      assert.equal(result.exitCode, 1, `"${id}" must be refused`);
+      assert.ok(
+        result.errors.some((error) => /id does not match the issue id grammar/.test(error)),
+        `"${id}": ${result.errors.join("\n")}`,
+      );
+      assert.equal(result.reportsWritten, false, `"${id}": a refused id writes no reports`);
+    } finally {
+      fixture.cleanup();
+    }
+  }
+});
+
 test("an uncovered canonical line fails the gate and is listed in the report", () => {
   const issue = makeIssue({ requirements: [`${SAMPLE_DOC_PATH}:5-6`] });
   const fixture = makeFixture({ exclusions: [HEADING_EXCLUSION], issues: [issue] });
@@ -519,8 +543,8 @@ test("llm_extraction_in_progress tolerates uncovered lines; --strict escalates",
 });
 
 test("a depends_on cycle fails the gate", () => {
-  const issueA = makeIssue({ dependsOn: ["ISS-SAMPLE-0002"], id: "ISS-SAMPLE-0001", requirements: [`${SAMPLE_DOC_PATH}:5`] });
-  const issueB = makeIssue({ dependsOn: ["ISS-SAMPLE-0001"], id: "ISS-SAMPLE-0002", requirements: [`${SAMPLE_DOC_PATH}:6`, `${SAMPLE_DOC_PATH}:10`] });
+  const issueA = makeIssue({ dependsOn: ["ISSUE-0002"], id: "ISSUE-0001", requirements: [`${SAMPLE_DOC_PATH}:5`] });
+  const issueB = makeIssue({ dependsOn: ["ISSUE-0001"], id: "ISSUE-0002", requirements: [`${SAMPLE_DOC_PATH}:6`, `${SAMPLE_DOC_PATH}:10`] });
   const fixture = makeFixture({ issues: [issueA, issueB] });
   try {
     const result = fixture.run();
@@ -532,7 +556,7 @@ test("a depends_on cycle fails the gate", () => {
 });
 
 test("depends_on referencing an unknown issue id fails", () => {
-  const issue = makeIssue({ dependsOn: ["ISS-DOES-NOT-EXIST"] });
+  const issue = makeIssue({ dependsOn: ["ISSUE-9999"] });
   const fixture = makeFixture({ issues: [issue] });
   try {
     const result = fixture.run();

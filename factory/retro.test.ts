@@ -14,7 +14,7 @@ function makeRepo({ total = 2, done = total, baseline = true }: { total?: number
     mkdirSync(dirname(abs), { recursive: true });
     writeFileSync(abs, content);
   };
-  const id = (i: number): string => `ISS-${String(i + 1).padStart(4, "0")}`;
+  const id = (i: number): string => `ISSUE-${String(i + 1).padStart(4, "0")}`;
   write(".vivicy/development/issue-index.json", JSON.stringify({ issues: Array.from({ length: total }, (_, i) => ({ id: id(i) })) }));
   for (let i = 0; i < done; i += 1) write(`.vivicy/development/issues/done/${id(i)}.md`, `# ${id(i)}\n`);
   if (baseline) {
@@ -74,8 +74,8 @@ test("recurring classes with mapped proposals flip the report to 'proposals' and
       repoRoot: root,
       spawnLeg: verdictLeg({
         recurring_classes: [
-          { id: "gate-flake-typecheck", kind: "gate_flake", signature: "typecheck gate flaked transiently, green on retry", occurrences: 3, evidence: [".vivicy/development/gates/ISS-0001-gate.json", ".vivicy/development/gates/ISS-0002-gate.json", ".vivicy/development/gates/ISS-0003-gate.json"] },
-          { id: "blocked-quota", kind: "blocked_cause", signature: "issue blocked on quota exhaustion", occurrences: 2, evidence: [".vivicy/development/reports/ISS-0004-blocked.json", ".vivicy/development/reports/ISS-0005-blocked.json"] },
+          { id: "gate-flake-typecheck", kind: "gate_flake", signature: "typecheck gate flaked transiently, green on retry", occurrences: 3, evidence: [".vivicy/development/gates/ISSUE-0001-gate.json", ".vivicy/development/gates/ISSUE-0002-gate.json", ".vivicy/development/gates/ISSUE-0003-gate.json"] },
+          { id: "blocked-quota", kind: "blocked_cause", signature: "issue blocked on quota exhaustion", occurrences: 2, evidence: [".vivicy/development/reports/ISSUE-0004-blocked.json", ".vivicy/development/reports/ISSUE-0005-blocked.json"] },
         ],
         proposals: [
           { landing: "method_block", title: "Prime the type cache before the gate", rationale: "3 transient typecheck flakes", detail: "Add a method-block bullet: prime the type cache before the first gate.", addresses: ["gate-flake-typecheck"] },
@@ -104,10 +104,10 @@ test("the recurring-class floor is orchestrator-enforced on the EVIDENCE, not th
       spawnLeg: verdictLeg({
         recurring_classes: [
           { id: "empty-evidence", kind: "gate_flake", signature: "claims two but cites nothing", occurrences: 2, evidence: [] },
-          { id: "fake-count", kind: "blocked_cause", signature: "claims five, cites one", occurrences: 5, evidence: [".vivicy/development/reports/ISS-0001-blocked.json"] },
+          { id: "fake-count", kind: "blocked_cause", signature: "claims five, cites one", occurrences: 5, evidence: [".vivicy/development/reports/ISSUE-0001-blocked.json"] },
           { id: "no-evidence-field", kind: "quota", signature: "claims five, no evidence field at all", occurrences: 5 },
-          { id: "dup-refs", kind: "review_finding", signature: "same witness cited twice is one witness", occurrences: 2, evidence: [".vivicy/development/gates/ISS-0001-gate.json", ".vivicy/development/gates/ISS-0001-gate.json"] },
-          { id: "real", kind: "blocked_cause", signature: "two distinct witnesses", occurrences: 5, evidence: [".vivicy/development/reports/ISS-0001-blocked.json", ".vivicy/development/reports/ISS-0002-blocked.json"] },
+          { id: "dup-refs", kind: "review_finding", signature: "same witness cited twice is one witness", occurrences: 2, evidence: [".vivicy/development/gates/ISSUE-0001-gate.json", ".vivicy/development/gates/ISSUE-0001-gate.json"] },
+          { id: "real", kind: "blocked_cause", signature: "two distinct witnesses", occurrences: 5, evidence: [".vivicy/development/reports/ISSUE-0001-blocked.json", ".vivicy/development/reports/ISSUE-0002-blocked.json"] },
         ],
         proposals: [{ landing: "skill", title: "Install a linter skill", detail: "acme/lint@lint", addresses: ["real"] }],
       }),
@@ -115,7 +115,7 @@ test("the recurring-class floor is orchestrator-enforced on the EVIDENCE, not th
     assert.equal(report.recurring_classes?.length, 1, "only the class witnessed by ≥2 DISTINCT evidence files survives; leg-asserted occurrences are never trusted");
     assert.equal(report.recurring_classes?.[0]?.id, "real");
     assert.equal(report.recurring_classes?.[0]?.occurrences, 2, "occurrences is overwritten with the distinct-witness count (2), not the leg's claimed 5");
-    assert.deepEqual(report.recurring_classes?.[0]?.evidence, [".vivicy/development/reports/ISS-0001-blocked.json", ".vivicy/development/reports/ISS-0002-blocked.json"]);
+    assert.deepEqual(report.recurring_classes?.[0]?.evidence, [".vivicy/development/reports/ISSUE-0001-blocked.json", ".vivicy/development/reports/ISSUE-0002-blocked.json"]);
   } finally {
     cleanup(root);
   }
@@ -141,7 +141,7 @@ test("a proposal missing a title or detail is dropped as non-actionable", async 
     const report = await runRetro({
       repoRoot: root,
       spawnLeg: verdictLeg({
-        recurring_classes: [{ id: "c", kind: "review_finding", signature: "same finding twice", evidence: [".vivicy/development/transcripts/ISSUES/ISS-0001/x.jsonl", ".vivicy/development/transcripts/ISSUES/ISS-0002/x.jsonl"] }],
+        recurring_classes: [{ id: "c", kind: "review_finding", signature: "same finding twice", evidence: [".vivicy/development/transcripts/ISSUES/ISSUE-0001/x.jsonl", ".vivicy/development/transcripts/ISSUES/ISSUE-0002/x.jsonl"] }],
         proposals: [
           { landing: "method_block", title: "", detail: "no title" },
           { landing: "method_block", title: "no detail", detail: "" },
@@ -163,7 +163,7 @@ test("zero automatic rule mutation: runRetro writes ONLY the report and the verd
     await runRetro({
       repoRoot: root,
       spawnLeg: verdictLeg({
-        recurring_classes: [{ id: "c", kind: "blocked_cause", signature: "same block twice", evidence: [".vivicy/development/reports/ISS-0001-blocked.json", ".vivicy/development/reports/ISS-0002-blocked.json"] }],
+        recurring_classes: [{ id: "c", kind: "blocked_cause", signature: "same block twice", evidence: [".vivicy/development/reports/ISSUE-0001-blocked.json", ".vivicy/development/reports/ISSUE-0002-blocked.json"] }],
         proposals: [
           { landing: "method_block", title: "Amend the block", detail: "Add a bullet." },
           { landing: "canonical_clarification", title: "Clarify a doc", detail: "State it once." },

@@ -1122,7 +1122,7 @@ describe("ViviPanel — notifications tab", () => {
           level: "warning",
           stage: "S9",
           event: "gate_failed",
-          message: "ISS-0004: gate red",
+          message: "ISSUE-0004: gate red",
         }),
       })
     )
@@ -1133,8 +1133,8 @@ describe("ViviPanel — notifications tab", () => {
     await user.click(screen.getByRole("tab", { name: /Notifications/ }))
 
     // id extraction must stop before the ": " delimiter in "{id}: gate red", or this renders a double colon.
-    expect(await screen.findByText("ISS-0004: gate red")).toBeInTheDocument()
-    expect(screen.queryByText(/ISS-0004::/)).not.toBeInTheDocument()
+    expect(await screen.findByText("ISSUE-0004: gate red")).toBeInTheDocument()
+    expect(screen.queryByText(/ISSUE-0004::/)).not.toBeInTheDocument()
   })
 
   test("Ask Vivi lands on the Chat tab with the composer pre-filled — the user presses send", async () => {

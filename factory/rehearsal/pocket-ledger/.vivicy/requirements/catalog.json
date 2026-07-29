@@ -26,7 +26,7 @@
       "blocks": [],
       "disposition": "must_implement",
       "coveredByIssues": [
-        "ISS-0001"
+        "ISSUE-0001"
       ],
       "coveredByTests": [],
       "coveredByCode": [],
@@ -52,7 +52,7 @@
       "blocks": [],
       "disposition": "must_implement",
       "coveredByIssues": [
-        "ISS-0003"
+        "ISSUE-0003"
       ],
       "coveredByTests": [],
       "coveredByCode": [],
@@ -79,7 +79,7 @@
       "blocks": [],
       "disposition": "must_implement",
       "coveredByIssues": [
-        "ISS-0008"
+        "ISSUE-0008"
       ],
       "coveredByTests": [],
       "coveredByCode": [],
@@ -105,7 +105,7 @@
       "blocks": [],
       "disposition": "must_implement",
       "coveredByIssues": [
-        "ISS-0001"
+        "ISSUE-0001"
       ],
       "coveredByTests": [],
       "coveredByCode": [],
@@ -131,7 +131,7 @@
       "blocks": [],
       "disposition": "must_implement",
       "coveredByIssues": [
-        "ISS-0001"
+        "ISSUE-0001"
       ],
       "coveredByTests": [],
       "coveredByCode": [],
@@ -157,7 +157,7 @@
       "blocks": [],
       "disposition": "must_implement",
       "coveredByIssues": [
-        "ISS-0002"
+        "ISSUE-0002"
       ],
       "coveredByTests": [],
       "coveredByCode": [],
@@ -183,7 +183,7 @@
       "blocks": [],
       "disposition": "must_implement",
       "coveredByIssues": [
-        "ISS-0003"
+        "ISSUE-0003"
       ],
       "coveredByTests": [],
       "coveredByCode": [],
@@ -210,7 +210,7 @@
       "blocks": [],
       "disposition": "must_implement",
       "coveredByIssues": [
-        "ISS-0004"
+        "ISSUE-0004"
       ],
       "coveredByTests": [],
       "coveredByCode": [],
@@ -236,7 +236,7 @@
       "blocks": [],
       "disposition": "must_implement",
       "coveredByIssues": [
-        "ISS-0004"
+        "ISSUE-0004"
       ],
       "coveredByTests": [],
       "coveredByCode": [],
@@ -262,7 +262,7 @@
       "blocks": [],
       "disposition": "must_implement",
       "coveredByIssues": [
-        "ISS-0004"
+        "ISSUE-0004"
       ],
       "coveredByTests": [],
       "coveredByCode": [],
@@ -288,7 +288,7 @@
       "blocks": [],
       "disposition": "must_implement",
       "coveredByIssues": [
-        "ISS-0004"
+        "ISSUE-0004"
       ],
       "coveredByTests": [],
       "coveredByCode": [],
@@ -315,7 +315,7 @@
       "blocks": [],
       "disposition": "must_implement",
       "coveredByIssues": [
-        "ISS-0005"
+        "ISSUE-0005"
       ],
       "coveredByTests": [],
       "coveredByCode": [],
@@ -341,7 +341,7 @@
       "blocks": [],
       "disposition": "must_implement",
       "coveredByIssues": [
-        "ISS-0005"
+        "ISSUE-0005"
       ],
       "coveredByTests": [],
       "coveredByCode": [],
@@ -368,7 +368,7 @@
       "blocks": [],
       "disposition": "must_implement",
       "coveredByIssues": [
-        "ISS-0006"
+        "ISSUE-0006"
       ],
       "coveredByTests": [],
       "coveredByCode": [],
@@ -395,7 +395,7 @@
       "blocks": [],
       "disposition": "must_implement",
       "coveredByIssues": [
-        "ISS-0007"
+        "ISSUE-0007"
       ],
       "coveredByTests": [],
       "coveredByCode": [],
@@ -421,7 +421,7 @@
       "blocks": [],
       "disposition": "must_implement",
       "coveredByIssues": [
-        "ISS-0007"
+        "ISSUE-0007"
       ],
       "coveredByTests": [],
       "coveredByCode": [],
@@ -447,7 +447,7 @@
       "blocks": [],
       "disposition": "must_implement",
       "coveredByIssues": [
-        "ISS-0007"
+        "ISSUE-0007"
       ],
       "coveredByTests": [],
       "coveredByCode": [],
@@ -473,7 +473,7 @@
       "blocks": [],
       "disposition": "must_implement",
       "coveredByIssues": [
-        "ISS-0007"
+        "ISSUE-0007"
       ],
       "coveredByTests": [],
       "coveredByCode": [],
@@ -501,7 +501,7 @@
       "blocks": [],
       "disposition": "must_implement",
       "coveredByIssues": [
-        "ISS-0008"
+        "ISSUE-0008"
       ],
       "coveredByTests": [],
       "coveredByCode": [],
@@ -527,7 +527,7 @@
       "blocks": [],
       "disposition": "must_implement",
       "coveredByIssues": [
-        "ISS-0008"
+        "ISSUE-0008"
       ],
       "coveredByTests": [],
       "coveredByCode": [],
@@ -553,7 +553,7 @@
       "blocks": [],
       "disposition": "must_implement",
       "coveredByIssues": [
-        "ISS-0008"
+        "ISSUE-0008"
       ],
       "coveredByTests": [],
       "coveredByCode": [],

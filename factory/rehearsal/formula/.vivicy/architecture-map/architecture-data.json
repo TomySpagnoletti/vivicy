@@ -561,9 +561,9 @@
     "progress_ledger_path": ".vivicy/development/progress-ledger.json",
     "issues": [
       {
-        "id": "ISS-0001",
+        "id": "ISSUE-0001",
         "title": "Error Values and Propagation Contract",
-        "issue_path": ".vivicy/development/issues/ISS-0001.md",
+        "issue_path": ".vivicy/development/issues/ISSUE-0001.md",
         "requirement_ids": [
           "REQ-ERR-001",
           "REQ-ERR-002",
@@ -586,9 +586,9 @@
         ]
       },
       {
-        "id": "ISS-0002",
+        "id": "ISSUE-0002",
         "title": "CellRef A1 Addresses and Ranges",
-        "issue_path": ".vivicy/development/issues/ISS-0002.md",
+        "issue_path": ".vivicy/development/issues/ISSUE-0002.md",
         "requirement_ids": [
           "REQ-CELLREF-001",
           "REQ-CELLREF-002"
@@ -605,9 +605,9 @@
         ]
       },
       {
-        "id": "ISS-0003",
+        "id": "ISSUE-0003",
         "title": "Sheet Cell Storage and Reads",
-        "issue_path": ".vivicy/development/issues/ISS-0003.md",
+        "issue_path": ".vivicy/development/issues/ISSUE-0003.md",
         "requirement_ids": [
           "REQ-SHEET-001",
           "REQ-SHEET-002"
@@ -624,9 +624,9 @@
         ]
       },
       {
-        "id": "ISS-0004",
+        "id": "ISSUE-0004",
         "title": "Tokenizer Lexical Analysis",
-        "issue_path": ".vivicy/development/issues/ISS-0004.md",
+        "issue_path": ".vivicy/development/issues/ISSUE-0004.md",
         "requirement_ids": [
           "REQ-TOK-001",
           "REQ-TOK-002",
@@ -649,9 +649,9 @@
         ]
       },
       {
-        "id": "ISS-0005",
+        "id": "ISSUE-0005",
         "title": "Pratt Parser and AST",
-        "issue_path": ".vivicy/development/issues/ISS-0005.md",
+        "issue_path": ".vivicy/development/issues/ISSUE-0005.md",
         "requirement_ids": [
           "REQ-PARSE-001",
           "REQ-PARSE-002",
@@ -674,9 +674,9 @@
         ]
       },
       {
-        "id": "ISS-0006",
+        "id": "ISSUE-0006",
         "title": "Function Registry and Calling Convention",
-        "issue_path": ".vivicy/development/issues/ISS-0006.md",
+        "issue_path": ".vivicy/development/issues/ISSUE-0006.md",
         "requirement_ids": [
           "REQ-REG-001",
           "REQ-REG-002",
@@ -697,9 +697,9 @@
         ]
       },
       {
-        "id": "ISS-0007",
+        "id": "ISSUE-0007",
         "title": "Math Functions",
-        "issue_path": ".vivicy/development/issues/ISS-0007.md",
+        "issue_path": ".vivicy/development/issues/ISSUE-0007.md",
         "requirement_ids": [
           "REQ-FNMATH-001",
           "REQ-FNMATH-002",
@@ -720,9 +720,9 @@
         ]
       },
       {
-        "id": "ISS-0008",
+        "id": "ISSUE-0008",
         "title": "Logical Functions",
-        "issue_path": ".vivicy/development/issues/ISS-0008.md",
+        "issue_path": ".vivicy/development/issues/ISSUE-0008.md",
         "requirement_ids": [
           "REQ-FNLOGIC-001",
           "REQ-FNLOGIC-002",
@@ -743,9 +743,9 @@
         ]
       },
       {
-        "id": "ISS-0009",
+        "id": "ISSUE-0009",
         "title": "Text Functions",
-        "issue_path": ".vivicy/development/issues/ISS-0009.md",
+        "issue_path": ".vivicy/development/issues/ISSUE-0009.md",
         "requirement_ids": [
           "REQ-FNTEXT-001",
           "REQ-FNTEXT-002",
@@ -766,9 +766,9 @@
         ]
       },
       {
-        "id": "ISS-0010",
+        "id": "ISSUE-0010",
         "title": "Lookup Function VLOOKUP",
-        "issue_path": ".vivicy/development/issues/ISS-0010.md",
+        "issue_path": ".vivicy/development/issues/ISSUE-0010.md",
         "requirement_ids": [
           "REQ-FNLOOKUP-001",
           "REQ-FNLOOKUP-002",
@@ -787,9 +787,9 @@
         ]
       },
       {
-        "id": "ISS-0011",
+        "id": "ISSUE-0011",
         "title": "Evaluator Tree Walk",
-        "issue_path": ".vivicy/development/issues/ISS-0011.md",
+        "issue_path": ".vivicy/development/issues/ISSUE-0011.md",
         "requirement_ids": [
           "REQ-EVAL-001",
           "REQ-EVAL-002",
@@ -812,9 +812,9 @@
         ]
       },
       {
-        "id": "ISS-0012",
+        "id": "ISSUE-0012",
         "title": "Dependency Graph and Recalculation",
-        "issue_path": ".vivicy/development/issues/ISS-0012.md",
+        "issue_path": ".vivicy/development/issues/ISSUE-0012.md",
         "requirement_ids": [
           "REQ-DEP-001",
           "REQ-RECALC-001",
@@ -837,9 +837,9 @@
         ]
       },
       {
-        "id": "ISS-0013",
+        "id": "ISSUE-0013",
         "title": "Public API Surface",
-        "issue_path": ".vivicy/development/issues/ISS-0013.md",
+        "issue_path": ".vivicy/development/issues/ISSUE-0013.md",
         "requirement_ids": [
           "REQ-API-001",
           "REQ-API-002",

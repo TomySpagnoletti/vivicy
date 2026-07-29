@@ -809,7 +809,7 @@ describe("extractIssues — fidelity fix loop (the independent verifier)", () =>
       {
         faithful: false,
         problems: [
-          { issue: "ISS-0003", kind: "invented_requirement", detail: "ISS-0003 invents a rate-limit obligation the cited lines do not state." },
+          { issue: "ISSUE-0003", kind: "invented_requirement", detail: "ISSUE-0003 invents a rate-limit obligation the cited lines do not state." },
         ],
       },
       { faithful: true, problems: [] },
@@ -826,7 +826,7 @@ describe("extractIssues — fidelity fix loop (the independent verifier)", () =>
     assert.ok(calls[1].checkOutput, "fix pass got the fidelity verdict");
     assert.match(calls[1].checkOutput, /faithful:false/);
     assert.match(calls[1].checkOutput, /invented_requirement/);
-    assert.match(calls[1].checkOutput, /ISS-0003/);
+    assert.match(calls[1].checkOutput, /ISSUE-0003/);
     assert.equal(result.verdict!.faithful, true);
     assert.equal(seams._calls.mapCalls.length, 2, "the map gate runs on each deterministic-green attempt, before fidelity");
   });
@@ -835,7 +835,7 @@ describe("extractIssues — fidelity fix loop (the independent verifier)", () =>
     seedInputs(temp);
     const { spawnExtractor, calls } = fakeAgent([(ctx) => writeValidCorpus(ctx.repoRoot)]);
     const { spawnVerifier, calls: verifyCalls } = fakeVerifier([
-      { faithful: false, problems: [{ issue: "ISS-0001", kind: "scope_drift", detail: "ISS-0001 broadens the cited scope." }] },
+      { faithful: false, problems: [{ issue: "ISSUE-0001", kind: "scope_drift", detail: "ISSUE-0001 broadens the cited scope." }] },
     ]);
     const seams = stubSeams();
 
@@ -937,7 +937,7 @@ describe("extractIssues — map-generation GATE (the live-run fragility this fix
     assert.equal(mapRed.status, "extraction_blocked", "a map-gen failure is never green");
     assert.match(mapRed.summary, /Unsupported architecture-map\.yml line/);
 
-    const fidRed = await run({ corpus: writeValidCorpus, verdict: { faithful: false, problems: [{ issue: "ISS-0001", kind: "scope_drift", detail: "broadens scope" }] }, map: MAP_OK });
+    const fidRed = await run({ corpus: writeValidCorpus, verdict: { faithful: false, problems: [{ issue: "ISSUE-0001", kind: "scope_drift", detail: "broadens scope" }] }, map: MAP_OK });
     assert.equal(fidRed.status, "extraction_blocked", "a fidelity failure is never green");
   });
 
@@ -1121,11 +1121,11 @@ describe("formatFixContext (combined deterministic + fidelity feedback)", () => 
   it("includes the fidelity verdict block (and not a passing deterministic block) on a fidelity-only failure", () => {
     const text = formatFixContext(
       { semantic: { exitCode: 0, placeholder: false, summary: "ok" }, traceability: { exitCode: 0, summary: "ok" } },
-      { faithful: false, problems: [{ issue: "ISS-0003", kind: "invented_requirement", detail: "no canonical basis" }] },
+      { faithful: false, problems: [{ issue: "ISSUE-0003", kind: "invented_requirement", detail: "no canonical basis" }] },
     );
     assert.match(text, /faithful:false/);
     assert.match(text, /invented_requirement/);
-    assert.match(text, /ISS-0003/);
+    assert.match(text, /ISSUE-0003/);
     assert.doesNotMatch(text, /semantic-extraction-check: ok/);
   });
 

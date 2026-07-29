@@ -10,7 +10,7 @@ import { computeBehaviorFingerprint, REPO_ROOT } from "./test-matrix"
 
 const NESTED_CHECKOUTS = [
   { root: ".claude", phantom: ".claude/worktrees/f000" },
-  { root: ".vivicy-worktrees", phantom: ".vivicy-worktrees/ISSUE-001" },
+  { root: ".vivicy-worktrees", phantom: ".vivicy-worktrees/ISSUE-0001" },
 ]
 const LINTED_SOURCE_FILE = "lib/map-data.ts"
 const roots: string[] = []

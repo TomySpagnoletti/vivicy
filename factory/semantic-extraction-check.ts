@@ -29,6 +29,7 @@ export const exclusionReasonClasses = [
 export const requirementRefPattern = /^(\.vivicy\/canonical\/[a-z0-9-]+\.md):(\d+)(?:-(\d+))?$/;
 const requirementFilePattern = /^\.vivicy\/canonical\/[a-z0-9-]+\.md$/;
 const issuePathPattern = /^\.vivicy\/development\/issues\/[A-Za-z0-9._/-]+\.md$/;
+const issueIdPattern = /^ISSUE-\d{4}$/;
 
 // Schema must stay aligned with the viewer validator (factory/generate-viewer-data.ts); it rejects the index if a live status field appears here (progress lives only in the ledger).
 const issueEntrySchema = z.object({
@@ -311,6 +312,10 @@ export function runSemanticExtractionCheck(options: SemanticCheckOptions = {}): 
   const coveredByFile = new Map<string, Set<number>>();
   for (const entry of index.issues) {
     const label = `issue ${entry.id} (${entry.issue_path})`;
+    if (!issueIdPattern.test(entry.id)) {
+      errors.push(`${label}: id does not match the issue id grammar ${issueIdPattern}`);
+      continue;
+    }
     if (!issuePathPattern.test(entry.issue_path)) {
       errors.push(`${label}: issue_path does not match ${issuePathPattern}`);
       continue;

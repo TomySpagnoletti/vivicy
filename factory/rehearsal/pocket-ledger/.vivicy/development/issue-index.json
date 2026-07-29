@@ -11,10 +11,10 @@
   ],
   "issues": [
     {
-      "id": "ISS-0001",
+      "id": "ISSUE-0001",
       "title": "Add an expense to the Ledger with field validation",
       "summary": "Implement the Ledger's add operation: validate every expense field, reject duplicate ids and malformed values, and store accepted records in insertion order as the single source of truth.",
-      "issue_path": ".vivicy/development/issues/ISS-0001.md",
+      "issue_path": ".vivicy/development/issues/ISSUE-0001.md",
       "requirement_ids": [
         "REQ-LEDGER-001",
         "REQ-LEDGER-002",
@@ -35,10 +35,10 @@
       ]
     },
     {
-      "id": "ISS-0002",
+      "id": "ISSUE-0002",
       "title": "Read expenses from the Ledger as defensive copies",
       "summary": "Implement the Ledger's reads: list all expenses in insertion order and read one by id, returning copies and returning no record for an unknown id rather than throwing.",
-      "issue_path": ".vivicy/development/issues/ISS-0002.md",
+      "issue_path": ".vivicy/development/issues/ISSUE-0002.md",
       "requirement_ids": [
         "REQ-LEDGER-003"
       ],
@@ -46,7 +46,7 @@
         ".vivicy/canonical/02-ledger-model.md:23"
       ],
       "depends_on": [
-        "ISS-0001"
+        "ISSUE-0001"
       ],
       "spike_gates": [],
       "graph_refs": [
@@ -57,10 +57,10 @@
       ]
     },
     {
-      "id": "ISS-0003",
+      "id": "ISSUE-0003",
       "title": "Compute the Ledger total in integer cents",
       "summary": "Implement the Ledger total: the integer-cents sum of amountCents across all stored expenses, zero for an empty Ledger, with no floating-point arithmetic.",
-      "issue_path": ".vivicy/development/issues/ISS-0003.md",
+      "issue_path": ".vivicy/development/issues/ISSUE-0003.md",
       "requirement_ids": [
         "REQ-LEDGER-004",
         "REQ-ARCH-002"
@@ -70,7 +70,7 @@
         ".vivicy/canonical/02-ledger-model.md:27"
       ],
       "depends_on": [
-        "ISS-0001"
+        "ISSUE-0001"
       ],
       "spike_gates": [],
       "graph_refs": [
@@ -81,10 +81,10 @@
       ]
     },
     {
-      "id": "ISS-0004",
+      "id": "ISSUE-0004",
       "title": "Categorize an expense by ordered keyword rules",
       "summary": "Implement the Categorizer: a pure function that assigns a category from an ordered keyword-rule list, first match wins, case-insensitive, defaulting to the fixed uncategorized label.",
-      "issue_path": ".vivicy/development/issues/ISS-0004.md",
+      "issue_path": ".vivicy/development/issues/ISSUE-0004.md",
       "requirement_ids": [
         "REQ-CATEGORY-001",
         "REQ-CATEGORY-002",
@@ -109,10 +109,10 @@
       ]
     },
     {
-      "id": "ISS-0005",
+      "id": "ISSUE-0005",
       "title": "Report monthly totals and per-category breakdown",
       "summary": "Implement the Reporter's read models: per-month amountCents totals ordered by month ascending, and a per-category breakdown for a month ordered by category label ascending, never mutating the Ledger.",
-      "issue_path": ".vivicy/development/issues/ISS-0005.md",
+      "issue_path": ".vivicy/development/issues/ISSUE-0005.md",
       "requirement_ids": [
         "REQ-REPORT-001",
         "REQ-REPORT-002"
@@ -123,7 +123,7 @@
         ".vivicy/canonical/04-reporting.md:17"
       ],
       "depends_on": [
-        "ISS-0002"
+        "ISSUE-0002"
       ],
       "spike_gates": [],
       "graph_refs": [
@@ -135,10 +135,10 @@
       ]
     },
     {
-      "id": "ISS-0006",
+      "id": "ISSUE-0006",
       "title": "Evaluate a month against its budget",
       "summary": "Implement budget evaluation: classify a month's total as within, equal to, or over a positive integer limit and report the signed difference, treating an exact match as within budget.",
-      "issue_path": ".vivicy/development/issues/ISS-0006.md",
+      "issue_path": ".vivicy/development/issues/ISSUE-0006.md",
       "requirement_ids": [
         "REQ-REPORT-003"
       ],
@@ -147,7 +147,7 @@
         ".vivicy/canonical/04-reporting.md:23"
       ],
       "depends_on": [
-        "ISS-0005"
+        "ISSUE-0005"
       ],
       "spike_gates": [],
       "graph_refs": [
@@ -158,10 +158,10 @@
       ]
     },
     {
-      "id": "ISS-0007",
+      "id": "ISSUE-0007",
       "title": "Serialize the Ledger to deterministic CSV",
       "summary": "Implement the Exporter: a pure read of the Ledger producing deterministic CSV with a fixed header and column order, insertion-order rows, RFC-style quoting, line-feed separators, and plain-integer amountCents.",
-      "issue_path": ".vivicy/development/issues/ISS-0007.md",
+      "issue_path": ".vivicy/development/issues/ISSUE-0007.md",
       "requirement_ids": [
         "REQ-EXPORT-001",
         "REQ-EXPORT-002",
@@ -176,7 +176,7 @@
         ".vivicy/canonical/05-csv-export.md:23"
       ],
       "depends_on": [
-        "ISS-0002"
+        "ISSUE-0002"
       ],
       "spike_gates": [],
       "graph_refs": [
@@ -188,10 +188,10 @@
       ]
     },
     {
-      "id": "ISS-0008",
+      "id": "ISSUE-0008",
       "title": "Dispatch CLI commands over the wired modules",
       "summary": "Implement the CLI: read process arguments only, dispatch add/list/report/export over the wired modules, route normal output to stdout and errors to stderr, and exit non-zero on an unknown command or wrong argument count.",
-      "issue_path": ".vivicy/development/issues/ISS-0008.md",
+      "issue_path": ".vivicy/development/issues/ISSUE-0008.md",
       "requirement_ids": [
         "REQ-CLI-001",
         "REQ-CLI-002",
@@ -208,13 +208,13 @@
         ".vivicy/canonical/06-cli.md:24"
       ],
       "depends_on": [
-        "ISS-0001",
-        "ISS-0002",
-        "ISS-0003",
-        "ISS-0004",
-        "ISS-0005",
-        "ISS-0006",
-        "ISS-0007"
+        "ISSUE-0001",
+        "ISSUE-0002",
+        "ISSUE-0003",
+        "ISSUE-0004",
+        "ISSUE-0005",
+        "ISSUE-0006",
+        "ISSUE-0007"
       ],
       "spike_gates": [],
       "graph_refs": [

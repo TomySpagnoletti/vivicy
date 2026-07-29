@@ -381,7 +381,7 @@ function fakeCliRun(name: string, run: (deps: { cfg: LegConfig; issue: AgentIssu
     const execRoot = join(root, "target");
     mkdirSync(execRoot, { recursive: true });
     const cfg: LegConfig = { promptsDir, transcriptsDir: ".vivicy/development/transcripts" };
-    const issue: AgentIssue = { id: "ISS-1", transcript_dir: issueTranscriptDir("ISS-1") };
+    const issue: AgentIssue = { id: "ISSUE-1", transcript_dir: issueTranscriptDir("ISSUE-1") };
     const deps: LegDeps = {
       composePrompt: (template) => template,
       agentCliArgs: () => [],
@@ -466,7 +466,7 @@ test("the ratified transcript taxonomy is the whole namespace, named once", () =
     changeRequests: "CHANGE-REQUESTS",
     spikes: "SPIKES",
   });
-  assert.equal(issueTranscriptDir("ISS-0007"), "ISSUES/ISS-0007", "a tracked product issue is grouped, never flat at the root");
+  assert.equal(issueTranscriptDir("ISSUE-0007"), "ISSUES/ISSUE-0007", "a tracked product issue is grouped, never flat at the root");
 });
 
 // The synthetic work units live inside their spawn factories, so no runtime seam exposes them: the assignment is pinned where it is written.
@@ -500,7 +500,7 @@ test("every leg family declares its ratified transcript home exactly once, and n
 test("transcriptDirRel composes <transcripts>/<declared home> for every family shape", () => {
   const root = ".vivicy/development/transcripts";
   const dir = (transcript_dir: string) => transcriptDirRel(root, { id: "x", transcript_dir });
-  assert.equal(transcriptDirRel(root, { id: "ISS-0007", transcript_dir: issueTranscriptDir("ISS-0007") }), `${root}/ISSUES/ISS-0007`);
+  assert.equal(transcriptDirRel(root, { id: "ISSUE-0007", transcript_dir: issueTranscriptDir("ISSUE-0007") }), `${root}/ISSUES/ISSUE-0007`);
   assert.equal(dir(TRANSCRIPT_DIRS.extraction), `${root}/EXTRACTION`);
   assert.equal(dir(TRANSCRIPT_DIRS.acceptance), `${root}/ACCEPTANCE`);
   assert.equal(dir(TRANSCRIPT_DIRS.retro), `${root}/RETRO`);
@@ -513,9 +513,9 @@ test("transcriptDirRel composes <transcripts>/<declared home> for every family s
 
 test("transcriptDirRel refuses a declared home that is not a plain relative subpath", () => {
   const root = ".vivicy/development/transcripts";
-  for (const hostile of ["..", "../../etc", "ISSUES/../../etc", "/etc/passwd", "", "ISSUES//ISS-1", "ISSUES/./ISS-1", "ISSUES\\..\\..\\etc", "ISSUES/ISS-1/"]) {
+  for (const hostile of ["..", "../../etc", "ISSUES/../../etc", "/etc/passwd", "", "ISSUES//ISSUE-1", "ISSUES/./ISSUE-1", "ISSUES\\..\\..\\etc", "ISSUES/ISSUE-1/"]) {
     assert.throws(
-      () => transcriptDirRel(root, { id: "ISS-1", transcript_dir: hostile }),
+      () => transcriptDirRel(root, { id: "ISSUE-1", transcript_dir: hostile }),
       /is not a usable transcript directory/,
       `"${hostile}" must never reach the filesystem — the issue index and the CR/spike files a leg can write feed this`,
     );
@@ -559,10 +559,10 @@ test("a leg's transcript lands under its family's directory, role-named so two l
     };
 
     assert.match(
-      landed("implementer", { id: "ISS-0007", transcript_dir: issueTranscriptDir("ISS-0007") }),
-      /^\.vivicy\/development\/transcripts\/ISSUES\/ISS-0007\/codex-implementer-[0-9a-f-]{36}\.jsonl$/,
+      landed("implementer", { id: "ISSUE-0007", transcript_dir: issueTranscriptDir("ISSUE-0007") }),
+      /^\.vivicy\/development\/transcripts\/ISSUES\/ISSUE-0007\/codex-implementer-[0-9a-f-]{36}\.jsonl$/,
     );
-    assert.equal(existsSync(deps.abs(".vivicy/development/transcripts/ISS-0007")), false, "no issue transcript may sit flat beside the family groups");
+    assert.equal(existsSync(deps.abs(".vivicy/development/transcripts/ISSUE-0007")), false, "no issue transcript may sit flat beside the family groups");
 
     const importDocs: AgentIssue = { id: TRANSCRIPT_DIRS.importDocs, transcript_dir: TRANSCRIPT_DIRS.importDocs };
     const prep = landed("doc-prep", importDocs);

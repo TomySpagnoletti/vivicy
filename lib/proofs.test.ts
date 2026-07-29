@@ -17,7 +17,7 @@ import {
 
 function issueFile(proofsBlock: string, { fence = true }: { fence?: boolean } = {}): string {
   return [
-    "# ISS-0004 - Report a month",
+    "# ISSUE-0004 - Report a month",
     "",
     "## Verification",
     "",
@@ -94,7 +94,7 @@ describe("parseDeclaredProofs", () => {
   })
 
   it("declares nothing silently only when NO Proofs section is reachable (absent, or quoted inside a closed fence)", () => {
-    expect(parseDeclaredProofs("# ISS-0001\n\n## Verification\n\nunit tests\n")).toEqual({
+    expect(parseDeclaredProofs("# ISSUE-0001\n\n## Verification\n\nunit tests\n")).toEqual({
       proofs: [],
       problems: [],
     })
@@ -113,14 +113,14 @@ describe("parseDeclaredProofs", () => {
     expect(empty.proofs).toEqual([])
     expect(empty.problems[0]).toMatch(/carries no closed, non-empty `text` block/)
 
-    const unterminated = parseDeclaredProofs("# ISS\n\n## Proofs\n\n```text\n- id: shot\n")
+    const unterminated = parseDeclaredProofs("# ISSUE\n\n## Proofs\n\n```text\n- id: shot\n")
     expect(unterminated.problems[0]).toMatch(/carries no closed, non-empty `text` block/)
   })
 
   it("never reaches past its own section: a fence-less Proofs section cannot swallow the next section's block", () => {
     const parsed = parseDeclaredProofs(
       [
-        "# ISS-0008 - CLI",
+        "# ISSUE-0008 - CLI",
         "",
         "## Proofs",
         "",
@@ -129,7 +129,7 @@ describe("parseDeclaredProofs", () => {
         "## Traceability",
         "",
         "```text",
-        "issue_id: ISS-0008",
+        "issue_id: ISSUE-0008",
         "graph_refs:",
         "  - node:cli",
         "```",
@@ -143,7 +143,7 @@ describe("parseDeclaredProofs", () => {
   it("reports declaration content that sits OUTSIDE the one block — a half-read declaration must never look honest", () => {
     const afterFence = parseDeclaredProofs(
       [
-        "# ISS-0008 - CLI",
+        "# ISSUE-0008 - CLI",
         "",
         "## Proofs",
         "",
@@ -162,28 +162,28 @@ describe("parseDeclaredProofs", () => {
     expect(afterFence.problems[0]).toMatch(/declaration content outside its one `text` block/)
 
     const secondBlock = parseDeclaredProofs(
-      ["# ISS", "", "## Proofs", "", "```text", RUN_LOG_PROOF, "```", "", "```text", "- id: second", "```", ""].join("\n")
+      ["# ISSUE", "", "## Proofs", "", "```text", RUN_LOG_PROOF, "```", "", "```text", "- id: second", "```", ""].join("\n")
     )
     expect(secondBlock.problems[0]).toMatch(/declaration content outside its one `text` block/)
 
     const spacedInfoString = parseDeclaredProofs(
-      ["# ISS", "", "## Proofs", "", "``` text", RUN_LOG_PROOF, "```", ""].join("\n")
+      ["# ISSUE", "", "## Proofs", "", "``` text", RUN_LOG_PROOF, "```", ""].join("\n")
     )
     expect(spacedInfoString.problems, "a space before the info string is still a fence (CommonMark)").toEqual([])
     expect(spacedInfoString.proofs.map((p) => p.id)).toEqual(["cli-report"])
   })
 
   it("recognizes every CommonMark heading shape, and REFUSES a section an unterminated fence swallowed", () => {
-    const indented = parseDeclaredProofs(["# ISS", "", "   ## Proofs", "", "```text", RUN_LOG_PROOF, "```", ""].join("\n"))
+    const indented = parseDeclaredProofs(["# ISSUE", "", "   ## Proofs", "", "```text", RUN_LOG_PROOF, "```", ""].join("\n"))
     expect(indented.problems, "up to three leading spaces is still an ATX heading").toEqual([])
     expect(indented.proofs.map((p) => p.id)).toEqual(["cli-report"])
 
-    const closedAtx = parseDeclaredProofs(["# ISS", "", "## Proofs ##", "", "```text", RUN_LOG_PROOF, "```", ""].join("\n"))
+    const closedAtx = parseDeclaredProofs(["# ISSUE", "", "## Proofs ##", "", "```text", RUN_LOG_PROOF, "```", ""].join("\n"))
     expect(closedAtx.problems, "a closing run of #s is still an ATX heading").toEqual([])
     expect(closedAtx.proofs.map((p) => p.id)).toEqual(["cli-report"])
 
     const swallowed = parseDeclaredProofs(
-      ["# ISS", "", "## Verification", "", "```text", "an unterminated fence", "", "## Proofs", "", RUN_LOG_PROOF, ""].join("\n")
+      ["# ISSUE", "", "## Verification", "", "```text", "an unterminated fence", "", "## Proofs", "", RUN_LOG_PROOF, ""].join("\n")
     )
     expect(swallowed.proofs).toEqual([])
     expect(
@@ -192,7 +192,7 @@ describe("parseDeclaredProofs", () => {
     ).toMatch(/inside an unterminated code fence/)
 
     const nextSectionIndented = parseDeclaredProofs(
-      ["# ISS", "", "## Proofs", "", "  ### Notes", "", "```text", RUN_LOG_PROOF, "```", ""].join("\n")
+      ["# ISSUE", "", "## Proofs", "", "  ### Notes", "", "```text", RUN_LOG_PROOF, "```", ""].join("\n")
     )
     expect(
       nextSectionIndented.problems[0],
@@ -203,7 +203,7 @@ describe("parseDeclaredProofs", () => {
   it("ignores a Proofs heading quoted inside another fenced block", () => {
     expect(
       parseDeclaredProofs(
-        ["# ISS-0008 - CLI", "", "## Verification", "", "```text", "## Proofs", "- id: not-a-declaration", "```", ""].join("\n")
+        ["# ISSUE-0008 - CLI", "", "## Verification", "", "```text", "## Proofs", "- id: not-a-declaration", "```", ""].join("\n")
       )
     ).toEqual({ proofs: [], problems: [] })
   })
@@ -270,18 +270,18 @@ describe("parseDeclaredProofs", () => {
 
 describe("proofArtifactHomeRel", () => {
   it("derives the per-proof home, and points a gate_evidence proof at the gate record itself", () => {
-    expect(proofArtifactHomeRel({ id: "cli-run", class: "run_log", evidences: [] }, "ISS-0008")).toBe(
-      ".vivicy/development/proofs/ISS-0008/cli-run"
+    expect(proofArtifactHomeRel({ id: "cli-run", class: "run_log", evidences: [] }, "ISSUE-0008")).toBe(
+      ".vivicy/development/proofs/ISSUE-0008/cli-run"
     )
-    expect(proofArtifactHomeRel({ id: "totals", class: "gate_evidence", evidences: [] }, "ISS-0003")).toBe(
-      ".vivicy/development/gates/ISS-0003-gate.json"
+    expect(proofArtifactHomeRel({ id: "totals", class: "gate_evidence", evidences: [] }, "ISSUE-0003")).toBe(
+      ".vivicy/development/gates/ISSUE-0003-gate.json"
     )
     expect(
-      proofArtifactHomeRel({ id: "cli-run", class: "run_log", evidences: [] }, "ISS-0008", {
+      proofArtifactHomeRel({ id: "cli-run", class: "run_log", evidences: [] }, "ISSUE-0008", {
         proofsDir: "scratch/proofs",
         gatesDir: "scratch/gates",
       })
-    ).toBe("scratch/proofs/ISS-0008/cli-run")
+    ).toBe("scratch/proofs/ISSUE-0008/cli-run")
   })
 })
 
@@ -304,25 +304,25 @@ afterEach(() => {
 describe("inspectDeclaredProofs", () => {
   it("reports a proof as produced only once BOTH its artifact and its replayable recipe are on disk", () => {
     const inspect = () =>
-      inspectDeclaredProofs({ targetRoot: root, issueId: "ISS-0008", body: issueFile(RUN_LOG_PROOF) })
+      inspectDeclaredProofs({ targetRoot: root, issueId: "ISSUE-0008", body: issueFile(RUN_LOG_PROOF) })
 
     expect(inspect().statuses[0]).toMatchObject({
       id: "cli-report",
       class: "run_log",
-      path: ".vivicy/development/proofs/ISS-0008/cli-report",
+      path: ".vivicy/development/proofs/ISSUE-0008/cli-report",
       produced: false,
       recipe: false,
       artifacts: [],
     })
 
-    write(".vivicy/development/proofs/ISS-0008/cli-report/report.log", "total 1234\n")
+    write(".vivicy/development/proofs/ISSUE-0008/cli-report/report.log", "total 1234\n")
     expect(inspect().statuses[0], "an artifact with no recipe is not replayable, so not a proof").toMatchObject({
       produced: false,
       recipe: false,
       artifacts: ["report.log"],
     })
 
-    write(".vivicy/development/proofs/ISS-0008/cli-report/recipe.txt", "node src/cli.js report 2026-01\n")
+    write(".vivicy/development/proofs/ISSUE-0008/cli-report/recipe.txt", "node src/cli.js report 2026-01\n")
     expect(inspect().statuses[0]).toMatchObject({
       produced: true,
       recipe: true,
@@ -331,50 +331,50 @@ describe("inspectDeclaredProofs", () => {
   })
 
   it("counts a nested capture, ignores an empty placeholder, and refuses a symlinked stand-in", () => {
-    write(".vivicy/development/proofs/ISS-0008/cli-report/recipe.txt", "node src/cli.js report 2026-01\n")
-    write(".vivicy/development/proofs/ISS-0008/cli-report/empty.log", "")
+    write(".vivicy/development/proofs/ISSUE-0008/cli-report/recipe.txt", "node src/cli.js report 2026-01\n")
+    write(".vivicy/development/proofs/ISSUE-0008/cli-report/empty.log", "")
     const inspect = () =>
-      inspectDeclaredProofs({ targetRoot: root, issueId: "ISS-0008", body: issueFile(RUN_LOG_PROOF) }).statuses[0]
+      inspectDeclaredProofs({ targetRoot: root, issueId: "ISSUE-0008", body: issueFile(RUN_LOG_PROOF) }).statuses[0]
     expect(inspect()).toMatchObject({ produced: false, artifacts: ["recipe.txt"] })
 
     write("elsewhere/other-run.log", "someone else's output\n")
     symlinkSync(
       path.join(root, "elsewhere/other-run.log"),
-      path.join(root, ".vivicy/development/proofs/ISS-0008/cli-report/observed.log")
+      path.join(root, ".vivicy/development/proofs/ISSUE-0008/cli-report/observed.log")
     )
     expect(inspect(), "a symlink to another file is not an observation this run produced").toMatchObject({
       produced: false,
       artifacts: ["recipe.txt"],
     })
 
-    write(".vivicy/development/proofs/ISS-0008/cli-report/screens/desktop.png", "png-bytes")
+    write(".vivicy/development/proofs/ISSUE-0008/cli-report/screens/desktop.png", "png-bytes")
     expect(inspect()).toMatchObject({ produced: true, artifacts: ["recipe.txt", "screens/desktop.png"] })
   })
 
   it("takes a gate_evidence proof from the green gate record itself — no ritual artifact", () => {
     const inspect = () =>
-      inspectDeclaredProofs({ targetRoot: root, issueId: "ISS-0003", body: issueFile(GATE_PROOF) }).statuses[0]
+      inspectDeclaredProofs({ targetRoot: root, issueId: "ISSUE-0003", body: issueFile(GATE_PROOF) }).statuses[0]
 
     expect(inspect()).toMatchObject({
-      path: ".vivicy/development/gates/ISS-0003-gate.json",
+      path: ".vivicy/development/gates/ISSUE-0003-gate.json",
       produced: false,
       artifacts: [],
     })
 
     write(
-      ".vivicy/development/gates/ISS-0003-gate.json",
+      ".vivicy/development/gates/ISSUE-0003-gate.json",
       JSON.stringify({ gate_id: "gate:test:totals", status: "fail", exit_code: 1, command: "npm test" })
     )
     expect(inspect(), "a red gate observes nothing worth calling a proof").toMatchObject({ produced: false })
 
     write(
-      ".vivicy/development/gates/ISS-0003-gate.json",
+      ".vivicy/development/gates/ISSUE-0003-gate.json",
       JSON.stringify({ gate_id: "gate:test:totals", status: "pass", exit_code: 0, command: "npm test" })
     )
-    expect(inspect()).toMatchObject({ produced: true, recipe: true, artifacts: ["ISS-0003-gate.json"] })
+    expect(inspect()).toMatchObject({ produced: true, recipe: true, artifacts: ["ISSUE-0003-gate.json"] })
 
     write(
-      ".vivicy/development/gates/ISS-0003-gate.json",
+      ".vivicy/development/gates/ISSUE-0003-gate.json",
       JSON.stringify({ gate_id: "gate:test:totals", status: "pass", exit_code: 0, command: null })
     )
     expect(inspect(), "a gate record with no command carries no replayable recipe").toMatchObject({
@@ -384,18 +384,18 @@ describe("inspectDeclaredProofs", () => {
   })
 
   it("resolves against the caller's gate/proof directories and surfaces declaration problems", () => {
-    write("scratch/gates/ISS-0003-gate.json", JSON.stringify({ status: "pass", command: "go test ./..." }))
+    write("scratch/gates/ISSUE-0003-gate.json", JSON.stringify({ status: "pass", command: "go test ./..." }))
     const scoped = inspectDeclaredProofs({
       targetRoot: root,
-      issueId: "ISS-0003",
+      issueId: "ISSUE-0003",
       body: issueFile(GATE_PROOF),
       dirs: { proofsDir: "scratch/proofs", gatesDir: "scratch/gates" },
     })
-    expect(scoped.statuses[0]).toMatchObject({ path: "scratch/gates/ISS-0003-gate.json", produced: true })
+    expect(scoped.statuses[0]).toMatchObject({ path: "scratch/gates/ISSUE-0003-gate.json", produced: true })
 
     const malformed = inspectDeclaredProofs({
       targetRoot: root,
-      issueId: "ISS-0008",
+      issueId: "ISSUE-0008",
       body: issueFile("- id: cli-report\n  class: vibes"),
     })
     expect(malformed.statuses).toEqual([])
@@ -405,31 +405,31 @@ describe("inspectDeclaredProofs", () => {
 
 describe("readIssueBodyFromDisk", () => {
   it("finds the issue file whether it is still open or already in done/, and refuses an unsafe id", () => {
-    write(".vivicy/development/issues/ISS-0008.md", "# ISS-0008 open\n")
-    write(".vivicy/development/issues/done/ISS-0003.md", "# ISS-0003 done\n")
-    expect(readIssueBodyFromDisk(root, "ISS-0008")).toMatch(/open/)
-    expect(readIssueBodyFromDisk(root, "ISS-0003")).toMatch(/done/)
-    expect(readIssueBodyFromDisk(root, "ISS-9999")).toBeNull()
+    write(".vivicy/development/issues/ISSUE-0008.md", "# ISSUE-0008 open\n")
+    write(".vivicy/development/issues/done/ISSUE-0003.md", "# ISSUE-0003 done\n")
+    expect(readIssueBodyFromDisk(root, "ISSUE-0008")).toMatch(/open/)
+    expect(readIssueBodyFromDisk(root, "ISSUE-0003")).toMatch(/done/)
+    expect(readIssueBodyFromDisk(root, "ISSUE-9999")).toBeNull()
     // Plant the file exactly where the unguarded join would land (.vivicy/development/issues/../../etc/passwd.md), so the guard is what refuses it — not a missing file.
     write(".vivicy/etc/passwd.md", "root:x:0:0\n")
     expect(
       readIssueBodyFromDisk(root, "../../etc/passwd"),
       "an id is never trusted into a path, even when the traversal target exists"
     ).toBeNull()
-    write(".vivicy/development/issues/ISS-0009.md", "")
-    expect(readIssueBodyFromDisk(root, "ISS-0009"), "an empty issue file is not a readable declaration").toBeNull()
+    write(".vivicy/development/issues/ISSUE-0009.md", "")
+    expect(readIssueBodyFromDisk(root, "ISSUE-0009"), "an empty issue file is not a readable declaration").toBeNull()
   })
 })
 
 describe("readProofsByIssue", () => {
   it("reads both open and done issues, keyed by issue id, skipping issues that declare none", () => {
-    write(".vivicy/development/issues/ISS-0008.md", issueFile(RUN_LOG_PROOF))
-    write(".vivicy/development/issues/done/ISS-0003.md", issueFile(GATE_PROOF))
-    write(".vivicy/development/issues/ISS-0002.md", "# ISS-0002\n\n## Verification\n\nunit tests\n")
-    write(".vivicy/development/gates/ISS-0003-gate.json", JSON.stringify({ status: "pass", command: "npm test" }))
+    write(".vivicy/development/issues/ISSUE-0008.md", issueFile(RUN_LOG_PROOF))
+    write(".vivicy/development/issues/done/ISSUE-0003.md", issueFile(GATE_PROOF))
+    write(".vivicy/development/issues/ISSUE-0002.md", "# ISSUE-0002\n\n## Verification\n\nunit tests\n")
+    write(".vivicy/development/gates/ISSUE-0003-gate.json", JSON.stringify({ status: "pass", command: "npm test" }))
 
     const byIssue = readProofsByIssue(root)
-    expect(byIssue.map((entry) => entry.issue_id)).toEqual(["ISS-0003", "ISS-0008"])
+    expect(byIssue.map((entry) => entry.issue_id)).toEqual(["ISSUE-0003", "ISSUE-0008"])
     expect(byIssue[0].proofs[0]).toMatchObject({ id: "totals", produced: true })
     expect(byIssue[1].proofs[0]).toMatchObject({ id: "cli-report", produced: false })
   })

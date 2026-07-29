@@ -20,9 +20,9 @@ function writeCycleFixture(root: string): void {
     mkdirSync(dirname(abs), { recursive: true });
     writeFileSync(abs, content);
   };
-  write(".vivicy/development/issue-index.json", JSON.stringify({ issues: [{ id: "ISS-0001" }, { id: "ISS-0002" }] }));
-  write(".vivicy/development/issues/done/ISS-0001.md", "# ISS-0001\n");
-  write(".vivicy/development/issues/done/ISS-0002.md", "# ISS-0002\n");
+  write(".vivicy/development/issue-index.json", JSON.stringify({ issues: [{ id: "ISSUE-0001" }, { id: "ISSUE-0002" }] }));
+  write(".vivicy/development/issues/done/ISSUE-0001.md", "# ISSUE-0001\n");
+  write(".vivicy/development/issues/done/ISSUE-0002.md", "# ISSUE-0002\n");
   write(".vivicy/baselines/baseline-v1.0.0.json", JSON.stringify({ schema_version: 1, baseline_id: "baseline-v1.0.0", version: "1.0.0", status: "frozen", files: [] }));
 }
 
@@ -68,7 +68,7 @@ test("a full walk-away cycle emits the expected notification stream, once per mo
         ? { output: "Error: 429 rate_limit_error, try again in 60s", result: { status: 1 } }
         : { output: "done", result: { status: 0 } };
     };
-    const blocked = runLegWithQuota(rateLimitedThenClear, { actor: "claude", role: "implementer", model: "opus" }, { id: "ISS-0001" }, quotaCfg(join(runtimeDir, "quota-state.json")));
+    const blocked = runLegWithQuota(rateLimitedThenClear, { actor: "claude", role: "implementer", model: "opus" }, { id: "ISSUE-0001" }, quotaCfg(join(runtimeDir, "quota-state.json")));
     assert.equal(blocked.quotaBlocked, false);
 
     const report = await runAcceptance({

@@ -100,8 +100,8 @@ describe("help + unknown verb", () => {
 
 describe("status --json", () => {
   test("green fixture: merged shape, exit 0", () => {
-    writeIssueIndex(target, ["ISS-1", "ISS-2"]);
-    writeDone(target, "ISS-1");
+    writeIssueIndex(target, ["ISSUE-1", "ISSUE-2"]);
+    writeDone(target, "ISSUE-1");
     writeExtractionStatus(target, {
       phase: "green",
       spike_mode: "integrate",
@@ -137,7 +137,7 @@ describe("status --json", () => {
   });
 
   test("blocked extraction fixture surfaces the phase; status read still exits 0", () => {
-    writeIssueIndex(target, ["ISS-1"]);
+    writeIssueIndex(target, ["ISSUE-1"]);
     writeExtractionStatus(target, {
       phase: "extraction_blocked",
       summary: "extraction_blocked: checks still red after 4 attempt(s)",

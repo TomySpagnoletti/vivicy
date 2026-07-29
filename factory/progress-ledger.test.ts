@@ -89,7 +89,7 @@ const issueIndex = {
   issues: [
     {
       graph_refs: ["node:manager_service", "node:mission_intake"],
-      id: "ISS-MANAGER-0001",
+      id: "ISSUE-MANAGER-0001",
     },
   ],
 };
@@ -106,7 +106,7 @@ const failedGateEvidenceAbs = resolve(repoRoot, failedGateEvidenceRel);
 function gateRunRecord(overrides: Partial<GateRunRecord> = {}): GateRunRecord {
   return {
     gate_id: "gate:test:iss-manager-0001",
-    issue_id: "ISS-MANAGER-0001",
+    issue_id: "ISSUE-MANAGER-0001",
     command: "npm run progress:test",
     exit_code: 0,
     status: "pass",
@@ -134,7 +134,7 @@ test("records in-progress heartbeat for linked graph refs", () => {
       actor: "codex-master",
       event_type: "issue_started",
       graph_refs: ["node:manager_service"],
-      issue_id: "ISS-MANAGER-0001",
+      issue_id: "ISSUE-MANAGER-0001",
       session_ref: "thread-1",
       timestamp: "2026-06-08T12:00:00.000Z",
       worktree: "worktrees/manager",
@@ -155,7 +155,7 @@ test("carries the actor role on the active item", () => {
       role: "reviewer",
       event_type: "review_started",
       graph_refs: ["node:manager_service"],
-      issue_id: "ISS-MANAGER-0001",
+      issue_id: "ISSUE-MANAGER-0001",
       session_ref: "thread-review",
       timestamp: "2026-06-08T12:05:00.000Z",
     },
@@ -175,7 +175,7 @@ test("completing an issue clears active items from both legs (implementer + revi
       role: "reviewer",
       event_type: "review_started",
       graph_refs: ["node:manager_service"],
-      issue_id: "ISS-MANAGER-0001",
+      issue_id: "ISSUE-MANAGER-0001",
       session_ref: "thread-review",
       timestamp: "2026-06-08T12:05:00.000Z",
     },
@@ -190,7 +190,7 @@ test("completing an issue clears active items from both legs (implementer + revi
       role: "implementer",
       event_type: "gate_passed",
       graph_refs: ["node:manager_service"],
-      issue_id: "ISS-MANAGER-0001",
+      issue_id: "ISSUE-MANAGER-0001",
       session_ref: "thread-impl",
       evidence_refs: [gateEvidenceRel],
       timestamp: "2026-06-08T12:10:00.000Z",
@@ -199,7 +199,7 @@ test("completing an issue clears active items from both legs (implementer + revi
     ledger: afterReview,
   });
   assert.equal(
-    afterGate.active_items.filter((item) => item.issue_id === "ISS-MANAGER-0001").length,
+    afterGate.active_items.filter((item) => item.issue_id === "ISSUE-MANAGER-0001").length,
     0,
     "no active item lingers for a completed issue, including the reviewer leg's",
   );
@@ -216,7 +216,7 @@ test("rejects an unknown actor role", () => {
           role: "architect",
           event_type: "issue_started",
           graph_refs: ["node:manager_service"],
-          issue_id: "ISS-MANAGER-0001",
+          issue_id: "ISSUE-MANAGER-0001",
           session_ref: "thread-bad-role",
           timestamp: "2026-06-08T12:00:00.000Z",
         },
@@ -228,14 +228,14 @@ test("rejects an unknown actor role", () => {
 });
 
 test("accumulates transcript_refs on the graph item state and active item", () => {
-  const ref = ".vivicy/development/transcripts/ISSUES/ISS-MANAGER-0001/claude-implementer-x.jsonl";
+  const ref = ".vivicy/development/transcripts/ISSUES/ISSUE-MANAGER-0001/claude-implementer-x.jsonl";
   const ledger = applyProgressEvent({
     event: {
       actor: "claude",
       role: "implementer",
       event_type: "issue_started",
       graph_refs: ["node:manager_service"],
-      issue_id: "ISS-MANAGER-0001",
+      issue_id: "ISSUE-MANAGER-0001",
       session_ref: "thread-t",
       transcript_refs: [ref],
       timestamp: "2026-06-08T12:00:00.000Z",
@@ -258,11 +258,11 @@ test("the orchestrator write path records a review event with role + reviewing s
     recordProgressEvent(
       {
         event_type: "review_started",
-        issue_id: "ISS-MANAGER-0001",
+        issue_id: "ISSUE-MANAGER-0001",
         graph_refs: ["node:manager_service"],
         actor: "codex",
         role: "reviewer",
-        session_ref: "dev-loop:ISS-MANAGER-0001",
+        session_ref: "dev-loop:ISSUE-MANAGER-0001",
       },
       { issueIndexPath: issueIndexRel, progressLedgerPath: ledgerRel },
     );
@@ -281,7 +281,7 @@ test("records verified state and clears active item on completion (tool-owned ga
       actor: "codex-master",
       event_type: "issue_started",
       graph_refs: ["node:manager_service"],
-      issue_id: "ISS-MANAGER-0001",
+      issue_id: "ISSUE-MANAGER-0001",
       session_ref: "thread-1",
       timestamp: "2026-06-08T12:00:00.000Z",
     },
@@ -295,7 +295,7 @@ test("records verified state and clears active item on completion (tool-owned ga
       event_type: "issue_completed",
       evidence_refs: [gateEvidenceRel],
       graph_refs: ["node:manager_service"],
-      issue_id: "ISS-MANAGER-0001",
+      issue_id: "ISSUE-MANAGER-0001",
       session_ref: "thread-1",
       timestamp: "2026-06-08T12:10:00.000Z",
     },
@@ -317,7 +317,7 @@ test("#31: rejects completion evidence that is a docs/ prose doc (not under the 
           event_type: "issue_completed",
           evidence_refs: ["docs/governance/05-development-traceability-method.md"],
           graph_refs: ["node:manager_service"],
-          issue_id: "ISS-MANAGER-0001",
+          issue_id: "ISSUE-MANAGER-0001",
           session_ref: "thread-1",
           timestamp: "2026-06-08T12:10:00.000Z",
         },
@@ -336,7 +336,7 @@ test("rejects graph refs outside the linked issue", () => {
           actor: "codex-master",
           event_type: "issue_started",
           graph_refs: ["node:worker_supervisor"],
-          issue_id: "ISS-MANAGER-0001",
+          issue_id: "ISSUE-MANAGER-0001",
           session_ref: "thread-1",
           timestamp: "2026-06-08T12:00:00.000Z",
         },
@@ -355,7 +355,7 @@ test("rejects completion without evidence", () => {
           actor: "codex-master",
           event_type: "issue_completed",
           graph_refs: ["node:manager_service"],
-          issue_id: "ISS-MANAGER-0001",
+          issue_id: "ISSUE-MANAGER-0001",
           session_ref: "thread-1",
           timestamp: "2026-06-08T12:00:00.000Z",
         },
@@ -375,7 +375,7 @@ test("rejects completion evidence that does not match verification grammar", () 
           event_type: "issue_completed",
           evidence_refs: ["README.md"],
           graph_refs: ["node:manager_service"],
-          issue_id: "ISS-MANAGER-0001",
+          issue_id: "ISSUE-MANAGER-0001",
           session_ref: "thread-1",
           timestamp: "2026-06-08T12:00:00.000Z",
         },
@@ -395,7 +395,7 @@ test("rejects evidence refs pointing to missing lines", () => {
           event_type: "issue_blocked",
           evidence_refs: ["README.md:999999"],
           graph_refs: ["node:manager_service"],
-          issue_id: "ISS-MANAGER-0001",
+          issue_id: "ISSUE-MANAGER-0001",
           session_ref: "thread-1",
           timestamp: "2026-06-08T12:00:00.000Z",
         },
@@ -415,7 +415,7 @@ test("rejects absolute evidence refs even when they point inside the repository"
           event_type: "issue_blocked",
           evidence_refs: [`${process.cwd()}/docs/governance/05-development-traceability-method.md`],
           graph_refs: ["node:manager_service"],
-          issue_id: "ISS-MANAGER-0001",
+          issue_id: "ISSUE-MANAGER-0001",
           session_ref: "thread-1",
           timestamp: "2026-06-08T12:00:00.000Z",
         },
@@ -435,7 +435,7 @@ function verifiedLedgerAt(timestamp: string) {
       event_type: "gate_passed",
       evidence_refs: [VERIFICATION_EVIDENCE],
       graph_refs: ["node:manager_service"],
-      issue_id: "ISS-MANAGER-0001",
+      issue_id: "ISSUE-MANAGER-0001",
       session_ref: "thread-1",
       timestamp,
     },
@@ -455,7 +455,7 @@ test("late heartbeat after gate_passed does not un-verify or rewind updated_at",
       actor: "codex-master",
       event_type: "heartbeat",
       graph_refs: ["node:manager_service"],
-      issue_id: "ISS-MANAGER-0001",
+      issue_id: "ISSUE-MANAGER-0001",
       session_ref: "thread-1",
       timestamp: "2026-06-08T12:05:00.000Z",
     },
@@ -480,7 +480,7 @@ test("newer heartbeat after gate_passed still does not downgrade verified status
       actor: "codex-master",
       event_type: "heartbeat",
       graph_refs: ["node:manager_service"],
-      issue_id: "ISS-MANAGER-0001",
+      issue_id: "ISSUE-MANAGER-0001",
       session_ref: "thread-1",
       timestamp: "2026-06-08T12:20:00.000Z",
     },
@@ -500,7 +500,7 @@ test("explicit issue_reopened downgrades verified back to in_progress", () => {
       actor: "codex-master",
       event_type: "issue_reopened",
       graph_refs: ["node:manager_service"],
-      issue_id: "ISS-MANAGER-0001",
+      issue_id: "ISSUE-MANAGER-0001",
       session_ref: "thread-1",
       timestamp: "2026-06-08T12:30:00.000Z",
     },
@@ -536,7 +536,7 @@ const startedEvent: ProgressEvent = {
   actor: "codex-master",
   event_type: "issue_started",
   graph_refs: ["node:manager_service"],
-  issue_id: "ISS-MANAGER-0001",
+  issue_id: "ISSUE-MANAGER-0001",
   session_ref: "thread-1",
   timestamp: "2026-06-08T12:00:00.000Z",
 };
@@ -627,7 +627,7 @@ const gateBoundIssueIndex = {
   issues: [
     {
       graph_refs: ["node:manager_service"],
-      id: "ISS-MANAGER-0001",
+      id: "ISSUE-MANAGER-0001",
       verification_gate_ids: ["gate:test:iss-manager-0001"],
     },
   ],
@@ -640,7 +640,7 @@ function gateBoundCompletion(evidenceRefs: string[]) {
       event_type: "issue_completed",
       evidence_refs: evidenceRefs,
       graph_refs: ["node:manager_service"],
-      issue_id: "ISS-MANAGER-0001",
+      issue_id: "ISSUE-MANAGER-0001",
       session_ref: "thread-1",
       timestamp: "2026-06-08T12:10:00.000Z",
     },
@@ -671,7 +671,7 @@ test("rejects events without session_ref", () => {
           actor: "codex-master",
           event_type: "heartbeat",
           graph_refs: ["node:manager_service"],
-          issue_id: "ISS-MANAGER-0001",
+          issue_id: "ISSUE-MANAGER-0001",
           timestamp: "2026-06-08T12:00:00.000Z",
         },
         issueIndex,
@@ -689,7 +689,7 @@ test("rejects events with empty graph_refs (no fallback to the issue's full set)
           actor: "codex-master",
           event_type: "heartbeat",
           graph_refs: [],
-          issue_id: "ISS-MANAGER-0001",
+          issue_id: "ISSUE-MANAGER-0001",
           session_ref: "thread-1",
           timestamp: "2026-06-08T12:00:00.000Z",
         },
@@ -703,8 +703,8 @@ test("rejects events with empty graph_refs (no fallback to the issue's full set)
 const sharedGraphIssueIndex = {
   verification_evidence_ref_grammar: VERIFICATION_EVIDENCE_REF_GRAMMAR,
   issues: [
-    { graph_refs: ["node:manager_service"], id: "ISS-A" },
-    { graph_refs: ["node:manager_service"], id: "ISS-B" },
+    { graph_refs: ["node:manager_service"], id: "ISSUE-A" },
+    { graph_refs: ["node:manager_service"], id: "ISSUE-B" },
   ],
 };
 
@@ -714,7 +714,7 @@ test("#34: one issue going verified does not overstate a graph item another issu
       actor: "codex-master",
       event_type: "issue_started",
       graph_refs: ["node:manager_service"],
-      issue_id: "ISS-B",
+      issue_id: "ISSUE-B",
       session_ref: "thread-2",
       timestamp: "2026-06-08T12:00:00.000Z",
     },
@@ -728,7 +728,7 @@ test("#34: one issue going verified does not overstate a graph item another issu
       event_type: "gate_passed",
       evidence_refs: [gateEvidenceRel],
       graph_refs: ["node:manager_service"],
-      issue_id: "ISS-A",
+      issue_id: "ISSUE-A",
       session_ref: "thread-1",
       timestamp: "2026-06-08T12:10:00.000Z",
     },
@@ -737,8 +737,8 @@ test("#34: one issue going verified does not overstate a graph item another issu
   });
 
   const item = afterGate.graph_item_states[0];
-  assert.equal(item.issue_states["ISS-A"], "verified", "the gated issue is recorded verified");
-  assert.equal(item.issue_states["ISS-B"], "in_progress", "the other issue stays in_progress");
+  assert.equal(item.issue_states["ISSUE-A"], "verified", "the gated issue is recorded verified");
+  assert.equal(item.issue_states["ISSUE-B"], "in_progress", "the other issue stays in_progress");
   assert.equal(item.status, "in_progress", "displayed status is the conservative aggregate");
 
   const afterSecondGate = applyProgressEvent({
@@ -747,7 +747,7 @@ test("#34: one issue going verified does not overstate a graph item another issu
       event_type: "gate_passed",
       evidence_refs: [gateEvidenceRel],
       graph_refs: ["node:manager_service"],
-      issue_id: "ISS-B",
+      issue_id: "ISSUE-B",
       session_ref: "thread-2",
       timestamp: "2026-06-08T12:20:00.000Z",
     },
@@ -816,7 +816,7 @@ test("progress recording is inert against the real empty issue index (Unknown is
             actor: "codex-master",
             event_type: "issue_started",
             graph_refs: ["node:manager_service"],
-            issue_id: "ISS-ANY-0001",
+            issue_id: "ISSUE-ANY-0001",
             session_ref: "thread-1",
             timestamp: "2026-06-08T12:00:00.000Z",
           },

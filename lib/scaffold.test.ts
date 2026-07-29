@@ -430,7 +430,7 @@ describe("scaffoldProject — existing project (shared files get a managed block
 
 describe("the proof-artifact ignore posture, exercised through real git (both writers)", () => {
   function plantProof(target: string): void {
-    const home = path.join(target, ".vivicy", "development", "proofs", "ISS-0008", "cli-run")
+    const home = path.join(target, ".vivicy", "development", "proofs", "ISSUE-0008", "cli-run")
     mkdirSync(path.join(home, "screens"), { recursive: true })
     writeFileSync(path.join(home, "recipe.txt"), "node src/cli.js report 2026-01\n")
     writeFileSync(path.join(home, "observed.log"), "total 1234\n")
@@ -453,9 +453,9 @@ describe("the proof-artifact ignore posture, exercised through real git (both wr
     scaffoldProject({ targetDir: target, projectName: "Greenfield Proofs" })
     plantProof(target)
     const tracked = trackedAfterAddAll(target)
-    expect(tracked).toContain(".vivicy/development/proofs/ISS-0008/cli-run/recipe.txt")
+    expect(tracked).toContain(".vivicy/development/proofs/ISSUE-0008/cli-run/recipe.txt")
     expect(tracked.filter((p) => p.startsWith(".vivicy/development/proofs/"))).toEqual([
-      ".vivicy/development/proofs/ISS-0008/cli-run/recipe.txt",
+      ".vivicy/development/proofs/ISSUE-0008/cli-run/recipe.txt",
     ])
     expect(spawnSync("git", ["status", "--porcelain"], { cwd: target, encoding: "utf8" }).stdout.trim()).toBe("")
   })
@@ -469,7 +469,7 @@ describe("the proof-artifact ignore posture, exercised through real git (both wr
     plantProof(target)
     const tracked = trackedAfterAddAll(target)
     expect(tracked.filter((p) => p.startsWith(".vivicy/development/proofs/"))).toEqual([
-      ".vivicy/development/proofs/ISS-0008/cli-run/recipe.txt",
+      ".vivicy/development/proofs/ISSUE-0008/cli-run/recipe.txt",
     ])
     expect(spawnSync("git", ["status", "--porcelain"], { cwd: target, encoding: "utf8" }).stdout.trim()).toBe("")
   })

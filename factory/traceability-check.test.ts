@@ -43,8 +43,8 @@ test("placeholder index: nothing to check yet", () => {
 
 test("passes when MVP requirements are covered and all refs resolve", () => {
   const f = fixture({
-    issues: [{ id: "ISS-1", requirement_ids: ["REQ-A-001"] }],
-    requirements: [req("REQ-A-001", { coveredByIssues: ["ISS-1"] })],
+    issues: [{ id: "ISSUE-1", requirement_ids: ["REQ-A-001"] }],
+    requirements: [req("REQ-A-001", { coveredByIssues: ["ISSUE-1"] })],
   });
   try {
     const r = f.run();
@@ -57,8 +57,8 @@ test("passes when MVP requirements are covered and all refs resolve", () => {
 
 test("fails when an issue references an unknown requirement", () => {
   const f = fixture({
-    issues: [{ id: "ISS-1", requirement_ids: ["REQ-GHOST-999"] }],
-    requirements: [req("REQ-A-001", { coveredByIssues: ["ISS-1"] })],
+    issues: [{ id: "ISSUE-1", requirement_ids: ["REQ-GHOST-999"] }],
+    requirements: [req("REQ-A-001", { coveredByIssues: ["ISSUE-1"] })],
   });
   try {
     const r = f.run();
@@ -71,8 +71,8 @@ test("fails when an issue references an unknown requirement", () => {
 
 test("fails when an MVP requirement is covered by no issue", () => {
   const f = fixture({
-    issues: [{ id: "ISS-1", requirement_ids: ["REQ-A-001"] }],
-    requirements: [req("REQ-A-001", { coveredByIssues: ["ISS-1"] }), req("REQ-B-002")],
+    issues: [{ id: "ISSUE-1", requirement_ids: ["REQ-A-001"] }],
+    requirements: [req("REQ-A-001", { coveredByIssues: ["ISSUE-1"] }), req("REQ-B-002")],
   });
   try {
     const r = f.run();
@@ -84,7 +84,7 @@ test("fails when an MVP requirement is covered by no issue", () => {
 });
 
 test("requires the catalog once issues exist", () => {
-  const f = fixture({ issues: [{ id: "ISS-1", requirement_ids: ["REQ-A-001"] }] });
+  const f = fixture({ issues: [{ id: "ISSUE-1", requirement_ids: ["REQ-A-001"] }] });
   try {
     const r = f.run();
     assert.equal(r.exitCode, 1);
@@ -108,8 +108,8 @@ const spikeMd = ({ slug, status = "pending", reqIds = "REQ-A-001" }: { slug: str
 
 test("spike gating: an issue spike_gate resolving to a pending spike passes (referential-only)", () => {
   const f = fixture({
-    issues: [{ id: "ISS-1", requirement_ids: ["REQ-A-001"], spike_gates: ["gate:phase0:s01-x"] }],
-    requirements: [req("REQ-A-001", { coveredByIssues: ["ISS-1"] })],
+    issues: [{ id: "ISSUE-1", requirement_ids: ["REQ-A-001"], spike_gates: ["gate:phase0:s01-x"] }],
+    requirements: [req("REQ-A-001", { coveredByIssues: ["ISSUE-1"] })],
     spikes: { "01-x.md": spikeMd({ slug: "01-x", status: "pending", reqIds: "REQ-A-001" }) },
   });
   try {
@@ -123,8 +123,8 @@ test("spike gating: an issue spike_gate resolving to a pending spike passes (ref
 
 test("spike gating: an issue spike_gate with no spike file fails", () => {
   const f = fixture({
-    issues: [{ id: "ISS-1", requirement_ids: ["REQ-A-001"], spike_gates: ["gate:phase0:s99-missing"] }],
-    requirements: [req("REQ-A-001", { coveredByIssues: ["ISS-1"] })],
+    issues: [{ id: "ISSUE-1", requirement_ids: ["REQ-A-001"], spike_gates: ["gate:phase0:s99-missing"] }],
+    requirements: [req("REQ-A-001", { coveredByIssues: ["ISSUE-1"] })],
   });
   try {
     const r = f.run();
@@ -137,8 +137,8 @@ test("spike gating: an issue spike_gate with no spike file fails", () => {
 
 test("spike gating: a malformed gate_id (slug != filename) does not resolve -> issue fails", () => {
   const f = fixture({
-    issues: [{ id: "ISS-1", requirement_ids: ["REQ-A-001"], spike_gates: ["gate:phase0:s01-x"] }],
-    requirements: [req("REQ-A-001", { coveredByIssues: ["ISS-1"] })],
+    issues: [{ id: "ISSUE-1", requirement_ids: ["REQ-A-001"], spike_gates: ["gate:phase0:s01-x"] }],
+    requirements: [req("REQ-A-001", { coveredByIssues: ["ISSUE-1"] })],
     spikes: { "01-x.md": spikeMd({ slug: "99-wrong", reqIds: "REQ-A-001" }) },
   });
   try {
@@ -152,8 +152,8 @@ test("spike gating: a malformed gate_id (slug != filename) does not resolve -> i
 
 test("spike gating: a spike still carrying the placeholder requirement_ids fails", () => {
   const f = fixture({
-    issues: [{ id: "ISS-1", requirement_ids: ["REQ-A-001"], spike_gates: ["gate:phase0:s01-x"] }],
-    requirements: [req("REQ-A-001", { coveredByIssues: ["ISS-1"] })],
+    issues: [{ id: "ISSUE-1", requirement_ids: ["REQ-A-001"], spike_gates: ["gate:phase0:s01-x"] }],
+    requirements: [req("REQ-A-001", { coveredByIssues: ["ISSUE-1"] })],
     spikes: { "01-x.md": spikeMd({ slug: "01-x", reqIds: "pending-extraction (Requirement Catalog join key: S01)" }) },
   });
   try {
@@ -167,8 +167,8 @@ test("spike gating: a spike still carrying the placeholder requirement_ids fails
 
 test("spike gating: a spike requirement_id that is not in the catalog fails", () => {
   const f = fixture({
-    issues: [{ id: "ISS-1", requirement_ids: ["REQ-A-001"], spike_gates: ["gate:phase0:s01-x"] }],
-    requirements: [req("REQ-A-001", { coveredByIssues: ["ISS-1"] })],
+    issues: [{ id: "ISSUE-1", requirement_ids: ["REQ-A-001"], spike_gates: ["gate:phase0:s01-x"] }],
+    requirements: [req("REQ-A-001", { coveredByIssues: ["ISSUE-1"] })],
     spikes: { "01-x.md": spikeMd({ slug: "01-x", reqIds: "REQ-GHOST-999" }) },
   });
   try {
@@ -182,8 +182,8 @@ test("spike gating: a spike requirement_id that is not in the catalog fails", ()
 
 test("spike gating: a must_verify_with_spike requirement gated by a spike passes", () => {
   const f = fixture({
-    issues: [{ id: "ISS-1", requirement_ids: ["REQ-A-001"], spike_gates: ["gate:phase0:s01-x"] }],
-    requirements: [req("REQ-A-001", { disposition: "must_verify_with_spike", coveredByIssues: ["ISS-1"] })],
+    issues: [{ id: "ISSUE-1", requirement_ids: ["REQ-A-001"], spike_gates: ["gate:phase0:s01-x"] }],
+    requirements: [req("REQ-A-001", { disposition: "must_verify_with_spike", coveredByIssues: ["ISSUE-1"] })],
     spikes: { "01-x.md": spikeMd({ slug: "01-x", reqIds: "REQ-A-001" }) },
   });
   try {
@@ -197,8 +197,8 @@ test("spike gating: a must_verify_with_spike requirement gated by a spike passes
 
 test("spike gating: a must_verify_with_spike requirement with no spike to gate it fails", () => {
   const f = fixture({
-    issues: [{ id: "ISS-1", requirement_ids: ["REQ-A-001"] }],
-    requirements: [req("REQ-A-001", { disposition: "must_verify_with_spike", coveredByIssues: ["ISS-1"] })],
+    issues: [{ id: "ISSUE-1", requirement_ids: ["REQ-A-001"] }],
+    requirements: [req("REQ-A-001", { disposition: "must_verify_with_spike", coveredByIssues: ["ISSUE-1"] })],
   });
   try {
     const r = f.run();

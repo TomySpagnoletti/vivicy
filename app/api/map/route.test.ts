@@ -208,13 +208,13 @@ describe("GET /api/map", () => {
     normalizeMapData.mockReturnValue(NORMALIZED)
     const proofs = [
       {
-        issue_id: "ISS-0008",
+        issue_id: "ISSUE-0008",
         proofs: [
           {
             id: "cli-dispatch-run",
             class: "run_log",
             evidences: [".vivicy/canonical/06-cli.md:13-16"],
-            path: ".vivicy/development/proofs/ISS-0008/cli-dispatch-run",
+            path: ".vivicy/development/proofs/ISSUE-0008/cli-dispatch-run",
             produced: true,
             recipe: true,
             artifacts: ["observed.log", "recipe.txt"],

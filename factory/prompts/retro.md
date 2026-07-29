@@ -44,7 +44,7 @@ Write your verdict, and nothing else, to `.vivicy/development/reports/retro-verd
       "id": "gate-flake-typecheck",
       "kind": "gate_flake",
       "signature": "the verification gate failed on a transient typecheck error, retried green",
-      "evidence": [".vivicy/development/gates/ISS-0004-gate.json", ".vivicy/development/gates/ISS-0009-gate.json", ".vivicy/development/gates/ISS-0012-gate.json"]
+      "evidence": [".vivicy/development/gates/ISSUE-0004-gate.json", ".vivicy/development/gates/ISSUE-0009-gate.json", ".vivicy/development/gates/ISSUE-0012-gate.json"]
     }
   ],
   "proposals": [

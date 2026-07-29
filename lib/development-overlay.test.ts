@@ -9,8 +9,8 @@ import {
 
 const GRAPH_REFS = new Set(["node:ledger", "node:cat", "edge:ledger->cat:writes:mcp"])
 const ISSUES = [
-  { id: "ISS-A", graph_refs: ["node:ledger"] },
-  { id: "ISS-B", graph_refs: ["node:cat"] },
+  { id: "ISSUE-A", graph_refs: ["node:ledger"] },
+  { id: "ISSUE-B", graph_refs: ["node:cat"] },
 ]
 
 function options(ledger: unknown, extra: Partial<DeriveOverlayOptions> = {}): DeriveOverlayOptions {
@@ -57,9 +57,9 @@ describe("deriveDevelopmentOverlay", () => {
         {
           graph_ref: "node:ledger",
           status: "verified",
-          issue_ids: ["ISS-A"],
-          evidence_refs: [".vivicy/development/gates/ISS-A.json:1"],
-          transcript_refs: [".vivicy/development/transcripts/ISSUES/ISS-A/impl.jsonl"],
+          issue_ids: ["ISSUE-A"],
+          evidence_refs: [".vivicy/development/gates/ISSUE-A.json:1"],
+          transcript_refs: [".vivicy/development/transcripts/ISSUES/ISSUE-A/impl.jsonl"],
         },
       ],
       active_items: [],
@@ -69,7 +69,7 @@ describe("deriveDevelopmentOverlay", () => {
     expect(overlay.graph_item_states[0]).toMatchObject({
       graph_ref: "node:ledger",
       status: "verified",
-      issue_ids: ["ISS-A"],
+      issue_ids: ["ISSUE-A"],
     })
     expect(overlay.active_items).toEqual([])
   })
@@ -81,7 +81,7 @@ describe("deriveDevelopmentOverlay", () => {
         {
           id: "ai-1",
           actor: "claude-implementer",
-          issue_id: "ISS-B",
+          issue_id: "ISSUE-B",
           graph_refs: ["node:cat"],
           state: "working",
           role: "implementer",
@@ -93,7 +93,7 @@ describe("deriveDevelopmentOverlay", () => {
     expect(overlay.active_items).toHaveLength(1)
     expect(overlay.active_items[0]).toMatchObject({
       id: "ai-1",
-      issue_id: "ISS-B",
+      issue_id: "ISSUE-B",
       state: "working",
       role: "implementer",
     })
@@ -105,7 +105,7 @@ describe("deriveDevelopmentOverlay", () => {
         {
           graph_ref: "node:ledger",
           status: "verified",
-          issue_ids: ["ISS-A"],
+          issue_ids: ["ISSUE-A"],
           evidence_refs: [".vivicy/development/notes.md:1"],
         },
       ],
@@ -117,7 +117,7 @@ describe("deriveDevelopmentOverlay", () => {
   it("rejects a graph_ref outside the static graph", () => {
     const ledger = {
       graph_item_states: [
-        { graph_ref: "node:ghost", status: "implemented", issue_ids: ["ISS-A"], evidence_refs: ["x/gate.json:1"] },
+        { graph_ref: "node:ghost", status: "implemented", issue_ids: ["ISSUE-A"], evidence_refs: ["x/gate.json:1"] },
       ],
       active_items: [],
     }
@@ -127,7 +127,7 @@ describe("deriveDevelopmentOverlay", () => {
   it("rejects a ledger entry referencing an unknown issue", () => {
     const ledger = {
       graph_item_states: [
-        { graph_ref: "node:ledger", status: "implemented", issue_ids: ["ISS-Z"], evidence_refs: ["x/gate.json:1"] },
+        { graph_ref: "node:ledger", status: "implemented", issue_ids: ["ISSUE-Z"], evidence_refs: ["x/gate.json:1"] },
       ],
       active_items: [],
     }
@@ -137,7 +137,7 @@ describe("deriveDevelopmentOverlay", () => {
   it("rejects an issue/graph_ref membership mismatch", () => {
     const ledger = {
       graph_item_states: [
-        { graph_ref: "node:cat", status: "implemented", issue_ids: ["ISS-A"], evidence_refs: ["x/gate.json:1"] },
+        { graph_ref: "node:cat", status: "implemented", issue_ids: ["ISSUE-A"], evidence_refs: ["x/gate.json:1"] },
       ],
       active_items: [],
     }
@@ -148,7 +148,7 @@ describe("deriveDevelopmentOverlay", () => {
     const entry = {
       graph_ref: "node:ledger",
       status: "implemented",
-      issue_ids: ["ISS-A"],
+      issue_ids: ["ISSUE-A"],
       evidence_refs: ["x/gate.json:1"],
     }
     const ledger = { graph_item_states: [entry, { ...entry }], active_items: [] }
@@ -158,7 +158,7 @@ describe("deriveDevelopmentOverlay", () => {
   it("requires an in_progress item to have a matching active heartbeat", () => {
     const ledger = {
       graph_item_states: [
-        { graph_ref: "node:ledger", status: "in_progress", issue_ids: ["ISS-A"], evidence_refs: [] },
+        { graph_ref: "node:ledger", status: "in_progress", issue_ids: ["ISSUE-A"], evidence_refs: [] },
       ],
       active_items: [],
     }
@@ -172,15 +172,15 @@ describe("deriveDevelopmentOverlay", () => {
         {
           graph_ref: "node:ledger",
           status: "verified",
-          issue_ids: ["ISS-A"],
-          evidence_refs: [".vivicy/development/gates/ISS-A.json:1"],
+          issue_ids: ["ISSUE-A"],
+          evidence_refs: [".vivicy/development/gates/ISSUE-A.json:1"],
         },
       ],
       active_items: [],
     }
     deriveDevelopmentOverlay(options(ledger, { evidenceRefChecker: checker }))
     expect(checker).toHaveBeenCalledWith(
-      ".vivicy/development/gates/ISS-A.json:1",
+      ".vivicy/development/gates/ISSUE-A.json:1",
       "Progress graph item state node:ledger"
     )
   })
@@ -191,7 +191,7 @@ describe("deriveDevelopmentOverlay", () => {
         {
           graph_ref: "node:ledger",
           status: "verified",
-          issue_ids: ["ISS-A"],
+          issue_ids: ["ISSUE-A"],
           evidence_refs: ["does/not/exist/gate.json:999"],
         },
       ],

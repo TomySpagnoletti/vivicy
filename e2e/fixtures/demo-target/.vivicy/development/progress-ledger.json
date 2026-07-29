@@ -11,9 +11,9 @@
       "graph_ref": "node:ledger",
       "status": "verified",
       "issue_ids": [
-        "ISS-0001",
-        "ISS-0002",
-        "ISS-0003"
+        "ISSUE-0001",
+        "ISSUE-0002",
+        "ISSUE-0003"
       ],
       "evidence_refs": [
         ".vivicy/development/gates/gate-test-ledger-add-expense.json",
@@ -25,7 +25,7 @@
       "graph_ref": "node:exporter",
       "status": "verified",
       "issue_ids": [
-        "ISS-0007"
+        "ISSUE-0007"
       ],
       "evidence_refs": [
         ".vivicy/development/gates/gate-test-csv-export.json"
@@ -35,39 +35,39 @@
       "graph_ref": "node:categorizer",
       "status": "in_progress",
       "issue_ids": [
-        "ISS-0004"
+        "ISSUE-0004"
       ],
       "evidence_refs": [
-        ".vivicy/development/reports/ISS-0004-progress.md"
+        ".vivicy/development/reports/ISSUE-0004-progress.md"
       ]
     },
     {
       "graph_ref": "node:cli",
       "status": "in_progress",
       "issue_ids": [
-        "ISS-0008"
+        "ISSUE-0008"
       ],
       "evidence_refs": [
-        ".vivicy/development/reports/ISS-0008-progress.md"
+        ".vivicy/development/reports/ISSUE-0008-progress.md"
       ]
     },
     {
       "graph_ref": "node:reporter",
       "status": "implemented",
       "issue_ids": [
-        "ISS-0005",
-        "ISS-0006"
+        "ISSUE-0005",
+        "ISSUE-0006"
       ],
       "evidence_refs": [
-        ".vivicy/development/reports/ISS-0005-implementation.md"
+        ".vivicy/development/reports/ISSUE-0005-implementation.md"
       ]
     }
   ],
   "active_items": [
     {
-      "id": "active-ISS-0004",
+      "id": "active-ISSUE-0004",
       "actor": "claude-code",
-      "issue_id": "ISS-0004",
+      "issue_id": "ISSUE-0004",
       "graph_refs": [
         "node:categorizer"
       ],
@@ -77,9 +77,9 @@
       "heartbeat_at": "2026-06-27T14:19:30Z"
     },
     {
-      "id": "active-ISS-0008",
+      "id": "active-ISSUE-0008",
       "actor": "codex-cli",
-      "issue_id": "ISS-0008",
+      "issue_id": "ISSUE-0008",
       "graph_refs": [
         "node:cli"
       ],

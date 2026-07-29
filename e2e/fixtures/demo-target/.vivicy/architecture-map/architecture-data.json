@@ -279,9 +279,9 @@
     "progress_ledger_path": ".vivicy/development/progress-ledger.json",
     "issues": [
       {
-        "id": "ISS-0001",
+        "id": "ISSUE-0001",
         "title": "Add an expense to the Ledger with field validation",
-        "issue_path": ".vivicy/development/issues/ISS-0001.md",
+        "issue_path": ".vivicy/development/issues/ISSUE-0001.md",
         "requirement_ids": [
           "REQ-LEDGER-001",
           "REQ-LEDGER-002",
@@ -300,9 +300,9 @@
         ]
       },
       {
-        "id": "ISS-0002",
+        "id": "ISSUE-0002",
         "title": "Read expenses from the Ledger as defensive copies",
-        "issue_path": ".vivicy/development/issues/ISS-0002.md",
+        "issue_path": ".vivicy/development/issues/ISSUE-0002.md",
         "requirement_ids": [
           "REQ-LEDGER-003"
         ],
@@ -317,9 +317,9 @@
         ]
       },
       {
-        "id": "ISS-0003",
+        "id": "ISSUE-0003",
         "title": "Compute the Ledger total in integer cents",
-        "issue_path": ".vivicy/development/issues/ISS-0003.md",
+        "issue_path": ".vivicy/development/issues/ISSUE-0003.md",
         "requirement_ids": [
           "REQ-LEDGER-004",
           "REQ-ARCH-002"
@@ -336,9 +336,9 @@
         ]
       },
       {
-        "id": "ISS-0004",
+        "id": "ISSUE-0004",
         "title": "Categorize an expense by ordered keyword rules",
-        "issue_path": ".vivicy/development/issues/ISS-0004.md",
+        "issue_path": ".vivicy/development/issues/ISSUE-0004.md",
         "requirement_ids": [
           "REQ-CATEGORY-001",
           "REQ-CATEGORY-002",
@@ -361,9 +361,9 @@
         ]
       },
       {
-        "id": "ISS-0005",
+        "id": "ISSUE-0005",
         "title": "Report monthly totals and per-category breakdown",
-        "issue_path": ".vivicy/development/issues/ISS-0005.md",
+        "issue_path": ".vivicy/development/issues/ISSUE-0005.md",
         "requirement_ids": [
           "REQ-REPORT-001",
           "REQ-REPORT-002"
@@ -382,9 +382,9 @@
         ]
       },
       {
-        "id": "ISS-0006",
+        "id": "ISSUE-0006",
         "title": "Evaluate a month against its budget",
-        "issue_path": ".vivicy/development/issues/ISS-0006.md",
+        "issue_path": ".vivicy/development/issues/ISSUE-0006.md",
         "requirement_ids": [
           "REQ-REPORT-003"
         ],
@@ -400,9 +400,9 @@
         ]
       },
       {
-        "id": "ISS-0007",
+        "id": "ISSUE-0007",
         "title": "Serialize the Ledger to deterministic CSV",
-        "issue_path": ".vivicy/development/issues/ISS-0007.md",
+        "issue_path": ".vivicy/development/issues/ISSUE-0007.md",
         "requirement_ids": [
           "REQ-EXPORT-001",
           "REQ-EXPORT-002",
@@ -425,9 +425,9 @@
         ]
       },
       {
-        "id": "ISS-0008",
+        "id": "ISSUE-0008",
         "title": "Dispatch CLI commands over the wired modules",
-        "issue_path": ".vivicy/development/issues/ISS-0008.md",
+        "issue_path": ".vivicy/development/issues/ISSUE-0008.md",
         "requirement_ids": [
           "REQ-CLI-001",
           "REQ-CLI-002",

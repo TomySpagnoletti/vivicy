@@ -528,7 +528,7 @@ function integrationCommitOrder(temp: string): string[] {
 }
 function gitLogOrderDetail(temp: string): string {
   const subjects = integrationCommitOrder(temp);
-  const issueLines = subjects.filter((s) => /ISS-\d+/.test(s)).slice(0, 6);
+  const issueLines = subjects.filter((s) => /ISSUE-\d+/.test(s)).slice(0, 6);
   return issueLines.join(" | ") || "(no issue commits)";
 }
 // git log is newest-first: a dependency must appear at a LARGER index (older) than the issue depending on it.
@@ -538,7 +538,7 @@ function dependencyOrderRespected(temp: string): boolean {
   const subjects = integrationCommitOrder(temp);
   const posById = new Map<string, number>();
   subjects.forEach((subject, i) => {
-    const m = subject.match(/ISS-\d+/);
+    const m = subject.match(/ISSUE-\d+/);
     if (m && !posById.has(m[0])) posById.set(m[0], i);
   });
   for (const issue of issues) {
@@ -720,9 +720,9 @@ function writeAcceptanceFixture(root: string): void {
     mkdirSync(dirname(abs), { recursive: true });
     writeFileSync(abs, content);
   };
-  write(".vivicy/development/issue-index.json", JSON.stringify({ issues: [{ id: "ISS-0001" }, { id: "ISS-0002" }] }, null, 2));
-  write(".vivicy/development/issues/done/ISS-0001.md", "# ISS-0001\n");
-  write(".vivicy/development/issues/done/ISS-0002.md", "# ISS-0002\n");
+  write(".vivicy/development/issue-index.json", JSON.stringify({ issues: [{ id: "ISSUE-0001" }, { id: "ISSUE-0002" }] }, null, 2));
+  write(".vivicy/development/issues/done/ISSUE-0001.md", "# ISSUE-0001\n");
+  write(".vivicy/development/issues/done/ISSUE-0002.md", "# ISSUE-0002\n");
   write(".vivicy/baselines/baseline-v1.0.0.json", JSON.stringify({ schema_version: 1, baseline_id: "baseline-v1.0.0", version: "1.0.0", status: "frozen", files: [] }, null, 2));
 }
 
@@ -761,7 +761,7 @@ async function runAcceptanceScenarios(): Promise<void> {
         writeFileSync(abs, JSON.stringify({
           accepted: false,
           scenarios: [{ id: "checkout-end-to-end", verification: "executed", result: "fail" }],
-          findings: [{ obligation: ".vivicy/canonical/04-checkout.md:20 (REQ-0012)", gap: "the ISS-0001/ISS-0002 seam drops the tax line, so the checkout total is not tax-inclusive end to end", title: "Checkout total must be tax-inclusive end to end", classification: "minor_product_change", verification: "executed" }],
+          findings: [{ obligation: ".vivicy/canonical/04-checkout.md:20 (REQ-0012)", gap: "the ISSUE-0001/ISSUE-0002 seam drops the tax line, so the checkout total is not tax-inclusive end to end", title: "Checkout total must be tax-inclusive end to end", classification: "minor_product_change", verification: "executed" }],
         }));
       },
     });
@@ -784,7 +784,7 @@ function plantRecurringFailures(root: string): void {
     mkdirSync(dirname(abs), { recursive: true });
     writeFileSync(abs, content);
   };
-  for (const iss of ["ISS-0001", "ISS-0002"]) {
+  for (const iss of ["ISSUE-0001", "ISSUE-0002"]) {
     write(`.vivicy/development/gates/${iss}-gate.json`, JSON.stringify({ gate_id: `gate:test:${iss}`, issue_id: iss, command: "npm test", exit_code: 1, status: "fail", finished_at: new Date().toISOString(), baseline_id: "baseline-v1.0.0" }, null, 2));
     write(`.vivicy/development/reports/${iss}-blocked.json`, JSON.stringify({ kind: "quota", reason: "provider quota exhausted mid-issue", issue_id: iss }, null, 2));
   }
@@ -804,8 +804,8 @@ async function runRetroScenarios(): Promise<void> {
         mkdirSync(dirname(abs), { recursive: true });
         writeFileSync(abs, JSON.stringify({
           recurring_classes: [
-            { id: "gate-flake-test", kind: "gate_flake", signature: "the npm test gate failed on two issues", occurrences: 2, evidence: [".vivicy/development/gates/ISS-0001-gate.json", ".vivicy/development/gates/ISS-0002-gate.json"] },
-            { id: "blocked-quota", kind: "blocked_cause", signature: "two issues blocked on provider quota exhaustion", occurrences: 2, evidence: [".vivicy/development/reports/ISS-0001-blocked.json", ".vivicy/development/reports/ISS-0002-blocked.json"] },
+            { id: "gate-flake-test", kind: "gate_flake", signature: "the npm test gate failed on two issues", occurrences: 2, evidence: [".vivicy/development/gates/ISSUE-0001-gate.json", ".vivicy/development/gates/ISSUE-0002-gate.json"] },
+            { id: "blocked-quota", kind: "blocked_cause", signature: "two issues blocked on provider quota exhaustion", occurrences: 2, evidence: [".vivicy/development/reports/ISSUE-0001-blocked.json", ".vivicy/development/reports/ISSUE-0002-blocked.json"] },
             { id: "one-off", kind: "review_finding", signature: "a single review finding", occurrences: 1 },
             { id: "fake-count", kind: "gate_flake", signature: "claims five recurrences but cites no witnesses", occurrences: 5, evidence: [] },
           ],
@@ -1007,8 +1007,8 @@ function authorEvolvedCorpus(temp: string, doc: { docRel: string; refs: string[]
 
   const reqId = "REQ-CYCLE-001";
   const gateId = "gate:test:feature-cycle-addendum";
-  const nextIssueNumber = index.issues.reduce((max, i) => Math.max(max, Number(/^ISS-(\d+)$/.exec(i.id)?.[1] ?? 0)), 0) + 1;
-  const issueId = index.issues.find((i) => i.requirement_ids.includes(reqId))?.id ?? `ISS-${String(nextIssueNumber).padStart(4, "0")}`;
+  const nextIssueNumber = index.issues.reduce((max, i) => Math.max(max, Number(/^ISSUE-(\d+)$/.exec(i.id)?.[1] ?? 0)), 0) + 1;
+  const issueId = index.issues.find((i) => i.requirement_ids.includes(reqId))?.id ?? `ISSUE-${String(nextIssueNumber).padStart(4, "0")}`;
   const graphRef = index.issues.flatMap((i) => i.graph_refs).find((ref) => ref.startsWith("node:"));
   if (!graphRef) throw new Error("dev-rehearsal: no node: graph ref in the issue index to reuse for the cycle issue");
   const entry: CycleIssueEntry = {

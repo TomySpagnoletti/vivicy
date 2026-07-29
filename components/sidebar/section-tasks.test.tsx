@@ -32,9 +32,9 @@ describe("SectionTasks — issue cards", () => {
     const development: DevelopmentBlock = {
       issues: [
         {
-          id: "ISS-0001",
+          id: "ISSUE-0001",
           title: "Bootstrap the workspace",
-          issue_path: ".vivicy/development/issues/ISS-0001.md",
+          issue_path: ".vivicy/development/issues/ISSUE-0001.md",
           graph_refs: ["node:app"],
           requirement_ids: ["REQ-1", "REQ-2"],
         },
@@ -43,11 +43,11 @@ describe("SectionTasks — issue cards", () => {
     }
     renderTasks(development)
 
-    const card = screen.getByText("ISS-0001").closest("li") as HTMLElement
+    const card = screen.getByText("ISSUE-0001").closest("li") as HTMLElement
     expect(card).toBeTruthy()
     expect(within(card).getByText("Bootstrap the workspace")).toBeInTheDocument()
     expect(
-      within(card).getByText(".vivicy/development/issues/ISS-0001.md")
+      within(card).getByText(".vivicy/development/issues/ISSUE-0001.md")
     ).toBeInTheDocument()
     expect(within(card).getByText("in progress")).toBeInTheDocument()
     expect(within(card).getByText("REQ-1, REQ-2")).toBeInTheDocument()
@@ -55,41 +55,41 @@ describe("SectionTasks — issue cards", () => {
 
   test("a fully-verified issue surfaces the 'verified' status affordance", () => {
     const development: DevelopmentBlock = {
-      issues: [{ id: "ISS-0002", title: "Done work", graph_refs: ["node:x", "node:y"] }],
+      issues: [{ id: "ISSUE-0002", title: "Done work", graph_refs: ["node:x", "node:y"] }],
       graph_item_states: [
         { graph_ref: "node:x", status: "verified" },
         { graph_ref: "node:y", status: "verified" },
       ],
     }
     renderTasks(development)
-    const card = screen.getByText("ISS-0002").closest("li") as HTMLElement
+    const card = screen.getByText("ISSUE-0002").closest("li") as HTMLElement
     expect(within(card).getByText("verified")).toBeInTheDocument()
   })
 
   test("an active issue gets the highlighted border and Active count", () => {
     const development: DevelopmentBlock = {
-      issues: [{ id: "ISS-0003", title: "In flight", graph_refs: ["node:z"] }],
-      active_items: [{ id: "ai-1", issue_id: "ISS-0003", state: "reviewing" }],
+      issues: [{ id: "ISSUE-0003", title: "In flight", graph_refs: ["node:z"] }],
+      active_items: [{ id: "ai-1", issue_id: "ISSUE-0003", state: "reviewing" }],
     }
     renderTasks(development)
-    const card = screen.getByText("ISS-0003").closest("li") as HTMLElement
+    const card = screen.getByText("ISSUE-0003").closest("li") as HTMLElement
     expect(card).toHaveClass("border-status-verified")
     expect(within(card).getByText("reviewing")).toBeInTheDocument()
   })
 
   test("a transcript ref under the issue renders a clickable transcript button", () => {
     const development: DevelopmentBlock = {
-      issues: [{ id: "ISS-0004", title: "Has transcript", graph_refs: ["node:t"] }],
+      issues: [{ id: "ISSUE-0004", title: "Has transcript", graph_refs: ["node:t"] }],
       graph_item_states: [
         {
           graph_ref: "node:t",
           status: "implemented",
-          transcript_refs: [".vivicy/development/transcripts/ISSUES/ISS-0004/claude-session.jsonl"],
+          transcript_refs: [".vivicy/development/transcripts/ISSUES/ISSUE-0004/claude-session.jsonl"],
         },
       ],
     }
     renderTasks(development)
-    const card = screen.getByText("ISS-0004").closest("li") as HTMLElement
+    const card = screen.getByText("ISSUE-0004").closest("li") as HTMLElement
     expect(within(card).getByText("Transcripts")).toBeInTheDocument()
     const btn = within(card).getByRole("button", { name: "claude-session.jsonl" })
     expect(btn).toBeInTheDocument()
@@ -97,23 +97,23 @@ describe("SectionTasks — issue cards", () => {
 
   test("an issue with no matching transcript renders no transcript section", () => {
     const development: DevelopmentBlock = {
-      issues: [{ id: "ISS-0005", title: "No transcript", graph_refs: ["node:n"] }],
+      issues: [{ id: "ISSUE-0005", title: "No transcript", graph_refs: ["node:n"] }],
       graph_item_states: [
         {
           graph_ref: "node:n",
           status: "in_progress",
-          transcript_refs: [".vivicy/development/transcripts/ISSUES/ISS-9999/other.jsonl"],
+          transcript_refs: [".vivicy/development/transcripts/ISSUES/ISSUE-9999/other.jsonl"],
         },
       ],
     }
     renderTasks(development)
-    const card = screen.getByText("ISS-0005").closest("li") as HTMLElement
+    const card = screen.getByText("ISSUE-0005").closest("li") as HTMLElement
     expect(within(card).queryByText("Transcripts")).not.toBeInTheDocument()
   })
 
   test("the coverage summary renders the doc-line counters when present", () => {
     const development: DevelopmentBlock = {
-      issues: [{ id: "ISS-0006", title: "Covered", graph_refs: [] }],
+      issues: [{ id: "ISSUE-0006", title: "Covered", graph_refs: [] }],
       coverage_summary: {
         total_doc_lines: 200,
         classified_doc_lines: 150,

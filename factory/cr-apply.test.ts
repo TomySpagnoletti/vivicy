@@ -170,7 +170,7 @@ describe("applyChangeRequest — happy path (green)", () => {
 
     const { spawnApplier, calls: applyCalls } = fakeApplier();
     const { runFreeze, calls: freezeCalls } = fakeFreeze();
-    const { runExtraction, calls: extractCalls } = fakeExtraction({ reopened: ["ISS-1"] });
+    const { runExtraction, calls: extractCalls } = fakeExtraction({ reopened: ["ISSUE-1"] });
     const sink = reportSink();
 
     const result = await applyChangeRequest({

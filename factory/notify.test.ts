@@ -19,8 +19,8 @@ test("notify is a strict no-op without a runtime dir", () => {
 test("notify appends the contract shape with unique ids", () => {
   const dir = mkdtempSync(join(tmpdir(), "vivicy-notify-"));
   try {
-    assert.equal(notify({ level: "success", stage: "S9", event: "gate_passed", message: "ISS-0001: gate green" }, { runtimeDir: dir }), true);
-    assert.equal(notify({ level: "error", stage: "S10", event: "post_merge_gate_failed", message: "ISS-0002: reverted" }, { runtimeDir: dir, now: () => Date.now() }), true);
+    assert.equal(notify({ level: "success", stage: "S9", event: "gate_passed", message: "ISSUE-0001: gate green" }, { runtimeDir: dir }), true);
+    assert.equal(notify({ level: "error", stage: "S10", event: "post_merge_gate_failed", message: "ISSUE-0002: reverted" }, { runtimeDir: dir, now: () => Date.now() }), true);
     const lines = readFileSync(join(dir, "notifications.jsonl"), "utf8").trim().split("\n").map((l) => JSON.parse(l));
     assert.equal(lines.length, 2);
     for (const row of lines) {

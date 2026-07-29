@@ -22,7 +22,7 @@ function makeRepo({ total = 2, done = total, baseline = true }: { total?: number
     mkdirSync(dirname(abs), { recursive: true });
     writeFileSync(abs, content);
   };
-  const id = (i: number): string => `ISS-${String(i + 1).padStart(4, "0")}`;
+  const id = (i: number): string => `ISSUE-${String(i + 1).padStart(4, "0")}`;
   write(".vivicy/development/issue-index.json", JSON.stringify({ issues: Array.from({ length: total }, (_, i) => ({ id: id(i) })) }));
   for (let i = 0; i < done; i += 1) write(`.vivicy/development/issues/done/${id(i)}.md`, `# ${id(i)}\n`);
   if (baseline) {
@@ -54,7 +54,7 @@ test("doneSetHash is stable and changes only when the done set changes", () => {
   try {
     const h1 = doneSetHash(root);
     assert.equal(doneSetHash(root), h1);
-    writeFileSync(join(root, ".vivicy/development/issues/done/ISS-0003.md"), "# extra\n");
+    writeFileSync(join(root, ".vivicy/development/issues/done/ISSUE-0003.md"), "# extra\n");
     assert.notEqual(doneSetHash(root), h1);
   } finally {
     cleanup(root);
@@ -113,7 +113,7 @@ test("findings route to draft change requests, phase is findings, and Done is wi
         accepted: false,
         scenarios: [{ id: "checkout", verification: "executed", result: "fail" }],
         findings: [
-          { obligation: ".vivicy/canonical/04-checkout.md:20 (REQ-0012)", gap: "cart total excludes tax across the ISS-0007/ISS-0011 seam", title: "Checkout total must be tax-inclusive end to end", classification: "minor_product_change", verification: "executed" },
+          { obligation: ".vivicy/canonical/04-checkout.md:20 (REQ-0012)", gap: "cart total excludes tax across the ISSUE-0007/ISSUE-0011 seam", title: "Checkout total must be tax-inclusive end to end", classification: "minor_product_change", verification: "executed" },
         ],
       }),
     });

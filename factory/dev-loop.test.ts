@@ -55,6 +55,7 @@ import {
   spikeGatesSatisfied,
 } from "./dev-loop.ts";
 import type { Config, Issue, LoopSteps, ProcessedIssue } from "./dev-loop.ts";
+import { TRANSCRIPT_DIRS } from "./agent-spawn.ts";
 import { checkSkills, missingSkills, readDeclaredSkills } from "./dev-preflight.ts";
 import { nextSupervisorAction } from "./dev-loop-supervised.ts";
 
@@ -118,11 +119,11 @@ test("computeDoneIds counts moved files and per-issue verified graph refs", () =
 
 test("composePrompt fills placeholders", () => {
   const out = composePrompt("Issue {{issue_id}} at {{issue_path}} refs {{graph_refs}}", {
-    id: "ISS-1",
+    id: "ISSUE-1",
     path: "p.md",
     graph_refs: ["a", "b"],
   });
-  assert.equal(out, "Issue ISS-1 at p.md refs a, b");
+  assert.equal(out, "Issue ISSUE-1 at p.md refs a, b");
 });
 
 test("agentCliArgs builds claude --model/--effort and codex -m/-c flags", () => {
@@ -213,7 +214,7 @@ test("defaultRunImplementer / defaultRunReviewer spawn with the model + effort f
   process.env.PATH = `${shimDir}:${prevPath}`;
   process.env.AGENT_SHIM_OUT = argvFile;
   try {
-    const issue = { id: "ISS-FLAGS", graph_refs: ["node:x"] };
+    const issue = { id: "ISSUE-FLAGS", graph_refs: ["node:x"] };
     const cfg = {
       ...DEFAULT_CONFIG,
       transcriptsDir: `${shimRel}/transcripts`,
@@ -321,7 +322,7 @@ test("a fast-enabled leg spawns the real fast flags in its argv", () => {
   process.env.PATH = `${shimDir}:${prevPath}`;
   process.env.AGENT_SHIM_OUT = argvFile;
   try {
-    const issue = { id: "ISS-FAST", graph_refs: ["node:x"] };
+    const issue = { id: "ISSUE-FAST", graph_refs: ["node:x"] };
     const cfg = {
       ...DEFAULT_CONFIG,
       transcriptsDir: `${shimRel}/transcripts`,
@@ -389,7 +390,7 @@ test("defaultRunImplementer / defaultRunReviewer dispatch to the assigned CLI (r
   process.env.PATH = `${shimDir}:${prevPath}`;
   process.env.AGENT_SHIM_OUT = argvFile;
   try {
-    const issue = { id: "ISS-SWAP", graph_refs: ["node:x"] };
+    const issue = { id: "ISSUE-SWAP", graph_refs: ["node:x"] };
     const legs = resolveAgentLegs({
       VIVICY_IMPLEMENTER_CLI: "codex",
       VIVICY_REVIEWER_CLI: "claude",
@@ -469,8 +470,8 @@ function buildScratch(
   const proofsDir = `${scratchRel}/proofs`;
   const reportsDir = `${scratchRel}/reports`;
   mkdirSync(resolve(repoRoot, issuesDir), { recursive: true });
-  writeFileSync(resolve(repoRoot, `${issuesDir}/ISS-A.md`), issueBodyWithProofs("A", proofs));
-  writeFileSync(resolve(repoRoot, `${issuesDir}/ISS-B.md`), "# B\n");
+  writeFileSync(resolve(repoRoot, `${issuesDir}/ISSUE-A.md`), issueBodyWithProofs("A", proofs));
+  writeFileSync(resolve(repoRoot, `${issuesDir}/ISSUE-B.md`), "# B\n");
   const indexRel = `${scratchRel}/issue-index.json`;
   const ledgerRel = `${scratchRel}/progress-ledger.json`;
   const gateField = perIssueGate ? { gate_command: gateCommand } : {};
@@ -479,22 +480,22 @@ function buildScratch(
     verification_evidence_ref_grammar: `^${scratchRel}/(gates|reports)/.+`,
     issues: [
       {
-        id: "ISS-A",
+        id: "ISSUE-A",
         title: "A",
         graph_refs: ["node:x"],
         depends_on: [],
         verification_gate_ids: ["gate:test:a"],
         ...gateField,
-        path: `${issuesDir}/ISS-A.md`,
+        path: `${issuesDir}/ISSUE-A.md`,
       },
       {
-        id: "ISS-B",
+        id: "ISSUE-B",
         title: "B",
         graph_refs: ["node:y"],
-        depends_on: ["ISS-A"],
+        depends_on: ["ISSUE-A"],
         verification_gate_ids: ["gate:test:b"],
         ...gateField,
-        path: `${issuesDir}/ISS-B.md`,
+        path: `${issuesDir}/ISSUE-B.md`,
       },
     ],
   };
@@ -514,15 +515,15 @@ test("runLoop drives two issues to verified, moved to done, in dependency order"
   try {
     const processed = runLoop(cfg, stubSteps);
     assert.deepEqual(processed, [
-      { id: "ISS-A", status: "verified" },
-      { id: "ISS-B", status: "verified" },
+      { id: "ISSUE-A", status: "verified" },
+      { id: "ISSUE-B", status: "verified" },
     ]);
     const doneFiles = new Set(readdirSync(resolve(repoRoot, cfg.doneDir)));
-    assert.ok(doneFiles.has("ISS-A.md"));
-    assert.ok(doneFiles.has("ISS-B.md"));
-    assert.ok(!existsSync(resolve(repoRoot, `${cfg.issuesDir}/ISS-A.md`)));
+    assert.ok(doneFiles.has("ISSUE-A.md"));
+    assert.ok(doneFiles.has("ISSUE-B.md"));
+    assert.ok(!existsSync(resolve(repoRoot, `${cfg.issuesDir}/ISSUE-A.md`)));
     const indexAfter = JSON.parse(readFileSync(resolve(repoRoot, cfg.issueIndexPath), "utf8"));
-    assert.equal(indexAfter.issues[0].path, `${cfg.doneDir}/ISS-A.md`);
+    assert.equal(indexAfter.issues[0].path, `${cfg.doneDir}/ISSUE-A.md`);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -535,11 +536,11 @@ test("POLYGLOT: runLoop resolves a NON-NODE gate from the project's vivicy.json 
   try {
     const processed = runLoop(cfg, stubSteps);
     assert.deepEqual(processed, [
-      { id: "ISS-A", status: "verified" },
-      { id: "ISS-B", status: "verified" },
+      { id: "ISSUE-A", status: "verified" },
+      { id: "ISSUE-B", status: "verified" },
     ]);
     const evidence = JSON.parse(
-      readFileSync(resolve(repoRoot, `${cfg.gatesDir}/ISS-A-gate.json`), "utf8"),
+      readFileSync(resolve(repoRoot, `${cfg.gatesDir}/ISSUE-A-gate.json`), "utf8"),
     );
     assert.equal(evidence.command, "echo go-test-ran");
     assert.equal(evidence.status, "pass");
@@ -565,10 +566,10 @@ test("GATE-COMMAND: the stack-setup implementer establishes the null sentinel ->
     };
     const processed = runLoop({ ...cfg, claudeQuotaProbeEnabled: false }, steps);
     assert.deepEqual(processed, [
-      { id: "ISS-A", status: "verified" },
-      { id: "ISS-B", status: "verified" },
+      { id: "ISSUE-A", status: "verified" },
+      { id: "ISSUE-B", status: "verified" },
     ]);
-    const ev = JSON.parse(readFileSync(resolve(repoRoot, `${cfg.gatesDir}/ISS-A-gate.json`), "utf8"));
+    const ev = JSON.parse(readFileSync(resolve(repoRoot, `${cfg.gatesDir}/ISSUE-A-gate.json`), "utf8"));
     assert.equal(ev.command, "true");
     assert.equal(ev.status, "pass");
   } finally {
@@ -583,19 +584,19 @@ test("GATE-COMMAND: the sentinel stands after the owing issue -> gate refuses lo
   const { dir, cfg } = buildScratch(undefined, { perIssueGate: false });
   try {
     const processed = runLoop({ ...cfg, claudeQuotaProbeEnabled: false }, stubSteps);
-    assert.deepEqual(processed, [{ id: "ISS-A", status: "blocked" }]);
+    assert.deepEqual(processed, [{ id: "ISSUE-A", status: "blocked" }]);
 
-    const block = JSON.parse(readFileSync(resolve(repoRoot, `${cfg.reportsDir}/ISS-A-blocked.json`), "utf8"));
+    const block = JSON.parse(readFileSync(resolve(repoRoot, `${cfg.reportsDir}/ISSUE-A-blocked.json`), "utf8"));
     assert.equal(block.kind, "gate_command_unset");
     assert.match(block.reason, /not established/i);
 
-    const ev = JSON.parse(readFileSync(resolve(repoRoot, `${cfg.gatesDir}/ISS-A-gate.json`), "utf8"));
+    const ev = JSON.parse(readFileSync(resolve(repoRoot, `${cfg.gatesDir}/ISSUE-A-gate.json`), "utf8"));
     assert.equal(ev.command, null);
     assert.equal(ev.status, "fail");
     assert.match(ev.reason, /not established/i);
 
-    assert.ok(!existsSync(resolve(repoRoot, `${cfg.doneDir}/ISS-A.md`)), "blocked issue must NOT move to done/");
-    assert.ok(existsSync(resolve(repoRoot, `${cfg.issuesDir}/ISS-A.md`)));
+    assert.ok(!existsSync(resolve(repoRoot, `${cfg.doneDir}/ISSUE-A.md`)), "blocked issue must NOT move to done/");
+    assert.ok(existsSync(resolve(repoRoot, `${cfg.issuesDir}/ISSUE-A.md`)));
   } finally {
     rmSync(dir, { recursive: true, force: true });
     rmSync(configPath, { force: true });
@@ -612,7 +613,7 @@ test("GATE-COMMAND: while the sentinel stands, the implementer/reviewer prompt c
     assert.match(whileSentinel, /must NOT be reverted/i, "directive must tell the reviewer not to revert the establishment");
     assert.match(whileSentinel, /never invent a placeholder or an `echo`/i);
 
-    const composedImplementer = composePrompt("gate:\n{{gate_command_directive}}", { id: "ISS-A" }, { gate_command_directive: whileSentinel });
+    const composedImplementer = composePrompt("gate:\n{{gate_command_directive}}", { id: "ISSUE-A" }, { gate_command_directive: whileSentinel });
     assert.match(composedImplementer, /Establish the verification gate command/);
 
     writeFileSync(resolve(dir, "vivicy.json"), JSON.stringify({ gateCommand: "npm test" }));
@@ -632,7 +633,7 @@ test("RUN-COMMAND: while the runCommand sentinel stands, the implementer/reviewe
     assert.match(whileSentinel, /must NOT revert it/i, "directive must tell the reviewer not to revert the establishment");
     assert.match(whileSentinel, /never point it at the test runner/i, "the run command is not the verification gate");
 
-    const composedImplementer = composePrompt("run:\n{{run_command_directive}}", { id: "ISS-A" }, { run_command_directive: whileSentinel });
+    const composedImplementer = composePrompt("run:\n{{run_command_directive}}", { id: "ISSUE-A" }, { run_command_directive: whileSentinel });
     assert.match(composedImplementer, /Establish the run command/);
 
     writeFileSync(resolve(dir, "vivicy.json"), JSON.stringify({ gateCommand: null, runCommand: "npm run dev" }));
@@ -646,7 +647,7 @@ test("VISUAL-REVIEW: a web-serving runCommand injects the reviewer's boot-and-sc
   const dir = mkdtempSync(resolve(repoRoot, "_tmp-visual-directive-"));
   try {
     const scratchCfg = { execRoot: dir, transcriptsDir: DEFAULT_CONFIG.transcriptsDir } as unknown as Config;
-    const issue = { id: "ISS-A" } as unknown as Issue;
+    const issue = { id: "ISSUE-A" } as unknown as Issue;
 
     writeFileSync(resolve(dir, "vivicy.json"), JSON.stringify({ gateCommand: "npm test", runCommand: null }));
     assert.equal(visualReviewDirective(scratchCfg, issue), "", "no visual duty while the runCommand is the null sentinel");
@@ -663,13 +664,32 @@ test("VISUAL-REVIEW: a web-serving runCommand injects the reviewer's boot-and-sc
     assert.match(directive, /legibility/i, "judges legibility");
     assert.match(directive, /not_faithful/, "a damaged render is a review finding");
     assert.match(directive, /fails to boot[\s\S]*broke the run story/i, "boot failure is itself a loud finding");
-    assert.match(directive, /transcripts\/ISSUES\/ISS-A\/screenshots\//, "screenshots land beside the leg's evidence, in this issue's own family directory, gitignored");
+    assert.match(directive, /transcripts\/ISSUES\/ISSUE-A\/screenshots\//, "screenshots land beside the leg's evidence, in this issue's own family directory, gitignored");
     assert.match(directive, /never committed/i, "evidence is never committed");
     assert.match(directive, /playwright|headless/i, "headless screenshot tooling with honest degradation");
     assert.match(directive, /process tree/i, "kills the product's process tree when done");
 
-    const composed = composePrompt("review:\n{{visual_review_directive}}", { id: "ISS-A" }, { visual_review_directive: directive });
+    const composed = composePrompt("review:\n{{visual_review_directive}}", { id: "ISSUE-A" }, { visual_review_directive: directive });
     assert.match(composed, /Visual verification/i, "legDeps injects the visual duty through composePrompt");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a tracked issue's transcript home is the orchestrator's to name: an index-carried transcript_dir is OVERRIDDEN, never honoured", () => {
+  const dir = mkdtempSync(resolve(repoRoot, "_tmp-transcript-home-override-"));
+  try {
+    writeFileSync(resolve(dir, "vivicy.json"), JSON.stringify({ gateCommand: "npm test", runCommand: "npm run dev" }));
+    const scratchCfg = { execRoot: dir, transcriptsDir: DEFAULT_CONFIG.transcriptsDir } as unknown as Config;
+    // The issue index is agent-written, so a rogue transcript_dir reaches the loop as data; legIssue's spread order is what disarms it.
+    for (const rogue of [TRANSCRIPT_DIRS.extraction, "../../../etc", "ISSUES/ISSUE-0002"]) {
+      const directive = visualReviewDirective(scratchCfg, { id: "ISSUE-0001", transcript_dir: rogue } as unknown as Issue);
+      assert.match(
+        directive,
+        /transcripts\/ISSUES\/ISSUE-0001\/screenshots\//,
+        `transcript_dir "${rogue}" must lose to the id-derived home — flipping legIssue's spread order lets the index pick another family's directory`,
+      );
+    }
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -681,7 +701,7 @@ test("the reviewer prompt carries the visual-review directive placeholder (the i
 });
 
 test("VICIOUS DEFECTS: composePrompt itself carries the single-source class taxonomy, so every leg builder fills the slot without its own wiring", () => {
-  const injected = composePrompt("{{vicious_defect_classes}}", { id: "ISS-A" });
+  const injected = composePrompt("{{vicious_defect_classes}}", { id: "ISSUE-A" });
   assert.doesNotMatch(injected, /\{\{/, "the taxonomy slot is a composePrompt default — no leg builder can leak the literal placeholder");
   assert.match(injected, /## The vicious defect classes — the named hunting grounds/, "the injected block is a self-standing prompt section");
   assert.match(injected, /never the whole of correctness — clearing all ten never licenses/, "the net is bounded: a cleared checklist is not a correctness proof");
@@ -708,7 +728,7 @@ test("VICIOUS DEFECTS: composePrompt itself carries the single-source class taxo
     "the taxonomy is EXACTLY these ten classes — an eleventh added to the constant without a probe here would otherwise ride in unpinned",
   );
 
-  const criteria = composePrompt("{{vicious_torture_criteria}}", { id: "ISS-A" });
+  const criteria = composePrompt("{{vicious_torture_criteria}}", { id: "ISSUE-A" });
   for (const shape of [
     /kill it mid-write and reprove the invariant/,
     /deliver the action twice and prove one effect/,
@@ -720,8 +740,8 @@ test("VICIOUS DEFECTS: composePrompt itself carries the single-source class taxo
     assert.match(criteria, shape, "the torture-criteria proof shapes are single-sourced beside the classes, so the extractor that mints them and the verifier that checks them can never drift");
   }
 
-  const withIssueValues = composePrompt("{{issue_id}}\n{{vicious_defect_classes}}", { id: "ISS-B" });
-  assert.match(withIssueValues, /^ISS-B\n## The vicious defect classes/, "the taxonomy composes beside the ordinary issue values");
+  const withIssueValues = composePrompt("{{issue_id}}\n{{vicious_defect_classes}}", { id: "ISSUE-B" });
+  assert.match(withIssueValues, /^ISSUE-B\n## The vicious defect classes/, "the taxonomy composes beside the ordinary issue values");
 });
 
 const RUN_LOG_PROOF = [
@@ -742,23 +762,23 @@ test("PROOFS: a declared proof the run never produced blocks the issue at its cl
   const { dir, cfg } = buildScratch("true", { proofs: RUN_LOG_PROOF });
   try {
     const processed = runLoop({ ...cfg, maxRetries: 2, claudeQuotaProbeEnabled: false }, stubSteps);
-    assert.deepEqual(processed, [{ id: "ISS-A", status: "blocked" }], "the loop stops on the unproven issue");
+    assert.deepEqual(processed, [{ id: "ISSUE-A", status: "blocked" }], "the loop stops on the unproven issue");
 
-    const gate = JSON.parse(readFileSync(resolve(repoRoot, `${cfg.gatesDir}/ISS-A-gate.json`), "utf8"));
+    const gate = JSON.parse(readFileSync(resolve(repoRoot, `${cfg.gatesDir}/ISSUE-A-gate.json`), "utf8"));
     assert.equal(gate.status, "pass", "the gate itself was green — the missing proof is what refused the close");
 
-    const block = JSON.parse(readFileSync(resolve(repoRoot, `${cfg.reportsDir}/ISS-A-blocked.json`), "utf8"));
+    const block = JSON.parse(readFileSync(resolve(repoRoot, `${cfg.reportsDir}/ISSUE-A-blocked.json`), "utf8"));
     assert.equal(block.kind, "proofs_missing");
     assert.match(block.reason, /declared proof not produced: cli-report \(run_log\)/);
-    assert.match(block.reason, new RegExp(`${cfg.proofsDir}/ISS-A/cli-report with its recipe\\.txt`));
+    assert.match(block.reason, new RegExp(`${cfg.proofsDir}/ISSUE-A/cli-report with its recipe\\.txt`));
     assert.match(block.reason, /still missing after 2 attempts/);
 
-    assert.ok(!existsSync(resolve(repoRoot, `${cfg.doneDir}/ISS-A.md`)), "an unproven issue never moves to done/");
+    assert.ok(!existsSync(resolve(repoRoot, `${cfg.doneDir}/ISSUE-A.md`)), "an unproven issue never moves to done/");
     const ledger = JSON.parse(readFileSync(resolve(repoRoot, cfg.progressLedgerPath), "utf8"));
     const state = ledger.graph_item_states.find((s: { graph_ref: string }) => s.graph_ref === "node:x");
-    assert.notEqual(state.issue_states["ISS-A"], "verified", "the graph item never reaches verified without its proof");
+    assert.notEqual(state.issue_states["ISSUE-A"], "verified", "the graph item never reaches verified without its proof");
     assert.ok(
-      ledger.active_items.some((item: { issue_id: string; state: string }) => item.issue_id === "ISS-A" && item.state === "blocked"),
+      ledger.active_items.some((item: { issue_id: string; state: string }) => item.issue_id === "ISSUE-A" && item.state === "blocked"),
       "the live item reads blocked, so the owner sees where it stopped",
     );
   } finally {
@@ -769,11 +789,11 @@ test("PROOFS: a declared proof the run never produced blocks the issue at its cl
 test("PROOFS: the same issue closes once the real run produced the artifact AND its replayable recipe", () => {
   const { dir, cfg } = buildScratch("true", { proofs: RUN_LOG_PROOF });
   try {
-    const home = resolve(repoRoot, `${cfg.proofsDir}/ISS-A/cli-report`);
+    const home = resolve(repoRoot, `${cfg.proofsDir}/ISSUE-A/cli-report`);
     const steps = {
       ...stubSteps,
       runImplementer: (issue: Issue) => {
-        if (issue.id !== "ISS-A") return;
+        if (issue.id !== "ISSUE-A") return;
         mkdirSync(home, { recursive: true });
         writeFileSync(resolve(home, "report.log"), "2026-01 total 1234\n");
         writeFileSync(resolve(home, "recipe.txt"), "node src/cli.js report 2026-01\n");
@@ -781,10 +801,10 @@ test("PROOFS: the same issue closes once the real run produced the artifact AND 
     };
     const processed = runLoop({ ...cfg, maxRetries: 2, claudeQuotaProbeEnabled: false }, steps);
     assert.deepEqual(processed, [
-      { id: "ISS-A", status: "verified" },
-      { id: "ISS-B", status: "verified" },
+      { id: "ISSUE-A", status: "verified" },
+      { id: "ISSUE-B", status: "verified" },
     ]);
-    assert.ok(existsSync(resolve(repoRoot, `${cfg.doneDir}/ISS-A.md`)));
+    assert.ok(existsSync(resolve(repoRoot, `${cfg.doneDir}/ISSUE-A.md`)));
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -793,18 +813,18 @@ test("PROOFS: the same issue closes once the real run produced the artifact AND 
 test("PROOFS: an artifact without its recipe is not a proof — replayability is the contract, not a courtesy", () => {
   const { dir, cfg } = buildScratch("true", { proofs: RUN_LOG_PROOF });
   try {
-    const home = resolve(repoRoot, `${cfg.proofsDir}/ISS-A/cli-report`);
+    const home = resolve(repoRoot, `${cfg.proofsDir}/ISSUE-A/cli-report`);
     const steps = {
       ...stubSteps,
       runImplementer: (issue: Issue) => {
-        if (issue.id !== "ISS-A") return;
+        if (issue.id !== "ISSUE-A") return;
         mkdirSync(home, { recursive: true });
         writeFileSync(resolve(home, "report.log"), "2026-01 total 1234\n");
       },
     };
     const processed = runLoop({ ...cfg, maxRetries: 1, claudeQuotaProbeEnabled: false }, steps);
-    assert.deepEqual(processed, [{ id: "ISS-A", status: "blocked" }]);
-    const block = JSON.parse(readFileSync(resolve(repoRoot, `${cfg.reportsDir}/ISS-A-blocked.json`), "utf8"));
+    assert.deepEqual(processed, [{ id: "ISSUE-A", status: "blocked" }]);
+    const block = JSON.parse(readFileSync(resolve(repoRoot, `${cfg.reportsDir}/ISSUE-A-blocked.json`), "utf8"));
     assert.match(block.reason, /with its recipe\.txt/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
@@ -814,18 +834,18 @@ test("PROOFS: an artifact without its recipe is not a proof — replayability is
 test("PROOFS: a STALE artifact from an earlier run can never satisfy a later close — the orchestrator clears the proof home before every attempt", () => {
   const { dir, cfg } = buildScratch("true", { proofs: RUN_LOG_PROOF });
   try {
-    const home = resolve(repoRoot, `${cfg.proofsDir}/ISS-A/cli-report`);
+    const home = resolve(repoRoot, `${cfg.proofsDir}/ISSUE-A/cli-report`);
     mkdirSync(home, { recursive: true });
     writeFileSync(resolve(home, "observed.log"), "output from a PREVIOUS run\n");
     writeFileSync(resolve(home, "recipe.txt"), "node src/cli.js report 2026-01\n");
     const processed = runLoop({ ...cfg, maxRetries: 1, claudeQuotaProbeEnabled: false }, stubSteps);
-    assert.deepEqual(processed, [{ id: "ISS-A", status: "blocked" }], "replaying a run does not replay its observation");
+    assert.deepEqual(processed, [{ id: "ISSUE-A", status: "blocked" }], "replaying a run does not replay its observation");
     assert.ok(!existsSync(resolve(home, "observed.log")), "the stale artifact was cleared before the attempt's legs ran");
     assert.ok(
       existsSync(resolve(home, "recipe.txt")),
       "the recipe is the one committed file of the home — the reset never stages a deletion the loop did not ask for",
     );
-    const block = JSON.parse(readFileSync(resolve(repoRoot, `${cfg.reportsDir}/ISS-A-blocked.json`), "utf8"));
+    const block = JSON.parse(readFileSync(resolve(repoRoot, `${cfg.reportsDir}/ISSUE-A-blocked.json`), "utf8"));
     assert.equal(block.kind, "proofs_missing");
   } finally {
     rmSync(dir, { recursive: true, force: true });
@@ -834,7 +854,7 @@ test("PROOFS: a STALE artifact from an earlier run can never satisfy a later clo
 
 test("PROOFS: a home the pre-attempt clear could NOT win refuses the close — an artifact this run may not have produced never counts as its observation", () => {
   const { dir, cfg } = buildScratch("true", { proofs: RUN_LOG_PROOF });
-  const home = resolve(repoRoot, `${cfg.proofsDir}/ISS-A/cli-report`);
+  const home = resolve(repoRoot, `${cfg.proofsDir}/ISSUE-A/cli-report`);
   const held = resolve(home, "capture");
   try {
     mkdirSync(held, { recursive: true });
@@ -843,20 +863,20 @@ test("PROOFS: a home the pre-attempt clear could NOT win refuses the close — a
     chmodSync(held, 0o500);
 
     const processed = runLoop({ ...cfg, maxRetries: 1, claudeQuotaProbeEnabled: false }, stubSteps);
-    assert.deepEqual(processed, [{ id: "ISS-A", status: "blocked" }], "an unwitnessable proof blocks instead of closing");
+    assert.deepEqual(processed, [{ id: "ISSUE-A", status: "blocked" }], "an unwitnessable proof blocks instead of closing");
     assert.ok(
       existsSync(resolve(held, "shot.png")),
       "the artifact really did survive the clear, so the refusal answers a real leftover and not a phantom",
     );
 
-    const gate = JSON.parse(readFileSync(resolve(repoRoot, `${cfg.gatesDir}/ISS-A-gate.json`), "utf8"));
+    const gate = JSON.parse(readFileSync(resolve(repoRoot, `${cfg.gatesDir}/ISSUE-A-gate.json`), "utf8"));
     assert.equal(gate.status, "pass", "the gate itself was green — the unclearable home is what refused the close");
-    const block = JSON.parse(readFileSync(resolve(repoRoot, `${cfg.reportsDir}/ISS-A-blocked.json`), "utf8"));
+    const block = JSON.parse(readFileSync(resolve(repoRoot, `${cfg.reportsDir}/ISSUE-A-blocked.json`), "utf8"));
     assert.equal(block.kind, "proofs_missing");
     assert.match(block.reason, /declared proof home not cleared before this attempt: cli-report at/);
-    assert.match(block.reason, new RegExp(`${cfg.proofsDir}/ISS-A/cli-report`));
+    assert.match(block.reason, new RegExp(`${cfg.proofsDir}/ISSUE-A/cli-report`));
     assert.match(block.reason, /nothing left in it can be attributed to this run/);
-    assert.ok(!existsSync(resolve(repoRoot, `${cfg.doneDir}/ISS-A.md`)), "the issue never moves to done/ on a proof nobody can attribute");
+    assert.ok(!existsSync(resolve(repoRoot, `${cfg.doneDir}/ISSUE-A.md`)), "the issue never moves to done/ on a proof nobody can attribute");
   } finally {
     if (existsSync(held)) chmodSync(held, 0o700);
     rmSync(dir, { recursive: true, force: true });
@@ -868,11 +888,11 @@ test("PROOFS: a gate_evidence proof needs NO ritual artifact — the green gate 
   try {
     const processed = runLoop({ ...cfg, maxRetries: 2, claudeQuotaProbeEnabled: false }, stubSteps);
     assert.deepEqual(processed, [
-      { id: "ISS-A", status: "verified" },
-      { id: "ISS-B", status: "verified" },
+      { id: "ISSUE-A", status: "verified" },
+      { id: "ISSUE-B", status: "verified" },
     ]);
     assert.ok(
-      !existsSync(resolve(repoRoot, `${cfg.proofsDir}/ISS-A`)),
+      !existsSync(resolve(repoRoot, `${cfg.proofsDir}/ISSUE-A`)),
       "no proofs directory is created for a class the gate already witnesses",
     );
   } finally {
@@ -888,7 +908,7 @@ test("PROOFS: an UNREADABLE declaration blocks IMMEDIATELY (typed), never burnin
     const { dir, cfg } = buildScratch("true", { proofs: body ?? undefined });
     if (body === null) {
       writeFileSync(
-        resolve(repoRoot, `${cfg.issuesDir}/ISS-A.md`),
+        resolve(repoRoot, `${cfg.issuesDir}/ISSUE-A.md`),
         "# A\n\n## Proofs\n\n- a run log of the CLI proving the report command\n",
       );
     }
@@ -898,11 +918,11 @@ test("PROOFS: an UNREADABLE declaration blocks IMMEDIATELY (typed), never burnin
         { ...cfg, maxRetries: 3, claudeQuotaProbeEnabled: false },
         { ...stubSteps, runImplementer: () => { implementerRuns += 1; } },
       );
-      assert.deepEqual(processed, [{ id: "ISS-A", status: "blocked" }], label);
+      assert.deepEqual(processed, [{ id: "ISSUE-A", status: "blocked" }], label);
       assert.equal(implementerRuns, 1, `${label}: the loop spent ONE attempt, not maxRetries, on an unfixable declaration`);
-      const block = JSON.parse(readFileSync(resolve(repoRoot, `${cfg.reportsDir}/ISS-A-blocked.json`), "utf8"));
+      const block = JSON.parse(readFileSync(resolve(repoRoot, `${cfg.reportsDir}/ISSUE-A-blocked.json`), "utf8"));
       assert.equal(block.kind, "proofs_unreadable", label);
-      assert.ok(!existsSync(resolve(repoRoot, `${cfg.doneDir}/ISS-A.md`)), `${label}: never moved to done/`);
+      assert.ok(!existsSync(resolve(repoRoot, `${cfg.doneDir}/ISSUE-A.md`)), `${label}: never moved to done/`);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -911,7 +931,7 @@ test("PROOFS: an UNREADABLE declaration blocks IMMEDIATELY (typed), never burnin
 
 test("PROOFS: an unreadable declaration still outranks an unclearable home — the terminal one-attempt block is never downgraded to a retried miss", () => {
   const { dir, cfg } = buildScratch("true", { proofs: [...RUN_LOG_PROOF, "- id: not a slug!", "  class: run_log"] });
-  const held = resolve(repoRoot, `${cfg.proofsDir}/ISS-A/cli-report/capture`);
+  const held = resolve(repoRoot, `${cfg.proofsDir}/ISSUE-A/cli-report/capture`);
   let implementerRuns = 0;
   try {
     mkdirSync(held, { recursive: true });
@@ -921,9 +941,9 @@ test("PROOFS: an unreadable declaration still outranks an unclearable home — t
       { ...cfg, maxRetries: 3, claudeQuotaProbeEnabled: false },
       { ...stubSteps, runImplementer: () => { implementerRuns += 1; } },
     );
-    assert.deepEqual(processed, [{ id: "ISS-A", status: "blocked" }]);
+    assert.deepEqual(processed, [{ id: "ISSUE-A", status: "blocked" }]);
     assert.equal(implementerRuns, 1, "a frozen file no leg may fix still costs ONE attempt, not maxRetries");
-    const block = JSON.parse(readFileSync(resolve(repoRoot, `${cfg.reportsDir}/ISS-A-blocked.json`), "utf8"));
+    const block = JSON.parse(readFileSync(resolve(repoRoot, `${cfg.reportsDir}/ISSUE-A-blocked.json`), "utf8"));
     assert.equal(block.kind, "proofs_unreadable", "the unreadable declaration is the cause named, not the leftover home");
   } finally {
     if (existsSync(held)) chmodSync(held, 0o700);
@@ -934,10 +954,10 @@ test("PROOFS: an unreadable declaration still outranks an unclearable home — t
 test("PROOFS: a MISSING issue file refuses the close too — the machine never assumes nothing was owed", () => {
   const { dir, cfg } = buildScratch("true", { proofs: RUN_LOG_PROOF });
   try {
-    rmSync(resolve(repoRoot, `${cfg.issuesDir}/ISS-A.md`), { force: true });
+    rmSync(resolve(repoRoot, `${cfg.issuesDir}/ISSUE-A.md`), { force: true });
     const processed = runLoop({ ...cfg, maxRetries: 2, claudeQuotaProbeEnabled: false }, stubSteps);
-    assert.deepEqual(processed, [{ id: "ISS-A", status: "blocked" }]);
-    const block = JSON.parse(readFileSync(resolve(repoRoot, `${cfg.reportsDir}/ISS-A-blocked.json`), "utf8"));
+    assert.deepEqual(processed, [{ id: "ISSUE-A", status: "blocked" }]);
+    const block = JSON.parse(readFileSync(resolve(repoRoot, `${cfg.reportsDir}/ISSUE-A-blocked.json`), "utf8"));
     assert.equal(block.kind, "proofs_unreadable");
     assert.match(block.reason, /missing or unreadable/);
   } finally {
@@ -959,7 +979,7 @@ test("PROOFS: a block that has BOTH a leg timeout and a missing proof names both
       { ...cfg, maxRetries: 2, claudeQuotaProbeEnabled: false },
       { ...stubSteps, runImplementer: timingOutThenSilent },
     );
-    const block = JSON.parse(readFileSync(resolve(repoRoot, `${cfg.reportsDir}/ISS-A-blocked.json`), "utf8"));
+    const block = JSON.parse(readFileSync(resolve(repoRoot, `${cfg.reportsDir}/ISSUE-A-blocked.json`), "utf8"));
     assert.equal(block.kind, "timeout", "the first observed cause types the block");
     assert.match(block.reason, /leg timed out after 45 min/);
     assert.match(block.reason, /also: declared proof not produced: cli-report/, "the proof miss is named, not swallowed");
@@ -982,7 +1002,7 @@ test("PROOFS: the walk-away owner is notified the moment a declared proof is mis
     const proofsMissing = rows.find((row) => row.event === "proofs_missing");
     assert.ok(proofsMissing, `expected a proofs_missing notification, got ${rows.map((r) => r.event).join(", ")}`);
     assert.equal(proofsMissing.level, "warning");
-    assert.match(proofsMissing.message, /ISS-A: declared proof not produced/);
+    assert.match(proofsMissing.message, /ISSUE-A: declared proof not produced/);
     assert.ok(
       rows.some((row) => row.event === "issue_blocked"),
       "and the terminal block is announced too",
@@ -999,7 +1019,7 @@ test("PROOFS-DIRECTIVE: the declared proofs reach both legs with their class, ca
   const declared = buildScratch("true", { proofs: RUN_LOG_PROOF });
   const bare = buildScratch("true");
   try {
-    const issue = { id: "ISS-A", path: `${declared.cfg.issuesDir}/ISS-A.md` } as Issue;
+    const issue = { id: "ISSUE-A", path: `${declared.cfg.issuesDir}/ISSUE-A.md` } as Issue;
     const directive = proofsDirective(declared.cfg as unknown as Config, issue);
     assert.match(directive, /## The declared proofs of this issue/);
     assert.match(directive, /never fabricated, never mocked/);
@@ -1018,7 +1038,7 @@ test("PROOFS-DIRECTIVE: the declared proofs reach both legs with their class, ca
     assert.match(directive, /Produce: run the real command against the built product/);
     assert.match(
       directive,
-      new RegExp(`Home: \`${resolve(repoRoot, `${declared.cfg.proofsDir}/ISS-A/cli-report`)}\``),
+      new RegExp(`Home: \`${resolve(repoRoot, `${declared.cfg.proofsDir}/ISSUE-A/cli-report`)}\``),
       "the home is absolute so a worktree leg writes into the durable evidence home, not its throwaway tree",
     );
 
@@ -1026,7 +1046,7 @@ test("PROOFS-DIRECTIVE: the declared proofs reach both legs with their class, ca
     assert.match(composed, /## The declared proofs of this issue/, "legDeps injects it through composePrompt");
 
     assert.equal(
-      proofsDirective(bare.cfg as unknown as Config, { id: "ISS-A", path: `${bare.cfg.issuesDir}/ISS-A.md` } as Issue),
+      proofsDirective(bare.cfg as unknown as Config, { id: "ISSUE-A", path: `${bare.cfg.issuesDir}/ISSUE-A.md` } as Issue),
       "",
       "an issue that declares no proof adds zero prompt mass",
     );
@@ -1038,7 +1058,7 @@ test("PROOFS-DIRECTIVE: the declared proofs reach both legs with their class, ca
 });
 
 test("PROOFS: composePrompt itself carries the single-source proof-class taxonomy (extractor and verifier can never drift)", () => {
-  const injected = composePrompt("{{proof_classes}}", { id: "ISS-A" });
+  const injected = composePrompt("{{proof_classes}}", { id: "ISSUE-A" });
   assert.doesNotMatch(injected, /\{\{/, "the taxonomy slot is a composePrompt default, never a leaked placeholder");
   assert.match(injected, /## The proof classes — the a-posteriori observation an obligation owes/);
   assert.match(injected, /A test is a PREDICTION authored by an intelligence; a PROOF is an OBSERVATION of the real thing/);
@@ -1200,9 +1220,9 @@ test("runLoop blocks an issue whose gate stays red after maxRetries and stops", 
   const { dir, cfg } = buildScratch("false");
   try {
     const processed = runLoop({ ...cfg, maxRetries: 2 }, stubSteps);
-    assert.deepEqual(processed, [{ id: "ISS-A", status: "blocked" }]);
-    assert.ok(existsSync(resolve(repoRoot, `${cfg.reportsDir}/ISS-A-blocked.json`)));
-    assert.ok(!existsSync(resolve(repoRoot, cfg.doneDir)) || !readdirSync(resolve(repoRoot, cfg.doneDir)).includes("ISS-A.md"));
+    assert.deepEqual(processed, [{ id: "ISSUE-A", status: "blocked" }]);
+    assert.ok(existsSync(resolve(repoRoot, `${cfg.reportsDir}/ISSUE-A-blocked.json`)));
+    assert.ok(!existsSync(resolve(repoRoot, cfg.doneDir)) || !readdirSync(resolve(repoRoot, cfg.doneDir)).includes("ISSUE-A.md"));
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -1220,8 +1240,8 @@ test("runLoop: a leg that keeps TIMING OUT is retried, then issue_blocked with t
       { ...cfg, maxRetries: 2, claudeQuotaProbeEnabled: false },
       steps,
     );
-    assert.deepEqual(processed, [{ id: "ISS-A", status: "blocked" }], "the timed-out issue blocked, the loop did not hang");
-    const blocked = JSON.parse(readFileSync(resolve(repoRoot, `${cfg.reportsDir}/ISS-A-blocked.json`), "utf8"));
+    assert.deepEqual(processed, [{ id: "ISSUE-A", status: "blocked" }], "the timed-out issue blocked, the loop did not hang");
+    const blocked = JSON.parse(readFileSync(resolve(repoRoot, `${cfg.reportsDir}/ISSUE-A-blocked.json`), "utf8"));
     assert.equal(blocked.kind, "timeout", "the block is attributed to a timeout, not a plain red gate");
     assert.match(blocked.reason, /leg timed out after 45 min/);
     assert.match(blocked.reason, /still red after 2 attempts/);
@@ -2070,10 +2090,10 @@ function parallelFakeSteps(timeline: TimelineEntry[], scratchRel: string) {
 
 test("runLoopParallel runs independent issues concurrently in distinct worktrees and integrates them", async () => {
   const issues = [
-    { id: "ISS-A", depends_on: [], graph_refs: ["node:ledger"] },
-    { id: "ISS-B", depends_on: ["ISS-A"], graph_refs: ["node:ledger"] },
-    { id: "ISS-D", depends_on: [], graph_refs: ["node:cat"] },
-    { id: "ISS-E", depends_on: ["ISS-D"], graph_refs: ["node:cat"] },
+    { id: "ISSUE-A", depends_on: [], graph_refs: ["node:ledger"] },
+    { id: "ISSUE-B", depends_on: ["ISSUE-A"], graph_refs: ["node:ledger"] },
+    { id: "ISSUE-D", depends_on: [], graph_refs: ["node:cat"] },
+    { id: "ISSUE-E", depends_on: ["ISSUE-D"], graph_refs: ["node:cat"] },
   ];
   const { dir, scratchRel, cfg } = buildParallelScratch({ issues });
   const timeline: TimelineEntry[] = [];
@@ -2083,19 +2103,19 @@ test("runLoopParallel runs independent issues concurrently in distinct worktrees
       { ...parallelFakeSteps(timeline, scratchRel), skipWorktreeIgnore: true },
     );
     const verified = processed.filter((p) => p.status === "verified").map((p) => p.id).sort();
-    assert.deepEqual(verified, ["ISS-A", "ISS-B", "ISS-D", "ISS-E"]);
+    assert.deepEqual(verified, ["ISSUE-A", "ISSUE-B", "ISSUE-D", "ISSUE-E"]);
     assert.equal(new Set(processed.map((p) => p.id)).size, 4, "no issue settled twice");
     const win = (id: string) => {
       const s = Math.min(...timeline.filter((e) => e.id === id && e.phase === "start").map((e) => e.t));
       const e = Math.max(...timeline.filter((e) => e.id === id && e.phase === "end").map((e) => e.t));
       return [s, e];
     };
-    const [as, ae] = win("ISS-A");
-    const [ds, de] = win("ISS-D");
-    assert.ok(as < de && ds < ae, "ISS-A and ISS-D execution windows overlapped (ran concurrently)");
-    const bStart = Math.min(...timeline.filter((e) => e.id === "ISS-B" && e.phase === "start").map((e) => e.t));
-    assert.ok(bStart >= ae, "ISS-B started after ISS-A finished (dependency order)");
-    for (const id of ["ISS-A", "ISS-B", "ISS-D", "ISS-E"]) {
+    const [as, ae] = win("ISSUE-A");
+    const [ds, de] = win("ISSUE-D");
+    assert.ok(as < de && ds < ae, "ISSUE-A and ISSUE-D execution windows overlapped (ran concurrently)");
+    const bStart = Math.min(...timeline.filter((e) => e.id === "ISSUE-B" && e.phase === "start").map((e) => e.t));
+    assert.ok(bStart >= ae, "ISSUE-B started after ISSUE-A finished (dependency order)");
+    for (const id of ["ISSUE-A", "ISSUE-B", "ISSUE-D", "ISSUE-E"]) {
       assert.ok(
         existsSync(resolve(repoRoot, scratchRel, "gen", `${id}.txt`)),
         `${id} merged its worktree file onto main`,
@@ -2118,11 +2138,11 @@ test("runLoopParallel runs independent issues concurrently in distinct worktrees
 
 test("runLoopParallel blocks a forced-red issue WITHOUT blocking the independent others", async () => {
   const issues = [
-    { id: "ISS-A", depends_on: [], graph_refs: ["node:a"] },
-    { id: "ISS-B", depends_on: [], graph_refs: ["node:b"] },
-    { id: "ISS-C", depends_on: [], graph_refs: ["node:c"] },
+    { id: "ISSUE-A", depends_on: [], graph_refs: ["node:a"] },
+    { id: "ISSUE-B", depends_on: [], graph_refs: ["node:b"] },
+    { id: "ISSUE-C", depends_on: [], graph_refs: ["node:c"] },
   ];
-  const { dir, scratchRel, cfg } = buildParallelScratch({ issues, gateById: { "ISS-B": "false" } });
+  const { dir, scratchRel, cfg } = buildParallelScratch({ issues, gateById: { "ISSUE-B": "false" } });
   const timeline: TimelineEntry[] = [];
   try {
     const processed = await runLoopParallel(
@@ -2130,13 +2150,13 @@ test("runLoopParallel blocks a forced-red issue WITHOUT blocking the independent
       { ...parallelFakeSteps(timeline, scratchRel), skipWorktreeIgnore: true },
     );
     const byId = Object.fromEntries(processed.map((p) => [p.id, p.status]));
-    assert.equal(byId["ISS-B"], "blocked", "forced-red B is blocked");
-    assert.equal(byId["ISS-A"], "verified", "independent A still verified");
-    assert.equal(byId["ISS-C"], "verified", "independent C still verified");
-    assert.ok(existsSync(resolve(repoRoot, `${cfg.reportsDir}/ISS-B-blocked.json`)), "B has a blocked report");
+    assert.equal(byId["ISSUE-B"], "blocked", "forced-red B is blocked");
+    assert.equal(byId["ISSUE-A"], "verified", "independent A still verified");
+    assert.equal(byId["ISSUE-C"], "verified", "independent C still verified");
+    assert.ok(existsSync(resolve(repoRoot, `${cfg.reportsDir}/ISSUE-B-blocked.json`)), "B has a blocked report");
     const done = readdirSync(resolve(repoRoot, cfg.doneDir));
-    assert.ok(done.includes("ISS-A.md") && done.includes("ISS-C.md"), "A and C moved to done/");
-    assert.ok(!done.includes("ISS-B.md"), "blocked B NOT moved to done/");
+    assert.ok(done.includes("ISSUE-A.md") && done.includes("ISSUE-C.md"), "A and C moved to done/");
+    assert.ok(!done.includes("ISSUE-B.md"), "blocked B NOT moved to done/");
     const wtDir = resolve(repoRoot, cfg.worktreesDir);
     const leftover = existsSync(wtDir) ? readdirSync(wtDir).filter((f) => !f.startsWith(".")) : [];
     assert.deepEqual(leftover, [], "worktrees removed including the blocked issue's");
@@ -2147,20 +2167,20 @@ test("runLoopParallel blocks a forced-red issue WITHOUT blocking the independent
 
 test("PROOFS (parallel): the worktree path shares the same presence seam, and a proof written to the DURABLE home survives the worktree's removal", async () => {
   const issues = [
-    { id: "ISS-A", depends_on: [], graph_refs: ["node:a"] },
-    { id: "ISS-B", depends_on: [], graph_refs: ["node:b"] },
-    { id: "ISS-C", depends_on: [], graph_refs: ["node:c"] },
+    { id: "ISSUE-A", depends_on: [], graph_refs: ["node:a"] },
+    { id: "ISSUE-B", depends_on: [], graph_refs: ["node:b"] },
+    { id: "ISSUE-C", depends_on: [], graph_refs: ["node:c"] },
   ];
   const { dir, scratchRel, cfg } = buildParallelScratch({
     issues,
-    proofsById: { "ISS-A": RUN_LOG_PROOF, "ISS-C": RUN_LOG_PROOF },
+    proofsById: { "ISSUE-A": RUN_LOG_PROOF, "ISSUE-C": RUN_LOG_PROOF },
   });
   const timeline: TimelineEntry[] = [];
   try {
     const steps = parallelFakeSteps(timeline, scratchRel);
     const producingImplementer = async (issue: Issue, legCfg?: Config) => {
       const result = await steps.runImplementer(issue, legCfg);
-      if (issue.id === "ISS-C") {
+      if (issue.id === "ISSUE-C") {
         // The durable home is main-root anchored on purpose: a worktree-local write would die with the worktree.
         const home = resolve(repoRoot, cfg.proofsDir, issue.id, "cli-report");
         mkdirSync(home, { recursive: true });
@@ -2174,20 +2194,20 @@ test("PROOFS (parallel): the worktree path shares the same presence seam, and a 
       { ...steps, runImplementer: producingImplementer, skipWorktreeIgnore: true },
     );
     const byId = Object.fromEntries(processed.map((p) => [p.id, p.status]));
-    assert.equal(byId["ISS-A"], "blocked", "the parallel close refuses an unproduced declared proof too");
-    assert.equal(byId["ISS-B"], "verified", "an issue declaring no proof is unaffected");
-    assert.equal(byId["ISS-C"], "verified", "a proof produced into the durable home closes the issue");
+    assert.equal(byId["ISSUE-A"], "blocked", "the parallel close refuses an unproduced declared proof too");
+    assert.equal(byId["ISSUE-B"], "verified", "an issue declaring no proof is unaffected");
+    assert.equal(byId["ISSUE-C"], "verified", "a proof produced into the durable home closes the issue");
 
-    const block = JSON.parse(readFileSync(resolve(repoRoot, `${cfg.reportsDir}/ISS-A-blocked.json`), "utf8"));
+    const block = JSON.parse(readFileSync(resolve(repoRoot, `${cfg.reportsDir}/ISSUE-A-blocked.json`), "utf8"));
     assert.equal(block.kind, "proofs_missing");
     const done = readdirSync(resolve(repoRoot, cfg.doneDir));
-    assert.ok(!done.includes("ISS-A.md"), "the unproven issue never lands in done/");
-    assert.ok(done.includes("ISS-C.md"));
+    assert.ok(!done.includes("ISSUE-A.md"), "the unproven issue never lands in done/");
+    assert.ok(done.includes("ISSUE-C.md"));
     assert.ok(
-      existsSync(resolve(repoRoot, cfg.proofsDir, "ISS-C", "cli-report", "observed.log")),
+      existsSync(resolve(repoRoot, cfg.proofsDir, "ISSUE-C", "cli-report", "observed.log")),
       "the observation outlived the worktree it was produced from",
     );
-    const tracked = spawnSync("git", ["ls-files", "--", `${cfg.proofsDir}/ISS-C/cli-report`], { cwd: repoRoot, encoding: "utf8" }).stdout;
+    const tracked = spawnSync("git", ["ls-files", "--", `${cfg.proofsDir}/ISSUE-C/cli-report`], { cwd: repoRoot, encoding: "utf8" }).stdout;
     assert.match(tracked, /recipe\.txt/, "the recipe a worktree leg wrote to the main root is staged by the done-move commit");
     const wtDir = resolve(repoRoot, cfg.worktreesDir);
     assert.deepEqual(
@@ -2202,8 +2222,8 @@ test("PROOFS (parallel): the worktree path shares the same presence seam, and a 
 
 test("commitDoneMove lands EVERY per-issue checkpoint commit even when a lazily-created path (proofs, reports) does not exist yet — a batched pathspec that matches nothing aborts the whole add", async () => {
   const issues = [
-    { id: "ISS-A", depends_on: [], graph_refs: ["node:a"] },
-    { id: "ISS-B", depends_on: [], graph_refs: ["node:b"] },
+    { id: "ISSUE-A", depends_on: [], graph_refs: ["node:a"] },
+    { id: "ISSUE-B", depends_on: [], graph_refs: ["node:b"] },
   ];
   // No issue declares a proof here on purpose: proofsDir is never created, which is exactly the shape that silently killed every done-move commit.
   const { dir, scratchRel, cfg } = buildParallelScratch({ issues });
@@ -2220,7 +2240,7 @@ test("commitDoneMove lands EVERY per-issue checkpoint commit even when a lazily-
       "both issues verified",
     );
     const subjects = spawnSync("git", ["log", "--format=%s", "-40"], { cwd: repoRoot, encoding: "utf8" }).stdout ?? "";
-    for (const id of ["ISS-A", "ISS-B"]) {
+    for (const id of ["ISSUE-A", "ISSUE-B"]) {
       assert.match(
         subjects,
         new RegExp(`^${id}: move to done/ \\(integrated`, "m"),
@@ -2242,7 +2262,7 @@ test("CHECKPOINT: a failed done-move commit is CONSUMED — the issue still comp
   const runtimeDir = mkdtempSync(resolve(repoRoot, "_tmp-checkpoint-"));
   const prevRuntime = process.env.VIVICY_RUNTIME_DIR;
   process.env.VIVICY_RUNTIME_DIR = runtimeDir;
-  const issues = [{ id: "ISS-A", depends_on: [], graph_refs: ["node:a"] }];
+  const issues = [{ id: "ISSUE-A", depends_on: [], graph_refs: ["node:a"] }];
   const { dir, scratchRel, cfg } = buildParallelScratch({ issues });
   const timeline: TimelineEntry[] = [];
   const captured: string[] = [];
@@ -2276,13 +2296,13 @@ test("CHECKPOINT: a failed done-move commit is CONSUMED — the issue still comp
 
     assert.deepEqual(
       processed,
-      [{ id: "ISS-A", status: "verified" }],
+      [{ id: "ISSUE-A", status: "verified" }],
       "the issue COMPLETES: its code is merged, its gate was green, and it sits in done/ — only the git checkpoint is missing",
     );
-    assert.ok(existsSync(resolve(repoRoot, cfg.doneDir, "ISS-A.md")), "the done-move itself stands");
+    assert.ok(existsSync(resolve(repoRoot, cfg.doneDir, "ISSUE-A.md")), "the done-move itself stands");
 
     const stderr = captured.join("");
-    assert.match(stderr, /\[parallel\] CRITICAL: ISS-A was integrated and moved to done\/ but its checkpoint commit did not land/);
+    assert.match(stderr, /\[parallel\] CRITICAL: ISSUE-A was integrated and moved to done\/ but its checkpoint commit did not land/);
     assert.match(stderr, /git add exited 1/, "the CRITICAL line quotes git's own failure, never a paraphrase");
     assert.match(stderr, /manual intervention required/);
 
@@ -2293,7 +2313,7 @@ test("CHECKPOINT: a failed done-move commit is CONSUMED — the issue still comp
     const checkpoint = rows.find((row) => row.event === "checkpoint_commit_failed");
     assert.ok(checkpoint, `expected a checkpoint_commit_failed notification, got ${rows.map((r) => r.event).join(", ")}`);
     assert.equal(checkpoint.level, "error", "an actionable level, so the owner's pill fires on return");
-    assert.match(checkpoint.message, /ISS-A: integrated and moved to done\//);
+    assert.match(checkpoint.message, /ISSUE-A: integrated and moved to done\//);
     assert.match(checkpoint.message, /git add exited 1/, "the notification carries the detail, not just a category");
     assert.match(checkpoint.message, /next run refuses to start until it is committed or reset/);
   } finally {
@@ -2310,30 +2330,30 @@ test("CHECKPOINT: a failed done-move commit is CONSUMED — the issue still comp
 
 test("runLoopParallel: an EARLY block never stops LATER independent issues from being scheduled", async () => {
   const issues = Array.from({ length: 5 }, (_, i) => ({
-    id: `ISS-${i + 1}`,
+    id: `ISSUE-${i + 1}`,
     depends_on: [],
     graph_refs: [`node:m${i + 1}`],
   }));
-  const { dir, scratchRel, cfg } = buildParallelScratch({ issues, gateById: { "ISS-1": "false" } });
+  const { dir, scratchRel, cfg } = buildParallelScratch({ issues, gateById: { "ISSUE-1": "false" } });
   try {
     const processed = await runLoopParallel(
       { ...cfg, maxParallel: 1, maxRetries: 1, defaultGateCommand: "true" },
       { ...parallelFakeSteps([], scratchRel), skipWorktreeIgnore: true },
     );
     const byId = Object.fromEntries(processed.map((p) => [p.id, p.status]));
-    assert.equal(byId["ISS-1"], "blocked", "the early-blocked issue is blocked");
-    for (const id of ["ISS-2", "ISS-3", "ISS-4", "ISS-5"]) {
+    assert.equal(byId["ISSUE-1"], "blocked", "the early-blocked issue is blocked");
+    for (const id of ["ISSUE-2", "ISSUE-3", "ISSUE-4", "ISSUE-5"]) {
       assert.equal(byId[id], "verified", `${id} (scheduled AFTER the block) still ran and verified`);
     }
     const done = readdirSync(resolve(repoRoot, cfg.doneDir)).sort();
-    assert.deepEqual(done, ["ISS-2.md", "ISS-3.md", "ISS-4.md", "ISS-5.md"]);
+    assert.deepEqual(done, ["ISSUE-2.md", "ISSUE-3.md", "ISSUE-4.md", "ISSUE-5.md"]);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
 });
 
 test("runLoopParallel: a worktree-cleanup failure never masks a verified result", async () => {
-  const issues = [{ id: "ISS-A", depends_on: [], graph_refs: ["node:a"] }]
+  const issues = [{ id: "ISSUE-A", depends_on: [], graph_refs: ["node:a"] }]
   const { dir, scratchRel, cfg } = buildParallelScratch({ issues })
   try {
     const processed = await runLoopParallel(
@@ -2346,8 +2366,8 @@ test("runLoopParallel: a worktree-cleanup failure never masks a verified result"
         },
       },
     );
-    assert.deepEqual(processed, [{ id: "ISS-A", status: "verified" }], "verified despite cleanup throwing");
-    assert.ok(readdirSync(resolve(repoRoot, cfg.doneDir)).includes("ISS-A.md"), "still moved to done/");
+    assert.deepEqual(processed, [{ id: "ISSUE-A", status: "verified" }], "verified despite cleanup throwing");
+    assert.ok(readdirSync(resolve(repoRoot, cfg.doneDir)).includes("ISSUE-A.md"), "still moved to done/");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -2355,7 +2375,7 @@ test("runLoopParallel: a worktree-cleanup failure never masks a verified result"
 
 test("runLoopParallel keeps the ledger consistent under many concurrent completions (no lost events)", async () => {
   const issues = Array.from({ length: 6 }, (_, i) => ({
-    id: `ISS-${i + 1}`,
+    id: `ISSUE-${i + 1}`,
     depends_on: [],
     graph_refs: [`node:n${i + 1}`],
   }));
@@ -2424,7 +2444,7 @@ test("frozenIntegrationPaths covers the locked extraction corpus, not loop lifec
 test("defaultResetWorktreeFrozenArtifacts drops a worktree's frozen-artifact edit while keeping legit src changes", () => {
   const frozenRel = ".vivicy/requirements/catalog.json";
   const frozen = seedFrozenArtifact(frozenRel, `${JSON.stringify({ requirements: ["R1"] }, null, 2)}\n`);
-  const issues = [{ id: "ISS-FZ", depends_on: [], graph_refs: ["node:fz"] }];
+  const issues = [{ id: "ISSUE-FZ", depends_on: [], graph_refs: ["node:fz"] }];
   const { dir, scratchRel, cfg } = buildParallelScratch({ issues });
   try {
     const created = defaultCreateWorktree(issues[0], cfg as Config);
@@ -2434,7 +2454,7 @@ test("defaultResetWorktreeFrozenArtifacts drops a worktree's frozen-artifact edi
     mkdirSync(resolve(created.worktreeRoot, scratchRel, "gen"), { recursive: true });
     writeFileSync(resolve(created.worktreeRoot, legitRel), "legit implementation\n");
     spawnSync("git", ["add", "-A"], { cwd: created.worktreeRoot, encoding: "utf8" });
-    spawnSync("git", ["commit", "-qm", "ISS-FZ: work + drift"], { cwd: created.worktreeRoot, encoding: "utf8" });
+    spawnSync("git", ["commit", "-qm", "ISSUE-FZ: work + drift"], { cwd: created.worktreeRoot, encoding: "utf8" });
 
     const didReset = defaultResetWorktreeFrozenArtifacts(issues[0], cfg as Config, created.worktreeRoot);
     assert.equal(didReset, true, "guard reported it neutralized a frozen-artifact edit");
@@ -2468,24 +2488,24 @@ test("WORKTREE: a tree that resists removal never surfaces as a raw filesystem c
     chmodSync(inner, 0o500);
     return inner;
   };
-  const stuck = resolve(dir, "ISS-STUCK");
-  const leftover = resolve(dir, "ISS-CREATE");
+  const stuck = resolve(dir, "ISSUE-STUCK");
+  const leftover = resolve(dir, "ISSUE-CREATE");
   const sealed = [seal(stuck), seal(leftover)];
   try {
     assert.doesNotThrow(
-      () => defaultRemoveWorktree({ id: "ISS-STUCK" } as Issue, {} as Config, stuck, ""),
+      () => defaultRemoveWorktree({ id: "ISSUE-STUCK" } as Issue, {} as Config, stuck, ""),
       "worktree removal runs AFTER the issue is already integrated: a throw there would replace that outcome",
     );
     assert.ok(existsSync(stuck), "the tree is left standing and announced, never half-reported as gone");
 
     assert.throws(
-      () => defaultCreateWorktree({ id: "ISS-CREATE" } as Issue, { worktreesDir } as Config),
-      /dev-loop: failed to create worktree for ISS-CREATE: [\s\S]*fatal/,
+      () => defaultCreateWorktree({ id: "ISSUE-CREATE" } as Issue, { worktreesDir } as Config),
+      /dev-loop: failed to create worktree for ISSUE-CREATE: [\s\S]*fatal/,
       "a leftover the clear cannot win surfaces as the loop's own create failure carrying git's own words, never a bare filesystem error",
     );
   } finally {
     for (const inner of sealed) if (existsSync(inner)) chmodSync(inner, 0o700);
-    spawnSync("git", ["branch", "-D", "vivicy/ISS-CREATE"], { cwd: repoRoot, encoding: "utf8" });
+    spawnSync("git", ["branch", "-D", "vivicy/ISSUE-CREATE"], { cwd: repoRoot, encoding: "utf8" });
     rmSync(dir, { recursive: true, force: true });
   }
 });
@@ -2494,8 +2514,8 @@ test("runLoopParallel: two parallel branches both editing a frozen artifact inte
   const frozenRel = ".vivicy/requirements/traceability-matrix.json";
   const frozen = seedFrozenArtifact(frozenRel, `${JSON.stringify({ matrix: "BASELINE" }, null, 2)}\n`);
   const issues = [
-    { id: "ISS-P", depends_on: [], graph_refs: ["node:p"] },
-    { id: "ISS-Q", depends_on: [], graph_refs: ["node:q"] },
+    { id: "ISSUE-P", depends_on: [], graph_refs: ["node:p"] },
+    { id: "ISSUE-Q", depends_on: [], graph_refs: ["node:q"] },
   ];
   const { dir, scratchRel, cfg } = buildParallelScratch({ issues });
   const driftingLegs = () => {
@@ -2525,15 +2545,15 @@ test("runLoopParallel: two parallel branches both editing a frozen artifact inte
       { ...driftingLegs(), skipWorktreeIgnore: true },
     );
     const byId = Object.fromEntries(processed.map((p) => [p.id, p.status]));
-    assert.equal(byId["ISS-P"], "verified", "ISS-P integrated despite editing the frozen file");
-    assert.equal(byId["ISS-Q"], "verified", "ISS-Q integrated despite editing the frozen file");
+    assert.equal(byId["ISSUE-P"], "verified", "ISSUE-P integrated despite editing the frozen file");
+    assert.equal(byId["ISSUE-Q"], "verified", "ISSUE-Q integrated despite editing the frozen file");
     assert.ok(
-      !existsSync(resolve(repoRoot, `${cfg.reportsDir}/ISS-P-blocked.json`)) &&
-        !existsSync(resolve(repoRoot, `${cfg.reportsDir}/ISS-Q-blocked.json`)),
+      !existsSync(resolve(repoRoot, `${cfg.reportsDir}/ISSUE-P-blocked.json`)) &&
+        !existsSync(resolve(repoRoot, `${cfg.reportsDir}/ISSUE-Q-blocked.json`)),
       "no integration-conflict block was written for either branch",
     );
     assert.equal(frozen.headContent(), frozen.baseline, "frozen artifact at HEAD is byte-identical to its baseline");
-    for (const id of ["ISS-P", "ISS-Q"]) {
+    for (const id of ["ISSUE-P", "ISSUE-Q"]) {
       assert.ok(
         existsSync(resolve(repoRoot, scratchRel, "gen", `${id}.txt`)),
         `${id}'s legit file was integrated onto main`,
@@ -2593,8 +2613,8 @@ test("the extraction-fidelity verifier prompt enforces cross-document consistenc
 
 test("runLoop(maxParallel=1) is the sequential path: returns an array, identical behavior", () => {
   const issues = [
-    { id: "ISS-A", depends_on: [], graph_refs: ["node:x"] },
-    { id: "ISS-B", depends_on: ["ISS-A"], graph_refs: ["node:y"] },
+    { id: "ISSUE-A", depends_on: [], graph_refs: ["node:x"] },
+    { id: "ISSUE-B", depends_on: ["ISSUE-A"], graph_refs: ["node:y"] },
   ];
   const { dir, cfg } = buildParallelScratch({ issues });
   try {
@@ -2604,15 +2624,15 @@ test("runLoop(maxParallel=1) is the sequential path: returns an array, identical
     );
     assert.ok(Array.isArray(processed), "N=1 returns an array synchronously");
     assert.deepEqual(processed, [
-      { id: "ISS-A", status: "verified" },
-      { id: "ISS-B", status: "verified" },
+      { id: "ISSUE-A", status: "verified" },
+      { id: "ISSUE-B", status: "verified" },
     ]);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
 });
 
-function issueBody({ id = "ISS-A", exec = "Original scope prose.", refs = ["node:x"] } = {}) {
+function issueBody({ id = "ISSUE-A", exec = "Original scope prose.", refs = ["node:x"] } = {}) {
   return [
     `# ${id} — a slice`,
     "",
@@ -2700,9 +2720,9 @@ function buildReadinessScratch(issues: Issue[]) {
 }
 
 test("extractTraceabilityBlock returns the fenced block under ## Traceability, ignoring stray fences", () => {
-  const body = issueBody({ id: "ISS-A" });
+  const body = issueBody({ id: "ISSUE-A" });
   const block = extractTraceabilityBlock(body);
-  assert.ok(block && block.includes("issue_id: ISS-A"), "the traceability block is extracted");
+  assert.ok(block && block.includes("issue_id: ISSUE-A"), "the traceability block is extracted");
   assert.ok(block.includes("verification_gate_ids:"), "the whole block is captured");
   const withStray = "```text\nnot the block\n```\n\n" + body;
   assert.equal(extractTraceabilityBlock(withStray), block, "anchors on ## Traceability, not a stray fence");
@@ -2710,48 +2730,48 @@ test("extractTraceabilityBlock returns the fenced block under ## Traceability, i
 });
 
 test("issueUpdatePreservesTraceability accepts prose-only edits and rejects block edits", () => {
-  const before = issueBody({ id: "ISS-A", exec: "Original prose." });
-  const proseOnly = issueBody({ id: "ISS-A", exec: "Revised execution prose, same refs." });
+  const before = issueBody({ id: "ISSUE-A", exec: "Original prose." });
+  const proseOnly = issueBody({ id: "ISSUE-A", exec: "Revised execution prose, same refs." });
   assert.equal(issueUpdatePreservesTraceability(before, proseOnly), true);
-  const blockEdited = issueBody({ id: "ISS-A", exec: "Original prose.", refs: ["node:y"] });
+  const blockEdited = issueBody({ id: "ISSUE-A", exec: "Original prose.", refs: ["node:y"] });
   assert.equal(issueUpdatePreservesTraceability(before, blockEdited), false);
-  assert.equal(issueUpdatePreservesTraceability(before, "# ISS-A\n\nno traceability block"), false);
+  assert.equal(issueUpdatePreservesTraceability(before, "# ISSUE-A\n\nno traceability block"), false);
 });
 
 test("readiness implementable -> the implementer runs and the issue verifies", () => {
-  const issues = [{ id: "ISS-A", depends_on: [], graph_refs: ["node:x"] }];
+  const issues = [{ id: "ISSUE-A", depends_on: [], graph_refs: ["node:x"] }];
   const { dir, cfg } = buildReadinessScratch(issues);
   let implemented = 0;
   try {
     const processed = runLoop(cfg, {
       ...stubLifecycle,
-      runReadiness: fakeReadiness({ "ISS-A": { verdict: "implementable", reason: "clean" } }),
+      runReadiness: fakeReadiness({ "ISSUE-A": { verdict: "implementable", reason: "clean" } }),
       runImplementer: () => {
         implemented += 1;
       },
       runReviewer: () => {},
       commit: () => {},
     });
-    assert.deepEqual(processed, [{ id: "ISS-A", status: "verified" }]);
+    assert.deepEqual(processed, [{ id: "ISSUE-A", status: "verified" }]);
     assert.equal(implemented, 1, "an implementable verdict runs the implementer");
     const ledger = JSON.parse(readFileSync(resolve(repoRoot, cfg.progressLedgerPath), "utf8"));
     const node = ledger.graph_item_states.find((s: { graph_ref: string }) => s.graph_ref === "node:x");
-    assert.equal(node.issue_states["ISS-A"], "verified");
+    assert.equal(node.issue_states["ISSUE-A"], "verified");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
 });
 
 test("readiness issue_update: a prose-only patch is applied to the issue file, then it implements", () => {
-  const issues = [{ id: "ISS-A", depends_on: [], graph_refs: ["node:x"] }];
+  const issues = [{ id: "ISSUE-A", depends_on: [], graph_refs: ["node:x"] }];
   const { dir, cfg } = buildReadinessScratch(issues);
-  const patched = issueBody({ id: "ISS-A", exec: "PATCHED execution detail (ordering fixed)." });
+  const patched = issueBody({ id: "ISSUE-A", exec: "PATCHED execution detail (ordering fixed)." });
   let implemented = 0;
   try {
     const processed = runLoop(cfg, {
       ...stubLifecycle,
       runReadiness: fakeReadiness({
-        "ISS-A": { verdict: "issue_update", reason: "ordering drifted", updates: { body_patch: patched } },
+        "ISSUE-A": { verdict: "issue_update", reason: "ordering drifted", updates: { body_patch: patched } },
       }),
       runImplementer: () => {
         implemented += 1;
@@ -2759,12 +2779,12 @@ test("readiness issue_update: a prose-only patch is applied to the issue file, t
       runReviewer: () => {},
       commit: () => {},
     });
-    assert.deepEqual(processed, [{ id: "ISS-A", status: "verified" }]);
+    assert.deepEqual(processed, [{ id: "ISSUE-A", status: "verified" }]);
     assert.equal(implemented, 1, "after a bounded update the issue implements");
-    const activePath = resolve(repoRoot, `${cfg.issuesDir}/ISS-A.md`);
+    const activePath = resolve(repoRoot, `${cfg.issuesDir}/ISSUE-A.md`);
     const body = existsSync(activePath)
       ? readFileSync(activePath, "utf8")
-      : readFileSync(resolve(repoRoot, `${cfg.doneDir}/ISS-A.md`), "utf8");
+      : readFileSync(resolve(repoRoot, `${cfg.doneDir}/ISSUE-A.md`), "utf8");
     assert.ok(body.includes("PATCHED execution detail"), "the bounded prose patch was applied");
   } finally {
     rmSync(dir, { recursive: true, force: true });
@@ -2773,32 +2793,32 @@ test("readiness issue_update: a prose-only patch is applied to the issue file, t
 
 test("readiness issue_update touching the traceability block is REFUSED, routed to parked, patch NOT applied", () => {
   const issues = [
-    { id: "ISS-A", depends_on: [], graph_refs: ["node:x"] },
-    { id: "ISS-B", depends_on: [], graph_refs: ["node:y"] },
+    { id: "ISSUE-A", depends_on: [], graph_refs: ["node:x"] },
+    { id: "ISSUE-B", depends_on: [], graph_refs: ["node:y"] },
   ];
   const { dir, cfg } = buildReadinessScratch(issues);
-  const illegalPatch = issueBody({ id: "ISS-A", exec: "prose", refs: ["node:HIJACKED"] });
-  const original = readFileSync(resolve(repoRoot, `${cfg.issuesDir}/ISS-A.md`), "utf8");
+  const illegalPatch = issueBody({ id: "ISSUE-A", exec: "prose", refs: ["node:HIJACKED"] });
+  const original = readFileSync(resolve(repoRoot, `${cfg.issuesDir}/ISSUE-A.md`), "utf8");
   let implementedA = 0;
   try {
     const processed = runLoop(cfg, {
       ...stubLifecycle,
       runReadiness: fakeReadiness({
-        "ISS-A": { verdict: "issue_update", reason: "sneaky", updates: { body_patch: illegalPatch } },
-        "ISS-B": { verdict: "implementable", reason: "fine" },
+        "ISSUE-A": { verdict: "issue_update", reason: "sneaky", updates: { body_patch: illegalPatch } },
+        "ISSUE-B": { verdict: "implementable", reason: "fine" },
       }),
       runImplementer: (iss: Issue) => {
-        if (iss.id === "ISS-A") implementedA += 1;
+        if (iss.id === "ISSUE-A") implementedA += 1;
       },
       runReviewer: () => {},
       commit: () => {},
     });
     const byId = Object.fromEntries((processed as ProcessedIssue[]).map((p) => [p.id, p.status]));
-    assert.equal(byId["ISS-A"], "parked", "the traceability-touching update is parked (routed to needs_cr)");
-    assert.equal(byId["ISS-B"], "verified", "the loop continued to the next ready issue");
+    assert.equal(byId["ISSUE-A"], "parked", "the traceability-touching update is parked (routed to needs_cr)");
+    assert.equal(byId["ISSUE-B"], "verified", "the loop continued to the next ready issue");
     assert.equal(implementedA, 0, "the refused issue never reached the implementer");
-    assert.equal(readFileSync(resolve(repoRoot, `${cfg.issuesDir}/ISS-A.md`), "utf8"), original, "issue file untouched");
-    assert.ok(existsSync(resolve(repoRoot, `${cfg.reportsDir}/ISS-A-parked.json`)), "parked report written");
+    assert.equal(readFileSync(resolve(repoRoot, `${cfg.issuesDir}/ISSUE-A.md`), "utf8"), original, "issue file untouched");
+    assert.ok(existsSync(resolve(repoRoot, `${cfg.reportsDir}/ISSUE-A-parked.json`)), "parked report written");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -2806,8 +2826,8 @@ test("readiness issue_update touching the traceability block is REFUSED, routed 
 
 test("readiness needs_cr: the issue is parked, the implementer is NEVER called, the loop continues", () => {
   const issues = [
-    { id: "ISS-A", depends_on: [], graph_refs: ["node:x"] },
-    { id: "ISS-B", depends_on: [], graph_refs: ["node:y"] },
+    { id: "ISSUE-A", depends_on: [], graph_refs: ["node:x"] },
+    { id: "ISSUE-B", depends_on: [], graph_refs: ["node:y"] },
   ];
   const { dir, cfg } = buildReadinessScratch(issues);
   const implementedIds: string[] = [];
@@ -2815,8 +2835,8 @@ test("readiness needs_cr: the issue is parked, the implementer is NEVER called, 
     const processed = runLoop(cfg, {
       ...stubLifecycle,
       runReadiness: fakeReadiness({
-        "ISS-A": { verdict: "needs_cr", reason: "code made the requirement false" },
-        "ISS-B": { verdict: "implementable", reason: "fine" },
+        "ISSUE-A": { verdict: "needs_cr", reason: "code made the requirement false" },
+        "ISSUE-B": { verdict: "implementable", reason: "fine" },
       }),
       runImplementer: (iss: Issue) => {
         implementedIds.push(iss.id);
@@ -2825,10 +2845,10 @@ test("readiness needs_cr: the issue is parked, the implementer is NEVER called, 
       commit: () => {},
     });
     const byId = Object.fromEntries((processed as ProcessedIssue[]).map((p) => [p.id, p.status]));
-    assert.equal(byId["ISS-A"], "parked");
-    assert.equal(byId["ISS-B"], "verified");
-    assert.deepEqual(implementedIds, ["ISS-B"], "the parked issue never reached the implementer; the loop continued");
-    const report = JSON.parse(readFileSync(resolve(repoRoot, `${cfg.reportsDir}/ISS-A-parked.json`), "utf8"));
+    assert.equal(byId["ISSUE-A"], "parked");
+    assert.equal(byId["ISSUE-B"], "verified");
+    assert.deepEqual(implementedIds, ["ISSUE-B"], "the parked issue never reached the implementer; the loop continued");
+    const report = JSON.parse(readFileSync(resolve(repoRoot, `${cfg.reportsDir}/ISSUE-A-parked.json`), "utf8"));
     assert.match(report.reason, /requirement false/);
     assert.ok(typeof report.issue_hash === "string" && report.issue_hash.length > 0, "identity hash stamped for unparking");
   } finally {
@@ -2837,7 +2857,7 @@ test("readiness needs_cr: the issue is parked, the implementer is NEVER called, 
 });
 
 test("readiness leg death (no verdict file) -> ONE retry then parked with reason readiness_leg_failed", () => {
-  const issues = [{ id: "ISS-A", depends_on: [], graph_refs: ["node:x"] }];
+  const issues = [{ id: "ISSUE-A", depends_on: [], graph_refs: ["node:x"] }];
   const { dir, cfg } = buildReadinessScratch(issues);
   const calls: Record<string, number> = {};
   let implemented = 0;
@@ -2851,10 +2871,10 @@ test("readiness leg death (no verdict file) -> ONE retry then parked with reason
       runReviewer: () => {},
       commit: () => {},
     });
-    assert.deepEqual(processed, [{ id: "ISS-A", status: "parked" }]);
-    assert.equal(calls["ISS-A"], 2, "the readiness leg was retried exactly once (2 total attempts)");
+    assert.deepEqual(processed, [{ id: "ISSUE-A", status: "parked" }]);
+    assert.equal(calls["ISSUE-A"], 2, "the readiness leg was retried exactly once (2 total attempts)");
     assert.equal(implemented, 0, "a leg that never yields a verdict never proceeds to implement");
-    const report = JSON.parse(readFileSync(resolve(repoRoot, `${cfg.reportsDir}/ISS-A-parked.json`), "utf8"));
+    const report = JSON.parse(readFileSync(resolve(repoRoot, `${cfg.reportsDir}/ISSUE-A-parked.json`), "utf8"));
     assert.equal(report.reason, "readiness_leg_failed", "parked as a transient failure, never silently proceeded");
   } finally {
     rmSync(dir, { recursive: true, force: true });
@@ -2862,37 +2882,37 @@ test("readiness leg death (no verdict file) -> ONE retry then parked with reason
 });
 
 test("a parked report is CLEARED when its issue file changes (CR-driven unpark)", () => {
-  const issues = [{ id: "ISS-A", depends_on: [], graph_refs: ["node:x"] }];
+  const issues = [{ id: "ISSUE-A", depends_on: [], graph_refs: ["node:x"] }];
   const { dir, cfg } = buildReadinessScratch(issues);
   try {
     let processed = runLoop(cfg, {
       ...stubLifecycle,
-      runReadiness: fakeReadiness({ "ISS-A": { verdict: "needs_cr", reason: "blocked on CR" } }),
+      runReadiness: fakeReadiness({ "ISSUE-A": { verdict: "needs_cr", reason: "blocked on CR" } }),
       runImplementer: () => {},
       runReviewer: () => {},
       commit: () => {},
     });
-    assert.deepEqual(processed, [{ id: "ISS-A", status: "parked" }]);
-    assert.ok(existsSync(resolve(repoRoot, `${cfg.reportsDir}/ISS-A-parked.json`)));
+    assert.deepEqual(processed, [{ id: "ISSUE-A", status: "parked" }]);
+    assert.ok(existsSync(resolve(repoRoot, `${cfg.reportsDir}/ISSUE-A-parked.json`)));
 
     writeFileSync(
-      resolve(repoRoot, `${cfg.issuesDir}/ISS-A.md`),
-      issueBody({ id: "ISS-A", exec: "REVISED after CR — now implementable." }),
+      resolve(repoRoot, `${cfg.issuesDir}/ISSUE-A.md`),
+      issueBody({ id: "ISSUE-A", exec: "REVISED after CR — now implementable." }),
     );
     let implemented = 0;
     processed = runLoop(cfg, {
       ...stubLifecycle,
-      runReadiness: fakeReadiness({ "ISS-A": { verdict: "implementable", reason: "CR resolved" } }),
+      runReadiness: fakeReadiness({ "ISSUE-A": { verdict: "implementable", reason: "CR resolved" } }),
       runImplementer: () => {
         implemented += 1;
       },
       runReviewer: () => {},
       commit: () => {},
     });
-    assert.deepEqual(processed, [{ id: "ISS-A", status: "verified" }], "the changed issue unparked and verified");
+    assert.deepEqual(processed, [{ id: "ISSUE-A", status: "verified" }], "the changed issue unparked and verified");
     assert.equal(implemented, 1);
     assert.ok(
-      !existsSync(resolve(repoRoot, `${cfg.reportsDir}/ISS-A-parked.json`)),
+      !existsSync(resolve(repoRoot, `${cfg.reportsDir}/ISSUE-A-parked.json`)),
       "the stale parked report was cleared when the issue file changed",
     );
   } finally {
@@ -2902,8 +2922,8 @@ test("a parked report is CLEARED when its issue file changes (CR-driven unpark)"
 
 test("parallel readiness: a batch member that parks gets NO worktree (excluded pre-worktree)", async () => {
   const issues = [
-    { id: "ISS-A", depends_on: [], graph_refs: ["node:a"] },
-    { id: "ISS-B", depends_on: [], graph_refs: ["node:b"] },
+    { id: "ISSUE-A", depends_on: [], graph_refs: ["node:a"] },
+    { id: "ISSUE-B", depends_on: [], graph_refs: ["node:b"] },
   ];
   const { dir, cfg } = buildParallelScratch({ issues });
   const hermetic = hermeticWorktreeSteps();
@@ -2916,8 +2936,8 @@ test("parallel readiness: a batch member that parks gets NO worktree (excluded p
         ...hermeticLegs(),
         skipWorktreeIgnore: true,
         runReadiness: fakeReadiness({
-          "ISS-A": { verdict: "implementable", reason: "ok" },
-          "ISS-B": { verdict: "needs_cr", reason: "blocked" },
+          "ISSUE-A": { verdict: "implementable", reason: "ok" },
+          "ISSUE-B": { verdict: "needs_cr", reason: "blocked" },
         }),
         createWorktree: (issue: Issue) => {
           worktreesCreated.push(issue.id);
@@ -2930,11 +2950,11 @@ test("parallel readiness: a batch member that parks gets NO worktree (excluded p
       },
     );
     const byId = Object.fromEntries(processed.map((p) => [p.id, p.status]));
-    assert.equal(byId["ISS-A"], "verified", "the implementable member ran and verified");
-    assert.equal(byId["ISS-B"], "parked", "the needs_cr member is parked");
-    assert.ok(worktreesCreated.includes("ISS-A"), "the admitted issue got a worktree");
-    assert.ok(!worktreesCreated.includes("ISS-B"), "the parked issue got NO worktree (excluded pre-worktree)");
-    assert.ok(existsSync(resolve(repoRoot, `${cfg.reportsDir}/ISS-B-parked.json`)), "B parked report written");
+    assert.equal(byId["ISSUE-A"], "verified", "the implementable member ran and verified");
+    assert.equal(byId["ISSUE-B"], "parked", "the needs_cr member is parked");
+    assert.ok(worktreesCreated.includes("ISSUE-A"), "the admitted issue got a worktree");
+    assert.ok(!worktreesCreated.includes("ISSUE-B"), "the parked issue got NO worktree (excluded pre-worktree)");
+    assert.ok(existsSync(resolve(repoRoot, `${cfg.reportsDir}/ISSUE-B-parked.json`)), "B parked report written");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -3006,7 +3026,7 @@ function hermeticLegs() {
 }
 
 test("merge conflict -> resolver resolved + worktree gate green -> merge retried once -> success", async () => {
-  const issues = [{ id: "ISS-A", depends_on: [], graph_refs: ["node:a"] }];
+  const issues = [{ id: "ISSUE-A", depends_on: [], graph_refs: ["node:a"] }];
   const { dir, cfg } = buildParallelScratch({ issues });
   let mergeCalls = 0;
   let resolverCalls = 0;
@@ -3030,7 +3050,7 @@ test("merge conflict -> resolver resolved + worktree gate green -> merge retried
         },
         runMergeResolver: (issue, c) => {
           resolverCalls += 1;
-          return fakeMergeResolver({ "ISS-A": true })(issue, c);
+          return fakeMergeResolver({ "ISSUE-A": true })(issue, c);
         },
         runGate: makeFakeGate(() => true),
         captureHead: () => "PRE_SHA",
@@ -3039,18 +3059,18 @@ test("merge conflict -> resolver resolved + worktree gate green -> merge retried
         },
       },
     );
-    assert.deepEqual(processed, [{ id: "ISS-A", status: "verified" }], "resolved conflict + green gates -> verified");
+    assert.deepEqual(processed, [{ id: "ISSUE-A", status: "verified" }], "resolved conflict + green gates -> verified");
     assert.equal(mergeCalls, 2, "the merge was retried exactly once after resolution");
     assert.equal(resolverCalls, 1, "the merge-resolver leg ran once");
     assert.equal(rebased, 1, "the worktree was rebased onto integration HEAD before resolving");
-    assert.ok(existsSync(resolve(repoRoot, `${cfg.reportsDir}/ISS-A-merge-resolution.json`)), "resolution verdict written");
+    assert.ok(existsSync(resolve(repoRoot, `${cfg.reportsDir}/ISSUE-A-merge-resolution.json`)), "resolution verdict written");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
 });
 
 test("the resolver CLAIMS resolved but the orchestrator's worktree gate re-run is RED -> blocked (trust nothing)", async () => {
-  const issues = [{ id: "ISS-A", depends_on: [], graph_refs: ["node:a"] }];
+  const issues = [{ id: "ISSUE-A", depends_on: [], graph_refs: ["node:a"] }];
   const { dir, cfg } = buildParallelScratch({ issues });
   let mergeCalls = 0;
   try {
@@ -3065,16 +3085,16 @@ test("the resolver CLAIMS resolved but the orchestrator's worktree gate re-run i
           return { ok: false, conflict: true, message: "CONFLICT" };
         },
         rebaseWorktree: () => ({ ok: true, message: "rebased" }),
-        runMergeResolver: fakeMergeResolver({ "ISS-A": true }),
+        runMergeResolver: fakeMergeResolver({ "ISSUE-A": true }),
         runGate: makeFakeGate((issue, { stage, worktreeCall }) => stage === "worktree" && worktreeCall <= 1),
         captureHead: () => "PRE_SHA",
         resetHard: () => {},
       },
     );
-    assert.deepEqual(processed, [{ id: "ISS-A", status: "blocked" }], "a lying resolver is caught by the orchestrator's own gate");
+    assert.deepEqual(processed, [{ id: "ISSUE-A", status: "blocked" }], "a lying resolver is caught by the orchestrator's own gate");
     assert.equal(mergeCalls, 1, "the merge was NOT retried (the orchestrator's gate re-run was red)");
-    assert.ok(existsSync(resolve(repoRoot, `${cfg.reportsDir}/ISS-A-blocked.json`)), "an integration block was written");
-    const block = JSON.parse(readFileSync(resolve(repoRoot, `${cfg.reportsDir}/ISS-A-blocked.json`), "utf8"));
+    assert.ok(existsSync(resolve(repoRoot, `${cfg.reportsDir}/ISSUE-A-blocked.json`)), "an integration block was written");
+    const block = JSON.parse(readFileSync(resolve(repoRoot, `${cfg.reportsDir}/ISSUE-A-blocked.json`), "utf8"));
     assert.match(block.reason, /unresolved/i);
   } finally {
     rmSync(dir, { recursive: true, force: true });
@@ -3083,8 +3103,8 @@ test("the resolver CLAIMS resolved but the orchestrator's worktree gate re-run i
 
 test("post-merge re-gate RED -> integration reset to pre-merge sha + issue blocked + others continue", async () => {
   const issues = [
-    { id: "ISS-A", depends_on: [], graph_refs: ["node:a"] },
-    { id: "ISS-C", depends_on: [], graph_refs: ["node:c"] },
+    { id: "ISSUE-A", depends_on: [], graph_refs: ["node:a"] },
+    { id: "ISSUE-C", depends_on: [], graph_refs: ["node:c"] },
   ];
   const { dir, cfg } = buildParallelScratch({ issues });
   const resetCalls: string[] = [];
@@ -3101,21 +3121,21 @@ test("post-merge re-gate RED -> integration reset to pre-merge sha + issue block
           resetCalls.push(sha);
           return { status: 0 };
         },
-        runGate: makeFakeGate((issue, { stage }) => !(issue.id === "ISS-A" && stage === "post_merge")),
+        runGate: makeFakeGate((issue, { stage }) => !(issue.id === "ISSUE-A" && stage === "post_merge")),
       },
     );
     const byId = Object.fromEntries(processed.map((p) => [p.id, p.status]));
-    assert.equal(byId["ISS-A"], "blocked", "the damaging issue is blocked");
-    assert.equal(byId["ISS-C"], "verified", "the independent issue still verifies");
+    assert.equal(byId["ISSUE-A"], "blocked", "the damaging issue is blocked");
+    assert.equal(byId["ISSUE-C"], "verified", "the independent issue still verifies");
     assert.deepEqual(resetCalls, ["PRE_SHA_A"], "the merge was reverted to the pre-merge HEAD sha");
-    const block = JSON.parse(readFileSync(resolve(repoRoot, `${cfg.reportsDir}/ISS-A-integration-blocked.json`), "utf8"));
+    const block = JSON.parse(readFileSync(resolve(repoRoot, `${cfg.reportsDir}/ISSUE-A-integration-blocked.json`), "utf8"));
     assert.equal(block.kind, "post_merge_gate");
     assert.equal(block.reverted_to_sha, "PRE_SHA_A");
     assert.equal(block.pre_merge_gate_evidence?.record?.status, "pass", "the green pre-merge verdict is preserved");
     assert.equal(block.post_merge_gate_evidence?.record?.status, "fail", "the red post-merge verdict is recorded");
     const done = readdirSync(resolve(repoRoot, cfg.doneDir));
-    assert.ok(!done.includes("ISS-A.md"), "damaged issue NOT moved to done/");
-    assert.ok(done.includes("ISS-C.md"), "independent issue moved to done/");
+    assert.ok(!done.includes("ISSUE-A.md"), "damaged issue NOT moved to done/");
+    assert.ok(done.includes("ISSUE-C.md"), "independent issue moved to done/");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

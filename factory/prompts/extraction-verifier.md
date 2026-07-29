@@ -15,7 +15,7 @@ This is the second, independent gate. The deterministic checks (semantic-extract
    - `.vivicy/requirements/catalog.json` — the Requirement Catalog.
    - `.vivicy/requirements/traceability-matrix.json` — the Traceability Matrix.
    - `.vivicy/development/issue-index.json` — the issue index.
-   - `.vivicy/development/issues/ISS-*.md` — the vertical issues.
+   - `.vivicy/development/issues/ISSUE-*.md` — the vertical issues.
    - `.vivicy/architecture-map/architecture-map.yml` — the architecture map.
 
 {{vicious_defect_classes}}
@@ -65,8 +65,8 @@ or, when you find fidelity breaks:
 {
   "faithful": false,
   "problems": [
-    { "issue": "ISS-0003", "kind": "invented_requirement", "detail": "ISS-0003 scope requires rate-limiting, but cited lines .vivicy/canonical/04-foo.md:40-52 say nothing about rate limits." },
-    { "issue": "ISS-0007", "kind": "bad_source_ref", "detail": "source_line_refs cites .vivicy/canonical/02-bar.md:10-14, but those lines are the document heading + a blank line, not the claimed obligation." }
+    { "issue": "ISSUE-0003", "kind": "invented_requirement", "detail": "ISSUE-0003 scope requires rate-limiting, but cited lines .vivicy/canonical/04-foo.md:40-52 say nothing about rate limits." },
+    { "issue": "ISSUE-0007", "kind": "bad_source_ref", "detail": "source_line_refs cites .vivicy/canonical/02-bar.md:10-14, but those lines are the document heading + a blank line, not the claimed obligation." }
   ]
 }
 ```

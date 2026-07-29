@@ -56,7 +56,7 @@ function renderBar(development?: DevelopmentBlock) {
 }
 
 function issues(n: number): DevelopmentIssue[] {
-  return Array.from({ length: n }, (_, i) => ({ id: `ISS-${String(i + 1).padStart(4, "0")}` }))
+  return Array.from({ length: n }, (_, i) => ({ id: `ISSUE-${String(i + 1).padStart(4, "0")}` }))
 }
 
 describe("ProcessControlBar — Extract gating on already-extracted issues", () => {

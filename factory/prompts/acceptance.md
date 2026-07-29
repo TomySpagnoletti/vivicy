@@ -58,7 +58,7 @@ or, when the whole product does not satisfy the spec:
   "findings": [
     {
       "obligation": ".vivicy/canonical/04-checkout.md:20-31 (REQ-0012)",
-      "gap": "The cart total excludes tax although the canonical requires tax-inclusive totals; ISS-0007 (pricing) and ISS-0011 (checkout) each read the spec differently and their seam drops the tax line, so the end-to-end checkout scenario fails.",
+      "gap": "The cart total excludes tax although the canonical requires tax-inclusive totals; ISSUE-0007 (pricing) and ISSUE-0011 (checkout) each read the spec differently and their seam drops the tax line, so the end-to-end checkout scenario fails.",
       "verification": "executed",
       "title": "Checkout total must be tax-inclusive end to end",
       "classification": "minor_product_change"

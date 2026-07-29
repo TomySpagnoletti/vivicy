@@ -54,7 +54,7 @@ test.describe("Vivicy control plane", () => {
 
     // exact:true avoids matching the file-path text that also contains the issue id.
     await clickPastOverlap(page.getByRole("button", { name: "Tasks" }))
-    await expect(sidebar.getByText("ISS-0001", { exact: true })).toBeVisible()
+    await expect(sidebar.getByText("ISSUE-0001", { exact: true })).toBeVisible()
     await expect(nodes.first()).toBeVisible()
   })
 

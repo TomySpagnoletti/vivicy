@@ -1,0 +1,51 @@
+# ISSUE-0003 - Compute the Ledger total in integer cents
+
+## Summary
+
+Implement the Ledger's total: the sum of `amountCents` across all stored expenses, computed in integer minor units. The total of an empty Ledger is zero. Money is always integer cents, so floating-point arithmetic must never enter a stored total.
+
+## Task Type
+
+implementation
+
+## Traceability
+
+```text
+issue_id: ISSUE-0003
+graph_refs:
+  - node:ledger
+requirement_ids:
+  - REQ-LEDGER-004
+  - REQ-ARCH-002
+source_line_refs:
+  - .vivicy/canonical/01-architecture.md:29
+  - .vivicy/canonical/02-ledger-model.md:27
+depends_on:
+  - ISSUE-0001
+spike_gates:
+verification_gate_ids:
+  - gate:test:ledger-total
+```
+
+## Scope
+
+Add a `total()` operation to the Ledger built in ISSUE-0001 that returns the sum of `amountCents` across all stored expenses.
+
+All monetary amounts are integers in minor units (cents); the total is therefore an integer in cents. Floating-point money is forbidden because rounding error must never enter a stored total. The total of an empty Ledger is zero.
+
+## Out Of Scope
+
+Per-month or per-category aggregation (that is the Reporter, ISSUE-0005 and ISSUE-0006), retrieval reads (ISSUE-0002), and CSV amount formatting (ISSUE-0007).
+
+## Verification
+
+Unit tests in `test/` (node:test) to full branch coverage: the total of an empty Ledger is exactly `0`; the total of a single expense equals its `amountCents`; the total of several expenses equals the integer sum of their `amountCents`; the returned total is an integer (no floating-point drift). Tests assert the exact integer value. The deterministic gate `gate:test:ledger-total` must be green (node --test exit 0) before this issue is reported complete.
+
+## Proofs
+
+```text
+- id: ledger-total
+  class: gate_evidence
+  evidences:
+  - .vivicy/canonical/01-architecture.md:29
+```
