@@ -98,3 +98,5 @@ Young and moving fast. A project's life is a chain of spec cycles (one project s
 ## License
 
 [FSL-1.1-ALv2](./LICENSE) © Tomy Spagnoletti Duval — free to use, read, fork and build on, for any purpose except shipping a commercial product or service that competes with Vivicy; every version converts to Apache-2.0 two years after its release.
+
+That covers the work authored here. The third-party code this tree carries — the shadcn/ui primitives and the Geist typefaces — stays under its own terms: [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md).
