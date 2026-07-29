@@ -238,6 +238,16 @@ describe("scaffoldProject — from scratch (lean, language-agnostic)", () => {
     expect(result.written.every((p) => path.isAbsolute(p))).toBe(true)
   })
 
+  // The expectation is an independent literal, never the template re-read: reading it back would pass whatever the template says and pin nothing.
+  it("renders the README as the handoff itself — the name substituted, and not one line the homes it points at already own", () => {
+    const target = path.join(workDir, "readme-app")
+    scaffoldProject({ targetDir: target, projectName: "Acme App" })
+
+    expect(readFileSync(path.join(target, "README.md"), "utf8")).toBe(
+      "# Acme App\n\nGoverned by [Vivicy](https://github.com/TomySpagnoletti/vivicy).\n\nThe product truth lives in `.vivicy/`; agents start at `AGENTS.md`.\n"
+    )
+  })
+
   it("rejects an invalid project name before writing anything", () => {
     const target = path.join(workDir, "named-badly")
     expect(() => scaffoldProject({ targetDir: target, projectName: "" })).toThrow(expect.objectContaining({ code: "invalid_name" }))

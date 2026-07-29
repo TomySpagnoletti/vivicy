@@ -1,6 +1,6 @@
 # Vivicy — exhaustive test matrix
 
-Reconciled fingerprint: `4823214fcb783d105662ad9d340498686dc32cdc896e264e6ebf93736d69d3b5` @ commit `8586d4c9535c7ca6607b7cf711439a009571c969`
+Reconciled fingerprint: `34fd7d17f96165aa6826758bae783759ad207e6fd8f110e2364f816ec5fb683a` @ commit `9d70082ccc4ae066dc1415df13e05a51b3352a3b`
 
 
 This file is the exhaustive, always-current inventory of every test case for Vivicy — every behavior the system has, whether it is covered by a test today or is a known GAP. It is **committed and machine-guarded**: the `Reconciled fingerprint` line above hashes the behavior-bearing source tree and records the HEAD commit at reconciliation time, and `scripts/test-matrix.test.ts` fails the vitest suite when code changes without this file being reconciled and re-stamped (`npm run matrix:stamp`). `git log test/TEST-MATRIX.md` is the audit trail of reconciliations. It is the single source of truth for "what should be tested" across the app (`app/`, `components/`, `lib/`) and the factory (`factory/`). It was assembled from a full per-area audit pass plus three adversarial cross-matrices (user journeys, parallel/merge chaos, process/crash chaos).
@@ -24,13 +24,13 @@ This file is the exhaustive, always-current inventory of every test case for Viv
 | e2e-test-infra-rehearsal | 327 | 102 | 225 |
 | extraction-gates | 314 | 160 | 154 |
 | map-ui-data-viewer | 293 | 186 | 107 |
-| onboarding-project-scaffold | 357 | 174 | 183 |
+| onboarding-project-scaffold | 357 | 173 | 184 |
 | upload-vivi-chat | 409 | 165 | 244 |
 | workflow-notifications-agents-ui | 208 | 119 | 89 |
 | cross-journeys | 80 | 63 | 17 |
 | cross-chaos-parallel-merge | 47 | 32 | 15 |
 | cross-chaos-process | 45 | 42 | 3 |
-| **TOTAL** | **4090** | **2102** | **1988** |
+| **TOTAL** | **4090** | **2101** | **1989** |
 
 ---
 
@@ -3993,7 +3993,7 @@ Area: extraction-gates. Scope: `factory/extract-issues.ts`, `factory/semantic-ex
 - [onboarding-project-scaffold.189] | `scaffoldProject` from-scratch mode NEVER calls `detectGateCommand` (per source: `mode === "existing_project" ? detectGateCommand(...) : null`); the written vivicy.json carries `gateCommand: null` — the not-yet-established sentinel the workflow fills mechanically, never a prose placeholder/echo | `vivicy.json.gateCommand` is the `null` sentinel in from-scratch mode | unit | scaffold.test.ts ("scaffoldProject from-scratch" asserts `vivicy.gateCommand` is null)
 - [onboarding-project-scaffold.384] | `scaffoldProject` writes `vivicy.json` with `runCommand` beside `gateCommand`, always as the `null` sentinel in BOTH from-scratch and existing-project modes — `runCommand` is deliberately never brownfield-detected (the run command is semantically loaded and belongs to the canonical run-and-ship area or the stack-setup issue, unlike the deterministically-detectable test gate) | `vivicy.json.runCommand` is `null` in both modes | unit | scaffold.test.ts (from-scratch + brownfield both assert `vivicy.runCommand` null)
 - [onboarding-project-scaffold.385] | the single-sourced `vivicy:method` managed block (template AGENTS.md, extracted by `extractManagedBlock`) names `runCommand`'s machine-established law alongside `gateCommand`, keeping "machine-owned config, never hand-edited"; re-normalized byte-safely into brownfield repos | extracted block matches `/gateCommand/` and `/runCommand/` | unit | scaffold.test.ts ("extractManagedBlock yields the enriched tier-1 machinery defense...")
-- [onboarding-project-scaffold.190] | `renderTemplate` substitutes ALL occurrences of a token, not just the first | Multiple `{{PROJECT_NAME}}` occurrences in one template all replaced | unit | GAP (implicit — AGENTS.md has 1 occurrence tested; README.md carries two `{{PROJECT_NAME}}` occurrences, both substituted, not directly asserted together)
+- [onboarding-project-scaffold.190] | `renderTemplate` substitutes ALL occurrences of a token, not just the first | Multiple `{{PROJECT_NAME}}` occurrences in one template all replaced | unit | GAP — and unexercised by construction: every template carries the token at most once (AGENTS.md 1, README.md 1, CLAUDE.md 0), so no rendering reaches the second occurrence. Covering it would mean exporting the private `renderTemplate` for the test alone; the `split(token).join(value)` idiom replaces all occurrences with no branch to get wrong, so the gap stands rather than a public symbol production never calls
 - [onboarding-project-scaffold.191] | `renderTemplate` reads a template file that does not exist | Throws (readFileSync ENOENT) — propagates as a 500 from the route (not a typed ScaffoldError) | unit | GAP
 - [onboarding-project-scaffold.192] | `writeIfMissing` when target file already exists | Returns null, does not touch mkdir/writeFile — file untouched | unit | scaffold.test.ts (implicit, via existing-project never-clobber assertions)
 - [onboarding-project-scaffold.193] | `writeIfMissing` when target's parent directory does not exist yet | `mkdirSync(dirname, {recursive:true})` creates the chain, then writes | unit | GAP
@@ -4191,8 +4191,8 @@ Area: extraction-gates. Scope: `factory/extract-issues.ts`, `factory/semantic-ex
 
 ### factory/templates/README.md
 
-- [onboarding-project-scaffold.281] | README.md carries only the `{{PROJECT_NAME}}` token; the gate command is not interpolated into the README — it points at `vivicy.json` as the single source, so the prose cannot go stale when the gate command changes | rendered README shows the project name and never a token or an embedded gate command | unit | scaffold.test.ts asserts `vivicy.json.gateCommand`; the rendered README text is not directly asserted
-- [onboarding-project-scaffold.282] | Rendered README.md never contains the literal token string after substitution (mirroring the AGENTS.md assertion, not repeated for README) | No stray `{{PROJECT_NAME}}` in the final file | unit | GAP
+- [onboarding-project-scaffold.281] | README.md is a handoff, not a second home: an H1 carrying the only `{{PROJECT_NAME}}` token, the Vivicy link, and one line pointing at `.vivicy/` and `AGENTS.md` — no method prose, `.vivicy/` inventory, or gate command that the homes it points at already own and that would rot the day they change | Scaffolding renders those exact bytes with the project name substituted, and nothing more | unit | scaffold.test.ts ("renders the README as the handoff itself — the name substituted, and not one line the homes it points at already own")
+- [onboarding-project-scaffold.282] | Rendered README.md never contains the literal token string after substitution (mirroring the AGENTS.md assertion) | No stray `{{PROJECT_NAME}}` in the final file | unit | scaffold.test.ts (subsumed by the byte-equality of .281)
 
 ### Area cross-notes
 
