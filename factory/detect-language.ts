@@ -2,10 +2,11 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { extname, join, relative, resolve } from "node:path";
 
 import { runCodexLegAsync, TRANSCRIPT_DIRS } from "./agent-spawn.ts";
-import type { AgentIssue, AgentLeg, LegConfig, LegDeps } from "./agent-spawn.ts";
+import type { AgentIssue, AgentLeg, LegConfig } from "./agent-spawn.ts";
+import { legDepsForTarget } from "./leg-deps.ts";
 import { atomicWriteJson } from "./atomic-write.ts";
 import { cleanupTree } from "./cleanup-tree.ts";
-import { agentCliArgs, composePrompt, DEFAULT_CONFIG } from "./dev-loop.ts";
+import { DEFAULT_CONFIG } from "./dev-loop.ts";
 import { notify } from "./notify.ts";
 import { FACTORY_PROMPTS_DIR } from "./target-root.ts";
 import { extractScannableText } from "../lib/text-extract.ts";
@@ -192,7 +193,7 @@ function makeDefaultLangLeg(options: ResolveBatchLanguageOptions): (args: LangSp
     const legCfg = { ...cfg, promptsDir, execRoot: repoRoot };
     const issue: AgentIssue = { id: TRANSCRIPT_DIRS.importDocs, transcript_dir: TRANSCRIPT_DIRS.importDocs, graph_refs: ["node:detect-language"], path: relative(repoRoot, join(outputDir, VERDICT_FILE)) };
     const context = legContext({ repoRoot, inputDir, outputDir });
-    const deps = legDeps(repoRoot, context);
+    const deps = legDepsForTarget(repoRoot, context);
     return runCodexLegAsync(leg, issue, legCfg as LegConfig, deps);
   };
 }
@@ -207,14 +208,4 @@ function legContext({ repoRoot, inputDir, outputDir }: LangSpawnArgs): string {
     `- Codes are lowercase 3-letter ISO 639-3 (e.g. fra, eng, spa, deu). The dominant is the language of the greatest share of text across the samples.\n` +
     `- Write NOTHING else and modify nothing outside that one JSON file.\n`
   );
-}
-
-function legDeps(repoRoot: string, context: string): LegDeps {
-  return {
-    composePrompt: (template: string, iss: AgentIssue) => composePrompt(template, iss) + context,
-    agentCliArgs,
-    abs: (rel: string) => resolve(repoRoot, rel),
-    execRoot: repoRoot,
-    cwdFilter: null,
-  };
 }

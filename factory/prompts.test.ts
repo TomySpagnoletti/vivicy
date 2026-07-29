@@ -474,7 +474,7 @@ test("every pinned kernel sits exactly where adjudicated — present in each rec
       if (prompts.includes(name)) {
         assert.match(text, anchor, `${name} must carry the ${kernel} kernel`);
       } else {
-        assert.doesNotMatch(text, anchor, `${name} must NOT carry the ${kernel} kernel — a kernel pasted where it drives nothing is over-instruction (and vivi.md composes through an identity composePrompt, so a slot there would reach the leg as a literal placeholder)`);
+        assert.doesNotMatch(text, anchor, `${name} must NOT carry the ${kernel} kernel — a kernel pasted where it drives nothing is over-instruction (and vivi.md reaches the leg only through lib/vivi.ts's raw persona embed — its factory binding, legDepsForVerbatimPrompt, discards the role template and never substitutes — so a slot there would reach the leg as a literal placeholder)`);
       }
     }
   }

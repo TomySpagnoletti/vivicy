@@ -6,9 +6,10 @@ import { fileURLToPath } from "node:url";
 import { countOf } from "../lib/count-form.ts";
 
 import { runClaudeLeg, runCodexLeg, TRANSCRIPT_DIRS } from "./agent-spawn.ts";
-import type { AgentIssue, LegConfig, LegDeps } from "./agent-spawn.ts";
+import type { AgentIssue, LegConfig } from "./agent-spawn.ts";
+import { legDepsForTarget } from "./leg-deps.ts";
 import { doneSetHash, issueTotals } from "./acceptance.ts";
-import { agentCliArgs, CLI_DEFAULTS, composePrompt, DEFAULT_CONFIG, resolveAgentLegs } from "./dev-loop.ts";
+import { CLI_DEFAULTS, DEFAULT_CONFIG, resolveAgentLegs } from "./dev-loop.ts";
 import type { Leg, LegResult } from "./dev-loop.ts";
 import { findFrozenManifest } from "./extract-issues.ts";
 import { notify } from "./notify.ts";
@@ -91,16 +92,6 @@ function retroContext({ manifestPath, baselineId, verdictRel }: { manifestPath: 
     `- A RECURRING class is the SAME failure shape seen at least TWICE across the cycle (same gate flake, same blocked cause, same review finding, same quota exhaustion). One-off failures are not recurring.\n` +
     `- Write your JSON verdict — and nothing else — to \`${verdictRel}\`. Write no other file: you propose, the orchestrator records and the owner decides.\n`
   );
-}
-
-function legDepsForTarget(repoRoot: string, context: string): LegDeps {
-  return {
-    composePrompt: (template: string, iss: AgentIssue) => composePrompt(template, iss) + context,
-    agentCliArgs,
-    abs: (rel: string) => resolve(repoRoot, rel),
-    execRoot: repoRoot,
-    cwdFilter: null,
-  };
 }
 
 function makeDefaultSpawnRetroLeg(options: RunRetroOptions): SpawnRetroLeg {

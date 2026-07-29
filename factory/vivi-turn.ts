@@ -4,8 +4,9 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { runClaudeLeg, runCodexLeg, TRANSCRIPT_DIRS } from "./agent-spawn.ts";
-import type { AgentIssue, AgentLeg, LegConfig, LegDeps, LegRunResult } from "./agent-spawn.ts";
-import { agentCliArgs, CLI_DEFAULTS, DEFAULT_CONFIG, resolveAgentLegs } from "./dev-loop.ts";
+import type { AgentIssue, AgentLeg, LegConfig, LegRunResult } from "./agent-spawn.ts";
+import { legDepsForVerbatimPrompt } from "./leg-deps.ts";
+import { CLI_DEFAULTS, DEFAULT_CONFIG, resolveAgentLegs } from "./dev-loop.ts";
 import { FACTORY_PROMPTS_DIR, resolveTargetRoot } from "./target-root.ts";
 
 interface ViviSpawnArgs {
@@ -49,7 +50,7 @@ export async function runViviTurn(options: ViviTurnOptions = {}): Promise<{ repl
 async function defaultSpawnVivi({ promptText, targetRoot, cfg, leg }: ViviSpawnArgs): Promise<LegRunResult> {
   const execRoot = targetRoot;
   const issue = viviIssue();
-  const deps = legDepsForTarget(execRoot!, promptText);
+  const deps = legDepsForVerbatimPrompt(execRoot!, promptText);
   return leg.provider === "codex"
     ? runCodexLeg(leg, issue, cfg, deps)
     : runClaudeLeg(leg, issue, cfg, deps);
@@ -57,17 +58,6 @@ async function defaultSpawnVivi({ promptText, targetRoot, cfg, leg }: ViviSpawnA
 
 function viviIssue(): AgentIssue {
   return { id: TRANSCRIPT_DIRS.vivi, transcript_dir: TRANSCRIPT_DIRS.vivi, graph_refs: ["node:vivi-chat"], path: "" };
-}
-
-// composePrompt is an identity function here: lib/vivi.ts already assembled the full prompt (persona + transcript + .vivicy state); the leg only executes it.
-function legDepsForTarget(execRoot: string, promptText: string): LegDeps {
-  return {
-    composePrompt: () => promptText,
-    agentCliArgs,
-    abs: (rel: string) => resolve(execRoot, rel),
-    execRoot,
-    cwdFilter: null,
-  };
 }
 
 function parseArgs(argv: string[]): { promptFile?: string; replyFile?: string; targetRoot?: string } {

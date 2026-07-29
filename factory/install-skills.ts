@@ -5,9 +5,10 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { runClaudeLeg, runCodexLeg, TRANSCRIPT_DIRS } from "./agent-spawn.ts";
-import type { AgentIssue, LegConfig, LegDeps } from "./agent-spawn.ts";
+import type { AgentIssue, LegConfig } from "./agent-spawn.ts";
+import { legDepsForTarget } from "./leg-deps.ts";
 import { notify } from "./notify.ts";
-import { agentCliArgs, CLI_DEFAULTS, composePrompt, DEFAULT_CONFIG, resolveAgentLegs } from "./dev-loop.ts";
+import { CLI_DEFAULTS, DEFAULT_CONFIG, resolveAgentLegs } from "./dev-loop.ts";
 import type { Leg, LegResult } from "./dev-loop.ts";
 import { findFrozenManifest } from "./extract-issues.ts";
 import { FACTORY_PROMPTS_DIR, resolveTargetRoot } from "./target-root.ts";
@@ -451,7 +452,6 @@ function clearScoutResult(repoRoot: string): void {
   rmSync(resolve(repoRoot, SCOUT_RESULT_REL), { force: true });
 }
 
-// Mirrors extract-issues' extractor leg binding (makeDefaultSpawnExtractor) — keep both in sync.
 function makeDefaultSpawnScout(options: InstallSkillsOptions): (args: SpawnScoutArgs) => Promise<LegResult | void> {
   const promptsDir = options.promptsDir ?? FACTORY_PROMPTS_DIR;
   const cfg: Record<string, unknown> = { ...DEFAULT_CONFIG, ...(options.cfg ?? {}) };
@@ -478,17 +478,6 @@ function scoutContext({ manifestPath, baselineId, resultRel, attempt, feedback }
       ? `\n### What was INVALID last time\n\nYour previous result was rejected by the orchestrator's strict validation. Fix exactly this and rewrite the result file:\n\n\`\`\`text\n${feedback}\n\`\`\`\n`
       : "")
   );
-}
-
-// Mirrors extract-issues' legDepsForTarget — keep both in sync.
-function legDepsForTarget(repoRoot: string, context: string): LegDeps {
-  return {
-    composePrompt: (template: string, iss: AgentIssue) => composePrompt(template, iss) + context,
-    agentCliArgs,
-    abs: (rel: string) => resolve(repoRoot, rel),
-    execRoot: repoRoot,
-    cwdFilter: null,
-  };
 }
 
 async function defaultFetchAudit({ source, skill }: { source: string; skill: string }): Promise<SkillAuditFetch> {

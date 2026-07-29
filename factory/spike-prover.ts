@@ -5,8 +5,9 @@ import { resolve } from "node:path";
 import { countOf } from "../lib/count-form.ts";
 
 import { runClaudeLeg, runCodexLeg, TRANSCRIPT_DIRS } from "./agent-spawn.ts";
-import type { AgentIssue, AgentLeg, LegConfig, LegDeps, LegRunResult } from "./agent-spawn.ts";
-import { agentCliArgs, CLI_DEFAULTS, composePrompt } from "./dev-loop.ts";
+import type { AgentLeg, LegConfig, LegDeps, LegRunResult } from "./agent-spawn.ts";
+import { legDepsForTarget } from "./leg-deps.ts";
+import { CLI_DEFAULTS } from "./dev-loop.ts";
 import { createChangeRequest } from "./change-control.ts";
 import { notify } from "./notify.ts";
 import { readSpikes } from "./spike-check.ts";
@@ -441,16 +442,6 @@ function verifierContext({ spike, attempt }: { spike: Spike; attempt: number }):
     `\`{ "agree": boolean, "problems": [string] }\`. \`agree\` true only when the evidence genuinely supports the prover's verdict.\n` +
     `- Attempt under review: ${attempt}.\n`
   );
-}
-
-function legDepsForTarget(repoRoot: string, context: string): LegDeps {
-  return {
-    composePrompt: (template: string, iss: AgentIssue) => composePrompt(template, iss) + context,
-    agentCliArgs,
-    abs: (rel: string) => resolve(repoRoot, rel),
-    execRoot: repoRoot,
-    cwdFilter: null,
-  };
 }
 
 function emit(recordEvent: ((event: LedgerEvent) => void) | null, event: LedgerEvent): void {

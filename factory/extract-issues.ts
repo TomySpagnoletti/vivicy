@@ -6,10 +6,11 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { runClaudeLeg, runCodexLeg, TRANSCRIPT_DIRS } from "./agent-spawn.ts";
-import type { AgentIssue, LegConfig, LegDeps, LegRunResult } from "./agent-spawn.ts";
+import type { LegConfig, LegDeps, LegRunResult } from "./agent-spawn.ts";
+import { legDepsForTarget } from "./leg-deps.ts";
 import { cleanupTree } from "./cleanup-tree.ts";
 import { notify } from "./notify.ts";
-import { agentCliArgs, CLI_DEFAULTS, composePrompt, DEFAULT_CONFIG, resolveAgentLegs } from "./dev-loop.ts";
+import { CLI_DEFAULTS, DEFAULT_CONFIG, resolveAgentLegs } from "./dev-loop.ts";
 import type { Leg, LegResult } from "./dev-loop.ts";
 import { runSemanticExtractionCheck } from "./semantic-extraction-check.ts";
 import { runTraceabilityCheck } from "./traceability-check.ts";
@@ -632,16 +633,6 @@ function verifierContext({ manifestPath, baselineId, attempt }: { manifestPath: 
     `as JSON \`{ "faithful": boolean, "problems": [{ "issue": string, "kind": string, "detail": string }] }\`. ` +
     `Do NOT edit any corpus file; report problems for the extractor to fix.\n`
   );
-}
-
-function legDepsForTarget(repoRoot: string, context: string): LegDeps {
-  return {
-    composePrompt: (template: string, iss: AgentIssue) => composePrompt(template, iss) + context,
-    agentCliArgs,
-    abs: (rel: string) => resolve(repoRoot, rel),
-    execRoot: repoRoot,
-    cwdFilter: null,
-  };
 }
 
 function defaultVerifyFrozenManifest({ repoRoot, manifestPath, baselineId }: { repoRoot: string; manifestPath: string; baselineId: string }): boolean {

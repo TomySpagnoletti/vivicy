@@ -8,8 +8,9 @@ import { countForm, countOf } from "../lib/count-form.ts";
 import { pruneGitkeeps } from "../lib/skeleton.ts";
 
 import { runClaudeLeg, runCodexLeg, TRANSCRIPT_DIRS } from "./agent-spawn.ts";
-import type { AgentIssue, AgentLeg, LegConfig, LegDeps } from "./agent-spawn.ts";
-import { agentCliArgs, CLI_DEFAULTS, composePrompt, DEFAULT_CONFIG, resolveAgentLegs } from "./dev-loop.ts";
+import type { AgentIssue, AgentLeg, LegConfig } from "./agent-spawn.ts";
+import { legDepsForTarget } from "./leg-deps.ts";
+import { CLI_DEFAULTS, DEFAULT_CONFIG, resolveAgentLegs } from "./dev-loop.ts";
 import type { Config } from "./dev-loop.ts";
 import { readChangeRequest, stampChangeRequestApplied } from "./change-control.ts";
 import type { ChangeRequestRecord, CrFrontmatterValue } from "./change-control.ts";
@@ -258,16 +259,6 @@ function applierContext({ cr, attempt, feedback }: { cr: ChangeRequestRecord; at
       ? `\n### Repair this — the previous edit failed the read-only reference gate\n\n` + "```text\n" + feedback + "\n```\n"
       : "")
   );
-}
-
-function legDepsForTarget(repoRoot: string, context: string): LegDeps {
-  return {
-    composePrompt: (template: string, iss: AgentIssue) => composePrompt(template, iss) + context,
-    agentCliArgs,
-    abs: (rel: string) => resolve(repoRoot, rel),
-    execRoot: repoRoot,
-    cwdFilter: null,
-  };
 }
 
 // git add -A is safe here: the scaffold .gitignore covers the never-commit set.

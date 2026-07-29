@@ -6,10 +6,11 @@ import { fileURLToPath } from "node:url";
 import { franc } from "franc-min";
 
 import { runClaudeLeg, runCodexLeg, TRANSCRIPT_DIRS } from "./agent-spawn.ts";
-import type { AgentIssue, LegConfig, LegDeps } from "./agent-spawn.ts";
+import type { AgentIssue, LegConfig } from "./agent-spawn.ts";
+import { legDepsForTarget } from "./leg-deps.ts";
 import { atomicWriteJson } from "./atomic-write.ts";
 import { cleanupTree } from "./cleanup-tree.ts";
-import { agentCliArgs, CLI_DEFAULTS, composePrompt, DEFAULT_CONFIG, resolveAgentLegs } from "./dev-loop.ts";
+import { CLI_DEFAULTS, DEFAULT_CONFIG, resolveAgentLegs } from "./dev-loop.ts";
 import type { Leg, LegResult } from "./dev-loop.ts";
 import { notify } from "./notify.ts";
 import { resolveTargetRoot, FACTORY_PROMPTS_DIR } from "./target-root.ts";
@@ -472,7 +473,6 @@ function isParseableJson(text: string): boolean {
   }
 }
 
-// Mirrors install-skills' makeDefaultSpawnScout — reuse the implementer leg binding, keep both in sync.
 function makeDefaultSpawnLeg(options: PrepareDocsOptions): (args: SpawnLegArgs) => Promise<LegResult | void> {
   const promptsDir = options.promptsDir ?? FACTORY_PROMPTS_DIR;
   const cfg: Record<string, unknown> = { ...DEFAULT_CONFIG, ...(options.cfg ?? {}) };
@@ -497,17 +497,6 @@ function legContext({ repoRoot, inputDir, outputDir, language, attempt, feedback
     `- Attempt: ${attempt}.\n` +
     (feedback ? `\n### What was INVALID last time\n\n\`\`\`text\n${feedback}\n\`\`\`\n` : "")
   );
-}
-
-// Mirrors install-skills' legDepsForTarget — keep both in sync.
-function legDepsForTarget(repoRoot: string, context: string): LegDeps {
-  return {
-    composePrompt: (template: string, iss: AgentIssue) => composePrompt(template, iss) + context,
-    agentCliArgs,
-    abs: (rel: string) => resolve(repoRoot, rel),
-    execRoot: repoRoot,
-    cwdFilter: null,
-  };
 }
 
 const NOTIFY_BY_PHASE: Record<string, { level: "info" | "success" | "warning" | "error"; stage: string; message: string }> = {

@@ -5,10 +5,11 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { runClaudeLeg, runCodexLeg, TRANSCRIPT_DIRS } from "./agent-spawn.ts";
-import type { AgentIssue, LegConfig, LegDeps } from "./agent-spawn.ts";
+import type { AgentIssue, LegConfig } from "./agent-spawn.ts";
+import { legDepsForTarget } from "./leg-deps.ts";
 import { CR_CLASSIFICATIONS, createChangeRequest } from "./change-control.ts";
 import type { CrClassification } from "./change-control.ts";
-import { agentCliArgs, CLI_DEFAULTS, composePrompt, DEFAULT_CONFIG, resolveAgentLegs } from "./dev-loop.ts";
+import { CLI_DEFAULTS, DEFAULT_CONFIG, resolveAgentLegs } from "./dev-loop.ts";
 import type { Leg, LegResult } from "./dev-loop.ts";
 import { findFrozenManifest } from "./extract-issues.ts";
 import { notify } from "./notify.ts";
@@ -115,16 +116,6 @@ function acceptanceContext({ manifestPath, baselineId, verdictRel }: { manifestP
     `- Run the project's verification gate (\`vivicy.json#gateCommand\`) and any existing tests to execute scenarios that are runnable; read-verify the rest and mark them \`read_only\`.\n` +
     `- Write your JSON verdict — and nothing else — to \`${verdictRel}\`.\n`
   );
-}
-
-function legDepsForTarget(repoRoot: string, context: string): LegDeps {
-  return {
-    composePrompt: (template: string, iss: AgentIssue) => composePrompt(template, iss) + context,
-    agentCliArgs,
-    abs: (rel: string) => resolve(repoRoot, rel),
-    execRoot: repoRoot,
-    cwdFilter: null,
-  };
 }
 
 function makeDefaultSpawnAcceptanceLeg(options: RunAcceptanceOptions): SpawnAcceptanceLeg {
