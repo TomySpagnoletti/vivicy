@@ -1,4 +1,4 @@
-import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs"
+import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import path from "node:path"
 
 import { getProjectRuntimeDir } from "@/lib/project-runtime"
@@ -7,19 +7,22 @@ import { getTargetRoot } from "@/lib/target"
 
 const NOTIFICATIONS_FILE = "notifications.jsonl"
 
+// The four levels are a wire contract: components/chat/vivi-notifications.tsx maps each to an icon and decides actionability from it, and factory/notify.ts declares the same union for the factory-side writer.
+export type NotificationLevel = "info" | "success" | "warning" | "error"
+
 // Wire contract shared with factory/cli.ts's `vivicy notifications` CLI (newline-delimited JSON at getNotificationsPath()); id is the unique key, ts may collide across concurrent writers and is display-only.
 export interface Notification {
-  id?: string
-  ts?: string
-  level?: string
-  stage?: string
-  event?: string
-  message?: string
+  id: string
+  ts: string
+  level: NotificationLevel
+  stage: string
+  event: string
+  message: string
   dismissed?: boolean
 }
 
 export interface NotificationInput {
-  level: string
+  level: NotificationLevel
   stage: string
   event: string
   message: string
@@ -28,35 +31,7 @@ export interface NotificationInput {
 export function getNotificationsPath(): string {
   const targetRoot = getTargetRoot()
   if (targetRoot === null) return path.join(getRuntimeDir(), NOTIFICATIONS_FILE)
-  const projectFile = path.join(getProjectRuntimeDir(getRuntimeDir(), targetRoot), NOTIFICATIONS_FILE)
-  migrateLegacyLog(projectFile)
-  return projectFile
-}
-
-// Legacy lines are PREPENDED (not appended) to an existing project log — they predate it chronologically, so oldest-first ordering depends on this.
-function migrateLegacyLog(projectFile: string): void {
-  const legacyFile = path.join(getRuntimeDir(), NOTIFICATIONS_FILE)
-  if (!existsSync(legacyFile)) return
-  try {
-    mkdirSync(path.dirname(projectFile), { recursive: true })
-    if (!existsSync(projectFile)) {
-      renameSync(legacyFile, projectFile)
-    } else {
-      const merged = readFileSync(legacyFile, "utf8") + readFileSync(projectFile, "utf8")
-      writeFileSync(projectFile, merged)
-      rmSync(legacyFile, { force: true })
-    }
-    const marker: Notification = {
-      id: nextId(),
-      ts: new Date().toISOString(),
-      level: "info",
-      stage: "runtime",
-      event: "notifications_migrated",
-      message: "notification log migrated to this project's runtime namespace",
-    }
-    appendFileSync(projectFile, `${JSON.stringify(marker)}\n`)
-  } catch {
-  }
+  return path.join(getProjectRuntimeDir(getRuntimeDir(), targetRoot), NOTIFICATIONS_FILE)
 }
 
 export function readNotifications(): Notification[] {
@@ -98,10 +73,7 @@ export function dismissNotifications(refs?: string[]): number {
   let changed = 0
   const rows = readNotifications().map((row) => {
     if (row.dismissed) return row
-    if (target) {
-      const key = row.id ?? row.ts
-      if (!(key && target.has(key))) return row
-    }
+    if (target && !target.has(row.id)) return row
     changed += 1
     return { ...row, dismissed: true }
   })

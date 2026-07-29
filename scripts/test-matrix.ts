@@ -87,8 +87,7 @@ export function changedBehaviorFilesSince(commit: string, root = REPO_ROOT): str
 
 export function stampFingerprint(root = REPO_ROOT): string {
   const file = path.join(root, MATRIX_FILE)
-  // Drop a pre-commit-hash era stamp line so the format upgrade never leaves two stamps.
-  const text = readFileSync(file, "utf8").replace(/^Reconciled fingerprint: `[0-9a-f]{64}`\n/m, "")
+  const text = readFileSync(file, "utf8")
   const fingerprint = computeBehaviorFingerprint(root)
   const line = `Reconciled fingerprint: \`${fingerprint}\` @ commit \`${headCommit(root)}\``
   const next = FINGERPRINT_RE.test(text)

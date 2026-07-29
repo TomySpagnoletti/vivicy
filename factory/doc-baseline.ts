@@ -22,8 +22,6 @@ const repoRoot =
     ? resolve(targetOverride)
     : resolve(scriptDir, "../..");
 const generatedBy = ".vivicy/baselines/doc-baseline.ts";
-// knownGeneratedBy must keep every historical value (the pre-TypeScript .mjs path included) or manifests frozen by older tool versions stop verifying.
-const knownGeneratedBy = [generatedBy, ".vivicy/baselines/doc-baseline.mjs"];
 const schemaVersion = 1;
 const neutralProductFallback = "Project";
 const baselineDir = ".vivicy/baselines";
@@ -62,7 +60,7 @@ export interface BaselineManifest {
   version: string;
   status: BaselineStatus;
   product: string;
-  spec_kind?: SpecKind;
+  spec_kind: SpecKind;
   generated_at: string;
   generated_by: string;
   git: BaselineGitEvidence;
@@ -94,8 +92,6 @@ const defaultExclude = [
   "**/.DS_Store",
   ".vivicy/baselines/*.json",
   ".vivicy/baselines/doc-baseline.ts",
-  // Kept only because pre-TypeScript manifests still list this path in exclude[]; removing it fails their subset check.
-  ".vivicy/baselines/doc-baseline.mjs",
   "docs/change-requests/CR-[0-9][0-9][0-9][0-9]-*.md",
   ".vivicy/architecture-map/viewer/**",
   "docs/governance/**",
@@ -632,8 +628,11 @@ function assertManifestShape(manifest: ParsedManifest): void {
   if (manifest.schema_version !== schemaVersion) {
     fail(`Manifest schema_version mismatch: expected ${schemaVersion}, got ${manifest.schema_version}`);
   }
-  if (!knownGeneratedBy.includes(manifest.generated_by)) {
-    fail(`Manifest generated_by mismatch: expected one of ${knownGeneratedBy.join(", ")}, got ${manifest.generated_by}`);
+  if (manifest.generated_by !== generatedBy) {
+    fail(`Manifest generated_by mismatch: expected ${generatedBy}, got ${manifest.generated_by}`);
+  }
+  if (manifest.spec_kind !== "project" && manifest.spec_kind !== "feature") {
+    fail(`Manifest has an invalid spec_kind: ${manifest.spec_kind}`);
   }
   if (typeof manifest.baseline_id !== "string" || !manifest.baseline_id.trim()) {
     fail("Manifest is missing a non-empty baseline_id");
@@ -687,7 +686,7 @@ function supersedePriorFrozenManifests(newBaselineId: string, newManifestAbsolut
     if (
       !manifest ||
       typeof manifest !== "object" ||
-      !knownGeneratedBy.includes(manifest.generated_by as string) ||
+      manifest.generated_by !== generatedBy ||
       manifest.status !== "frozen" ||
       manifest.superseded
     ) {
@@ -711,14 +710,11 @@ function assertCorpusPolicy(manifest: ParsedManifest): void {
         `- manifest: ${JSON.stringify(Array.isArray(manifest.include) ? [...manifest.include].sort() : manifest.include)}`
     );
   }
-  const unknownExcludes = Array.isArray(manifest.exclude)
-    ? manifest.exclude.filter((entry) => !defaultExclude.includes(entry))
-    : null;
-  if (unknownExcludes === null || unknownExcludes.length > 0) {
+  if (!sameStringSet(manifest.exclude, defaultExclude)) {
     fail(
-      "Manifest exclude[] contains entries outside the repo-owned corpus policy.\n" +
-        `- policy: ${JSON.stringify([...defaultExclude].sort())}\n` +
-        `- unknown: ${JSON.stringify(unknownExcludes ?? manifest.exclude)}`
+      "Manifest exclude[] diverges from the repo-owned corpus policy.\n" +
+        `- expected: ${JSON.stringify([...defaultExclude].sort())}\n` +
+        `- manifest: ${JSON.stringify(Array.isArray(manifest.exclude) ? [...manifest.exclude].sort() : manifest.exclude)}`
     );
   }
 }

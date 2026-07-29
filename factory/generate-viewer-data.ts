@@ -28,7 +28,6 @@ export type ArchitectureMap = {
 };
 
 export type SourceBaseline = {
-  id: string;
   baseline_id: string;
   baseline_version: string;
   manifest_path: string;
@@ -62,7 +61,6 @@ export type NodeSpec = {
   owns_data: string[];
   source_refs: string[];
   source_ref_scope_reason?: string;
-  evidence_refs?: string[];
 };
 
 export type EdgeSpec = {
@@ -280,7 +278,6 @@ export function toViewerData(map: ArchitectureMap) {
       graph_ref: getNodeGraphRef(node),
       owns_data: [...node.owns_data],
       source_refs: [...node.source_refs],
-      ...(node.evidence_refs ? { evidence_refs: [...node.evidence_refs] } : {}),
     })),
     edges: map.edges.map((edge) => ({
       ...edge,
@@ -391,9 +388,6 @@ export function validateMap(input: ArchitectureMap): void {
     }
     if (node.status !== "not_started") {
       throw new Error(`Target map node ${node.id} must keep status not_started; live progress belongs in .vivicy/development/progress-ledger.json`);
-    }
-    if (node.evidence_refs?.length) {
-      throw new Error(`Target map node ${node.id} must not store evidence_refs; live evidence belongs in .vivicy/development/progress-ledger.json`);
     }
     validateSourceRefs(node.source_refs, `Node ${node.id}`, input.source_baseline);
   }
@@ -918,8 +912,8 @@ function validateNodeShape(node: NodeSpec): void {
   if (!isNonEmptyStringArray(node.source_refs)) {
     throw new Error(`Node ${node.id} source_refs must be a non-empty string array`);
   }
-  if (node.evidence_refs !== undefined && !isStringArray(node.evidence_refs)) {
-    throw new Error(`Node ${node.id} evidence_refs must be a string array`);
+  if ("evidence_refs" in node) {
+    throw new Error(`Target map node ${node.id} must not store evidence_refs; live evidence belongs in .vivicy/development/progress-ledger.json`);
   }
 }
 
@@ -1012,7 +1006,6 @@ function validateSourceBaseline(sourceBaseline: SourceBaseline): void {
     throw new Error("Architecture map source_baseline must be an object");
   }
   for (const [field, value] of Object.entries({
-    id: sourceBaseline.id,
     captured_at: sourceBaseline.captured_at,
     repo_root: sourceBaseline.repo_root,
     source_ref_grammar: sourceBaseline.source_ref_grammar,
@@ -1146,8 +1139,7 @@ export function parseArchitectureMap(source: string): ArchitectureMap {
     .filter((line) => line.trim() && !line.trimStart().startsWith("#"));
 
   const result: Partial<ArchitectureMap> = {
-  source_baseline: {
-      id: "",
+    source_baseline: {
       baseline_id: "",
       baseline_version: "",
       manifest_path: "",

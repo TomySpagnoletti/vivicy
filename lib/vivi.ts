@@ -135,15 +135,7 @@ type Snapshot = Map<string, string>
 function viviRuntimeDir(): string {
   const targetRoot = getTargetRoot()
   if (targetRoot === null) return path.join(getRuntimeDir(), "vivi")
-  const projectDir = path.join(getProjectRuntimeDir(getRuntimeDir(), targetRoot), "vivi")
-  const legacyDir = path.join(getRuntimeDir(), "vivi")
-  if (!existsSync(projectDir) && existsSync(legacyDir)) {
-    try {
-      mkdirSync(path.dirname(projectDir), { recursive: true })
-      renameSync(legacyDir, projectDir)
-    } catch {}
-  }
-  return projectDir
+  return path.join(getProjectRuntimeDir(getRuntimeDir(), targetRoot), "vivi")
 }
 
 function transcriptPath(sessionId: string): string {

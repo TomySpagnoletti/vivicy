@@ -267,7 +267,7 @@ describe("notifications --json", () => {
       [
         JSON.stringify({ ts: "2026-07-02T10:00:00Z", level: "info", stage: "extract", event: "green", message: "done" }),
         "not json — a partial write",
-        JSON.stringify({ ts: "2026-07-02T10:05:00Z", level: "warn", stage: "dev", event: "stall", message: "idle", dismissed: false }),
+        JSON.stringify({ ts: "2026-07-02T10:05:00Z", level: "warning", stage: "dev", event: "stall", message: "idle", dismissed: false }),
         "",
       ].join("\n")
     );

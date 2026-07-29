@@ -1,5 +1,5 @@
 // Keep filesystem-free: client components import this module directly (server reader: control.ts#readDocPrepReport).
-// Every field is optional: a report can be a mid-run snapshot or predate a field.
+// Every field is optional: the report is written phase by phase, so a mid-run snapshot legitimately carries only what has happened so far.
 
 export const DOC_PREP_REPORT_FILE = ".vivicy/development/reports/doc-prep-report.json"
 

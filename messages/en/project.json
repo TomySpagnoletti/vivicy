@@ -17,14 +17,11 @@
       }
     }
   },
-  "openProjectDialog": {
-    "title": "Open project",
-    "description": "Choose the local repository {brandName} should develop. Navigate to the folder and select it.",
+  "openProject": {
     "selectFolder": {
       "selecting": "Selecting…",
       "idle": "Select this folder"
     },
-    "cancel": "Cancel",
     "toast": {
       "selectErrorTitle": "Cannot select project",
       "selectedTitle": "Project selected",

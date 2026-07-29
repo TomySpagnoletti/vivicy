@@ -134,7 +134,7 @@ function stubFetch(opts: {
         if (body.all) {
           for (const n of liveNotifications) n.dismissed = true
         } else if (body.id) {
-          const found = liveNotifications.find((n) => (n.id ?? n.ts) === body.id)
+          const found = liveNotifications.find((n) => n.id === body.id)
           if (found) found.dismissed = true
         }
         return jsonResponse({ ok: true, dismissed: 1 })
@@ -868,7 +868,7 @@ describe("ViviPanel — onboarding view (no target project)", () => {
     expect(
       screen.getByRole("button", { name: /Start governance/ })
     ).toBeInTheDocument()
-    // The retired third card is gone: the standing import is a post-governance feature, not an entry choice.
+    // The standing import is a post-governance feature, never an entry choice — the picker offers exactly two.
     expect(
       screen.queryByRole("button", { name: /Import documents/ })
     ).not.toBeInTheDocument()

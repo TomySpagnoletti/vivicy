@@ -7,11 +7,10 @@ evidence_ref_grammar: "path[:line][#anchor]"
 verification_gate_ref_grammar: "^.vivicy/development/(gates|reports)/.+"
 
 source_baseline:
-  id: "baseline-2026-06-pocket-ledger-architecture-map"
   baseline_id: "baseline-v1.0.0"
   baseline_version: "1.0.0"
   manifest_path: ".vivicy/baselines/baseline-v1.0.0.json"
-  manifest_hash: "d546deaa4b893d1ddc9dfb9a3150c5a7159a98439df9569839f3bcd6cebd9b59"
+  manifest_hash: "a30129baea8290a0400bdeaa4e06a92fc162910141e2907ab2ff6bd2d01b2860"
   document_set_hash: "3acb63c617f40a55ea7624447f9609fba9a10599d3a659e3a70deaaf89e0670b"
   captured_at: "2026-06-22"
   repo_root: "."

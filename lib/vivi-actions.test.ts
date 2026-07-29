@@ -93,8 +93,8 @@ function makeDeps(overrides: Partial<ViviActionDeps> = {}) {
     readNotifications: () => {
       record("readNotifications")
       return [
-        { id: "a", message: "old", dismissed: true },
-        { id: "b", message: "fresh", dismissed: false },
+        { id: "a", ts: "2026-07-02T10:00:00Z", level: "info", stage: "extract", event: "green", message: "old", dismissed: true },
+        { id: "b", ts: "2026-07-02T10:05:00Z", level: "warning", stage: "dev", event: "stall", message: "fresh", dismissed: false },
       ]
     },
     applyLayoutSave: (async (opts: unknown) => {

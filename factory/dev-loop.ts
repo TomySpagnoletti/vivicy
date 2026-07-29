@@ -24,7 +24,7 @@ import { notify } from "./notify.ts";
 import { sleepSync } from "./sleep-sync.ts";
 import { recordProgressEvent } from "./progress-ledger.ts";
 import type { ProgressEvent } from "./progress-ledger.ts";
-import { checkSkills } from "./dev-preflight.ts";
+import { checkSkills, missingSkillsRefusal } from "./dev-preflight.ts";
 import { pruneGitkeeps } from "../lib/skeleton.ts";
 import { MANAGED_GOVERNANCE_FILES } from "../lib/managed-block.ts";
 import { commandServesHttp } from "../lib/product-run.ts";
@@ -62,13 +62,10 @@ import type { LegResult as TimeoutLegResult } from "./leg-timeout.ts";
 export interface Issue {
   id: string;
   title?: string;
-  path?: string;
   issue_path?: string;
   depends_on?: string[];
   spike_gates?: string[];
   graph_refs?: string[];
-  claims?: string[];
-  claimed_files?: string[];
   source_line_refs?: string[];
   verification_gate_ids?: string[];
   gate_command?: string;
@@ -76,8 +73,8 @@ export interface Issue {
 
 type DependsInput = Pick<Issue, "depends_on">;
 type SpikeGatesInput = Pick<Issue, "spike_gates">;
-type ClaimInput = Pick<Issue, "claims" | "claimed_files" | "graph_refs">;
-type FootprintInput = Pick<Issue, "claims" | "claimed_files" | "graph_refs" | "source_line_refs">;
+type ClaimInput = Pick<Issue, "graph_refs">;
+type FootprintInput = Pick<Issue, "graph_refs" | "source_line_refs">;
 
 export type Leg = AgentLeg;
 
@@ -508,13 +505,7 @@ export function computeReadySet(
 }
 
 export function issueClaim(issue: ClaimInput): Set<string> {
-  const explicit = Array.isArray(issue.claims)
-    ? issue.claims
-    : Array.isArray(issue.claimed_files)
-      ? issue.claimed_files
-      : null;
-  const refs = explicit ?? (Array.isArray(issue.graph_refs) ? issue.graph_refs : []);
-  return new Set(refs);
+  return new Set(Array.isArray(issue.graph_refs) ? issue.graph_refs : []);
 }
 
 function setsIntersect(a: Set<string>, b: Set<string>): boolean {
@@ -713,7 +704,7 @@ const PROOF_CLASSES_BLOCK = [
 export function composePrompt(template: string, issue: Issue, extra: Record<string, unknown> = {}): string {
   const values: Record<string, unknown> = {
     issue_id: issue.id,
-    issue_path: issue.path ?? issue.issue_path ?? "",
+    issue_path: issue.issue_path ?? "",
     graph_refs: (issue.graph_refs ?? []).join(", "),
     vicious_defect_classes: VICIOUS_DEFECT_CLASSES,
     vicious_torture_criteria: VICIOUS_TORTURE_CRITERIA,
@@ -788,7 +779,7 @@ export function visualReviewDirective(cfg: Config, issue: Issue | undefined): st
 }
 
 function readIssueBody(issue: Issue, cfg: Config): string | null {
-  const rel = issue.path ?? issue.issue_path ?? `${cfg.issuesDir}/${issue.id}.md`;
+  const rel = issue.issue_path ?? `${cfg.issuesDir}/${issue.id}.md`;
   try {
     return readFileSync(abs(rel), "utf8");
   } catch {
@@ -863,7 +854,7 @@ export function declaredProofsPresence(issue: Issue, cfg: Config): ProofsOutcome
   if (body === null) {
     return {
       status: "unreadable",
-      reason: `the issue file ${issue.path ?? issue.issue_path ?? `${cfg.issuesDir}/${issue.id}.md`} is missing or unreadable, so which proofs this issue owes cannot be established`,
+      reason: `the issue file ${issue.issue_path ?? `${cfg.issuesDir}/${issue.id}.md`} is missing or unreadable, so which proofs this issue owes cannot be established`,
     };
   }
   const { statuses, problems } = inspectDeclaredProofs({
@@ -1712,7 +1703,7 @@ function failedDoneMoveCommit(issue: Issue, step: string, result: { status?: num
 }
 
 function moveIssueToDone(issue: Issue, cfg: Config): string | null {
-  const fromRel = issue.path ?? issue.issue_path ?? `${cfg.issuesDir}/${issue.id}.md`;
+  const fromRel = issue.issue_path ?? `${cfg.issuesDir}/${issue.id}.md`;
   const fromAbs = abs(fromRel);
   if (!existsSync(fromAbs)) return null;
   mkdirSync(abs(cfg.doneDir!), { recursive: true });
@@ -1721,10 +1712,7 @@ function moveIssueToDone(issue: Issue, cfg: Config): string | null {
   try {
     const index = readJson<{ issues?: Issue[] }>(cfg.issueIndexPath!);
     const entry = Array.isArray(index.issues) ? index.issues.find((item) => item.id === issue.id) : null;
-    if (entry && entry.path) {
-      entry.path = toRel;
-      writeFileSync(abs(cfg.issueIndexPath!), `${JSON.stringify(index, null, 2)}\n`);
-    } else if (entry && entry.issue_path) {
+    if (entry && entry.issue_path) {
       entry.issue_path = toRel;
       writeFileSync(abs(cfg.issueIndexPath!), `${JSON.stringify(index, null, 2)}\n`);
     }
@@ -2083,7 +2071,7 @@ function applyReadinessUpdate(issue: Issue, cfg: Config, verdict: ReadinessVerdi
   const current = readIssueBody(issue, cfg);
   if (current === null) return false;
   if (!issueUpdatePreservesTraceability(current, patch)) return false;
-  const rel = issue.path ?? issue.issue_path ?? `${cfg.issuesDir}/${issue.id}.md`;
+  const rel = issue.issue_path ?? `${cfg.issuesDir}/${issue.id}.md`;
   writeFileSync(abs(rel), patch.endsWith("\n") ? patch : `${patch}\n`);
   return true;
 }
@@ -2091,7 +2079,7 @@ function applyReadinessUpdate(issue: Issue, cfg: Config, verdict: ReadinessVerdi
 function parkIssueOnCr(issue: Issue, cfg: Config, reason: string): ReadinessOutcome {
   mkdirSync(abs(cfg.reportsDir!), { recursive: true });
   const rel = `${cfg.reportsDir}/${issue.id}-parked.json`;
-  const issueRel = issue.path ?? issue.issue_path ?? `${cfg.issuesDir}/${issue.id}.md`;
+  const issueRel = issue.issue_path ?? `${cfg.issuesDir}/${issue.id}.md`;
   const identity = issueFileIdentity(cfg, { issue_id: issue.id, issue_path: issueRel });
   writeFileSync(
     abs(rel),
@@ -2855,9 +2843,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     process.stderr.write(`dev-loop preflight: note: ${note}\n`);
   }
   if (!skills.ok) {
-    process.stderr.write(
-      `dev-loop preflight: ${skills.reason}\n  missing required skills: ${(skills.missingRequired ?? []).join(", ")}\n  declare or remove them in the target project's vivicy.json "requiredSkills" (or package.json "vivicy.requiredSkills")\n`,
-    );
+    process.stderr.write(`dev-loop preflight: ${skills.reason}\n  ${missingSkillsRefusal(skills.missingRequired ?? [])}`);
     process.exit(1);
   }
   Promise.resolve(runLoop())

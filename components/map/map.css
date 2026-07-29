@@ -1,8 +1,7 @@
 /*
  * Map-only styles. The architecture map is intentionally allowed a custom
- * (non-shadcn) style — a faithful port of the original viewer's slate palette
- * diagram. These literals are scoped to the React Flow surface and never leak
- * into the shadcn sidebar.
+ * (non-shadcn) slate-palette diagram style. These literals are scoped to the
+ * React Flow surface and never leak into the shadcn sidebar.
  */
 
 .architecture-map-root {
@@ -130,9 +129,8 @@
   white-space: nowrap;
 }
 
-/* Edit mode: the cluster title becomes a drag handle (faithful port of the
-   original viewer's .cluster-handle). Pointer-events are re-enabled here even
-   though the backdrop and viewport portal disable them. */
+/* Edit mode: the cluster title becomes a drag handle. Pointer-events are
+   re-enabled here even though the backdrop and viewport portal disable them. */
 .map-cluster-handle {
   background: rgb(248 250 252 / 84%);
   border: 1px solid rgb(203 213 225 / 78%);

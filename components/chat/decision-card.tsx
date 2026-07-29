@@ -50,17 +50,14 @@ export function DecisionCard({
     : null
 
   type Outcome = { ok?: boolean; summary?: string; error?: string; decided?: ViviCardDecision }
-  // body.decided is populated on any decided outcome (success, executed-but-failed, already-decided) and absent only when nothing was recorded — trust its presence to lock the buttons.
+  // The server's `decided` record is the ONLY thing that locks the buttons: it rides every decided outcome (success, executed-but-failed, already-decided), and the read-check-write claim behind it — not this component — is what makes a second click impossible.
   const record = (res: Response, body: Outcome, action: ViviCardAction) => {
     const failed = !res.ok || body.ok === false
-    const recorded =
-      body.decided ??
-      (failed
-        ? null
-        : { actionId: action.id, at: new Date().toISOString(), summary: body.summary })
-    if (recorded) setLocalDecision(recorded)
+    if (body.decided) {
+      setLocalDecision(body.decided)
+      onDecided?.(action)
+    }
     if (failed) setError(body.error ?? body.summary ?? t("cardFailed"))
-    if (recorded) onDecided?.(action)
   }
 
   const decide = async (action: ViviCardAction) => {

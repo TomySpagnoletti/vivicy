@@ -124,8 +124,8 @@ export function SectionSkills() {
         <p className="text-muted-foreground">{t("emptyState")}</p>
       ) : (
         <ul className="flex flex-col gap-2">
-          {installed.map((skill, i) => (
-            <SkillCard key={skill.id ?? i} skill={skill} />
+          {installed.map((skill) => (
+            <SkillCard key={skill.id} skill={skill} />
           ))}
         </ul>
       )}
@@ -144,7 +144,7 @@ function SkillCard({ skill }: { skill: InstalledSkill }) {
     >
       <div className="flex items-center gap-1.5">
         <span className="min-w-0 flex-1 truncate font-medium text-foreground">
-          {skill.name ?? skill.skill ?? skill.id}
+          {skill.name}
         </span>
         <Badge
           className={cn(
@@ -155,9 +155,7 @@ function SkillCard({ skill }: { skill: InstalledSkill }) {
           {skill.official ? t("official") : t("community")}
         </Badge>
       </div>
-      {skill.id ? (
-        <span className="font-mono break-all text-muted-foreground">{skill.id}</span>
-      ) : null}
+      <span className="font-mono break-all text-muted-foreground">{skill.id}</span>
       {skill.security_waived ? (
         <span className="flex items-center gap-1 text-status-implemented">
           <ShieldAlert className="size-3.5 shrink-0" aria-hidden />
@@ -183,10 +181,10 @@ function RejectedList({ rejected }: { rejected: RejectedSkill[] }) {
       </CollapsibleTrigger>
       <CollapsibleContent>
         <ul className="flex flex-col gap-1 pl-4 text-muted-foreground">
-          {rejected.map((entry, i) => (
-            <li key={entry.id ?? i} data-rejected-skill={entry.id} className="break-words">
-              <span className="font-mono">{entry.id ?? "?"}</span>
-              {entry.reason ? ` — ${entry.reason}` : ""}
+          {rejected.map((entry) => (
+            <li key={entry.id} data-rejected-skill={entry.id} className="break-words">
+              <span className="font-mono">{entry.id}</span>
+              {` — ${entry.reason}`}
               {entry.detail ? ` (${entry.detail})` : ""}
             </li>
           ))}

@@ -8,7 +8,7 @@
   "change_request_policy": {
     "accepted_current_build_required": true,
     "new_baseline_required_after_docs_change": true,
-    "registry_path": "docs/change-requests"
+    "registry_path": ".vivicy/change-requests"
   },
   "document_set_hash": "64212ab7f1874f034e8b505d530f0b9d549ebab7000af7af6a6594873c8b35c8",
   "exclude": [
@@ -17,7 +17,7 @@
     "dist/**",
     "**/.DS_Store",
     ".vivicy/baselines/*.json",
-    ".vivicy/baselines/doc-baseline.mjs",
+    ".vivicy/baselines/doc-baseline.ts",
     "docs/change-requests/CR-[0-9][0-9][0-9][0-9]-*.md",
     ".vivicy/architecture-map/viewer/**",
     "docs/governance/**",
@@ -92,7 +92,7 @@
     }
   ],
   "generated_at": "2026-06-27T15:59:34.824Z",
-  "generated_by": ".vivicy/baselines/doc-baseline.mjs",
+  "generated_by": ".vivicy/baselines/doc-baseline.ts",
   "git": {
     "available": true,
     "head_sha": "534fe5922d3d3dd3fb013d32193d43e13d3ae176",
@@ -101,9 +101,10 @@
   "include": [
     ".vivicy/canonical/**/*.md"
   ],
-  "manifest_hash": "6278d06998e2c12364010498c54f206554a481e69bd1bbbf32705e46ce8ad0b4",
+  "manifest_hash": "8d13c5a559889d1833c4ccb7b02384819edd6f01f172a068ca1a1b51161b61f6",
   "product": "Project",
   "schema_version": 1,
+  "spec_kind": "project",
   "status": "frozen",
   "version": "1.0.0"
 }

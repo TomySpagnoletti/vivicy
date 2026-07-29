@@ -24,7 +24,6 @@ export interface MapNode {
   tech?: string
   owns_data?: string[]
   source_refs?: string[]
-  evidence_refs?: string[]
   graph_ref: string
 }
 

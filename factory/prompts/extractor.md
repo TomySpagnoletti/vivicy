@@ -36,7 +36,7 @@ Author every file below into the **target repo**, all pinned to the frozen basel
 
    **Top-level keys (indent 0).** Scalars: `version`, `updated`, `name`, `purpose`, `generated_artifact_path`, `evidence_ref_grammar`, `verification_gate_ref_grammar`. List-of-strings sections (each item is `  - "value"` at indent 2): `kind_taxonomy`, `kind_definitions`, `flow_classes`, `high_risk_kinds`, `rules`. Mapping sections: `source_baseline`, `status_legend`, `views`. Record-list sections: `lanes`, `nodes`, `edges`. **No other top-level section is supported.** In particular there is **NO top-level `clusters:` section** — authoring `clusters:` with `- id: …` items is the exact failure that breaks generation. Clusters are expressed PER NODE via the `layout_cluster` field, never as a standalone top-level list.
 
-   - **`source_baseline`** (mapping, indent-2 keys): `id`, `baseline_id`, `baseline_version`, `manifest_path`, `manifest_hash`, `document_set_hash`, `captured_at`, `repo_root`, `source_ref_grammar` (scalars copied from the manifest), plus `included_docs` and `excluded_globs` (each a list of `    - "glob"` at indent 4). These two are the ONLY array fields allowed under `source_baseline`.
+   - **`source_baseline`** (mapping, indent-2 keys): `baseline_id`, `baseline_version`, `manifest_path`, `manifest_hash`, `document_set_hash`, `captured_at`, `repo_root`, `source_ref_grammar` (scalars copied from the manifest), plus `included_docs` and `excluded_globs` (each a list of `    - "glob"` at indent 4). These two are the ONLY array fields allowed under `source_baseline`.
    - **`status_legend`** (mapping): indent-2 `key: "description"` pairs. It MUST define EXACTLY these six status keys (no more, no fewer): `not_started`, `in_progress`, `reviewing`, `implemented`, `verified`, `blocked`. At extraction time every node's `status` is `not_started`.
    - **`views`** (mapping): indent-2 view names (e.g. `target:`, `progress:`), each with indent-4 `title:` and `subtitle:`.
    - **`lanes`** (record list): each `  - id: <lane-id>` then indent-4 fields, e.g. `label`.
@@ -57,7 +57,6 @@ Author every file below into the **target repo**, all pinned to the frozen basel
    verification_gate_ref_grammar: "^.vivicy/development/(gates|reports)/.+"
 
    source_baseline:
-     id: "baseline-2026-06-example"
      baseline_id: "baseline-v1.0.0"
      baseline_version: "1.0.0"
      manifest_path: ".vivicy/baselines/baseline-v1.0.0.json"

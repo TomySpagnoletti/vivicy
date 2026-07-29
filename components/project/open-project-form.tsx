@@ -25,7 +25,7 @@ export function OpenProjectForm({
   onChanged: (project: CurrentProject) => void
   onSelectingChange?: (selecting: boolean) => void
 }) {
-  const t = useTranslations("project.openProjectDialog")
+  const t = useTranslations("project.openProject")
   const tErrors = useTranslations("errors")
   const [listing, setListing] = useState<DirListing | null>(null)
   const [browserBusy, setBrowserBusy] = useState(false)

@@ -23,6 +23,7 @@ import {
 } from "@/components/agents/agents-gate"
 import { ViviPanel } from "@/components/chat/vivi-panel"
 import { ViviPanelProvider } from "@/components/chat/vivi-panel-context"
+import { AgentsHealthDialog } from "@/components/agents/agents-health-dialog"
 import {
   ArchitectureMap,
   type SelectedItem,
@@ -30,7 +31,6 @@ import {
 import { MapEmptyState } from "@/components/map/map-empty-state"
 import { WorkflowWidget } from "@/components/workflow/workflow-widget"
 import { OnboardingEmptyState } from "@/components/project/onboarding-empty-state"
-import { SetupBar } from "@/components/project/setup-bar"
 import { PanelToggle } from "@/components/sidebar/panel-toggle"
 import { VivicySidebar } from "@/components/sidebar/sidebar"
 import { TranscriptProvider } from "@/components/transcript/transcript-modal"
@@ -260,11 +260,7 @@ export default function Page() {
             style={{ "--sidebar-width": panel.width } as React.CSSProperties}
           >
             <SidebarInset className="relative min-w-0">
-              <SetupBar
-                project={project ?? null}
-                onProjectChanged={onProjectChanged}
-                onAgentsWarning={onAgentsWarning}
-              />
+              <AgentsHealthDialog onWarning={onAgentsWarning} />
 
               {state.kind === "ready" ? (
                 <PanelToggle

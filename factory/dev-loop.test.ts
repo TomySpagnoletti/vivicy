@@ -120,7 +120,7 @@ test("computeDoneIds counts moved files and per-issue verified graph refs", () =
 test("composePrompt fills placeholders", () => {
   const out = composePrompt("Issue {{issue_id}} at {{issue_path}} refs {{graph_refs}}", {
     id: "ISSUE-1",
-    path: "p.md",
+    issue_path: "p.md",
     graph_refs: ["a", "b"],
   });
   assert.equal(out, "Issue ISSUE-1 at p.md refs a, b");
@@ -486,7 +486,7 @@ function buildScratch(
         depends_on: [],
         verification_gate_ids: ["gate:test:a"],
         ...gateField,
-        path: `${issuesDir}/ISSUE-A.md`,
+        issue_path: `${issuesDir}/ISSUE-A.md`,
       },
       {
         id: "ISSUE-B",
@@ -495,7 +495,7 @@ function buildScratch(
         depends_on: ["ISSUE-A"],
         verification_gate_ids: ["gate:test:b"],
         ...gateField,
-        path: `${issuesDir}/ISSUE-B.md`,
+        issue_path: `${issuesDir}/ISSUE-B.md`,
       },
     ],
   };
@@ -523,7 +523,7 @@ test("runLoop drives two issues to verified, moved to done, in dependency order"
     assert.ok(doneFiles.has("ISSUE-B.md"));
     assert.ok(!existsSync(resolve(repoRoot, `${cfg.issuesDir}/ISSUE-A.md`)));
     const indexAfter = JSON.parse(readFileSync(resolve(repoRoot, cfg.issueIndexPath), "utf8"));
-    assert.equal(indexAfter.issues[0].path, `${cfg.doneDir}/ISSUE-A.md`);
+    assert.equal(indexAfter.issues[0].issue_path, `${cfg.doneDir}/ISSUE-A.md`);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -1019,7 +1019,7 @@ test("PROOFS-DIRECTIVE: the declared proofs reach both legs with their class, ca
   const declared = buildScratch("true", { proofs: RUN_LOG_PROOF });
   const bare = buildScratch("true");
   try {
-    const issue = { id: "ISSUE-A", path: `${declared.cfg.issuesDir}/ISSUE-A.md` } as Issue;
+    const issue: Issue = { id: "ISSUE-A", issue_path: `${declared.cfg.issuesDir}/ISSUE-A.md` };
     const directive = proofsDirective(declared.cfg as unknown as Config, issue);
     assert.match(directive, /## The declared proofs of this issue/);
     assert.match(directive, /never fabricated, never mocked/);
@@ -1046,7 +1046,7 @@ test("PROOFS-DIRECTIVE: the declared proofs reach both legs with their class, ca
     assert.match(composed, /## The declared proofs of this issue/, "legDeps injects it through composePrompt");
 
     assert.equal(
-      proofsDirective(bare.cfg as unknown as Config, { id: "ISSUE-A", path: `${bare.cfg.issuesDir}/ISSUE-A.md` } as Issue),
+      proofsDirective(bare.cfg as unknown as Config, { id: "ISSUE-A", issue_path: `${bare.cfg.issuesDir}/ISSUE-A.md` }),
       "",
       "an issue that declares no proof adds zero prompt mass",
     );
@@ -1769,10 +1769,9 @@ test("computeReadySet returns deps-satisfied, not-done, not-running issues in in
   assert.deepEqual(computeReadySet(issues, new Set(), new Set(["C"])).map((i) => i.id), ["A"]);
 });
 
-test("issueClaim prefers explicit claims, falls back to graph_refs", () => {
-  assert.deepEqual([...issueClaim({ graph_refs: ["node:x"] })], ["node:x"]);
-  assert.deepEqual([...issueClaim({ claims: ["file:a"], graph_refs: ["node:x"] })], ["file:a"]);
-  assert.deepEqual([...issueClaim({ claimed_files: ["file:b"] })], ["file:b"]);
+test("issueClaim is the issue's graph_refs — the one footprint the index carries", () => {
+  assert.deepEqual([...issueClaim({ graph_refs: ["node:x", "node:y"] })], ["node:x", "node:y"]);
+  assert.deepEqual([...issueClaim({})], []);
 });
 
 test("buildDepsClosure resolves transitive dependencies", () => {
@@ -1978,7 +1977,7 @@ test("max-spread degrades gracefully with NO cluster/edge data (falls back to in
   assert.deepEqual(batch.map((i) => i.id), ["I-a1", "I-a2", "I-b1"]);
 });
 
-test("max-spread with limit 1 returns exactly one issue == old sequential pick", () => {
+test("max-spread with limit 1 returns exactly one issue, identical with or without the architecture index", () => {
   const issues = spreadIssues();
   const idx = buildArchitectureIndex(spreadArchitecture());
   const closure = buildDepsClosure(issues);
@@ -2044,7 +2043,7 @@ function buildParallelScratch({
       title: issue.title ?? issue.id,
       verification_gate_ids: [`gate:test:${issue.id}`],
       gate_command: gateById[issue.id] ?? "true",
-      path: `${issuesDir}/${issue.id}.md`,
+      issue_path: `${issuesDir}/${issue.id}.md`,
     })),
   };
   writeFileSync(resolve(repoRoot, indexRel), `${JSON.stringify(index, null, 2)}\n`);
@@ -2700,7 +2699,7 @@ function buildReadinessScratch(issues: Issue[]) {
       title: issue.title ?? issue.id,
       verification_gate_ids: [`gate:test:${issue.id}`],
       gate_command: "true",
-      path: `${issuesDir}/${issue.id}.md`,
+      issue_path: `${issuesDir}/${issue.id}.md`,
     })),
   };
   writeFileSync(resolve(repoRoot, indexRel), `${JSON.stringify(index, null, 2)}\n`);

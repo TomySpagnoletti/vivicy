@@ -80,7 +80,13 @@ describe("DecisionCard", () => {
   test("clicking POSTs the exact payload, then disables all buttons forever and shows the summary", async () => {
     const fetchMock = vi.fn<
       (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
-    >(async () => jsonResponse({ ok: true, summary: "CR-0001 approved" }))
+    >(async () =>
+      jsonResponse({
+        ok: true,
+        summary: "CR-0001 approved",
+        decided: { actionId: "approve", at: "2026-07-05T08:00:00.000Z", summary: "CR-0001 approved" },
+      })
+    )
     vi.stubGlobal("fetch", fetchMock)
     const onDecided = vi.fn()
     const user = userEvent.setup()

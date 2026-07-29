@@ -1,6 +1,5 @@
 import {
   deriveDevelopmentOverlay,
-  edgeGraphRef as canonicalEdgeGraphRef,
   nodeGraphRef as canonicalNodeGraphRef,
   OVERLAY_STATUSES,
   type OverlayIssue,
@@ -95,7 +94,6 @@ export function normalizeMapData(raw: unknown): ArchitectureMapData | null {
         tech: typeof node.tech === "string" ? node.tech : undefined,
         owns_data: toStringArray(node.owns_data),
         source_refs: toStringArray(node.source_refs),
-        evidence_refs: toStringArray(node.evidence_refs),
         graph_ref: node.graph_ref,
       },
     ]
@@ -107,7 +105,7 @@ export function normalizeMapData(raw: unknown): ArchitectureMapData | null {
   const edges = rawEdges.flatMap((e) => {
     if (!e || typeof e !== "object") return []
     const edge = e as Record<string, unknown>
-    if (typeof edge.from !== "string" || typeof edge.to !== "string") {
+    if (typeof edge.from !== "string" || typeof edge.to !== "string" || typeof edge.graph_ref !== "string" || edge.graph_ref.length === 0) {
       return []
     }
     // React Flow errors if an edge references a missing node.
@@ -127,10 +125,7 @@ export function normalizeMapData(raw: unknown): ArchitectureMapData | null {
             : undefined,
         data: toStringArray(edge.data),
         source_refs: toStringArray(edge.source_refs),
-        graph_ref:
-          typeof edge.graph_ref === "string"
-            ? edge.graph_ref
-            : `edge:${edge.from}->${edge.to}`,
+        graph_ref: edge.graph_ref,
       },
     ]
   })
@@ -177,7 +172,7 @@ export function applyLiveOverlay(
   const graphRefs = new Set<string>()
   for (const node of data.nodes) graphRefs.add(canonicalNodeGraphRef(node.id))
   for (const edge of data.edges) {
-    graphRefs.add(edge.graph_ref || canonicalEdgeGraphRef(edge))
+    graphRefs.add(edge.graph_ref)
   }
 
   const issues: OverlayIssue[] = (data.development?.issues ?? []).map((issue) => ({
@@ -275,7 +270,7 @@ export function computeVisibleCounts(
   const statusMatchedEndpoints = new Set<string>()
   if (filters.statusFilter !== "all") {
     for (const edge of data.edges) {
-      const s = statesByRef.get(edgeGraphRef(edge))?.status ?? "not_started"
+      const s = statesByRef.get(edge.graph_ref)?.status ?? "not_started"
       if (s === filters.statusFilter) {
         statusMatchedEndpoints.add(edge.from)
         statusMatchedEndpoints.add(edge.to)
@@ -301,18 +296,13 @@ export function computeVisibleCounts(
   data.edges.forEach((edge) => {
     if (!visible.has(edge.from) || !visible.has(edge.to)) return
     if (filters.statusFilter !== "all") {
-      const s = statesByRef.get(edgeGraphRef(edge))?.status ?? "not_started"
+      const s = statesByRef.get(edge.graph_ref)?.status ?? "not_started"
       if (s !== filters.statusFilter) return
     }
     edgeCount += 1
   })
 
   return { nodes: visible.size, edges: edgeCount }
-}
-
-// The one canonical edge-ref formula, shared with the generator and overlay derivation — do not reimplement, or refs will drift from the generator's keys.
-export function edgeGraphRef(edge: MapEdge): string {
-  return edge.graph_ref || canonicalEdgeGraphRef(edge)
 }
 
 /** Parse the trailing `-<i>` index from a React Flow edge id (`${from}->${to}-${i}`); -1 when absent. */

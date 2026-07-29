@@ -34,11 +34,11 @@ function renderFeed(notifications: Notification[], onAskVivi = vi.fn()) {
 }
 
 describe("isActionableNotification", () => {
-  test.each(["error", "warning", "warn"])("%s calls for a next step", (level) => {
+  test.each(["error", "warning"] as const)("%s calls for a next step", (level) => {
     expect(isActionableNotification(notification({ level }))).toBe(true)
   })
 
-  test.each(["info", "success", undefined])("%s is purely informational", (level) => {
+  test.each(["info", "success"] as const)("%s is purely informational", (level) => {
     expect(isActionableNotification(notification({ level }))).toBe(false)
   })
 })

@@ -18,7 +18,7 @@ import {
 } from "./install-skills.ts";
 import type { SkillAuditFetch, SkillsReport } from "./install-skills.ts";
 import { skillsStageNeeded } from "./dev-loop-supervised.ts";
-import { readDeclaredSkills } from "./dev-preflight.ts";
+import { missingSkillsRefusal, readDeclaredSkills } from "./dev-preflight.ts";
 
 const SCOUT_RESULT_REL = ".vivicy/development/reports/skill-scout-result.json";
 const BASELINE_ID = "baseline-v1.0.0";
@@ -463,24 +463,42 @@ describe("supervisor hook decision (skillsStageNeeded)", () => {
   });
 });
 
-describe("dev-preflight declared skills (vivicy.json first)", () => {
-  it("reads vivicy.json requiredSkills as skill-name parts, falling back to package.json", () => {
-    writeJson("vivicy.json", { gateCommand: "cargo test", requiredSkills: ["supabase/agent-skills@postgres", "plain-name"] });
-    writeJson("package.json", { vivicy: { requiredSkills: ["ignored"], recommendedSkills: ["nice-to-have"] } });
+describe("dev-preflight declared skills (vivicy.json, the one location)", () => {
+  it("reads vivicy.json requiredSkills as skill-name parts", () => {
+    writeJson("vivicy.json", { gateCommand: "cargo test", requiredSkills: ["supabase/agent-skills@postgres", "plain-name"], recommendedSkills: ["nice-to-have"] });
     const declared = readDeclaredSkills(repo);
     assert.deepEqual(declared.required, ["postgres", "plain-name"], "ids match `skills list` output by their skill-name part");
-    assert.deepEqual(declared.recommended, ["nice-to-have"], "fallback is per field");
+    assert.deepEqual(declared.recommended, ["nice-to-have"]);
   });
 
-  it("keeps the package.json fallback for targets without a vivicy.json", () => {
-    writeJson("package.json", { vivicy: { requiredSkills: ["from-pkg"] } });
-    assert.deepEqual(readDeclaredSkills(repo).required, ["from-pkg"]);
+  it("a `vivicy` field in package.json declares nothing — vivicy.json is the only source", () => {
+    writeJson("package.json", { vivicy: { requiredSkills: ["from-pkg"], recommendedSkills: ["also-pkg"] } });
+    assert.deepEqual(readDeclaredSkills(repo), { required: [], recommended: [] });
+
+    writeJson("vivicy.json", { gateCommand: "npm test", requiredSkills: ["from-vivicy"] });
+    assert.deepEqual(readDeclaredSkills(repo).required, ["from-vivicy"]);
+    assert.deepEqual(readDeclaredSkills(repo).recommended, []);
   });
 
-  it("an explicit empty requiredSkills in vivicy.json is authoritative (no fallback resurrection)", () => {
+  it("an explicit empty requiredSkills in vivicy.json declares no skills", () => {
     writeJson("vivicy.json", { gateCommand: "npm test", requiredSkills: [] });
-    writeJson("package.json", { vivicy: { requiredSkills: ["stale-skill"] } });
     assert.deepEqual(readDeclaredSkills(repo).required, []);
+  });
+
+  // The refusal is owner-facing CONTRACT: it is the whole instruction for clearing a blocked run, so it may name only the location readDeclaredSkills actually reads.
+  it("the missing-skills refusal names vivicy.json and NOTHING else — following it really clears the refusal", () => {
+    const refusal = missingSkillsRefusal(["postgres", "stripe"]);
+    assert.match(refusal, /vivicy\.json "requiredSkills"/);
+    assert.doesNotMatch(refusal, /package\.json/, "package.json declares nothing — pointing there cannot clear the refusal");
+    assert.doesNotMatch(refusal, /vivicy\.(required|recommended)Skills/, "the pkg-scoped spelling is dead too");
+    assert.match(refusal, /npx skills add <skill>/, "the install half stays actionable");
+  });
+
+  it("the refusal's count forms agree with the number of missing skills", () => {
+    assert.match(missingSkillsRefusal(["postgres"]), /^1 required development skill missing: postgres\n/);
+    assert.match(missingSkillsRefusal(["postgres"]), /install it with .* or drop it from/);
+    assert.match(missingSkillsRefusal(["postgres", "stripe"]), /^2 required development skills missing: postgres, stripe\n/);
+    assert.match(missingSkillsRefusal(["postgres", "stripe"]), /install them with .* or drop them from/);
   });
 });
 

@@ -126,9 +126,6 @@
       "cycle_opened": "spec cycle opened — the canonical is editable again",
       "cycle_cancelled": "spec cycle cancelled",
       "cycle_error": "spec-cycle transition refused"
-    },
-    "runtime": {
-      "notifications_migrated": "notification log migrated to this project's runtime namespace"
     }
   }
 }

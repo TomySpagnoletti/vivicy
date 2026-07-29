@@ -3,13 +3,18 @@
   "revision": 5,
   "baseline_id": "baseline-v1.0.0",
   "baseline_version": "1.0.0",
-  "manifest_hash": "d546deaa4b893d1ddc9dfb9a3150c5a7159a98439df9569839f3bcd6cebd9b59",
+  "manifest_hash": "a30129baea8290a0400bdeaa4e06a92fc162910141e2907ab2ff6bd2d01b2860",
   "document_set_hash": "3acb63c617f40a55ea7624447f9609fba9a10599d3a659e3a70deaaf89e0670b",
   "updated_at": "2026-06-27T14:20:00Z",
   "graph_item_states": [
     {
       "graph_ref": "node:ledger",
       "status": "verified",
+      "issue_states": {
+        "ISSUE-0001": "verified",
+        "ISSUE-0002": "verified",
+        "ISSUE-0003": "verified"
+      },
       "issue_ids": [
         "ISSUE-0001",
         "ISSUE-0002",
@@ -24,6 +29,9 @@
     {
       "graph_ref": "node:exporter",
       "status": "verified",
+      "issue_states": {
+        "ISSUE-0007": "verified"
+      },
       "issue_ids": [
         "ISSUE-0007"
       ],
@@ -34,6 +42,9 @@
     {
       "graph_ref": "node:categorizer",
       "status": "in_progress",
+      "issue_states": {
+        "ISSUE-0004": "in_progress"
+      },
       "issue_ids": [
         "ISSUE-0004"
       ],
@@ -44,6 +55,9 @@
     {
       "graph_ref": "node:cli",
       "status": "in_progress",
+      "issue_states": {
+        "ISSUE-0008": "in_progress"
+      },
       "issue_ids": [
         "ISSUE-0008"
       ],
@@ -54,6 +68,10 @@
     {
       "graph_ref": "node:reporter",
       "status": "implemented",
+      "issue_states": {
+        "ISSUE-0005": "implemented",
+        "ISSUE-0006": "implemented"
+      },
       "issue_ids": [
         "ISSUE-0005",
         "ISSUE-0006"

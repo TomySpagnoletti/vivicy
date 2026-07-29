@@ -158,11 +158,11 @@ interface CrApplyReport {
 }
 
 interface Notification {
-  ts?: string;
-  level?: string;
-  stage?: string;
-  event?: string;
-  message?: string;
+  ts: string;
+  level: string;
+  stage: string;
+  event: string;
+  message: string;
   dismissed?: boolean;
 }
 
@@ -716,12 +716,10 @@ async function cmdCr(argv: string[], opts: Opts): Promise<void> {
     const code = decideRes.code === 2 ? EXIT_USAGE : EXIT_REFUSAL;
     return fail(json, code, message, { id, code: classifyDecisionCode(message) });
   }
-  const status =
-    typeof decided.status === "string"
-      ? decided.status
-      : decisionWord === "approved"
-        ? "accepted_current_build"
-        : "rejected";
+  if (typeof decided.status !== "string") {
+    return fail(json, EXIT_UNEXPECTED, `change-control decide reported no status for ${id}`, { id });
+  }
+  const status = decided.status;
 
   if (decisionWord === "rejected") {
     emitJsonOrHuman(json, { ok: true, id, decision: decisionWord, status, summary: `CR ${id} rejected` });
@@ -1101,14 +1099,10 @@ function activeFrozenManifestRel(target: string): string | null {
 
 function cmdNotifications(argv: string[], opts: Opts): void {
   const json = takeBool(argv, "--json");
-  // A still-unmigrated legacy root log is read FIRST (older by construction) so this view matches the app's own fold-in order; this reader stays read-only and never migrates it.
   const target = resolveTarget(argv);
-  const files = target
-    ? [join(runtimeDir(opts), NOTIFICATIONS_REL), join(projectDir(opts, target), NOTIFICATIONS_REL)]
-    : [join(runtimeDir(opts), NOTIFICATIONS_REL)];
+  const file = target ? join(projectDir(opts, target), NOTIFICATIONS_REL) : join(runtimeDir(opts), NOTIFICATIONS_REL);
   const notifications: Notification[] = [];
-  for (const file of files) {
-    if (!existsSync(file)) continue;
+  if (existsSync(file)) {
     for (const line of readFileSync(file, "utf8").split("\n")) {
       const trimmed = line.trim();
       if (!trimmed) continue;
@@ -1124,7 +1118,7 @@ function cmdNotifications(argv: string[], opts: Opts): void {
     note("(no notifications)");
   } else {
     for (const n of notifications) {
-      note(`${n.ts ?? "?"}  ${String(n.level ?? "info").padEnd(6)}  ${n.stage ?? "-"}/${n.event ?? "-"}  ${n.message ?? ""}`);
+      note(`${n.ts}  ${n.level.padEnd(7)}  ${n.stage}/${n.event}  ${n.message}`);
     }
   }
   process.exit(EXIT_OK);

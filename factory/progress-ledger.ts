@@ -470,7 +470,6 @@ function upsertGraphStates(
       if (transcriptRefs.length) {
         existing.transcript_refs = [...new Set([...(existing.transcript_refs ?? []), ...transcriptRefs])];
       }
-      ensureIssueStates(existing);
 
       const stale = timestamp !== undefined && existing.updated_at != null && timestamp < existing.updated_at;
       if (reopen) {
@@ -499,13 +498,6 @@ function upsertGraphStates(
       ...(transcriptRefs.length ? { transcript_refs: [...transcriptRefs] } : {}),
       updated_at: timestamp ?? null,
     });
-  }
-}
-
-// Migration shim: ledgers written before per-issue states synthesize issue_states from the recorded scalar status.
-function ensureIssueStates(state: GraphItemState): void {
-  if (!state.issue_states || typeof state.issue_states !== "object") {
-    state.issue_states = Object.fromEntries(state.issue_ids.map((id) => [id, state.status] as const));
   }
 }
 
@@ -538,7 +530,7 @@ function cloneGraphStates(states: GraphItemState[] | undefined): GraphItemState[
     issue_ids: [...state.issue_ids],
     evidence_refs: [...state.evidence_refs],
     ...(Array.isArray(state.transcript_refs) ? { transcript_refs: [...state.transcript_refs] } : {}),
-    ...(state.issue_states && typeof state.issue_states === "object" ? { issue_states: { ...state.issue_states } } : {}),
+    issue_states: { ...state.issue_states },
   }));
 }
 

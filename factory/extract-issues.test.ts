@@ -300,18 +300,6 @@ describe("extractIssues — two-agent happy path", () => {
     assert.equal(calls.length, 2, "the actionable finding triggers exactly one extractor fix pass");
     assert.match(result.summary, /map review clean/);
   });
-
-  it("accepts the legacy spawnAgent alias for the extractor leg (back-compat)", async () => {
-    seedInputs(temp);
-    const { spawnExtractor: spawnAgent, calls } = fakeAgent([(ctx) => writeValidCorpus(ctx.repoRoot)]);
-    const { spawnVerifier } = alwaysFaithfulVerifier();
-    const seams = stubSeams();
-
-    const result = await extractIssues({ repoRoot: temp, spawnAgent, spawnVerifier, ...seams });
-
-    assert.equal(result.status, "green");
-    assert.equal(calls.length, 1, "the spawnAgent alias drove the extractor leg");
-  });
 });
 
 describe("extractIssues — S2 spike mode + S5 map mode", () => {
@@ -1168,7 +1156,7 @@ describe("scaffold + fixture gitignore the COMPLETE never-commit set, and ONLY t
   const NEVER_RE_INCLUDED = ["!.env.example", "!.env.sample"];
   // The scaffold emits its temp pattern from the same constant its writer builds the temp name with, so no such literal line exists in its SOURCE; the RENDERED greenfield output is the oracle there, pinned exactly-once and inside the block by lib/scaffold.test.ts, and re-proven at git level by its abandoned-temp cases. Grepping the identifier here would pin a name, not a rule.
   const EMITTED_FROM_A_CONSTANT = new Set([".vivicy-tmp.*"]);
-  const NOW_COMMITTED = [
+  const MUST_STAY_TRACKED = [
     "architecture-data.json",
     "source-map.json",
     "coverage-report",
@@ -1178,16 +1166,16 @@ describe("scaffold + fixture gitignore the COMPLETE never-commit set, and ONLY t
   // Line-exact: `.env` is a substring of `.env.*`, so a substring check would pass with the exclude or a re-include missing.
   const exactLines = (text: string) => new Set(text.split("\n").map((line) => line.trim()));
 
-  it("the fixture .gitignore lists the complete never-commit set and none of the now-committed outputs", () => {
+  it("the fixture .gitignore lists the complete never-commit set and none of the outputs that must stay tracked", () => {
     const gi = readFileSync(resolve(FIXTURE, ".gitignore"), "utf8");
     const lines = exactLines(gi);
     for (const line of NEVER_COMMIT) assert.ok(lines.has(line), `fixture .gitignore must carry the exact line ${line}`);
     for (const line of NEVER_RE_INCLUDED) assert.ok(!lines.has(line), `fixture .gitignore must NOT re-include ${line}`);
-    for (const out of NOW_COMMITTED) assert.ok(!gi.includes(out), `fixture .gitignore must NOT ignore ${out}`);
+    for (const out of MUST_STAY_TRACKED) assert.ok(!gi.includes(out), `fixture .gitignore must NOT ignore ${out}`);
     assert.doesNotMatch(gi, /^\.vivicy\/development\/reports\/?\s*$/m, "must not ignore the whole reports/ dir");
   });
 
-  it("the scaffold gitignore() template emits the complete never-commit set and none of the now-committed outputs", () => {
+  it("the scaffold gitignore() template emits the complete never-commit set and none of the outputs that must stay tracked", () => {
     const scaffoldSrc = readFileSync(resolve(FACTORY_DIR, "../lib/scaffold.ts"), "utf8");
     const lines = exactLines(scaffoldSrc);
     for (const line of NEVER_COMMIT) {
@@ -1195,7 +1183,7 @@ describe("scaffold + fixture gitignore the COMPLETE never-commit set, and ONLY t
       assert.ok(lines.has(line), `scaffold gitignore() must carry the exact line ${line}`);
     }
     for (const line of NEVER_RE_INCLUDED) assert.ok(!lines.has(line), `scaffold must NOT re-include ${line} — the greenfield placeholder is delivered tracked, not re-included`);
-    for (const out of NOW_COMMITTED) {
+    for (const out of MUST_STAY_TRACKED) {
       assert.ok(!scaffoldSrc.includes(`\n${out}`) && !scaffoldSrc.includes(`${out}\n`), `scaffold gitignore() must NOT ignore ${out}`);
     }
     assert.doesNotMatch(scaffoldSrc, /\n\s*\.vivicy\/development\/reports\/\s*\n/, "scaffold must not ignore the whole reports/ dir");

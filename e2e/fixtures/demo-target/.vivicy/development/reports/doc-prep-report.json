@@ -1,10 +1,24 @@
 {
   "phase": "green",
-  "batch_id": "2026-07-05T08-00-00-000Z",
+  "cycle_id": "project",
+  "cycle_kind": "project",
+  "batches_consumed": [
+    "2026-07-05T08-00-00-000Z"
+  ],
+  "batches_pending": [],
   "language": "eng",
   "placed": [
-    { "target": "canonical/spec.md", "source": "canonical/spec.md", "route": "canonical", "translated": false },
-    { "target": "canonical/product.md", "route": "explode", "translated": true }
+    {
+      "target": "canonical/spec.md",
+      "source": "canonical/spec.md",
+      "route": "canonical",
+      "translated": false
+    },
+    {
+      "target": "canonical/product.md",
+      "route": "explode",
+      "translated": true
+    }
   ],
   "rejected": [],
   "summary": "doc-prep green: 2 canonical document(s) placed, 0 rejected, from batch 2026-07-05T08-00-00-000Z (language eng)",

@@ -374,17 +374,42 @@ test("a DRAFT baseline is never blocked by a secret — only a freeze refuses (a
   }
 });
 
-test("a freshly generated manifest verifies with spec_kind present (shape stays legacy-tolerant)", () => {
+test("spec_kind is mandatory on verify: the generated manifest round-trips, one stripped of the field is refused", () => {
   const root = makeTargetRoot();
   try {
     writeDoc(root, "01-a.md", "# Doc\n");
     const gen = runCli(root, ["generate", "--version", "1.0.0", "--status", "draft"]);
     assert.equal(gen.status, 0, gen.stderr);
-    // spec_kind is optional in assertManifestShape by design — extending it to require the field would break old frozen manifests that predate it.
+    const manifestRel = `.vivicy/baselines/${BASELINE_ID}.json`;
     const manifest = readBaseline(root, BASELINE_ID);
     assert.ok(manifest.spec_kind === "project" || manifest.spec_kind === "feature");
-    const verify = runCli(root, ["verify", "--manifest", `.vivicy/baselines/${BASELINE_ID}.json`]);
+    const verify = runCli(root, ["verify", "--manifest", manifestRel]);
     assert.equal(verify.status, 0, verify.stderr);
+
+    const stripped: Record<string, unknown> = { ...manifest };
+    delete stripped.spec_kind;
+    writeFileSync(resolve(root, manifestRel), `${JSON.stringify(stripped, null, 2)}\n`);
+    const refused = runCli(root, ["verify", "--manifest", manifestRel]);
+    assert.equal(refused.status, 1);
+    assert.match(refused.stderr, /invalid spec_kind/);
+  } finally {
+    rmSync(root, { force: true, recursive: true });
+  }
+});
+
+test("verify refuses a manifest whose exclude[] is a strict subset of the corpus policy", () => {
+  const root = makeTargetRoot();
+  try {
+    writeDoc(root, "01-a.md", "# Doc\n");
+    const gen = runCli(root, ["generate", "--version", "1.0.0", "--status", "draft"]);
+    assert.equal(gen.status, 0, gen.stderr);
+    const manifestRel = `.vivicy/baselines/${BASELINE_ID}.json`;
+    const manifest = readBaseline(root, BASELINE_ID);
+    const shrunk = { ...manifest, exclude: manifest.exclude.slice(1) };
+    writeFileSync(resolve(root, manifestRel), `${JSON.stringify(shrunk, null, 2)}\n`);
+    const refused = runCli(root, ["verify", "--manifest", manifestRel]);
+    assert.equal(refused.status, 1);
+    assert.match(refused.stderr, /exclude\[\] diverges from the repo-owned corpus policy/);
   } finally {
     rmSync(root, { force: true, recursive: true });
   }

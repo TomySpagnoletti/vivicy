@@ -40,10 +40,10 @@ describe("readNotifications (shared read contract)", () => {
     writeFileSync(
       getNotificationsPath(),
       [
-        JSON.stringify({ ts: "2026-07-02T10:00:00Z", level: "info", stage: "extract", event: "green", message: "done" }),
+        JSON.stringify({ id: "aaa-1", ts: "2026-07-02T10:00:00Z", level: "info", stage: "extract", event: "green", message: "done" }),
         "",
         "not json — a partial write",
-        JSON.stringify({ ts: "2026-07-02T10:05:00Z", level: "warn", stage: "dev", event: "stall", message: "idle", dismissed: false }),
+        JSON.stringify({ id: "bbb-2", ts: "2026-07-02T10:05:00Z", level: "warning", stage: "dev", event: "stall", message: "idle", dismissed: false }),
       ].join("\n")
     )
 
@@ -51,8 +51,9 @@ describe("readNotifications (shared read contract)", () => {
     expect(rows).toHaveLength(2)
     expect(rows[0].event).toBe("green")
     expect(rows[1]).toEqual({
+      id: "bbb-2",
       ts: "2026-07-02T10:05:00Z",
-      level: "warn",
+      level: "warning",
       stage: "dev",
       event: "stall",
       message: "idle",
@@ -114,7 +115,7 @@ describe("dismissNotifications (dismissal mechanism: rewrite dismissed in place,
     const first = appendNotification({ level: "info", stage: "extract", event: "started", message: "a" })
     const second = appendNotification({ level: "info", stage: "extract", event: "green", message: "b" })
 
-    const changed = dismissNotifications([first.id as string])
+    const changed = dismissNotifications([first.id])
     expect(changed).toBe(1)
 
     const rows = readNotifications()
@@ -138,16 +139,6 @@ describe("dismissNotifications (dismissal mechanism: rewrite dismissed in place,
     expect(rows.find((r) => r.id === "bbb-2")?.dismissed).toBe(true)
   })
 
-  it("falls back to ts matching for a legacy line that predates the id field", () => {
-    writeFileSync(
-      getNotificationsPath(),
-      `${JSON.stringify({ ts: "2026-07-02T10:00:00Z", level: "info", stage: "extract", event: "green", message: "legacy" })}\n`
-    )
-
-    expect(dismissNotifications(["2026-07-02T10:00:00Z"])).toBe(1)
-    expect(readNotifications()[0].dismissed).toBe(true)
-  })
-
   it("clears all when no refs are given (the sidebar 'clear all')", () => {
     appendNotification({ level: "info", stage: "extract", event: "started", message: "a" })
     appendNotification({ level: "info", stage: "extract", event: "green", message: "b" })
@@ -159,9 +150,9 @@ describe("dismissNotifications (dismissal mechanism: rewrite dismissed in place,
 
   it("is a no-op on an unknown id or an already-dismissed one (idempotent)", () => {
     const first = appendNotification({ level: "info", stage: "extract", event: "started", message: "a" })
-    dismissNotifications([first.id as string])
+    dismissNotifications([first.id])
 
-    expect(dismissNotifications([first.id as string])).toBe(0)
+    expect(dismissNotifications([first.id])).toBe(0)
     expect(dismissNotifications(["not-a-real-id"])).toBe(0)
     expect(readNotifications()).toHaveLength(1)
   })
@@ -173,12 +164,12 @@ describe("dismissNotifications (dismissal mechanism: rewrite dismissed in place,
 
   it("round-trips through readNotifications exactly like a fresh append (writer/reader agree)", () => {
     const written = appendNotification({
-      level: "warn",
+      level: "warning",
       stage: "dev",
       event: "stall",
       message: "idle 90s",
     })
-    dismissNotifications([written.id as string])
+    dismissNotifications([written.id])
 
     const [row] = readNotifications()
     expect(row).toEqual({ ...written, dismissed: true })

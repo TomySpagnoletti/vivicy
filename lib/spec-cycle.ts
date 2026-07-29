@@ -161,7 +161,6 @@ export interface Batch {
 
 interface ConsumedSource {
   batches_consumed?: string[]
-  batch_id?: unknown
 }
 
 function readBatchManifest(abs: string): BatchManifest | null {
@@ -200,9 +199,7 @@ export function completeBatches(repoRoot: string): Batch[] {
 
 // Never-reset ledger of every batch a prep run has fully placed: a batch is added only after all its files land, so a mid-run crash never marks an unconsumed batch consumed.
 export function consumedSet(report: ConsumedSource | null): Set<string> {
-  const legacyBatchId = report?.batch_id
-  const legacy = typeof legacyBatchId === "string" ? [legacyBatchId] : []
-  return new Set([...(Array.isArray(report?.batches_consumed) ? report!.batches_consumed : []), ...legacy])
+  return new Set(Array.isArray(report?.batches_consumed) ? report.batches_consumed : [])
 }
 
 // The batches the active cycle's prep must consume: complete + bound to (or seeding) the active cycle + not yet consumed by a prior run.

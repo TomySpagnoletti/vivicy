@@ -32,7 +32,6 @@ import {
   buildGraphStatesByRef,
   buildIssuesByGraphRef,
   clusterMovedPositions,
-  edgeGraphRef,
   edgeIndexFromId,
   LAYOUT_SNAP_GRID,
   nodeMatchesQuery,
@@ -226,7 +225,7 @@ function ArchitectureMapInner({
     const ids = new Set<string>()
     if (statusFilter === "all") return ids
     data.edges.forEach((edge, i) => {
-      const status = statesByRef.get(edgeGraphRef(edge))?.status ?? "not_started"
+      const status = statesByRef.get(edge.graph_ref)?.status ?? "not_started"
       if (status === statusFilter) ids.add(edgeId(edge, i))
     })
     return ids
@@ -330,7 +329,7 @@ function ArchitectureMapInner({
           selectedNodeId && (edge.from === selectedNodeId || edge.to === selectedNodeId)
         )
         const isDimmed = !isSelected && !isConnected
-        const ref = edgeGraphRef(edge)
+        const ref = edge.graph_ref
         const progressStatus = statesByRef.get(ref)?.status ?? "not_started"
         const progressColor = progressStatusColor(progressStatus)
         return {

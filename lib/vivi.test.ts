@@ -300,7 +300,7 @@ describe("runViviTurn — allowlist enforcement", () => {
   })
 })
 
-describe("runViviTurn — post-freeze (Change Requests, B8.1)", () => {
+describe("runViviTurn — post-freeze (Change Requests)", () => {
   it("accepts a well-formed CR under change-requests/ and reports it in `wrote`", async () => {
     seedFrozenBaseline(targetRoot)
     const { spawner, calls } = makeFakeSpawner((o) => {
@@ -1770,7 +1770,7 @@ describe("question cards — the validated fence becomes a pile in the thread", 
     })
     const { sessionId, stackId } = await stackedSession(spawner)
 
-    // 400 chars — exactly what the card's own input invites — answering the NON-last card, the position the length clip used to eat.
+    // 400 chars — exactly what the card's own input invites — answering the NON-last card, the position most exposed to a length clip.
     const head = "On facture a la main les dix premiers clients, "
     const tail = ", mais seulement quand on depasse trente commandes par jour"
     const long = `${head}${"e".repeat(MAX_OTHER_ANSWER_LENGTH - head.length - tail.length)}${tail}`
@@ -1784,7 +1784,7 @@ describe("question cards — the validated fence becomes a pile in the thread", 
     expect(continuationPrompt).not.toContain("\u2026")
   })
 
-  it("carries a MAX-length OPTION answer whole too (question 200 + label 80 also overruns the old clip)", async () => {
+  it("carries a MAX-length OPTION answer whole too (question 200 + label 80 exceeds any single-line budget)", async () => {
     let leg = 0
     let continuationPrompt = ""
     const question = `Quelle est la regle ${"x".repeat(178)}?`

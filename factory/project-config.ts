@@ -75,23 +75,8 @@ export function loadProjectConfig(targetRoot: string | null | undefined): Projec
   if (!targetRoot) return null;
 
   const configPath = resolve(targetRoot, PROJECT_CONFIG_FILENAME);
-  if (existsSync(configPath)) {
-    return parseConfig(readFileSync(configPath, "utf8"), PROJECT_CONFIG_FILENAME);
-  }
-
-  const pkgPath = resolve(targetRoot, "package.json");
-  if (existsSync(pkgPath)) {
-    let pkg: unknown;
-    try {
-      pkg = JSON.parse(readFileSync(pkgPath, "utf8"));
-    } catch {
-      return null; // malformed package.json is swallowed (not our file); a malformed vivicy.json above still throws
-    }
-    if (pkg && typeof pkg === "object" && "vivicy" in pkg && pkg.vivicy && typeof pkg.vivicy === "object") {
-      return normalizeConfig(pkg.vivicy, "package.json#vivicy");
-    }
-  }
-  return null;
+  if (!existsSync(configPath)) return null;
+  return parseConfig(readFileSync(configPath, "utf8"), PROJECT_CONFIG_FILENAME);
 }
 
 // Writes one command field into vivicy.json while preserving every other field (requiredSkills etc.); creates the file if absent.
@@ -133,7 +118,7 @@ function parseConfig(text: string, source: string): ProjectConfig {
 }
 
 function normalizeConfig(raw: unknown, source: string): ProjectConfig {
-  if (!raw || typeof raw !== "object") {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
     throw new ProjectConfigError(`${source}: must be a JSON object`, "invalid_json");
   }
   const fields = raw as { gateCommand?: unknown; runCommand?: unknown };

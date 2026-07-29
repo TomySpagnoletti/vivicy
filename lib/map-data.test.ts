@@ -9,7 +9,6 @@ import {
   buildProofsByIssue,
   clusterMovedPositions,
   computeVisibleCounts,
-  edgeGraphRef,
   formatLineCoverage,
   issueDisplayStatus,
   issueTranscriptRefs,
@@ -176,22 +175,26 @@ function makeEdge(overrides: Partial<MapEdge> = {}): MapEdge {
     to: "b",
     relation: "calls",
     protocol: "HTTPS",
-    graph_ref: "",
+    graph_ref: "edge:a->b:calls:https",
     ...overrides,
   }
 }
 
-describe("edgeGraphRef", () => {
-  it("returns the explicit graph_ref when present", () => {
-    expect(edgeGraphRef(makeEdge({ graph_ref: "edge:explicit" }))).toBe(
-      "edge:explicit"
-    )
-  })
-
-  it("derives a slugged graph_ref from endpoints, relation, and protocol", () => {
-    expect(edgeGraphRef(makeEdge({ graph_ref: "" }))).toBe(
-      "edge:a->b:calls:https"
-    )
+describe("edge graph_ref", () => {
+  it("drops an edge whose graph_ref the generator did not stamp", () => {
+    const parsed = normalizeMapData({
+      name: "m",
+      nodes: [
+        { id: "a", graph_ref: "node:a" },
+        { id: "b", graph_ref: "node:b" },
+      ],
+      edges: [
+        { from: "a", to: "b", relation: "calls", protocol: "HTTPS" },
+        { from: "a", to: "b", relation: "calls", protocol: "HTTPS", graph_ref: "" },
+        { from: "a", to: "b", relation: "calls", protocol: "HTTPS", graph_ref: "edge:a->b:calls:https" },
+      ],
+    })
+    expect(parsed?.edges.map((e) => e.graph_ref)).toEqual(["edge:a->b:calls:https"])
   })
 })
 

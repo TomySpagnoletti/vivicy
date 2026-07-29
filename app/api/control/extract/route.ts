@@ -45,7 +45,7 @@ export async function POST() {
       })
     } else if (result.status === "blocked_on_unverified_spikes") {
       appendNotification({
-        level: "warn",
+        level: "warning",
         stage: "extract",
         event: "blocked_on_unverified_spikes",
         message: result.summary,

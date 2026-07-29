@@ -192,7 +192,7 @@ test("the spec-kind discipline is pinned across vivi/implementer/reviewer prompt
 
   const reviewer = readPrompt("reviewer.md");
   assert.match(reviewer, /spec_kind/, "reviewer.md must read the manifest's spec_kind");
-  assert.match(reviewer, /rewrites or restyles pre-existing code beyond the issue's needs is a fail/i, "reviewer.md must fail legacy-rewriting diffs");
+  assert.match(reviewer, /rewrites or restyles pre-existing code beyond the issue's needs is a fail/i, "reviewer.md must fail diffs that rewrite pre-existing code");
 });
 
 test("the zero-comment / no-time-marker hygiene is pinned across implementer/reviewer prompts and the target AGENTS.md template", () => {
@@ -201,7 +201,7 @@ test("the zero-comment / no-time-marker hygiene is pinned across implementer/rev
   assert.match(implementer, /ZERO comments by default/i);
   assert.match(implementer, /not derivable from the code itself/i);
   assert.match(implementer, /ONE dense line/i);
-  assert.match(implementer, /NEVER match the comment density/i, "a legacy codebase's comment density must never be imitated");
+  assert.match(implementer, /NEVER match the comment density/i, "an existing codebase's comment density must never be imitated");
   assert.match(implementer, /do not restyle untouched code/i, "hygiene must not license out-of-scope rewrites");
   assert.match(implementer, /version markers/i);
   assert.match(implementer, /never when or in which batch/i, "implementer.md must ban time-fixed references");

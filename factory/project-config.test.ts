@@ -78,21 +78,32 @@ test("loadProjectConfig honors several polyglot runners verbatim", () => {
   }
 });
 
-test("loadProjectConfig falls back to a `vivicy` field in package.json", () => {
-  const dir = scratch();
-  try {
-    writeFileSync(join(dir, "package.json"), JSON.stringify({ name: "x", vivicy: { gateCommand: "rake test" } }));
-    assert.deepEqual(loadProjectConfig(dir), { gateCommand: "rake test", runCommand: null });
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
+test("a vivicy.json whose JSON is valid but NOT an object is refused (the one caller of the object guard)", () => {
+  for (const body of ['"a string"', "[1,2]", "42", "null"]) {
+    const dir = scratch();
+    try {
+      writeFileSync(join(dir, PROJECT_CONFIG_FILENAME), body);
+      assert.throws(
+        () => loadProjectConfig(dir),
+        (error: unknown) =>
+          error instanceof ProjectConfigError &&
+          error.code === "invalid_json" &&
+          /must be a JSON object/.test(error.message),
+        `vivicy.json containing ${body} must be refused as a non-object`,
+      );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   }
 });
 
-test("vivicy.json WINS over a package.json vivicy field when both exist", () => {
+test("vivicy.json is the ONE declaration location: a `vivicy` field in package.json is not read", () => {
   const dir = scratch();
   try {
+    writeFileSync(join(dir, "package.json"), JSON.stringify({ name: "x", vivicy: { gateCommand: "rake test" } }));
+    assert.equal(loadProjectConfig(dir), null);
+
     writeFileSync(join(dir, PROJECT_CONFIG_FILENAME), JSON.stringify({ gateCommand: "go test ./..." }));
-    writeFileSync(join(dir, "package.json"), JSON.stringify({ vivicy: { gateCommand: "npm test" } }));
     assert.equal(loadProjectConfig(dir)!.gateCommand, "go test ./...");
     assert.equal(loadProjectConfig(dir)!.runCommand, null);
   } finally {

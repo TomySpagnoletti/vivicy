@@ -95,7 +95,7 @@ describe("resolveTargetDir", () => {
     expect(resolveTargetDir(target)).toEqual({ target, mode: "from_scratch" })
   })
 
-  it("treats a POPULATED directory as existing_project (no longer refused)", () => {
+  it("treats a POPULATED directory as existing_project", () => {
     const target = path.join(workDir, "populated")
     mkdirSync(target, { recursive: true })
     writeFileSync(path.join(target, "existing.txt"), "hi")

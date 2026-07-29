@@ -12,7 +12,6 @@ import {
   buildGraphStatesByRef,
   buildIssuesByGraphRef,
   buildProofsByIssue,
-  edgeGraphRef,
 } from "@/lib/map-data"
 import { transcriptName } from "@/lib/transcript"
 import type { ArchitectureMapData, MapEdge, MapNode } from "@/lib/types"
@@ -48,7 +47,7 @@ function NodeDetails({
   data: ArchitectureMapData
 }) {
   const t = useTranslations("sidebar.details")
-  const graphRef = node.graph_ref ?? `node:${node.id}`
+  const graphRef = node.graph_ref
   const statesByRef = buildGraphStatesByRef(data.development?.graph_item_states)
   const issuesByRef = buildIssuesByGraphRef(data.development?.issues)
   const edgeCount = buildEdgeCounts(data.edges).get(node.id) ?? 0
@@ -83,7 +82,7 @@ function NodeDetails({
       </dl>
 
       <RefBadges label={t("sourceRefsLabel")} refs={node.source_refs} />
-      <RefBadges label={t("evidenceRefsLabel")} refs={node.evidence_refs} />
+      <RefBadges label={t("evidenceRefsLabel")} refs={state?.evidence_refs} />
       <CoveredBy issues={issues.map((i) => i.id)} />
       <Proofs issues={issues.map((i) => i.id)} data={data} />
       <TranscriptRefs refs={transcripts} />
@@ -99,7 +98,7 @@ function EdgeDetails({
   data: ArchitectureMapData
 }) {
   const t = useTranslations("sidebar.details")
-  const graphRef = edgeGraphRef(edge)
+  const graphRef = edge.graph_ref
   const statesByRef = buildGraphStatesByRef(data.development?.graph_item_states)
   const issuesByRef = buildIssuesByGraphRef(data.development?.issues)
   const state = statesByRef.get(graphRef)
@@ -211,10 +210,14 @@ function RefBadges({
   return (
     <div className="flex flex-col gap-1.5">
       <p className="text-xs font-medium text-muted-foreground">{label}</p>
-      <ul className="flex flex-wrap gap-1">
+      <ul className="flex flex-col items-start gap-1">
         {refs.map((ref) => (
-          <li key={ref}>
-            <Badge variant="outline" className="font-mono break-all">
+          <li key={ref} className="max-w-full">
+            <Badge
+              variant="outline"
+              title={ref}
+              className="h-auto max-w-full py-0.5 font-mono break-all whitespace-normal"
+            >
               {ref}
             </Badge>
           </li>

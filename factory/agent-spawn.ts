@@ -69,7 +69,6 @@ export interface LegRunResult {
   transcriptRel: string | undefined;
 }
 
-// Call sites also pass "encoding: utf8" but SpawnOptions has no such field — it's silently dropped, not forwarded.
 interface SpawnOptions {
   cwd?: string;
   env?: NodeJS.ProcessEnv;
@@ -346,7 +345,7 @@ function runClaudeLegWith(
   const dirRel = transcriptDirRel(cfg.transcriptsDir!, issue);
   const transcriptRel = `${dirRel}/claude-${leg.role}-${uuid}.jsonl`;
   const args = buildClaudeArgs({ prompt, uuid, modelArgs: agentCliArgs("claude", leg) });
-  const options = { cwd: execRoot, env: agentEnv(), encoding: "utf8" };
+  const options = { cwd: execRoot, env: agentEnv() };
   const finish = (result: LegResult): LegRunResult => {
     ensureTranscriptDir(abs(dirRel));
     const captured = captureFn(uuid, abs(transcriptRel));
@@ -377,7 +376,7 @@ function runCodexLegWith(
   const dirRel = transcriptDirRel(cfg.transcriptsDir!, issue);
   const transcriptRel = `${dirRel}/codex-${leg.role}-${randomUUID()}.jsonl`;
   const args = buildCodexArgs({ prompt, root: execRoot, modelArgs: agentCliArgs("codex", leg) });
-  const options = { cwd: execRoot, env: agentEnv(), encoding: "utf8" };
+  const options = { cwd: execRoot, env: agentEnv() };
   const startMs = Date.now();
   const finish = (result: LegResult): LegRunResult => {
     ensureTranscriptDir(abs(dirRel));

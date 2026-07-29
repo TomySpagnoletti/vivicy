@@ -508,7 +508,7 @@ async function projectLedgerOntoMap(
   );
   const graphRefs = new Set<string>();
   for (const node of map.nodes ?? []) graphRefs.add(nodeGraphRef(node.id));
-  for (const edge of map.edges ?? []) graphRefs.add(edge.graph_ref || edgeGraphRef(edge));
+  for (const edge of map.edges ?? []) graphRefs.add(edgeGraphRef(edge));
   const issues = (map.development?.issues ?? []).map((issue) => ({
     id: issue.id,
     graph_refs: issue.graph_refs ?? [],

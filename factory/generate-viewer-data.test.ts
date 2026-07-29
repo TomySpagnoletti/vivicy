@@ -20,7 +20,6 @@ evidence_ref_grammar: "path[:line][#anchor]"
 verification_gate_ref_grammar: "^.vivicy/development/(gates|reports)/.+"
 
 source_baseline:
-  id: "baseline-2026-06-test"
   baseline_id: "baseline-v1.0.0"
   baseline_version: "1.0.0"
   manifest_path: ".vivicy/baselines/baseline-v1.0.0.json"

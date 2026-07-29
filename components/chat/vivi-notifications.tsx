@@ -15,7 +15,7 @@ import {
 import { useTranslations } from "next-intl"
 
 import { errorText, notificationText } from "@/lib/i18n-errors"
-import type { Notification } from "@/lib/notifications"
+import type { Notification, NotificationLevel } from "@/lib/notifications"
 import { cn } from "@/lib/utils"
 import {
   AlertDialog,
@@ -41,18 +41,17 @@ import { Marker, MarkerContent, MarkerIcon } from "@/components/ui/marker"
 
 const POLL_INTERVAL_MS = 10_000
 
-const LEVEL_ICON: Record<string, React.ReactNode> = {
+const LEVEL_ICON: Record<NotificationLevel, React.ReactNode> = {
   error: <CircleAlert className="size-3.5 text-destructive" />,
   warning: <TriangleAlert className="size-3.5 text-warning" />,
-  warn: <TriangleAlert className="size-3.5 text-warning" />,
   success: <CircleCheck className="size-3.5 text-primary" />,
   info: <Info className="size-3.5 text-muted-foreground" />,
 }
 
-const ACTIONABLE_LEVELS = new Set(["error", "warning", "warn"])
+const ACTIONABLE_LEVELS: ReadonlySet<NotificationLevel> = new Set<NotificationLevel>(["error", "warning"])
 
 export function isActionableNotification(notification: Notification): boolean {
-  return ACTIONABLE_LEVELS.has(notification.level ?? "")
+  return ACTIONABLE_LEVELS.has(notification.level)
 }
 
 /** Sole visible-list filter; badge counts reuse it too, so it must stay the one source of truth. */
@@ -220,20 +219,15 @@ export function NotificationsFeed({
       ) : (
         <>
           <ul className="flex flex-col gap-2">
-            {/* `id` is the writer-guaranteed key; the ts/index fallback only covers legacy log lines from before the id field existed. */}
-            {visible.map((n, i) => {
-              const key = n.id ?? n.ts ?? String(i)
-              const dismissRef = n.id ?? n.ts
-              return (
-                <NotificationRow
-                  key={key}
-                  notification={n}
-                  pending={pending === dismissRef}
-                  onDismiss={dismissRef ? () => void dismiss(dismissRef) : undefined}
-                  onAskVivi={onAskVivi}
-                />
-              )
-            })}
+            {visible.map((n) => (
+              <NotificationRow
+                key={n.id}
+                notification={n}
+                pending={pending === n.id}
+                onDismiss={() => void dismiss(n.id)}
+                onAskVivi={onAskVivi}
+              />
+            ))}
           </ul>
           <AlertDialog>
             <AlertDialogTrigger asChild>
@@ -266,7 +260,7 @@ function NotificationRow({
 }: {
   notification: Notification
   pending: boolean
-  onDismiss?: () => void
+  onDismiss: () => void
   onAskVivi: (text: string) => void
 }) {
   const t = useTranslations("notifications")
@@ -279,27 +273,23 @@ function NotificationRow({
       )}
     >
       <div className="flex items-center gap-1.5">
-        {LEVEL_ICON[notification.level ?? "info"] ?? LEVEL_ICON.info}
-        {notification.stage ? (
-          <Badge variant="secondary" className="shrink-0">
-            {notification.stage}
-          </Badge>
-        ) : null}
+        {LEVEL_ICON[notification.level]}
+        <Badge variant="secondary" className="shrink-0">
+          {notification.stage}
+        </Badge>
         <span className="ml-auto shrink-0 text-[10px] text-muted-foreground">
           {relativeTime(notification.ts, t)}
         </span>
-        {onDismiss ? (
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            aria-label={t("dismissAriaLabel")}
-            disabled={pending}
-            onClick={onDismiss}
-            className="size-5 shrink-0"
-          >
-            <X className="size-3" />
-          </Button>
-        ) : null}
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          aria-label={t("dismissAriaLabel")}
+          disabled={pending}
+          onClick={onDismiss}
+          className="size-5 shrink-0"
+        >
+          <X className="size-3" />
+        </Button>
       </div>
       <p className="break-words text-foreground">{text}</p>
       {isActionableNotification(notification) ? (

@@ -23,7 +23,7 @@ import type { MapReviewLens, MapReviewResult as LensFindings, TaggedFinding } fr
 import { FACTORY_DIR, FACTORY_PROMPTS_DIR, resolveTargetRoot } from "./target-root.ts";
 import { pruneGitkeeps } from "../lib/skeleton.ts";
 import { clearSpecCycle, readSpecCycle } from "../lib/spec-cycle.ts";
-import { detectSpecKind, type SpecKind } from "../lib/spec-kind.ts";
+import type { SpecKind } from "../lib/spec-kind.ts";
 import {
   isGateCommandEstablished,
   isRunCommandEstablished,
@@ -147,7 +147,6 @@ interface ExtractIssuesOptions {
   cfg?: Record<string, unknown>;
   promptsDir?: string;
   spawnExtractor?: (args: SpawnExtractorArgs) => Promise<LegResult>;
-  spawnAgent?: (args: SpawnExtractorArgs) => Promise<LegResult>;
   spawnVerifier?: (args: SpawnVerifierArgs) => Promise<LegResult>;
   runFreeze?: (args: { repoRoot: string; version: string; approvalRef?: string }) => FrozenBaseline | Promise<FrozenBaseline>;
   verifyFrozenManifest?: (args: { repoRoot: string; manifestPath: string; baselineId: string }) => boolean;
@@ -260,8 +259,7 @@ async function runExtraction(options: ExtractIssuesOptions, layoutBaseline: { di
   const cfg: Record<string, unknown> = { ...DEFAULT_CONFIG, ...(options.cfg ?? {}) };
   // resolveAgentLegs enforces implementer != reviewer CLI: the fidelity verifier must never be the extractor, or the check becomes self-review.
   const legs: ResolvedLegs = resolveAgentLegs(process.env);
-  const spawnExtractor =
-    options.spawnExtractor ?? options.spawnAgent ?? makeDefaultSpawnExtractor(options, cfg, legs);
+  const spawnExtractor = options.spawnExtractor ?? makeDefaultSpawnExtractor(options, cfg, legs);
   const spawnVerifier = options.spawnVerifier ?? makeDefaultSpawnVerifier(options, cfg, legs);
   const runFreeze = options.runFreeze ?? defaultRunFreeze;
   const verifyFrozenManifest = options.verifyFrozenManifest ?? defaultVerifyFrozenManifest;
@@ -529,12 +527,11 @@ function makeDefaultSpawnExtractor(options: ExtractIssuesOptions, baseCfg: Recor
 }
 
 function readManifestSpecKind(repoRoot: string, manifestPath: string): SpecKind {
-  try {
-    const manifest = JSON.parse(readFileSync(resolve(repoRoot, manifestPath), "utf8")) as { spec_kind?: unknown };
-    if (manifest.spec_kind === "project" || manifest.spec_kind === "feature") return manifest.spec_kind;
-  } catch {
+  const manifest = JSON.parse(readFileSync(resolve(repoRoot, manifestPath), "utf8")) as { spec_kind?: unknown };
+  if (manifest.spec_kind !== "project" && manifest.spec_kind !== "feature") {
+    throw new Error(`frozen baseline ${manifestPath} carries no valid spec_kind — re-freeze it before extracting`);
   }
-  return detectSpecKind(repoRoot);
+  return manifest.spec_kind;
 }
 
 function makeDefaultSpawnVerifier(options: ExtractIssuesOptions, baseCfg: Record<string, unknown>, legs: ResolvedLegs): (args: SpawnVerifierArgs) => Promise<LegResult> {

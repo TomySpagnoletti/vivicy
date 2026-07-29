@@ -16,7 +16,6 @@ const NODE: MapNode = {
   tech: "Telegram Bot API",
   owns_data: ["chat_id", "claim_token"],
   source_refs: [".vivicy/canonical/09-telegram-channel-interface.md:12"],
-  evidence_refs: ["spikes/telegram.md:3"],
   layout_x: 0,
   layout_y: 0,
   graph_ref: "node:telegram-channel",
@@ -84,6 +83,7 @@ const DATA: ArchitectureMapData = {
       {
         graph_ref: "node:telegram-channel",
         status: "implemented",
+        evidence_refs: [".vivicy/development/gates/ISSUE-0100-gate.json"],
         transcript_refs: [".vivicy/development/transcripts/ISSUES/ISSUE-0100/codex-rollout.jsonl"],
       },
       {
@@ -113,7 +113,7 @@ describe("SectionDetails — nothing selected", () => {
 })
 
 describe("SectionDetails — a selected node", () => {
-  test("renders the label, kind, status, and source/evidence refs", () => {
+  test("renders the label, kind, status, the map's source refs, and the LEDGER's evidence refs", () => {
     renderDetails({ type: "node", item: NODE })
 
     expect(screen.getByText("Telegram Channel")).toBeInTheDocument()
@@ -128,7 +128,7 @@ describe("SectionDetails — a selected node", () => {
       within(sourceGroup).getByText(".vivicy/canonical/09-telegram-channel-interface.md:12")
     ).toBeInTheDocument()
     expect(screen.getByText("Evidence refs")).toBeInTheDocument()
-    expect(screen.getByText("spikes/telegram.md:3")).toBeInTheDocument()
+    expect(screen.getByText(".vivicy/development/gates/ISSUE-0100-gate.json")).toBeInTheDocument()
   })
 
   test("lists the covering issue and the captured transcript button", () => {

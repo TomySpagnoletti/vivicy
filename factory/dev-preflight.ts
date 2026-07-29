@@ -24,21 +24,12 @@ export function readDeclaredSkills(targetRoot = resolveTargetRoot()): DeclaredSk
   const empty: DeclaredSkills = { required: [], recommended: [] };
   if (!targetRoot) return empty;
 
-  const fromVivicy = declaredIn(readJsonOrNull(join(targetRoot, "vivicy.json")));
-  const pkg = readJsonOrNull(join(targetRoot, "package.json"));
-  const fromPkg = declaredIn(pkg && typeof pkg === "object" ? (pkg as { vivicy?: unknown }).vivicy : null);
-
-  // vivicy.json declaring a field — even an empty array — is authoritative; package.json fills only fields vivicy.json omits.
-  return {
-    required: fromVivicy.required ?? fromPkg.required ?? [],
-    recommended: fromVivicy.recommended ?? fromPkg.recommended ?? [],
-  };
+  return declaredIn(readJsonOrNull(join(targetRoot, "vivicy.json")));
 }
 
-// null means undeclared (falls through to the other source); [] means declared-empty and authoritative — the two must stay distinguishable.
-function declaredIn(config: unknown): { required: string[] | null; recommended: string[] | null } {
-  if (!config || typeof config !== "object") return { required: null, recommended: null };
-  const field = (value: unknown): string[] | null => (Array.isArray(value) ? toStringList(value).map(skillName) : null);
+function declaredIn(config: unknown): DeclaredSkills {
+  if (!config || typeof config !== "object") return { required: [], recommended: [] };
+  const field = (value: unknown): string[] => (Array.isArray(value) ? toStringList(value).map(skillName) : []);
   return {
     required: field((config as { requiredSkills?: unknown }).requiredSkills),
     recommended: field((config as { recommendedSkills?: unknown }).recommendedSkills),
@@ -121,6 +112,15 @@ function defaultRunner(): SkillsRunnerResult {
   return { ok: true, output: `${result.stdout ?? ""}\n${result.stderr ?? ""}` };
 }
 
+// Owner-facing refusal contract, shared with factory/dev-loop.ts's preflight: it must name ONLY vivicy.json, the one location readDeclaredSkills reads — an instruction pointing anywhere else cannot clear the refusal.
+export function missingSkillsRefusal(missing: string[]): string {
+  const one = missing.length === 1;
+  return (
+    `${missing.length} required development skill${one ? "" : "s"} missing: ${missing.join(", ")}\n` +
+    `  install ${one ? "it" : "them"} with the Vercel \`skills\` CLI (\`npx skills add <skill>\`), or drop ${one ? "it" : "them"} from the target project's vivicy.json "requiredSkills"\n`
+  );
+}
+
 if (import.meta.url === `file://${process.argv[1]}`) {
   const declared = readDeclaredSkills();
   const { ok, missingRequired, notes } = checkSkills(defaultRunner, declared);
@@ -136,12 +136,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
       process.stdout.write("dev-preflight: all required development skills are installed.\n");
     }
   } else {
-    process.stderr.write(
-      `dev-preflight: required development skills are missing.\n  missing: ${missingRequired.join(", ")}\n`,
-    );
-    process.stderr.write(
-      "Install the missing skills with the Vercel `skills` CLI (`npx skills add <skill>`), or remove them from this project's vivicy.json \"requiredSkills\" (or package.json \"vivicy.requiredSkills\").\n",
-    );
+    process.stderr.write(`dev-preflight: ${missingSkillsRefusal(missingRequired)}`);
     process.exit(1);
   }
 }

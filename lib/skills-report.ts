@@ -1,5 +1,5 @@
 // Keep filesystem-free: client components import this module directly (server reader: control.ts#readSkillsReport).
-// Every field is optional: a report can be a mid-run snapshot or predate a field.
+// Top-level fields are optional because the report is written phase by phase; each ENTRY, once present, is written whole by factory/install-skills.ts.
 
 export const SKILLS_REPORT_FILE = ".vivicy/development/reports/skills-report.json"
 
@@ -15,29 +15,29 @@ export type SkillsPhase =
   | "skipped"
 
 export interface SkillAudit {
-  provider?: string
-  status?: "pass" | "warn" | "fail"
+  provider: string
+  status: "pass" | "warn" | "fail"
 }
 
 export interface InstalledSkill {
-  id?: string
-  source?: string
-  skill?: string
-  name?: string
-  official?: boolean
-  security_waived?: boolean
-  audits?: SkillAudit[]
-  reason?: string
+  id: string
+  source: string
+  skill: string
+  name: string
+  official: boolean
+  security_waived: boolean
+  audits: SkillAudit[]
+  reason: string
 }
 
 export interface RejectedSkill {
-  id?: string
-  reason?: string
+  id: string
+  reason: string
   detail?: string
 }
 
 export interface RemovedSkill {
-  id?: string
+  id: string
   detail?: string
 }
 

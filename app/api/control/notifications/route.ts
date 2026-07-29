@@ -15,7 +15,7 @@ export async function GET() {
   }
 }
 
-// A notification without an id (legacy line) is matched by its ts instead; dismissing an already-dismissed or unknown id is a harmless no-op, not an error.
+// Dismissing an already-dismissed or unknown id is a harmless no-op, not an error.
 export async function POST(request: Request) {
   let body: { id?: unknown; all?: unknown }
   try {

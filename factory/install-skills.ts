@@ -594,7 +594,7 @@ function skillBlockEntries(mergedIds: string[], priorReport: Partial<SkillsRepor
   const meta = new Map<string, SkillBlockEntry>();
   const priorInstalled = priorReport && Array.isArray(priorReport.installed) ? priorReport.installed : [];
   for (const e of priorInstalled) {
-    if (e && typeof e.id === "string") meta.set(e.id, { id: e.id, name: e.name ?? e.skill ?? e.id, official: e.official === true, reason: e.reason ?? "" });
+    if (e && typeof e.id === "string" && typeof e.name === "string") meta.set(e.id, { id: e.id, name: e.name, official: e.official === true, reason: typeof e.reason === "string" ? e.reason : "" });
   }
   for (const e of installedNow) meta.set(e.id, { id: e.id, name: e.name, official: e.official, reason: e.reason });
   const entries: SkillBlockEntry[] = [];
