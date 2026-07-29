@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { spawnSync } from "node:child_process"
-import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs"
+import { existsSync, readFileSync, readdirSync } from "node:fs"
 import { dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import { findFrozenManifest } from "./extract-issues.ts"
@@ -144,7 +144,6 @@ function main() {
   const rehearsal = process.argv.includes("--rehearsal")
   const target = join(scriptDir, rehearsal ? "dev-rehearsal.ts" : "dev-loop.ts")
   const progressRoot = rehearsal && process.env.REHEARSAL_DIR ? resolve(process.env.REHEARSAL_DIR) : repoRoot
-  const statePath = join(repoRoot, ".vivicy/development/reports/dev-loop-supervisor.json")
 
   const readJson = (p: string, fb: unknown): unknown => {
     try {
@@ -164,13 +163,6 @@ function main() {
       issues?: unknown
     }
     return Array.isArray(index.issues) ? index.issues.length : 0
-  }
-  const writeState = (extra: Record<string, unknown>): void => {
-    mkdirSync(dirname(statePath), { recursive: true })
-    writeFileSync(
-      statePath,
-      `${JSON.stringify({ pid: process.pid, target, progress_root: progressRoot, updated_at: new Date().toISOString(), ...extra }, null, 2)}\n`
-    )
   }
 
   if (!rehearsal) {
@@ -198,13 +190,11 @@ function main() {
       if (action === "done" && !rehearsal) {
         const outcome = runAcceptanceStage(scriptDir, repoRoot)
         if (outcome !== "green") {
-          writeState({ status: `acceptance_${outcome}`, attempt, done, total, blocked })
           process.stdout.write(`supervisor: acceptance ${outcome} — Done withheld (done ${done}/${total}); see ${ACCEPTANCE_REPORT_FILE}\n`)
           process.exit(1)
         }
         runRetroStage(scriptDir, repoRoot)
       }
-      writeState({ status: action, attempt, done, total, blocked })
       const terminal = supervisorTerminalNotification(action, { done, total, blocked })
       if (terminal) notify(terminal)
       const ok = action === "done"
@@ -212,7 +202,6 @@ function main() {
       process.exit(ok ? 0 : 1)
     }
     attempt += 1
-    writeState({ status: "running", attempt, done, total, blocked, child_started_at: new Date().toISOString() })
     process.stdout.write(`supervisor: launch #${attempt} of ${target} (done ${done}/${total})\n`)
     const res = spawnSync("node", [target], { cwd: repoRoot, stdio: "inherit", env: process.env })
     process.stdout.write(`supervisor: child exited code=${res.status ?? "null"} signal=${res.signal ?? "none"}\n`)
