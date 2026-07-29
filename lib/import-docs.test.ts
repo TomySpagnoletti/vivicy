@@ -382,6 +382,17 @@ describe("notification", () => {
     expect(events[0].message).toContain(result.batch!.batchId)
     expect(events[0].message).toContain("eng")
     expect(events[0].message).toContain("active cycle project")
+    expect(events[0].message, "one document is announced in the singular").toContain("imported 1 file as batch")
+  })
+
+  it("announces a multi-file batch in the plural", async () => {
+    const target = targetPath("notify-plural")
+    await startGovernance({
+      targetDir: target,
+      entries: [fileEntry("a.md", ENGLISH), fileEntry("b.md", ENGLISH), fileEntry("c.md", ENGLISH)],
+    })
+    const events = readNotifications().filter((n) => n.stage === "import" && n.event === "batch")
+    expect(events[0].message).toContain("imported 3 files as batch")
   })
 })
 
@@ -503,6 +514,27 @@ describe("secret scanning at import", () => {
     expect(warn[0].level).toBe("warning")
     expect(warn[0].message).toContain(batch.batchId)
     expect(warn[0].message).not.toContain(PLANTED_KEY)
+    expect(warn[0].message, "one key in one file reads in the singular throughout").toContain(
+      "1 possible secret key detected in 1 file of batch"
+    )
+    expect(warn[0].message).toContain("remove or rotate it and re-import before the workflow runs; ask Vivi for the exact location")
+  })
+
+  it("agrees in number when several keys are planted across several files", async () => {
+    const result = await startGovernance({
+      targetDir: targetPath("secret-import-plural"),
+      entries: [
+        fileEntry("brief.md", `# Brief\n\n${ENGLISH}\n\n${PLANTED_KEY}\n`),
+        fileEntry("notes.md", `# Notes\n\n${ENGLISH}\n\n${PLANTED_KEY}\n${PLANTED_KEY.replace("Qz7", "Rz8")}\n`),
+      ],
+    })
+    expect(result.batch!.findings).toHaveLength(3)
+
+    const warn = readNotifications().filter((n) => n.stage === "import" && n.event === "secret_finding")
+    expect(warn[0].message, "the keys and the files are counted independently").toContain(
+      "3 possible secret keys detected in 2 files of batch"
+    )
+    expect(warn[0].message).toContain("remove or rotate them and re-import before the workflow runs; ask Vivi for the exact locations")
   })
 
   it("a clean batch produces zero findings and no secret warning (no false-positive friction)", async () => {

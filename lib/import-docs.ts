@@ -5,6 +5,7 @@ import path from "node:path"
 import { unzipSync } from "fflate"
 import { franc } from "franc-min"
 
+import { countForm, countOf } from "@/lib/count-form"
 import { appendNotification } from "@/lib/notifications"
 import { isGovernedRoot } from "@/lib/project"
 import type { CurrentProject } from "@/lib/project-types"
@@ -208,9 +209,13 @@ async function summarizeBatch(batchDir: string): Promise<{ files: ManifestFile[]
   return { files, language: dominantLanguage(weights), findings }
 }
 
-function secretFindingNotice(fileCount: number, batchId: string): string {
-  const files = fileCount === 1 ? "1 file" : `${fileCount} files`
-  return `possible secret key(s) detected in ${files} of batch ${batchId} — remove or rotate them and re-import before the workflow runs; ask Vivi for the exact locations`
+function secretFindingNotice(findings: SecretFileFinding[], batchId: string): string {
+  const fileCount = new Set(findings.map((f) => f.path)).size
+  return (
+    `${countOf(findings.length, "possible secret key", "possible secret keys")} detected in ${countOf(fileCount, "file", "files")} of batch ${batchId}` +
+    ` — remove or rotate ${countForm(findings.length, "it", "them")} and re-import before the workflow runs;` +
+    ` ask Vivi for ${countForm(findings.length, "the exact location", "the exact locations")}`
+  )
 }
 
 export function mintBatchId(root: string): string {
@@ -271,7 +276,7 @@ async function persistBatch(root: string, exploded: { accepted: AcceptedEntry[];
     level: "info",
     stage: "import",
     event: "batch",
-    message: `imported ${files.length} file(s) as batch ${batchId} (language: ${language}) ${cycleBindingLabel(cycle)}`,
+    message: `imported ${countOf(files.length, "file", "files")} as batch ${batchId} (language: ${language}) ${cycleBindingLabel(cycle)}`,
   })
 
   if (findings.length > 0) {
@@ -279,7 +284,7 @@ async function persistBatch(root: string, exploded: { accepted: AcceptedEntry[];
       level: "warning",
       stage: "import",
       event: "secret_finding",
-      message: secretFindingNotice(new Set(findings.map((f) => f.path)).size, batchId),
+      message: secretFindingNotice(findings, batchId),
     })
   }
 

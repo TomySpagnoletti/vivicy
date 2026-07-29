@@ -12,6 +12,7 @@ import {
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { countOf } from "../lib/count-form.ts";
 import { getProjectRuntimeDir } from "../lib/project-runtime.ts";
 import { clearSpecCycle, featureCycleOpenRefusal, isSpecCycleOpen, readSpecCycle, writeSpecCycle } from "../lib/spec-cycle.ts";
 
@@ -874,7 +875,7 @@ function cmdPrepareReport(argv: string[]): void {
   } else {
     const consumed = Array.isArray(report.batches_consumed) ? report.batches_consumed.length : 0;
     const pending = Array.isArray(report.batches_pending) ? report.batches_pending.length : 0;
-    note(`doc-prep: ${report.phase ?? "?"} (cycle ${report.cycle_id ?? "none"}, ${consumed} batch(es) consumed, ${pending} pending, language ${report.language ?? "?"}) — ${report.summary ?? ""}`);
+    note(`doc-prep: ${report.phase ?? "?"} (cycle ${report.cycle_id ?? "none"}, ${countOf(consumed, "batch", "batches")} consumed, ${pending} pending, language ${report.language ?? "?"}) — ${report.summary ?? ""}`);
     for (const entry of Array.isArray(report.placed) ? report.placed : []) {
       const p = entry as { batch?: string; target?: string; route?: string; translated?: boolean };
       note(`  + ${p.target ?? "?"}  ${p.route ?? ""}${p.translated ? "  [translated]" : ""}${p.batch ? `  (${p.batch})` : ""}`);

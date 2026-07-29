@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { countForm, countOf } from "../lib/count-form.ts";
 import { pruneGitkeeps } from "../lib/skeleton.ts";
 
 import { runClaudeLeg, runCodexLeg, TRANSCRIPT_DIRS } from "./agent-spawn.ts";
@@ -150,7 +151,7 @@ export async function applyChangeRequest(args: ApplyChangeRequestArgs = {}): Pro
   if (!referenceOk) {
     return terminal(recordReport, "blocked", "verify", id, {
       reference,
-      summary: `cr-apply: reference-check stayed red after ${DEFAULT_APPLY_ATTEMPTS} apply attempt(s) — the canonical edit for ${id} broke a doc link. CR left accepted_current_build.`,
+      summary: `cr-apply: reference-check stayed red after ${countOf(DEFAULT_APPLY_ATTEMPTS, "apply attempt", "apply attempts")} — the canonical edit for ${id} broke a doc link. CR left accepted_current_build.`,
     });
   }
 
@@ -199,7 +200,7 @@ export async function applyChangeRequest(args: ApplyChangeRequestArgs = {}): Pro
     recordReport({ phase: "retire_spikes", cr: id, retired, updated_at: now() });
     const committedRetire = commitApplied({ repoRoot, id });
     if (!committedRetire.committed) {
-      return terminal(recordReport, "blocked", "retire_spikes", id, { baseline, retired, summary: `cr-apply: could not commit the retired spike(s) ${retired.join(", ")} for ${id} before re-extraction (git add/commit failed)` });
+      return terminal(recordReport, "blocked", "retire_spikes", id, { baseline, retired, summary: `cr-apply: could not commit the retired ${countForm(retired.length, "spike", "spikes")} ${retired.join(", ")} for ${id} before re-extraction (git add/commit failed)` });
     }
   }
 
@@ -217,7 +218,7 @@ export async function applyChangeRequest(args: ApplyChangeRequestArgs = {}): Pro
   return terminal(recordReport, "green", "green", id, {
     baseline,
     extraction,
-    summary: `cr-apply: ${id} applied — canonical folded, re-frozen as ${baseline.baselineId}, re-extracted green${extraction.reopened?.length ? ` (reopened ${extraction.reopened.length} impacted issue(s))` : ""}.`,
+    summary: `cr-apply: ${id} applied — canonical folded, re-frozen as ${baseline.baselineId}, re-extracted green${extraction.reopened?.length ? ` (reopened ${countOf(extraction.reopened.length, "impacted issue", "impacted issues")})` : ""}.`,
   });
 }
 
@@ -373,8 +374,9 @@ function patchBump(version: string): string {
 }
 
 function formatReferenceFailure(reference: ReferenceResult): string {
-  const errors = (reference?.errors ?? []).join("\n");
-  return `reference-check FAILED (exit ${reference?.exitCode}). A canonical doc link no longer resolves — repair the link(s) you broke:\n${errors}`;
+  const broken = reference?.errors ?? [];
+  const lead = countForm(broken.length, "A canonical doc link no longer resolves", "Canonical doc links no longer resolve");
+  return `reference-check FAILED (exit ${reference?.exitCode}). ${lead} — repair ${countForm(broken.length, "the link", "the links")} you broke:\n${broken.join("\n")}`;
 }
 
 const cliEntry = process.argv[1] ? resolve(process.argv[1]) : null;

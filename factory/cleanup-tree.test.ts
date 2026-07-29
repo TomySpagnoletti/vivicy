@@ -224,8 +224,9 @@ test("the artifact wrapper preserves the wrapped command's exit code when an art
   const repo = mkdtempSync(resolve(tmpdir(), "cleanup-tree-test-wrapper-"));
   const blocked = join(repo, "test-results", "blocked");
   try {
-    for (const dir of ["scripts", "factory"]) mkdirSync(join(repo, dir), { recursive: true });
+    for (const dir of ["scripts", "factory", "lib"]) mkdirSync(join(repo, dir), { recursive: true });
     copyFileSync(join(REPO_ROOT, "scripts", "clean-artifacts.ts"), join(repo, "scripts", "clean-artifacts.ts"));
+    copyFileSync(join(REPO_ROOT, "lib", "count-form.ts"), join(repo, "lib", "count-form.ts"));
     for (const file of ["cleanup-tree.ts", "sleep-sync.ts"]) copyFileSync(join(FACTORY_DIR, file), join(repo, "factory", file));
     writeFileSync(
       join(repo, "tsconfig.json"),

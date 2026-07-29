@@ -275,7 +275,7 @@ test("the canonical is frozen -> skipped, and the imported batch is named as a n
     const report = await prepareDocs({ repoRoot: root, spawnLeg: NEVER_SPAWN });
     assert.equal(report.phase, "skipped");
     assert.equal(report.cycle_id, null);
-    assert.match(report.summary, /seed the next cycle/);
+    assert.match(report.summary, /^the canonical is frozen — 1 imported batch seeds the next cycle/);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -601,5 +601,40 @@ test("report shape carries phase, cycle_id, cycle_kind, batches_consumed, batche
     assert.equal((report as { cycle_kind: string }).cycle_kind, "project");
   } finally {
     rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("several frozen-cycle seeds are named in the plural, with the verb agreeing", async () => {
+  const root = repo();
+  try {
+    writeFrozenBaseline(root);
+    writeBatch(root, "2026-03-03", { "canonical/a.md": ENGLISH }, "eng", { cycle: { binding: "seed" } });
+    writeBatch(root, "2026-03-04", { "canonical/b.md": ENGLISH }, "eng", { cycle: { binding: "seed" } });
+    const report = await prepareDocs({ repoRoot: root, spawnLeg: NEVER_SPAWN });
+    assert.equal(report.phase, "skipped");
+    assert.match(report.summary, /^the canonical is frozen — 2 imported batches seed the next cycle/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("the doc-prep summaries agree in number with the documents and batches they counted", async () => {
+  const one = repo();
+  try {
+    writeBatch(one, "2026-05-05", { "canonical/a.md": ENGLISH }, "eng");
+    const report = await prepareDocs({ repoRoot: one, spawnLeg: NEVER_SPAWN });
+    assert.match(report.summary, /^doc-prep green for cycle project: 1 canonical document placed, 0 rejected, across 1 batch \(language eng\)/);
+  } finally {
+    rmSync(one, { recursive: true, force: true });
+  }
+
+  const many = repo();
+  try {
+    writeBatch(many, "2026-06-06", { "canonical/a.md": ENGLISH, "canonical/b.md": ENGLISH }, "eng");
+    writeBatch(many, "2026-06-07", { "canonical/c.md": ENGLISH }, "eng");
+    const report = await prepareDocs({ repoRoot: many, spawnLeg: NEVER_SPAWN });
+    assert.match(report.summary, /^doc-prep green for cycle project: 3 canonical documents placed, 0 rejected, across 2 batches \(language eng\)/);
+  } finally {
+    rmSync(many, { recursive: true, force: true });
   }
 });

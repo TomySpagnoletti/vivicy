@@ -483,7 +483,7 @@ describe("runExtract", () => {
       run: async ({ args, env }) => {
         seenScript = path.basename(args.find((a) => a.endsWith(".ts")) ?? "")
         expect(env.VIVICY_TARGET_ROOT).toBe(targetRoot)
-        writeExtractionStatus("green", "extraction green after 1 attempt(s): 8 issue(s)")
+        writeExtractionStatus("green", "extraction green after 1 attempt: 8 issues")
         return { code: 0, lastLine: "extraction green", stdout: "extraction green\n", stderr: "" }
       },
     })
@@ -500,7 +500,7 @@ describe("runExtract", () => {
   it("surfaces the blocked case honestly when the orchestrator stays red", async () => {
     const { spawner } = makeFakeSpawner({
       run: async () => {
-        writeExtractionStatus("extraction_blocked", "extraction_blocked: checks still red after 4 attempt(s)")
+        writeExtractionStatus("extraction_blocked", "extraction_blocked: checks still red after 4 attempts")
         return { code: 1, lastLine: "extraction_blocked", stdout: "", stderr: "blocked\n" }
       },
     })
@@ -537,7 +537,7 @@ describe("getExtractionStatus (workflow widget read)", () => {
   })
 
   it("surfaces the orchestrator's in-flight/terminal status verbatim", () => {
-    writeExtractionStatus("green", "extraction green after 1 attempt(s): 8 issue(s)")
+    writeExtractionStatus("green", "extraction green after 1 attempt: 8 issues")
     const status = getExtractionStatus()
     expect(status?.phase).toBe("green")
     expect(status?.summary).toMatch(/8 issue/)

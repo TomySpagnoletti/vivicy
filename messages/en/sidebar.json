@@ -48,7 +48,7 @@
     "phaseDone": "Done",
     "pendingBatches": "{count, plural, one {# batch pending} other {# batches pending}}",
     "issuesVerified": "{done}/{total} issues verified",
-    "gatesFailing": "{count} gate(s) failing",
+    "gatesFailing": "{count, plural, one {# gate failing} other {# gates failing}}",
     "outcomeFrozen": "frozen",
     "outcomeSuperseded": "superseded",
     "closedAt": "closed {date}",
@@ -109,7 +109,7 @@
     "stateBlocked": "blocked",
     "phaseEvidence": "phase: {phase}",
     "issuesVerified": "{done}/{total} issues verified",
-    "gatesFailing": "{count} gate(s) failing"
+    "gatesFailing": "{count, plural, one {# gate failing} other {# gates failing}}"
   },
   "skills": {
     "findSkills": "Find skills",

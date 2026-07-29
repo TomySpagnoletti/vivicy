@@ -270,3 +270,36 @@ test("the leg writes its verdict to the reserved report path, not the committed 
     cleanup(root);
   }
 });
+
+test("the retro summary agrees in number with the classes and proposals it counted", async () => {
+  const quiet = makeRepo({ total: 1 });
+  try {
+    const one = await runRetro({
+      repoRoot: quiet,
+      spawnLeg: verdictLeg({
+        recurring_classes: [{ id: "gate-flake", kind: "gate_flake", signature: "typecheck flaked", occurrences: 2, evidence: ["a.json", "b.json"] }],
+        proposals: [],
+      }),
+    });
+    assert.match(one.summary!, /^1 recurring class noted but no actionable amendment proposed;/);
+  } finally {
+    cleanup(quiet);
+  }
+
+  const loud = makeRepo({ total: 1 });
+  try {
+    const many = await runRetro({
+      repoRoot: loud,
+      spawnLeg: verdictLeg({
+        recurring_classes: [
+          { id: "gate-flake", kind: "gate_flake", signature: "typecheck flaked", occurrences: 2, evidence: ["a.json", "b.json"] },
+          { id: "blocked-quota", kind: "blocked_cause", signature: "quota exhaustion", occurrences: 2, evidence: ["c.json", "d.json"] },
+        ],
+        proposals: [{ landing: "settings", title: "Lower concurrency", detail: "Set maxParallel to 2.", addresses: ["blocked-quota"] }],
+      }),
+    });
+    assert.match(many.summary!, /^1 method amendment proposed \(1 settings\) from 2 recurring classes;/);
+  } finally {
+    cleanup(loud);
+  }
+});

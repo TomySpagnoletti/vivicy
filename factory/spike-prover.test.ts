@@ -192,6 +192,9 @@ describe("spikeProvingCrNotification", () => {
     assert.equal(note?.stage, "S3");
     assert.equal(note?.event, "spike_change_request_drafted");
     assert.match(note!.message, /CR-0001, CR-0002/);
+    assert.match(note!.message, /^spike proving drafted 2 change requests \(CR-0001, CR-0002\) — /);
+    const single = spikeProvingCrNotification([{ file: "a.md", id: "CR-0001" }]);
+    assert.match(single!.message, /^spike proving drafted 1 change request \(CR-0001\) — /);
   });
 });
 

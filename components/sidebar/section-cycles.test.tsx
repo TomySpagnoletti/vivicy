@@ -98,7 +98,18 @@ describe("SectionCycles — active cycle + history", () => {
     expect(active.textContent).toMatch(/Feature/)
     expect(active.textContent).toMatch(/cycle-ab12cd/)
     expect(active.textContent).toMatch(/5\/8 issues verified/)
-    expect(active.textContent).toMatch(/1 gate\(s\) failing/)
+    expect(active.textContent).toMatch(/1 gate failing/)
+
+    await act(() =>
+      FakeEventSource.last?.emit({
+        run_active: true,
+        verdict: "OK",
+        issues_total: 8,
+        issues_done: 5,
+        gates: { pass: 5, fail: 3 },
+      })
+    )
+    await waitFor(() => expect(active.textContent).toMatch(/3 gates failing/))
   })
 
   test("frozen cycle with every issue verified and no active run shows Done", async () => {

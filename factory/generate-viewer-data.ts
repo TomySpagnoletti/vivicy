@@ -2,6 +2,7 @@ import { existsSync, globSync, mkdirSync, readFileSync, statSync, writeFileSync 
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
+import { countOf } from "../lib/count-form.ts";
 import { deriveDevelopmentOverlay } from "../lib/development-overlay.ts";
 
 export type ViewName = "target" | "progress";
@@ -241,7 +242,7 @@ export function main(): void {
         writeFileSync(mapPath, healed);
         previousSource = healed;
         process.stderr.write(
-          `layout self-heal: restored ${restored.length} owner placement(s) the extractor moved (${restored.slice(0, 8).join(", ")}${restored.length > 8 ? ", …" : ""})\n`,
+          `layout self-heal: restored ${countOf(restored.length, "owner placement", "owner placements")} the extractor moved (${restored.slice(0, 8).join(", ")}${restored.length > 8 ? ", …" : ""})\n`,
         );
       }
     }

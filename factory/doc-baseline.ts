@@ -10,6 +10,7 @@ import {
 } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { countForm } from "../lib/count-form.ts";
 import { pruneGitkeeps } from "../lib/skeleton.ts";
 import { detectSpecKind, type SpecKind } from "../lib/spec-kind.ts";
 import { describeFinding, highConfidenceFindings, scanText } from "../lib/secret-scan.ts";
@@ -152,9 +153,9 @@ function generate(args: ParsedArgs): void {
     const secretLines = scanCorpusForSecrets(files);
     if (secretLines.length > 0) {
       fail(
-        "Refusing to freeze the canonical: a suspected secret credential is present in the corpus.\n" +
+        `Refusing to freeze the canonical: ${countForm(secretLines.length, "a suspected secret credential is", "suspected secret credentials are")} present in the corpus.\n` +
           `${secretLines.join("\n")}\n` +
-          "Remove or rotate the key(s) — a real credential must never enter a frozen baseline or git history — then re-freeze. Only high-confidence key shapes block the freeze."
+          `Remove or rotate ${countForm(secretLines.length, "the key", "the keys")} — a real credential must never enter a frozen baseline or git history — then re-freeze. Only high-confidence key shapes block the freeze.`
       );
     }
   }

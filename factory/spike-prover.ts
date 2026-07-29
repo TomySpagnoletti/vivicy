@@ -2,6 +2,8 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 
+import { countOf } from "../lib/count-form.ts";
+
 import { runClaudeLeg, runCodexLeg, TRANSCRIPT_DIRS } from "./agent-spawn.ts";
 import type { AgentIssue, AgentLeg, LegConfig, LegDeps, LegRunResult } from "./agent-spawn.ts";
 import { agentCliArgs, CLI_DEFAULTS, composePrompt } from "./dev-loop.ts";
@@ -152,7 +154,7 @@ export function spikeProvingCrNotification(
     level: "warning",
     stage: "S3",
     event: "spike_change_request_drafted",
-    message: `spike proving drafted ${changeRequests.length} change request(s) (${ids}) — a hypothesis did not hold; decide before the build proceeds`,
+    message: `spike proving drafted ${countOf(changeRequests.length, "change request", "change requests")} (${ids}) — a hypothesis did not hold; decide before the build proceeds`,
   };
 }
 

@@ -125,6 +125,11 @@ describe("SectionWorkflow — full process view", () => {
 
     const s9 = await waitFor(() => document.querySelector('[data-stage="S9"]') as HTMLElement)
     await waitFor(() => expect(s9.textContent).toMatch(/3\/8 issues verified/))
-    expect(s9.textContent).toMatch(/1 gate\(s\) failing/)
+    expect(s9.textContent).toMatch(/1 gate failing/)
+
+    await act(() =>
+      FakeEventSource.last?.emit({ ...IDLE_STATUS, issues_total: 8, issues_done: 3, gates: { pass: 3, fail: 4 } })
+    )
+    await waitFor(() => expect(s9.textContent).toMatch(/4 gates failing/))
   })
 })

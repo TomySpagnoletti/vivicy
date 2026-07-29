@@ -11,6 +11,7 @@ import { agentCliArgs, CLI_DEFAULTS, composePrompt, DEFAULT_CONFIG, resolveAgent
 import type { Leg, LegResult } from "./dev-loop.ts";
 import { findFrozenManifest } from "./extract-issues.ts";
 import { FACTORY_PROMPTS_DIR, resolveTargetRoot } from "./target-root.ts";
+import { countOf } from "../lib/count-form.ts";
 import { pruneGitkeeps } from "../lib/skeleton.ts";
 
 export const SKILLS_REPORT_REL = ".vivicy/development/reports/skills-report.json";
@@ -182,7 +183,7 @@ export async function installSkills(options: InstallSkillsOptions = {}): Promise
 
   report.summary = mode === "auto"
     ? "scouting project skills from the frozen canonical docs"
-    : `validating ${explicitIds.length} explicitly requested skill id(s)`;
+    : `validating ${countOf(explicitIds.length, "explicitly requested skill id", "explicitly requested skill ids")}`;
   emit();
 
   let candidates: SkillCandidate[];
@@ -219,11 +220,11 @@ export async function installSkills(options: InstallSkillsOptions = {}): Promise
   }
   const accepted = candidates.slice(0, slots);
   for (const c of candidates.slice(slots)) {
-    report.rejected.push({ id: c.id, reason: "cap_exceeded", detail: `project already has ${alreadyInstalled.size} skill(s); the installed set may never exceed ${MAX_PROJECT_SKILLS} total` });
+    report.rejected.push({ id: c.id, reason: "cap_exceeded", detail: `project already has ${countOf(alreadyInstalled.size, "skill", "skills")}; the installed set may never exceed ${MAX_PROJECT_SKILLS} total` });
   }
 
   report.phase = "auditing";
-  report.summary = `auditing ${accepted.length} candidate skill(s) against skills.sh security audits`;
+  report.summary = `auditing ${countOf(accepted.length, "candidate skill", "candidate skills")} against skills.sh security audits`;
   emit();
   const toInstall: Array<SkillCandidate & { security_waived: boolean; audits: SkillAuditRecord[]; waiveReason?: SkillRejectReason }> = [];
   for (const c of accepted) {
@@ -239,7 +240,7 @@ export async function installSkills(options: InstallSkillsOptions = {}): Promise
   }
 
   report.phase = "installing";
-  report.summary = `installing ${toInstall.length} skill(s) at the repository level via the skills CLI`;
+  report.summary = `installing ${countOf(toInstall.length, "skill", "skills")} at the repository level via the skills CLI`;
   emit();
   for (const c of toInstall) {
     const r = runInstall({ repoRoot, source: c.source, skill: c.skill });
@@ -305,7 +306,7 @@ export async function removeSkills(options: RemoveSkillsOptions = {}): Promise<S
     installed: Array.isArray(priorReport?.installed) ? [...priorReport.installed] : [],
     rejected: [],
     removed: [],
-    summary: `removing ${ids.length} skill(s)`,
+    summary: `removing ${countOf(ids.length, "skill", "skills")}`,
     updated_at: "",
   };
   const emit = (): void => {

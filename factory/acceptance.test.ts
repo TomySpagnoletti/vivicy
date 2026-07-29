@@ -262,3 +262,58 @@ test("the leg writes its verdict to the reserved report path, not the committed 
     cleanup(root);
   }
 });
+
+test("the acceptance summary agrees in number with what it counted", async () => {
+  const one = makeRepo({ total: 1 });
+  try {
+    const green = await runAcceptance({
+      repoRoot: one,
+      spawnLeg: verdictLeg({ accepted: true, scenarios: [{ id: "happy", verification: "executed", result: "pass" }], findings: [] }),
+    });
+    assert.match(green.summary!, /\(1 scenario checked, 0 read-only-verified/);
+  } finally {
+    cleanup(one);
+  }
+
+  const many = makeRepo({ total: 2 });
+  try {
+    const green = await runAcceptance({
+      repoRoot: many,
+      spawnLeg: verdictLeg({
+        accepted: true,
+        scenarios: [
+          { id: "happy", verification: "executed", result: "pass" },
+          { id: "offline", verification: "read_only", result: "pending" },
+        ],
+        findings: [],
+      }),
+    });
+    assert.match(green.summary!, /\(2 scenarios checked, 1 read-only-verified/);
+  } finally {
+    cleanup(many);
+  }
+
+  const gaps = makeRepo({ total: 2 });
+  try {
+    const single = await runAcceptance({
+      repoRoot: gaps,
+      spawnLeg: verdictLeg({ accepted: false, findings: [{ gap: "tax excluded", title: "Tax", classification: "minor_product_change" }] }),
+    });
+    assert.match(single.summary!, /^1 whole-product gap found; drafted /);
+
+    const pair = await runAcceptance({
+      repoRoot: gaps,
+      force: true,
+      spawnLeg: verdictLeg({
+        accepted: false,
+        findings: [
+          { gap: "tax excluded", title: "Tax", classification: "minor_product_change" },
+          { gap: "no receipt", title: "Receipt", classification: "minor_product_change" },
+        ],
+      }),
+    });
+    assert.match(pair.summary!, /^2 whole-product gaps found; drafted /);
+  } finally {
+    cleanup(gaps);
+  }
+});

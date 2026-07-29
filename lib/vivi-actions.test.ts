@@ -291,9 +291,25 @@ describe("executeViviActions — registry dispatch", () => {
     const [result] = await executeViviActions(inertSpawner, [{ tool: "map.move", args: payload }], deps)
 
     expect(result.ok).toBe(true)
-    expect(result.summary).toContain("1 node")
+    expect(result.summary, "one node and no edge label, each in its own number").toBe(
+      "map layout saved (1 node, 0 edge labels)"
+    )
     expect(calls.validateLayoutSavePayload?.[0]?.[0]).toEqual(payload)
     expect(calls.applyLayoutSave).toHaveLength(1)
+  })
+
+  it("map.move reports several moved nodes and labels in the plural", async () => {
+    const { deps } = makeDeps()
+    const payload = {
+      nodes: [
+        { id: "n1", layout_x: 10, layout_y: 20 },
+        { id: "n2", layout_x: 30, layout_y: 40 },
+      ],
+      edgeLabels: [{ index: 0, label_ratio: 0.3 }],
+    }
+    const [result] = await executeViviActions(inertSpawner, [{ tool: "map.move", args: payload }], deps)
+
+    expect(result.summary).toBe("map layout saved (2 nodes, 1 edge label)")
   })
 
   it("map.move surfaces a validation refusal as an honest per-action failure", async () => {
@@ -319,10 +335,45 @@ describe("executeViviActions — registry dispatch", () => {
       deps
     )
     expect(results[0].ok).toBe(true)
-    expect(results[0].summary).toContain("1 change request")
+    expect(results[0].summary).toBe("1 change request on file")
     expect(results[1].ok).toBe(true)
     expect((results[1].data as { notifications: unknown[] }).notifications).toHaveLength(1)
-    expect(results[1].summary).toContain("1 undismissed")
+    expect(results[1].summary).toBe("1 undismissed notification (of 1)")
+  })
+
+  it("crs.list and notifications.read agree in number above one", async () => {
+    const { deps } = makeDeps({
+      listChangeRequests: (() => ({
+        crs: ["CR-0001", "CR-0002", "CR-0003"].map((id) => ({
+          id,
+          title: "T",
+          status: "idea",
+          classification: "minor_product_change",
+          created_at: null,
+          source: "user",
+        })),
+      })) as ViviActionDeps["listChangeRequests"],
+      readNotifications: () =>
+        ["a", "b"].map((id) => ({
+          id,
+          ts: "2026-07-02T10:00:00Z",
+          level: "info" as const,
+          stage: "extract",
+          event: "green",
+          message: "m",
+          dismissed: false,
+        })),
+    })
+    const results = await executeViviActions(
+      inertSpawner,
+      [
+        { tool: "crs.list", args: {} },
+        { tool: "notifications.read", args: {} },
+      ],
+      deps
+    )
+    expect(results[0].summary).toBe("3 change requests on file")
+    expect(results[1].summary).toBe("2 undismissed notifications (of 2)")
   })
 
   it("continues past a throwing action and keeps per-action honesty", async () => {

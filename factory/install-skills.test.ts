@@ -255,7 +255,7 @@ describe("auto mode", () => {
     });
     assert.deepEqual(report.installed.map((e) => e.id), ["stripe/agent-skills@payments", "supabase/agent-skills@auth"]);
     assert.deepEqual(report.rejected, [
-      { id: "somebody/community@first", reason: "cap_exceeded", detail: `project already has 4 skill(s); the installed set may never exceed ${MAX_PROJECT_SKILLS} total` },
+      { id: "somebody/community@first", reason: "cap_exceeded", detail: `project already has 4 skills; the installed set may never exceed ${MAX_PROJECT_SKILLS} total` },
     ]);
     const config = readJson("vivicy.json") as { requiredSkills: string[] };
     assert.equal(config.requiredSkills.length, 6);
@@ -612,5 +612,54 @@ describe("removeSkills (deterministic uninstall)", () => {
   it("throws SkillsConfigError without a target or without ids", async () => {
     await assert.rejects(() => removeSkills({ ids: ["a/b@c"] }), SkillsConfigError);
     await assert.rejects(() => removeSkills({ repoRoot: repo, ids: [] }), SkillsConfigError);
+  });
+});
+
+describe("stage summaries agree in number", () => {
+  async function stageSummaries(ids: string[]): Promise<string[]> {
+    seedBaseline();
+    const summaries: string[] = [];
+    await installSkills({
+      repoRoot: repo,
+      spawnScout: fakeScout([{ skills: ids.map((id) => ({ id })) }]),
+      fetchAudit: fakeAudits(),
+      runInstall: fakeInstaller([]),
+      emitReport: (r) => summaries.push(r.summary),
+    });
+    return summaries;
+  }
+
+  it("one candidate reads in the singular through every phase", async () => {
+    const summaries = await stageSummaries(["supabase/agent-skills@postgres"]);
+    assert.ok(summaries.includes("auditing 1 candidate skill against skills.sh security audits"), summaries.join(" | "));
+    assert.ok(summaries.includes("installing 1 skill at the repository level via the skills CLI"), summaries.join(" | "));
+  });
+
+  it("several candidates read in the plural through every phase", async () => {
+    const summaries = await stageSummaries(["supabase/agent-skills@postgres", "stripe/agent-skills@payments"]);
+    assert.ok(summaries.includes("auditing 2 candidate skills against skills.sh security audits"), summaries.join(" | "));
+    assert.ok(summaries.includes("installing 2 skills at the repository level via the skills CLI"), summaries.join(" | "));
+  });
+
+  it("explicit validation and removal each count their own ids", async () => {
+    seedBaseline();
+    const explicit: string[] = [];
+    await installSkills({
+      repoRoot: repo,
+      ids: ["supabase/agent-skills@postgres"],
+      fetchAudit: fakeAudits(),
+      runInstall: fakeInstaller([]),
+      emitReport: (r) => explicit.push(r.summary),
+    });
+    assert.ok(explicit.includes("validating 1 explicitly requested skill id"), explicit.join(" | "));
+
+    const removals: string[] = [];
+    await removeSkills({
+      repoRoot: repo,
+      ids: ["supabase/agent-skills@postgres", "acme/repo@scraper"],
+      runRemove: () => ({ code: 0, output: "removed" }),
+      emitReport: (r) => removals.push(r.summary),
+    });
+    assert.ok(removals.includes("removing 2 skills"), removals.join(" | "));
   });
 });

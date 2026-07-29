@@ -39,6 +39,25 @@ test("supervisorTerminalNotification names the whole-cycle verdict the absent ow
   assert.equal(supervisorTerminalNotification("relaunch", state), null);
 });
 
+test("the supervisor's terminal notifications agree in number with the issues they count", () => {
+  assert.equal(
+    supervisorTerminalNotification("done", { done: 1, total: 1, blocked: 0 })?.message,
+    "build complete — the single issue is delivered and whole-product acceptance passed; your project is ready",
+  );
+  assert.equal(
+    supervisorTerminalNotification("done", { done: 6, total: 6, blocked: 0 })?.message,
+    "build complete — all 6 issues are delivered and whole-product acceptance passed; your project is ready",
+  );
+  assert.equal(
+    supervisorTerminalNotification("blocked", { done: 1, total: 2, blocked: 1 })?.message,
+    "build halted — 1 issue blocked (1/2 delivered); open the blocked report or ask Vivi to get it moving",
+  );
+  assert.equal(
+    supervisorTerminalNotification("blocked", { done: 1, total: 4, blocked: 3 })?.message,
+    "build halted — 3 issues blocked (1/4 delivered); open the blocked report or ask Vivi to get it moving",
+  );
+});
+
 function quotaCfg(quotaStatePath: string): Config {
   let clock = 0;
   return {

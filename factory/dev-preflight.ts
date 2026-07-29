@@ -2,6 +2,7 @@
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { countForm, countOf } from "../lib/count-form.ts";
 import { resolveTargetRoot } from "./target-root.ts";
 
 interface DeclaredSkills {
@@ -114,10 +115,10 @@ function defaultRunner(): SkillsRunnerResult {
 
 // Owner-facing refusal contract, shared with factory/dev-loop.ts's preflight: it must name ONLY vivicy.json, the one location readDeclaredSkills reads — an instruction pointing anywhere else cannot clear the refusal.
 export function missingSkillsRefusal(missing: string[]): string {
-  const one = missing.length === 1;
+  const them = countForm(missing.length, "it", "them");
   return (
-    `${missing.length} required development skill${one ? "" : "s"} missing: ${missing.join(", ")}\n` +
-    `  install ${one ? "it" : "them"} with the Vercel \`skills\` CLI (\`npx skills add <skill>\`), or drop ${one ? "it" : "them"} from the target project's vivicy.json "requiredSkills"\n`
+    `${countOf(missing.length, "required development skill", "required development skills")} missing: ${missing.join(", ")}\n` +
+    `  install ${them} with the Vercel \`skills\` CLI (\`npx skills add <skill>\`), or drop ${them} from the target project's vivicy.json "requiredSkills"\n`
   );
 }
 

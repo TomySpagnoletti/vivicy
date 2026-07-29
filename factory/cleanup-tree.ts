@@ -1,5 +1,6 @@
 // A tree a child process may still be flushing into needs the WHOLE recursive removal re-invoked after a wait (AGENTS.md "Platform traps" — fs.rm's own retry budget cannot do it), and a cleanup that throws would replace its caller's outcome, so a leftover is announced on fd 2, never raised, and retried at exit when every child is reaped.
 import { existsSync, rmSync, writeSync } from "node:fs";
+import { countOf } from "../lib/count-form.ts";
 import { sleepSync } from "./sleep-sync.ts";
 
 const DEFAULT_ATTEMPTS = 10;
@@ -61,7 +62,7 @@ function removeOnce(dir: string, attempts: number, backoffStepMs: number): Failu
 }
 
 function attemptsMade(failure: Failure): string {
-  return `${failure.attempts} removal attempt${failure.attempts === 1 ? "" : "s"}`;
+  return countOf(failure.attempts, "removal attempt", "removal attempts");
 }
 
 function drainLeftovers(): void {

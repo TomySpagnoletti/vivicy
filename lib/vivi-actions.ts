@@ -12,6 +12,7 @@ import {
   stopSupervisor,
   type Spawner,
 } from "@/lib/control"
+import { countOf } from "@/lib/count-form"
 import { readFencedBlock, stripFencedBlock } from "@/lib/fenced-block"
 import { applyLayoutSave, validateLayoutSavePayload } from "@/lib/map-layout-save"
 import { appendNotification, readNotifications, type Notification } from "@/lib/notifications"
@@ -266,7 +267,7 @@ async function executeOne(
         return {
           tool,
           ok: true,
-          summary: `map layout saved (${moved} node${moved === 1 ? "" : "s"}, ${ratios} edge label${ratios === 1 ? "" : "s"})`,
+          summary: `map layout saved (${countOf(moved, "node", "nodes")}, ${countOf(ratios, "edge label", "edge labels")})`,
           data: { mapPath: saved.mapPath, nodes: moved, edgeLabels: ratios },
         }
       }
@@ -275,7 +276,7 @@ async function executeOne(
         return {
           tool,
           ok: true,
-          summary: crs.length === 0 ? "no change requests on file" : `${crs.length} change request(s) on file`,
+          summary: crs.length === 0 ? "no change requests on file" : `${countOf(crs.length, "change request", "change requests")} on file`,
           data: { crs },
         }
       }
@@ -300,7 +301,7 @@ async function executeOne(
         return {
           tool,
           ok: true,
-          summary: `${slice.length} undismissed notification(s) (of ${all.length})`,
+          summary: `${countOf(slice.length, "undismissed notification", "undismissed notifications")} (of ${all.length})`,
           data: { notifications: slice },
         }
       }

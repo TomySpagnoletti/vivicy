@@ -22,6 +22,7 @@ import {
 import path from "node:path"
 
 import { getFactoryRoot } from "@/lib/control"
+import { countForm, countOf } from "@/lib/count-form"
 import {
   ensureManagedBlock,
   extractManagedBlock,
@@ -495,10 +496,6 @@ export interface ManagedRenormalization {
   failures: ManagedFileFailure[]
 }
 
-function plural(count: number, noun: string): string {
-  return `${count} ${noun}${count === 1 ? "" : "s"}`
-}
-
 // Node appends ", <syscall> '<path>'" to fs errors: drop it when that path is the file the announcement already names, or Vivicy's own write temp, whose internal name means nothing to the owner — a failure on one of Vivicy's own TEMPLATES keeps its path, or it would read as the owner's AGENTS.md being gone.
 function failureReason(error: unknown, abs: string): string {
   if (error instanceof ScaffoldError) return error.detail ?? error.message
@@ -512,15 +509,14 @@ function announceRenormalization(root: string, written: string[], failures: Mana
   const rel = (abs: string) => path.relative(root, abs)
   try {
     if (written.length > 0) {
+      const them = countForm(written.length, "it", "them")
       appendNotification({
         level: "info",
         stage: "project",
         event: "managed_files_updated",
-        message: `updated ${plural(written.length, "managed file")} on open: ${written
+        message: `updated ${countOf(written.length, "managed file", "managed files")} on open: ${written
           .map(rel)
-          .join(", ")} — uncommitted in your working tree for now; the next run absorbs ${
-          written.length === 1 ? "it" : "them"
-        } into a commit of its own before it starts`,
+          .join(", ")} — uncommitted in your working tree for now; the next run absorbs ${them} into a commit of its own before it starts`,
       })
     }
     if (failures.length > 0) {
@@ -528,9 +524,9 @@ function announceRenormalization(root: string, written: string[], failures: Mana
         level: "warning",
         stage: "project",
         event: "managed_files_failed",
-        message: `could not update ${plural(failures.length, "managed file")} on open — the project opened anyway: ${failures
+        message: `could not update ${countOf(failures.length, "managed file", "managed files")} on open — the project opened anyway: ${failures
           .map(({ file, reason }) => `${rel(file)} (${reason})`)
-          .join("; ")}. Fix ${failures.length === 1 ? "it" : "them"} and reopen the project to retry.`,
+          .join("; ")}. Fix ${countForm(failures.length, "it", "them")} and reopen the project to retry.`,
       })
     }
   } catch {

@@ -13,6 +13,7 @@ import type { Leg, LegResult } from "./dev-loop.ts";
 import { findFrozenManifest } from "./extract-issues.ts";
 import { notify } from "./notify.ts";
 import { FACTORY_PROMPTS_DIR, resolveTargetRoot } from "./target-root.ts";
+import { countOf } from "../lib/count-form.ts";
 import {
   ACCEPTANCE_REPORT_FILE,
   type AcceptanceFinding,
@@ -144,7 +145,7 @@ function makeDefaultSpawnAcceptanceLeg(options: RunAcceptanceOptions): SpawnAcce
 const NOTIFY_BY_PHASE: Record<string, { level: "info" | "success" | "warning" | "error"; message: string }> = {
   checking: { level: "info", message: "whole-product acceptance: checking the assembled product against the frozen spec" },
   green: { level: "success", message: "whole-product acceptance green — the delivered product satisfies the spec end to end" },
-  findings: { level: "warning", message: "whole-product acceptance found gaps — change request(s) drafted, Done withheld" },
+  findings: { level: "warning", message: "whole-product acceptance is not clean — every gap it found is drafted as a change request, Done withheld" },
   failed: { level: "error", message: "whole-product acceptance could not complete — Done withheld" },
 };
 
@@ -290,7 +291,7 @@ export async function runAcceptance(options: RunAcceptanceOptions = {}): Promise
   if (findings.length === 0) {
     if (verdict.accepted === true) {
       report.phase = "green";
-      report.summary = `accepted: the delivered product satisfies the spec end to end (${scenarios.length} scenario(s) checked, ${report.read_only_scenarios} read-only-verified pending the run story).`;
+      report.summary = `accepted: the delivered product satisfies the spec end to end (${countOf(scenarios.length, "scenario", "scenarios")} checked, ${report.read_only_scenarios} read-only-verified pending the run story).`;
       return emit();
     }
     report.phase = "failed";
@@ -324,7 +325,7 @@ export async function runAcceptance(options: RunAcceptanceOptions = {}): Promise
 
   report.phase = "findings";
   report.findings = findings;
-  report.summary = `${findings.length} whole-product gap(s) found; drafted ${report.drafted_crs!.join(", ")} for the owner to decide. Done withheld until acceptance is clean.`;
+  report.summary = `${countOf(findings.length, "whole-product gap", "whole-product gaps")} found; drafted ${report.drafted_crs!.join(", ")} for the owner to decide. Done withheld until acceptance is clean.`;
   return emit();
 }
 

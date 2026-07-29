@@ -205,7 +205,7 @@ describe("applyChangeRequest — happy path (green)", () => {
     }
     assert.equal(sink.reports.at(-1)!.status, "green");
 
-    assert.match(result.summary, /reopened 1 impacted issue/);
+    assert.match(result.summary, /\(reopened 1 impacted issue\)\.$/);
   });
 
   it("commits the applied canonical edit BEFORE freezing (else doc-baseline refuses a dirty tree)", async () => {
@@ -259,7 +259,7 @@ describe("applyChangeRequest — happy path (green)", () => {
   });
 });
 
-describe("applyChangeRequest — retires the disproven spike(s) the CR folds (failed -> deferred)", () => {
+describe("applyChangeRequest — retires the disproven spikes the CR folds (failed -> deferred)", () => {
   it("flips a failed spike named on affected_verification_gates to deferred BEFORE re-extraction, and leaves unnamed spikes untouched", async () => {
     seedPreviousBaseline();
     seedCanonical();
@@ -371,11 +371,30 @@ describe("applyChangeRequest — a red reference-check blocks honestly", () => {
     assert.equal(applyCalls.length, 2, "the apply leg retried once on the red gate");
     assert.ok(applyCalls[1].feedback, "the retry carried the reference-check failure feedback");
     assert.match(applyCalls[1].feedback, /reference-check FAILED/i);
+    assert.match(applyCalls[1].feedback, /A canonical doc link no longer resolves — repair the link you broke:/);
+    assert.match(result.summary!, /^cr-apply: reference-check stayed red after 2 apply attempts — /);
     assert.equal(freezeCalls.length, 0, "no freeze on a blocked apply");
     assert.equal(extractCalls.length, 0, "no extraction on a blocked apply");
     const cr = readChangeRequest(temp, "CR-0001");
     assert.equal(cr!.fm!.status, "accepted_current_build", "the CR is not advanced to docs_applied on a block");
     assert.equal(runChangeControlCheck({ repoRoot: temp }).exitCode, 0, "the untouched CR still passes change-control");
+  });
+
+  it("names several broken links in the plural, subject and verb together", async () => {
+    seedPreviousBaseline();
+    seedCanonical();
+    seedApprovedCr();
+
+    const { spawnApplier, calls: applyCalls } = fakeApplier({
+      edit: () => write(".vivicy/canonical/01-x.md", "# X\n\nSee [gone](./02-missing.md) and [also gone](./03-missing.md).\n"),
+    });
+
+    await applyChangeRequest({
+      repoRoot: temp, id: "CR-0001",
+      spawnApplier, runFreeze: fakeFreeze().runFreeze, runExtraction: fakeExtraction().runExtraction, recordReport: reportSink().recordReport,
+    });
+
+    assert.match(applyCalls[1].feedback!, /Canonical doc links no longer resolve — repair the links you broke:/);
   });
 });
 

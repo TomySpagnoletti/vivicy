@@ -2,6 +2,7 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { countOf } from "../lib/count-form.ts";
 import { resolveTargetRoot } from "./target-root.ts";
 
 const STALE_IDLE_SECONDS = 600;
@@ -197,7 +198,7 @@ if (asJson) {
       `progress:  ${bar} issues verified${status.remaining.length ? ` — next: ${status.remaining[0]}` : ""}`,
       `done:      ${doneIds.join(", ") || "(none)"}`,
       `active:    ${activeItems.map((a) => `${a.issue_id}:${a.state}(${a.actor}, hb ${a.heartbeat_age_s ?? "?"}s)`).join(", ") || "(none)"}`,
-      `process:   ${processAlive ? "alive" : "not running"}${codexLegs ? `, ${codexLegs} codex leg(s)` : ""}, idle ${idleSeconds ?? "?"}s`,
+      `process:   ${processAlive ? "alive" : "not running"}${codexLegs ? `, ${countOf(codexLegs, "codex leg", "codex legs")}` : ""}, idle ${idleSeconds ?? "?"}s`,
       `gates:     ${status.gates.pass} pass, ${status.gates.fail} fail`,
       `quota:     ${formatQuotaLine(status.quota)}`,
     ].join("\n") + "\n",

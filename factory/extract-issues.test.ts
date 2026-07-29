@@ -237,7 +237,7 @@ describe("extractIssues — two-agent happy path", () => {
       ".vivicy/development/transcripts/EXTRACTION/extract-1.jsonl",
       ".vivicy/development/transcripts/EXTRACTION/verify-1.jsonl",
     ]);
-    assert.match(result.summary, /8 issue\(s\)/);
+    assert.match(result.summary, /^extraction green after 1 attempt: 8 issues;/);
     assert.match(result.summary, /faithful:true/);
     assert.equal(seams._calls.commitCalls.length, 1, "corpus committed exactly once on green");
     assert.equal(result.committed, true);
@@ -775,6 +775,7 @@ describe("extractIssues — deterministic fix loop", () => {
 
     assert.equal(result.status, "green");
     assert.equal(result.attempts, 2);
+    assert.match(result.summary, /^extraction green after 2 attempts: /);
     assert.equal(calls.length, 2);
     assert.equal(verifyCalls.length, 1, "verifier only runs after deterministic checks pass");
     assert.equal(verifyCalls[0].attempt, 2);
@@ -834,7 +835,7 @@ describe("extractIssues — fidelity fix loop (the independent verifier)", () =>
     assert.equal(calls.length, 3, "the extractor was re-prompted up to the bound");
     assert.equal(verifyCalls.length, 3, "the verifier judged every deterministic-green attempt");
     assert.equal(seams._calls.mapCalls.length, 3, "the map gate runs on each deterministic-green attempt");
-    assert.match(result.summary, /extraction_blocked/);
+    assert.match(result.summary, /^extraction_blocked: the extraction was still not green after 3 attempts\. /);
     assert.match(result.summary, /faithful:false/);
     assert.match(result.summary, /scope_drift/);
     assert.equal(result.verdict!.faithful, false);

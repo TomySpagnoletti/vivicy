@@ -3,6 +3,8 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { countOf } from "../lib/count-form.ts";
+
 import { runClaudeLeg, runCodexLeg, TRANSCRIPT_DIRS } from "./agent-spawn.ts";
 import type { AgentIssue, LegConfig, LegDeps } from "./agent-spawn.ts";
 import { doneSetHash, issueTotals } from "./acceptance.ts";
@@ -256,7 +258,7 @@ export async function runRetro(options: RunRetroOptions = {}): Promise<RetroRepo
     report.phase = "quiet";
     report.summary = recurringClasses.length === 0
       ? "clean cycle: no recurring failure classes and nothing to amend."
-      : `${recurringClasses.length} recurring class(es) noted but no actionable amendment proposed; recorded for the owner, nothing to decide.`;
+      : `${countOf(recurringClasses.length, "recurring class", "recurring classes")} noted but no actionable amendment proposed; recorded for the owner, nothing to decide.`;
     return emit();
   }
 
@@ -267,7 +269,7 @@ export async function runRetro(options: RunRetroOptions = {}): Promise<RetroRepo
     return acc;
   }, {});
   const breakdown = Object.entries(byLanding).map(([landing, n]) => `${n} ${landing}`).join(", ");
-  report.summary = `${proposals.length} method amendment(s) proposed (${breakdown}) from ${recurringClasses.length} recurring class(es); each is owner-decided data — nothing is applied until you click.`;
+  report.summary = `${countOf(proposals.length, "method amendment", "method amendments")} proposed (${breakdown}) from ${countOf(recurringClasses.length, "recurring class", "recurring classes")}; each is owner-decided data — nothing is applied until you click.`;
   return emit();
 }
 

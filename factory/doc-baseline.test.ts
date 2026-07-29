@@ -340,7 +340,8 @@ test("freeze refuses when a high-confidence secret is in the corpus, names the f
     gitInitCommit(root);
     const res = runCli(root, ["generate", "--version", "1.0.0", "--status", "frozen", "--approved-by", "owner", "--approval-ref", "ref-1"]);
     assert.equal(res.status, 1, "a secret in the corpus must block the freeze");
-    assert.match(res.stderr, /Refusing to freeze the canonical: a suspected secret credential/);
+    assert.match(res.stderr, /Refusing to freeze the canonical: a suspected secret credential is present in the corpus\./);
+    assert.match(res.stderr, /Remove or rotate the key — a real credential/);
     assert.match(res.stderr, /01-a\.md.*openai_anthropic_key/);
     assert.doesNotMatch(res.stderr, new RegExp(PLANTED_KEY.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")), "the refusal never re-prints the secret");
     assert.equal(existsSync(resolve(root, ".vivicy", "baselines", "baseline-v1.0.0.json")), false, "no manifest is written on refusal");
@@ -410,6 +411,21 @@ test("verify refuses a manifest whose exclude[] is a strict subset of the corpus
     const refused = runCli(root, ["verify", "--manifest", manifestRel]);
     assert.equal(refused.status, 1);
     assert.match(refused.stderr, /exclude\[\] diverges from the repo-owned corpus policy/);
+  } finally {
+    rmSync(root, { force: true, recursive: true });
+  }
+});
+
+test("several suspected secrets make the refusal read in the plural, subject and verb together", () => {
+  const root = makeTargetRoot();
+  try {
+    writeDoc(root, "01-a.md", `# Doc One\n\nSetup uses the key ${PLANTED_KEY}\n`);
+    writeDoc(root, "02-b.md", `# Doc Two\n\nAnd another ${PLANTED_KEY.replace("Qz7", "Rz8")}\n`);
+    gitInitCommit(root);
+    const res = runCli(root, ["generate", "--version", "1.0.0", "--status", "frozen", "--approved-by", "owner", "--approval-ref", "ref-1"]);
+    assert.equal(res.status, 1);
+    assert.match(res.stderr, /Refusing to freeze the canonical: suspected secret credentials are present in the corpus\./);
+    assert.match(res.stderr, /Remove or rotate the keys — a real credential/);
   } finally {
     rmSync(root, { force: true, recursive: true });
   }

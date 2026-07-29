@@ -107,7 +107,7 @@ describe("status --json", () => {
       spike_mode: "integrate",
       map_mode: "reused",
       spike_proving: { proved: 2, failed: 0, skipped: 1 },
-      summary: "extraction green after 1 attempt(s): 2 issue(s)",
+      summary: "extraction green after 1 attempt: 2 issues",
     });
     writeCr(target, "CR-0001-a.md", {
       id: "CR-0001",
@@ -140,7 +140,7 @@ describe("status --json", () => {
     writeIssueIndex(target, ["ISSUE-1"]);
     writeExtractionStatus(target, {
       phase: "extraction_blocked",
-      summary: "extraction_blocked: checks still red after 4 attempt(s)",
+      summary: "extraction_blocked: checks still red after 4 attempts",
     });
 
     const r = runCli(["status", "--dir", target, "--runtime-dir", runtimeDir, "--json"]);
@@ -307,6 +307,17 @@ describe("prepare verbs", () => {
     assert.equal(r.json.report.placed[0].target, "canonical/spec.md");
   });
 
+  test("prepare in text mode counts the consumed batches in the right number", () => {
+    const line = (consumed: string[]): string => {
+      writePrepReport(target, { phase: "green", cycle_id: "project", batches_consumed: consumed, batches_pending: [], language: "eng", placed: [], rejected: [], summary: "doc-prep green" });
+      const r = runCli(["prepare", "--dir", target]);
+      assert.equal(r.code, 0);
+      return r.err;
+    };
+    assert.match(line(["b1"]), /1 batch consumed, 0 pending/);
+    assert.match(line(["b1", "b2"]), /2 batches consumed, 0 pending/);
+  });
+
   test("prepare --json exits 1 (refusal) when the last run failed", () => {
     writePrepReport(target, { phase: "failed", cycle_id: "project", batches_consumed: [], batches_pending: ["b1"], language: "eng", placed: [], rejected: [], summary: "leg produced nothing" });
     const r = runCli(["prepare", "--dir", target, "--json"]);
@@ -452,7 +463,7 @@ describe("skills verbs", () => {
           "const dir = join(root, '.vivicy/development/reports');",
           "mkdirSync(dir, { recursive: true });",
           "const installed = ids.map((id) => ({ id, source: 'skills.sh', skill: id, name: id, official: false, security_waived: false, audits: [{ provider: 'stub', status: 'pass' }], reason: 'requested' }));",
-          "writeFileSync(join(dir, 'skills-report.json'), JSON.stringify({ phase, baseline_id: 'baseline-v1.0.0', mode, installed, rejected: [], summary: `${phase}: ${installed.length} skill(s)`, updated_at: new Date().toISOString() }));",
+          "writeFileSync(join(dir, 'skills-report.json'), JSON.stringify({ phase, baseline_id: 'baseline-v1.0.0', mode, installed, rejected: [], summary: `${phase}: ${installed.length} installed`, updated_at: new Date().toISOString() }));",
           "console.log(`skills ${phase}`);",
           "process.exit(phase === 'green' || phase === 'skipped' ? 0 : 1);",
         ].join("\n")
@@ -523,7 +534,7 @@ describe("spawning verbs against a stub factory", () => {
         "const phase = process.env.STUB_EXTRACT_PHASE || 'green';",
         "const dir = join(root, '.vivicy/development/reports');",
         "mkdirSync(dir, { recursive: true });",
-        "const summary = phase === 'green' ? 'extraction green after 1 attempt(s): 2 issue(s)' : `${phase}: still red`;",
+        "const summary = phase === 'green' ? 'extraction green after 1 attempt: 2 issues' : `${phase}: still red`;",
         "writeFileSync(join(dir, 'extraction-status.json'), JSON.stringify({ phase, spike_mode: 'author', map_mode: 'generated', spike_proving: { proved: 0, failed: 0, skipped: 0 }, summary, updated_at: new Date().toISOString() }));",
         "console.log(summary);",
         "process.exit(phase === 'green' ? 0 : 1);",

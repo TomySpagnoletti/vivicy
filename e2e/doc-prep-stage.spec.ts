@@ -19,7 +19,7 @@ test.describe("Document-preparation stage (SP) in the workflow status surface", 
 
     // The stage picks up the seeded green doc-prep report (route → deriveStageStates → badge), like every other stage.
     await expect(sp).toContainText(/done/i)
-    await expect(sp).toContainText(/doc-prep green: 2 canonical document\(s\) placed/)
+    await expect(sp).toContainText(/doc-prep green: 2 canonical documents placed/)
 
     // SP sits first in the dev-loop, immediately after the S1 non-loop stage and before extraction (S2).
     const stageIds = await page.locator("[data-stage]").evaluateAll((nodes) =>

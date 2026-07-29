@@ -16,6 +16,7 @@ import { resolveTargetRoot, FACTORY_PROMPTS_DIR } from "./target-root.ts";
 import { resolveBatchLanguage } from "./detect-language.ts";
 import type { LanguageResolution } from "./detect-language.ts";
 import { BINARY_DOC_EXTENSIONS, TEXT_LANGUAGE_EXTENSIONS, extractBinaryDocText } from "../lib/text-extract.ts";
+import { countForm, countOf } from "../lib/count-form.ts";
 import { dominantLanguage } from "../lib/dominant-language.ts";
 import { describeFinding, highConfidenceFindings, scanText, type SecretFinding } from "../lib/secret-scan.ts";
 import { pruneGitkeeps } from "../lib/skeleton.ts";
@@ -187,7 +188,7 @@ export async function prepareDocs(options: PrepareDocsOptions = {}): Promise<Doc
     report.phase = "skipped";
     report.summary =
       seeds > 0
-        ? `the canonical is frozen — ${seeds} imported batch(es) seed the next cycle and will be prepared when it opens.`
+        ? `the canonical is frozen — ${countForm(seeds, "1 imported batch seeds", `${seeds} imported batches seed`)} the next cycle and will be prepared when it opens.`
         : "no active cycle and no upload batch to prepare — the workflow proceeds on the owner-authored canonical.";
     emit();
     return report;
@@ -208,7 +209,7 @@ export async function prepareDocs(options: PrepareDocsOptions = {}): Promise<Doc
   // The cycle's language is the project's ALREADY-ESTABLISHED canonical language; until one exists (greenfield), the first batch of the run fixes it.
   let cycleLanguage = establishedCanonicalLanguage(repoRoot);
   report.language = cycleLanguage;
-  report.summary = `preparing ${pending.length} batch(es) for cycle ${cycleId}`;
+  report.summary = `preparing ${countOf(pending.length, "batch", "batches")} for cycle ${cycleId}`;
   emit();
 
   const spawnLeg = options.spawnLeg ?? makeDefaultSpawnLeg(options);
@@ -232,7 +233,7 @@ export async function prepareDocs(options: PrepareDocsOptions = {}): Promise<Doc
   report.phase = "green";
   const secretRejects = report.rejected.filter((r) => r.reason === "secret_detected").length;
   report.summary =
-    `doc-prep green for cycle ${cycleId}: ${report.placed.length} canonical document(s) placed, ${report.rejected.length} rejected, across ${pending.length} batch(es) (language ${cycleLanguage})` +
+    `doc-prep green for cycle ${cycleId}: ${countOf(report.placed.length, "canonical document", "canonical documents")} placed, ${report.rejected.length} rejected, across ${countOf(pending.length, "batch", "batches")} (language ${cycleLanguage})` +
     (report.placed.length === 0 && report.rejected.length === 0 ? " (empty batch is a legitimate outcome)" : "") +
     (secretRejects > 0 ? ` — ${secretRejects} kept out of the canonical for a suspected secret (remove or rotate the key, then re-import)` : "") +
     (report.warnings.length > 0 ? ` — ${report.warnings.length} placed with a possible-secret warning` : "");
@@ -288,7 +289,7 @@ async function prepareBatch(args: {
   const { repoRoot, batch, cycleLanguage, spawnLeg, report, emit } = args;
   const batchId = batch.batchId;
   report.phase = "classifying";
-  report.summary = `classifying ${batch.manifest.files.length} file(s) from batch ${batchId} (language ${cycleLanguage})`;
+  report.summary = `classifying ${countOf(batch.manifest.files.length, "file", "files")} from batch ${batchId} (language ${cycleLanguage})`;
   emit();
 
   const legInputs: Array<{ source: string; text: string }> = [];
@@ -344,7 +345,7 @@ async function prepareBatch(args: {
   if (legInputs.length === 0) return { ok: true };
 
   report.phase = "extracting";
-  report.summary = `exploding/translating ${legInputs.length} document(s) from batch ${batchId} into canonical form (dominant language ${cycleLanguage})`;
+  report.summary = `exploding/translating ${countOf(legInputs.length, "document", "documents")} from batch ${batchId} into canonical form (dominant language ${cycleLanguage})`;
   emit();
   const legOutcome = await runLeg({ repoRoot, language: cycleLanguage, inputs: legInputs, spawnLeg });
   if (!legOutcome.ok) {
@@ -356,7 +357,7 @@ async function prepareBatch(args: {
     return { ok: false, problem: legOutcome.problems.join("; ") };
   }
   report.phase = "placing";
-  report.summary = `placing ${legOutcome.outputs.length} canonical document(s) from batch ${batchId}`;
+  report.summary = `placing ${countOf(legOutcome.outputs.length, "canonical document", "canonical documents")} from batch ${batchId}`;
   emit();
   for (const out of legOutcome.outputs) {
     const target = targetForOutput(out.rel);

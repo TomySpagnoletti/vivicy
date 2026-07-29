@@ -2,6 +2,8 @@ import { existsSync, readFileSync, renameSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { countOf } from "../lib/count-form.ts";
+
 import { compareExcerpts } from "./excerpt-drift.ts";
 import type { ExcerptDrift, SourceMap } from "./excerpt-drift.ts";
 import { recordProgressEvent } from "./progress-ledger.ts";
@@ -110,5 +112,5 @@ if (cliEntry === fileURLToPath(import.meta.url)) {
     process.exit(1);
   }
   const result = runReopen({ repoRoot, priorSourceMap, currentSourceMap, crRef });
-  console.log(`reopen: reopened ${result.reopened.length} impacted issue(s): ${result.reopened.join(", ") || "none"}`);
+  console.log(`reopen: reopened ${countOf(result.reopened.length, "impacted issue", "impacted issues")}: ${result.reopened.join(", ") || "none"}`);
 }

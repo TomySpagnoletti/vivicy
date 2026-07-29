@@ -14,6 +14,7 @@ import {
 } from "node:fs"
 import path from "node:path"
 
+import { countForm } from "@/lib/count-form"
 import { readFencedBlock } from "@/lib/fenced-block"
 import { ControlError, decideCr, getExtractionStatus, getFactoryRoot, isRunActive, readSkillsReport, startSkillsInstall, type Spawner } from "@/lib/control"
 import { importIntoGoverned, UPLOADS_DIR, type BatchResult, type ManifestFile, type RawEntry, type RejectedFile } from "@/lib/import-docs"
@@ -511,11 +512,6 @@ export interface CardImportResult {
 }
 
 const MAX_FINDINGS_IN_ACK = 5
-
-// The ONE count switch for every string this module emits: each branch is a COMPLETE self-agreeing phrase (a subject carries its own verb, a noun its own suffix), never fragments that must agree across an interpolation.
-function countForm(count: number, one: string, many: string): string {
-  return count === 1 ? one : many
-}
 
 // Deterministic, redacted security clause: names the file:line and the four-char shape signal (never the secret) plus the fix — the secret value is never re-emitted by construction (lib/secret-scan redaction invariant).
 function secretFindingAckClause(findings: SecretFileFinding[]): string {

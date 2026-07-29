@@ -820,6 +820,9 @@ describe("renormalizeManagedFiles — the project-open seam (same engine, never 
     expect(notifications[0].message).toContain("AGENTS.md")
     expect(notifications[0].message).toContain(".gitignore")
     expect(notifications[0].message, "a file that was not rewritten is never announced").not.toContain("CLAUDE.md")
+    expect(notifications[0].message, "the announcement agrees in number with what it lists").toContain(
+      "updated 2 managed files on open"
+    )
     expect(
       notifications[0].message,
       "the pending refresh is the run's to absorb, not a dirty tree the owner has to explain"
@@ -903,10 +906,13 @@ describe("renormalizeManagedFiles — the project-open seam (same engine, never 
     expect(notifications.map((n) => n.event)).toEqual(["managed_files_updated", "managed_files_failed"])
     expect(notifications[1]).toMatchObject({ level: "warning", stage: "project" })
     expect(notifications[1].message).toContain("AGENTS.md")
+    expect(notifications[1].message, "the refusal agrees in number with the file it names").toContain(
+      "could not update 1 managed file on open"
+    )
     expect(notifications[1].message, "the owner learns the open succeeded anyway, and what to do").toContain(
       "the project opened anyway"
     )
-    expect(notifications[1].message).toContain("reopen the project")
+    expect(notifications[1].message).toContain("Fix it and reopen the project to retry.")
     expect(
       notifications[1].message,
       "the announcement is relative throughout — it belongs to a project whose root the owner picked"
@@ -1206,6 +1212,11 @@ describe("writeManaged — the owner's bytes, their file, and one atomic swap", 
       expect(reason, "the fs error, whole").toMatch(/^EACCES: /)
       expect(reason, "and never the temp path, which names nothing the owner has").not.toContain(TEMP_PREFIX)
     }
+    const failed = readNotifications().find((n) => n.event === "managed_files_failed")
+    expect(failed?.message, "the refusal agrees in number with the files it names").toContain(
+      "could not update 2 managed files on open"
+    )
+    expect(failed?.message).toContain("Fix them and reopen the project to retry.")
   })
 
   // The consequence cannot be observed after the fact — both orders end with the same three files — so it is pinned where it is decided.

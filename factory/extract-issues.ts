@@ -21,6 +21,7 @@ import { runReopen } from "./reopen.ts";
 import { formatMapReviewFix, mapReviewLensContext, mapReviewReportRel, runMapReview } from "./map-review.ts";
 import type { MapReviewLens, MapReviewResult as LensFindings, TaggedFinding } from "./map-review.ts";
 import { FACTORY_DIR, FACTORY_PROMPTS_DIR, resolveTargetRoot } from "./target-root.ts";
+import { countOf } from "../lib/count-form.ts";
 import { pruneGitkeeps } from "../lib/skeleton.ts";
 import { clearSpecCycle, readSpecCycle } from "../lib/spec-cycle.ts";
 import type { SpecKind } from "../lib/spec-kind.ts";
@@ -471,7 +472,7 @@ async function runExtraction(options: ExtractIssuesOptions, layoutBaseline: { di
       map,
       transcripts,
       ...(reopened.length ? { reopened } : {}),
-      summary: `extraction green after ${attempt} attempt(s): ${countIssues(repoRoot)} issue(s); deterministic checks pass; map regenerated; verifier faithful:true; map review clean${reopened.length ? `; reopened ${reopened.length} impacted issue(s)` : ""}; corpus committed`,
+      summary: `extraction green after ${countOf(attempt, "attempt", "attempts")}: ${countOf(countIssues(repoRoot), "issue", "issues")}; deterministic checks pass; map regenerated; verifier faithful:true; map review clean${reopened.length ? `; reopened ${countOf(reopened.length, "impacted issue", "impacted issues")}` : ""}; corpus committed`,
     };
     record({ phase: "green", attempt, spike_mode: spikeMode, map_mode: mapMode, summary: status.summary });
     recordExtractedGateCommand(repoRoot);
@@ -496,7 +497,7 @@ async function runExtraction(options: ExtractIssuesOptions, layoutBaseline: { di
     transcripts,
     ...(lastTimeoutReason ? { timeoutReason: lastTimeoutReason } : {}),
     summary:
-      `extraction_blocked: the extraction was still not green after ${maxAttempts} attempt(s). ` +
+      `extraction_blocked: the extraction was still not green after ${countOf(maxAttempts, "attempt", "attempts")}. ` +
       (lastTimeoutReason ? `A leg was killed: ${lastTimeoutReason}. ` : "") +
       formatFixContext(lastChecks, lastVerdict, lastMap),
   };
