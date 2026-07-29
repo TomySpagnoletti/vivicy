@@ -1,7 +1,19 @@
 #!/usr/bin/env node
 import { spawnSync } from "node:child_process"
-import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
-import { dirname, resolve } from "node:path"
+import {
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  readlinkSync,
+  realpathSync,
+  renameSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs"
+import { dirname, isAbsolute, relative, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
 import { runClaudeLeg, runCodexLeg, TRANSCRIPT_DIRS } from "./agent-spawn.ts"
@@ -10,13 +22,27 @@ import { legDepsForTarget } from "./leg-deps.ts"
 import { notify } from "./notify.ts"
 import { CLI_DEFAULTS, DEFAULT_CONFIG, resolveAgentLegs } from "./dev-loop.ts"
 import type { Leg, LegResult } from "./dev-loop.ts"
-import { findFrozenManifest } from "./extract-issues.ts"
+import { ensureLocalGitIdentity, findFrozenManifest } from "./extract-issues.ts"
 import { FACTORY_PROMPTS_DIR, resolveTargetRoot } from "./target-root.ts"
+import { AGENT_SKILLS_DIR, PER_AGENT_SKILL_DIRS, SKILLS_CLI_LOCKFILE } from "../lib/spec-kind.ts"
 import { countOf } from "../lib/count-form.ts"
-import { pruneGitkeeps } from "../lib/skeleton.ts"
+import { MANAGED_TEMP_PREFIX } from "../lib/managed-block.ts"
+import { pruneGitkeeps, SKELETON_DIRS } from "../lib/skeleton.ts"
 
 export const SKILLS_REPORT_REL = ".vivicy/development/reports/skills-report.json"
 const SCOUT_RESULT_REL = ".vivicy/development/reports/skill-scout-result.json"
+const SKELETON_GITKEEPS = SKELETON_DIRS.map((dir) => `${dir}/.gitkeep`)
+
+// Everything the stage COULD write. It is the pre-stage snapshot's reading only — never the absorption's pathspec, which is what this run actually wrote: `.agents/skills` and `.claude/skills` are also where an owner keeps their OWN skills, and AGENTS.md/vivicy.json carry owner bytes the stage merges into.
+const SKILLS_STAGE_PATHS: readonly string[] = [
+  "AGENTS.md",
+  "vivicy.json",
+  SKILLS_CLI_LOCKFILE,
+  SKILLS_REPORT_REL,
+  AGENT_SKILLS_DIR,
+  ...PER_AGENT_SKILL_DIRS,
+  ...SKELETON_GITKEEPS,
+]
 export const MAX_PROJECT_SKILLS = 6
 const SKILL_ID_RE = /^[\w.-]+\/[\w.-]+@[\w.-]+$/
 
@@ -216,137 +242,144 @@ export async function installSkills(options: InstallSkillsOptions = {}): Promise
     )
   }
 
-  const priorReport = readJsonOrNull(resolve(repoRoot, SKILLS_REPORT_REL)) as Partial<SkillsReport> | null
-  const report: SkillsReport = {
-    phase: "selecting",
-    baseline_id: baseline?.baselineId ?? null,
-    mode,
-    installed: [],
-    rejected: [],
-    summary: "",
-    updated_at: "",
-  }
-  const emit = (): void => {
-    report.updated_at = now().toISOString()
-    emitReport(report, repoRoot)
-  }
-
-  if (
-    mode === "auto" &&
-    (priorReport?.phase === "green" || priorReport?.phase === "skipped") &&
-    priorReport.baseline_id === report.baseline_id
-  ) {
-    report.phase = "skipped"
-    report.installed = Array.isArray(priorReport.installed) ? priorReport.installed : []
-    report.summary = `skills stage already green for baseline ${report.baseline_id}; nothing to do. A new frozen baseline re-runs the stage; use --ids to add a specific skill.`
-    emit()
-    return report
-  }
-
-  report.summary =
-    mode === "auto"
-      ? "scouting project skills from the frozen canonical docs"
-      : `validating ${countOf(explicitIds.length, "explicitly requested skill id", "explicitly requested skill ids")}`
-  emit()
-
-  let candidates: SkillCandidate[]
-  if (mode === "explicit") {
-    candidates = []
-    const seen = new Set<string>()
-    for (const raw of explicitIds) {
-      const ref = normalizeSkillId(raw)
-      if (!ref) {
-        report.rejected.push({ id: raw, reason: "invalid_id", detail: "expected owner/repo@skill or https://skills.sh/owner/repo/skill" })
-        continue
-      }
-      if (seen.has(ref.id)) continue
-      seen.add(ref.id)
-      candidates.push({ ...ref, name: ref.skill, reason: "explicitly requested", official: OFFICIAL_VENDOR_OWNERS.has(ref.owner) })
+  const tree = openStageTree(repoRoot, false)
+  try {
+    const priorReport = readJsonOrNull(resolve(repoRoot, SKILLS_REPORT_REL)) as Partial<SkillsReport> | null
+    const report: SkillsReport = {
+      phase: "selecting",
+      baseline_id: baseline?.baselineId ?? null,
+      mode,
+      installed: [],
+      rejected: [],
+      summary: "",
+      updated_at: "",
     }
-  } else {
-    const spawnScout = options.spawnScout ?? makeDefaultSpawnScout(options)
-    const selection = await runScoutSelection({
-      repoRoot,
-      spawnScout,
-      manifestPath: baseline!.manifestPath,
-      baselineId: baseline!.baselineId,
-    })
-    if (!selection.ok) {
-      report.phase = "failed"
-      report.summary = `skill scout produced no valid result after a bounded re-prompt: ${selection.problems.join("; ")}`
+    const emit = (): void => {
+      report.updated_at = now().toISOString()
+      emitReport(report, repoRoot)
+    }
+
+    if (
+      mode === "auto" &&
+      (priorReport?.phase === "green" || priorReport?.phase === "skipped") &&
+      priorReport.baseline_id === report.baseline_id
+    ) {
+      report.phase = "skipped"
+      report.installed = Array.isArray(priorReport.installed) ? priorReport.installed : []
+      report.summary = `skills stage already green for baseline ${report.baseline_id}; nothing to do. A new frozen baseline re-runs the stage; use --ids to add a specific skill.`
       emit()
       return report
     }
-    candidates = selection.candidates
-  }
 
-  const alreadyInstalled = installedSkillIds(repoRoot, priorReport)
-  candidates = candidates.filter((c) => !alreadyInstalled.has(c.id))
-  const slots = Math.max(0, MAX_PROJECT_SKILLS - alreadyInstalled.size)
-  if (mode === "auto") {
-    candidates = [...candidates.filter((c) => c.official), ...candidates.filter((c) => !c.official)]
-  }
-  const accepted = candidates.slice(0, slots)
-  for (const c of candidates.slice(slots)) {
-    report.rejected.push({
-      id: c.id,
-      reason: "cap_exceeded",
-      detail: `project already has ${countOf(alreadyInstalled.size, "skill", "skills")}; the installed set may never exceed ${MAX_PROJECT_SKILLS} total`,
-    })
-  }
+    report.summary =
+      mode === "auto"
+        ? "scouting project skills from the frozen canonical docs"
+        : `validating ${countOf(explicitIds.length, "explicitly requested skill id", "explicitly requested skill ids")}`
+    emit()
 
-  report.phase = "auditing"
-  report.summary = `auditing ${countOf(accepted.length, "candidate skill", "candidate skills")} against skills.sh security audits`
-  emit()
-  const toInstall: Array<SkillCandidate & { security_waived: boolean; audits: SkillAuditRecord[]; waiveReason?: SkillRejectReason }> = []
-  for (const c of accepted) {
-    const audit = await fetchAudit({ source: c.source, skill: c.skill })
-    const verdict = auditVerdict(audit)
-    if (verdict === "safe") {
-      toInstall.push({ ...c, security_waived: false, audits: audit.audits })
-    } else if (allowUnsafe) {
-      toInstall.push({ ...c, security_waived: true, audits: audit.audits, waiveReason: verdict })
+    let candidates: SkillCandidate[]
+    if (mode === "explicit") {
+      candidates = []
+      const seen = new Set<string>()
+      for (const raw of explicitIds) {
+        const ref = normalizeSkillId(raw)
+        if (!ref) {
+          report.rejected.push({ id: raw, reason: "invalid_id", detail: "expected owner/repo@skill or https://skills.sh/owner/repo/skill" })
+          continue
+        }
+        if (seen.has(ref.id)) continue
+        seen.add(ref.id)
+        candidates.push({ ...ref, name: ref.skill, reason: "explicitly requested", official: OFFICIAL_VENDOR_OWNERS.has(ref.owner) })
+      }
     } else {
-      report.rejected.push({ id: c.id, reason: verdict, detail: auditDetail(audit, verdict) })
+      const spawnScout = options.spawnScout ?? makeDefaultSpawnScout(options)
+      const selection = await runScoutSelection({
+        repoRoot,
+        spawnScout,
+        manifestPath: baseline!.manifestPath,
+        baselineId: baseline!.baselineId,
+      })
+      if (!selection.ok) {
+        report.phase = "failed"
+        report.summary = `skill scout produced no valid result after a bounded re-prompt: ${selection.problems.join("; ")}`
+        emit()
+        return report
+      }
+      candidates = selection.candidates
     }
-  }
 
-  report.phase = "installing"
-  report.summary = `installing ${countOf(toInstall.length, "skill", "skills")} at the repository level via the skills CLI`
-  emit()
-  for (const c of toInstall) {
-    const r = runInstall({ repoRoot, source: c.source, skill: c.skill })
-    if ((r.code ?? 1) !== 0) {
-      report.rejected.push({ id: c.id, reason: "install_failed", detail: tail(r.output) })
-      continue
+    const alreadyInstalled = installedSkillIds(repoRoot, priorReport)
+    candidates = candidates.filter((c) => !alreadyInstalled.has(c.id))
+    const slots = Math.max(0, MAX_PROJECT_SKILLS - alreadyInstalled.size)
+    if (mode === "auto") {
+      candidates = [...candidates.filter((c) => c.official), ...candidates.filter((c) => !c.official)]
     }
-    report.installed.push({
-      id: c.id,
-      source: c.source,
-      skill: c.skill,
-      name: c.name,
-      official: c.official,
-      security_waived: c.security_waived,
-      audits: c.audits.map((a) => ({ provider: a.provider, status: a.status })),
-      reason: c.security_waived ? (c.waiveReason ?? c.reason) : c.reason,
-    })
-  }
+    const accepted = candidates.slice(0, slots)
+    for (const c of candidates.slice(slots)) {
+      report.rejected.push({
+        id: c.id,
+        reason: "cap_exceeded",
+        detail: `project already has ${countOf(alreadyInstalled.size, "skill", "skills")}; the installed set may never exceed ${MAX_PROJECT_SKILLS} total`,
+      })
+    }
 
-  if (report.installed.length > 0) {
-    const mergedIds = mergeRequiredSkills(
-      repoRoot,
-      report.installed.map((e) => e.id)
-    )
-    updateAgentsMd(repoRoot, skillBlockEntries(mergedIds, priorReport, report.installed))
-  }
+    report.phase = "auditing"
+    report.summary = `auditing ${countOf(accepted.length, "candidate skill", "candidate skills")} against skills.sh security audits`
+    emit()
+    const toInstall: Array<SkillCandidate & { security_waived: boolean; audits: SkillAuditRecord[]; waiveReason?: SkillRejectReason }> = []
+    for (const c of accepted) {
+      const audit = await fetchAudit({ source: c.source, skill: c.skill })
+      const verdict = auditVerdict(audit)
+      if (verdict === "safe") {
+        toInstall.push({ ...c, security_waived: false, audits: audit.audits })
+      } else if (allowUnsafe) {
+        toInstall.push({ ...c, security_waived: true, audits: audit.audits, waiveReason: verdict })
+      } else {
+        report.rejected.push({ id: c.id, reason: verdict, detail: auditDetail(audit, verdict) })
+      }
+    }
 
-  report.phase = "green"
-  const total = alreadyInstalled.size + report.installed.length
-  report.summary =
-    `skills stage green: ${report.installed.length} installed, ${report.rejected.length} rejected; project total ${total}/${MAX_PROJECT_SKILLS}` +
-    (report.installed.length === 0 && report.rejected.length === 0 ? " (zero skills is a legitimate outcome)" : "")
-  emit()
-  return report
+    report.phase = "installing"
+    report.summary = `installing ${countOf(toInstall.length, "skill", "skills")} at the repository level via the skills CLI`
+    emit()
+    for (const c of toInstall) {
+      recordSkillWrite(tree, c.skill)
+      const r = runInstall({ repoRoot, source: c.source, skill: c.skill })
+      if ((r.code ?? 1) !== 0) {
+        report.rejected.push({ id: c.id, reason: "install_failed", detail: tail(r.output) })
+        continue
+      }
+      report.installed.push({
+        id: c.id,
+        source: c.source,
+        skill: c.skill,
+        name: c.name,
+        official: c.official,
+        security_waived: c.security_waived,
+        audits: c.audits.map((a) => ({ provider: a.provider, status: a.status })),
+        reason: c.security_waived ? (c.waiveReason ?? c.reason) : c.reason,
+      })
+    }
+
+    if (report.installed.length > 0) {
+      recordGovernanceWrite(tree)
+      const mergedIds = mergeRequiredSkills(
+        repoRoot,
+        report.installed.map((e) => e.id)
+      )
+      updateAgentsMd(repoRoot, skillBlockEntries(mergedIds, priorReport, report.installed))
+    }
+
+    report.phase = "green"
+    const total = alreadyInstalled.size + report.installed.length
+    report.summary =
+      `skills stage green: ${report.installed.length} installed, ${report.rejected.length} rejected; project total ${total}/${MAX_PROJECT_SKILLS}` +
+      (report.installed.length === 0 && report.rejected.length === 0 ? " (zero skills is a legitimate outcome)" : "")
+    emit()
+    return report
+  } finally {
+    settleStageTree(tree)
+  }
 }
 
 export interface RemoveSkillsOptions {
@@ -373,61 +406,68 @@ export async function removeSkills(options: RemoveSkillsOptions = {}): Promise<S
   const emitReport = options.emitReport ?? defaultEmitReport
   const runRemove = options.runRemove ?? defaultRunRemove
 
-  const priorReport = readJsonOrNull(resolve(repoRoot, SKILLS_REPORT_REL)) as Partial<SkillsReport> | null
-  const installedIds = installedSkillIds(repoRoot, priorReport)
+  const tree = openStageTree(repoRoot, true)
+  try {
+    const priorReport = readJsonOrNull(resolve(repoRoot, SKILLS_REPORT_REL)) as Partial<SkillsReport> | null
+    const installedIds = installedSkillIds(repoRoot, priorReport)
 
-  const report: SkillsReport = {
-    phase: "removing",
-    baseline_id: typeof priorReport?.baseline_id === "string" ? priorReport.baseline_id : null,
-    mode: "remove",
-    installed: Array.isArray(priorReport?.installed) ? [...priorReport.installed] : [],
-    rejected: [],
-    removed: [],
-    summary: `removing ${countOf(ids.length, "skill", "skills")}`,
-    updated_at: "",
-  }
-  const emit = (): void => {
-    report.updated_at = now().toISOString()
-    emitReport(report, repoRoot)
-  }
-  emit()
-
-  const toDrop = new Set<string>()
-  for (const raw of ids) {
-    const ref = normalizeSkillId(raw)
-    if (!ref) {
-      report.rejected.push({ id: raw, reason: "invalid_id", detail: "expected owner/repo@skill or https://skills.sh/owner/repo/skill" })
-      continue
+    const report: SkillsReport = {
+      phase: "removing",
+      baseline_id: typeof priorReport?.baseline_id === "string" ? priorReport.baseline_id : null,
+      mode: "remove",
+      installed: Array.isArray(priorReport?.installed) ? [...priorReport.installed] : [],
+      rejected: [],
+      removed: [],
+      summary: `removing ${countOf(ids.length, "skill", "skills")}`,
+      updated_at: "",
     }
-    if (toDrop.has(ref.id)) continue
-    if (!installedIds.has(ref.id)) {
-      report.rejected.push({
-        id: ref.id,
-        reason: "not_installed",
-        detail: "this skill is not part of the project's installed set (vivicy.json requiredSkills / skills report)",
-      })
-      continue
+    const emit = (): void => {
+      report.updated_at = now().toISOString()
+      emitReport(report, repoRoot)
     }
-    const r = runRemove({ repoRoot, source: ref.source, skill: ref.skill })
-    if ((r.code ?? 1) !== 0) {
-      report.rejected.push({ id: ref.id, reason: "remove_failed", detail: tail(r.output) })
-      continue
+    emit()
+
+    const toDrop = new Set<string>()
+    for (const raw of ids) {
+      const ref = normalizeSkillId(raw)
+      if (!ref) {
+        report.rejected.push({ id: raw, reason: "invalid_id", detail: "expected owner/repo@skill or https://skills.sh/owner/repo/skill" })
+        continue
+      }
+      if (toDrop.has(ref.id)) continue
+      if (!installedIds.has(ref.id)) {
+        report.rejected.push({
+          id: ref.id,
+          reason: "not_installed",
+          detail: "this skill is not part of the project's installed set (vivicy.json requiredSkills / skills report)",
+        })
+        continue
+      }
+      recordSkillWrite(tree, ref.skill)
+      const r = runRemove({ repoRoot, source: ref.source, skill: ref.skill })
+      if ((r.code ?? 1) !== 0) {
+        report.rejected.push({ id: ref.id, reason: "remove_failed", detail: tail(r.output) })
+        continue
+      }
+      toDrop.add(ref.id)
+      report.removed!.push({ id: ref.id })
     }
-    toDrop.add(ref.id)
-    report.removed!.push({ id: ref.id })
-  }
 
-  if (toDrop.size > 0) {
-    const remaining = dropRequiredSkills(repoRoot, toDrop)
-    report.installed = report.installed.filter((e) => !toDrop.has(e.id))
-    updateAgentsMd(repoRoot, skillBlockEntries(remaining, priorReport, []))
-  }
+    if (toDrop.size > 0) {
+      recordGovernanceWrite(tree)
+      const remaining = dropRequiredSkills(repoRoot, toDrop)
+      report.installed = report.installed.filter((e) => !toDrop.has(e.id))
+      updateAgentsMd(repoRoot, skillBlockEntries(remaining, priorReport, []))
+    }
 
-  report.phase = "green"
-  const total = installedSkillIds(repoRoot, report).size
-  report.summary = `skills remove green: ${report.removed!.length} removed, ${report.rejected.length} refused; project total ${total}/${MAX_PROJECT_SKILLS}`
-  emit()
-  return report
+    report.phase = "green"
+    const total = installedSkillIds(repoRoot, report).size
+    report.summary = `skills remove green: ${report.removed!.length} removed, ${report.rejected.length} refused; project total ${total}/${MAX_PROJECT_SKILLS}`
+    emit()
+    return report
+  } finally {
+    settleStageTree(tree)
+  }
 }
 
 function defaultRunRemove({ repoRoot, source, skill }: { repoRoot: string; source: string; skill: string }): {
@@ -438,7 +478,7 @@ function defaultRunRemove({ repoRoot, source, skill }: { repoRoot: string; sourc
   if ((viaCli.status ?? 1) === 0) {
     return { code: 0, output: `${viaCli.stdout ?? ""}\n${viaCli.stderr ?? ""}`.trim() }
   }
-  const skillDir = resolve(repoRoot, ".agents", "skills", skill)
+  const skillDir = resolve(repoRoot, AGENT_SKILLS_DIR, skill)
   if (!existsSync(skillDir)) {
     return { code: 1, output: `skills CLI could not remove "${skill}" (${source}) and ${skillDir} does not exist` }
   }
@@ -452,9 +492,9 @@ function defaultRunRemove({ repoRoot, source, skill }: { repoRoot: string; sourc
 }
 
 function pruneDanglingSkillLinks(repoRoot: string): void {
-  for (const rel of [".claude/skills", ".codex/skills"]) {
-    const dir = resolve(repoRoot, rel)
-    if (!existsSync(dir)) continue
+  for (const rel of PER_AGENT_SKILL_DIRS) {
+    const dir = realpathOrNull(resolve(repoRoot, rel))
+    if (dir === null) continue
     let entries: string[]
     try {
       entries = readdirSync(dir)
@@ -464,11 +504,176 @@ function pruneDanglingSkillLinks(repoRoot: string): void {
     for (const entry of entries) {
       const abs = resolve(dir, entry)
       try {
-        const stat = lstatSync(abs)
-        if (stat.isSymbolicLink() && !existsSync(abs)) rmSync(abs, { force: true })
+        if (lstatSync(abs).isSymbolicLink() && !existsSync(abs)) rmSync(abs, { force: true })
       } catch {}
     }
   }
+}
+
+const SKILLS_INSTALL_COMMIT_MESSAGE =
+  "skills: absorb the project-skills stage writes\n\n" +
+  "What this run wrote — the stage report, and for each skill it installed the bundle, its per-agent links, the vivicy.json requiredSkills entry and the AGENTS.md skills block — " +
+  "committed mechanically so the dev loop starts on a clean tree and every per-issue worktree, cut from HEAD, carries the skills. No human git step."
+
+const SKILLS_REMOVE_COMMIT_MESSAGE =
+  "skills: absorb the project-skills removal\n\n" +
+  "What this run wrote — the stage report, and for each skill it removed the deleted bundle and per-agent links, the shrunken vivicy.json requiredSkills and AGENTS.md skills block — " +
+  "committed mechanically so the dev loop starts on a clean tree. No human git step."
+
+// One run's own git footprint. `baseline` is everything under the stage's declared paths that was ALREADY dirty when the run opened: those bytes are the owner's manuscript, and the clean-tree refusal on them is correct behavior, not something Vivicy may commit away. `written` accumulates what this run actually wrote, so a path the stage merely COULD write is never staged.
+interface StageTree {
+  repoRoot: string
+  owns: boolean
+  baseline: Set<string>
+  written: Set<string>
+  skills: Set<string>
+  removal: boolean
+}
+
+function openStageTree(repoRoot: string, removal: boolean): StageTree {
+  const owns = ownsGitRepo(repoRoot)
+  return {
+    repoRoot,
+    owns,
+    baseline: new Set(owns ? dirtyPaths(repoRoot, SKILLS_STAGE_PATHS) : []),
+    // Written on every run: the report by emit(), the keeps by the pruneGitkeeps that rides it.
+    written: new Set([SKILLS_REPORT_REL, ...SKELETON_GITKEEPS]),
+    skills: new Set(),
+    removal,
+  }
+}
+
+function recordGovernanceWrite(tree: StageTree): void {
+  tree.written.add("AGENTS.md")
+  tree.written.add("vivicy.json")
+}
+
+// Recorded BEFORE the skills CLI runs, since it is the writer either way: a half-written bundle a failed install left behind is the stage's own residue, and leaving it uncommitted would re-open the very refusal this absorption closes.
+function recordSkillWrite(tree: StageTree, skill: string): void {
+  const segment = safeSkillSegment(skill)
+  if (segment === null) return
+  tree.skills.add(segment)
+  tree.written.add(SKILLS_CLI_LOCKFILE)
+  tree.written.add(`${AGENT_SKILLS_DIR}/${segment}`)
+  for (const dir of PER_AGENT_SKILL_DIRS) tree.written.add(`${dir}/${segment}`)
+}
+
+// A skill name becomes a pathspec and a symlink path here: `.` and `..` satisfy SKILL_ID_RE and would name the parent directory.
+function safeSkillSegment(skill: string): string | null {
+  return /^[\w.-]+$/.test(skill) && skill !== "." && skill !== ".." ? skill : null
+}
+
+function runGit(repoRoot: string, args: string[], input?: string): { status: number; stdout: string; stderr: string } {
+  const r = spawnSync("git", args, { cwd: repoRoot, encoding: "utf8", input })
+  return { status: r.status ?? 1, stdout: r.stdout ?? "", stderr: r.stderr ?? "" }
+}
+
+function realpathOrNull(path: string): string | null {
+  try {
+    return realpathSync(path)
+  } catch {
+    return null
+  }
+}
+
+// A target nested under a FOREIGN parent repo resolves to that parent's top level; committing there would write the owner's unrelated history, so the absorber only ever acts on a repo the target itself roots. Both sides are realpath'd because macOS spells /tmp two ways.
+function ownsGitRepo(repoRoot: string): boolean {
+  const top = runGit(repoRoot, ["rev-parse", "--show-toplevel"])
+  if (top.status !== 0) return false
+  const resolved = realpathOrNull(top.stdout.trim())
+  return resolved !== null && resolved === realpathOrNull(repoRoot)
+}
+
+// -uall because an untracked DIRECTORY otherwise arrives as one entry that `git add` re-globs, swallowing whatever appeared under it since the read; -z because a skill bundle may ship any filename and plain porcelain quotes those.
+function dirtyPaths(repoRoot: string, pathspecs: readonly string[]): string[] {
+  if (pathspecs.length === 0) return []
+  const status = runGit(repoRoot, ["status", "--porcelain", "-z", "--untracked-files=all", "--", ...pathspecs])
+  return status.status === 0 ? porcelainPaths(status.stdout) : []
+}
+
+// Rename and copy entries carry their ORIGIN path in the next NUL field; both sides need staging.
+function porcelainPaths(stdout: string): string[] {
+  const fields = stdout.split("\0")
+  const paths: string[] = []
+  for (let i = 0; i < fields.length; i += 1) {
+    const field = fields[i]
+    if (field.length < 4) continue
+    paths.push(field.slice(3))
+    const state = field.slice(0, 2)
+    if (state.includes("R") || state.includes("C")) {
+      i += 1
+      if (fields[i]) paths.push(fields[i])
+    }
+  }
+  return paths
+}
+
+// `npx skills add` is a third-party writer and the absorption commits whatever it left: an ABSOLUTE link would put this machine's paths in the owner's history and dangle in every clone and every per-issue worktree. Only the links THIS run wrote are considered — an owner's own skill link in the same directory is not Vivicy's to rewrite — and a link out of the repo, or onto nothing, is left alone since relativizing either would still not resolve.
+function relativizeSkillLinks(tree: StageTree): string[] {
+  const root = realpathOrNull(tree.repoRoot)
+  if (root === null) return []
+  const relativized: string[] = []
+  for (const rel of PER_AGENT_SKILL_DIRS) {
+    const dir = realpathOrNull(resolve(root, rel))
+    if (dir === null) continue
+    for (const skill of tree.skills) {
+      const link = resolve(dir, skill)
+      try {
+        if (!lstatSync(link).isSymbolicLink() || !isAbsolute(readlinkSync(link))) continue
+        const target = realpathSync(link)
+        const inside = relative(root, target)
+        if (inside.length === 0 || inside.startsWith("..") || isAbsolute(inside)) continue
+        const temp = resolve(dir, `${MANAGED_TEMP_PREFIX}${process.pid}.${skill}`)
+        rmSync(temp, { force: true })
+        symlinkSync(relative(dir, target), temp)
+        renameSync(temp, link)
+        relativized.push(`${rel}/${skill}`)
+      } catch {}
+    }
+  }
+  return relativized
+}
+
+// The stage's last act, reached from a `finally` so a throw closes it too: one commit over what THIS run wrote and the owner had not already touched, so the dev loop's clean-tree gate is not refused for bytes Vivicy wrote unasked and a worktree cut from HEAD carries the skills. Absorbing nothing is the normal steady state — no dirty path of ours means no commit at all, so a replayed run adds no empty commit.
+function settleStageTree(tree: StageTree): void {
+  const relativized = relativizeSkillLinks(tree)
+  if (relativized.length > 0) {
+    process.stderr.write(
+      `install-skills: rewrote ${countOf(relativized.length, "per-agent skill link", "per-agent skill links")} to a repo-relative target before committing (${relativized.join(", ")})\n`
+    )
+  }
+  if (!tree.owns) return
+  const dirty = dirtyPaths(tree.repoRoot, [...tree.written])
+  const mine = dirty.filter((path) => !tree.baseline.has(path))
+  const theirs = dirty.length - mine.length
+  if (theirs > 0) {
+    process.stderr.write(
+      `install-skills: left ${countOf(theirs, "path", "paths")} uncommitted — already modified before this run, so they are the owner's to commit, never the skills stage's\n`
+    )
+  }
+  if (mine.length === 0) return
+  ensureLocalGitIdentity(tree.repoRoot)
+  // Both commands take the pathspec through stdin, never argv (a bundle's file count has no upper bound) and never `-A`/a bare commit (`git add -A` would swallow the owner's in-flight work, and a pathspec-less commit would sweep in whatever they had already staged — including the .env.example lib/scaffold.ts stages deliberately without committing).
+  const spec = mine.join("\0")
+  const add = runGit(tree.repoRoot, ["add", "--pathspec-from-file=-", "--pathspec-file-nul"], spec)
+  const message = tree.removal ? SKILLS_REMOVE_COMMIT_MESSAGE : SKILLS_INSTALL_COMMIT_MESSAGE
+  const commit =
+    add.status === 0
+      ? runGit(tree.repoRoot, ["commit", "--only", "--pathspec-from-file=-", "--pathspec-file-nul", "-m", message], spec)
+      : null
+  const empty = commit !== null && commit.status !== 0 && /nothing to commit|no changes added/i.test(`${commit.stdout}\n${commit.stderr}`)
+  const failed = add.status !== 0 ? add : commit !== null && commit.status !== 0 && !empty ? commit : null
+  if (failed) {
+    process.stderr.write(
+      `install-skills: could not absorb the project-skills stage writes (${countOf(mine.length, "path", "paths")}); the dev loop will refuse this dirty tree: ${`${failed.stderr}\n${failed.stdout}`.trim()}\n`
+    )
+    return
+  }
+  if (empty) return
+  const roots = [...new Set(mine.map((path) => path.split("/")[0]))].sort()
+  process.stderr.write(
+    `install-skills: absorbed ${countOf(mine.length, "path", "paths")} of the project-skills stage into one commit (${roots.join(", ")})\n`
+  )
 }
 
 function dropRequiredSkills(repoRoot: string, drop: Set<string>): string[] {

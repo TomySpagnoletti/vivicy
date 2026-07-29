@@ -67,6 +67,23 @@ describe("detectSpecKind — git witness", () => {
     writeFileSync(path.join(repo, "scratch.ts"), "// not yet part of the product\n")
     expect(detectSpecKind(repo)).toBe("project")
   })
+
+  it("the skills stage committing its own footprint never flips a greenfield repo to a feature spec", () => {
+    gitInit()
+    commitFile("AGENTS.md", "# agents\n")
+    commitFile("vivicy.json", '{"gateCommand":null}\n')
+    expect(detectSpecKind(repo), "precondition: greenfield").toBe("project")
+
+    commitFile(".agents/skills/xlsx/SKILL.md", "---\nname: xlsx\n---\n")
+    commitFile(".agents/skills/xlsx/scripts/recalc.py", "print(1)\n")
+    commitFile(".claude/skills/xlsx", "../../.agents/skills/xlsx")
+    commitFile(".codex/skills/xlsx", "../../.agents/skills/xlsx")
+    commitFile("skills-lock.json", '{"version":1,"skills":{}}\n')
+    expect(detectSpecKind(repo), "installed skills are Vivicy's own output, never the owner's product code").toBe("project")
+
+    commitFile("src/index.ts", "export const a = 1\n")
+    expect(detectSpecKind(repo), "and real product code still flips it").toBe("feature")
+  })
 })
 
 describe("detectSpecKind — filesystem fallback (no git)", () => {

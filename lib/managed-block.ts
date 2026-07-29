@@ -2,6 +2,9 @@
 // `.gitignore` FIRST, and the order is load-bearing: it is the file that carries the never-commit rules, so writing it last would leave every other managed file's atomic-write temp uncovered on the pass that installs the block.
 export const MANAGED_GOVERNANCE_FILES = [".gitignore", "AGENTS.md", "CLAUDE.md"] as const
 
+// Basename prefix of every Vivicy artifact published by rename; the managed ignore block excludes `<prefix>*`, so a temp a crash abandoned is never committable.
+export const MANAGED_TEMP_PREFIX = ".vivicy-tmp."
+
 export type ManagedGovernanceFile = (typeof MANAGED_GOVERNANCE_FILES)[number]
 
 export interface MarkerPair {

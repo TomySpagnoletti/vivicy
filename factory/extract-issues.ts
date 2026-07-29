@@ -930,7 +930,7 @@ function ensureGitRepo(repoRoot: string): boolean {
   return runGit(repoRoot, ["init"]).status === 0
 }
 
-function ensureLocalGitIdentity(repoRoot: string): void {
+export function ensureLocalGitIdentity(repoRoot: string): void {
   if (runGit(repoRoot, ["config", "user.email"]).stdout.trim() === "") {
     runGit(repoRoot, ["config", "user.email", "vivicy@local"])
   }

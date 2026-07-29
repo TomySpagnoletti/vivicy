@@ -28,6 +28,7 @@ import {
   extractManagedBlock,
   GITIGNORE_MARKERS,
   MANAGED_GOVERNANCE_FILES,
+  MANAGED_TEMP_PREFIX,
   METHOD_MARKERS,
   type ManagedGovernanceFile,
   type ManagedSpec,
@@ -135,9 +136,6 @@ export function detectGateCommand(targetRoot: string): string | null {
   }
   return null
 }
-
-// Single-sourced into the ignore line below: a temp the essential block does not cover is a committable crash artifact.
-const MANAGED_TEMP_PREFIX = ".vivicy-tmp."
 
 // Single-sourced into the greenfield .gitignore AND the brownfield block, which is why it carries EXCLUDES only apart from the proofs recipe: the block is appended at EOF, so a `!` line here would silently override an owner rule above it and hand `git add -A` a file they deliberately ignored. A superfluous entry drops a real output from history.
 const VIVICY_ESSENTIAL_IGNORES = `# Secrets: dotenv (.env, .env.*) and direnv (.envrc) hold real values, and the loop runs git add -A at every checkpoint, so anything here would be committed and pushed. Keep a placeholder template in history by tracking it once (git add -f .env.example), never by re-including it here.

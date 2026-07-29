@@ -1,8 +1,20 @@
 import assert from "node:assert/strict"
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync, mkdtempSync } from "node:fs"
+import { spawnSync } from "node:child_process"
+import {
+  chmodSync,
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  readlinkSync,
+  rmSync,
+  writeFileSync,
+  mkdtempSync,
+} from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join, resolve } from "node:path"
-import { afterEach, beforeEach, describe, it } from "node:test"
+import { after, afterEach, beforeEach, describe, it } from "node:test"
 
 import {
   applySkillsBlock,
@@ -750,5 +762,402 @@ describe("stage summaries agree in number", () => {
       emitReport: (r) => removals.push(r.summary),
     })
     assert.ok(removals.includes("removing 2 skills"), removals.join(" | "))
+  })
+})
+
+const HERMETIC_GIT_HOME = mkdtempSync(join(tmpdir(), "vivicy-skills-git-home-"))
+
+after(() => {
+  rmSync(HERMETIC_GIT_HOME, { recursive: true, force: true })
+})
+
+// HOME and XDG_CONFIG_HOME are redirected, not just the config files: git reads its DEFAULT per-user excludes ($XDG_CONFIG_HOME/git/ignore, else $HOME/.config/git/ignore) whether or not core.excludesFile is set, and a per-user rule can only ADD ignores — which silently turns the "tree clean" assertion below green. The identity vars go too, so the absorption really has to establish one. process.env itself is mutated because the stage spawns its own git and npx children with the inherited environment.
+async function withHermeticGitEnv<T>(fn: () => Promise<T>): Promise<T> {
+  const overrides: Record<string, string | undefined> = {
+    HOME: HERMETIC_GIT_HOME,
+    XDG_CONFIG_HOME: HERMETIC_GIT_HOME,
+    GIT_CONFIG_GLOBAL: "/dev/null",
+    GIT_CONFIG_SYSTEM: "/dev/null",
+    GIT_CONFIG_NOSYSTEM: "1",
+    GIT_AUTHOR_EMAIL: undefined,
+    GIT_AUTHOR_NAME: undefined,
+    GIT_COMMITTER_EMAIL: undefined,
+    GIT_COMMITTER_NAME: undefined,
+  }
+  const previous = new Map(Object.keys(overrides).map((key) => [key, process.env[key]]))
+  const apply = (key: string, value: string | undefined): void => {
+    if (value === undefined) delete process.env[key]
+    else process.env[key] = value
+  }
+  for (const [key, value] of Object.entries(overrides)) apply(key, value)
+  try {
+    return await fn()
+  } finally {
+    for (const [key, value] of previous) apply(key, value)
+  }
+}
+
+function git(root: string, args: string[]): { status: number; stdout: string; stderr: string } {
+  const r = spawnSync("git", args, { cwd: root, encoding: "utf8" })
+  return { status: r.status ?? 1, stdout: r.stdout ?? "", stderr: r.stderr ?? "" }
+}
+
+const OWNER_AGENTS_MD = `# demo Development Operating Guide
+
+<!-- vivicy:method:begin -->
+## Working under Vivicy
+
+The product truth is the frozen canonical spec.
+<!-- vivicy:method:end -->
+
+## House rules the owner wrote
+
+Run the linter before pushing.
+`
+
+// Reproduces the layout MEASURED from `npx skills add` (bundle under .agents/skills, a per-agent link, a root lockfile); the link target is the one variable, since the guard under test reads exactly that.
+function writeSkillsCliStub(root: string, linkTarget: "relative" | "absolute"): void {
+  const bin = resolve(root, "node_modules/.bin")
+  mkdirSync(bin, { recursive: true })
+  const script = `#!/usr/bin/env node
+import { mkdirSync, symlinkSync, writeFileSync } from "node:fs"
+import { resolve } from "node:path"
+const argv = process.argv.slice(2)
+const source = argv[1]
+const skill = argv[argv.indexOf("--skill") + 1]
+const root = process.cwd()
+const bundle = resolve(root, ".agents/skills", skill)
+mkdirSync(resolve(bundle, "scripts"), { recursive: true })
+writeFileSync(resolve(bundle, "SKILL.md"), \`---\\nname: \${skill}\\ndescription: bundle from \${source}\\n---\\n\`)
+writeFileSync(resolve(bundle, "LICENSE.txt"), "MIT\\n")
+writeFileSync(resolve(bundle, "scripts/recalc.py"), "print('recalc')\\n")
+for (const agent of [".claude"${linkTarget === "absolute" ? ', ".codex"' : ""}]) {
+  mkdirSync(resolve(root, agent, "skills"), { recursive: true })
+  symlinkSync(${linkTarget === "absolute" ? "bundle" : "`../../.agents/skills/${skill}`"}, resolve(root, agent, "skills", skill))
+}
+writeFileSync(resolve(root, "skills-lock.json"), \`\${JSON.stringify({ version: 1, skills: { [skill]: { source, sourceType: "github" } } }, null, 2)}\\n\`)
+console.log(\`Added \${source} (\${skill})\`)
+`
+  const path = resolve(bin, "skills")
+  writeFileSync(path, script)
+  chmodSync(path, 0o755)
+}
+
+function runStubSkillsCli({ repoRoot, source, skill }: { repoRoot: string; source: string; skill: string }): {
+  code: number
+  output?: string
+} {
+  const r = spawnSync(resolve(repoRoot, "node_modules/.bin/skills"), ["add", source, "--skill", skill, "-y"], {
+    cwd: repoRoot,
+    encoding: "utf8",
+  })
+  return { code: r.status ?? 1, output: `${r.stdout ?? ""}\n${r.stderr ?? ""}`.trim() }
+}
+
+function initGovernedGitTarget(): void {
+  writeFileSync(resolve(repo, ".gitignore"), "node_modules\n.vivicy-tmp.*\n.vivicy/development/transcripts/\n")
+  writeFileSync(resolve(repo, "AGENTS.md"), OWNER_AGENTS_MD)
+  writeJson("vivicy.json", { gateCommand: "npm test" })
+  mkdirSync(resolve(repo, ".vivicy/development/reports"), { recursive: true })
+  writeFileSync(resolve(repo, ".vivicy/development/reports/.gitkeep"), "")
+  git(repo, ["init", "-q"])
+  git(repo, ["add", "-A"])
+  git(repo, ["-c", "user.email=owner@local", "-c", "user.name=Owner", "commit", "-qm", "owner: governed target before the skills stage"])
+}
+
+describe("absorption + worktree delivery (real git target, real skills-CLI seam)", () => {
+  it("the stage ends on a clean tree and a worktree cut from HEAD carries the bundle, the links and both managed blocks", async () => {
+    await withHermeticGitEnv(async () => {
+      initGovernedGitTarget()
+      writeSkillsCliStub(repo, "relative")
+      assert.equal(git(repo, ["status", "--porcelain"]).stdout.trim(), "", "precondition: the owner's tree is clean")
+      assert.equal(git(repo, ["config", "user.email"]).stdout.trim(), "", "precondition: no git identity is configured")
+
+      const report = await installSkills({ repoRoot: repo, ids: ["acme/pack@spreadsheets"], fetchAudit: fakeAudits() })
+      assert.equal(report.phase, "green", report.summary)
+      assert.deepEqual(
+        report.installed.map((e) => e.id),
+        ["acme/pack@spreadsheets"]
+      )
+
+      assert.equal(git(repo, ["status", "--porcelain"]).stdout.trim(), "", "the stage absorbed every one of its own writes")
+      assert.equal(git(repo, ["config", "user.email"]).stdout.trim(), "vivicy@local", "the absorption established a local identity")
+      assert.equal(git(repo, ["log", "-1", "--format=%s"]).stdout.trim(), "skills: absorb the project-skills stage writes")
+      assert.equal(git(repo, ["rev-list", "--count", "HEAD"]).stdout.trim(), "2", "exactly ONE absorption commit, never one per write")
+
+      const committed = git(repo, ["show", "--name-only", "--format=", "HEAD"])
+        .stdout.split("\n")
+        .map((line) => line.trim())
+        .filter(Boolean)
+        .sort()
+      assert.deepEqual(
+        committed,
+        [
+          ".agents/skills/spreadsheets/LICENSE.txt",
+          ".agents/skills/spreadsheets/SKILL.md",
+          ".agents/skills/spreadsheets/scripts/recalc.py",
+          ".claude/skills/spreadsheets",
+          ".vivicy/development/reports/.gitkeep",
+          ".vivicy/development/reports/skills-report.json",
+          "AGENTS.md",
+          "skills-lock.json",
+          "vivicy.json",
+        ],
+        "the pathspec is exact: the bundle, its link and lockfile, the report, the pruned .gitkeep, and the two governance files — nothing of the owner's"
+      )
+
+      const worktreeParent = mkdtempSync(join(tmpdir(), "vivicy-skills-worktree-"))
+      const worktree = join(worktreeParent, "issue")
+      try {
+        const added = git(repo, ["worktree", "add", "--detach", "-q", worktree, "HEAD"])
+        assert.equal(added.status, 0, added.stderr)
+
+        assert.match(readFileSync(join(worktree, ".agents/skills/spreadsheets/SKILL.md"), "utf8"), /name: spreadsheets/)
+        assert.ok(existsSync(join(worktree, ".agents/skills/spreadsheets/scripts/recalc.py")), "the whole bundle rides, not just SKILL.md")
+        assert.equal(readlinkSync(join(worktree, ".claude/skills/spreadsheets")), "../../.agents/skills/spreadsheets")
+        assert.ok(existsSync(join(worktree, ".claude/skills/spreadsheets/SKILL.md")), "the per-agent link resolves inside the worktree")
+
+        const agents = readFileSync(join(worktree, "AGENTS.md"), "utf8")
+        assert.match(agents, /<!-- vivicy:method:begin -->/, "the method block survives in the delivered document")
+        assert.match(agents, /<!-- vivicy:skills:begin -->/, "and the skills block is delivered beside it")
+        assert.match(agents, /## House rules the owner wrote/, "the owner's own prose is untouched between the two blocks")
+        assert.match(agents, /\*\*spreadsheets\*\* \(`acme\/pack@spreadsheets`, community\) — explicitly requested/)
+
+        const config = JSON.parse(readFileSync(join(worktree, "vivicy.json"), "utf8")) as Record<string, unknown>
+        assert.deepEqual(config.requiredSkills, ["acme/pack@spreadsheets"])
+        assert.equal(config.gateCommand, "npm test", "the owner's own vivicy.json fields ride through untouched")
+      } finally {
+        git(repo, ["worktree", "remove", "--force", worktree])
+        rmSync(worktreeParent, { recursive: true, force: true })
+      }
+    })
+  })
+
+  it("an ABSOLUTE per-agent link is relativized before it can reach history", async () => {
+    await withHermeticGitEnv(async () => {
+      initGovernedGitTarget()
+      writeSkillsCliStub(repo, "absolute")
+
+      const report = await installSkills({ repoRoot: repo, ids: ["acme/pack@spreadsheets"], fetchAudit: fakeAudits() })
+      assert.equal(report.phase, "green", report.summary)
+
+      assert.equal(git(repo, ["status", "--porcelain"]).stdout.trim(), "", "the stage still ends clean")
+      for (const rel of [".claude/skills/spreadsheets", ".codex/skills/spreadsheets"]) {
+        assert.equal(lstatSync(resolve(repo, rel)).isSymbolicLink(), true, `${rel} is still a symlink`)
+        assert.equal(readlinkSync(resolve(repo, rel)), "../../.agents/skills/spreadsheets", `${rel} was relativized on disk`)
+        assert.equal(
+          git(repo, ["show", `HEAD:${rel}`]).stdout,
+          "../../.agents/skills/spreadsheets",
+          `${rel} landed in history as a relative link, so a clone on another machine still resolves it`
+        )
+      }
+      assert.deepEqual(
+        readdirSync(resolve(repo, ".claude/skills")),
+        ["spreadsheets"],
+        "the atomic replacement leaves no temp beside the link"
+      )
+    })
+  })
+
+  it("absorbs what THIS RUN wrote — owner work INSIDE the very directories the stage uses is never captured", async () => {
+    await withHermeticGitEnv(async () => {
+      initGovernedGitTarget()
+      // The owner's own Claude Code project skill, tracked and mid-edit: `.claude/skills` is THEIR directory too, the stage only ever puts links there named after what it installed.
+      mkdirSync(resolve(repo, ".claude/skills/owner-writing-style"), { recursive: true })
+      writeFileSync(resolve(repo, ".claude/skills/owner-writing-style/SKILL.md"), "committed draft\n")
+      git(repo, ["add", "-A"])
+      git(repo, ["-c", "user.email=owner@local", "-c", "user.name=Owner", "commit", "-qm", "owner: my own project skill"])
+      writeSkillsCliStub(repo, "relative")
+
+      writeFileSync(resolve(repo, ".claude/skills/owner-writing-style/SKILL.md"), "half-written revision\n")
+      mkdirSync(resolve(repo, ".claude/skills/owner-untracked-skill"), { recursive: true })
+      writeFileSync(resolve(repo, ".claude/skills/owner-untracked-skill/SKILL.md"), "brand new, still mine\n")
+      mkdirSync(resolve(repo, ".agents/skills/owner-hand-written"), { recursive: true })
+      writeFileSync(resolve(repo, ".agents/skills/owner-hand-written/SKILL.md"), "hand-authored, not installed\n")
+      writeFileSync(resolve(repo, "AGENTS.md"), `${OWNER_AGENTS_MD}\nA paragraph the owner is still writing.\n`)
+      writeJson("vivicy.json", { gateCommand: "npm test", runCommand: "npm start" })
+
+      const report = await installSkills({ repoRoot: repo, ids: ["acme/pack@spreadsheets"], fetchAudit: fakeAudits() })
+      assert.equal(report.phase, "green", report.summary)
+
+      const committed = git(repo, ["show", "--name-only", "--format=", "HEAD"])
+        .stdout.split("\n")
+        .map((line) => line.trim())
+        .filter(Boolean)
+        .sort()
+      assert.deepEqual(
+        committed,
+        [
+          ".agents/skills/spreadsheets/LICENSE.txt",
+          ".agents/skills/spreadsheets/SKILL.md",
+          ".agents/skills/spreadsheets/scripts/recalc.py",
+          ".claude/skills/spreadsheets",
+          ".vivicy/development/reports/.gitkeep",
+          ".vivicy/development/reports/skills-report.json",
+          "skills-lock.json",
+        ],
+        "only this run's own bundle, link, lockfile and report — the two governance files were already the owner's manuscript when the run opened"
+      )
+      assert.deepEqual(
+        git(repo, ["status", "--porcelain"])
+          .stdout.split("\n")
+          .map((line) => line.trim())
+          .filter(Boolean)
+          .sort(),
+        [
+          "?? .agents/skills/owner-hand-written/",
+          "?? .claude/skills/owner-untracked-skill/",
+          "M .claude/skills/owner-writing-style/SKILL.md",
+          "M AGENTS.md",
+          "M vivicy.json",
+        ],
+        "every owner path stays uncommitted for them to resolve — the dirty-tree refusal on their own work is correct behavior"
+      )
+      assert.equal(
+        readFileSync(resolve(repo, ".claude/skills/owner-writing-style/SKILL.md"), "utf8"),
+        "half-written revision\n",
+        "and their bytes are untouched"
+      )
+    })
+  })
+
+  it("owner work that appears DURING the run is not captured either — the pathspec is what the stage wrote, not where it writes", async () => {
+    await withHermeticGitEnv(async () => {
+      initGovernedGitTarget()
+      writeSkillsCliStub(repo, "relative")
+
+      const report = await installSkills({
+        repoRoot: repo,
+        ids: ["acme/pack@spreadsheets"],
+        fetchAudit: fakeAudits(),
+        // The stage runs detached while the owner keeps working: this fires mid-run, after the pre-stage snapshot was taken, so only the causal pathspec can exclude it.
+        runInstall: (args) => {
+          mkdirSync(resolve(repo, ".claude/skills/owner-mid-run"), { recursive: true })
+          writeFileSync(resolve(repo, ".claude/skills/owner-mid-run/SKILL.md"), "written while the install ran\n")
+          return runStubSkillsCli(args)
+        },
+      })
+      assert.equal(report.phase, "green", report.summary)
+
+      const committed = git(repo, ["show", "--name-only", "--format=", "HEAD"]).stdout
+      assert.ok(!committed.includes("owner-mid-run"), "a skill directory the stage never installed is not the stage's to commit")
+      assert.match(committed, /^AGENTS\.md$/m, "while AGENTS.md, which this run really did rewrite, is absorbed")
+      assert.deepEqual(
+        git(repo, ["status", "--porcelain"])
+          .stdout.split("\n")
+          .map((line) => line.trim())
+          .filter(Boolean),
+        ["?? .claude/skills/owner-mid-run/"],
+        "only the owner's mid-run file is left for them"
+      )
+    })
+  })
+
+  it("a run that installs NOTHING commits its report and touches neither governance file", async () => {
+    await withHermeticGitEnv(async () => {
+      initGovernedGitTarget()
+      writeSkillsCliStub(repo, "relative")
+      const agentsBefore = readFileSync(resolve(repo, "AGENTS.md"), "utf8")
+
+      const report = await installSkills({
+        repoRoot: repo,
+        ids: ["acme/pack@spreadsheets"],
+        fetchAudit: async () => ({ found: true, audits: [{ provider: "gateseal", status: "fail" }] }),
+      })
+      assert.equal(report.phase, "green", report.summary)
+      assert.deepEqual(report.installed, [], "the red audit refused the only candidate")
+
+      assert.deepEqual(
+        git(repo, ["show", "--name-only", "--format=", "HEAD"])
+          .stdout.split("\n")
+          .map((line) => line.trim())
+          .filter(Boolean)
+          .sort(),
+        [".vivicy/development/reports/.gitkeep", ".vivicy/development/reports/skills-report.json"],
+        "nothing was installed, so AGENTS.md and vivicy.json were never written and never staged"
+      )
+      assert.equal(readFileSync(resolve(repo, "AGENTS.md"), "utf8"), agentsBefore)
+      assert.equal(git(repo, ["status", "--porcelain"]).stdout.trim(), "")
+    })
+  })
+
+  it("commits its own staged set only — work the owner had already staged stays staged and uncommitted", async () => {
+    await withHermeticGitEnv(async () => {
+      initGovernedGitTarget()
+      writeSkillsCliStub(repo, "relative")
+      writeFileSync(resolve(repo, "NOTES.md"), "the owner staged this for their own commit\n")
+      git(repo, ["add", "--", "NOTES.md"])
+
+      const report = await installSkills({ repoRoot: repo, ids: ["acme/pack@spreadsheets"], fetchAudit: fakeAudits() })
+      assert.equal(report.phase, "green", report.summary)
+
+      assert.ok(
+        !git(repo, ["show", "--name-only", "--format=", "HEAD"]).stdout.includes("NOTES.md"),
+        "a pathspec-less commit would have swept the whole index into the skills commit"
+      )
+      assert.equal(git(repo, ["status", "--porcelain"]).stdout.trim(), "A  NOTES.md", "their staged file is exactly as they left it")
+    })
+  })
+
+  it("a throw after the first report write still settles the tree — exception is a closed path, not a dirty one", async () => {
+    await withHermeticGitEnv(async () => {
+      initGovernedGitTarget()
+      writeSkillsCliStub(repo, "relative")
+      const boom = new Error("scout leg has no prompt file")
+
+      await assert.rejects(
+        installSkills({
+          repoRoot: repo,
+          ids: ["acme/pack@spreadsheets"],
+          fetchAudit: fakeAudits(),
+          runInstall: () => {
+            throw boom
+          },
+        }),
+        (error: unknown) => error === boom
+      )
+
+      assert.equal(
+        git(repo, ["status", "--porcelain"]).stdout.trim(),
+        "",
+        "the report the failed run wrote was absorbed, not left to refuse the next Run"
+      )
+      assert.deepEqual(
+        git(repo, ["show", "--name-only", "--format=", "HEAD"])
+          .stdout.split("\n")
+          .map((line) => line.trim())
+          .filter(Boolean)
+          .sort(),
+        [".vivicy/development/reports/.gitkeep", ".vivicy/development/reports/skills-report.json"]
+      )
+    })
+  })
+
+  it("a removal commit says what a removal did", async () => {
+    await withHermeticGitEnv(async () => {
+      initGovernedGitTarget()
+      writeSkillsCliStub(repo, "relative")
+      await installSkills({ repoRoot: repo, ids: ["acme/pack@spreadsheets"], fetchAudit: fakeAudits() })
+
+      const report = await removeSkills({
+        repoRoot: repo,
+        ids: ["acme/pack@spreadsheets"],
+        runRemove: ({ skill }) => {
+          rmSync(resolve(repo, ".agents/skills", skill), { recursive: true, force: true })
+          rmSync(resolve(repo, ".claude/skills", skill), { force: true })
+          return { code: 0, output: "removed" }
+        },
+      })
+      assert.equal(report.phase, "green", report.summary)
+
+      const body = git(repo, ["log", "-1", "--format=%B"]).stdout
+      assert.match(body, /^skills: absorb the project-skills removal\n/)
+      assert.match(body, /the deleted bundle and per-agent links, the shrunken vivicy\.json requiredSkills/)
+      assert.ok(!body.includes("Installed skill bundles"), "the install wording never rides a removal")
+      assert.equal(git(repo, ["status", "--porcelain"]).stdout.trim(), "")
+      const removed = git(repo, ["show", "--name-status", "--format=", "HEAD"]).stdout
+      assert.match(removed, /^D\t\.agents\/skills\/spreadsheets\/SKILL\.md$/m)
+      assert.match(removed, /^D\t\.claude\/skills\/spreadsheets$/m)
+    })
   })
 })
