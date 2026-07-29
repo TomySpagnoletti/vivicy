@@ -4,7 +4,6 @@
   "private": true,
   "type": "module",
   "description": "Rehearsal fixture: a tiny personal expense tracker library used to exercise the Vivicy development method end-to-end.",
-  "license": "MIT",
   "scripts": {
     "test": "node --test"
   }

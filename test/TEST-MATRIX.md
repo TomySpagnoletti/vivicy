@@ -1,6 +1,6 @@
 # Vivicy — exhaustive test matrix
 
-Reconciled fingerprint: `4082d8120979c991f34c659fa8e06cb712e575201f68adfe1e25a82394552967` @ commit `2c827c948ac89e1bb0b61406287f688bea06fac5`
+Reconciled fingerprint: `4823214fcb783d105662ad9d340498686dc32cdc896e264e6ebf93736d69d3b5` @ commit `8586d4c9535c7ca6607b7cf711439a009571c969`
 
 
 This file is the exhaustive, always-current inventory of every test case for Vivicy — every behavior the system has, whether it is covered by a test today or is a known GAP. It is **committed and machine-guarded**: the `Reconciled fingerprint` line above hashes the behavior-bearing source tree and records the HEAD commit at reconciliation time, and `scripts/test-matrix.test.ts` fails the vitest suite when code changes without this file being reconciled and re-stamped (`npm run matrix:stamp`). `git log test/TEST-MATRIX.md` is the audit trail of reconciliations. It is the single source of truth for "what should be tested" across the app (`app/`, `components/`, `lib/`) and the factory (`factory/`). It was assembled from a full per-area audit pass plus three adversarial cross-matrices (user journeys, parallel/merge chaos, process/crash chaos).
@@ -21,7 +21,7 @@ This file is the exhaustive, always-current inventory of every test case for Viv
 | cli-supervisor-process-infra | 485 | 233 | 252 |
 | control-plane-api-routes | 487 | 226 | 261 |
 | dev-loop-worktrees-merge | 373 | 138 | 235 |
-| e2e-test-infra-rehearsal | 324 | 102 | 222 |
+| e2e-test-infra-rehearsal | 327 | 102 | 225 |
 | extraction-gates | 314 | 160 | 154 |
 | map-ui-data-viewer | 293 | 186 | 107 |
 | onboarding-project-scaffold | 357 | 174 | 183 |
@@ -30,7 +30,7 @@ This file is the exhaustive, always-current inventory of every test case for Viv
 | cross-journeys | 80 | 63 | 17 |
 | cross-chaos-parallel-merge | 47 | 32 | 15 |
 | cross-chaos-process | 45 | 42 | 3 |
-| **TOTAL** | **4087** | **2102** | **1985** |
+| **TOTAL** | **4090** | **2102** | **1988** |
 
 ---
 
@@ -2653,7 +2653,7 @@ Files read in full: factory/dev-loop.ts (3602 lines), factory/dev-loop.test.ts (
 
 ## Area: e2e-test-infra-rehearsal
 
-Scope: the Playwright e2e specs and their shared infra (config, global-setup, helpers), the Vitest unit config, the Next.js config seams that support e2e, package.json scripts, the guard that keeps every factory test file wired into exactly one of the two runners (factory/test-wiring.test.ts), the artifact-cleaning wrapper, and the factory's own end-to-end rehearsal harness plus its two bundled fixtures (formula, pocket-ledger) and the temp-tree cleanup primitive both it and the artifact wrapper remove every tree through (factory/cleanup-tree.ts, factory/cleanup-tree.test.ts) — i.e. the tests OF the test infrastructure, and the infrastructure's own testable behaviors.
+Scope: the Playwright e2e specs and their shared infra (config, global-setup, helpers), the Vitest unit config, the Next.js config seams that support e2e, package.json scripts, the repo's own root metadata carriers (the LICENSE text, `package.json#license`, the README line that summarizes them), the guard that keeps every factory test file wired into exactly one of the two runners (factory/test-wiring.test.ts), the artifact-cleaning wrapper, and the factory's own end-to-end rehearsal harness plus its two bundled fixtures (formula, pocket-ledger) and the temp-tree cleanup primitive both it and the artifact wrapper remove every tree through (factory/cleanup-tree.ts, factory/cleanup-tree.test.ts) — i.e. the tests OF the test infrastructure, and the infrastructure's own testable behaviors.
 
 ### e2e/control.spec.ts
 
@@ -2903,6 +2903,12 @@ Scope: the Playwright e2e specs and their shared infra (config, global-setup, he
 - [e2e-test-infra-rehearsal.206] `factory:rehearsal`, `factory:rehearsal:formula`, `factory:rehearsal:all` scripts wire `dev-rehearsal.ts` with `--fixture=formula` and both-in-sequence variants | each script invokes the correct fixture argument | e2e-process | package.json (mirrors dev-rehearsal.ts's own `--fixture=` parsing, see below)
 - [e2e-test-infra-rehearsal.207] `engines.node: ">=24"` is declared but nothing in the repo's scripts enforces it at invocation time (no preinstall/prestart engine-strict check) | GAP: running any script on Node < 24 (e.g. Node 20 LTS) is not guarded — the factory relies on Node 24+ native TS type-stripping per the repo's own commit history ("migrate the factory from plain-JS .mjs to TypeScript (Node 24+ type stripping)") — an engine mismatch would fail with a confusing runtime error rather than a clear preflight message | e2e-process | GAP
 - [e2e-test-infra-rehearsal.208] `bin.vivicy: factory/cli.ts` — the published CLI entry point executing correctly when installed as a global/npx package (shebang + Node type-stripping interplay) | GAP: not covered by any file in this area; no e2e/integration test invokes the package via its `bin` entry as an external consumer would | e2e-process | GAP (adjacent area — factory/cli.test.ts likely covers this internally, but not from the `bin` entry point itself)
+
+### LICENSE + package.json#license + README.md (license identity)
+
+- [e2e-test-infra-rehearsal.351] The repo states one legal fact through three carriers — the LICENSE text, the `license` field a packaging tool reads, and the README line a human reads — so the LICENSE is made the SOLE source: it names its own identifier under the `## Abbreviation` heading the Functional Source License template already carries, and the other two are derived-and-checked rather than independently authored | the abbreviation resolves to a bare identifier token (`/^[A-Za-z0-9.+-]+$/`), never a prose line, so a LICENSE that lost or reworded that section fails loudly instead of silently handing the other cases an empty string to agree with | unit | scripts/license-metadata.test.ts ("names its own identifier, so every other carrier has something to derive from") — mutation-proven: emptying the `## Abbreviation` section reds all three cases of the file
+- [e2e-test-infra-rehearsal.352] `package.json#license` equals the identifier the LICENSE text declares — the machine-readable half, and the one a relicense is most likely to leave behind since nothing in the app or the factory ever reads it | equal as exact strings | unit | scripts/license-metadata.test.ts ("is what package.json declares, never a second opinion the tooling would read instead") — mutation-proven: restoring the pre-relicense value reds exactly this case
+- [e2e-test-infra-rehearsal.353] The README's licensing line names that same identifier AND links to the file it summarizes (`[<identifier>](./LICENSE)`) — the human-readable half, where a plain-language summary can outlive the terms it paraphrases | the README contains that exact link form | unit | scripts/license-metadata.test.ts ("is what the README names, in a line linking to the file it summarizes") — mutation-proven: naming a different identifier in that line reds exactly this case
 
 ### factory/test-wiring.test.ts
 
