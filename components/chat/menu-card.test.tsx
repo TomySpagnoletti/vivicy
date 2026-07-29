@@ -193,20 +193,20 @@ describe("MenuCardPile — the count made physical, bounded by the row that pain
     const view = renderWithClamp(stack(-3))
     expect(view.pile).toHaveAttribute("data-depth", "0")
     expect(sheets()).toHaveLength(0)
-    expect(view.pile.className).toContain("pb-1")
+    expect(view.pile.className).not.toMatch(/\bpb-/)
   })
 
   test("every sheet's geometry stays inside the pile's own padding, and the live card keeps one width", () => {
     const wide = renderWithClamp(stack(2))
-    expect(wide.pile.className).toContain("px-3")
-    expect(wide.pile.className).toContain("pb-7")
+    expect(wide.pile.className).toContain("px-2")
+    expect(wide.pile.className).toContain("pb-5")
     for (const sheet of sheets()) {
       expect(sheet.className).toContain("inset-x-1.5")
       expect(sheet.className).toContain("absolute")
     }
 
     const bare = renderWithClamp(stack(0))
-    expect(bare.pile.className).toContain("px-3")
+    expect(bare.pile.className).toContain("px-2")
   })
 
   test("the sheets are the same paper as the face, without its content chrome", () => {
@@ -217,6 +217,30 @@ describe("MenuCardPile — the count made physical, bounded by the row that pain
       expect(sheet).toHaveAttribute("aria-hidden", "true")
       expect(sheet).toBeEmptyDOMElement()
     }
+  })
+})
+
+describe("MenuCard — everything a card paints stays inside its own box", () => {
+  test("the root reserves the room the ring and the shadow paint into, and a consumer's padding cannot spend it", () => {
+    render(offer())
+    for (const room of ["px-1", "pt-1", "pb-2"]) expect(root().className).toContain(room)
+
+    document.body.innerHTML = ""
+    render(
+      <MenuCard className="p-0">
+        <MenuCardTitle>Which datastore?</MenuCardTitle>
+      </MenuCard>
+    )
+    for (const room of ["px-1", "pt-1", "pb-2"]) expect(root().className).toContain(room)
+  })
+
+  test("the turn is orthographic: no perspective anywhere on the card, at rest or turned", () => {
+    const view = render(offer())
+    expect(`${root().className} ${flipper().className}`).not.toMatch(/perspective/)
+
+    view.rerender(offer({ turned: true }))
+    expect(`${root().className} ${flipper().className}`).not.toMatch(/perspective/)
+    expect(flipper().className).toContain("motion-safe:rotate-y-180")
   })
 })
 

@@ -110,8 +110,7 @@ describe("QuestionStack — one card at a time, the pile behind it", () => {
     mount(["datastore", "auth", "hosting"])
     expect(pile()).toHaveAttribute("data-depth", "0")
     expect(sheets()).toHaveLength(0)
-    expect(pile().className).toContain("pb-1")
-    expect(pile().className).not.toContain("pb-7")
+    expect(pile().className).not.toMatch(/\bpb-/)
   })
 
   test("a spent stack renders nothing at all", () => {

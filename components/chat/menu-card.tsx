@@ -14,14 +14,17 @@ const RULE = "border-foreground/10"
 
 const SHEET = "absolute inset-x-1.5 rounded-lg bg-linear-to-b from-card to-muted ring-1 ring-foreground/15"
 
+// A face paints its hairline ring and its drop shadow OUTSIDE its own box, and a transcript row is paint-contained (`components/ui/message-scroller.tsx` `[content-visibility:auto]`) around exactly the box the card composite occupies — so every card reserves that room here, at its own outer edge, and it is applied LAST so no consumer's padding can spend it. Without it the shave leaves only the corner crescents (the area inside the card's rectangle but outside its rounded shape) and the frame reads as four detached arcs instead of one card.
+const ROOM = "px-1 pt-1 pb-2"
+
 // Deepest first: DOM order IS the stacking order here, so the sheet that peeks furthest paints furthest back and the live card, the only positioned sibling after them, paints on top.
 const SHEETS = ["top-5 bottom-3 rotate-[1.4deg]", "top-4 bottom-5 rotate-[-1deg]"] as const
 
-// The count made physical: the sheets behind are paper, never content. Their resting offset and rotation are geometry, not motion, and they stay INSIDE this box's padding — a transcript row is paint-contained (`components/ui/message-scroller.tsx` `[content-visibility:auto]`), so a rotated corner reaching past it is shaved. The horizontal padding is constant across the pile's whole life so the live card never changes width as the pile shrinks.
+// The count made physical: the sheets behind are paper, never content. Their resting offset and rotation are geometry, not motion, and they stay INSIDE this box's padding, for the same reason the live card carries ROOM. Those offsets are measured from the pile's OUTER edge (an absolute inset ignores padding) while the live card sits inside both paddings, so the pile's own padding is ROOM's complement: it is what keeps the sheets peeking the same distance past a card that already holds its own. The horizontal one is constant across the pile's whole life so the live card never changes width as the pile shrinks.
 export function MenuCardPile({ depth, className, children }: { depth: number; className?: string; children: ReactNode }) {
   const sheets = Math.max(0, Math.min(depth, SHEETS.length))
   return (
-    <div data-slot="menu-card-pile" data-depth={sheets} className={cn("relative px-3 pt-1", sheets > 0 ? "pb-7" : "pb-1", className)}>
+    <div data-slot="menu-card-pile" data-depth={sheets} className={cn("relative px-2", sheets > 0 && "pb-5", className)}>
       {SHEETS.slice(SHEETS.length - sheets).map((sheet) => (
         <div key={sheet} aria-hidden data-slot="menu-card-sheet" className={cn(SHEET, sheet)} />
       ))}
@@ -66,8 +69,9 @@ export function MenuCard({
       data-slot="menu-card"
       data-turned={showBack}
       data-flip={animated ? "animated" : "static"}
-      className={cn("perspective-midrange", className)}
+      className={cn(className, ROOM)}
     >
+      {/* The turn is deliberately orthographic — no `perspective` on the root: under one, the half of the card rotating toward the viewer is projected LARGER and the box grows by ~25px vertically mid-turn, which the same paint containment shaves into flat-cut corners for most of the flip. Only a perspective so distant it reads as none keeps that growth inside ROOM, so the rotation stays a pure squash and the card never leaves its box at any instant. */}
       <div
         data-slot="menu-card-flipper"
         className={cn(
