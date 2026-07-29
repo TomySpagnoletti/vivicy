@@ -1,0 +1,6 @@
+{"type":"session_meta","payload":{"id":"1b6d5a08-7f43-4e29-8c05-3a9b2e7d6f14","cwd":"/tmp/vivicy-demo"}}
+{"type":"event_msg","payload":{"type":"user_message","message":"Review ISSUE-0007 against its requirements and gates."}}
+{"type":"response_item","payload":{"type":"reasoning","summary":[{"text":"REQ-EXPORT-001 through 003 pin the header, the row order and the quoting rules. Re-running the export on the same ledger produces byte-identical output, which the test asserts directly."}]}}
+{"type":"response_item","payload":{"type":"function_call","name":"shell","arguments":"{\"command\": [\"npm\", \"test\", \"--\", \"csv-export\"]}","call_id":"call_issue_0007"}}
+{"type":"response_item","payload":{"type":"function_call_output","call_id":"call_issue_0007","output":{"content":"6 passing (14ms)"}}}
+{"type":"response_item","payload":{"type":"message","role":"assistant","content":[{"text":"Approved: the output is byte-stable across runs and every quoting rule has its own case."}]}}

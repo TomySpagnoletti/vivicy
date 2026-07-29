@@ -227,6 +227,16 @@ function RefBadges({
   )
 }
 
+const TRANSCRIPT_TAIL_CHARS = 12
+
+// Sibling transcripts of one graph item differ only by the run id ending the name, so the elision must land in the middle — which CSS gives only as a truncating head plus an unshrinkable tail. Split on code points, never code units: the name is agent-written and a mid-surrogate cut renders replacement characters.
+function splitTranscriptName(name: string): { head: string; tail: string } {
+  const chars = [...name]
+  if (chars.length <= TRANSCRIPT_TAIL_CHARS) return { head: "", tail: name }
+  const cut = chars.length - TRANSCRIPT_TAIL_CHARS
+  return { head: chars.slice(0, cut).join(""), tail: chars.slice(cut).join("") }
+}
+
 export function TranscriptRefs({ refs }: { refs: string[] }) {
   const t = useTranslations("sidebar.details")
   const { open } = useTranscript()
@@ -234,20 +244,26 @@ export function TranscriptRefs({ refs }: { refs: string[] }) {
   return (
     <div className="flex flex-col gap-1.5">
       <p className="text-xs font-medium text-muted-foreground">{t("transcriptsLabel")}</p>
-      <div className="flex flex-wrap gap-1">
-        {refs.map((ref) => (
-          <Button
-            key={ref}
-            type="button"
-            variant="outline"
-            size="sm"
-            className="h-auto px-2 py-1 font-mono text-xs"
-            title={ref}
-            onClick={() => open(ref, transcriptName(ref))}
-          >
-            {transcriptName(ref)}
-          </Button>
-        ))}
+      <div className="flex flex-col gap-1">
+        {refs.map((ref) => {
+          const name = transcriptName(ref)
+          const { head, tail } = splitTranscriptName(name)
+          return (
+            <Button
+              key={ref}
+              type="button"
+              variant="outline"
+              size="sm"
+              className="w-full justify-start gap-0 overflow-hidden text-left font-mono"
+              title={ref}
+              aria-label={name}
+              onClick={() => open(ref, name)}
+            >
+              <span className="truncate">{head}</span>
+              <span className="shrink-0">{tail}</span>
+            </Button>
+          )
+        })}
       </div>
     </div>
   )

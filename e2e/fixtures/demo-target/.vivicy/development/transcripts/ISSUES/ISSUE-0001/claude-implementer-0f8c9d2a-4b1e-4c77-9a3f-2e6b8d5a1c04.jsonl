@@ -1,0 +1,6 @@
+{"type":"user","message":{"content":[{"type":"text","text":"Implement ISSUE-0001 - Add an expense to the Ledger with field validation."}]}}
+{"type":"assistant","message":{"content":[{"type":"thinking","thinking":"The Ledger owns the store, so add() must validate every field and reject duplicate ids before inserting. Insertion order is part of the contract, so an array append is the right structure."},{"type":"tool_use","id":"toolu_01LedgerAdd","name":"Write","input":{"file_path":"src/ledger.js","content":"export function addExpense(store, expense) { /* ... */ }"}}]}}
+{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"toolu_01LedgerAdd","content":"Wrote 41 lines to src/ledger.js"}]}}
+{"type":"assistant","message":{"content":[{"type":"tool_use","id":"toolu_02Gate","name":"Bash","input":{"command":"npm test -- ledger"}}]}}
+{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"toolu_02Gate","content":"3 passing (12ms)"}]}}
+{"type":"assistant","message":{"content":[{"type":"text","text":"Ledger.add validates id, amount, category and date, rejects duplicate ids with a typed error, and stores accepted records in insertion order. Gate gate:test:ledger-add-expense is green."}]}}

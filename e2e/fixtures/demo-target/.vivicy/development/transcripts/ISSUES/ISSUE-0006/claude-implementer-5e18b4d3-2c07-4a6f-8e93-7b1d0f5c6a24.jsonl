@@ -1,0 +1,4 @@
+{"type":"user","message":{"content":[{"type":"text","text":"Implement ISSUE-0006 - Evaluate a month against its budget."}]}}
+{"type":"assistant","message":{"content":[{"type":"thinking","thinking":"Budget evaluation is a comparison over the monthly total, so it composes the existing report rather than re-folding the store."},{"type":"tool_use","id":"toolu_01ISSUE0006","name":"Write","input":{"file_path":"src/reporter.js","content":"export function evaluateBudget(store, month, budgetCents) { /* compare */ }"}}]}}
+{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"toolu_01ISSUE0006","content":"Wrote 19 lines to src/reporter.js"}]}}
+{"type":"assistant","message":{"content":[{"type":"text","text":"A month evaluates to under, at, or over its budget, comparing integer cents against the budget the caller supplies."}]}}

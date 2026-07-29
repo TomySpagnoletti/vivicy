@@ -31,6 +31,10 @@ const EDGE: MapEdge = {
   graph_ref: "edge:telegram->mcp",
 }
 
+const NODE_TRANSCRIPT =
+  ".vivicy/development/transcripts/ISSUES/ISSUE-0100/codex-reviewer-b91c05e7-2d4a-4f36-8c17-6e0b93a5d281.jsonl"
+const NODE_TRANSCRIPT_NAME = "codex-reviewer-b91c05e7-2d4a-4f36-8c17-6e0b93a5d281.jsonl"
+
 const DATA: ArchitectureMapData = {
   name: "demo-map",
   nodes: [NODE],
@@ -84,12 +88,14 @@ const DATA: ArchitectureMapData = {
         graph_ref: "node:telegram-channel",
         status: "implemented",
         evidence_refs: [".vivicy/development/gates/ISSUE-0100-gate.json"],
-        transcript_refs: [".vivicy/development/transcripts/ISSUES/ISSUE-0100/codex-rollout.jsonl"],
+        transcript_refs: [NODE_TRANSCRIPT],
       },
       {
         graph_ref: "edge:telegram->mcp",
         status: "in_progress",
-        transcript_refs: [".vivicy/development/transcripts/ISSUES/ISSUE-0200/claude.jsonl"],
+        transcript_refs: [
+          ".vivicy/development/transcripts/ISSUES/ISSUE-0200/claude-implementer-4d7f2a91-6c3b-4e58-9a02-1f8e5b7c3d64.jsonl",
+        ],
       },
     ],
   },
@@ -136,7 +142,7 @@ describe("SectionDetails — a selected node", () => {
     expect(screen.getByText("Covered by")).toBeInTheDocument()
     expect(screen.getByText("ISSUE-0100")).toBeInTheDocument()
     expect(
-      screen.getByRole("button", { name: "codex-rollout.jsonl" })
+      screen.getByRole("button", { name: NODE_TRANSCRIPT_NAME })
     ).toBeInTheDocument()
   })
 
@@ -175,6 +181,47 @@ describe("SectionDetails — a selected node", () => {
     expect(screen.getByText("blocked")).toBeInTheDocument()
     expect(screen.getByText("None yet")).toBeInTheDocument()
     expect(screen.queryByText("Proofs"), "a node no issue covers shows no proofs block at all").toBeNull()
+  })
+})
+
+describe("SectionDetails — transcript buttons", () => {
+  test("the button takes its width from the box, never from its label, and keeps the run id at the tail", () => {
+    renderDetails({ type: "node", item: NODE })
+    const button = screen.getByRole("button", { name: NODE_TRANSCRIPT_NAME })
+
+    expect(button, "the full ref stays reachable without opening it").toHaveAttribute(
+      "title",
+      NODE_TRANSCRIPT
+    )
+    expect(button, "the box sizes the button, never the 57-character label").toHaveClass("w-full")
+    expect(button, "no label can paint past the button's own edge").toHaveClass("overflow-hidden")
+
+    const [head, tail] = Array.from(button.children)
+    expect(head, "the head is the part that gives way").toHaveClass("truncate")
+    expect(tail, "the run id at the tail is never the part that gives way").toHaveClass("shrink-0")
+    expect(tail).toHaveTextContent("a5d281.jsonl")
+    expect(
+      `${head.textContent}${tail.textContent}`,
+      "truncation is visual only — the label itself loses nothing"
+    ).toBe(NODE_TRANSCRIPT_NAME)
+  })
+
+  test("a state with no transcripts renders no Transcripts block at all", () => {
+    const quiet: MapNode = { ...NODE, id: "quiet", graph_ref: "node:quiet" }
+    renderDetails(
+      { type: "node", item: quiet },
+      {
+        name: "m",
+        nodes: [quiet],
+        edges: [],
+        development: {
+          graph_item_states: [
+            { graph_ref: "node:quiet", status: "implemented", transcript_refs: [] },
+          ],
+        },
+      }
+    )
+    expect(screen.queryByText("Transcripts")).toBeNull()
   })
 })
 

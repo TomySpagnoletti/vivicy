@@ -1,0 +1,6 @@
+{"type":"session_meta","payload":{"id":"c4f9207b-1e63-4a85-9d20-8f6a3c1b7e45","cwd":"/tmp/vivicy-demo"}}
+{"type":"event_msg","payload":{"type":"user_message","message":"Review ISSUE-0002 against its requirements and gates."}}
+{"type":"response_item","payload":{"type":"reasoning","summary":[{"text":"REQ-LEDGER-003 wants the store immune to consumer mutation. The copy is shallow but the records only hold primitives, so nothing aliases through."}]}}
+{"type":"response_item","payload":{"type":"function_call","name":"shell","arguments":"{\"command\": [\"npm\", \"test\", \"--\", \"ledger-retrieval\"]}","call_id":"call_issue_0002"}}
+{"type":"response_item","payload":{"type":"function_call_output","call_id":"call_issue_0002","output":{"content":"2 passing (9ms)"}}}
+{"type":"response_item","payload":{"type":"message","role":"assistant","content":[{"text":"Approved: the defensive copy holds for every field the model declares, and the test mutates the returned array to prove it."}]}}

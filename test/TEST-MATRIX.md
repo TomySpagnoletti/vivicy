@@ -1,6 +1,6 @@
 # Vivicy — exhaustive test matrix
 
-Reconciled fingerprint: `28de82fdfea6dd88f3c63f98eacd1f160210dea473a16176a17f55b63471ceb3` @ commit `8c8968e6895850ba3f5156b40d4813b834eb7f0f`
+Reconciled fingerprint: `8ab7a4662f99613fd8a45ce7a70b130c22c93183e8fb1ac99536f3f3bdaeb79e` @ commit `81baa1340cec29371c4137bd4b7b154b976ab691`
 
 
 This file is the exhaustive, always-current inventory of every test case for Vivicy — every behavior the system has, whether it is covered by a test today or is a known GAP. It is **committed and machine-guarded**: the `Reconciled fingerprint` line above hashes the behavior-bearing source tree and records the HEAD commit at reconciliation time, and `scripts/test-matrix.test.ts` fails the vitest suite when code changes without this file being reconciled and re-stamped (`npm run matrix:stamp`). `git log test/TEST-MATRIX.md` is the audit trail of reconciliations. It is the single source of truth for "what should be tested" across the app (`app/`, `components/`, `lib/`) and the factory (`factory/`). It was assembled from a full per-area audit pass plus three adversarial cross-matrices (user journeys, parallel/merge chaos, process/crash chaos).
@@ -16,12 +16,12 @@ This file is the exhaustive, always-current inventory of every test case for Viv
 
 | Area | Cases | Gaps | Covered |
 |---|---:|---:|---:|
-| app-shell-sidebar-ui-kit | 404 | 267 | 137 |
+| app-shell-sidebar-ui-kit | 405 | 266 | 139 |
 | baselines-change-requests | 260 | 196 | 64 |
 | cli-supervisor-process-infra | 485 | 233 | 252 |
 | control-plane-api-routes | 487 | 226 | 261 |
 | dev-loop-worktrees-merge | 368 | 137 | 231 |
-| e2e-test-infra-rehearsal | 320 | 102 | 218 |
+| e2e-test-infra-rehearsal | 321 | 101 | 220 |
 | extraction-gates | 314 | 160 | 154 |
 | map-ui-data-viewer | 293 | 186 | 107 |
 | onboarding-project-scaffold | 359 | 176 | 183 |
@@ -30,7 +30,7 @@ This file is the exhaustive, always-current inventory of every test case for Viv
 | cross-journeys | 81 | 64 | 17 |
 | cross-chaos-parallel-merge | 47 | 32 | 15 |
 | cross-chaos-process | 45 | 42 | 3 |
-| **TOTAL** | **4089** | **2113** | **1976** |
+| **TOTAL** | **4091** | **2111** | **1980** |
 
 ---
 
@@ -178,12 +178,13 @@ This file is the exhaustive, always-current inventory of every test case for Viv
 - [app-shell-sidebar-ui-kit.96] Node with NO `source_refs`/`evidence_refs` (undefined or empty array). | `RefBadges` renders nothing (returns `null`) — no empty "Source refs" heading with zero badges. | unit | GAP
 - [app-shell-sidebar-ui-kit.97] Node/edge covered by MULTIPLE issues. | All matching issue ids render as badges under "Covered by". | unit | GAP
 - [app-shell-sidebar-ui-kit.98] Node/edge covered by ZERO issues. | "Covered by" shows "None yet" text instead of an empty list. | unit | section-details.test.tsx
-- [app-shell-sidebar-ui-kit.99] Node/edge state has transcript_refs. | Each ref renders as a clickable Button (`transcriptName(ref)` label) that calls `open(ref, name)` from `useTranscript()` on click. | unit | section-details.test.tsx
-- [app-shell-sidebar-ui-kit.100] Node/edge state has an empty transcript_refs array. | `TranscriptRefs` returns `null` — no "Transcripts" heading rendered. | unit | GAP
+- [app-shell-sidebar-ui-kit.99] Node/edge state has transcript_refs. | Each ref renders as a clickable Button that calls `open(ref, name)` from `useTranscript()` on click, labelled with `transcriptName(ref)` and carrying the whole ref in `title`. | unit | section-details.test.tsx
+- [app-shell-sidebar-ui-kit.100] Node/edge state has an empty transcript_refs array. | `TranscriptRefs` returns `null` — no "Transcripts" heading rendered. | unit | section-details.test.tsx ("a state with no transcripts renders no Transcripts block at all")
 - [app-shell-sidebar-ui-kit.101] Selected edge, status humanization (`in_progress` → "in progress"). | Underscore-to-space humanization applied consistently to the Progress field. | unit | section-details.test.tsx
 - [app-shell-sidebar-ui-kit.102] Selected edge with no `protocol`/`relation`/`data`. | Each falls back to `unknown`/`"None"` text as appropriate. | unit | GAP
 - [app-shell-sidebar-ui-kit.103] Malformed edge reaching the details header (e.g. `from`/`to` missing). | Verify graceful fallback rather than a crash rendering the "from → to" header (`normalizeMapData` already drops such an edge upstream). | unit | GAP
 
+- [app-shell-sidebar-ui-kit.396] A transcript ref whose basename is far wider than the sidebar box (`<cli>-<role>-<uuid>.jsonl`, the 57–61 character names the factory actually writes; 457px inside a 337px box before the fix, with the page-level probe reading zero). | The Button takes its width from the box (`w-full`) and clips its own content (`overflow-hidden`) instead of being sized by its label; the label is split into a `truncate` head and a `shrink-0` twelve-character tail so the elision lands in the MIDDLE and the run id that tells sibling transcripts apart survives even at the sidebar's narrowest, while the accessible name keeps the whole basename and `title` the whole ref. | unit | section-details.test.tsx ("the button takes its width from the box, never from its label, and keeps the run id at the tail")
 - [app-shell-sidebar-ui-kit.381] SectionDetails renders a `Proofs` block for the declared proofs of every issue covering the selected node OR edge — proof id, class badge (filled when produced, outline while pending), the `<issue> · produced` / `· not produced yet` state, the canonical `Evidences` refs and the `On disk` home (a `gate_evidence` proof points at the gate record itself); no block at all for an item no issue covers, and another item's proofs never leak in | node + edge proofs listed, absent when none | unit | section-details.test.tsx ("lists the declared proofs of its covering issues", "reaches the proofs of the issues covering the edge")
 
 ### components/sidebar/section-filters.tsx
@@ -2720,12 +2721,13 @@ Scope: the Playwright e2e specs and their shared infra (config, global-setup, he
 - [e2e-test-infra-rehearsal.71] Details panel with long source refs/paths (after clicking a node then "Details") | "Source refs" visible within 15s; no page overflow | e2e-ui | e2e/overflow.spec.ts
 - [e2e-test-infra-rehearsal.72] Tasks panel with long-path issue cards | "ISSUE-0001" exact text visible within 15s; no page overflow | e2e-ui | e2e/overflow.spec.ts
 - [e2e-test-infra-rehearsal.73] Transcript modal opened via a retry loop (`toPass` up to 30s) that force-clicks past SSE-driven re-renders that can detach the button mid-click | dialog visible within 3s per attempt; no page overflow; dialog box fits within 1320px width | e2e-ui | e2e/overflow.spec.ts
-- [e2e-test-infra-rehearsal.74] If NO transcript button exists on the demo issues (conditional `if (await transcriptButton.count())`), the transcript-modal overflow check is silently skipped | GAP: a demo fixture regression that drops all transcript refs would silently skip this coverage rather than fail loudly | e2e-ui | GAP
-- [e2e-test-infra-rehearsal.75] Narrow viewport (760x720): map has no page-level horizontal overflow | assertion passes | e2e-ui | e2e/overflow.spec.ts
+- [e2e-test-infra-rehearsal.74] The transcript button is really on screen before it is clicked, so the modal check can no longer hide behind `if (await transcriptButton.count())`: the demo fixture's ledger carries `transcript_refs` with the matching `.jsonl` files on disk, the test selects the node whose state has them (`data-id=cli`; the first node, `user`, has none), and every section is opened through `openSection`, which clicks only when `aria-expanded` is `false` and then asserts it `true` — Tasks is open by default, so a blind click closes it and any assertion after it would ride the ~200 ms collapse animation | button visible, the modal opens on the first retry-loop attempt, and the modal overflow assertions run to completion | e2e-ui | e2e/overflow.spec.ts + e2e/fixtures/demo-target/.vivicy/development/{progress-ledger.json, transcripts/}
+- [e2e-test-infra-rehearsal.75] Narrow viewport: the map at 760x720, then the sidebar at 320px — below `md` it is an off-canvas Sheet three quarters of the viewport wide, so the smallest phone is where the sidebar box itself is smallest | no page-level horizontal overflow at either width, and nothing inside the opened sidebar escapes the box that bounds it | e2e-ui | e2e/overflow.spec.ts ("narrow viewport: the map fits, and so does the sidebar at its narrowest")
 - [e2e-test-infra-rehearsal.76] Overflow at true mobile widths, each set explicitly rather than inherited from a device profile: 320, 360, 375, 390 and 412 with the Vivi panel OPEN over the map, on both panel tabs | no page-level horizontal overflow at any of the five widths, on either tab | e2e-ui | e2e/overflow.spec.ts ("phone widths: the panel fits the viewport on both tabs")
 - [e2e-test-infra-rehearsal.343] Vivi panel width contract at 320/360/375/390/412, both tabs: the panel's own geometry is the witness, since `documentElement.scrollWidth` is structurally blind to it — a `fixed` box never joins the document's scrollable overflow, so a panel wider than the viewport is clipped off-screen with no page-level signal and no scrollbar | left edge at the viewport edge, right edge <= innerWidth, measured width exactly min(viewport, 380px), and nothing inside the panel escaping the box that bounds it | e2e-ui | e2e/overflow.spec.ts ("phone widths: the panel fits the viewport on both tabs"); restoring the bare `clamp(380px,25vw,480px)` reds it on all four browser shapes
 - [e2e-test-infra-rehearsal.344] The desktop clamp curve survives the viewport-aware floor: 1280 → 380px (the floor), 1600 → 400px (the 25vw band), 1920 → 480px (the ceiling) | panel width matches at each of the three points, no page overflow | e2e-ui | e2e/overflow.spec.ts ("desktop widths: the clamp curve is unchanged")
-- [e2e-test-infra-rehearsal.345] `measurePanel` reachability probe: an element's bound is the nearest ancestor that clips WITHOUT scrolling (overflow hidden/clip, or the paint containment `content-visibility` implies) — a scroller ancestor is no bound, its content being one swipe away — so the assertion is "nothing is clipped into unreachability", not mere geometry | helper behind both panel cases above; reverting `AttachmentGroup`'s `max-w-full` (app-shell-sidebar-ui-kit.388) reds it on all four browser shapes | unit-of-helper (inline) | e2e/overflow.spec.ts
+- [e2e-test-infra-rehearsal.347] The Vivicy sidebar's own box is probed with the same reachability helper as the Vivi panel — on the long-rooted target at 1320x820 at three points (Details opened on a node carrying transcripts with Tasks still open from its default, then Tasks, then Cycles; 16 transcript buttons in the DOM), and again at 320px where the off-canvas Sheet makes the sidebar box smallest — because a control sized by its own label overflows a fixed-width box without ever widening the document, so `expectNoPageOverflow` reads zero on the same page while content spills | nothing inside the sidebar escapes the box that bounds it at either width; reverting `TranscriptRefs`' `w-full`/`overflow-hidden` reds the first measurement point with 16 buttons at +69..+109px while every page-level assertion beside it stays green | e2e-ui | e2e/overflow.spec.ts ("demo target: map, Details, Tasks, and transcript modal all fit", "narrow viewport: the map fits, and so does the sidebar at its narrowest")
+- [e2e-test-infra-rehearsal.345] `measureBox` reachability probe, taken over any root locator (the Vivi panel and the Vivicy sidebar both use it): an element's bound is the nearest ancestor that clips WITHOUT scrolling (overflow hidden/clip, or the paint containment `content-visibility` implies) — a scroller ancestor is no bound, its content being one swipe away — so the assertion is "nothing is clipped into unreachability", not mere geometry | helper behind the panel and sidebar cases above; reverting `AttachmentGroup`'s `max-w-full` (app-shell-sidebar-ui-kit.388) reds it on all four browser shapes | unit-of-helper (inline) | e2e/overflow.spec.ts
 - [e2e-test-infra-rehearsal.77] Overflow inside the Agent Settings dialog with long strings (long model names) | GAP: overflow.spec.ts never opens it; only settings.spec.ts touches it, and it does not assert overflow | e2e-ui | GAP
 
 ### e2e/settings.spec.ts

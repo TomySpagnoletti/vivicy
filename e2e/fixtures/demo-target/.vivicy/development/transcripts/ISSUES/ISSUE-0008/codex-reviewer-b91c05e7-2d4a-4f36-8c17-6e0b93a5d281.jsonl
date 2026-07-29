@@ -1,0 +1,6 @@
+{"type":"session_meta","payload":{"id":"b91c05e7-2d4a-4f36-8c17-6e0b93a5d281","cwd":"/tmp/vivicy-demo"}}
+{"type":"event_msg","payload":{"type":"user_message","message":"Review ISSUE-0008 against its requirements and gates."}}
+{"type":"response_item","payload":{"type":"reasoning","summary":[{"text":"REQ-CLI-001 asks for a non-zero exit on an unknown command. The dispatch table is right, but nothing exercises the refusal path yet."}]}}
+{"type":"response_item","payload":{"type":"function_call","name":"shell","arguments":"{\"command\":[\"node\",\"src/cli.js\",\"frobnicate\"]}","call_id":"call_cli_unknown"}}
+{"type":"response_item","payload":{"type":"function_call_output","call_id":"call_cli_unknown","output":{"content":"unknown command: frobnicate\nexit status 2"}}}
+{"type":"response_item","payload":{"type":"message","role":"assistant","content":[{"text":"The behaviour is correct at runtime but untested: no case covers the unknown-command exit code. Sending the issue back with one required test."}]}}

@@ -1,0 +1,6 @@
+{"type":"session_meta","payload":{"id":"6f2b8e04-9a17-4c53-80d6-5b3e1a7f2c69","cwd":"/tmp/vivicy-demo"}}
+{"type":"event_msg","payload":{"type":"user_message","message":"Review ISSUE-0001 against its requirements and gates."}}
+{"type":"response_item","payload":{"type":"reasoning","summary":[{"text":"REQ-LEDGER-001 and 002 ask for field validation and duplicate rejection. Both refusals are typed errors, and the store keeps insertion order after a rejected add."}]}}
+{"type":"response_item","payload":{"type":"function_call","name":"shell","arguments":"{\"command\": [\"npm\", \"test\", \"--\", \"ledger-add-expense\"]}","call_id":"call_issue_0001"}}
+{"type":"response_item","payload":{"type":"function_call_output","call_id":"call_issue_0001","output":{"content":"3 passing (12ms)"}}}
+{"type":"response_item","payload":{"type":"message","role":"assistant","content":[{"text":"Approved: every declared field is validated, duplicate ids are refused with a typed error, and insertion order survives a rejection."}]}}

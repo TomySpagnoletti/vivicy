@@ -24,6 +24,14 @@
         ".vivicy/development/gates/gate-test-ledger-add-expense.json",
         ".vivicy/development/gates/gate-test-ledger-retrieval.json",
         ".vivicy/development/gates/gate-test-ledger-total.json"
+      ],
+      "transcript_refs": [
+        ".vivicy/development/transcripts/ISSUES/ISSUE-0001/claude-implementer-0f8c9d2a-4b1e-4c77-9a3f-2e6b8d5a1c04.jsonl",
+        ".vivicy/development/transcripts/ISSUES/ISSUE-0001/codex-reviewer-6f2b8e04-9a17-4c53-80d6-5b3e1a7f2c69.jsonl",
+        ".vivicy/development/transcripts/ISSUES/ISSUE-0002/claude-implementer-7a3e1b54-9c02-4d61-8f7a-3b5c9e2d0a18.jsonl",
+        ".vivicy/development/transcripts/ISSUES/ISSUE-0002/codex-reviewer-c4f9207b-1e63-4a85-9d20-8f6a3c1b7e45.jsonl",
+        ".vivicy/development/transcripts/ISSUES/ISSUE-0003/claude-implementer-b2d80c17-5f49-4e3a-91c6-0a7d4e8b2f39.jsonl",
+        ".vivicy/development/transcripts/ISSUES/ISSUE-0003/codex-reviewer-e8710f36-4b2c-4d97-a05e-9c3f1b6d824a.jsonl"
       ]
     },
     {
@@ -37,6 +45,10 @@
       ],
       "evidence_refs": [
         ".vivicy/development/gates/gate-test-csv-export.json"
+      ],
+      "transcript_refs": [
+        ".vivicy/development/transcripts/ISSUES/ISSUE-0007/claude-implementer-d94a0f68-3e25-4c81-b7a0-6d1f8e2c4b53.jsonl",
+        ".vivicy/development/transcripts/ISSUES/ISSUE-0007/codex-reviewer-1b6d5a08-7f43-4e29-8c05-3a9b2e7d6f14.jsonl"
       ]
     },
     {
@@ -63,6 +75,10 @@
       ],
       "evidence_refs": [
         ".vivicy/development/reports/ISSUE-0008-progress.md"
+      ],
+      "transcript_refs": [
+        ".vivicy/development/transcripts/ISSUES/ISSUE-0008/claude-implementer-4d7f2a91-6c3b-4e58-9a02-1f8e5b7c3d64.jsonl",
+        ".vivicy/development/transcripts/ISSUES/ISSUE-0008/codex-reviewer-b91c05e7-2d4a-4f36-8c17-6e0b93a5d281.jsonl"
       ]
     },
     {
@@ -78,6 +94,12 @@
       ],
       "evidence_refs": [
         ".vivicy/development/reports/ISSUE-0005-implementation.md"
+      ],
+      "transcript_refs": [
+        ".vivicy/development/transcripts/ISSUES/ISSUE-0005/claude-implementer-3c6f9a20-8d14-4b7e-95a3-1f0e7d2c5b86.jsonl",
+        ".vivicy/development/transcripts/ISSUES/ISSUE-0005/codex-reviewer-9d05e7c1-6a38-4f92-b71d-4e8c0b3a5f27.jsonl",
+        ".vivicy/development/transcripts/ISSUES/ISSUE-0006/claude-implementer-5e18b4d3-2c07-4a6f-8e93-7b1d0f5c6a24.jsonl",
+        ".vivicy/development/transcripts/ISSUES/ISSUE-0006/codex-reviewer-a37c2e95-0b61-4d38-96f4-2a8e5c7b1d03.jsonl"
       ]
     }
   ],

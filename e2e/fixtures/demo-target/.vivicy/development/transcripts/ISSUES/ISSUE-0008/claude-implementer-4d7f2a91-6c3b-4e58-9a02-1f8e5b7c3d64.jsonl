@@ -1,0 +1,4 @@
+{"type":"user","message":{"content":[{"type":"text","text":"Implement ISSUE-0008 - Dispatch CLI commands over the wired modules."}]}}
+{"type":"assistant","message":{"content":[{"type":"thinking","thinking":"One entry point, four commands. Arguments come from process arguments only; an unknown command or a wrong argument count exits non-zero with the reason on standard error."},{"type":"tool_use","id":"toolu_01CliDispatch","name":"Write","input":{"file_path":"src/cli.js","content":"const COMMANDS = { add, list, report, export: exportCsv }"}}]}}
+{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"toolu_01CliDispatch","content":"Wrote 58 lines to src/cli.js"}]}}
+{"type":"assistant","message":{"content":[{"type":"text","text":"The CLI dispatches add, list, report and export, writes results to standard output and refusals to standard error. The unknown-command exit code is still owed a test."}]}}

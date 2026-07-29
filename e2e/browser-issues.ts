@@ -264,4 +264,4 @@ export const test = base.extend({
 })
 
 export { expect }
-export type { ConsoleMessage, Page } from "@playwright/test"
+export type { ConsoleMessage, Locator, Page } from "@playwright/test"
