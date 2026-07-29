@@ -101,8 +101,8 @@ describe("parseTranscript — edge cases", () => {
 
 describe("transcript url/name helpers", () => {
   it("builds an API url and strips leading slashes", () => {
-    expect(transcriptUrl(".vivicy/development/transcripts/ISS-1/a.jsonl")).toBe(
-      "/api/transcript/.vivicy/development/transcripts/ISS-1/a.jsonl"
+    expect(transcriptUrl(".vivicy/development/transcripts/ISSUES/ISS-1/a.jsonl")).toBe(
+      "/api/transcript/.vivicy/development/transcripts/ISSUES/ISS-1/a.jsonl"
     )
     expect(transcriptUrl("/leading/slash.jsonl")).toBe(
       "/api/transcript/leading/slash.jsonl"
@@ -110,7 +110,7 @@ describe("transcript url/name helpers", () => {
   })
 
   it("derives the file name from a ref", () => {
-    expect(transcriptName(".vivicy/development/transcripts/ISS-1/claude.jsonl")).toBe(
+    expect(transcriptName(".vivicy/development/transcripts/ISSUES/ISS-1/claude.jsonl")).toBe(
       "claude.jsonl"
     )
   })

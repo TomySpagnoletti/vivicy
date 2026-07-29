@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { runClaudeLeg, runCodexLeg } from "./agent-spawn.ts";
+import { runClaudeLeg, runCodexLeg, TRANSCRIPT_DIRS } from "./agent-spawn.ts";
 import type { AgentIssue, LegConfig, LegDeps, LegRunResult } from "./agent-spawn.ts";
 import { cleanupTree } from "./cleanup-tree.ts";
 import { notify } from "./notify.ts";
@@ -69,7 +69,6 @@ export function resolveFreezeVersion(repoRoot: string): string {
 }
 const DEFAULT_MAX_RETRIES = 3;
 
-const EXTRACTOR_ISSUE_ID = "EXTRACTION";
 
 interface ResolvedLegs {
   implementer: Leg;
@@ -78,6 +77,7 @@ interface ResolvedLegs {
 
 interface ExtractionIssue {
   id: string;
+  transcript_dir: string;
   graph_refs: string[];
   path: string;
 }
@@ -511,7 +511,7 @@ function legTimeoutReason(leg: LegResult | undefined): string | null {
 }
 
 function extractionIssue(): ExtractionIssue {
-  return { id: EXTRACTOR_ISSUE_ID, graph_refs: ["node:extraction"], path: ISSUE_INDEX_REL };
+  return { id: TRANSCRIPT_DIRS.extraction, transcript_dir: TRANSCRIPT_DIRS.extraction, graph_refs: ["node:extraction"], path: ISSUE_INDEX_REL };
 }
 
 function makeDefaultSpawnExtractor(options: ExtractIssuesOptions, baseCfg: Record<string, unknown>, legs: ResolvedLegs): (args: SpawnExtractorArgs) => Promise<LegResult> {
@@ -523,7 +523,7 @@ function makeDefaultSpawnExtractor(options: ExtractIssuesOptions, baseCfg: Recor
     const issue = extractionIssue();
     const specKind = readManifestSpecKind(repoRoot, manifestPath);
     const context = extractorContext({ manifestPath, baselineId, attempt, checkOutput, isFix, spikeMode, mapMode, specKind });
-    const deps = legDepsForTarget(legCfg, issue, repoRoot, context);
+    const deps = legDepsForTarget(repoRoot, context);
     return runLegForProvider(leg, issue, legCfg, deps);
   };
 }
@@ -545,7 +545,7 @@ function makeDefaultSpawnVerifier(options: ExtractIssuesOptions, baseCfg: Record
     const legCfg = { ...cfg, promptsDir, execRoot: repoRoot };
     const issue = extractionIssue();
     const context = verifierContext({ manifestPath, baselineId, attempt });
-    const deps = legDepsForTarget(legCfg, issue, repoRoot, context);
+    const deps = legDepsForTarget(repoRoot, context);
     return runLegForProvider(leg, issue, legCfg, deps);
   };
 }
@@ -564,7 +564,7 @@ function makeDefaultSpawnLens(options: ExtractIssuesOptions, baseCfg: Record<str
     const legCfg = { ...(cfg as Record<string, unknown>), promptsDir, execRoot: repoRoot };
     const issue = extractionIssue();
     const context = mapReviewLensContext({ lens, manifestPath, baselineId });
-    const deps = legDepsForTarget(legCfg, issue, repoRoot, context);
+    const deps = legDepsForTarget(repoRoot, context);
     return runLegForProvider(leg, issue, legCfg, deps);
   };
 }
@@ -636,14 +636,12 @@ function verifierContext({ manifestPath, baselineId, attempt }: { manifestPath: 
   );
 }
 
-function legDepsForTarget(legCfg: Record<string, unknown>, issue: ExtractionIssue, repoRoot: string, context: string): LegDeps {
-  const abs = (rel: string) => resolve(repoRoot, rel);
+function legDepsForTarget(repoRoot: string, context: string): LegDeps {
   return {
     composePrompt: (template: string, iss: AgentIssue) => composePrompt(template, iss) + context,
     agentCliArgs,
-    abs,
+    abs: (rel: string) => resolve(repoRoot, rel),
     execRoot: repoRoot,
-    transcriptDirAbs: abs(`${legCfg.transcriptsDir as string}/${issue.id}`),
     cwdFilter: null,
   };
 }

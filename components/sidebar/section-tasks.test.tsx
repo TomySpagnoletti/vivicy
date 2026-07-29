@@ -84,7 +84,7 @@ describe("SectionTasks — issue cards", () => {
         {
           graph_ref: "node:t",
           status: "implemented",
-          transcript_refs: ["runs/transcripts/ISS-0004/claude-session.jsonl"],
+          transcript_refs: [".vivicy/development/transcripts/ISSUES/ISS-0004/claude-session.jsonl"],
         },
       ],
     }
@@ -102,7 +102,7 @@ describe("SectionTasks — issue cards", () => {
         {
           graph_ref: "node:n",
           status: "in_progress",
-          transcript_refs: ["runs/transcripts/ISS-9999/other.jsonl"],
+          transcript_refs: [".vivicy/development/transcripts/ISSUES/ISS-9999/other.jsonl"],
         },
       ],
     }

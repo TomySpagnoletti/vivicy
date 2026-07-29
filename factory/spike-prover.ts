@@ -2,7 +2,7 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-import { runClaudeLeg, runCodexLeg } from "./agent-spawn.ts";
+import { runClaudeLeg, runCodexLeg, TRANSCRIPT_DIRS } from "./agent-spawn.ts";
 import type { AgentIssue, AgentLeg, LegConfig, LegDeps, LegRunResult } from "./agent-spawn.ts";
 import { agentCliArgs, CLI_DEFAULTS, composePrompt } from "./dev-loop.ts";
 import { createChangeRequest } from "./change-control.ts";
@@ -30,6 +30,7 @@ interface LegCfg {
 
 interface SpikeIssue {
   id: string;
+  transcript_dir: string;
   graph_refs: string[];
   path: string;
 }
@@ -379,7 +380,7 @@ function makeDefaultSpawnProver(baseCfg: LegCfg, legs: Legs): SpawnProver {
     const legCfg = { ...cfg, promptsDir: cfg?.promptsDir ?? FACTORY_PROMPTS_DIR, execRoot: repoRoot };
     const issue = spikeIssue(spike);
     const context = proverContext({ spike, attempt, disagreement });
-    const deps = legDepsForTarget(legCfg, issue, repoRoot, context);
+    const deps = legDepsForTarget(repoRoot, context);
     return runLegForProvider(leg, issue, legCfg, deps);
   };
 }
@@ -391,7 +392,7 @@ function makeDefaultSpawnSpikeVerifier(baseCfg: LegCfg, legs: Legs): SpawnSpikeV
     const legCfg = { ...cfg, promptsDir: cfg?.promptsDir ?? FACTORY_PROMPTS_DIR, execRoot: repoRoot };
     const issue = spikeIssue(spike);
     const context = verifierContext({ spike, attempt });
-    const deps = legDepsForTarget(legCfg, issue, repoRoot, context);
+    const deps = legDepsForTarget(repoRoot, context);
     return runLegForProvider(leg, issue, legCfg, deps);
   };
 }
@@ -402,7 +403,8 @@ function runLegForProvider(leg: AgentLeg, issue: SpikeIssue, legCfg: LegConfig, 
 }
 
 function spikeIssue(spike: Spike): SpikeIssue {
-  return { id: `SPIKE-${spikeStem(spike.file)}`, graph_refs: [SPIKE_GRAPH_REF], path: spike.file };
+  const id = `SPIKE-${spikeStem(spike.file)}`;
+  return { id, transcript_dir: `${TRANSCRIPT_DIRS.spikes}/${id}`, graph_refs: [SPIKE_GRAPH_REF], path: spike.file };
 }
 
 function proverContext({ spike, attempt, disagreement }: { spike: Spike; attempt: number; disagreement: string | null }): string {
@@ -439,14 +441,12 @@ function verifierContext({ spike, attempt }: { spike: Spike; attempt: number }):
   );
 }
 
-function legDepsForTarget(legCfg: LegConfig, issue: SpikeIssue, repoRoot: string, context: string): LegDeps {
-  const abs = (rel: string) => resolve(repoRoot, rel);
+function legDepsForTarget(repoRoot: string, context: string): LegDeps {
   return {
     composePrompt: (template: string, iss: AgentIssue) => composePrompt(template, iss) + context,
     agentCliArgs,
-    abs,
+    abs: (rel: string) => resolve(repoRoot, rel),
     execRoot: repoRoot,
-    transcriptDirAbs: abs(`${legCfg.transcriptsDir}/${issue.id}`),
     cwdFilter: null,
   };
 }

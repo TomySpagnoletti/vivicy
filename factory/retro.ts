@@ -3,7 +3,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { runClaudeLeg, runCodexLeg } from "./agent-spawn.ts";
+import { runClaudeLeg, runCodexLeg, TRANSCRIPT_DIRS } from "./agent-spawn.ts";
 import type { AgentIssue, LegConfig, LegDeps } from "./agent-spawn.ts";
 import { doneSetHash, issueTotals } from "./acceptance.ts";
 import { agentCliArgs, CLI_DEFAULTS, composePrompt, DEFAULT_CONFIG, resolveAgentLegs } from "./dev-loop.ts";
@@ -22,7 +22,6 @@ import {
 
 export const RETRO_REPORT_REL = RETRO_REPORT_FILE;
 export const RETRO_VERDICT_REL = ".vivicy/development/reports/retro-verdict.json";
-const RETRO_ISSUE_ID = "RETRO";
 
 export class RetroConfigError extends Error {
   constructor(message: string) {
@@ -92,14 +91,12 @@ function retroContext({ manifestPath, baselineId, verdictRel }: { manifestPath: 
   );
 }
 
-function legDepsForTarget(legCfg: Record<string, unknown>, issue: AgentIssue, repoRoot: string, context: string): LegDeps {
-  const abs = (rel: string) => resolve(repoRoot, rel);
+function legDepsForTarget(repoRoot: string, context: string): LegDeps {
   return {
     composePrompt: (template: string, iss: AgentIssue) => composePrompt(template, iss) + context,
     agentCliArgs,
-    abs,
+    abs: (rel: string) => resolve(repoRoot, rel),
     execRoot: repoRoot,
-    transcriptDirAbs: abs(`${legCfg.transcriptsDir as string}/${issue.id}`),
     cwdFilter: null,
   };
 }
@@ -112,9 +109,9 @@ function makeDefaultSpawnRetroLeg(options: RunRetroOptions): SpawnRetroLeg {
   const leg: Leg = { ...implementer, role: "retro" };
   return async ({ repoRoot, manifestPath, baselineId, verdictRel }) => {
     const legCfg = { ...cfg, promptsDir, execRoot: repoRoot };
-    const issue: AgentIssue = { id: RETRO_ISSUE_ID, graph_refs: ["node:retro"], path: verdictRel };
+    const issue: AgentIssue = { id: TRANSCRIPT_DIRS.retro, transcript_dir: TRANSCRIPT_DIRS.retro, graph_refs: ["node:retro"], path: verdictRel };
     const context = retroContext({ manifestPath, baselineId, verdictRel });
-    const deps = legDepsForTarget(legCfg, issue, repoRoot, context);
+    const deps = legDepsForTarget(repoRoot, context);
     return leg.provider === "codex" ? runCodexLeg(leg, issue, legCfg as LegConfig, deps) : runClaudeLeg(leg, issue, legCfg as LegConfig, deps);
   };
 }

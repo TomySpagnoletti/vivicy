@@ -10,16 +10,19 @@ import {
   CODEX_ISOLATION_ARGS,
   LEG_ROLE_PATTERN,
   LegPromptError,
+  TRANSCRIPT_DIRS,
   agentEnv,
   buildClaudeArgs,
   buildCodexArgs,
   captureClaudeTranscript,
   findNewestCodexRollout,
   isolateAgentEnv,
+  issueTranscriptDir,
   legRoles,
   readPrompt,
   runClaudeLeg,
   runCodexLeg,
+  transcriptDirRel,
 } from "./agent-spawn.ts";
 import type { AgentIssue, LegConfig, LegDeps } from "./agent-spawn.ts";
 import { FACTORY_DIR, FACTORY_PROMPTS_DIR } from "./target-root.ts";
@@ -378,13 +381,12 @@ function fakeCliRun(name: string, run: (deps: { cfg: LegConfig; issue: AgentIssu
     const execRoot = join(root, "target");
     mkdirSync(execRoot, { recursive: true });
     const cfg: LegConfig = { promptsDir, transcriptsDir: ".vivicy/development/transcripts" };
-    const issue: AgentIssue = { id: "ISSUE-1" };
+    const issue: AgentIssue = { id: "ISS-1", transcript_dir: issueTranscriptDir("ISS-1") };
     const deps: LegDeps = {
       composePrompt: (template) => template,
       agentCliArgs: () => [],
       abs: (rel) => resolve(execRoot, rel),
       execRoot,
-      transcriptDirAbs: join(execRoot, ".vivicy/development/transcripts/ISSUE-1"),
       cwdFilter: null,
     };
     withEnv(
@@ -450,4 +452,134 @@ test("the role set the factory stamps on legs and the prompt-file set are the sa
     legRoles(FACTORY_PROMPTS_DIR),
     "a leg role with no factory/prompts/<role>.md refuses at the spawn seam the first time that leg runs, and a prompt file no role stamps is dead weight — if a leg legitimately derives its role indirectly (not a literal `role: \"…\"` / `leg(\"…\")`), that role is invisible to this scan and only the seam's typed refusal covers it",
   );
+});
+
+test("the ratified transcript taxonomy is the whole namespace, named once", () => {
+  assert.deepEqual(TRANSCRIPT_DIRS, {
+    issues: "ISSUES",
+    extraction: "EXTRACTION",
+    acceptance: "ACCEPTANCE",
+    retro: "RETRO",
+    vivi: "VIVI",
+    importDocs: "IMPORT-DOCS",
+    autoskills: "AUTOSKILLS",
+    changeRequests: "CHANGE-REQUESTS",
+    spikes: "SPIKES",
+  });
+  assert.equal(issueTranscriptDir("ISS-0007"), "ISSUES/ISS-0007", "a tracked product issue is grouped, never flat at the root");
+});
+
+// The synthetic work units live inside their spawn factories, so no runtime seam exposes them: the assignment is pinned where it is written.
+test("every leg family declares its ratified transcript home exactly once, and no other factory module composes one", () => {
+  const homes: Record<string, string> = {
+    "extract-issues.ts": "transcript_dir: TRANSCRIPT_DIRS.extraction",
+    "acceptance.ts": "transcript_dir: TRANSCRIPT_DIRS.acceptance",
+    "retro.ts": "transcript_dir: TRANSCRIPT_DIRS.retro",
+    "vivi-turn.ts": "transcript_dir: TRANSCRIPT_DIRS.vivi",
+    "prepare-docs.ts": "transcript_dir: TRANSCRIPT_DIRS.importDocs",
+    "detect-language.ts": "transcript_dir: TRANSCRIPT_DIRS.importDocs",
+    "install-skills.ts": "transcript_dir: TRANSCRIPT_DIRS.autoskills",
+    "cr-apply.ts": "transcript_dir: `${TRANSCRIPT_DIRS.changeRequests}/${id}`",
+    "spike-prover.ts": "transcript_dir: `${TRANSCRIPT_DIRS.spikes}/${id}`",
+    "dev-loop.ts": "transcript_dir: issueTranscriptDir(issue.id)",
+  };
+  const sources = readdirSync(FACTORY_DIR).filter((name) => name.endsWith(".ts") && !name.endsWith(".test.ts") && name !== "agent-spawn.ts");
+  const declaring: string[] = [];
+  for (const name of sources) {
+    const text = readFileSync(join(FACTORY_DIR, name), "utf8");
+    const occurrences = [...text.matchAll(/transcript_dir:(?!\s*string;)/g)].length;
+    if (occurrences === 0) continue;
+    declaring.push(name);
+    assert.equal(occurrences, 1, `${name} declares ${occurrences} transcript homes — a family has exactly one`);
+    assert.ok(homes[name], `${name} declares a transcript home that this taxonomy pin does not know about`);
+    assert.ok(text.includes(homes[name]), `${name} must declare its home as \`${homes[name]}\` — a hand-written path here is the per-call-site munging the single table exists to forbid`);
+  }
+  assert.deepEqual(declaring.sort(), Object.keys(homes).sort(), "a family that stopped declaring its home falls back to the ISSUES group silently");
+});
+
+test("transcriptDirRel composes <transcripts>/<declared home> for every family shape", () => {
+  const root = ".vivicy/development/transcripts";
+  const dir = (transcript_dir: string) => transcriptDirRel(root, { id: "x", transcript_dir });
+  assert.equal(transcriptDirRel(root, { id: "ISS-0007", transcript_dir: issueTranscriptDir("ISS-0007") }), `${root}/ISSUES/ISS-0007`);
+  assert.equal(dir(TRANSCRIPT_DIRS.extraction), `${root}/EXTRACTION`);
+  assert.equal(dir(TRANSCRIPT_DIRS.acceptance), `${root}/ACCEPTANCE`);
+  assert.equal(dir(TRANSCRIPT_DIRS.retro), `${root}/RETRO`);
+  assert.equal(dir(TRANSCRIPT_DIRS.vivi), `${root}/VIVI`);
+  assert.equal(dir(TRANSCRIPT_DIRS.importDocs), `${root}/IMPORT-DOCS`);
+  assert.equal(dir(TRANSCRIPT_DIRS.autoskills), `${root}/AUTOSKILLS`);
+  assert.equal(dir(`${TRANSCRIPT_DIRS.changeRequests}/CR-APPLY-7`), `${root}/CHANGE-REQUESTS/CR-APPLY-7`);
+  assert.equal(dir(`${TRANSCRIPT_DIRS.spikes}/SPIKE-S01-argon2id`), `${root}/SPIKES/SPIKE-S01-argon2id`);
+});
+
+test("transcriptDirRel refuses a declared home that is not a plain relative subpath", () => {
+  const root = ".vivicy/development/transcripts";
+  for (const hostile of ["..", "../../etc", "ISSUES/../../etc", "/etc/passwd", "", "ISSUES//ISS-1", "ISSUES/./ISS-1", "ISSUES\\..\\..\\etc", "ISSUES/ISS-1/"]) {
+    assert.throws(
+      () => transcriptDirRel(root, { id: "ISS-1", transcript_dir: hostile }),
+      /is not a usable transcript directory/,
+      `"${hostile}" must never reach the filesystem — the issue index and the CR/spike files a leg can write feed this`,
+    );
+  }
+});
+
+// Runs the REAL spawn seam once per family the taxonomy groups: what lands on disk is the pin, not the string the composer returned.
+test("a leg's transcript lands under its family's directory, role-named so two legs of one family never collide", () => {
+  const root = mkdtempSync(join(tmpdir(), "vivicy-transcript-layout-"));
+  try {
+    const bin = join(root, "bin");
+    mkdirSync(bin, { recursive: true });
+    writeFileSync(join(bin, "codex"), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+    const execRoot = join(root, "target");
+    const codexHome = join(root, "codex-home");
+    const sessions = join(codexHome, "sessions");
+    mkdirSync(sessions, { recursive: true });
+    const rollout = join(sessions, "rollout.jsonl");
+    writeFileSync(rollout, '{"type":"session_meta"}\n');
+    // Every leg captures this one rollout: findNewestCodexRollout takes the newest at or after the leg's start, so it must outlast them all.
+    const ahead = new Date(Date.now() + 3_600_000);
+    utimesSync(rollout, ahead, ahead);
+
+    const cfg: LegConfig = { promptsDir: FACTORY_PROMPTS_DIR, transcriptsDir: ".vivicy/development/transcripts" };
+    const deps: LegDeps = {
+      composePrompt: (template) => template,
+      agentCliArgs: () => [],
+      abs: (rel) => resolve(execRoot, rel),
+      execRoot,
+      cwdFilter: null,
+    };
+    const landed = (role: string, issue: AgentIssue): string => {
+      const result = withEnv(
+        { PATH: `${bin}:${process.env.PATH ?? ""}`, CODEX_HOME: codexHome, VIVICY_LEG_TIMEOUT_MS: "60000", VIVICY_LEG_IDLE_MS: "60000" },
+        () => runCodexLeg({ actor: "codex", role, provider: "codex" }, issue, cfg, deps),
+      );
+      const rel = result.transcriptRel;
+      assert.ok(rel, `the ${role} leg captured no transcript, so nothing proves where it would have landed`);
+      assert.ok(existsSync(deps.abs(rel!)), `the ${role} leg's transcript is not on disk at ${rel}`);
+      return rel!;
+    };
+
+    assert.match(
+      landed("implementer", { id: "ISS-0007", transcript_dir: issueTranscriptDir("ISS-0007") }),
+      /^\.vivicy\/development\/transcripts\/ISSUES\/ISS-0007\/codex-implementer-[0-9a-f-]{36}\.jsonl$/,
+    );
+    assert.equal(existsSync(deps.abs(".vivicy/development/transcripts/ISS-0007")), false, "no issue transcript may sit flat beside the family groups");
+
+    const importDocs: AgentIssue = { id: TRANSCRIPT_DIRS.importDocs, transcript_dir: TRANSCRIPT_DIRS.importDocs };
+    const prep = landed("doc-prep", importDocs);
+    const lang = landed("detect-language", importDocs);
+    assert.match(prep, /^\.vivicy\/development\/transcripts\/IMPORT-DOCS\/codex-doc-prep-[0-9a-f-]{36}\.jsonl$/);
+    assert.match(lang, /^\.vivicy\/development\/transcripts\/IMPORT-DOCS\/codex-detect-language-[0-9a-f-]{36}\.jsonl$/);
+    assert.notEqual(prep, lang, "the two legs folded into IMPORT-DOCS are told apart by their role-named files");
+
+    assert.match(
+      landed("cr-applier", { id: "CR-APPLY-7", transcript_dir: `${TRANSCRIPT_DIRS.changeRequests}/CR-APPLY-7` }),
+      /^\.vivicy\/development\/transcripts\/CHANGE-REQUESTS\/CR-APPLY-7\/codex-cr-applier-[0-9a-f-]{36}\.jsonl$/,
+    );
+    assert.match(
+      landed("spike-prover", { id: "SPIKE-S01-argon2id", transcript_dir: `${TRANSCRIPT_DIRS.spikes}/SPIKE-S01-argon2id` }),
+      /^\.vivicy\/development\/transcripts\/SPIKES\/SPIKE-S01-argon2id\/codex-spike-prover-[0-9a-f-]{36}\.jsonl$/,
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });

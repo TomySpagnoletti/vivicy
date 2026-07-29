@@ -141,7 +141,7 @@ test("a proposal missing a title or detail is dropped as non-actionable", async 
     const report = await runRetro({
       repoRoot: root,
       spawnLeg: verdictLeg({
-        recurring_classes: [{ id: "c", kind: "review_finding", signature: "same finding twice", evidence: [".vivicy/development/transcripts/ISS-0001/x.jsonl", ".vivicy/development/transcripts/ISS-0002/x.jsonl"] }],
+        recurring_classes: [{ id: "c", kind: "review_finding", signature: "same finding twice", evidence: [".vivicy/development/transcripts/ISSUES/ISS-0001/x.jsonl", ".vivicy/development/transcripts/ISSUES/ISS-0002/x.jsonl"] }],
         proposals: [
           { landing: "method_block", title: "", detail: "no title" },
           { landing: "method_block", title: "no detail", detail: "" },

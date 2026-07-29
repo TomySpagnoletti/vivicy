@@ -228,7 +228,7 @@ test("rejects an unknown actor role", () => {
 });
 
 test("accumulates transcript_refs on the graph item state and active item", () => {
-  const ref = ".vivicy/development/transcripts/ISS-MANAGER-0001/claude-implementer-x.jsonl";
+  const ref = ".vivicy/development/transcripts/ISSUES/ISS-MANAGER-0001/claude-implementer-x.jsonl";
   const ledger = applyProgressEvent({
     event: {
       actor: "claude",

@@ -4,7 +4,7 @@ import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, rmSync, wr
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { runClaudeLeg, runCodexLeg } from "./agent-spawn.ts";
+import { runClaudeLeg, runCodexLeg, TRANSCRIPT_DIRS } from "./agent-spawn.ts";
 import type { AgentIssue, LegConfig, LegDeps } from "./agent-spawn.ts";
 import { notify } from "./notify.ts";
 import { agentCliArgs, CLI_DEFAULTS, composePrompt, DEFAULT_CONFIG, resolveAgentLegs } from "./dev-loop.ts";
@@ -17,7 +17,6 @@ export const SKILLS_REPORT_REL = ".vivicy/development/reports/skills-report.json
 const SCOUT_RESULT_REL = ".vivicy/development/reports/skill-scout-result.json";
 export const MAX_PROJECT_SKILLS = 6;
 const SKILL_ID_RE = /^[\w.-]+\/[\w.-]+@[\w.-]+$/;
-const SCOUT_ISSUE_ID = "SKILLS";
 
 // Priority/label only — never a security gate; the audits are the gate.
 export const OFFICIAL_VENDOR_OWNERS: ReadonlySet<string> = new Set([
@@ -460,9 +459,9 @@ function makeDefaultSpawnScout(options: InstallSkillsOptions): (args: SpawnScout
   const leg: Leg = { ...implementer, role: "skill-scout" };
   return async ({ repoRoot, manifestPath, baselineId, resultRel, attempt, feedback }) => {
     const legCfg = { ...cfg, promptsDir, execRoot: repoRoot };
-    const issue: AgentIssue = { id: SCOUT_ISSUE_ID, graph_refs: ["node:skills"], path: SKILLS_REPORT_REL };
+    const issue: AgentIssue = { id: TRANSCRIPT_DIRS.autoskills, transcript_dir: TRANSCRIPT_DIRS.autoskills, graph_refs: ["node:skills"], path: SKILLS_REPORT_REL };
     const context = scoutContext({ manifestPath, baselineId, resultRel, attempt, feedback });
-    const deps = legDepsForTarget(legCfg, issue, repoRoot, context);
+    const deps = legDepsForTarget(repoRoot, context);
     return leg.provider === "codex" ? runCodexLeg(leg, issue, legCfg as LegConfig, deps) : runClaudeLeg(leg, issue, legCfg as LegConfig, deps);
   };
 }
@@ -481,14 +480,12 @@ function scoutContext({ manifestPath, baselineId, resultRel, attempt, feedback }
 }
 
 // Mirrors extract-issues' legDepsForTarget — keep both in sync.
-function legDepsForTarget(legCfg: Record<string, unknown>, issue: AgentIssue, repoRoot: string, context: string): LegDeps {
-  const abs = (rel: string) => resolve(repoRoot, rel);
+function legDepsForTarget(repoRoot: string, context: string): LegDeps {
   return {
     composePrompt: (template: string, iss: AgentIssue) => composePrompt(template, iss) + context,
     agentCliArgs,
-    abs,
+    abs: (rel: string) => resolve(repoRoot, rel),
     execRoot: repoRoot,
-    transcriptDirAbs: abs(`${legCfg.transcriptsDir as string}/${issue.id}`),
     cwdFilter: null,
   };
 }

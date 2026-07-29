@@ -14,7 +14,7 @@ The per-issue gates and the acceptance pass prove the PRODUCT. They say nothing 
 4. The **gate evidence** under `.vivicy/development/gates/*.json` — each record's `command`, `exit_code`, `status`, and `reason`; repeated failures on the same command/reason are gate flakes.
 5. The **whole-product acceptance report** `.vivicy/development/reports/acceptance-report.json` — its findings are whole-product gaps the per-issue gates missed.
 6. The **quota history** `.vivicy/development/reports/quota-state.json` — quota exhaustion events that stalled the run.
-7. Where a review finding recurred, the leg **transcripts** under `.vivicy/development/transcripts/<issue-id>/*.jsonl` corroborate it.
+7. Where a review finding recurred, the leg **transcripts** under `.vivicy/development/transcripts/ISSUES/<issue-id>/*.jsonl` corroborate it.
 
 ## What you produce (recurring classes + mapped proposals)
 

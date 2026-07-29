@@ -84,12 +84,12 @@ const DATA: ArchitectureMapData = {
       {
         graph_ref: "node:telegram-channel",
         status: "implemented",
-        transcript_refs: ["runs/transcripts/ISS-0100/codex-rollout.jsonl"],
+        transcript_refs: [".vivicy/development/transcripts/ISSUES/ISS-0100/codex-rollout.jsonl"],
       },
       {
         graph_ref: "edge:telegram->mcp",
         status: "in_progress",
-        transcript_refs: ["runs/transcripts/ISS-0200/claude.jsonl"],
+        transcript_refs: [".vivicy/development/transcripts/ISSUES/ISS-0200/claude.jsonl"],
       },
     ],
   },

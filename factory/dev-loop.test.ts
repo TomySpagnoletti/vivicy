@@ -645,7 +645,7 @@ test("RUN-COMMAND: while the runCommand sentinel stands, the implementer/reviewe
 test("VISUAL-REVIEW: a web-serving runCommand injects the reviewer's boot-and-screenshot duty; an unestablished or non-UI runCommand injects nothing (byte-identical)", () => {
   const dir = mkdtempSync(resolve(repoRoot, "_tmp-visual-directive-"));
   try {
-    const scratchCfg = { execRoot: dir } as unknown as Config;
+    const scratchCfg = { execRoot: dir, transcriptsDir: DEFAULT_CONFIG.transcriptsDir } as unknown as Config;
     const issue = { id: "ISS-A" } as unknown as Issue;
 
     writeFileSync(resolve(dir, "vivicy.json"), JSON.stringify({ gateCommand: "npm test", runCommand: null }));
@@ -663,7 +663,7 @@ test("VISUAL-REVIEW: a web-serving runCommand injects the reviewer's boot-and-sc
     assert.match(directive, /legibility/i, "judges legibility");
     assert.match(directive, /not_faithful/, "a damaged render is a review finding");
     assert.match(directive, /fails to boot[\s\S]*broke the run story/i, "boot failure is itself a loud finding");
-    assert.match(directive, /transcripts\/ISS-A\/screenshots\//, "screenshots land beside the leg's evidence, keyed by issue id, gitignored");
+    assert.match(directive, /transcripts\/ISSUES\/ISS-A\/screenshots\//, "screenshots land beside the leg's evidence, in this issue's own family directory, gitignored");
     assert.match(directive, /never committed/i, "evidence is never committed");
     assert.match(directive, /playwright|headless/i, "headless screenshot tooling with honest degradation");
     assert.match(directive, /process tree/i, "kills the product's process tree when done");

@@ -317,8 +317,8 @@ describe("issueTranscriptRefs", () => {
           graph_ref: "node:a",
           status: "verified",
           transcript_refs: [
-            ".vivicy/development/transcripts/ISS-1/claude.jsonl",
-            ".vivicy/development/transcripts/ISS-9/other.jsonl",
+            ".vivicy/development/transcripts/ISSUES/ISS-1/claude.jsonl",
+            ".vivicy/development/transcripts/ISSUES/ISS-9/other.jsonl",
           ],
         },
       ],
@@ -327,7 +327,7 @@ describe("issueTranscriptRefs", () => {
           id: "ai",
           issue_id: "ISS-1",
           graph_refs: ["node:a"],
-          transcript_refs: [".vivicy/development/transcripts/ISS-1/codex.jsonl"],
+          transcript_refs: [".vivicy/development/transcripts/ISSUES/ISS-1/codex.jsonl"],
         },
       ],
     }
@@ -335,9 +335,9 @@ describe("issueTranscriptRefs", () => {
       { id: "ISS-1", graph_refs: ["node:a"] },
       development
     )
-    expect(refs).toContain(".vivicy/development/transcripts/ISS-1/claude.jsonl")
-    expect(refs).toContain(".vivicy/development/transcripts/ISS-1/codex.jsonl")
-    expect(refs).not.toContain(".vivicy/development/transcripts/ISS-9/other.jsonl")
+    expect(refs).toContain(".vivicy/development/transcripts/ISSUES/ISS-1/claude.jsonl")
+    expect(refs).toContain(".vivicy/development/transcripts/ISSUES/ISS-1/codex.jsonl")
+    expect(refs).not.toContain(".vivicy/development/transcripts/ISSUES/ISS-9/other.jsonl")
   })
 })
 

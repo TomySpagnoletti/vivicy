@@ -17,9 +17,37 @@ export interface AgentLeg {
 
 export interface AgentIssue {
   id: string;
+  transcript_dir: string;
   graph_refs?: string[];
   path?: string;
   issue_path?: string;
+}
+
+// The whole transcript taxonomy: every leg family's home under <transcriptsDir>, named ONCE here so two families can never collide and no call site composes a path of its own.
+export const TRANSCRIPT_DIRS = {
+  issues: "ISSUES",
+  extraction: "EXTRACTION",
+  acceptance: "ACCEPTANCE",
+  retro: "RETRO",
+  vivi: "VIVI",
+  importDocs: "IMPORT-DOCS",
+  autoskills: "AUTOSKILLS",
+  changeRequests: "CHANGE-REQUESTS",
+  spikes: "SPIKES",
+} as const;
+
+export function issueTranscriptDir(issueId: string): string {
+  return `${TRANSCRIPT_DIRS.issues}/${issueId}`;
+}
+
+// The one place a work unit's declared home becomes a path: an id or a subpath reaching this function comes from a file an agent leg can write, so traversal dies here rather than one directory deeper.
+export function transcriptDirRel(transcriptsDir: string, issue: AgentIssue): string {
+  const subdir = issue.transcript_dir;
+  const segments = typeof subdir === "string" ? subdir.split("/") : [];
+  if (segments.length === 0 || subdir.includes("\\") || segments.some((segment) => segment.length === 0 || segment === "." || segment === "..")) {
+    throw new Error(`agent-spawn: "${String(subdir)}" is not a usable transcript directory for "${String(issue.id)}" — it must be a plain relative subpath of ${transcriptsDir}.`);
+  }
+  return `${transcriptsDir}/${subdir}`;
 }
 
 export interface LegConfig {
@@ -32,7 +60,6 @@ export interface LegDeps {
   agentCliArgs: (provider: string, leg: AgentLeg) => string[];
   abs: (rel: string) => string;
   execRoot: string;
-  transcriptDirAbs?: string;
   cwdFilter?: string | null;
 }
 
@@ -313,14 +340,15 @@ function runClaudeLegWith(
   captureFn: typeof captureClaudeTranscript,
   isAsync = false,
 ): LegRunResult | Promise<LegRunResult> {
-  const { composePrompt, agentCliArgs, abs, execRoot, transcriptDirAbs } = deps;
+  const { composePrompt, agentCliArgs, abs, execRoot } = deps;
   const prompt = composePrompt(readPrompt(cfg, leg.role), issue);
   const uuid = randomUUID();
-  const transcriptRel = `${cfg.transcriptsDir}/${issue.id}/claude-${leg.role}-${uuid}.jsonl`;
+  const dirRel = transcriptDirRel(cfg.transcriptsDir!, issue);
+  const transcriptRel = `${dirRel}/claude-${leg.role}-${uuid}.jsonl`;
   const args = buildClaudeArgs({ prompt, uuid, modelArgs: agentCliArgs("claude", leg) });
   const options = { cwd: execRoot, env: agentEnv(), encoding: "utf8" };
   const finish = (result: LegResult): LegRunResult => {
-    ensureTranscriptDir(transcriptDirAbs!);
+    ensureTranscriptDir(abs(dirRel));
     const captured = captureFn(uuid, abs(transcriptRel));
     return { result, output: combinedOutput(result), transcriptRel: captured ? transcriptRel : undefined };
   };
@@ -344,14 +372,15 @@ function runCodexLegWith(
   spawnFn: typeof spawnTee | typeof spawnTeeAsync,
   isAsync: boolean,
 ): LegRunResult | Promise<LegRunResult> {
-  const { composePrompt, agentCliArgs, abs, execRoot, transcriptDirAbs, cwdFilter } = deps;
+  const { composePrompt, agentCliArgs, abs, execRoot, cwdFilter } = deps;
   const prompt = composePrompt(readPrompt(cfg, leg.role), issue);
-  const transcriptRel = `${cfg.transcriptsDir}/${issue.id}/codex-${leg.role}-${randomUUID()}.jsonl`;
+  const dirRel = transcriptDirRel(cfg.transcriptsDir!, issue);
+  const transcriptRel = `${dirRel}/codex-${leg.role}-${randomUUID()}.jsonl`;
   const args = buildCodexArgs({ prompt, root: execRoot, modelArgs: agentCliArgs("codex", leg) });
   const options = { cwd: execRoot, env: agentEnv(), encoding: "utf8" };
   const startMs = Date.now();
   const finish = (result: LegResult): LegRunResult => {
-    ensureTranscriptDir(transcriptDirAbs!);
+    ensureTranscriptDir(abs(dirRel));
     const output = combinedOutput(result);
     const rollout = findNewestCodexRollout(startMs, cwdFilter ?? null);
     if (rollout) {

@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import type { SpawnSyncReturns } from "node:child_process";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { issueTranscriptDir, TRANSCRIPT_DIRS } from "./agent-spawn.ts";
 import { cleanupTree } from "./cleanup-tree.ts";
 import { FACTORY_REHEARSAL_DIR } from "./target-root.ts";
 import { isCanonicalFrozen, isSpecCycleOpen, SPEC_CYCLE_REL, writeSpecCycle } from "../lib/spec-cycle.ts";
@@ -18,6 +19,8 @@ import {
   readProofsByIssue,
   type ProofStatus,
 } from "../lib/proofs.ts";
+
+const TRANSCRIPTS_DIR = ".vivicy/development/transcripts";
 
 interface Stage {
   name: string;
@@ -155,11 +158,11 @@ function dryImplementer(temp: string) {
   return (issue: LegIssue) => {
     establishSentinelCommands(temp);
     produceDeclaredProofs(temp, issue);
-    return writeFakeTranscript(temp, issue, "claude-implementer");
+    return writeFakeTranscript(temp, issueTranscriptDir(issue.id), "claude-implementer");
   };
 }
 function dryReviewer(temp: string) {
-  return (issue: LegIssue) => writeFakeTranscript(temp, issue, "codex-reviewer");
+  return (issue: LegIssue) => writeFakeTranscript(temp, issueTranscriptDir(issue.id), "codex-reviewer");
 }
 function dryImplementerParallel(temp: string) {
   return async (issue: LegIssue, cfg?: LegCfg) => {
@@ -168,14 +171,14 @@ function dryImplementerParallel(temp: string) {
     establishSentinelCommands(cfg?.execRoot ?? temp);
     // Proofs go to the MAIN root, never the worktree: the evidence home must survive the worktree's removal.
     produceDeclaredProofs(temp, issue);
-    return writeFakeTranscript(temp, issue, "claude-implementer");
+    return writeFakeTranscript(temp, issueTranscriptDir(issue.id), "claude-implementer");
   };
 }
 function dryReviewerParallel(temp: string) {
   return async (issue: LegIssue, cfg?: LegCfg) => {
     await delay(15);
     if (cfg?.execRoot) writeWorktreeMarker(cfg.execRoot, issue, "reviewer");
-    return writeFakeTranscript(temp, issue, "codex-reviewer");
+    return writeFakeTranscript(temp, issueTranscriptDir(issue.id), "codex-reviewer");
   };
 }
 function delay(ms: number): Promise<void> {
@@ -187,11 +190,11 @@ function writeWorktreeMarker(execRoot: string, issue: LegIssue, who: string): vo
   mkdirSync(dir, { recursive: true });
   writeFileSync(join(dir, `${issue.id}.js`), `// ${who} produced ${issue.id}\nexport const ${issue.id.replace(/[^a-zA-Z0-9]/g, "_")} = true;\n`);
 }
-function writeFakeTranscript(temp: string, issue: LegIssue, who: string): { transcriptRel: string } {
-  const rel = `.vivicy/development/transcripts/${issue.id}/${who}-dry.jsonl`;
+function writeFakeTranscript(temp: string, dir: string, who: string): { transcriptRel: string } {
+  const rel = `${TRANSCRIPTS_DIR}/${dir}/${who}-dry.jsonl`;
   const abs = join(temp, rel);
   mkdirSync(dirname(abs), { recursive: true });
-  writeFileSync(abs, `${JSON.stringify({ type: "assistant", message: { content: `dry ${who} for ${issue.id}` } })}\n`);
+  writeFileSync(abs, `${JSON.stringify({ type: "assistant", message: { content: `dry ${who} in ${dir}` } })}\n`);
   return { transcriptRel: rel };
 }
 
@@ -404,8 +407,8 @@ async function main(): Promise<void> {
   const ledgerTracked = tracked.has(".vivicy/development/progress-ledger.json");
   const gatesTracked = [...tracked].some((p) => p.startsWith(".vivicy/development/gates/") && p.endsWith(".json"));
   record("closure: ledger + gate evidence committed", ledgerTracked && gatesTracked, `ledger ${ledgerTracked}, gates ${gatesTracked}`);
-  const transcriptsCommitted = [...tracked].filter((p) => p.startsWith(".vivicy/development/transcripts/"));
-  const transcriptsOnDisk = existsSync(join(temp, ".vivicy/development/transcripts"));
+  const transcriptsCommitted = [...tracked].filter((p) => p.startsWith(`${TRANSCRIPTS_DIR}/`));
+  const transcriptsOnDisk = existsSync(join(temp, TRANSCRIPTS_DIR));
   record(
     "closure: transcripts produced but NEVER committed (gitignored)",
     transcriptsOnDisk && transcriptsCommitted.length === 0,
@@ -921,13 +924,13 @@ async function runFeatureCycleStages(temp: string): Promise<void> {
       repoRoot: temp,
       spawnExtractor: async (ctx: { manifestPath: string }) => {
         authorEvolvedCorpus(temp, doc, ctx.manifestPath);
-        return writeFakeTranscript(temp, { id: "EXTRACTION" }, "claude-extractor");
+        return writeFakeTranscript(temp, TRANSCRIPT_DIRS.extraction, "claude-extractor");
       },
       spawnVerifier: async () => {
         const verdictAbs = join(temp, ".vivicy/development/reports/extraction-fidelity-verdict.json");
         mkdirSync(dirname(verdictAbs), { recursive: true });
         writeFileSync(verdictAbs, `${JSON.stringify({ faithful: true, problems: [] }, null, 2)}\n`);
-        return writeFakeTranscript(temp, { id: "EXTRACTION" }, "codex-verifier");
+        return writeFakeTranscript(temp, TRANSCRIPT_DIRS.extraction, "codex-verifier");
       },
       mapReview: async () => ({ findings: [], actionable: [], legs: [] }),
     })) as CycleExtractionResult;

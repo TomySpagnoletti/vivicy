@@ -91,7 +91,7 @@ function fakeProver(verdictByGate: Record<string, string> = {}, { onAttempt }: {
     if (verdict !== "__NO_REPORT__") {
       writeJson(proofRel(ctx.spike.file), { verdict, reason: `attempt ${ctx.attempt}: ${verdict}` });
     }
-    return { transcriptRel: `${SPIKES_DIR}/../transcripts/x/proof-${ctx.attempt}.jsonl`, result: { status: 0 } };
+    return { transcriptRel: `${SPIKES_DIR}/../transcripts/SPIKES/SPIKE-x/proof-${ctx.attempt}.jsonl`, result: { status: 0 } };
   };
   return { spawnProver, calls };
 }
@@ -105,7 +105,7 @@ function fakeSpikeVerifier(agreeByGate: Record<string, boolean | "__NO_REPORT__"
     if (agree !== "__NO_REPORT__") {
       writeJson(verdictRel(ctx.spike.file), { agree, problems: agree ? [] : ["evidence does not support the verdict"] });
     }
-    return { transcriptRel: `${SPIKES_DIR}/../transcripts/x/verify-${ctx.attempt}.jsonl`, result: { status: 0 } };
+    return { transcriptRel: `${SPIKES_DIR}/../transcripts/SPIKES/SPIKE-x/verify-${ctx.attempt}.jsonl`, result: { status: 0 } };
   };
   return { spawnSpikeVerifier, calls };
 }

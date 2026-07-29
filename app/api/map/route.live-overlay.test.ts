@@ -119,7 +119,7 @@ describe("/api/map live overlay (real stack, no regeneration)", () => {
           status: "verified",
           issue_ids: ["ISS-A"],
           evidence_refs: [".vivicy/development/gates/ISS-A.json:1"],
-          transcript_refs: [".vivicy/development/transcripts/ISS-A/impl.jsonl"],
+          transcript_refs: [".vivicy/development/transcripts/ISSUES/ISS-A/impl.jsonl"],
         },
       ],
       active_items: [],

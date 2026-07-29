@@ -3,13 +3,10 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { runClaudeLeg, runCodexLeg } from "./agent-spawn.ts";
+import { runClaudeLeg, runCodexLeg, TRANSCRIPT_DIRS } from "./agent-spawn.ts";
 import type { AgentIssue, AgentLeg, LegConfig, LegDeps, LegRunResult } from "./agent-spawn.ts";
 import { agentCliArgs, CLI_DEFAULTS, DEFAULT_CONFIG, resolveAgentLegs } from "./dev-loop.ts";
 import { FACTORY_PROMPTS_DIR, resolveTargetRoot } from "./target-root.ts";
-
-// Synthetic issue id (transcript/identity handle), not a real tracked product issue — same role as extract-issues.ts's extractionIssue.
-const VIVI_ISSUE_ID = "VIVI-CHAT";
 
 interface ViviSpawnArgs {
   promptText: string;
@@ -52,25 +49,23 @@ export async function runViviTurn(options: ViviTurnOptions = {}): Promise<{ repl
 async function defaultSpawnVivi({ promptText, targetRoot, cfg, leg }: ViviSpawnArgs): Promise<LegRunResult> {
   const execRoot = targetRoot;
   const issue = viviIssue();
-  const deps = legDepsForTarget(cfg, issue, execRoot!, promptText);
+  const deps = legDepsForTarget(execRoot!, promptText);
   return leg.provider === "codex"
     ? runCodexLeg(leg, issue, cfg, deps)
     : runClaudeLeg(leg, issue, cfg, deps);
 }
 
 function viviIssue(): AgentIssue {
-  return { id: VIVI_ISSUE_ID, graph_refs: ["node:vivi-chat"], path: "" };
+  return { id: TRANSCRIPT_DIRS.vivi, transcript_dir: TRANSCRIPT_DIRS.vivi, graph_refs: ["node:vivi-chat"], path: "" };
 }
 
 // composePrompt is an identity function here: lib/vivi.ts already assembled the full prompt (persona + transcript + .vivicy state); the leg only executes it.
-function legDepsForTarget(legCfg: LegConfig, issue: AgentIssue, execRoot: string, promptText: string): LegDeps {
-  const abs = (rel: string) => resolve(execRoot, rel);
+function legDepsForTarget(execRoot: string, promptText: string): LegDeps {
   return {
     composePrompt: () => promptText,
     agentCliArgs,
-    abs,
+    abs: (rel: string) => resolve(execRoot, rel),
     execRoot,
-    transcriptDirAbs: abs(`${legCfg.transcriptsDir}/${issue.id}`),
     cwdFilter: null,
   };
 }

@@ -223,7 +223,7 @@ When the owner asks why the build stopped, or an actionable notification lands i
    - the extraction → `extraction-status.json` (`phase: extraction_blocked`, with a `summary` naming the fix context).
    - a Change Request apply → `apply-<CR-id>.json` (`status: blocked`, plus `phase` and `summary`).
 3. **Open the gate evidence** at `.vivicy/development/gates/<issue-id>-gate.json` — the exact `command`, `exit_code`, and `reason` the gate returned.
-4. **Open the leg transcript** for the issue at `.vivicy/development/transcripts/<issue-id>/*.jsonl` (the progress ledger's graph item for the issue links the exact files) — read the tail to see what the agent actually hit.
+4. **Open the leg transcript** for the issue at `.vivicy/development/transcripts/ISSUES/<issue-id>/*.jsonl` (the progress ledger's graph item for the issue links the exact files) — read the tail to see what the agent actually hit.
 
 Then classify by the `kind` plus that evidence, and propose exactly the one action for the class:
 

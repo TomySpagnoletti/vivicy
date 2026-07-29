@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { extname, join, relative, resolve } from "node:path";
 
-import { runCodexLegAsync } from "./agent-spawn.ts";
+import { runCodexLegAsync, TRANSCRIPT_DIRS } from "./agent-spawn.ts";
 import type { AgentIssue, AgentLeg, LegConfig, LegDeps } from "./agent-spawn.ts";
 import { atomicWriteJson } from "./atomic-write.ts";
 import { cleanupTree } from "./cleanup-tree.ts";
@@ -14,7 +14,6 @@ const UNDETERMINED = "und";
 const MANIFEST_FILE = "manifest.json";
 const SCRATCH_REL = ".vivicy/development/reports/lang-detect-scratch";
 const VERDICT_FILE = "language.json";
-const LANG_ISSUE_ID = "DETECT-LANGUAGE";
 const SAMPLE_LINE_CAP = 40;
 const SAMPLE_CHAR_CAP = 4000;
 
@@ -191,9 +190,9 @@ function makeDefaultLangLeg(options: ResolveBatchLanguageOptions): (args: LangSp
   const leg: AgentLeg = { actor: "codex", role: "detect-language", provider: "codex", model, effort: DEFAULT_LANG_EFFORT, fast: false };
   return async ({ repoRoot, inputDir, outputDir }) => {
     const legCfg = { ...cfg, promptsDir, execRoot: repoRoot };
-    const issue: AgentIssue = { id: LANG_ISSUE_ID, graph_refs: ["node:detect-language"], path: relative(repoRoot, join(outputDir, VERDICT_FILE)) };
+    const issue: AgentIssue = { id: TRANSCRIPT_DIRS.importDocs, transcript_dir: TRANSCRIPT_DIRS.importDocs, graph_refs: ["node:detect-language"], path: relative(repoRoot, join(outputDir, VERDICT_FILE)) };
     const context = legContext({ repoRoot, inputDir, outputDir });
-    const deps = legDeps(legCfg, issue, repoRoot, context);
+    const deps = legDeps(repoRoot, context);
     return runCodexLegAsync(leg, issue, legCfg as LegConfig, deps);
   };
 }
@@ -210,14 +209,12 @@ function legContext({ repoRoot, inputDir, outputDir }: LangSpawnArgs): string {
   );
 }
 
-function legDeps(legCfg: Record<string, unknown>, issue: AgentIssue, repoRoot: string, context: string): LegDeps {
-  const abs = (rel: string) => resolve(repoRoot, rel);
+function legDeps(repoRoot: string, context: string): LegDeps {
   return {
     composePrompt: (template: string, iss: AgentIssue) => composePrompt(template, iss) + context,
     agentCliArgs,
-    abs,
+    abs: (rel: string) => resolve(repoRoot, rel),
     execRoot: repoRoot,
-    transcriptDirAbs: abs(`${legCfg.transcriptsDir as string}/${issue.id}`),
     cwdFilter: null,
   };
 }

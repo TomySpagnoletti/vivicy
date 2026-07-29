@@ -49,12 +49,14 @@ import { resolveTargetRoot, FACTORY_DIR, FACTORY_PROMPTS_DIR } from "./target-ro
 import { resolveGateCommand, resolveRunCommand, ProjectConfigError } from "./project-config.ts";
 import {
   combinedOutput,
+  issueTranscriptDir,
   runClaudeLeg as sharedRunClaudeLeg,
   runClaudeLegAsync as sharedRunClaudeLegAsync,
   runCodexLeg as sharedRunCodexLeg,
   runCodexLegAsync as sharedRunCodexLegAsync,
+  transcriptDirRel,
 } from "./agent-spawn.ts";
-import type { AgentLeg } from "./agent-spawn.ts";
+import type { AgentIssue, AgentLeg } from "./agent-spawn.ts";
 import type { LegResult as TimeoutLegResult } from "./leg-timeout.ts";
 
 export interface Issue {
@@ -223,7 +225,6 @@ interface LegDeps {
   agentCliArgs: typeof agentCliArgs;
   abs: typeof abs;
   execRoot: string;
-  transcriptDirAbs: string | undefined;
   cwdFilter: string | null;
 }
 
@@ -758,8 +759,7 @@ export function runCommandDirective(cfg: Config): string {
   }
 }
 
-function visualReviewDirectiveText(issueId: string): string {
-  const screenshotsDir = `.vivicy/development/transcripts/${issueId}/screenshots/`;
+function visualReviewDirectiveText(screenshotsDir: string): string {
   return [
     "## Visual verification — this product renders a UI, so SEE it before you pass",
     "",
@@ -784,7 +784,7 @@ export function visualReviewDirective(cfg: Config, issue: Issue | undefined): st
     return "";
   }
   if (!commandServesHttp(command)) return "";
-  return visualReviewDirectiveText(issue?.id ?? "<issue_id>");
+  return visualReviewDirectiveText(`${transcriptDirRel(cfg.transcriptsDir!, legIssue(issue ?? { id: "<issue_id>" }))}/screenshots/`);
 }
 
 function readIssueBody(issue: Issue, cfg: Config): string | null {
@@ -1320,11 +1320,11 @@ function sha256(text: string): string {
 }
 
 function runClaudeLeg(leg: Leg, issue: Issue, cfg: Config): LegResult {
-  return sharedRunClaudeLeg(leg, issue, cfg, legDeps(cfg, issue));
+  return sharedRunClaudeLeg(leg, legIssue(issue), cfg, legDeps(cfg, issue));
 }
 
 function runCodexLeg(leg: Leg, issue: Issue, cfg: Config): LegResult {
-  return sharedRunCodexLeg(leg, issue, cfg, legDeps(cfg, issue));
+  return sharedRunCodexLeg(leg, legIssue(issue), cfg, legDeps(cfg, issue));
 }
 
 function legDeps(cfg: Config, issue: Issue | undefined): LegDeps {
@@ -1344,9 +1344,13 @@ function legDeps(cfg: Config, issue: Issue | undefined): LegDeps {
     agentCliArgs,
     abs,
     execRoot: root,
-    transcriptDirAbs: issue ? abs(`${cfg.transcriptsDir}/${issue.id}`) : undefined,
     cwdFilter: cfg.execRoot ? root : null,
   };
+}
+
+// A tracked product issue's transcripts live under the ISSUES family; the synthetic work units of the other stages declare their own home at their constructor.
+function legIssue(issue: Issue): AgentIssue {
+  return { ...issue, transcript_dir: issueTranscriptDir(issue.id) };
 }
 
 function runAssignedLeg(leg: Leg, issue: Issue, cfg: Config): LegResult {
@@ -1364,11 +1368,11 @@ export function defaultRunReviewer(issue: Issue, cfg: Config): LegResult {
 }
 
 function runClaudeLegAsync(leg: Leg, issue: Issue, cfg: Config): Promise<LegResult> {
-  return sharedRunClaudeLegAsync(leg, issue, cfg, legDeps(cfg, issue));
+  return sharedRunClaudeLegAsync(leg, legIssue(issue), cfg, legDeps(cfg, issue));
 }
 
 function runCodexLegAsync(leg: Leg, issue: Issue, cfg: Config): Promise<LegResult> {
-  return sharedRunCodexLegAsync(leg, issue, cfg, legDeps(cfg, issue));
+  return sharedRunCodexLegAsync(leg, legIssue(issue), cfg, legDeps(cfg, issue));
 }
 
 function runAssignedLegAsync(leg: Leg, issue: Issue, cfg: Config): Promise<LegResult> {

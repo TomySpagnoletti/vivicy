@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 
 import { pruneGitkeeps } from "../lib/skeleton.ts";
 
-import { runClaudeLeg, runCodexLeg } from "./agent-spawn.ts";
+import { runClaudeLeg, runCodexLeg, TRANSCRIPT_DIRS } from "./agent-spawn.ts";
 import type { AgentIssue, AgentLeg, LegConfig, LegDeps } from "./agent-spawn.ts";
 import { agentCliArgs, CLI_DEFAULTS, composePrompt, DEFAULT_CONFIG, resolveAgentLegs } from "./dev-loop.ts";
 import type { Config } from "./dev-loop.ts";
@@ -234,14 +234,15 @@ function makeDefaultSpawnApplier(baseCfg: Config, legs: AgentLegs): (ctx: Applie
     const legCfg = { ...cfg, promptsDir: cfg?.promptsDir ?? FACTORY_PROMPTS_DIR, execRoot: repoRoot } as LegConfig;
     const issue = applierIssue(cr);
     const context = applierContext({ cr, attempt, feedback });
-    const deps = legDepsForTarget(legCfg, issue, repoRoot, context);
+    const deps = legDepsForTarget(repoRoot, context);
     return leg.provider === "codex" ? runCodexLeg(leg, issue, legCfg, deps) : runClaudeLeg(leg, issue, legCfg, deps);
   };
 }
 
 function applierIssue(cr: ChangeRequestRecord): AgentIssue {
   const number = ((cr.fm?.id ?? "") as string).replace(/^CR-/, "");
-  return { id: `CR-APPLY-${number}`, graph_refs: [APPLIER_GRAPH_REF], path: cr.file };
+  const id = `CR-APPLY-${number}`;
+  return { id, transcript_dir: `${TRANSCRIPT_DIRS.changeRequests}/${id}`, graph_refs: [APPLIER_GRAPH_REF], path: cr.file };
 }
 
 function applierContext({ cr, attempt, feedback }: { cr: ChangeRequestRecord; attempt: number; feedback: string | null }): string {
@@ -258,14 +259,12 @@ function applierContext({ cr, attempt, feedback }: { cr: ChangeRequestRecord; at
   );
 }
 
-function legDepsForTarget(legCfg: LegConfig, issue: AgentIssue, repoRoot: string, context: string): LegDeps {
-  const abs = (rel: string) => resolve(repoRoot, rel);
+function legDepsForTarget(repoRoot: string, context: string): LegDeps {
   return {
     composePrompt: (template: string, iss: AgentIssue) => composePrompt(template, iss) + context,
     agentCliArgs,
-    abs,
+    abs: (rel: string) => resolve(repoRoot, rel),
     execRoot: repoRoot,
-    transcriptDirAbs: abs(`${legCfg.transcriptsDir}/${issue.id}`),
     cwdFilter: null,
   };
 }

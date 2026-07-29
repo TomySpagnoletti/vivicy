@@ -241,7 +241,7 @@ describe("runViviTurn — allowlist enforcement", () => {
       writeInTarget(targetRoot, path.join(SPIKES, "S01-native-argon2id.md"), "# S01\n")
       writeInTarget(
         targetRoot,
-        path.join(".vivicy", "development", "transcripts", "VIVI-CHAT", "claude-vivi-abc.jsonl"),
+        path.join(".vivicy", "development", "transcripts", "VIVI", "claude-vivi-abc.jsonl"),
         '{"type":"assistant"}\n'
       )
       writeReply(o, "Wrote 3 spikes.")
@@ -252,7 +252,7 @@ describe("runViviTurn — allowlist enforcement", () => {
     expect(result.wrote).toEqual([path.join(SPIKES, "S01-native-argon2id.md")])
     expect(existsSync(path.join(targetRoot, SPIKES, "S01-native-argon2id.md"))).toBe(true)
     expect(
-      existsSync(path.join(targetRoot, ".vivicy", "development", "transcripts", "VIVI-CHAT", "claude-vivi-abc.jsonl"))
+      existsSync(path.join(targetRoot, ".vivicy", "development", "transcripts", "VIVI", "claude-vivi-abc.jsonl"))
     ).toBe(true)
   })
 
