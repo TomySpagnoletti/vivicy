@@ -223,7 +223,7 @@ coverage/
 # Lockfiles and vendored deps (vendor/, bin/) are deliberately NOT ignored: committed for reproducible builds and because those dir names carry committed source in some ecosystems.
 
 # Node / JavaScript / TypeScript
-node_modules/
+node_modules
 dist/
 .next/
 out/

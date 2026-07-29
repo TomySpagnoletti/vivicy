@@ -5,7 +5,7 @@
 # IS committed. The architecture map is a STATIC graph generated once at
 # extraction; live per-issue progress lives in the ledger and is projected onto the
 # static graph at read time, so the map file stays unchanged across the dev-loop.
-node_modules/
+node_modules
 dist/
 *.log
 .DS_Store

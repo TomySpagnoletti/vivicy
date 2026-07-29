@@ -19,7 +19,7 @@ import {
 import { tmpdir } from "node:os"
 import path from "node:path"
 
-import { afterEach, beforeEach, describe, expect, it } from "vitest"
+import { afterAll, afterEach, beforeEach, describe, expect, it } from "vitest"
 
 import {
   extractManagedBlock,
@@ -204,7 +204,6 @@ describe("scaffoldProject — from scratch (lean, language-agnostic)", () => {
 
     const gitignore = readFileSync(path.join(target, ".gitignore"), "utf8")
     for (const ignored of [
-      "node_modules/",
       ".DS_Store",
       ".vivicy-runtime/",
       ".vivicy-worktrees/",
@@ -213,9 +212,10 @@ describe("scaffoldProject — from scratch (lean, language-agnostic)", () => {
     ]) {
       expect(gitignore, `expected .gitignore to ignore ${ignored}`).toContain(ignored)
     }
-    // Line-exact: the re-inclusion lines contain the exclude pattern as a substring, so `toContain` alone would pass with the exclude gone.
+    // Line-exact: the re-inclusion lines carry the exclude pattern as a substring, and a trailing slash on `node_modules` would match directories only — so `toContain` alone would pass with the exclude gone, or with the link form left committable.
     const ignoreLines = gitignore.split("\n")
     for (const line of [
+      "node_modules",
       ".vivicy/development/proofs/**",
       "!.vivicy/development/proofs/**/",
       "!.vivicy/development/proofs/**/recipe.txt",
@@ -232,6 +232,8 @@ describe("scaffoldProject — from scratch (lean, language-agnostic)", () => {
       ignoreLines.filter((l) => l.startsWith("!.env")),
       "no env re-include anywhere — greenfield ships a real .env.example and TRACKS it instead"
     ).toEqual([])
+    // node_modules is one ecosystem's generalist hygiene, not a Vivicy artifact, so it stays catalogue content: the block is written into Go, Rust and Python repos too, and a brownfield repo's own rule already covers it.
+    expect(ignoreLines.indexOf("node_modules"), "node_modules is catalogue content, never block content").toBeGreaterThan(blockEnd)
     for (const committed of ["architecture-data.json", "source-map.json", "coverage-report"]) {
       expect(gitignore, `expected .gitignore NOT to ignore ${committed}`).not.toContain(committed)
     }
@@ -438,13 +440,12 @@ describe("the proof-artifact ignore posture, exercised through real git (both wr
   }
 
   function trackedAfterAddAll(target: string): string[] {
-    const git = (args: string[]) => spawnSync("git", args, { cwd: target, encoding: "utf8" })
-    if (git(["rev-parse", "--is-inside-work-tree"]).status !== 0) git(["init", "-q", "."])
-    git(["config", "user.email", "t@example.com"])
-    git(["config", "user.name", "t"])
-    git(["add", "-A"])
-    git(["commit", "-qm", "proof posture"])
-    return (git(["ls-files"]).stdout ?? "").split("\n").filter(Boolean)
+    if (git(target, ["rev-parse", "--is-inside-work-tree"]).status !== 0) git(target, ["init", "-q", "."])
+    git(target, ["config", "user.email", "t@example.com"])
+    git(target, ["config", "user.name", "t"])
+    git(target, ["add", "-A"])
+    git(target, ["commit", "-qm", "proof posture"])
+    return git(target, ["ls-files"]).stdout.split("\n").filter(Boolean)
   }
 
   // A string assertion cannot prove a .gitignore: git's own re-inclusion rules decide, and a trailing-slash directory pattern would make the recipe unrecoverable.
@@ -457,7 +458,7 @@ describe("the proof-artifact ignore posture, exercised through real git (both wr
     expect(tracked.filter((p) => p.startsWith(".vivicy/development/proofs/"))).toEqual([
       ".vivicy/development/proofs/ISSUE-0008/cli-run/recipe.txt",
     ])
-    expect(spawnSync("git", ["status", "--porcelain"], { cwd: target, encoding: "utf8" }).stdout.trim()).toBe("")
+    expect(git(target, ["status", "--porcelain"]).stdout.trim()).toBe("")
   })
 
   it("brownfield: the appended managed block yields the same posture in a repo that already had its own .gitignore", () => {
@@ -471,7 +472,33 @@ describe("the proof-artifact ignore posture, exercised through real git (both wr
     expect(tracked.filter((p) => p.startsWith(".vivicy/development/proofs/"))).toEqual([
       ".vivicy/development/proofs/ISSUE-0008/cli-run/recipe.txt",
     ])
-    expect(spawnSync("git", ["status", "--porcelain"], { cwd: target, encoding: "utf8" }).stdout.trim()).toBe("")
+    expect(git(target, ["status", "--porcelain"]).stdout.trim()).toBe("")
+  })
+})
+
+describe("the dependency-install ignore posture, exercised through real git", () => {
+  // A trailing slash restricts the match to directories, and no ecosystem tracks a FILE named node_modules — so the slash buys nothing and fails open on the one shape that is common: a workspace, container or worktree layout whose node_modules is a LINK to an install living elsewhere. The loop runs `git add -A` at every checkpoint, so the fail-open commits a machine-local link into the owner's history.
+  it("greenfield: node_modules is ignored as a link to an install outside the repo, not only as a directory", () => {
+    const target = path.join(workDir, "greenfield-deps")
+    scaffoldProject({ targetDir: target, projectName: "Greenfield Deps" })
+
+    const store = path.join(workDir, "shared-install")
+    mkdirSync(path.join(store, "left-pad"), { recursive: true })
+    writeFileSync(path.join(store, "left-pad", "index.js"), "module.exports = 1\n")
+    symlinkSync(store, path.join(target, "node_modules"))
+    mkdirSync(path.join(target, "packages", "api", "node_modules", "dep"), { recursive: true })
+    writeFileSync(path.join(target, "packages", "api", "node_modules", "dep", "index.js"), "module.exports = 2\n")
+    writeFileSync(path.join(target, "packages", "api", "index.js"), "module.exports = 3\n")
+
+    expect(git(target, ["check-ignore", "-q", "node_modules"]).status, "the link form at the repo root").toBe(0)
+    expect(git(target, ["check-ignore", "-q", "packages/api/node_modules"]).status, "the directory form at any depth").toBe(0)
+
+    git(target, ["add", "-A"])
+    git(target, ["commit", "-qm", "dependency posture"])
+    const tracked = git(target, ["ls-files"]).stdout.split("\n").filter(Boolean)
+    expect(tracked.filter((p) => p.includes("node_modules")), "neither form reaches the index").toEqual([])
+    expect(tracked, "and the owner's own workspace source still does").toContain("packages/api/index.js")
+    expect(git(target, ["status", "--porcelain"]).stdout.trim(), "nothing is left for a later add -A either").toBe("")
   })
 })
 
@@ -679,8 +706,26 @@ describe("the vivicy:method block (single-sourced from the template)", () => {
   })
 })
 
+const HERMETIC_GIT_HOME = mkdtempSync(path.join(tmpdir(), "vivicy-scaffold-git-home-"))
+
+afterAll(() => {
+  rmSync(HERMETIC_GIT_HOME, { recursive: true, force: true })
+})
+
+// The machine must never decide an ignore verdict: HOME and XDG_CONFIG_HOME are redirected too, because git reads its DEFAULT per-user excludes file ($XDG_CONFIG_HOME/git/ignore, else $HOME/.config/git/ignore) whether or not core.excludesFile is set — neutralizing the CONFIG files alone leaves a machine whose per-user ignore lists node_modules reading green with the rule deleted from every carrier.
 function git(cwd: string, args: string[]) {
-  const r = spawnSync("git", args, { cwd, encoding: "utf8" })
+  const r = spawnSync("git", args, {
+    cwd,
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      HOME: HERMETIC_GIT_HOME,
+      XDG_CONFIG_HOME: HERMETIC_GIT_HOME,
+      GIT_CONFIG_GLOBAL: "/dev/null",
+      GIT_CONFIG_SYSTEM: "/dev/null",
+      GIT_CONFIG_NOSYSTEM: "1",
+    },
+  })
   return { status: r.status ?? 1, stdout: r.stdout ?? "", stderr: r.stderr ?? "" }
 }
 

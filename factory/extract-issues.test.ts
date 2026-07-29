@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { afterEach, beforeEach, describe, it } from "node:test";
+import { after, afterEach, beforeEach, describe, it } from "node:test";
 
 import { extractIssues, findFrozenManifest, formatCheckOutput, formatFixContext, formatMapError, recordExtractedGateCommand, recordExtractedRunCommand, resolveFreezeVersion } from "./extract-issues.ts";
 import { readSpikes } from "./spike-check.ts";
@@ -469,17 +469,13 @@ describe("extractIssues — S3 proving before freeze (order) + the spike-verific
 describe("extractIssues — mechanical corpus commit on green (Item 2, real git)", () => {
   it("commits the whole corpus on green and leaves a clean tree (only gitignored untracked)", async () => {
     seedInputs(temp);
-    const git = (args: string[]) => spawnSync("git", args, { cwd: temp, encoding: "utf8" });
-    git(["init", "-q"]);
-    git(["config", "user.email", "t@local"]);
-    git(["config", "user.name", "t"]);
-    git(["config", "commit.gpgsign", "false"]);
-    writeFileSync(
-      resolve(temp, ".gitignore"),
-      "node_modules/\n.DS_Store\n.vivicy-runtime/\n.vivicy-worktrees/\n.vivicy/development/transcripts/\n",
-    );
-    git(["add", "-A"]);
-    git(["commit", "-qm", "inputs"]);
+    git(temp, ["init", "-q"]);
+    git(temp, ["config", "user.email", "t@local"]);
+    git(temp, ["config", "user.name", "t"]);
+    git(temp, ["config", "commit.gpgsign", "false"]);
+    writeScaffoldGitignore(temp);
+    git(temp, ["add", "-A"]);
+    git(temp, ["commit", "-qm", "inputs"]);
 
     const { spawnExtractor } = fakeAgent([(ctx) => writeValidCorpus(ctx.repoRoot)]);
     const { spawnVerifier } = alwaysFaithfulVerifier();
@@ -494,7 +490,7 @@ describe("extractIssues — mechanical corpus commit on green (Item 2, real git)
     assert.equal(result.committed, true, "the orchestrator committed the corpus mechanically");
 
     const tracked = new Set(
-      git(["ls-files"]).stdout.split("\n").map((s) => s.trim()).filter(Boolean),
+      git(temp, ["ls-files"]).stdout.split("\n").map((s) => s.trim()).filter(Boolean),
     );
     for (const rel of [
       ".vivicy/requirements/catalog.json",
@@ -510,13 +506,31 @@ describe("extractIssues — mechanical corpus commit on green (Item 2, real git)
       assert.ok(!rel.startsWith(".vivicy/development/transcripts/"), `transcript must not be committed: ${rel}`);
     }
 
-    const porcelain = git(["status", "--porcelain"]).stdout.trim();
+    const porcelain = git(temp, ["status", "--porcelain"]).stdout.trim();
     assert.equal(porcelain, "", `tree must be clean after the mechanical commit, got:\n${porcelain}`);
   });
 });
 
+const HERMETIC_GIT_HOME = mkdtempSync(join(tmpdir(), "vivicy-extract-git-home-"));
+
+after(() => {
+  rmSync(HERMETIC_GIT_HOME, { recursive: true, force: true });
+});
+
+// HOME and XDG_CONFIG_HOME are redirected, not just the config files: git reads its DEFAULT per-user excludes ($XDG_CONFIG_HOME/git/ignore, else $HOME/.config/git/ignore) whether or not core.excludesFile is set, and a per-user rule can only ADD ignores — which silently turns every "not tracked" / "tree clean" assertion green.
 function git(root: string, args: string[]) {
-  const r = spawnSync("git", args, { cwd: root, encoding: "utf8" });
+  const r = spawnSync("git", args, {
+    cwd: root,
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      HOME: HERMETIC_GIT_HOME,
+      XDG_CONFIG_HOME: HERMETIC_GIT_HOME,
+      GIT_CONFIG_GLOBAL: "/dev/null",
+      GIT_CONFIG_SYSTEM: "/dev/null",
+      GIT_CONFIG_NOSYSTEM: "1",
+    },
+  });
   return { status: r.status ?? 1, stdout: r.stdout ?? "", stderr: r.stderr ?? "" };
 }
 function isClean(root: string) {
@@ -533,7 +547,7 @@ function initRepoWithCommit(root: string) {
 function writeScaffoldGitignore(root: string) {
   writeFileSync(
     resolve(root, ".gitignore"),
-    "node_modules/\n.DS_Store\n.vivicy-runtime/\n.vivicy-worktrees/\n.vivicy/development/transcripts/\n",
+    "node_modules\n.DS_Store\n.vivicy-runtime/\n.vivicy-worktrees/\n.vivicy/development/transcripts/\n",
   );
 }
 
@@ -1152,7 +1166,7 @@ describe("formatMapError", () => {
 
 describe("scaffold + fixture gitignore the COMPLETE never-commit set, and ONLY that", () => {
   // NEVER_COMMIT is exhaustive — every other Vivicy output is committed, so `git add -A` after every checkpoint is safe. The secret excludes (dotenv AND direnv) ride here because that same add -A would otherwise commit and push the owner's real values; `.vivicy-tmp.*` because it would otherwise commit the temp a crash left behind mid managed-file replacement.
-  const NEVER_COMMIT = [".env", ".env.*", ".envrc", "node_modules/", ".DS_Store", ".vivicy-runtime/", ".vivicy-worktrees/", ".vivicy/development/transcripts/", ".vivicy-tmp.*"];
+  const NEVER_COMMIT = [".env", ".env.*", ".envrc", "node_modules", ".DS_Store", ".vivicy-runtime/", ".vivicy-worktrees/", ".vivicy/development/transcripts/", ".vivicy-tmp.*"];
   // A re-include is the inverse of a never-commit entry, and the env family has none anywhere: the managed block is appended at EOF, so the first marker repair would re-append it BELOW any `!` line and flip the placeholder to ignored for good. The committed template reaches history TRACKED (scaffold force-adds `.env.example` into the initial commit), which no ignore rule can undo.
   const NEVER_RE_INCLUDED = ["!.env.example", "!.env.sample"];
   // The scaffold emits its temp pattern from the same constant its writer builds the temp name with, so no such literal line exists in its SOURCE; the RENDERED greenfield output is the oracle there, pinned exactly-once and inside the block by lib/scaffold.test.ts, and re-proven at git level by its abandoned-temp cases. Grepping the identifier here would pin a name, not a rule.
@@ -1167,13 +1181,21 @@ describe("scaffold + fixture gitignore the COMPLETE never-commit set, and ONLY t
   // Line-exact: `.env` is a substring of `.env.*`, so a substring check would pass with the exclude or a re-include missing.
   const exactLines = (text: string) => new Set(text.split("\n").map((line) => line.trim()));
 
-  it("the fixture .gitignore lists the complete never-commit set and none of the outputs that must stay tracked", () => {
-    const gi = readFileSync(resolve(FIXTURE, ".gitignore"), "utf8");
-    const lines = exactLines(gi);
-    for (const line of NEVER_COMMIT) assert.ok(lines.has(line), `fixture .gitignore must carry the exact line ${line}`);
-    for (const line of NEVER_RE_INCLUDED) assert.ok(!lines.has(line), `fixture .gitignore must NOT re-include ${line}`);
-    for (const out of MUST_STAY_TRACKED) assert.ok(!gi.includes(out), `fixture .gitignore must NOT ignore ${out}`);
-    assert.doesNotMatch(gi, /^\.vivicy\/development\/reports\/?\s*$/m, "must not ignore the whole reports/ dir");
+  // Discovered, never hand-listed: a rehearsal fixture added later would otherwise carry its own drift past this pin.
+  const fixtureRoots = readdirSync(resolve(FACTORY_DIR, "rehearsal"), { withFileTypes: true })
+    .filter((entry) => entry.isDirectory() && existsSync(resolve(FACTORY_DIR, "rehearsal", entry.name, ".gitignore")))
+    .map((entry) => entry.name);
+
+  it("every rehearsal fixture .gitignore lists the complete never-commit set and none of the outputs that must stay tracked", () => {
+    assert.ok(fixtureRoots.includes("pocket-ledger") && fixtureRoots.length > 1, `expected the rehearsal fixtures to be discovered, found ${fixtureRoots.join(", ")}`);
+    for (const name of fixtureRoots) {
+      const gi = readFileSync(resolve(FACTORY_DIR, "rehearsal", name, ".gitignore"), "utf8");
+      const lines = exactLines(gi);
+      for (const line of NEVER_COMMIT) assert.ok(lines.has(line), `${name} .gitignore must carry the exact line ${line}`);
+      for (const line of NEVER_RE_INCLUDED) assert.ok(!lines.has(line), `${name} .gitignore must NOT re-include ${line}`);
+      for (const out of MUST_STAY_TRACKED) assert.ok(!gi.includes(out), `${name} .gitignore must NOT ignore ${out}`);
+      assert.doesNotMatch(gi, /^\.vivicy\/development\/reports\/?\s*$/m, `${name} must not ignore the whole reports/ dir`);
+    }
   });
 
   it("the scaffold gitignore() template emits the complete never-commit set and none of the outputs that must stay tracked", () => {
