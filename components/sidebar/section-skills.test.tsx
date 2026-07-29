@@ -33,8 +33,10 @@ afterEach(() => {
 
 const GREEN_REPORT = {
   phase: "green",
-  baseline_id: "baseline-v1.0.0",
+  selection_baseline_id: "baseline-v1.0.0",
   mode: "auto",
+  added: ["anthropic/skills@pdf", "acme/community@scraper"],
+  removed: [],
   installed: [
     {
       id: "anthropic/skills@pdf",
@@ -89,6 +91,35 @@ describe("SectionSkills — installed list", () => {
     await waitFor(() => expect(screen.getAllByText(/installed with audits waived — security not guaranteed/)).toHaveLength(1))
     const official = document.querySelector('[data-skill="anthropic/skills@pdf"]') as HTMLElement
     expect(within(official).queryByText(/audits waived/)).toBeNull()
+  })
+
+  test("lists the project's WHOLE installed set, not just the last run's contribution", async () => {
+    const multiRun = {
+      ...GREEN_REPORT,
+      added: ["acme/community@scraper"],
+      installed: [
+        ...GREEN_REPORT.installed,
+        {
+          id: "stripe/agent-skills@payments",
+          source: "stripe/agent-skills",
+          skill: "payments",
+          name: "payments",
+          official: true,
+          security_waived: false,
+          audits: [],
+          reason: "",
+        },
+      ],
+      summary: "skills stage green: 1 installed, 0 rejected; project total 3/6",
+    }
+    vi.stubGlobal("fetch", stubFetch(multiRun))
+    renderWithIntl(<SectionSkills />)
+
+    await waitFor(() => expect(document.querySelectorAll("[data-skill]")).toHaveLength(3))
+    expect([...document.querySelectorAll("[data-skill]")].map((li) => li.getAttribute("data-skill"))).toEqual(
+      multiRun.installed.map((skill) => skill.id)
+    )
+    expect(screen.getByText(multiRun.summary)).toBeInTheDocument()
   })
 
   test("rejected entries are collapsed behind a muted trigger and expand with the reason", async () => {

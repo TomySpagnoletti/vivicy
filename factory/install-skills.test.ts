@@ -27,10 +27,10 @@ import {
   OFFICIAL_VENDOR_OWNERS,
   SkillsConfigError,
   skillsNotification,
+  skillsStageNeeded,
   SKILLS_REPORT_REL,
 } from "./install-skills.ts"
 import type { SkillAuditFetch, SkillsReport } from "./install-skills.ts"
-import { skillsStageNeeded } from "./dev-loop-supervised.ts"
 import { missingSkillsRefusal, readDeclaredSkills } from "./dev-preflight.ts"
 
 const SCOUT_RESULT_REL = ".vivicy/development/reports/skill-scout-result.json"
@@ -157,8 +157,10 @@ describe("auto mode", () => {
 
     assert.equal(report.phase, "green")
     assert.equal(report.mode, "auto")
-    assert.equal(report.baseline_id, BASELINE_ID)
+    assert.equal(report.selection_baseline_id, BASELINE_ID)
     assert.equal(report.installed.length, 2)
+    assert.deepEqual(report.added, ["supabase/agent-skills@postgres", "somebody/community@helper"])
+    assert.deepEqual(report.removed, [])
     assert.deepEqual(installs, [
       { source: "supabase/agent-skills", skill: "postgres" },
       { source: "somebody/community", skill: "helper" },
@@ -214,9 +216,19 @@ describe("auto mode", () => {
     await assert.rejects(installSkills({ repoRoot: repo, spawnScout: fakeScout([]) }), SkillsConfigError)
   })
 
-  it("skips idempotently when the report is already green for the SAME baseline, re-runs for a new one", async () => {
+  it("skips idempotently when the auto stage already settled the SAME baseline, re-runs for a new one", async () => {
     seedBaseline()
-    const prior = { phase: "green", baseline_id: BASELINE_ID, mode: "auto", installed: [], rejected: [], summary: "", updated_at: "" }
+    const prior = {
+      phase: "green",
+      selection_baseline_id: BASELINE_ID,
+      mode: "auto",
+      installed: [],
+      added: [],
+      removed: [],
+      rejected: [],
+      summary: "",
+      updated_at: "",
+    }
     writeJson(SKILLS_REPORT_REL, prior)
     const scoutCalls: Array<{ attempt: number; feedback: string | null }> = []
     const skipped = await installSkills({
@@ -237,7 +249,7 @@ describe("auto mode", () => {
       runInstall: fakeInstaller([]),
     })
     assert.equal(rerun.phase, "green")
-    assert.equal(rerun.baseline_id, "baseline-v1.1.0")
+    assert.equal(rerun.selection_baseline_id, "baseline-v1.1.0")
     assert.equal(scoutCalls.length, 1, "a changed baseline re-runs the scout")
   })
 
@@ -294,9 +306,11 @@ describe("auto mode", () => {
       runInstall: fakeInstaller(installs),
       emitReport: () => {},
     })
+    assert.deepEqual(report.added, ["stripe/agent-skills@payments", "supabase/agent-skills@auth"])
     assert.deepEqual(
       report.installed.map((e) => e.id),
-      ["stripe/agent-skills@payments", "supabase/agent-skills@auth"]
+      ["a/b@one", "a/b@two", "a/b@three", "a/b@four", "stripe/agent-skills@payments", "supabase/agent-skills@auth"],
+      "installed is the project's whole set — the four it already had plus the two this run added"
     )
     assert.deepEqual(report.rejected, [
       {
@@ -463,7 +477,7 @@ describe("explicit mode (--ids)", () => {
     assert.equal(report.installed[0].reason, "explicitly requested")
   })
 
-  it("works without any frozen baseline (baseline_id null) and rejects ids beyond the cap", async () => {
+  it("works without any frozen baseline and rejects ids beyond the cap", async () => {
     writeJson("vivicy.json", { gateCommand: "npm test", requiredSkills: ["a/b@s1", "a/b@s2", "a/b@s3", "a/b@s4", "a/b@s5"] })
     const report = await installSkills({
       repoRoot: repo,
@@ -472,11 +486,9 @@ describe("explicit mode (--ids)", () => {
       runInstall: fakeInstaller([]),
       emitReport: () => {},
     })
-    assert.equal(report.baseline_id, null)
-    assert.deepEqual(
-      report.installed.map((e) => e.id),
-      ["x/y@first"]
-    )
+    assert.equal(report.selection_baseline_id, null, "an explicit install never claims a baseline the scout never read")
+    assert.deepEqual(report.added, ["x/y@first"])
+    assert.equal(report.installed.length, 6)
     assert.deepEqual(
       report.rejected.map((r) => ({ id: r.id, reason: r.reason })),
       [{ id: "x/y@second", reason: "cap_exceeded" }]
@@ -502,6 +514,26 @@ describe("install failures", () => {
     )
     assert.deepEqual(report.rejected, [{ id: "bad/repo@broken", reason: "install_failed", detail: "npx skills add exploded" }])
     assert.deepEqual((readJson("vivicy.json") as { requiredSkills: string[] }).requiredSkills, ["good/repo@fine"])
+  })
+
+  // vivicy.json is the owner's file: an unparseable one is never clobbered, which is exactly why the reported set cannot be read back from it alone.
+  it("an unparseable vivicy.json is left untouched and the report still lists what was installed", async () => {
+    seedBaseline()
+    writeFileSync(resolve(repo, "vivicy.json"), "{ this is not json\n")
+    const report = await installSkills({
+      repoRoot: repo,
+      ids: ["acme/repo@scraper"],
+      fetchAudit: fakeAudits(),
+      runInstall: fakeInstaller([]),
+    })
+    assert.equal(report.phase, "green")
+    assert.deepEqual(report.added, ["acme/repo@scraper"])
+    assert.deepEqual(
+      report.installed.map((e) => e.id),
+      ["acme/repo@scraper"]
+    )
+    assert.equal(readFileSync(resolve(repo, "vivicy.json"), "utf8"), "{ this is not json\n", "the owner's broken file is theirs to fix")
+    assertReportAgreesWithAgentsBlock(report)
   })
 })
 
@@ -530,6 +562,34 @@ describe("AGENTS.md managed block", () => {
     assert.ok(appended.endsWith("<!-- vivicy:skills:end -->\n"))
   })
 
+  // The block is rewritten only where it would CHANGE, which is what lets every settled re-run converge it without turning a read-only AGENTS.md — a document Vivicy has nothing left to say to — into a failed skills stage.
+  it("a settled re-run over a converged block writes nothing, even when AGENTS.md is read-only", async () => {
+    seedBaseline()
+    await installSkills({
+      repoRoot: repo,
+      spawnScout: fakeScout([{ skills: [{ id: "supabase/agent-skills@postgres", name: "Supabase Postgres", reason: "database" }] }]),
+      fetchAudit: fakeAudits(),
+      runInstall: fakeInstaller([]),
+    })
+    const abs = resolve(repo, "AGENTS.md")
+    const before = readFileSync(abs, "utf8")
+    chmodSync(abs, 0o444)
+    try {
+      const skipped = await installSkills({
+        repoRoot: repo,
+        spawnScout: async () => {
+          throw new Error("a settled baseline must never spawn the scout")
+        },
+        fetchAudit: fakeAudits(),
+        runInstall: fakeInstaller([]),
+      })
+      assert.equal(skipped.phase, "skipped")
+      assert.equal(readFileSync(abs, "utf8"), before, "the block was already the report's set, so there was nothing to write")
+    } finally {
+      chmodSync(abs, 0o644)
+    }
+  })
+
   it("an incremental explicit install extends the block with prior-report metadata intact", async () => {
     seedBaseline()
     await installSkills({
@@ -556,16 +616,223 @@ describe("AGENTS.md managed block", () => {
 })
 
 describe("supervisor hook decision (skillsStageNeeded)", () => {
-  it("runs only with a baseline, when the report is missing, unsettled, or for another baseline", () => {
+  it("keys on the AUTO stage's own settle marker: missing, unstamped, or stamped for another baseline all still owe a selection", () => {
     const baseline = { baselineId: BASELINE_ID }
     assert.equal(skillsStageNeeded(null, null), false, "no baseline -> nothing to select from")
     assert.equal(skillsStageNeeded(baseline, null), true)
-    assert.equal(skillsStageNeeded(baseline, { phase: "failed", baseline_id: BASELINE_ID }), true, "a red stage stays retryable")
-    assert.equal(skillsStageNeeded(baseline, { phase: "green", baseline_id: "baseline-v0.9.0" }), true)
-    assert.equal(skillsStageNeeded(baseline, { phase: "green", baseline_id: BASELINE_ID }), false)
-    assert.equal(skillsStageNeeded(baseline, { phase: "skipped", baseline_id: BASELINE_ID }), false)
+    assert.equal(skillsStageNeeded(baseline, { selection_baseline_id: null }), true, "a stage that never settled still owes a selection")
+    assert.equal(skillsStageNeeded(baseline, { selection_baseline_id: "baseline-v0.9.0" }), true)
+    assert.equal(skillsStageNeeded(baseline, { selection_baseline_id: BASELINE_ID }), false)
+    assert.equal(skillsStageNeeded(baseline, { selection_baseline_id: 7 }), true, "a garbage marker on disk is no settlement")
+  })
+
+  it("an explicit install and a removal before the first Run both leave the scout still owed, and neither disturbs a settled one", async () => {
+    seedBaseline()
+    const baseline = { baselineId: BASELINE_ID }
+    const owed = (): boolean => skillsStageNeeded(baseline, readJson(SKILLS_REPORT_REL) as SkillsReport)
+
+    const explicit = await installSkills({
+      repoRoot: repo,
+      ids: ["anthropics/skills@pdf", "acme/repo@scraper"],
+      fetchAudit: fakeAudits(),
+      runInstall: fakeInstaller([]),
+    })
+    assert.equal(explicit.phase, "green")
+    assert.equal(explicit.selection_baseline_id, null)
+    assert.equal(owed(), true, "one explicit install may never cancel the automatic scouting this baseline has never had")
+
+    const earlyRemoval = await removeSkills({
+      repoRoot: repo,
+      ids: ["anthropics/skills@pdf"],
+      runRemove: () => ({ code: 0, output: "removed" }),
+    })
+    assert.equal(earlyRemoval.phase, "green")
+    assert.equal(earlyRemoval.selection_baseline_id, null, "a removal never stamps a settlement the scout never made")
+    assert.equal(owed(), true, "and a removal cannot cancel the scouting either")
+
+    const auto = await installSkills({
+      repoRoot: repo,
+      spawnScout: fakeScout([{ skills: [{ id: "stripe/agent-skills@payments" }] }]),
+      fetchAudit: fakeAudits(),
+      runInstall: fakeInstaller([]),
+    })
+    assert.equal(auto.selection_baseline_id, BASELINE_ID, "the auto path is the only writer of the settle marker")
+    assert.equal(owed(), false)
+
+    const lateRemoval = await removeSkills({
+      repoRoot: repo,
+      ids: ["acme/repo@scraper"],
+      runRemove: () => ({ code: 0, output: "removed" }),
+    })
+    assert.equal(lateRemoval.selection_baseline_id, BASELINE_ID, "a removal carries the marker rather than re-stamping or clearing it")
+    assert.equal(owed(), false)
+  })
+
+  it("a FAILED auto run leaves the baseline unsettled, so the stage stays retryable", async () => {
+    seedBaseline()
+    const failed = await installSkills({
+      repoRoot: repo,
+      spawnScout: fakeScout(["not json", "still not json"]),
+      fetchAudit: fakeAudits(),
+      runInstall: fakeInstaller([]),
+    })
+    assert.equal(failed.phase, "failed")
+    assert.equal(failed.selection_baseline_id, null)
+    assert.equal(skillsStageNeeded({ baselineId: BASELINE_ID }, readJson(SKILLS_REPORT_REL) as SkillsReport), true)
   })
 })
+
+describe("the report tells the truth about the project's whole installed set", () => {
+  it("a second auto run reports both baselines' skills, with only its own contribution in added", async () => {
+    seedBaseline()
+    const first = await installSkills({
+      repoRoot: repo,
+      spawnScout: fakeScout([{ skills: [{ id: "supabase/agent-skills@postgres", name: "Supabase Postgres", reason: "database" }] }]),
+      fetchAudit: fakeAudits(),
+      runInstall: fakeInstaller([]),
+    })
+    assert.deepEqual(first.added, ["supabase/agent-skills@postgres"])
+
+    rmSync(resolve(repo, `.vivicy/baselines/${BASELINE_ID}.json`))
+    seedBaseline("baseline-v1.1.0")
+    const second = await installSkills({
+      repoRoot: repo,
+      spawnScout: fakeScout([{ skills: [{ id: "stripe/agent-skills@payments", name: "Stripe", reason: "payments" }] }]),
+      fetchAudit: fakeAudits(),
+      runInstall: fakeInstaller([]),
+    })
+    assert.deepEqual(second.added, ["stripe/agent-skills@payments"], "added is this run's contribution alone")
+    assert.deepEqual(
+      second.installed.map((e) => e.id),
+      ["supabase/agent-skills@postgres", "stripe/agent-skills@payments"],
+      "installed is the project's full set — the first run's skill is not dropped by the second"
+    )
+    assertReportAgreesWithAgentsBlock(second)
+  })
+
+  it("an explicit install reports the full set too, and every surface reads the same one", async () => {
+    seedBaseline()
+    await installSkills({
+      repoRoot: repo,
+      spawnScout: fakeScout([{ skills: [{ id: "supabase/agent-skills@postgres", name: "Supabase Postgres", reason: "database" }] }]),
+      fetchAudit: fakeAudits(),
+      runInstall: fakeInstaller([]),
+    })
+    const explicit = await installSkills({
+      repoRoot: repo,
+      ids: ["stripe/agent-skills@payments"],
+      fetchAudit: fakeAudits(),
+      runInstall: fakeInstaller([]),
+    })
+    assert.deepEqual(explicit.added, ["stripe/agent-skills@payments"])
+    assert.deepEqual(
+      explicit.installed.map((e) => e.id),
+      ["supabase/agent-skills@postgres", "stripe/agent-skills@payments"]
+    )
+    assert.equal(explicit.installed[0].reason, "database", "the first run's metadata rides the full set, never re-derived")
+    assertReportAgreesWithAgentsBlock(explicit)
+    assert.deepEqual(
+      (readJson("vivicy.json") as { requiredSkills: string[] }).requiredSkills,
+      explicit.installed.map((e) => e.id),
+      "and vivicy.json declares exactly the same set"
+    )
+  })
+
+  it("the in-flight report already carries the project's set, so no surface shows an empty project mid-run", async () => {
+    seedBaseline()
+    await installSkills({
+      repoRoot: repo,
+      ids: ["anthropics/skills@pdf"],
+      fetchAudit: fakeAudits(),
+      runInstall: fakeInstaller([]),
+    })
+    rmSync(resolve(repo, `.vivicy/baselines/${BASELINE_ID}.json`))
+    seedBaseline("baseline-v1.1.0")
+    const seen: string[][] = []
+    await installSkills({
+      repoRoot: repo,
+      spawnScout: fakeScout([{ skills: [{ id: "stripe/agent-skills@payments" }] }]),
+      fetchAudit: fakeAudits(),
+      runInstall: fakeInstaller([]),
+      emitReport: (r) => seen.push(r.installed.map((e) => e.id)),
+    })
+    assert.ok(seen.length >= 3, `expected a report per phase, got ${seen.length}`)
+    for (const [index, ids] of seen.entries()) {
+      assert.ok(ids.includes("anthropics/skills@pdf"), `phase ${index} lost the already-installed skill: ${ids.join(", ")}`)
+    }
+    assert.deepEqual(seen.at(-1), ["anthropics/skills@pdf", "stripe/agent-skills@payments"])
+  })
+
+  it("a skill an owner declared by hand in vivicy.json joins the set and the block, and a skipped run converges both", async () => {
+    seedBaseline()
+    await installSkills({
+      repoRoot: repo,
+      spawnScout: fakeScout([{ skills: [{ id: "supabase/agent-skills@postgres", name: "Supabase Postgres", reason: "database" }] }]),
+      fetchAudit: fakeAudits(),
+      runInstall: fakeInstaller([]),
+    })
+    const config = readJson("vivicy.json") as Record<string, unknown>
+    writeJson("vivicy.json", { ...config, requiredSkills: [...(config.requiredSkills as string[]), "acme/repo@scraper"] })
+
+    const skipped = await installSkills({
+      repoRoot: repo,
+      spawnScout: fakeScout([]),
+      fetchAudit: fakeAudits(),
+      runInstall: fakeInstaller([]),
+    })
+    assert.equal(skipped.phase, "skipped")
+    assert.deepEqual(
+      skipped.installed.map((e) => e.id),
+      ["supabase/agent-skills@postgres", "acme/repo@scraper"]
+    )
+    const derived = skipped.installed[1]
+    assert.deepEqual(
+      { name: derived.name, official: derived.official, security_waived: derived.security_waived, audits: derived.audits },
+      { name: "scraper", official: false, security_waived: false, audits: [] },
+      "an id no report ever described claims nothing it cannot derive from the id"
+    )
+    assertReportAgreesWithAgentsBlock(skipped)
+  })
+
+  it("a removal reports the shrunken set and names only what it dropped", async () => {
+    seedBaseline()
+    await installSkills({
+      repoRoot: repo,
+      ids: ["anthropics/skills@pdf", "acme/repo@scraper"],
+      fetchAudit: fakeAudits(),
+      runInstall: fakeInstaller([]),
+    })
+    const report = await removeSkills({
+      repoRoot: repo,
+      ids: ["anthropics/skills@pdf"],
+      runRemove: () => ({ code: 0, output: "removed" }),
+    })
+    assert.deepEqual(report.removed, ["anthropics/skills@pdf"])
+    assert.deepEqual(report.added, [])
+    assert.deepEqual(
+      report.installed.map((e) => e.id),
+      ["acme/repo@scraper"]
+    )
+    assertReportAgreesWithAgentsBlock(report)
+  })
+})
+
+// The acceptance the whole slice exists for: the report's set and the AGENTS.md block a leg reads are one value projected twice, so they cannot state different things.
+function assertReportAgreesWithAgentsBlock(report: SkillsReport): void {
+  const agents = readFileSync(resolve(repo, "AGENTS.md"), "utf8")
+  const block = agents.slice(agents.indexOf("<!-- vivicy:skills:begin -->"), agents.indexOf("<!-- vivicy:skills:end -->"))
+  assert.ok(block.length > 0, "the AGENTS.md skills block is missing entirely")
+  const listed = [...block.matchAll(/^- \*\*(?<name>[^*]+)\*\* \(`(?<id>[^`]+)`, (?<origin>official|community)\)/gm)].map((m) => ({
+    id: m.groups!.id,
+    name: m.groups!.name,
+    origin: m.groups!.origin,
+  }))
+  assert.deepEqual(
+    listed,
+    report.installed.map((e) => ({ id: e.id, name: e.name, origin: e.official ? "official" : "community" })),
+    "the AGENTS.md block and report.installed are the same set, in the same order, with the same metadata"
+  )
+}
 
 describe("dev-preflight declared skills (vivicy.json, the one location)", () => {
   it("reads vivicy.json requiredSkills as skill-name parts", () => {
@@ -622,8 +889,10 @@ describe("official vendor owners", () => {
 describe("removeSkills (deterministic uninstall)", () => {
   const PRIOR: SkillsReport = {
     phase: "green",
-    baseline_id: BASELINE_ID,
+    selection_baseline_id: BASELINE_ID,
     mode: "explicit",
+    added: [],
+    removed: [],
     installed: [
       {
         id: "anthropics/skills@pdf",
@@ -677,7 +946,7 @@ describe("removeSkills (deterministic uninstall)", () => {
 
     assert.equal(report.phase, "green")
     assert.equal(report.mode, "remove")
-    assert.deepEqual(report.removed, [{ id: "anthropics/skills@pdf" }])
+    assert.deepEqual(report.removed, ["anthropics/skills@pdf"])
     assert.deepEqual(calls, [{ source: "anthropics/skills", skill: "pdf" }])
     const config = readJson("vivicy.json") as { gateCommand: string; requiredSkills: string[] }
     assert.equal(config.gateCommand, "npm test")
@@ -693,7 +962,7 @@ describe("removeSkills (deterministic uninstall)", () => {
   it("accepts a skills.sh URL and frees a cap slot", async () => {
     seedInstalledState()
     const report = await removeSkills({ repoRoot: repo, ids: ["https://skills.sh/acme/repo/scraper"], runRemove: fakeRemover([]) })
-    assert.deepEqual(report.removed, [{ id: "acme/repo@scraper" }])
+    assert.deepEqual(report.removed, ["acme/repo@scraper"])
     const config = readJson("vivicy.json") as { requiredSkills: string[] }
     assert.deepEqual(config.requiredSkills, ["anthropics/skills@pdf"])
   })
@@ -720,7 +989,7 @@ describe("removeSkills (deterministic uninstall)", () => {
       runRemove: fakeRemover([], new Set(["anthropics/skills@pdf"])),
     })
 
-    assert.deepEqual(report.removed, [{ id: "acme/repo@scraper" }])
+    assert.deepEqual(report.removed, ["acme/repo@scraper"])
     assert.deepEqual(
       report.rejected.map((r) => ({ id: r.id, reason: r.reason })),
       [{ id: "anthropics/skills@pdf", reason: "remove_failed" }]
@@ -1161,6 +1430,59 @@ describe("absorption + worktree delivery (real git target, real skills-CLI seam)
           .filter(Boolean)
           .sort(),
         [".vivicy/development/reports/.gitkeep", ".vivicy/development/reports/skills-report.json"]
+      )
+    })
+  })
+
+  // The skipped path used to write nothing but its report; it now converges the AGENTS.md block too, and a stage write left uncommitted is exactly the dirty-tree refusal the absorption exists to close.
+  it("a settled re-run that converges the block absorbs that write too — the zero-work path still ends clean", async () => {
+    await withHermeticGitEnv(async () => {
+      seedBaseline()
+      initGovernedGitTarget()
+      writeSkillsCliStub(repo, "relative")
+      await installSkills({
+        repoRoot: repo,
+        spawnScout: fakeScout([{ skills: [{ id: "acme/pack@spreadsheets", name: "Spreadsheets", reason: "the spec exports CSV" }] }]),
+        fetchAudit: fakeAudits(),
+      })
+      assert.equal(git(repo, ["status", "--porcelain"]).stdout.trim(), "")
+
+      // The owner declares a skill they installed themselves: the next settled run must converge the block instead of leaving the two surfaces split.
+      const config = readJson("vivicy.json") as Record<string, unknown>
+      writeJson("vivicy.json", { ...config, requiredSkills: [...(config.requiredSkills as string[]), "owner/own@handmade"] })
+      git(repo, ["add", "--", "vivicy.json"])
+      git(repo, ["-c", "user.email=owner@local", "-c", "user.name=Owner", "commit", "-qm", "owner: my own skill"])
+
+      const skipped = await installSkills({
+        repoRoot: repo,
+        spawnScout: async () => {
+          throw new Error("a settled baseline must never spawn the scout")
+        },
+        fetchAudit: fakeAudits(),
+      })
+      assert.equal(skipped.phase, "skipped")
+      assert.deepEqual(
+        skipped.installed.map((e) => e.id),
+        ["acme/pack@spreadsheets", "owner/own@handmade"]
+      )
+
+      const agents = readFileSync(resolve(repo, "AGENTS.md"), "utf8")
+      assert.match(agents, /`owner\/own@handmade`, community/, "the block converged onto the hand-declared skill")
+      assert.match(agents, /## House rules the owner wrote/, "and the owner's own prose is still there")
+      assert.equal(
+        git(repo, ["status", "--porcelain"]).stdout.trim(),
+        "",
+        "the convergence write was absorbed, not left to refuse the next Run"
+      )
+      const committed = git(repo, ["show", "--name-only", "--format=", "HEAD"])
+        .stdout.split("\n")
+        .map((line) => line.trim())
+        .filter(Boolean)
+        .sort()
+      assert.deepEqual(
+        committed,
+        ["AGENTS.md", ".vivicy/development/reports/skills-report.json"].sort(),
+        "the skipped run commits exactly the block it converged and its own report — never vivicy.json, which it did not write"
       )
     })
   })

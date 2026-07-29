@@ -121,9 +121,9 @@ interface ExtractionStatus {
 // Schema of record is install-skills.ts's writer — this is a partial read-only projection.
 interface SkillsReport {
   phase?: string
-  baseline_id?: string | null
   mode?: string
   installed?: unknown[]
+  added?: unknown[]
   rejected?: unknown[]
   summary?: string
   updated_at?: string
@@ -812,6 +812,7 @@ async function cmdSkillsInstall(argv: string[], opts: Opts = {}): Promise<void> 
     phase,
     mode: report?.mode ?? (ids.length > 0 ? "explicit" : "auto"),
     installed: report?.installed ?? [],
+    added: report?.added ?? [],
     rejected: report?.rejected ?? [],
     summary: report?.summary ?? lastLine(res.stdout) ?? "skills install produced no report",
   })

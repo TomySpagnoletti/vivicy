@@ -443,7 +443,7 @@ describe("skills verbs", () => {
   test("skills --json prints the report verbatim, exit 0 on green", () => {
     writeSkillsReport(target, {
       phase: "green",
-      baseline_id: "baseline-v1.0.0",
+      selection_baseline_id: "baseline-v1.0.0",
       mode: "auto",
       installed: [
         {
@@ -506,7 +506,7 @@ describe("skills verbs", () => {
           "const dir = join(root, '.vivicy/development/reports');",
           "mkdirSync(dir, { recursive: true });",
           "const installed = ids.map((id) => ({ id, source: 'skills.sh', skill: id, name: id, official: false, security_waived: false, audits: [{ provider: 'stub', status: 'pass' }], reason: 'requested' }));",
-          "writeFileSync(join(dir, 'skills-report.json'), JSON.stringify({ phase, baseline_id: 'baseline-v1.0.0', mode, installed, rejected: [], summary: `${phase}: ${installed.length} installed`, updated_at: new Date().toISOString() }));",
+          "writeFileSync(join(dir, 'skills-report.json'), JSON.stringify({ phase, selection_baseline_id: 'baseline-v1.0.0', mode, installed, added: ids, removed: [], rejected: [], summary: `${phase}: ${installed.length} installed`, updated_at: new Date().toISOString() }));",
           "console.log(`skills ${phase}`);",
           "process.exit(phase === 'green' || phase === 'skipped' ? 0 : 1);",
         ].join("\n")
@@ -534,6 +534,7 @@ describe("skills verbs", () => {
         r.json.installed.map((s: { id: string }) => s.id),
         ["acme/a@x", "acme/b@y"]
       )
+      assert.deepEqual(r.json.added, ["acme/a@x", "acme/b@y"], "the run's own contribution stays visible beside the project's set")
     })
 
     test("skipped is a clean success (exit 0)", () => {

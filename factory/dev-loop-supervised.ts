@@ -4,7 +4,7 @@ import { existsSync, readFileSync, readdirSync } from "node:fs"
 import { dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import { findFrozenManifest } from "./extract-issues.ts"
-import { SKILLS_REPORT_REL } from "./install-skills.ts"
+import { skillsStageNeeded, SKILLS_REPORT_REL } from "./install-skills.ts"
 import { notify } from "./notify.ts"
 import { resolveTargetRoot } from "./target-root.ts"
 import { countForm, countOf } from "../lib/count-form.ts"
@@ -40,16 +40,6 @@ export function nextSupervisorAction(
   if (attempt >= maxRelaunches) return { action: "max_relaunches" }
   if (stall >= stallLimit) return { action: "stalled" }
   return { action: "relaunch" }
-}
-
-export function skillsStageNeeded(
-  baseline: { baselineId: string } | null,
-  report: { phase?: unknown; baseline_id?: unknown } | null
-): boolean {
-  if (!baseline) return false
-  if (!report) return true
-  const settled = report.phase === "green" || report.phase === "skipped"
-  return !settled || report.baseline_id !== baseline.baselineId
 }
 
 type SupervisorNotifyLevel = "info" | "success" | "warning" | "error"
@@ -166,7 +156,7 @@ function main() {
   }
 
   if (!rehearsal) {
-    const skillsReport = readJson(join(repoRoot, SKILLS_REPORT_REL), null) as { phase?: unknown; baseline_id?: unknown } | null
+    const skillsReport = readJson(join(repoRoot, SKILLS_REPORT_REL), null) as { selection_baseline_id?: unknown } | null
     if (skillsStageNeeded(findFrozenManifest(repoRoot), skillsReport)) {
       process.stdout.write("supervisor: running the project-skills stage (install-skills.ts, auto mode)\n")
       const skills = spawnSync("node", [join(scriptDir, "install-skills.ts")], { cwd: repoRoot, stdio: "inherit", env: process.env })

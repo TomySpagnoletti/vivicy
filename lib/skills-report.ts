@@ -29,18 +29,15 @@ export interface RejectedSkill {
   detail?: string
 }
 
-export interface RemovedSkill {
-  id: string
-  detail?: string
-}
-
+// `installed` is the project's FULL installed set at every phase; `added`/`removed` are this run's own contribution.
 export interface SkillsReport {
   phase?: SkillsPhase | string
-  baseline_id?: string | null
+  selection_baseline_id?: string | null
   mode?: "auto" | "explicit" | "remove" | string
   installed?: InstalledSkill[]
+  added?: string[]
+  removed?: string[]
   rejected?: RejectedSkill[]
-  removed?: RemovedSkill[]
   summary?: string
   updated_at?: string
   [key: string]: unknown

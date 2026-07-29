@@ -73,7 +73,7 @@ function makeDeps(overrides: Partial<ViviActionDeps> = {}) {
       return {
         phase: "green",
         mode: "remove",
-        removed: opts.ids.map((id) => ({ id })),
+        removed: opts.ids,
         rejected: [],
         summary: `skills remove green: ${opts.ids.length} removed, 0 refused`,
       } as Awaited<ReturnType<ViviActionDeps["removeSkills"]>>
@@ -296,6 +296,7 @@ describe("executeViviActions — registry dispatch", () => {
     expect(results[0].summary).toContain("args.ids")
     expect(results[1].ok).toBe(true)
     expect(results[1].summary).toContain("1 removed")
+    expect(results[1].data).toEqual({ removed: ["anthropic/skills@pdf"], rejected: [] })
     expect(calls.removeSkills).toEqual([[["anthropic/skills@pdf"]]])
   })
 

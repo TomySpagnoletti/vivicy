@@ -685,14 +685,14 @@ describe("startSkillsInstall", () => {
     const { spawner, calls } = makeFakeSpawner()
     spawner.run = async (options) => {
       calls.run.push({ args: options.args, env: options.env })
-      writeSkillsReport({ phase: "green", mode: "remove", removed: [{ id: "acme/a@x" }], rejected: [] })
+      writeSkillsReport({ phase: "green", mode: "remove", installed: [], added: [], removed: ["acme/a@x"], rejected: [] })
       return { code: 0, lastLine: "ok", stdout: "ok\n", stderr: "" }
     }
 
     const report = await removeSkills(spawner, { ids: [" acme/a@x "] })
 
     expect(report.phase).toBe("green")
-    expect(report.removed).toEqual([{ id: "acme/a@x" }])
+    expect(report.removed).toEqual(["acme/a@x"])
     const call = calls.run.at(-1)!
     expect(call.args.some((a) => a.endsWith("install-skills.ts"))).toBe(true)
     expect(call.args[call.args.indexOf("--remove") + 1]).toBe("acme/a@x")

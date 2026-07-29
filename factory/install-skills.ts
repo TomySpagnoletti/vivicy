@@ -154,18 +154,14 @@ export interface RejectedSkillEntry {
   detail?: string
 }
 
-export interface RemovedSkillEntry {
-  id: string
-  detail?: string
-}
-
 export interface SkillsReport {
   phase: SkillsPhase
-  baseline_id: string | null
+  selection_baseline_id: string | null
   mode: "auto" | "explicit" | "remove"
   installed: InstalledSkillEntry[]
+  added: string[]
+  removed: string[]
   rejected: RejectedSkillEntry[]
-  removed?: RemovedSkillEntry[]
   summary: string
   updated_at: string
 }
@@ -218,6 +214,12 @@ export function auditVerdict(audit: SkillAuditFetch): "safe" | "red_audit" | "to
   return "safe"
 }
 
+// The ONE predicate for "this baseline still owes an automatic skill selection", read by the supervisor before spawning the stage and by the stage itself to skip — so the gate and the skip can never drift apart. `selection_baseline_id` is written by the AUTO path alone, which is what makes an explicit install or a removal incapable of cancelling scouting the project has not had: a settled auto stage is the only thing that can settle it.
+export function skillsStageNeeded(baseline: { baselineId: string } | null, report: { selection_baseline_id?: unknown } | null): boolean {
+  if (!baseline) return false
+  return report?.selection_baseline_id !== baseline.baselineId
+}
+
 export async function installSkills(options: InstallSkillsOptions = {}): Promise<SkillsReport> {
   const repoRoot = options.repoRoot
   if (!repoRoot) {
@@ -247,9 +249,11 @@ export async function installSkills(options: InstallSkillsOptions = {}): Promise
     const priorReport = readJsonOrNull(resolve(repoRoot, SKILLS_REPORT_REL)) as Partial<SkillsReport> | null
     const report: SkillsReport = {
       phase: "selecting",
-      baseline_id: baseline?.baselineId ?? null,
+      selection_baseline_id: priorSelectionBaselineId(priorReport),
       mode,
-      installed: [],
+      installed: projectInstalledSet(repoRoot, priorReport),
+      added: [],
+      removed: [],
       rejected: [],
       summary: "",
       updated_at: "",
@@ -259,14 +263,10 @@ export async function installSkills(options: InstallSkillsOptions = {}): Promise
       emitReport(report, repoRoot)
     }
 
-    if (
-      mode === "auto" &&
-      (priorReport?.phase === "green" || priorReport?.phase === "skipped") &&
-      priorReport.baseline_id === report.baseline_id
-    ) {
+    if (mode === "auto" && !skillsStageNeeded(baseline, priorReport)) {
       report.phase = "skipped"
-      report.installed = Array.isArray(priorReport.installed) ? priorReport.installed : []
-      report.summary = `skills stage already green for baseline ${report.baseline_id}; nothing to do. A new frozen baseline re-runs the stage; use --ids to add a specific skill.`
+      report.summary = `skills stage already settled for baseline ${report.selection_baseline_id}; nothing to do. A new frozen baseline re-runs the automatic selection; use --ids to add a specific skill.`
+      updateAgentsMd(tree, report.installed)
       emit()
       return report
     }
@@ -342,6 +342,7 @@ export async function installSkills(options: InstallSkillsOptions = {}): Promise
     report.phase = "installing"
     report.summary = `installing ${countOf(toInstall.length, "skill", "skills")} at the repository level via the skills CLI`
     emit()
+    const installedNow: InstalledSkillEntry[] = []
     for (const c of toInstall) {
       recordSkillWrite(tree, c.skill)
       const r = runInstall({ repoRoot, source: c.source, skill: c.skill })
@@ -349,7 +350,7 @@ export async function installSkills(options: InstallSkillsOptions = {}): Promise
         report.rejected.push({ id: c.id, reason: "install_failed", detail: tail(r.output) })
         continue
       }
-      report.installed.push({
+      installedNow.push({
         id: c.id,
         source: c.source,
         skill: c.skill,
@@ -361,19 +362,15 @@ export async function installSkills(options: InstallSkillsOptions = {}): Promise
       })
     }
 
-    if (report.installed.length > 0) {
-      recordGovernanceWrite(tree)
-      const mergedIds = mergeRequiredSkills(
-        repoRoot,
-        report.installed.map((e) => e.id)
-      )
-      updateAgentsMd(repoRoot, skillBlockEntries(mergedIds, priorReport, report.installed))
-    }
+    report.added = installedNow.map((e) => e.id)
+    if (report.added.length > 0) mergeRequiredSkills(tree, report.added)
+    report.installed = projectInstalledSet(repoRoot, priorReport, { installed: installedNow })
+    updateAgentsMd(tree, report.installed)
 
     report.phase = "green"
-    const total = alreadyInstalled.size + report.installed.length
+    if (mode === "auto") report.selection_baseline_id = baseline!.baselineId
     report.summary =
-      `skills stage green: ${report.installed.length} installed, ${report.rejected.length} rejected; project total ${total}/${MAX_PROJECT_SKILLS}` +
+      `skills stage green: ${report.added.length} installed, ${report.rejected.length} rejected this run; project total ${report.installed.length}/${MAX_PROJECT_SKILLS}` +
       (report.installed.length === 0 && report.rejected.length === 0 ? " (zero skills is a legitimate outcome)" : "")
     emit()
     return report
@@ -413,11 +410,12 @@ export async function removeSkills(options: RemoveSkillsOptions = {}): Promise<S
 
     const report: SkillsReport = {
       phase: "removing",
-      baseline_id: typeof priorReport?.baseline_id === "string" ? priorReport.baseline_id : null,
+      selection_baseline_id: priorSelectionBaselineId(priorReport),
       mode: "remove",
-      installed: Array.isArray(priorReport?.installed) ? [...priorReport.installed] : [],
-      rejected: [],
+      installed: projectInstalledSet(repoRoot, priorReport),
+      added: [],
       removed: [],
+      rejected: [],
       summary: `removing ${countOf(ids.length, "skill", "skills")}`,
       updated_at: "",
     }
@@ -450,19 +448,15 @@ export async function removeSkills(options: RemoveSkillsOptions = {}): Promise<S
         continue
       }
       toDrop.add(ref.id)
-      report.removed!.push({ id: ref.id })
+      report.removed.push(ref.id)
     }
 
-    if (toDrop.size > 0) {
-      recordGovernanceWrite(tree)
-      const remaining = dropRequiredSkills(repoRoot, toDrop)
-      report.installed = report.installed.filter((e) => !toDrop.has(e.id))
-      updateAgentsMd(repoRoot, skillBlockEntries(remaining, priorReport, []))
-    }
+    if (toDrop.size > 0) dropRequiredSkills(tree, toDrop)
+    report.installed = projectInstalledSet(repoRoot, priorReport, { removed: toDrop })
+    updateAgentsMd(tree, report.installed)
 
     report.phase = "green"
-    const total = installedSkillIds(repoRoot, report).size
-    report.summary = `skills remove green: ${report.removed!.length} removed, ${report.rejected.length} refused; project total ${total}/${MAX_PROJECT_SKILLS}`
+    report.summary = `skills remove green: ${report.removed.length} removed, ${report.rejected.length} refused this run; project total ${report.installed.length}/${MAX_PROJECT_SKILLS}`
     emit()
     return report
   } finally {
@@ -543,9 +537,9 @@ function openStageTree(repoRoot: string, removal: boolean): StageTree {
   }
 }
 
-function recordGovernanceWrite(tree: StageTree): void {
-  tree.written.add("AGENTS.md")
-  tree.written.add("vivicy.json")
+// Recorded BEFORE the write, never after: a crash in between must leave the path staged-and-committable rather than dirty, which is the whole point of the causal record.
+function recordWrite(tree: StageTree, rel: string): void {
+  tree.written.add(rel)
 }
 
 // Recorded BEFORE the skills CLI runs, since it is the writer either way: a half-written bundle a failed install left behind is the stage's own residue, and leaving it uncommitted would re-open the very refusal this absorption closes.
@@ -553,9 +547,9 @@ function recordSkillWrite(tree: StageTree, skill: string): void {
   const segment = safeSkillSegment(skill)
   if (segment === null) return
   tree.skills.add(segment)
-  tree.written.add(SKILLS_CLI_LOCKFILE)
-  tree.written.add(`${AGENT_SKILLS_DIR}/${segment}`)
-  for (const dir of PER_AGENT_SKILL_DIRS) tree.written.add(`${dir}/${segment}`)
+  recordWrite(tree, SKILLS_CLI_LOCKFILE)
+  recordWrite(tree, `${AGENT_SKILLS_DIR}/${segment}`)
+  for (const dir of PER_AGENT_SKILL_DIRS) recordWrite(tree, `${dir}/${segment}`)
 }
 
 // A skill name becomes a pathspec and a symlink path here: `.` and `..` satisfy SKILL_ID_RE and would name the parent directory.
@@ -676,16 +670,15 @@ function settleStageTree(tree: StageTree): void {
   )
 }
 
-function dropRequiredSkills(repoRoot: string, drop: Set<string>): string[] {
-  const abs = resolve(repoRoot, "vivicy.json")
-  if (!existsSync(abs)) return []
+function dropRequiredSkills(tree: StageTree, drop: Set<string>): void {
+  const abs = resolve(tree.repoRoot, "vivicy.json")
+  if (!existsSync(abs)) return
   const parsed = readJsonOrNull(abs)
-  if (parsed === null || typeof parsed !== "object") return []
+  if (parsed === null || typeof parsed !== "object") return
   const config = parsed as Record<string, unknown>
-  const remaining = toStringList(config.requiredSkills).filter((id) => !drop.has(id))
-  config.requiredSkills = remaining
+  config.requiredSkills = toStringList(config.requiredSkills).filter((id) => !drop.has(id))
+  recordWrite(tree, "vivicy.json")
   writeFileSync(abs, `${JSON.stringify(config, null, 2)}\n`)
-  return remaining
 }
 
 async function runScoutSelection({
@@ -866,7 +859,7 @@ export interface SkillBlockEntry {
   reason: string
 }
 
-export function buildSkillsBlock(entries: SkillBlockEntry[]): string {
+export function buildSkillsBlock(entries: readonly SkillBlockEntry[]): string {
   const bullets =
     entries.length > 0
       ? entries.map((e) => `- **${e.name}** (\`${e.id}\`, ${e.official ? "official" : "community"})${e.reason ? ` — ${e.reason}` : ""}`)
@@ -882,7 +875,7 @@ export function buildSkillsBlock(entries: SkillBlockEntry[]): string {
   ].join("\n")
 }
 
-export function applySkillsBlock(content: string | null, entries: SkillBlockEntry[]): string {
+export function applySkillsBlock(content: string | null, entries: readonly SkillBlockEntry[]): string {
   const block = buildSkillsBlock(entries)
   if (content === null) return `# Agent instructions\n\n${block}\n`
   const begin = content.indexOf(SKILLS_BLOCK_BEGIN)
@@ -893,65 +886,106 @@ export function applySkillsBlock(content: string | null, entries: SkillBlockEntr
   return `${content.replace(/\s*$/, "")}\n\n${block}\n`
 }
 
-function updateAgentsMd(repoRoot: string, entries: SkillBlockEntry[]): void {
-  const abs = resolve(repoRoot, "AGENTS.md")
+// The block is a projection of the report's installed set, so the two surfaces cannot state different things. Write-if-different, and never CREATE a block for a project with no skills: the stage declares what is installed, it does not stamp an empty section into a document that never carried one.
+function updateAgentsMd(tree: StageTree, entries: readonly SkillBlockEntry[]): void {
+  const abs = resolve(tree.repoRoot, "AGENTS.md")
   const content = existsSync(abs) ? readFileSync(abs, "utf8") : null
-  writeFileSync(abs, applySkillsBlock(content, entries))
+  if (entries.length === 0 && (content === null || !content.includes(SKILLS_BLOCK_BEGIN))) return
+  const next = applySkillsBlock(content, entries)
+  if (next === content) return
+  recordWrite(tree, "AGENTS.md")
+  writeFileSync(abs, next)
 }
 
 // requiredSkills in vivicy.json is the canonical field dev-preflight reads.
-function mergeRequiredSkills(repoRoot: string, newIds: string[]): string[] {
-  const abs = resolve(repoRoot, "vivicy.json")
+function mergeRequiredSkills(tree: StageTree, newIds: string[]): void {
+  const abs = resolve(tree.repoRoot, "vivicy.json")
   let config: Record<string, unknown> = {}
   if (existsSync(abs)) {
     const parsed = readJsonOrNull(abs)
-    if (parsed === null || typeof parsed !== "object") return dedupe(newIds)
+    if (parsed === null || typeof parsed !== "object") return
     config = parsed as Record<string, unknown>
   }
-  const existing = toStringList(config.requiredSkills)
-  const merged = dedupe([...existing, ...newIds])
-  config.requiredSkills = merged
+  config.requiredSkills = dedupe([...toStringList(config.requiredSkills), ...newIds])
+  recordWrite(tree, "vivicy.json")
   writeFileSync(abs, `${JSON.stringify(config, null, 2)}\n`)
-  return merged
 }
 
-// Metadata priority is this-run > prior-report > derived fallback — the prior loop MUST run before the this-run loop below.
-function skillBlockEntries(
-  mergedIds: string[],
+// The project's FULL installed set — the report, the AGENTS.md block, the sidebar and the workflow evidence are all projections of THIS one value, so no two of them can contradict each other. Ids are vivicy.json's requiredSkills unioned with the prior report (defence in depth: mergeRequiredSkills silently no-ops on an unparseable vivicy.json), plus what this run installed, minus what it removed. Metadata priority is this-run > prior report > derived from the id alone.
+function projectInstalledSet(
+  repoRoot: string,
   priorReport: Partial<SkillsReport> | null,
-  installedNow: InstalledSkillEntry[]
-): SkillBlockEntry[] {
-  const meta = new Map<string, SkillBlockEntry>()
-  const priorInstalled = priorReport && Array.isArray(priorReport.installed) ? priorReport.installed : []
-  for (const e of priorInstalled) {
-    if (e && typeof e.id === "string" && typeof e.name === "string")
-      meta.set(e.id, { id: e.id, name: e.name, official: e.official === true, reason: typeof e.reason === "string" ? e.reason : "" })
+  delta: { installed?: readonly InstalledSkillEntry[]; removed?: ReadonlySet<string> } = {}
+): InstalledSkillEntry[] {
+  const installedNow = delta.installed ?? []
+  const known = new Map<string, InstalledSkillEntry>()
+  for (const entry of priorInstalledEntries(priorReport)) known.set(entry.id, entry)
+  for (const entry of installedNow) known.set(entry.id, entry)
+  const ids = installedSkillIds(repoRoot, priorReport)
+  for (const entry of installedNow) ids.add(entry.id)
+  const set: InstalledSkillEntry[] = []
+  for (const id of ids) {
+    if (delta.removed?.has(id)) continue
+    const entry = known.get(id) ?? derivedSkillEntry(id)
+    if (entry) set.push(entry)
   }
-  for (const e of installedNow) meta.set(e.id, { id: e.id, name: e.name, official: e.official, reason: e.reason })
-  const entries: SkillBlockEntry[] = []
-  for (const id of mergedIds) {
-    const known = meta.get(id)
-    if (known) {
-      entries.push(known)
-      continue
-    }
-    const ref = parseSkillId(id)
-    if (ref) entries.push({ id, name: ref.skill, official: OFFICIAL_VENDOR_OWNERS.has(ref.owner), reason: "" })
+  return set
+}
+
+// An id declared in vivicy.json that no report ever described: everything derivable from the id is derived, and nothing is claimed — no audit, no waiver.
+function derivedSkillEntry(id: string): InstalledSkillEntry | null {
+  const ref = parseSkillId(id)
+  if (!ref) return null
+  return {
+    id,
+    source: ref.source,
+    skill: ref.skill,
+    name: ref.skill,
+    official: OFFICIAL_VENDOR_OWNERS.has(ref.owner),
+    security_waived: false,
+    audits: [],
+    reason: "",
+  }
+}
+
+// The single normalization of the prior report's installed entries — every reader of that agent-independent file goes through here rather than trusting its shape.
+function priorInstalledEntries(priorReport: Partial<SkillsReport> | null): InstalledSkillEntry[] {
+  const raw = priorReport && Array.isArray(priorReport.installed) ? priorReport.installed : []
+  const entries: InstalledSkillEntry[] = []
+  for (const value of raw) {
+    if (!value || typeof value !== "object") continue
+    const record = value as Partial<InstalledSkillEntry>
+    if (typeof record.id !== "string" || record.id.length === 0) continue
+    const ref = parseSkillId(record.id)
+    entries.push({
+      id: record.id,
+      source: typeof record.source === "string" ? record.source : (ref?.source ?? ""),
+      skill: typeof record.skill === "string" ? record.skill : (ref?.skill ?? record.id),
+      name: typeof record.name === "string" && record.name.length > 0 ? record.name : (ref?.skill ?? record.id),
+      official: record.official === true,
+      security_waived: record.security_waived === true,
+      audits: Array.isArray(record.audits)
+        ? record.audits
+            .filter((a): a is SkillAuditRecord => Boolean(a) && typeof a === "object")
+            .map((a) => ({ provider: String(a.provider ?? "unknown"), status: String(a.status ?? "") }))
+        : [],
+      reason: typeof record.reason === "string" ? record.reason : "",
+    })
   }
   return entries
 }
 
-// Also checks the prior report as defence in depth — mergeRequiredSkills can silently no-op on an unparseable vivicy.json.
+function priorSelectionBaselineId(priorReport: Partial<SkillsReport> | null): string | null {
+  return typeof priorReport?.selection_baseline_id === "string" ? priorReport.selection_baseline_id : null
+}
+
 function installedSkillIds(repoRoot: string, priorReport: Partial<SkillsReport> | null): Set<string> {
   const ids = new Set<string>()
   const config = readJsonOrNull(resolve(repoRoot, "vivicy.json"))
   if (config && typeof config === "object") {
     for (const id of toStringList((config as { requiredSkills?: unknown }).requiredSkills)) ids.add(id)
   }
-  const priorInstalled = priorReport && Array.isArray(priorReport.installed) ? priorReport.installed : []
-  for (const e of priorInstalled) {
-    if (e && typeof e.id === "string") ids.add(e.id)
-  }
+  for (const entry of priorInstalledEntries(priorReport)) ids.add(entry.id)
   return ids
 }
 
