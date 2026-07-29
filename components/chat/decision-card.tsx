@@ -5,6 +5,7 @@ import { Check, CircleAlert, Loader2 } from "lucide-react"
 import { useTranslations } from "next-intl"
 
 import type { ViviCard, ViviCardAction, ViviCardDecision } from "@/lib/vivi"
+import { errorTextAcrossFamilies } from "@/lib/i18n-errors"
 import { IMPORT_ACCEPT_ATTR } from "@/lib/supported-extensions"
 import { Button } from "@/components/ui/button"
 import { Marker, MarkerContent, MarkerIcon } from "@/components/ui/marker"
@@ -28,6 +29,7 @@ export function DecisionCard({
   onDecided?: (action: ViviCardAction) => void
 }) {
   const t = useTranslations("chat")
+  const tErrors = useTranslations("errors")
   const [pendingId, setPendingId] = useState<string | null>(null)
   const [localDecision, setLocalDecision] = useState<ViviCardDecision | null>(
     null
@@ -49,15 +51,18 @@ export function DecisionCard({
       (decision.summary ? ` — ${decision.summary}` : "")
     : null
 
-  type Outcome = { ok?: boolean; summary?: string; error?: string; decided?: ViviCardDecision }
+  type Outcome = { ok?: boolean; summary?: string; error?: string; code?: string; decided?: ViviCardDecision }
   // The server's `decided` record is the ONLY thing that locks the buttons: it rides every decided outcome (success, executed-but-failed, already-decided), and the read-check-write claim behind it — not this component — is what makes a second click impossible.
+  // Import family only: of the ControlError codes this card can receive, `missing_target` and `missing_script` carry catalogue copy that is FALSE for the meanings reachable here (unknown card/action, bad session id, script-not-found), and `unknown_cr`/`cr_not_decidable`/`spawn_failed` have accurate copy that is strictly LESS informative than the server's own sentence (which names the CR id, the change-control reason, or the failing last line) — `errorTextAcrossFamilies` resolves per family, not per code, so admitting `control` would trade a true sentence for a false one.
   const record = (res: Response, body: Outcome, action: ViviCardAction) => {
     const failed = !res.ok || body.ok === false
     if (body.decided) {
       setLocalDecision(body.decided)
       onDecided?.(action)
     }
-    if (failed) setError(body.error ?? body.summary ?? t("cardFailed"))
+    if (!failed) return
+    const fallback = body.error ?? body.summary ?? t("cardFailed")
+    setError(body.code ? errorTextAcrossFamilies(tErrors, ["import"], body.code, fallback) : fallback)
   }
 
   const decide = async (action: ViviCardAction) => {

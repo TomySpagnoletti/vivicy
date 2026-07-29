@@ -2,6 +2,7 @@ import { act, waitFor } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest"
 
 import { SectionWorkflow } from "@/components/sidebar/section-workflow"
+import { WORKFLOW_STAGES } from "@/components/workflow/workflow-stages"
 import { renderWithIntl } from "@/test/render"
 
 class FakeEventSource {
@@ -56,15 +57,17 @@ afterEach(() => {
 })
 
 describe("SectionWorkflow — full process view", () => {
-  test("renders all 15 stages (incl. SP and SK) with a pending badge when nothing has run", async () => {
+  test("renders exactly the WORKFLOW_STAGES table, in order, every stage pending when nothing has run", async () => {
     renderWithIntl(<SectionWorkflow />)
     await act(() => FakeEventSource.last?.emit(IDLE_STATUS))
 
-    for (const id of ["S0", "S1", "SP", "S2", "S3", "S4", "S5", "S6", "S7", "SK", "S8", "S9", "S10", "S11", "S12"]) {
-      await waitFor(() => expect(document.querySelector(`[data-stage="${id}"]`)).toBeTruthy())
+    const rendered = () =>
+      [...document.querySelectorAll("[data-stage]")].map((el) => el.getAttribute("data-stage"))
+    await waitFor(() => expect(rendered()).toEqual(WORKFLOW_STAGES.map((stage) => stage.id)))
+
+    for (const el of document.querySelectorAll("[data-stage]")) {
+      expect(el.textContent, `stage ${el.getAttribute("data-stage")}`).toMatch(/pending/)
     }
-    const s2 = document.querySelector('[data-stage="S2"]') as HTMLElement
-    expect(s2.textContent).toMatch(/pending/)
   })
 
   test("SP shows the doc-prep report summary and timestamp as evidence when present", async () => {

@@ -14,6 +14,7 @@
     "no_files": "no documents were added",
     "no_supported_files": "none of these files are a supported document type",
     "already_governed": "This folder is already governed by Vivicy — importing here would overwrite it.",
+    "not_governed": "this project is no longer governed by Vivicy — its .vivicy directory is missing",
     "zip_slip": "this .zip contains an unsafe path and was rejected",
     "zip_unreadable": "this .zip could not be read"
   },

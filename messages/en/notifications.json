@@ -49,6 +49,7 @@
     },
     "SK": {
       "skills_selecting": "selecting project skills from the frozen canonical",
+      "skills_removing": "removing project skills",
       "skills_green": "project skills stage green",
       "skills_failed": "project skills stage failed"
     },
@@ -80,12 +81,6 @@
       "retry_extract_error": "extract retry failed",
       "retry_skills_error": "skills retry failed",
       "retry_dev_error": "dev-loop retry failed"
-    },
-    "upload": {
-      "placed": "upload placed",
-      "refused": "upload refused",
-      "verify_green": "upload verified — green",
-      "verify_red": "upload verification found problems"
     },
     "crs": {
       "rejected": "{id} rejected",

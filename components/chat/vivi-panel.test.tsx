@@ -755,11 +755,34 @@ describe("ViviPanel — composer document import", () => {
     await user.upload(fileInput(container), [new File(["# brief"], "brief.md", { type: "text/markdown" })])
 
     expect(
-      await screen.findByText("this folder is not governed by Vivicy")
+      await screen.findByText(
+        "this project is no longer governed by Vivicy — its .vivicy directory is missing"
+      )
     ).toBeInTheDocument()
+    expect(screen.queryByText("this folder is not governed by Vivicy")).toBeNull()
     expect(
       screen.getByRole("button", { name: "Attach documents" })
     ).toHaveAttribute("aria-disabled", "false")
+  })
+
+  test("a refused upload carrying a ControlError code still resolves through the control family", async () => {
+    const fetchMock = stubFetch({
+      sessions: [],
+      importDocs: () => ({
+        body: { ok: false, error: "no project selected", code: "missing_target" },
+        status: 422,
+      }),
+    })
+    vi.stubGlobal("fetch", fetchMock)
+    const user = userEvent.setup()
+    const { container } = renderPanel()
+
+    await user.click(screen.getByRole("button", { name: "Open Vivi" }))
+    await user.upload(fileInput(container), [new File(["# brief"], "brief.md", { type: "text/markdown" })])
+
+    expect(
+      await screen.findByText("no project selected — choose a target project first")
+    ).toBeInTheDocument()
   })
 
   test("during an in-flight import, Send is truly inert — click AND Enter fire no /api/vivi turn (guards send(), not just aria); Shift+Enter still adds a newline", async () => {

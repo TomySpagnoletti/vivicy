@@ -318,10 +318,32 @@ describe("DecisionCard — import_docs (native file picker)", () => {
     await user.upload(fileInput(), [new File(["# brief"], "brief.md", { type: "text/markdown" })])
 
     expect(
-      await screen.findByText("this folder is not governed by Vivicy")
+      await screen.findByText(
+        "this project is no longer governed by Vivicy — its .vivicy directory is missing"
+      )
     ).toBeInTheDocument()
+    expect(screen.queryByText("this folder is not governed by Vivicy")).toBeNull()
     expect(screen.getByRole("button", { name: "I have docs to import" })).toBeEnabled()
     expect(onDecided).not.toHaveBeenCalled()
+  })
+
+  test("a ControlError refusal keeps the server's own sentence — the overloaded missing_target is never translated here", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        jsonResponse({ ok: false, error: "unknown card welcome-import-docs", code: "missing_target" }, 422)
+      )
+    )
+    const user = userEvent.setup()
+    renderWithIntl(<DecisionCard sessionId={SESSION} card={IMPORT_CARD} />)
+
+    await user.click(screen.getByRole("button", { name: "I have docs to import" }))
+    await user.upload(fileInput(), [new File(["# brief"], "brief.md", { type: "text/markdown" })])
+
+    expect(await screen.findByText("unknown card welcome-import-docs")).toBeInTheDocument()
+    expect(
+      screen.queryByText("no project selected — choose a target project first")
+    ).toBeNull()
   })
 })
 

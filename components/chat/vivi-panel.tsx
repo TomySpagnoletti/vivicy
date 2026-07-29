@@ -11,7 +11,7 @@ import {
   threadRenderOrder,
   type ViviQuestion,
 } from "@/lib/vivi-questions"
-import { errorText } from "@/lib/i18n-errors"
+import { errorText, errorTextAcrossFamilies } from "@/lib/i18n-errors"
 import { VIVI_TURN_CEILING_MS } from "@/lib/leg-budget"
 import { IMPORT_ACCEPT_ATTR } from "@/lib/supported-extensions"
 import { cn } from "@/lib/utils"
@@ -334,7 +334,9 @@ export function ViviPanel({
         if (!res.ok || body.ok === false) {
           const fallback = body.error ?? t("requestFailed", { status: res.status })
           setSendError(
-            body.code ? errorText(tErrors, `control.${body.code}`, fallback) : fallback
+            body.code
+              ? errorTextAcrossFamilies(tErrors, ["import", "control"], body.code, fallback)
+              : fallback
           )
           return
         }
