@@ -1,35 +1,20 @@
 // Client-safe types belong in lib/project-types.ts, not here — importing this file client-side would pull node:fs into the browser bundle.
 
 import { spawnSync } from "node:child_process"
-import {
-  accessSync,
-  closeSync,
-  constants,
-  existsSync,
-  fchmodSync,
-  fsyncSync,
-  mkdirSync,
-  openSync,
-  readdirSync,
-  readFileSync,
-  readlinkSync,
-  realpathSync,
-  renameSync,
-  rmSync,
-  statSync,
-  writeFileSync,
-} from "node:fs"
+import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs"
 import path from "node:path"
 
 import { getFactoryRoot } from "@/lib/control"
 import { countForm, countOf } from "@/lib/count-form"
 import {
-  ensureManagedBlock,
   extractManagedBlock,
   GITIGNORE_MARKERS,
   MANAGED_GOVERNANCE_FILES,
   MANAGED_TEMP_PREFIX,
+  managedWriteFailureReason,
+  ManagedWriteError,
   METHOD_MARKERS,
+  writeManaged,
   type ManagedGovernanceFile,
   type ManagedSpec,
   type MarkerPair,
@@ -373,102 +358,14 @@ function managedSpec(template: string, markers: MarkerPair): ManagedSpec {
   return { template, block: extractManagedBlock(template, markers), markers }
 }
 
-// Longest BOM first: a UTF-32LE file opens on the UTF-16LE mark, so the shorter pattern would name the wrong encoding.
-const UNSUPPORTED_BOMS: ReadonlyArray<readonly [string, readonly number[]]> = [
-  ["UTF-32BE", [0x00, 0x00, 0xfe, 0xff]],
-  ["UTF-32LE", [0xff, 0xfe, 0x00, 0x00]],
-  ["UTF-16BE", [0xfe, 0xff]],
-  ["UTF-16LE", [0xff, 0xfe]],
-]
-
-// Markers and block are ASCII, so any ASCII-compatible encoding (UTF-8, a BOM, latin-1, any single-byte page) splices byte-safely; a UTF-16/32 file cannot carry them at all, so it is refused untouched rather than mangled.
-function unsupportedEncoding(bytes: Buffer): string | null {
-  for (const [name, bom] of UNSUPPORTED_BOMS) {
-    if (bom.every((byte, i) => bytes[i] === byte)) return name
-  }
-  return null
-}
-
-function readManaged(abs: string): Buffer | null {
+// The app's typed boundary for a refused write is ScaffoldError — the govern route maps its code — so the engine's own refusal is translated here, at the one site that lets it escape, rather than leaked as a second error type.
+function writeGovernanceFile(abs: string, spec: ManagedSpec): string | null {
   try {
-    return readFileSync(abs)
+    return writeManaged(abs, spec)
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return null
+    if (error instanceof ManagedWriteError) throw new ScaffoldError(error.message, error.code, error.detail)
     throw error
   }
-}
-
-// The rename must land on the RESOLVED file, or it would replace an owner's symlink (the `CLAUDE.md -> AGENTS.md` convention) with a regular file; a dangling link resolves to where it points, as a plain write did, and the hop bound makes a link cycle degrade instead of hang.
-function physicalTarget(abs: string): string {
-  let target = abs
-  for (let hop = 0; hop < 32; hop += 1) {
-    let link: string
-    try {
-      link = readlinkSync(target)
-    } catch {
-      return target
-    }
-    target = path.resolve(path.dirname(target), link)
-  }
-  return target
-}
-
-// Best effort by design: the data is already durable, this only publishes the rename itself, and a platform whose directories cannot be opened must not fail an owner's write over it.
-function syncDirectory(dir: string): void {
-  let fd: number | undefined
-  try {
-    fd = openSync(dir, "r")
-    fsyncSync(fd)
-  } catch {
-  } finally {
-    if (fd !== undefined) closeSync(fd)
-  }
-}
-
-function replaceAtomically(abs: string, next: Buffer): void {
-  const target = physicalTarget(abs)
-  const existing = statSync(target, { throwIfNoEntry: false })
-  // A rename ignores the target's own mode, so the read-only file an in-place write refused has to be refused explicitly.
-  if (existing) accessSync(target, constants.W_OK)
-  const mode = existing ? existing.mode & 0o7777 : undefined
-  // Same directory, so the rename is one atomic same-filesystem syscall; the name is in the essential ignore block, so a temp abandoned by a crash is never committable.
-  const temp = path.join(path.dirname(target), `${MANAGED_TEMP_PREFIX}${process.pid}.${path.basename(target)}`)
-  try {
-    // A temp a killed run left behind is REMOVED, never opened: an exclusive create refuses to follow a symlink someone left at this path, and reusing that inode would carry its mode into the owner's file.
-    rmSync(temp, { force: true })
-    const fd = openSync(temp, "wx", mode ?? 0o666)
-    try {
-      writeFileSync(fd, next)
-      // The open mode is masked by the umask; the owner's exact bits are not negotiable.
-      if (mode !== undefined) fchmodSync(fd, mode)
-      // The bytes must reach the disk BEFORE the rename publishes them, or a power loss can leave the name pointing at nothing.
-      fsyncSync(fd)
-    } finally {
-      closeSync(fd)
-    }
-    renameSync(temp, target)
-  } catch (error) {
-    // A cleanup that raised would replace the failure the caller must surface.
-    try {
-      rmSync(temp, { force: true })
-    } catch {}
-    throw error
-  }
-  syncDirectory(path.dirname(target))
-}
-
-function writeManaged(abs: string, spec: ManagedSpec): string | null {
-  const current = readManaged(abs)
-  const encoding = current && unsupportedEncoding(current)
-  if (encoding) {
-    const detail = `not UTF-8 — it is saved as ${encoding}, and Vivicy replaces a managed file byte for byte rather than re-encode yours; re-save it as UTF-8`
-    throw new ScaffoldError(`${path.basename(abs)} is ${detail}`, "unsupported_encoding", detail)
-  }
-  const next = ensureManagedBlock(current, spec)
-  if (current && next.equals(current)) return null
-  mkdirSync(path.dirname(abs), { recursive: true })
-  replaceAtomically(abs, next)
-  return abs
 }
 
 const MANAGED_SPECS: Record<ManagedGovernanceFile, (projectName: string) => ManagedSpec> = {
@@ -485,15 +382,6 @@ export interface ManagedFileFailure {
 export interface ManagedRenormalization {
   written: string[]
   failures: ManagedFileFailure[]
-}
-
-// Node appends ", <syscall> '<path>'" to fs errors: drop it when that path is the file the announcement already names, or Vivicy's own write temp, whose internal name means nothing to the owner — a failure on one of Vivicy's own TEMPLATES keeps its path, or it would read as the owner's AGENTS.md being gone.
-function failureReason(error: unknown, abs: string): string {
-  if (error instanceof ScaffoldError) return error.detail ?? error.message
-  if (!(error instanceof Error)) return String(error)
-  const { path: errorPath, syscall } = error as NodeJS.ErrnoException
-  const ours = errorPath === abs || (errorPath ?? "").includes(MANAGED_TEMP_PREFIX)
-  return ours && syscall ? error.message.split(`, ${syscall} `)[0] : error.message
 }
 
 function announceRenormalization(root: string, failures: ManagedFileFailure[]): void {
@@ -521,7 +409,7 @@ export function renormalizeManagedFiles(root: string): ManagedRenormalization {
     try {
       if (writeManaged(abs, MANAGED_SPECS[rel](projectName))) written.push(abs)
     } catch (error) {
-      failures.push({ file: abs, reason: failureReason(error, abs) })
+      failures.push({ file: abs, reason: managedWriteFailureReason(error, abs) })
     }
   }
   written.sort()
@@ -551,7 +439,7 @@ export function scaffoldProject(input: { targetDir: unknown; projectName: unknow
   }
 
   for (const rel of MANAGED_GOVERNANCE_FILES) {
-    const w = writeManaged(at(rel), MANAGED_SPECS[rel](projectName))
+    const w = writeGovernanceFile(at(rel), MANAGED_SPECS[rel](projectName))
     if (w) written.push(w)
   }
 

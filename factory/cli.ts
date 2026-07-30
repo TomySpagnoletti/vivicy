@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url"
 import { countOf } from "../lib/count-form.ts"
 import { getProjectRuntimeDir } from "../lib/project-runtime.ts"
 import { clearSpecCycle, featureCycleOpenRefusal, isSpecCycleOpen, readSpecCycle, writeSpecCycle } from "../lib/spec-cycle.ts"
+import { SKILLS_LOCK_FILE, stageLockHolder } from "../lib/stage-lock.ts"
 
 // cli.ts and lib/control.ts must not import each other — parity comes from both spawning the same factory scripts and reading the same state files, never shared code.
 const cliDir = dirname(fileURLToPath(import.meta.url))
@@ -785,8 +786,7 @@ async function cmdSkillsInstall(argv: string[], opts: Opts = {}): Promise<void> 
   }
   const ids = argv.filter((a) => !a.startsWith("--") && a.trim().length > 0)
 
-  const release = claimCliSkillsLock(opts, target)
-  if (!release) {
+  if (skillsStageInFlight(opts, target)) {
     return fail(json, EXIT_REFUSAL, "a skills install is already in flight", { code: "already_running" })
   }
   note(
@@ -794,15 +794,10 @@ async function cmdSkillsInstall(argv: string[], opts: Opts = {}): Promise<void> 
       ? `vivicy: installing project skills (explicit: ${ids.join(", ")})…`
       : "vivicy: installing project skills (auto selection from the frozen spec)…"
   )
-  let res
-  try {
-    res = await runScript(process.execPath, [scriptPath(SKILLS_SCRIPT), ...(ids.length > 0 ? ["--ids", ids.join(",")] : [])], {
-      cwd: factoryDir,
-      env: childEnv(target, opts),
-    })
-  } finally {
-    release()
-  }
+  const res = await runScript(process.execPath, [scriptPath(SKILLS_SCRIPT), ...(ids.length > 0 ? ["--ids", ids.join(",")] : [])], {
+    cwd: factoryDir,
+    env: childEnv(target, opts),
+  })
 
   const report = readJsonFile<SkillsReport>(join(target, SKILLS_REPORT_REL))
   const phase = report?.phase ?? "error"
@@ -909,11 +904,12 @@ async function cmdPrepareRun(argv: string[], opts: Opts = {}): Promise<void> {
   process.exit(ok ? EXIT_OK : EXIT_REFUSAL)
 }
 
-function claimCliSkillsLock(opts: Opts, target: string): (() => void) | null {
-  return claimCliLock(opts, target, "skills-install.lock")
+// The skills stage claims its own lock (factory/install-skills.ts, where the writes are); the CLI only probes it, so a stage already running under the app or the supervisor is an immediate typed refusal here instead of a spawned child that refuses.
+function skillsStageInFlight(opts: Opts, target: string): boolean {
+  return stageLockHolder(projectDir(opts, target), SKILLS_LOCK_FILE, isAlive) !== null
 }
 
-// Byte-compatible with lib/control.ts's per-stage lock — the app patches its process's pid into the same file, so a live stage from either client refuses the other (no cross-client double-spawn).
+// Byte-compatible with lib/control.ts's per-stage lock — both clients write the same shape into the same project runtime dir, so a live stage from either one refuses the other (no cross-client double-spawn).
 function claimCliLock(opts: Opts, target: string, lockFileName: string): (() => void) | null {
   const file = join(projectDir(opts, target), lockFileName)
   mkdirSync(projectDir(opts, target), { recursive: true })
@@ -958,20 +954,14 @@ async function cmdSkillsRemove(argv: string[], opts: Opts = {}): Promise<void> {
     })
   }
 
-  const release = claimCliSkillsLock(opts, target)
-  if (!release) {
+  if (skillsStageInFlight(opts, target)) {
     return fail(json, EXIT_REFUSAL, "a skills install is already in flight", { code: "already_running" })
   }
   note(`vivicy: removing project skills: ${ids.join(", ")}…`)
-  let res
-  try {
-    res = await runScript(process.execPath, [scriptPath(SKILLS_SCRIPT), "--remove", ids.join(",")], {
-      cwd: factoryDir,
-      env: childEnv(target, opts),
-    })
-  } finally {
-    release()
-  }
+  const res = await runScript(process.execPath, [scriptPath(SKILLS_SCRIPT), "--remove", ids.join(",")], {
+    cwd: factoryDir,
+    env: childEnv(target, opts),
+  })
 
   const report = readJsonFile<SkillsReport>(join(target, SKILLS_REPORT_REL))
   const phase = report?.phase ?? "error"

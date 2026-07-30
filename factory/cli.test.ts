@@ -563,6 +563,31 @@ describe("skills verbs", () => {
       assert.equal(r.json.phase, "green")
       assert.equal(r.json.mode, "auto")
     })
+
+    // The stage claims skills-install.lock itself, from install-skills.ts; the CLI probes that one file, so a stage in flight under the app or the supervisor refuses here before anything is spawned — and the CLI never touches the holder's claim.
+    test("a live stage lock refuses an install AND a removal (already_running), leaving the holder's lock alone", () => {
+      const projectRuntime = getProjectRuntimeDir(isolatedRuntimeRoot, target)
+      mkdirSync(projectRuntime, { recursive: true })
+      const lock = join(projectRuntime, "skills-install.lock")
+      const body = `${JSON.stringify({ pid: process.pid, started_at: new Date().toISOString() }, null, 2)}\n`
+      writeFileSync(lock, body)
+      try {
+        const install = runCli(["skills", "install", "--dir", target, "--json"], {
+          env: { VIVICY_FACTORY_ROOT: stubFactory, STUB_SKILLS_PHASE: "green" },
+        })
+        assert.equal(install.code, 1)
+        assert.equal(install.json.code, "already_running")
+
+        const remove = runCli(["skills", "remove", "acme/a@x", "--dir", target, "--json"], {
+          env: { VIVICY_FACTORY_ROOT: stubFactory, STUB_SKILLS_PHASE: "green" },
+        })
+        assert.equal(remove.code, 1)
+        assert.equal(remove.json.code, "already_running")
+        assert.equal(readFileSync(lock, "utf8"), body, "the CLI probes the lock, never claims or clears it")
+      } finally {
+        rmSync(lock, { force: true })
+      }
+    })
   })
 })
 

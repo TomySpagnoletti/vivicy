@@ -25,17 +25,26 @@ import type { Leg, LegResult } from "./dev-loop.ts"
 import { ensureLocalGitIdentity, findFrozenManifest } from "./extract-issues.ts"
 import { FACTORY_PROMPTS_DIR, resolveTargetRoot } from "./target-root.ts"
 import { AGENT_SKILLS_DIR, PER_AGENT_SKILL_DIRS, SKILLS_CLI_LOCKFILE } from "../lib/spec-kind.ts"
-import { countOf } from "../lib/count-form.ts"
-import { MANAGED_TEMP_PREFIX } from "../lib/managed-block.ts"
+import { countForm, countOf } from "../lib/count-form.ts"
+import {
+  MANAGED_MARKDOWN_FILES,
+  MANAGED_TEMP_PREFIX,
+  managedWriteFailureReason,
+  resolvedManagedTarget,
+  SKILLS_MARKERS,
+  writeManaged,
+  type ManagedSpec,
+} from "../lib/managed-block.ts"
 import { pruneGitkeeps, SKELETON_DIRS } from "../lib/skeleton.ts"
+import { claimStageLock, SKILLS_LOCK_FILE, stageLockHolder, type HeldStageLock } from "../lib/stage-lock.ts"
 
 export const SKILLS_REPORT_REL = ".vivicy/development/reports/skills-report.json"
 const SCOUT_RESULT_REL = ".vivicy/development/reports/skill-scout-result.json"
 const SKELETON_GITKEEPS = SKELETON_DIRS.map((dir) => `${dir}/.gitkeep`)
 
-// Everything the stage COULD write. It is the pre-stage snapshot's reading only — never the absorption's pathspec, which is what this run actually wrote: `.agents/skills` and `.claude/skills` are also where an owner keeps their OWN skills, and AGENTS.md/vivicy.json carry owner bytes the stage merges into.
+// Everything the stage COULD write. It is the pre-stage snapshot's reading only — never the absorption's pathspec, which is what this run actually wrote: `.agents/skills` and `.claude/skills` are also where an owner keeps their OWN skills, and the two governance documents plus vivicy.json carry owner bytes the stage merges into.
 const SKILLS_STAGE_PATHS: readonly string[] = [
-  "AGENTS.md",
+  ...MANAGED_MARKDOWN_FILES,
   "vivicy.json",
   SKILLS_CLI_LOCKFILE,
   SKILLS_REPORT_REL,
@@ -191,6 +200,23 @@ export interface InstallSkillsOptions {
 
 export class SkillsConfigError extends Error {}
 
+export class SkillsLockError extends Error {}
+
+// The stage claims the lock ITSELF, where the writes are: vivicy.json, the two governance documents, the report and the absorption commit are one read-modify-write over the target, so every client — the supervisor's own child, the app's detached spawn, the CLI, Vivi — inherits one refusal instead of each claiming for itself. The clients still PROBE the same file to refuse fast; this claim is what decides a dead heat.
+function claimSkillsStage(repoRoot: string, env: NodeJS.ProcessEnv): HeldStageLock {
+  const runtimeDir = stageRuntimeDir(repoRoot, env)
+  const lock = claimStageLock(runtimeDir, SKILLS_LOCK_FILE)
+  if (lock) return lock
+  const holder = stageLockHolder(runtimeDir, SKILLS_LOCK_FILE)
+  throw new SkillsLockError(`a skills install is already in flight${holder === null ? "" : ` (pid ${holder})`}`)
+}
+
+// VIVICY_RUNTIME_DIR is already the PROJECT-scoped runtime dir every client hands its children (lib/control.ts `devEnv`, factory/cli.ts `childEnv`), so both sides address one lock file. A caller that hands none gets the project's own gitignored runtime dir — project-scoped by construction, and never a cwd-derived one, which would fork the lock between a supervisor started in the target and an app started in its own root.
+function stageRuntimeDir(repoRoot: string, env: NodeJS.ProcessEnv): string {
+  const fromEnv = env.VIVICY_RUNTIME_DIR
+  return fromEnv && fromEnv.trim().length > 0 ? resolve(fromEnv) : resolve(repoRoot, ".vivicy-runtime")
+}
+
 export function parseSkillId(id: string): SkillRef | null {
   if (!SKILL_ID_RE.test(id)) return null
   const at = id.lastIndexOf("@")
@@ -244,7 +270,7 @@ export async function installSkills(options: InstallSkillsOptions = {}): Promise
     )
   }
 
-  const tree = openStageTree(repoRoot, false)
+  const tree = openStageTree(repoRoot, false, env)
   try {
     const priorReport = readJsonOrNull(resolve(repoRoot, SKILLS_REPORT_REL)) as Partial<SkillsReport> | null
     const report: SkillsReport = {
@@ -264,9 +290,10 @@ export async function installSkills(options: InstallSkillsOptions = {}): Promise
     }
 
     if (mode === "auto" && !skillsStageNeeded(baseline, priorReport)) {
+      const failures = writeSkillsBlock(tree, report.installed)
+      if (failures.length > 0) return blockWriteFailed(report, failures, emit)
       report.phase = "skipped"
       report.summary = `skills stage already settled for baseline ${report.selection_baseline_id}; nothing to do. A new frozen baseline re-runs the automatic selection; use --ids to add a specific skill.`
-      updateAgentsMd(tree, report.installed)
       emit()
       return report
     }
@@ -365,7 +392,8 @@ export async function installSkills(options: InstallSkillsOptions = {}): Promise
     report.added = installedNow.map((e) => e.id)
     if (report.added.length > 0) mergeRequiredSkills(tree, report.added)
     report.installed = projectInstalledSet(repoRoot, priorReport, { installed: installedNow })
-    updateAgentsMd(tree, report.installed)
+    const failures = writeSkillsBlock(tree, report.installed)
+    if (failures.length > 0) return blockWriteFailed(report, failures, emit)
 
     report.phase = "green"
     if (mode === "auto") report.selection_baseline_id = baseline!.baselineId
@@ -403,7 +431,7 @@ export async function removeSkills(options: RemoveSkillsOptions = {}): Promise<S
   const emitReport = options.emitReport ?? defaultEmitReport
   const runRemove = options.runRemove ?? defaultRunRemove
 
-  const tree = openStageTree(repoRoot, true)
+  const tree = openStageTree(repoRoot, true, options.env ?? process.env)
   try {
     const priorReport = readJsonOrNull(resolve(repoRoot, SKILLS_REPORT_REL)) as Partial<SkillsReport> | null
     const installedIds = installedSkillIds(repoRoot, priorReport)
@@ -453,7 +481,8 @@ export async function removeSkills(options: RemoveSkillsOptions = {}): Promise<S
 
     if (toDrop.size > 0) dropRequiredSkills(tree, toDrop)
     report.installed = projectInstalledSet(repoRoot, priorReport, { removed: toDrop })
-    updateAgentsMd(tree, report.installed)
+    const failures = writeSkillsBlock(tree, report.installed)
+    if (failures.length > 0) return blockWriteFailed(report, failures, emit)
 
     report.phase = "green"
     report.summary = `skills remove green: ${report.removed.length} removed, ${report.rejected.length} refused this run; project total ${report.installed.length}/${MAX_PROJECT_SKILLS}`
@@ -506,15 +535,15 @@ function pruneDanglingSkillLinks(repoRoot: string): void {
 
 const SKILLS_INSTALL_COMMIT_MESSAGE =
   "skills: absorb the project-skills stage writes\n\n" +
-  "What this run wrote — the stage report, and for each skill it installed the bundle, its per-agent links, the vivicy.json requiredSkills entry and the AGENTS.md skills block — " +
+  "What this run wrote — the stage report, and for each skill it installed the bundle, its per-agent links, the vivicy.json requiredSkills entry and the skills block in AGENTS.md and CLAUDE.md — " +
   "committed mechanically so the dev loop starts on a clean tree and every per-issue worktree, cut from HEAD, carries the skills. No human git step."
 
 const SKILLS_REMOVE_COMMIT_MESSAGE =
   "skills: absorb the project-skills removal\n\n" +
-  "What this run wrote — the stage report, and for each skill it removed the deleted bundle and per-agent links, the shrunken vivicy.json requiredSkills and AGENTS.md skills block — " +
+  "What this run wrote — the stage report, and for each skill it removed the deleted bundle and per-agent links, the shrunken vivicy.json requiredSkills and skills block in both governance documents — " +
   "committed mechanically so the dev loop starts on a clean tree. No human git step."
 
-// One run's own git footprint. `baseline` is everything under the stage's declared paths that was ALREADY dirty when the run opened: those bytes are the owner's manuscript, and the clean-tree refusal on them is correct behavior, not something Vivicy may commit away. `written` accumulates what this run actually wrote, so a path the stage merely COULD write is never staged.
+// One run's own git footprint, plus the exclusive claim that makes it one run. `baseline` is everything under the stage's declared paths that was ALREADY dirty when the run opened: those bytes are the owner's manuscript, and the clean-tree refusal on them is correct behavior, not something Vivicy may commit away. `written` accumulates what this run actually wrote, so a path the stage merely COULD write is never staged.
 interface StageTree {
   repoRoot: string
   owns: boolean
@@ -522,24 +551,44 @@ interface StageTree {
   written: Set<string>
   skills: Set<string>
   removal: boolean
+  lock: HeldStageLock
 }
 
-function openStageTree(repoRoot: string, removal: boolean): StageTree {
-  const owns = ownsGitRepo(repoRoot)
-  return {
-    repoRoot,
-    owns,
-    baseline: new Set(owns ? dirtyPaths(repoRoot, SKILLS_STAGE_PATHS) : []),
-    // Written on every run: the report by emit(), the keeps by the pruneGitkeeps that rides it.
-    written: new Set([SKILLS_REPORT_REL, ...SKELETON_GITKEEPS]),
-    skills: new Set(),
-    removal,
+// The lock rides the tree's own lifecycle — claimed before the pre-stage snapshot, released by `settleStageTree`, which both entry points already reach from a `finally` on the return AND the throw path, so the claim cannot leak whatever the stage does. A claim whose own tree never opens is released here, since no `finally` covers it yet.
+function openStageTree(repoRoot: string, removal: boolean, env: NodeJS.ProcessEnv): StageTree {
+  const lock = claimSkillsStage(repoRoot, env)
+  try {
+    const owns = ownsGitRepo(repoRoot)
+    return {
+      repoRoot,
+      owns,
+      baseline: new Set(owns ? dirtyPaths(repoRoot, stageSnapshotPaths(repoRoot)) : []),
+      // Written on every run: the report by emit(), the keeps by the pruneGitkeeps that rides it.
+      written: new Set([SKILLS_REPORT_REL, ...SKELETON_GITKEEPS]),
+      skills: new Set(),
+      removal,
+      lock,
+    }
+  } catch (error) {
+    lock.release()
+    throw error
   }
+}
+
+// The snapshot must read the SAME key space the causal record writes, or the two narrowings stop intersecting: a governance document symlinked to another in-repo file is dirty under the target's name, which the declared paths never mention, and the owner's uncommitted bytes there would land in the absorption commit.
+function stageSnapshotPaths(repoRoot: string): string[] {
+  const resolved = MANAGED_MARKDOWN_FILES.map((rel) => repoRelativeWrite(repoRoot, resolvedManagedTarget(resolve(repoRoot, rel)), rel))
+  return [...new Set([...SKILLS_STAGE_PATHS, ...resolved])]
 }
 
 // Recorded BEFORE the write, never after: a crash in between must leave the path staged-and-committable rather than dirty, which is the whole point of the causal record.
 function recordWrite(tree: StageTree, rel: string): void {
   tree.written.add(rel)
+}
+
+// The one legitimate withdrawal: a write that THREW published nothing, so the path is not this run's — and leaving it recorded would stage whatever the owner does to that file next.
+function forgetWrite(tree: StageTree, rel: string): void {
+  tree.written.delete(rel)
 }
 
 // Recorded BEFORE the skills CLI runs, since it is the writer either way: a half-written bundle a failed install left behind is the stage's own residue, and leaving it uncommitted would re-open the very refusal this absorption closes.
@@ -628,8 +677,16 @@ function relativizeSkillLinks(tree: StageTree): string[] {
   return relativized
 }
 
-// The stage's last act, reached from a `finally` so a throw closes it too: one commit over what THIS run wrote and the owner had not already touched, so the dev loop's clean-tree gate is not refused for bytes Vivicy wrote unasked and a worktree cut from HEAD carries the skills. Absorbing nothing is the normal steady state — no dirty path of ours means no commit at all, so a replayed run adds no empty commit.
+// The stage's last act, reached from a `finally` so a throw closes it too: one commit over what THIS run wrote and the owner had not already touched, so the dev loop's clean-tree gate is not refused for bytes Vivicy wrote unasked and a worktree cut from HEAD carries the skills. Absorbing nothing is the normal steady state — no dirty path of ours means no commit at all, so a replayed run adds no empty commit. The lock is released last, after the commit that ends the mutation.
 function settleStageTree(tree: StageTree): void {
+  try {
+    absorbStageWrites(tree)
+  } finally {
+    tree.lock.release()
+  }
+}
+
+function absorbStageWrites(tree: StageTree): void {
   const relativized = relativizeSkillLinks(tree)
   if (relativized.length > 0) {
     process.stderr.write(
@@ -849,52 +906,109 @@ function defaultEmitReport(report: SkillsReport, repoRoot: string): void {
   if (mapped) notify(mapped)
 }
 
-const SKILLS_BLOCK_BEGIN = "<!-- vivicy:skills:begin -->"
-const SKILLS_BLOCK_END = "<!-- vivicy:skills:end -->"
-
 export interface SkillBlockEntry {
   id: string
+  skill: string
   name: string
   official: boolean
   reason: string
 }
 
+// The bundle path is the leg's ONE actionable instruction — auto-discovery may be off in the agent CLI, a path never is. A skill part that is not a plain segment (`.`/`..`, which `SKILL_ID_RE` still admits) names no bundle, so nothing is claimed for it.
+function skillDocPath(entry: SkillBlockEntry): string | null {
+  const segment = safeSkillSegment(entry.skill)
+  return segment === null ? null : `${AGENT_SKILLS_DIR}/${segment}/SKILL.md`
+}
+
+function skillBullet(entry: SkillBlockEntry): string {
+  const doc = skillDocPath(entry)
+  return (
+    `- **${entry.name}** (\`${entry.id}\`, ${entry.official ? "official" : "community"})` +
+    (doc === null ? "" : ` — \`${doc}\``) +
+    (entry.reason ? ` — ${entry.reason}` : "")
+  )
+}
+
 export function buildSkillsBlock(entries: readonly SkillBlockEntry[]): string {
-  const bullets =
-    entries.length > 0
-      ? entries.map((e) => `- **${e.name}** (\`${e.id}\`, ${e.official ? "official" : "community"})${e.reason ? ` — ${e.reason}` : ""}`)
-      : ["_No project skills are currently installed._"]
+  const bullets = entries.length > 0 ? entries.map(skillBullet) : ["_No project skills are currently installed._"]
   return [
-    SKILLS_BLOCK_BEGIN,
+    SKILLS_MARKERS.begin,
     "## Project skills",
     "",
     "Vivicy installed these agent skills at the repository level, under `.agents/skills/` (with per-agent symlinks). Both the IMPLEMENTER and the REVIEWER MUST consult and apply the relevant skill whenever their work touches its domain — a skill listed here is part of this project's development contract, not optional reading.",
     "",
+    "Each bullet names the skill's `SKILL.md`: READ that file before working in its domain, rather than relying on automatic skill discovery.",
+    "",
     ...bullets,
-    SKILLS_BLOCK_END,
+    SKILLS_MARKERS.end,
   ].join("\n")
 }
 
-export function applySkillsBlock(content: string | null, entries: readonly SkillBlockEntry[]): string {
-  const block = buildSkillsBlock(entries)
-  if (content === null) return `# Agent instructions\n\n${block}\n`
-  const begin = content.indexOf(SKILLS_BLOCK_BEGIN)
-  const end = content.indexOf(SKILLS_BLOCK_END)
-  if (begin !== -1 && end !== -1 && end >= begin) {
-    return content.slice(0, begin) + block + content.slice(end + SKILLS_BLOCK_END.length)
-  }
-  return `${content.replace(/\s*$/, "")}\n\n${block}\n`
+// A governance document the stage could not write, named with the reason the owner has to act on.
+interface BlockWriteFailure {
+  file: string
+  reason: string
 }
 
-// The block is a projection of the report's installed set, so the two surfaces cannot state different things. Write-if-different, and never CREATE a block for a project with no skills: the stage declares what is installed, it does not stamp an empty section into a document that never carried one.
-function updateAgentsMd(tree: StageTree, entries: readonly SkillBlockEntry[]): void {
-  const abs = resolve(tree.repoRoot, "AGENTS.md")
-  const content = existsSync(abs) ? readFileSync(abs, "utf8") : null
-  if (entries.length === 0 && (content === null || !content.includes(SKILLS_BLOCK_BEGIN))) return
-  const next = applySkillsBlock(content, entries)
-  if (next === content) return
-  recordWrite(tree, "AGENTS.md")
-  writeFileSync(abs, next)
+// A document the owner deleted is recreated by the stage under this head rather than skipped: the block is what a leg reads, and the project open puts the method block back into it at the next selection.
+const SKILLS_DOC_HEAD = "# Agent instructions"
+
+// The block is a projection of the report's installed set, so the two surfaces cannot state different things, and it rides the SAME engine and the SAME file set as the method block (lib/managed-block.ts): a byte splice over the owner's raw bytes, damaged markers repaired, UTF-16/32 refused untouched, an owner's `CLAUDE.md -> AGENTS.md` symlink kept, mode preserved, published by one rename. Both documents, because two CLIs read two files and a brownfield CLAUDE.md that points nowhere would otherwise never learn the project has skills. Write-if-different is the engine's, and the causal record is taken from inside it, on the one path that publishes — then withdrawn when that path threw, since a refused write published nothing and a recorded path an owner dirties mid-run would ride Vivicy's commit.
+function writeSkillsBlock(tree: StageTree, entries: readonly SkillBlockEntry[]): BlockWriteFailure[] {
+  const block = buildSkillsBlock(entries)
+  const spec: ManagedSpec = { block, template: `${SKILLS_DOC_HEAD}\n\n${block}\n`, markers: SKILLS_MARKERS }
+  const failures: BlockWriteFailure[] = []
+  for (const rel of MANAGED_MARKDOWN_FILES) {
+    const abs = resolve(tree.repoRoot, rel)
+    const current = readFileOrNull(abs)
+    // Never CREATE a block for a project with no skills: the stage declares what is installed, it does not stamp an empty section into a document that never carried one — residue of a damaged block still counts as carrying it, so the engine can clean it.
+    if (entries.length === 0 && !(current?.includes(SKILLS_MARKERS.begin) || current?.includes(SKILLS_MARKERS.end))) continue
+    // The withdrawal has to name the key the record took — the RESOLVED target, which for a symlinked document is not `rel` — or a failed write leaves the published path in the pathspec and the absorption commits whatever the owner does to it next.
+    const recorded: { key: string | null } = { key: null }
+    try {
+      writeManaged(abs, spec, (published) => {
+        recorded.key = repoRelativeWrite(tree.repoRoot, published, rel)
+        recordWrite(tree, recorded.key)
+      })
+    } catch (error) {
+      if (recorded.key !== null) forgetWrite(tree, recorded.key)
+      failures.push({ file: rel, reason: managedWriteFailureReason(error, abs) })
+    }
+  }
+  return failures
+}
+
+function readFileOrNull(abs: string): Buffer | null {
+  try {
+    return readFileSync(abs)
+  } catch {
+    return null
+  }
+}
+
+// The record follows the BYTES, not the name: a managed document that is a symlink publishes into the file it points at, and a pathspec naming the unchanged link would leave the write the stage really made dirty.
+function repoRelativeWrite(repoRoot: string, published: string, fallback: string): string {
+  const inside = relative(repoRoot, published)
+  return inside.length > 0 && !inside.startsWith("..") && !isAbsolute(inside) ? inside : fallback
+}
+
+// The skills are installed and declared, but a leg only learns about them from the block: a document that refused it is the owner's to fix, so the stage ends red and says which file and why rather than reporting a green nobody can act on. A converged document is never written at all, so a read-only file Vivicy has nothing left to say to cannot fail a run.
+function blockWriteFailed(report: SkillsReport, failures: readonly BlockWriteFailure[], emit: () => void): SkillsReport {
+  const files = failures.map((f) => f.file).join(" and ")
+  const refused =
+    failures.length === 1
+      ? `${files} refused the project skills block (${failures[0].reason})`
+      : `${countOf(failures.length, "governance file", "governance files")} refused the project skills block — ${failures.map((f) => `${f.file} (${f.reason})`).join("; ")}`
+  const fix = `fix ${countForm(failures.length, "that file", "those files")} and re-run the skills stage`
+  report.phase = "failed"
+  // The consequence names the REFUSED documents and nothing else: a partial failure still delivered the block to the other one, and claiming no leg reads the skills would be false for whichever CLI reads that one.
+  report.summary =
+    `skills stage failed: ${refused}. ` +
+    (report.installed.length === 0
+      ? `${files} still ${countForm(failures.length, "lists", "list")} skills this project no longer has — ${fix}.`
+      : `The project's ${countOf(report.installed.length, "skill is", "skills are")} installed and declared in vivicy.json, but nothing reading ${files} learns about ${countForm(report.installed.length, "it", "them")} until the block lands there — ${fix}.`)
+  emit()
+  return report
 }
 
 // requiredSkills in vivicy.json is the canonical field dev-preflight reads.
@@ -911,7 +1025,7 @@ function mergeRequiredSkills(tree: StageTree, newIds: string[]): void {
   writeFileSync(abs, `${JSON.stringify(config, null, 2)}\n`)
 }
 
-// The project's FULL installed set — the report, the AGENTS.md block, the sidebar and the workflow evidence are all projections of THIS one value, so no two of them can contradict each other. Ids are vivicy.json's requiredSkills unioned with the prior report (defence in depth: mergeRequiredSkills silently no-ops on an unparseable vivicy.json), plus what this run installed, minus what it removed. Metadata priority is this-run > prior report > derived from the id alone.
+// The project's FULL installed set — the report, the skills block, the sidebar and the workflow evidence are all projections of THIS one value, so no two of them can contradict each other. Ids are vivicy.json's requiredSkills unioned with the prior report (defence in depth: mergeRequiredSkills silently no-ops on an unparseable vivicy.json), plus what this run installed, minus what it removed. Metadata priority is this-run > prior report > derived from the id alone.
 function projectInstalledSet(
   repoRoot: string,
   priorReport: Partial<SkillsReport> | null,

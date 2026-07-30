@@ -9,6 +9,7 @@ import {
   readFileSync,
   readlinkSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
   mkdtempSync,
 } from "node:fs"
@@ -17,7 +18,6 @@ import { dirname, join, resolve } from "node:path"
 import { after, afterEach, beforeEach, describe, it } from "node:test"
 
 import {
-  applySkillsBlock,
   auditVerdict,
   buildSkillsBlock,
   installSkills,
@@ -26,6 +26,7 @@ import {
   normalizeSkillId,
   OFFICIAL_VENDOR_OWNERS,
   SkillsConfigError,
+  SkillsLockError,
   skillsNotification,
   skillsStageNeeded,
   SKILLS_REPORT_REL,
@@ -35,6 +36,17 @@ import { missingSkillsRefusal, readDeclaredSkills } from "./dev-preflight.ts"
 
 const SCOUT_RESULT_REL = ".vivicy/development/reports/skill-scout-result.json"
 const BASELINE_ID = "baseline-v1.0.0"
+const MANAGED_DOCS = ["AGENTS.md", "CLAUDE.md"] as const
+
+// What the stage writes into a document that does not exist yet: its own head plus the block.
+function skillsDoc(entries: Parameters<typeof buildSkillsBlock>[0]): string {
+  return `# Agent instructions\n\n${buildSkillsBlock(entries)}\n`
+}
+
+// A UTF-16LE document with its BOM: the one encoding the managed-block engine refuses rather than mangle.
+function utf16le(text: string): Buffer {
+  return Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(text, "utf16le")])
+}
 
 let repo: string
 
@@ -137,7 +149,7 @@ describe("auditVerdict", () => {
 })
 
 describe("auto mode", () => {
-  it("green path: scout selection -> audits -> install -> report + vivicy.json merge + AGENTS.md block", async () => {
+  it("green path: scout selection -> audits -> install -> report + vivicy.json merge + the block in both documents", async () => {
     seedBaseline()
     writeJson("vivicy.json", { gateCommand: "go test ./...", custom: { keep: true } })
     const installs: FakeInstallCall[] = []
@@ -182,16 +194,25 @@ describe("auto mode", () => {
     assert.deepEqual(config.requiredSkills, ["supabase/agent-skills@postgres", "somebody/community@helper"])
     assert.ok(readFileSync(resolve(repo, "vivicy.json"), "utf8").endsWith("}\n"))
 
-    const agents = readFileSync(resolve(repo, "AGENTS.md"), "utf8")
-    assert.match(agents, /<!-- vivicy:skills:begin -->/)
-    assert.match(agents, /## Project skills/)
-    assert.match(agents, /\*\*Supabase Postgres\*\* \(`supabase\/agent-skills@postgres`, official\) — spec uses Supabase/)
-    assert.match(agents, /\*\*Helper\*\* \(`somebody\/community@helper`, community\)/)
-    assert.match(agents, /MUST consult and apply/)
+    for (const rel of MANAGED_DOCS) {
+      const doc = readFileSync(resolve(repo, rel), "utf8")
+      assert.match(doc, /<!-- vivicy:skills:begin -->/, `${rel} carries the block — two CLIs read two files`)
+      assert.match(doc, /## Project skills/)
+      assert.match(
+        doc,
+        /\*\*Supabase Postgres\*\* \(`supabase\/agent-skills@postgres`, official\) — `\.agents\/skills\/postgres\/SKILL\.md` — spec uses Supabase/,
+        `${rel} bullet carries the executable SKILL.md path`
+      )
+      assert.match(
+        doc,
+        /\*\*Helper\*\* \(`somebody\/community@helper`, community\) — `\.agents\/skills\/helper\/SKILL\.md` — no official option/
+      )
+      assert.match(doc, /MUST consult and apply/)
+    }
     assert.ok(!existsSync(resolve(repo, SCOUT_RESULT_REL)), "the transient scout result is cleared after the read")
   })
 
-  it("selecting zero skills is a legitimate green and writes no vivicy.json/AGENTS.md", async () => {
+  it("selecting zero skills is a legitimate green and writes no vivicy.json and no governance document", async () => {
     seedBaseline()
     const installs: FakeInstallCall[] = []
     const report = await installSkills({
@@ -204,7 +225,9 @@ describe("auto mode", () => {
     assert.deepEqual(report.installed, [])
     assert.deepEqual(installs, [])
     assert.ok(!existsSync(resolve(repo, "vivicy.json")))
-    assert.ok(!existsSync(resolve(repo, "AGENTS.md")))
+    for (const rel of MANAGED_DOCS) {
+      assert.ok(!existsSync(resolve(repo, rel)), `${rel} is never created to say a project has no skills`)
+    }
   })
 
   it("refuses loudly without an active frozen baseline", async () => {
@@ -533,33 +556,117 @@ describe("install failures", () => {
       ["acme/repo@scraper"]
     )
     assert.equal(readFileSync(resolve(repo, "vivicy.json"), "utf8"), "{ this is not json\n", "the owner's broken file is theirs to fix")
-    assertReportAgreesWithAgentsBlock(report)
+    assertReportAgreesWithSkillsBlock(report)
   })
 })
 
-describe("AGENTS.md managed block", () => {
-  const entries = [
-    { id: "supabase/agent-skills@postgres", name: "Supabase Postgres", official: true, reason: "database" },
-    { id: "somebody/community@helper", name: "Helper", official: false, reason: "" },
-  ]
+describe("the skills block rides the managed-block engine, in both governance documents", () => {
+  const OWNER_PROSE = "# My project\n\nIntro prose.\n\n<!-- vivicy:method:begin -->\n## Working under Vivicy\n<!-- vivicy:method:end -->\n"
 
-  it("applySkillsBlock is idempotent and replaces an existing block in place", () => {
-    const created = applySkillsBlock(null, entries)
-    assert.equal(applySkillsBlock(created, entries), created, "same inputs -> byte-identical file")
+  async function installOne(): Promise<SkillsReport> {
+    return installSkills({
+      repoRoot: repo,
+      ids: ["supabase/agent-skills@postgres"],
+      fetchAudit: fakeAudits(),
+      runInstall: fakeInstaller([]),
+    })
+  }
 
-    const surrounded = `# My project\n\nIntro prose.\n\n${buildSkillsBlock([entries[0]])}\n\n## Later section\n`
-    const replaced = applySkillsBlock(surrounded, entries)
-    assert.match(replaced, /^# My project\n\nIntro prose\./)
-    assert.match(replaced, /## Later section\n$/)
-    assert.match(replaced, /Helper/)
-    assert.equal(replaced.match(/vivicy:skills:begin/g)?.length, 1, "exactly one managed block")
-    assert.equal(applySkillsBlock(replaced, entries), replaced)
+  it("appends at EOF beside the method block, byte-preserving everything outside its own span, and re-runs as a zero diff", async () => {
+    for (const rel of MANAGED_DOCS) writeFileSync(resolve(repo, rel), `${OWNER_PROSE}## Later section\n`)
+
+    assert.equal((await installOne()).phase, "green")
+
+    for (const rel of MANAGED_DOCS) {
+      const doc = readFileSync(resolve(repo, rel), "utf8")
+      assert.ok(doc.startsWith(`${OWNER_PROSE}## Later section\n`), `${rel}: the owner's bytes and their method block are untouched`)
+      assert.match(doc, /## Later section\n\n<!-- vivicy:skills:begin -->/, "one blank-line separator, block at the tail")
+      assert.ok(doc.endsWith("<!-- vivicy:skills:end -->\n"), "and a clean trailing newline")
+      assert.equal(doc.match(/vivicy:skills:begin/g)?.length, 1, "exactly one managed block")
+    }
+
+    const before = MANAGED_DOCS.map((rel) => readFileSync(resolve(repo, rel), "utf8"))
+    await installOne()
+    MANAGED_DOCS.forEach((rel, i) => assert.equal(readFileSync(resolve(repo, rel), "utf8"), before[i], `${rel}: byte-identical re-run`))
   })
 
-  it("appends the block to an existing AGENTS.md without one", () => {
-    const appended = applySkillsBlock("# Existing agent doc\n\nRules.\n", entries)
-    assert.match(appended, /^# Existing agent doc\n\nRules\.\n\n<!-- vivicy:skills:begin -->/)
-    assert.ok(appended.endsWith("<!-- vivicy:skills:end -->\n"))
+  // The hand-rolled splice this replaced paired the first begin with the first end by index, so an owner who damaged a marker got a SECOND block; the engine repairs the residue instead.
+  it("repairs markers the owner damaged instead of stacking a second block", async () => {
+    const damaged = `# Mine\n\n<!-- vivicy:skills:end -->\n<!-- vivicy:skills:begin -->\n## Project skills\n\nhalf a block\n`
+    for (const rel of MANAGED_DOCS) writeFileSync(resolve(repo, rel), damaged)
+
+    assert.equal((await installOne()).phase, "green")
+
+    for (const rel of MANAGED_DOCS) {
+      const doc = readFileSync(resolve(repo, rel), "utf8")
+      assert.equal(doc.match(/vivicy:skills:begin/g)?.length, 1, `${rel}: one begin marker`)
+      assert.equal(doc.match(/vivicy:skills:end/g)?.length, 1, `${rel}: one end marker`)
+      assert.match(doc, /^# Mine\n/, "the owner's own line survives the repair")
+      assert.match(doc, /`supabase\/agent-skills@postgres`/)
+    }
+  })
+
+  it("a symlinked CLAUDE.md keeps its link, and the block lands once in the file it points at", async () => {
+    writeFileSync(resolve(repo, "AGENTS.md"), OWNER_PROSE)
+    symlinkSync("AGENTS.md", resolve(repo, "CLAUDE.md"))
+
+    assert.equal((await installOne()).phase, "green")
+
+    assert.equal(lstatSync(resolve(repo, "CLAUDE.md")).isSymbolicLink(), true, "a rename onto the link would detach the owner's convention")
+    const agents = readFileSync(resolve(repo, "AGENTS.md"), "utf8")
+    assert.equal(agents.match(/vivicy:skills:begin/g)?.length, 1, "the second write found the block already converged")
+    assert.equal(readFileSync(resolve(repo, "CLAUDE.md"), "utf8"), agents)
+  })
+
+  it("refuses a UTF-16 document untouched and ends the stage red, naming the file and what to do", async () => {
+    writeFileSync(resolve(repo, "AGENTS.md"), OWNER_PROSE)
+    const utf16 = utf16le("# mine\n")
+    writeFileSync(resolve(repo, "CLAUDE.md"), utf16)
+
+    const report = await installOne()
+
+    assert.equal(report.phase, "failed")
+    assert.match(report.summary, /^skills stage failed: CLAUDE\.md refused the project skills block \(not UTF-8 — it is saved as UTF-16LE/)
+    assert.match(report.summary, /fix that file and re-run the skills stage\.$/)
+    assert.equal(
+      report.installed.map((e) => e.id).join(),
+      "supabase/agent-skills@postgres",
+      "the skill is installed and reported — only the document refused"
+    )
+    assert.deepEqual((readJson("vivicy.json") as { requiredSkills: string[] }).requiredSkills, ["supabase/agent-skills@postgres"])
+    assert.deepEqual(readFileSync(resolve(repo, "CLAUDE.md")), utf16, "a file Vivicy cannot splice byte-safely is never written at all")
+    assert.match(
+      readFileSync(resolve(repo, "AGENTS.md"), "utf8"),
+      /vivicy:skills:begin/,
+      "and the document it CAN write still gets the block"
+    )
+    assert.equal(skillsNotification(report)?.event, "skills_failed")
+    assert.equal(skillsNotification(report)?.level, "error")
+  })
+
+  // The recorded relay: a read-only document used to throw out of the stage mid-phase, leaving a report stuck in flight and requiredSkills naming a skill whose block no retry ever wrote.
+  it("a read-only document that still has something to receive fails the stage — and the retry after the owner fixes it converges", async () => {
+    for (const rel of MANAGED_DOCS) writeFileSync(resolve(repo, rel), OWNER_PROSE)
+    chmodSync(resolve(repo, "CLAUDE.md"), 0o444)
+
+    const refused = await installOne()
+    assert.equal(refused.phase, "failed")
+    assert.match(refused.summary, /^skills stage failed: CLAUDE\.md refused the project skills block \(EACCES: permission denied\)\./)
+    assert.ok(!refused.summary.includes(".vivicy-tmp."), "Vivicy's internal temp name means nothing to the owner")
+    assert.equal((readJson(SKILLS_REPORT_REL) as SkillsReport).phase, "failed", "the report on disk is terminal, never left mid-phase")
+
+    chmodSync(resolve(repo, "CLAUDE.md"), 0o644)
+    const retry = await installSkills({
+      repoRoot: repo,
+      ids: ["supabase/agent-skills@postgres"],
+      fetchAudit: fakeAudits(),
+      runInstall: fakeInstaller([]),
+    })
+    assert.equal(retry.phase, "green")
+    assert.deepEqual(retry.rejected, [], "the already-installed id is no rejection: the retry's work is the block")
+    for (const rel of MANAGED_DOCS) {
+      assert.match(readFileSync(resolve(repo, rel), "utf8"), /`supabase\/agent-skills@postgres`/, `${rel} converged on the retry`)
+    }
   })
 
   // The block is rewritten only where it would CHANGE, which is what lets every settled re-run converge it without turning a read-only AGENTS.md — a document Vivicy has nothing left to say to — into a failed skills stage.
@@ -607,7 +714,7 @@ describe("AGENTS.md managed block", () => {
     const agents = readFileSync(resolve(repo, "AGENTS.md"), "utf8")
     assert.match(
       agents,
-      /\*\*Supabase Postgres\*\* \(`supabase\/agent-skills@postgres`, official\) — database/,
+      /\*\*Supabase Postgres\*\* \(`supabase\/agent-skills@postgres`, official\) — `\.agents\/skills\/postgres\/SKILL\.md` — database/,
       "the first run's metadata survives the second run"
     )
     assert.match(agents, /`stripe\/agent-skills@payments`, official/)
@@ -707,7 +814,7 @@ describe("the report tells the truth about the project's whole installed set", (
       ["supabase/agent-skills@postgres", "stripe/agent-skills@payments"],
       "installed is the project's full set — the first run's skill is not dropped by the second"
     )
-    assertReportAgreesWithAgentsBlock(second)
+    assertReportAgreesWithSkillsBlock(second)
   })
 
   it("an explicit install reports the full set too, and every surface reads the same one", async () => {
@@ -730,7 +837,7 @@ describe("the report tells the truth about the project's whole installed set", (
       ["supabase/agent-skills@postgres", "stripe/agent-skills@payments"]
     )
     assert.equal(explicit.installed[0].reason, "database", "the first run's metadata rides the full set, never re-derived")
-    assertReportAgreesWithAgentsBlock(explicit)
+    assertReportAgreesWithSkillsBlock(explicit)
     assert.deepEqual(
       (readJson("vivicy.json") as { requiredSkills: string[] }).requiredSkills,
       explicit.installed.map((e) => e.id),
@@ -791,7 +898,7 @@ describe("the report tells the truth about the project's whole installed set", (
       { name: "scraper", official: false, security_waived: false, audits: [] },
       "an id no report ever described claims nothing it cannot derive from the id"
     )
-    assertReportAgreesWithAgentsBlock(skipped)
+    assertReportAgreesWithSkillsBlock(skipped)
   })
 
   it("a removal reports the shrunken set and names only what it dropped", async () => {
@@ -813,25 +920,34 @@ describe("the report tells the truth about the project's whole installed set", (
       report.installed.map((e) => e.id),
       ["acme/repo@scraper"]
     )
-    assertReportAgreesWithAgentsBlock(report)
+    assertReportAgreesWithSkillsBlock(report)
   })
 })
 
-// The acceptance the whole slice exists for: the report's set and the AGENTS.md block a leg reads are one value projected twice, so they cannot state different things.
-function assertReportAgreesWithAgentsBlock(report: SkillsReport): void {
-  const agents = readFileSync(resolve(repo, "AGENTS.md"), "utf8")
-  const block = agents.slice(agents.indexOf("<!-- vivicy:skills:begin -->"), agents.indexOf("<!-- vivicy:skills:end -->"))
-  assert.ok(block.length > 0, "the AGENTS.md skills block is missing entirely")
-  const listed = [...block.matchAll(/^- \*\*(?<name>[^*]+)\*\* \(`(?<id>[^`]+)`, (?<origin>official|community)\)/gm)].map((m) => ({
-    id: m.groups!.id,
-    name: m.groups!.name,
-    origin: m.groups!.origin,
-  }))
-  assert.deepEqual(
-    listed,
-    report.installed.map((e) => ({ id: e.id, name: e.name, origin: e.official ? "official" : "community" })),
-    "the AGENTS.md block and report.installed are the same set, in the same order, with the same metadata"
-  )
+// The acceptance the whole slice exists for: the report's set and the block a leg reads are one value projected twice, so they cannot state different things — in EITHER document, since the two CLIs read different files.
+function assertReportAgreesWithSkillsBlock(report: SkillsReport): void {
+  for (const rel of MANAGED_DOCS) {
+    const doc = readFileSync(resolve(repo, rel), "utf8")
+    const block = doc.slice(doc.indexOf("<!-- vivicy:skills:begin -->"), doc.indexOf("<!-- vivicy:skills:end -->"))
+    assert.ok(block.length > 0, `the ${rel} skills block is missing entirely`)
+    const pattern = /^- \*\*(?<name>[^*]+)\*\* \(`(?<id>[^`]+)`, (?<origin>official|community)\) — `(?<doc>[^`]+)`/gm
+    const listed = [...block.matchAll(pattern)].map((m) => ({
+      id: m.groups!.id,
+      name: m.groups!.name,
+      origin: m.groups!.origin,
+      doc: m.groups!.doc,
+    }))
+    assert.deepEqual(
+      listed,
+      report.installed.map((e) => ({
+        id: e.id,
+        name: e.name,
+        origin: e.official ? "official" : "community",
+        doc: `.agents/skills/${e.skill}/SKILL.md`,
+      })),
+      `${rel} and report.installed are the same set, in the same order, with the same metadata and the same bundle paths`
+    )
+  }
 }
 
 describe("dev-preflight declared skills (vivicy.json, the one location)", () => {
@@ -923,13 +1039,11 @@ describe("removeSkills (deterministic uninstall)", () => {
   function seedInstalledState(): void {
     writeJson(SKILLS_REPORT_REL, PRIOR)
     writeJson("vivicy.json", { gateCommand: "npm test", requiredSkills: ["anthropics/skills@pdf", "acme/repo@scraper"] })
-    writeFileSync(
-      resolve(repo, "AGENTS.md"),
-      applySkillsBlock(null, [
-        { id: "anthropics/skills@pdf", name: "pdf", official: true, reason: "" },
-        { id: "acme/repo@scraper", name: "scraper", official: false, reason: "" },
-      ])
-    )
+    const doc = skillsDoc([
+      { id: "anthropics/skills@pdf", skill: "pdf", name: "pdf", official: true, reason: "" },
+      { id: "acme/repo@scraper", skill: "scraper", name: "scraper", official: false, reason: "" },
+    ])
+    for (const rel of MANAGED_DOCS) writeFileSync(resolve(repo, rel), doc)
   }
 
   function fakeRemover(calls: FakeInstallCall[], failFor: Set<string> = new Set()) {
@@ -939,7 +1053,7 @@ describe("removeSkills (deterministic uninstall)", () => {
     }
   }
 
-  it("removes an installed skill: report, vivicy.json, and AGENTS.md all shrink together", async () => {
+  it("removes an installed skill: report, vivicy.json, and both governance documents all shrink together", async () => {
     seedInstalledState()
     const calls: FakeInstallCall[] = []
     const report = await removeSkills({ repoRoot: repo, ids: ["anthropics/skills@pdf"], runRemove: fakeRemover(calls) })
@@ -951,9 +1065,11 @@ describe("removeSkills (deterministic uninstall)", () => {
     const config = readJson("vivicy.json") as { gateCommand: string; requiredSkills: string[] }
     assert.equal(config.gateCommand, "npm test")
     assert.deepEqual(config.requiredSkills, ["acme/repo@scraper"])
-    const agents = readFileSync(resolve(repo, "AGENTS.md"), "utf8")
-    assert.ok(agents.includes("acme/repo@scraper"))
-    assert.ok(!agents.includes("anthropics/skills@pdf"))
+    for (const rel of MANAGED_DOCS) {
+      const doc = readFileSync(resolve(repo, rel), "utf8")
+      assert.ok(doc.includes("acme/repo@scraper"), `${rel} keeps the surviving skill`)
+      assert.ok(!doc.includes("anthropics/skills@pdf"), `${rel} dropped the removed one`)
+    }
     const onDisk = readJson(SKILLS_REPORT_REL) as SkillsReport
     assert.equal(onDisk.installed?.length, 1)
     assert.equal(onDisk.installed?.[0]?.id, "acme/repo@scraper")
@@ -998,17 +1114,45 @@ describe("removeSkills (deterministic uninstall)", () => {
     assert.deepEqual(config.requiredSkills, ["anthropics/skills@pdf"], "the failed removal keeps its slot")
   })
 
-  it("renders the empty-set AGENTS.md block when the last skill is removed", async () => {
+  // Emptying the block is the one write a zero-skill project gets; a document that never carried one is still never given one.
+  it("renders the empty-set block in the documents that carry it, and creates none in the one that does not", async () => {
     writeJson(SKILLS_REPORT_REL, { ...PRIOR, installed: [PRIOR.installed[0]] })
     writeJson("vivicy.json", { gateCommand: "npm test", requiredSkills: ["anthropics/skills@pdf"] })
     writeFileSync(
       resolve(repo, "AGENTS.md"),
-      applySkillsBlock(null, [{ id: "anthropics/skills@pdf", name: "pdf", official: true, reason: "" }])
+      skillsDoc([{ id: "anthropics/skills@pdf", skill: "pdf", name: "pdf", official: true, reason: "" }])
     )
 
     await removeSkills({ repoRoot: repo, ids: ["anthropics/skills@pdf"], runRemove: fakeRemover([]) })
-    const agents = readFileSync(resolve(repo, "AGENTS.md"), "utf8")
-    assert.ok(agents.includes("No project skills are currently installed"))
+
+    assert.ok(readFileSync(resolve(repo, "AGENTS.md"), "utf8").includes("No project skills are currently installed"))
+    assert.ok(!existsSync(resolve(repo, "CLAUDE.md")), "a document with no block is not handed an empty one")
+  })
+
+  // Removing the last skill over documents that both refuse the write: the summary names every refused document and says what is now stale in them, never that a skill nobody has is unreadable.
+  it("names both refused documents when the empty-set block cannot land", async () => {
+    writeJson(SKILLS_REPORT_REL, { ...PRIOR, installed: [PRIOR.installed[0]] })
+    writeJson("vivicy.json", { gateCommand: "npm test", requiredSkills: ["anthropics/skills@pdf"] })
+    const doc = skillsDoc([{ id: "anthropics/skills@pdf", skill: "pdf", name: "pdf", official: true, reason: "" }])
+    for (const rel of MANAGED_DOCS) {
+      writeFileSync(resolve(repo, rel), doc)
+      chmodSync(resolve(repo, rel), 0o444)
+    }
+    try {
+      const report = await removeSkills({ repoRoot: repo, ids: ["anthropics/skills@pdf"], runRemove: fakeRemover([]) })
+      assert.equal(report.phase, "failed")
+      assert.match(
+        report.summary,
+        /^skills stage failed: 2 governance files refused the project skills block — AGENTS\.md \(EACCES: permission denied\); CLAUDE\.md \(EACCES: permission denied\)\./
+      )
+      assert.match(
+        report.summary,
+        /AGENTS\.md and CLAUDE\.md still list skills this project no longer has — fix those files and re-run the skills stage\.$/
+      )
+      assert.deepEqual(report.installed, [], "the removal itself happened; only the documents refused")
+    } finally {
+      for (const rel of MANAGED_DOCS) chmodSync(resolve(repo, rel), 0o644)
+    }
   })
 
   it("throws SkillsConfigError without a target or without ids", async () => {
@@ -1066,6 +1210,212 @@ describe("stage summaries agree in number", () => {
   })
 })
 
+describe("the stage lock (one skills stage per project, claimed where the writes are)", () => {
+  const SKILLS_LOCK_FILE = "skills-install.lock"
+
+  // spawnSync returns only after the child has been reaped, so signalling this pid is ESRCH — a killed stage's residue, not a holder.
+  function reapedPid(): number {
+    const r = spawnSync(process.execPath, ["-e", "process.exit(0)"], { encoding: "utf8" })
+    assert.equal(r.status, 0)
+    assert.ok(typeof r.pid === "number" && r.pid > 0)
+    return r.pid
+  }
+
+  function writeLock(runtimeDir: string, pid: number): string {
+    mkdirSync(runtimeDir, { recursive: true })
+    const abs = join(runtimeDir, SKILLS_LOCK_FILE)
+    writeFileSync(abs, `${JSON.stringify({ pid, started_at: new Date().toISOString() }, null, 2)}\n`)
+    return abs
+  }
+
+  it("refuses a second stage while a live one holds the lock, and writes nothing over the holder's state", async () => {
+    seedBaseline()
+    const runtimeDir = join(repo, "runtime")
+    writeLock(runtimeDir, process.pid)
+    writeJson(SKILLS_REPORT_REL, { phase: "installing", mode: "auto", installed: [], added: [], removed: [], rejected: [] })
+    const before = readFileSync(resolve(repo, SKILLS_REPORT_REL), "utf8")
+
+    await assert.rejects(
+      installSkills({
+        repoRoot: repo,
+        ids: ["acme/repo@scraper"],
+        env: { VIVICY_RUNTIME_DIR: runtimeDir },
+        fetchAudit: fakeAudits(),
+        runInstall: fakeInstaller([]),
+      }),
+      (error: unknown) => error instanceof SkillsLockError && /already in flight \(pid \d+\)/.test((error as Error).message)
+    )
+
+    assert.equal(
+      readFileSync(resolve(repo, SKILLS_REPORT_REL), "utf8"),
+      before,
+      "the holder's report is never overwritten by the refused run"
+    )
+    assert.ok(!existsSync(resolve(repo, "vivicy.json")), "and nothing else was written either")
+    assert.ok(
+      existsSync(join(runtimeDir, SKILLS_LOCK_FILE)),
+      "the holder still owns its lock — a refused run never releases someone else's"
+    )
+  })
+
+  // pid 1 is alive and owned by root: the probe must read EPERM as a live holder, not as "gone".
+  it("a live holder this user does not own is still a holder", async () => {
+    seedBaseline()
+    const runtimeDir = join(repo, "runtime")
+    writeLock(runtimeDir, 1)
+    await assert.rejects(
+      installSkills({
+        repoRoot: repo,
+        ids: ["acme/repo@scraper"],
+        env: { VIVICY_RUNTIME_DIR: runtimeDir },
+        fetchAudit: fakeAudits(),
+        runInstall: fakeInstaller([]),
+      }),
+      SkillsLockError
+    )
+    assert.ok(existsSync(join(runtimeDir, SKILLS_LOCK_FILE)))
+  })
+
+  // A stage whose lock was reclaimed out from under it (its own pid gone from the file) must not delete the successor's claim on its way out.
+  it("releases only its OWN claim, never a lock another holder has since taken", async () => {
+    seedBaseline()
+    const runtimeDir = join(repo, "runtime")
+    const abs = join(runtimeDir, SKILLS_LOCK_FILE)
+    const report = await installSkills({
+      repoRoot: repo,
+      ids: ["acme/repo@scraper"],
+      env: { VIVICY_RUNTIME_DIR: runtimeDir },
+      fetchAudit: fakeAudits(),
+      runInstall: () => {
+        writeLock(runtimeDir, 1)
+        return { code: 0, output: "installed" }
+      },
+    })
+    assert.equal(report.phase, "green")
+    assert.equal((JSON.parse(readFileSync(abs, "utf8")) as { pid: number }).pid, 1, "the successor's lock is still there, untouched")
+  })
+
+  it("a removal claims the very same file, so an install in flight refuses it too", async () => {
+    const runtimeDir = join(repo, "runtime")
+    writeLock(runtimeDir, process.pid)
+    await assert.rejects(
+      removeSkills({
+        repoRoot: repo,
+        ids: ["acme/repo@scraper"],
+        env: { VIVICY_RUNTIME_DIR: runtimeDir },
+        runRemove: () => ({ code: 0, output: "removed" }),
+      }),
+      SkillsLockError
+    )
+  })
+
+  it("holds the lock at the path both clients probe for the whole run, and releases it after", async () => {
+    seedBaseline()
+    const runtimeDir = join(repo, "runtime")
+    const abs = join(runtimeDir, SKILLS_LOCK_FILE)
+    let heldDuringRun: number | null = null
+    const report = await installSkills({
+      repoRoot: repo,
+      ids: ["acme/repo@scraper"],
+      env: { VIVICY_RUNTIME_DIR: runtimeDir },
+      fetchAudit: fakeAudits(),
+      runInstall: () => {
+        heldDuringRun = (JSON.parse(readFileSync(abs, "utf8")) as { pid: number }).pid
+        return { code: 0, output: "installed" }
+      },
+    })
+    assert.equal(report.phase, "green")
+    assert.equal(heldDuringRun, process.pid, "the stage process itself is the recorded holder")
+    assert.ok(!existsSync(abs), "and the claim is released on the way out, never left for the next run to reclaim")
+  })
+
+  // Breaking a killed run's residue is exclusive per residue (lib/stage-lock.ts owns the protocol and its races); what the STAGE owes is surfacing a break it did not win as its own typed refusal, having written nothing.
+  it("refuses when another stage is already breaking the same residue", async () => {
+    seedBaseline()
+    const runtimeDir = join(repo, "runtime")
+    writeLock(runtimeDir, reapedPid())
+    mkdirSync(runtimeDir, { recursive: true })
+    writeFileSync(
+      join(runtimeDir, `${SKILLS_LOCK_FILE}.break`),
+      `${JSON.stringify({ pid: process.pid, started_at: new Date().toISOString() }, null, 2)}\n`
+    )
+
+    await assert.rejects(
+      installSkills({
+        repoRoot: repo,
+        ids: ["acme/repo@scraper"],
+        env: { VIVICY_RUNTIME_DIR: runtimeDir },
+        fetchAudit: fakeAudits(),
+        runInstall: fakeInstaller([]),
+      }),
+      SkillsLockError
+    )
+    assert.ok(!existsSync(resolve(repo, "vivicy.json")), "a stage that lost the break writes nothing")
+  })
+
+  it("reclaims a lock whose holder is gone — a killed stage never dead-ends the next one", async () => {
+    seedBaseline()
+    const runtimeDir = join(repo, "runtime")
+    writeLock(runtimeDir, reapedPid())
+    const report = await installSkills({
+      repoRoot: repo,
+      ids: ["acme/repo@scraper"],
+      env: { VIVICY_RUNTIME_DIR: runtimeDir },
+      fetchAudit: fakeAudits(),
+      runInstall: fakeInstaller([]),
+    })
+    assert.equal(report.phase, "green")
+    assert.ok(!existsSync(join(runtimeDir, SKILLS_LOCK_FILE)))
+  })
+
+  it("releases the lock on a throw too, so one broken run cannot lock the project out", async () => {
+    seedBaseline()
+    const runtimeDir = join(repo, "runtime")
+    const boom = new Error("scout leg has no prompt file")
+    await assert.rejects(
+      installSkills({
+        repoRoot: repo,
+        ids: ["acme/repo@scraper"],
+        env: { VIVICY_RUNTIME_DIR: runtimeDir },
+        fetchAudit: fakeAudits(),
+        runInstall: () => {
+          throw boom
+        },
+      }),
+      (error: unknown) => error === boom
+    )
+    assert.ok(!existsSync(join(runtimeDir, SKILLS_LOCK_FILE)))
+
+    const after = await installSkills({
+      repoRoot: repo,
+      ids: ["acme/repo@scraper"],
+      env: { VIVICY_RUNTIME_DIR: runtimeDir },
+      fetchAudit: fakeAudits(),
+      runInstall: fakeInstaller([]),
+    })
+    assert.equal(after.phase, "green")
+  })
+
+  // Every client hands the stage a project-scoped VIVICY_RUNTIME_DIR; a caller that hands none still gets a project-scoped lock, never one keyed on the cwd it happened to be spawned in.
+  it("falls back to the project's own gitignored runtime dir when no runtime dir is handed in", async () => {
+    seedBaseline()
+    const abs = resolve(repo, ".vivicy-runtime", SKILLS_LOCK_FILE)
+    let heldDuringRun: number | null = null
+    await installSkills({
+      repoRoot: repo,
+      ids: ["acme/repo@scraper"],
+      env: {},
+      fetchAudit: fakeAudits(),
+      runInstall: () => {
+        heldDuringRun = (JSON.parse(readFileSync(abs, "utf8")) as { pid: number }).pid
+        return { code: 0, output: "installed" }
+      },
+    })
+    assert.equal(heldDuringRun, process.pid)
+    assert.ok(!existsSync(abs))
+  })
+})
+
 const HERMETIC_GIT_HOME = mkdtempSync(join(tmpdir(), "vivicy-skills-git-home-"))
 
 after(() => {
@@ -1116,6 +1466,16 @@ The product truth is the frozen canonical spec.
 Run the linter before pushing.
 `
 
+// The pointer document a governed repo really carries (factory/templates/CLAUDE.md): its own method block, and an import of AGENTS.md.
+const OWNER_CLAUDE_MD = `<!-- vivicy:method:begin -->
+This repository is governed by the **Vivicy** development factory;
+the operating guide for every agent working here — Claude included — is [AGENTS.md](./AGENTS.md).
+Read it first.
+
+@AGENTS.md
+<!-- vivicy:method:end -->
+`
+
 // Reproduces the layout MEASURED from `npx skills add` (bundle under .agents/skills, a per-agent link, a root lockfile); the link target is the one variable, since the guard under test reads exactly that.
 function writeSkillsCliStub(root: string, linkTarget: "relative" | "absolute"): void {
   const bin = resolve(root, "node_modules/.bin")
@@ -1156,8 +1516,9 @@ function runStubSkillsCli({ repoRoot, source, skill }: { repoRoot: string; sourc
 }
 
 function initGovernedGitTarget(): void {
-  writeFileSync(resolve(repo, ".gitignore"), "node_modules\n.vivicy-tmp.*\n.vivicy/development/transcripts/\n")
+  writeFileSync(resolve(repo, ".gitignore"), "node_modules\n.vivicy-tmp.*\n.vivicy-runtime/\n.vivicy/development/transcripts/\n")
   writeFileSync(resolve(repo, "AGENTS.md"), OWNER_AGENTS_MD)
+  writeFileSync(resolve(repo, "CLAUDE.md"), OWNER_CLAUDE_MD)
   writeJson("vivicy.json", { gateCommand: "npm test" })
   mkdirSync(resolve(repo, ".vivicy/development/reports"), { recursive: true })
   writeFileSync(resolve(repo, ".vivicy/development/reports/.gitkeep"), "")
@@ -1201,10 +1562,11 @@ describe("absorption + worktree delivery (real git target, real skills-CLI seam)
           ".vivicy/development/reports/.gitkeep",
           ".vivicy/development/reports/skills-report.json",
           "AGENTS.md",
+          "CLAUDE.md",
           "skills-lock.json",
           "vivicy.json",
         ],
-        "the pathspec is exact: the bundle, its link and lockfile, the report, the pruned .gitkeep, and the two governance files — nothing of the owner's"
+        "the pathspec is exact: the bundle, its link and lockfile, the report, the pruned .gitkeep, and the three governance files — nothing of the owner's"
       )
 
       const worktreeParent = mkdtempSync(join(tmpdir(), "vivicy-skills-worktree-"))
@@ -1222,7 +1584,21 @@ describe("absorption + worktree delivery (real git target, real skills-CLI seam)
         assert.match(agents, /<!-- vivicy:method:begin -->/, "the method block survives in the delivered document")
         assert.match(agents, /<!-- vivicy:skills:begin -->/, "and the skills block is delivered beside it")
         assert.match(agents, /## House rules the owner wrote/, "the owner's own prose is untouched between the two blocks")
-        assert.match(agents, /\*\*spreadsheets\*\* \(`acme\/pack@spreadsheets`, community\) — explicitly requested/)
+        assert.match(
+          agents,
+          /\*\*spreadsheets\*\* \(`acme\/pack@spreadsheets`, community\) — `\.agents\/skills\/spreadsheets\/SKILL\.md` — explicitly requested/
+        )
+
+        // The bullet is an instruction, so its path has to resolve in the tree the leg actually works in.
+        const claude = readFileSync(join(worktree, "CLAUDE.md"), "utf8")
+        assert.match(claude, /@AGENTS\.md/, "the Claude pointer document keeps its own method block")
+        assert.match(
+          claude,
+          /<!-- vivicy:skills:begin -->/,
+          "and carries the skills block too — the Claude CLI reads this file, not AGENTS.md"
+        )
+        const bulletPath = /— `(\.agents\/skills\/spreadsheets\/SKILL\.md)`/.exec(claude)?.[1]
+        assert.ok(bulletPath && existsSync(join(worktree, bulletPath)), `the bullet's path resolves inside the worktree: ${bulletPath}`)
 
         const config = JSON.parse(readFileSync(join(worktree, "vivicy.json"), "utf8")) as Record<string, unknown>
         assert.deepEqual(config.requiredSkills, ["acme/pack@spreadsheets"])
@@ -1295,9 +1671,10 @@ describe("absorption + worktree delivery (real git target, real skills-CLI seam)
           ".claude/skills/spreadsheets",
           ".vivicy/development/reports/.gitkeep",
           ".vivicy/development/reports/skills-report.json",
+          "CLAUDE.md",
           "skills-lock.json",
         ],
-        "only this run's own bundle, link, lockfile and report — the two governance files were already the owner's manuscript when the run opened"
+        "this run's own bundle, link, lockfile, report and the CLAUDE.md block it wrote — while AGENTS.md and vivicy.json were already the owner's manuscript when the run opened"
       )
       assert.deepEqual(
         git(repo, ["status", "--porcelain"])
@@ -1319,6 +1696,194 @@ describe("absorption + worktree delivery (real git target, real skills-CLI seam)
         "half-written revision\n",
         "and their bytes are untouched"
       )
+    })
+  })
+
+  // The causal record is the engine's `onWrite`, so a document the run does NOT change never enters the pathspec: recording it up front would hand Vivicy an owner edit that appeared mid-run on a converged document.
+  it("a document this run leaves converged is not in the pathspec at all — an owner's mid-run edit to it stays theirs", async () => {
+    await withHermeticGitEnv(async () => {
+      seedBaseline()
+      initGovernedGitTarget()
+      writeSkillsCliStub(repo, "relative")
+      const proposal = { skills: [{ id: "acme/pack@spreadsheets", name: "Spreadsheets", reason: "the spec exports CSV" }] }
+      await installSkills({ repoRoot: repo, spawnScout: fakeScout([proposal]), fetchAudit: fakeAudits() })
+      assert.equal(git(repo, ["status", "--porcelain"]).stdout.trim(), "")
+
+      rmSync(resolve(repo, `.vivicy/baselines/${BASELINE_ID}.json`))
+      seedBaseline("baseline-v1.1.0")
+      git(repo, ["add", "-A"])
+      git(repo, ["-c", "user.email=owner@local", "-c", "user.name=Owner", "commit", "-qm", "owner: the next freeze"])
+
+      // The scout runs after the pre-stage snapshot, and re-proposes what is already installed, so the rendered block is identical and no document is written.
+      const report = await installSkills({
+        repoRoot: repo,
+        fetchAudit: fakeAudits(),
+        spawnScout: async (args) => {
+          writeFileSync(
+            resolve(repo, "AGENTS.md"),
+            `${readFileSync(resolve(repo, "AGENTS.md"), "utf8")}\nA paragraph the owner added while the stage ran.\n`
+          )
+          return fakeScout([proposal])(args)
+        },
+      })
+      assert.equal(report.phase, "green", report.summary)
+      assert.deepEqual(report.added, [], "the re-proposed skill was already installed")
+
+      assert.ok(
+        !git(repo, ["show", "--name-only", "--format=", "HEAD"]).stdout.includes("AGENTS.md"),
+        "a document the run never wrote is not the run's to commit, whoever made it dirty"
+      )
+      assert.deepEqual(git(repo, ["status", "--porcelain"]).stdout.split("\n").filter(Boolean), [" M AGENTS.md"])
+      assert.match(
+        readFileSync(resolve(repo, "AGENTS.md"), "utf8"),
+        /A paragraph the owner added while the stage ran\./,
+        "and their bytes are still there"
+      )
+    })
+  })
+
+  // A write that got as far as the causal record and THEN failed to publish must withdraw it: an owner edit landing on that document after the pre-stage snapshot would otherwise ride Vivicy's commit — the very inversion the record exists to prevent. The blocked temp path is the failure mode that reaches the record (an encoding refusal happens before it), and it leaves the document itself perfectly writable by the owner.
+  it("a document whose write could not be PUBLISHED leaves the pathspec — the owner's mid-run edit to it stays theirs", async () => {
+    await withHermeticGitEnv(async () => {
+      initGovernedGitTarget()
+      writeSkillsCliStub(repo, "relative")
+      // The exact temp name the atomic publish builds for CLAUDE.md; a directory sitting there fails the write after the record is taken.
+      mkdirSync(resolve(repo, `.vivicy-tmp.${process.pid}.CLAUDE.md`, "not-vivicy's"), { recursive: true })
+
+      const report = await installSkills({
+        repoRoot: repo,
+        ids: ["acme/pack@spreadsheets"],
+        fetchAudit: fakeAudits(),
+        // Fires mid-run, after the pre-stage snapshot: the owner is mid-edit in the document the stage is about to fail on.
+        runInstall: (args) => {
+          writeFileSync(resolve(repo, "CLAUDE.md"), `${OWNER_CLAUDE_MD}\nA paragraph the owner added while the stage ran.\n`)
+          return runStubSkillsCli(args)
+        },
+      })
+      assert.equal(report.phase, "failed", report.summary)
+      assert.match(report.summary, /^skills stage failed: CLAUDE\.md refused the project skills block \(/)
+      assert.match(
+        report.summary,
+        /but nothing reading CLAUDE\.md learns about it until the block lands there — fix that file and re-run the skills stage\.$/,
+        "the consequence names the refused document and nothing else — AGENTS.md did take the block"
+      )
+
+      const committed = git(repo, ["show", "--name-only", "--format=", "HEAD"]).stdout
+      assert.ok(!committed.includes("CLAUDE.md"), "the write never landed, so the document is not the stage's to commit")
+      assert.match(committed, /^AGENTS\.md$/m, "while the document that DID take the block is absorbed")
+      assert.deepEqual(git(repo, ["status", "--porcelain"]).stdout.split("\n").filter(Boolean), [" M CLAUDE.md"])
+      assert.match(
+        readFileSync(resolve(repo, "CLAUDE.md"), "utf8"),
+        /A paragraph the owner added while the stage ran\./,
+        "their bytes, untouched"
+      )
+    })
+  })
+
+  // The withdrawal has to name the key the record took: through a symlink that key is the RESOLVED target, so withdrawing the link's name would leave the target in the pathspec and commit whatever the owner does to it.
+  it("a symlinked document whose write could not be published withdraws the RESOLVED path, not the link's name", async () => {
+    await withHermeticGitEnv(async () => {
+      initGovernedGitTarget()
+      writeSkillsCliStub(repo, "relative")
+      mkdirSync(resolve(repo, "docs"), { recursive: true })
+      writeFileSync(resolve(repo, "docs/agent-notes.md"), "# Agent notes\n\nThe owner keeps their guide here.\n")
+      rmSync(resolve(repo, "AGENTS.md"))
+      symlinkSync("docs/agent-notes.md", resolve(repo, "AGENTS.md"))
+      git(repo, ["add", "-A"])
+      git(repo, ["-c", "user.email=owner@local", "-c", "user.name=Owner", "commit", "-qm", "owner: my guide, linked as AGENTS.md"])
+      // The temp the atomic publish builds BESIDE the resolved file; a directory there fails the write after the causal record is taken.
+      mkdirSync(resolve(repo, "docs", `.vivicy-tmp.${process.pid}.agent-notes.md`, "not-vivicy's"), { recursive: true })
+
+      const report = await installSkills({
+        repoRoot: repo,
+        ids: ["acme/pack@spreadsheets"],
+        fetchAudit: fakeAudits(),
+        runInstall: (args) => {
+          writeFileSync(resolve(repo, "docs/agent-notes.md"), "# Agent notes\n\nA paragraph the owner added while the stage ran.\n")
+          return runStubSkillsCli(args)
+        },
+      })
+      assert.equal(report.phase, "failed", report.summary)
+
+      const committed = git(repo, ["show", "--name-only", "--format=", "HEAD"]).stdout
+      assert.ok(
+        !committed.includes("agent-notes.md"),
+        "the write never landed, so the file it would have landed in is not the stage's to commit"
+      )
+      assert.deepEqual(git(repo, ["status", "--porcelain"]).stdout.split("\n").filter(Boolean), [" M docs/agent-notes.md"])
+      assert.match(readFileSync(resolve(repo, "docs/agent-notes.md"), "utf8"), /A paragraph the owner added while the stage ran\./)
+    })
+  })
+
+  // The pre-stage snapshot and the causal record must read ONE key space: a document symlinked to another in-repo file is dirty under the TARGET's name, and a snapshot that only knows the link's name would let the owner's uncommitted bytes there ride the absorption commit.
+  it("owner dirt in a symlinked document's target is seen by the snapshot and left uncommitted", async () => {
+    await withHermeticGitEnv(async () => {
+      initGovernedGitTarget()
+      writeSkillsCliStub(repo, "relative")
+      mkdirSync(resolve(repo, "docs"), { recursive: true })
+      writeFileSync(resolve(repo, "docs/agent-notes.md"), "# Agent notes\n\nThe owner keeps their Claude guide here.\n")
+      rmSync(resolve(repo, "CLAUDE.md"))
+      symlinkSync("docs/agent-notes.md", resolve(repo, "CLAUDE.md"))
+      git(repo, ["add", "-A"])
+      git(repo, ["-c", "user.email=owner@local", "-c", "user.name=Owner", "commit", "-qm", "owner: my guide, linked as CLAUDE.md"])
+      // Already uncommitted when the run opens: their manuscript, whatever Vivicy writes into the same file afterwards.
+      writeFileSync(
+        resolve(repo, "docs/agent-notes.md"),
+        "# Agent notes\n\nThe owner keeps their Claude guide here.\n\nA half-written paragraph.\n"
+      )
+
+      const report = await installSkills({ repoRoot: repo, ids: ["acme/pack@spreadsheets"], fetchAudit: fakeAudits() })
+      assert.equal(report.phase, "green", report.summary)
+
+      const inHistory = git(repo, ["show", "HEAD:docs/agent-notes.md"]).stdout
+      assert.ok(!inHistory.includes("A half-written paragraph."), "the owner's uncommitted bytes never entered history")
+      assert.ok(!inHistory.includes("vivicy:skills:begin"), "and neither did the block Vivicy merged into their dirty file")
+      const working = readFileSync(resolve(repo, "docs/agent-notes.md"), "utf8")
+      assert.match(working, /A half-written paragraph\./, "their paragraph is still there")
+      assert.match(working, /`acme\/pack@spreadsheets`/, "with the block beside it, for them to commit")
+      assert.deepEqual(git(repo, ["status", "--porcelain"]).stdout.split("\n").filter(Boolean), [" M docs/agent-notes.md"])
+    })
+  })
+
+  // The record follows the bytes: a managed document that is a symlink publishes into the file it points at, and a pathspec naming the unchanged link would leave the real write dirty.
+  it("a symlinked document absorbs the file the bytes landed in, not the link", async () => {
+    await withHermeticGitEnv(async () => {
+      initGovernedGitTarget()
+      writeSkillsCliStub(repo, "relative")
+      rmSync(resolve(repo, "AGENTS.md"))
+      symlinkSync("CLAUDE.md", resolve(repo, "AGENTS.md"))
+      git(repo, ["add", "-A"])
+      git(repo, ["-c", "user.email=owner@local", "-c", "user.name=Owner", "commit", "-qm", "owner: one document, two names"])
+
+      const report = await installSkills({ repoRoot: repo, ids: ["acme/pack@spreadsheets"], fetchAudit: fakeAudits() })
+      assert.equal(report.phase, "green", report.summary)
+
+      assert.equal(lstatSync(resolve(repo, "AGENTS.md")).isSymbolicLink(), true, "their convention survives")
+      const claude = readFileSync(resolve(repo, "CLAUDE.md"), "utf8")
+      assert.equal(claude.match(/vivicy:skills:begin/g)?.length, 1, "the block landed once, in the file the link points at")
+      const committed = git(repo, ["show", "--name-only", "--format=", "HEAD"]).stdout
+      assert.match(committed, /^CLAUDE\.md$/m, "and THAT file is what the absorption staged")
+      assert.equal(git(repo, ["status", "--porcelain"]).stdout.trim(), "", "so nothing of the stage's is left to refuse the next Run")
+    })
+  })
+
+  // CLAUDE.md is a document the stage now writes AND a document an owner edits, so it has to be in the pre-stage snapshot's reading: without it, the stage's own write to their half-finished file would carry their bytes into Vivicy's commit.
+  it("an owner's uncommitted CLAUDE.md is theirs — the stage's block write to it is left uncommitted with their edit", async () => {
+    await withHermeticGitEnv(async () => {
+      initGovernedGitTarget()
+      writeSkillsCliStub(repo, "relative")
+      writeFileSync(resolve(repo, "CLAUDE.md"), `${OWNER_CLAUDE_MD}\nA paragraph the owner is still writing.\n`)
+
+      const report = await installSkills({ repoRoot: repo, ids: ["acme/pack@spreadsheets"], fetchAudit: fakeAudits() })
+      assert.equal(report.phase, "green", report.summary)
+
+      const committed = git(repo, ["show", "--name-only", "--format=", "HEAD"]).stdout
+      assert.ok(!committed.includes("CLAUDE.md"), "their manuscript is never committed, not even the half of it Vivicy wrote")
+      assert.match(committed, /^AGENTS\.md$/m, "while the document they had not touched is absorbed")
+      assert.deepEqual(git(repo, ["status", "--porcelain"]).stdout.split("\n").filter(Boolean), [" M CLAUDE.md"])
+      const claude = readFileSync(resolve(repo, "CLAUDE.md"), "utf8")
+      assert.match(claude, /A paragraph the owner is still writing\./, "their own bytes survive the block write")
+      assert.match(claude, /`acme\/pack@spreadsheets`/, "which really did happen — the file is theirs to commit, not to skip")
     })
   })
 
@@ -1434,7 +1999,7 @@ describe("absorption + worktree delivery (real git target, real skills-CLI seam)
     })
   })
 
-  // The skipped path used to write nothing but its report; it now converges the AGENTS.md block too, and a stage write left uncommitted is exactly the dirty-tree refusal the absorption exists to close.
+  // The skipped path used to write nothing but its report; it now converges the block in both documents too, and a stage write left uncommitted is exactly the dirty-tree refusal the absorption exists to close.
   it("a settled re-run that converges the block absorbs that write too — the zero-work path still ends clean", async () => {
     await withHermeticGitEnv(async () => {
       seedBaseline()
@@ -1481,8 +2046,8 @@ describe("absorption + worktree delivery (real git target, real skills-CLI seam)
         .sort()
       assert.deepEqual(
         committed,
-        ["AGENTS.md", ".vivicy/development/reports/skills-report.json"].sort(),
-        "the skipped run commits exactly the block it converged and its own report — never vivicy.json, which it did not write"
+        ["AGENTS.md", "CLAUDE.md", ".vivicy/development/reports/skills-report.json"].sort(),
+        "the skipped run commits exactly the two blocks it converged and its own report — never vivicy.json, which it did not write"
       )
     })
   })

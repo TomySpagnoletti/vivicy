@@ -1,11 +1,31 @@
-// Imported directly by factory/dev-loop.ts via a relative .ts path (no bundler) — this file must stay free of Next path aliases and any node:/Next-only import.
-// `.gitignore` FIRST, and the order is load-bearing: it is the file that carries the never-commit rules, so writing it last would leave every other managed file's atomic-write temp uncovered on the pass that installs the block.
-export const MANAGED_GOVERNANCE_FILES = [".gitignore", "AGENTS.md", "CLAUDE.md"] as const
+// Imported directly by factory/dev-loop.ts and factory/install-skills.ts via relative .ts paths (no bundler) AND by the Next app through `@/lib/managed-block`, so it must stay a LEAF: no Next path alias and no relative value import (an extensionless one fails NodeNext, a `.ts` one fails the app program's TS5097). It is server-only — the atomic writer below needs node:fs — so no "use client" component may reach it.
+
+import {
+  accessSync,
+  closeSync,
+  constants,
+  fchmodSync,
+  fsyncSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  readlinkSync,
+  renameSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs"
+import path from "node:path"
+
+// Two CLIs read two documents, so every Vivicy-managed block lands in both; `.gitignore` comes FIRST and that order is load-bearing — it carries the never-commit rules, so writing it last would leave every other managed file's atomic-write temp uncovered on the pass that installs the block.
+export const MANAGED_MARKDOWN_FILES = ["AGENTS.md", "CLAUDE.md"] as const
+export const MANAGED_GOVERNANCE_FILES = [".gitignore", ...MANAGED_MARKDOWN_FILES] as const
 
 // Basename prefix of every Vivicy artifact published by rename; the managed ignore block excludes `<prefix>*`, so a temp a crash abandoned is never committable.
 export const MANAGED_TEMP_PREFIX = ".vivicy-tmp."
 
 export type ManagedGovernanceFile = (typeof MANAGED_GOVERNANCE_FILES)[number]
+export type ManagedMarkdownFile = (typeof MANAGED_MARKDOWN_FILES)[number]
 
 export interface MarkerPair {
   begin: string
@@ -15,6 +35,11 @@ export interface MarkerPair {
 export const METHOD_MARKERS: MarkerPair = {
   begin: "<!-- vivicy:method:begin -->",
   end: "<!-- vivicy:method:end -->",
+}
+
+export const SKILLS_MARKERS: MarkerPair = {
+  begin: "<!-- vivicy:skills:begin -->",
+  end: "<!-- vivicy:skills:end -->",
 }
 
 export const GITIGNORE_MARKERS: MarkerPair = {
@@ -118,4 +143,119 @@ export function ensureManagedBlock(current: Buffer | null, spec: ManagedSpec): B
   const span = soleSpan(scanned)
   const next = span ? content.slice(0, span.start) + block + content.slice(span.end) : appendBlock(withoutManagedLines(scanned), block)
   return Buffer.from(next, BYTEWISE)
+}
+
+// Parameter properties are not erasable syntax, and this module is type-checked by the factory program too.
+export class ManagedWriteError extends Error {
+  readonly code: "unsupported_encoding"
+  readonly detail: string
+
+  constructor(message: string, code: "unsupported_encoding", detail: string) {
+    super(message)
+    this.name = "ManagedWriteError"
+    this.code = code
+    this.detail = detail
+  }
+}
+
+// Longest BOM first: a UTF-32LE file opens on the UTF-16LE mark, so the shorter pattern would name the wrong encoding in a refusal the owner acts on. Markers and block are ASCII, so every ASCII-compatible encoding splices byte-safely and only these are refused.
+const UNSUPPORTED_BOMS: ReadonlyArray<readonly [string, readonly number[]]> = [
+  ["UTF-32BE", [0x00, 0x00, 0xfe, 0xff]],
+  ["UTF-32LE", [0xff, 0xfe, 0x00, 0x00]],
+  ["UTF-16BE", [0xfe, 0xff]],
+  ["UTF-16LE", [0xff, 0xfe]],
+]
+
+function unsupportedEncoding(bytes: Buffer): string | null {
+  for (const [name, bom] of UNSUPPORTED_BOMS) {
+    if (bom.every((byte, i) => bytes[i] === byte)) return name
+  }
+  return null
+}
+
+function readManaged(abs: string): Buffer | null {
+  try {
+    return readFileSync(abs)
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return null
+    throw error
+  }
+}
+
+// The rename must land on the RESOLVED file, or it would replace an owner's symlink (the `CLAUDE.md -> AGENTS.md` convention) with a regular file; a dangling link resolves to where it points, as a plain write did, and the hop bound makes a link cycle degrade instead of hang. Exported because a caller that must reason about WHICH file a managed write touches has to resolve it exactly as the write does — one resolution, never a second implementation.
+export function resolvedManagedTarget(abs: string): string {
+  let target = abs
+  for (let hop = 0; hop < 32; hop += 1) {
+    let link: string
+    try {
+      link = readlinkSync(target)
+    } catch {
+      return target
+    }
+    target = path.resolve(path.dirname(target), link)
+  }
+  return target
+}
+
+function syncDirectory(dir: string): void {
+  let fd: number | undefined
+  try {
+    fd = openSync(dir, "r")
+    fsyncSync(fd)
+  } catch {
+  } finally {
+    if (fd !== undefined) closeSync(fd)
+  }
+}
+
+// Every step here is load-bearing: a rename ignores the target's own mode, so a read-only file (or directory) must be refused EXPLICITLY; the temp sits beside the resolved file so the rename is one same-filesystem syscall under a name the managed ignore block covers; a stale temp is REMOVED, never opened, since a symlink left there would capture the write and a reused inode would carry its mode into the owner's file; the mode is applied to the fd AFTER the write because the umask masks a create mode; and the fsync precedes the rename, or a power loss leaves the name pointing at nothing.
+function replaceAtomically(abs: string, next: Buffer): void {
+  const target = resolvedManagedTarget(abs)
+  const existing = statSync(target, { throwIfNoEntry: false })
+  if (existing) accessSync(target, constants.W_OK)
+  const mode = existing ? existing.mode & 0o7777 : undefined
+  const temp = path.join(path.dirname(target), `${MANAGED_TEMP_PREFIX}${process.pid}.${path.basename(target)}`)
+  try {
+    rmSync(temp, { force: true })
+    const fd = openSync(temp, "wx", mode ?? 0o666)
+    try {
+      writeFileSync(fd, next)
+      if (mode !== undefined) fchmodSync(fd, mode)
+      fsyncSync(fd)
+    } finally {
+      closeSync(fd)
+    }
+    renameSync(temp, target)
+  } catch (error) {
+    try {
+      rmSync(temp, { force: true })
+    } catch {}
+    throw error
+  }
+  syncDirectory(path.dirname(target))
+}
+
+// The single seam every managed-block writer reaches. `onWrite` fires once the bytes are known to DIFFER and before they are published, carrying the file the bytes will actually land in (the resolved symlink target) — the hook a caller needs to record the write causally, since a crash between the record and the rename must leave the path staged-and-committable rather than dirty.
+export function writeManaged(abs: string, spec: ManagedSpec, onWrite?: (published: string) => void): string | null {
+  const current = readManaged(abs)
+  const encoding = current && unsupportedEncoding(current)
+  if (encoding) {
+    const detail = `not UTF-8 — it is saved as ${encoding}, and Vivicy replaces a managed file byte for byte rather than re-encode yours; re-save it as UTF-8`
+    throw new ManagedWriteError(`${path.basename(abs)} is ${detail}`, "unsupported_encoding", detail)
+  }
+  const next = ensureManagedBlock(current, spec)
+  if (current && next.equals(current)) return null
+  onWrite?.(resolvedManagedTarget(abs))
+  mkdirSync(path.dirname(abs), { recursive: true })
+  replaceAtomically(abs, next)
+  return abs
+}
+
+// Node appends ", <syscall> '<path>'" to fs errors: dropped when that path is the file the announcement already names or Vivicy's own temp, kept otherwise — a failure on a Vivicy TEMPLATE would otherwise read as the owner's own file being gone.
+export function managedWriteFailureReason(error: unknown, abs: string): string {
+  if (error instanceof ManagedWriteError) return error.detail
+  if (!(error instanceof Error)) return String(error)
+  const { path: errorPath, syscall } = error as NodeJS.ErrnoException
+  const ours = errorPath === abs || (errorPath ?? "").includes(MANAGED_TEMP_PREFIX)
+  return ours && syscall ? error.message.split(`, ${syscall} `)[0] : error.message
 }

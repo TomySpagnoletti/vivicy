@@ -22,6 +22,7 @@ import type { CycleKind } from "@/lib/doc-prep-report"
 import { settingsToEnv } from "@/lib/settings"
 import { readSettings } from "@/lib/settings-store"
 import { SKILLS_IN_FLIGHT_PHASES, SKILLS_REPORT_FILE, type SkillsReport } from "@/lib/skills-report"
+import { SKILLS_LOCK_FILE, stageLockHolder } from "@/lib/stage-lock"
 import { DOC_PREP_IN_FLIGHT_PHASES, DOC_PREP_REPORT_FILE, type DocPrepReport } from "@/lib/doc-prep-report"
 import { ACCEPTANCE_REPORT_FILE, type AcceptanceReport } from "@/lib/acceptance-report"
 import { RETRO_REPORT_FILE, type RetroReport } from "@/lib/retro-report"
@@ -808,59 +809,11 @@ function isSkillsInstallInFlight(targetRoot: string): boolean {
   return Date.now() - updated < SKILLS_STALE_MS
 }
 
-// Same TOCTOU-safe wx-claim pattern as the run lock — the report file alone can't stop two callers from double-spawning.
-const SKILLS_LOCK_FILE = "skills-install.lock"
-
-interface SkillsLock {
-  pid: number
-  started_at: string
-}
-
-// targetRoot is threaded through, never re-resolved mid-operation, so a project switch mid-call can't touch another project's lock.
-function skillsLockPath(targetRoot: string): string {
-  return path.join(projectRuntimeDir(targetRoot), SKILLS_LOCK_FILE)
-}
-
-function readSkillsLock(targetRoot: string): SkillsLock | null {
-  try {
-    const raw = JSON.parse(readFileSync(skillsLockPath(targetRoot), "utf8")) as SkillsLock
-    return typeof raw?.pid === "number" ? raw : null
-  } catch {
-    return null
-  }
-}
-
-function clearSkillsLock(targetRoot: string): void {
-  rmSync(skillsLockPath(targetRoot), { force: true })
-}
-
-function isSkillsLockLive(spawner: Spawner, targetRoot: string): boolean {
-  const lock = readSkillsLock(targetRoot)
-  if (!lock) return false
-  if (spawner.isAlive(lock.pid)) return true
-  clearSkillsLock(targetRoot)
-  return false
-}
-
-function claimSkillsLock(spawner: Spawner, targetRoot: string): void {
-  mkdirSync(path.dirname(skillsLockPath(targetRoot)), { recursive: true })
-  const body = `${JSON.stringify({ pid: process.pid, started_at: new Date().toISOString() }, null, 2)}\n`
-  try {
-    writeFileSync(skillsLockPath(targetRoot), body, { flag: "wx" })
-    return
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error
-  }
-  if (isSkillsLockLive(spawner, targetRoot)) {
+// The stage claims `skills-install.lock` itself (factory/install-skills.ts, where the writes are); the app only PROBES it, so a stage the supervisor spawned refuses an owner's click here — synchronously, with the typed refusal the route maps to 409 — while a dead heat between two spawns is still decided by the child's own exclusive claim. targetRoot is threaded through, never re-resolved mid-operation, so a project switch mid-call cannot read another project's lock.
+function refuseWhileSkillsStageHolds(spawner: Spawner, targetRoot: string): void {
+  const holder = stageLockHolder(projectRuntimeDir(targetRoot), SKILLS_LOCK_FILE, (pid) => spawner.isAlive(pid))
+  if (holder !== null) {
     throw new ControlError("a skills install is already in flight", "already_running")
-  }
-  try {
-    writeFileSync(skillsLockPath(targetRoot), body, { flag: "wx" })
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "EEXIST") {
-      throw new ControlError("a skills install is already in flight", "already_running")
-    }
-    throw error
   }
 }
 
@@ -879,7 +832,7 @@ export function startSkillsInstall(spawner: Spawner, opts: { ids?: string[] } = 
   if (isSkillsInstallInFlight(targetRoot)) {
     throw new ControlError("a skills install is already in flight", "already_running")
   }
-  claimSkillsLock(spawner, targetRoot)
+  refuseWhileSkillsStageHolds(spawner, targetRoot)
   const command = resolveScript(factoryRoot, SKILLS_SCRIPT)
   const logFile = path.join(projectRuntimeDir(targetRoot), SKILLS_LOG_FILE)
 
@@ -893,10 +846,8 @@ export function startSkillsInstall(spawner: Spawner, opts: { ids?: string[] } = 
       logFile,
     })
   } catch (error) {
-    clearSkillsLock(targetRoot)
     throw new ControlError(`failed to spawn skills install: ${error instanceof Error ? error.message : String(error)}`, "spawn_failed")
   }
-  writeFileSync(skillsLockPath(targetRoot), `${JSON.stringify({ pid: handle.pid, started_at: new Date().toISOString() }, null, 2)}\n`)
   return { pid: handle.pid, mode: ids.length > 0 ? "explicit" : "auto", ids }
 }
 
@@ -912,26 +863,26 @@ export async function removeSkills(spawner: Spawner, opts: { ids: string[] }): P
   if (isSkillsInstallInFlight(targetRoot)) {
     throw new ControlError("a skills install is already in flight", "already_running")
   }
-  claimSkillsLock(spawner, targetRoot)
-  try {
-    const command = resolveScript(factoryRoot, SKILLS_SCRIPT)
-    const result = await spawner.run({
-      command: process.execPath,
-      args: [command, "--remove", ids.join(","), "--json"],
-      cwd: factoryRoot,
-      env: { ...devEnv(targetRoot), ...settingsToEnv(readSettings()) },
-    })
-    const report = readSkillsReportFrom(targetRoot)
-    if (result.code !== 0 || report === null) {
-      throw new ControlError(
-        `skills remove failed (exit ${result.code}): ${result.stderr.trim() || result.lastLine || "no report written"}`,
-        "spawn_failed"
-      )
-    }
-    return report
-  } finally {
-    clearSkillsLock(targetRoot)
+  refuseWhileSkillsStageHolds(spawner, targetRoot)
+  const command = resolveScript(factoryRoot, SKILLS_SCRIPT)
+  // The stamp the PRIOR report carried: a child that refused (a lock it did not win) or died writes no report at all, and answering the owner with the previous run's outcome — now legitimately `failed` — would show them an old failure as this attempt's result.
+  const priorStamp = readSkillsReportFrom(targetRoot)?.updated_at
+  const result = await spawner.run({
+    command: process.execPath,
+    args: [command, "--remove", ids.join(","), "--json"],
+    cwd: factoryRoot,
+    env: { ...devEnv(targetRoot), ...settingsToEnv(readSettings()) },
+  })
+  const report = readSkillsReportFrom(targetRoot)
+  const ours = report !== null && report.updated_at !== priorStamp
+  // A stage that ended `failed` wrote a terminal report of its OWN and its own notification; the route adjudicates on `phase`, so that report must survive the non-zero exit — while a child that wrote nothing leaves only its stderr to answer with.
+  if (!ours || (result.code !== 0 && report.phase !== "failed")) {
+    throw new ControlError(
+      `skills remove failed (exit ${result.code}): ${result.stderr.trim() || result.lastLine || "no report written"}`,
+      "spawn_failed"
+    )
   }
+  return report
 }
 
 const DOC_PREP_STALE_MS = 30 * 60 * 1000

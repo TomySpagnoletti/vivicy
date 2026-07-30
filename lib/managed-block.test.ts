@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import { ensureManagedBlock, GITIGNORE_MARKERS, METHOD_MARKERS, type ManagedSpec } from "@/lib/managed-block"
+import { ensureManagedBlock, GITIGNORE_MARKERS, METHOD_MARKERS, SKILLS_MARKERS, type ManagedSpec } from "@/lib/managed-block"
 
 const MARKERS = { begin: "<!-- b -->", end: "<!-- e -->" }
 const BLOCK = `${MARKERS.begin}\ncanonical line\n${MARKERS.end}`
@@ -254,5 +254,29 @@ describe("ensureManagedBlock — real marker idioms", () => {
     const gi = apply("secrets/\n", giSpec)
     expect(gi.endsWith(`${GITIGNORE_MARKERS.end}\n`)).toBe(true)
     expect(apply(gi, giSpec)).toBe(gi)
+  })
+
+  // The two markdown blocks share both documents and each is owned by its own writer: one pass may only ever touch its own span.
+  it("the method and skills idioms coexist in one document, each pass byte-preserving the other's block", () => {
+    const methodSpec: ManagedSpec = {
+      markers: METHOD_MARKERS,
+      block: `${METHOD_MARKERS.begin}\n## Working under Vivicy\n${METHOD_MARKERS.end}`,
+      template: `# T\n${METHOD_MARKERS.begin}\n## Working under Vivicy\n${METHOD_MARKERS.end}\n`,
+    }
+    const skillsSpec: ManagedSpec = {
+      markers: SKILLS_MARKERS,
+      block: `${SKILLS_MARKERS.begin}\n## Project skills\n${SKILLS_MARKERS.end}`,
+      template: `# T\n\n${SKILLS_MARKERS.begin}\n## Project skills\n${SKILLS_MARKERS.end}\n`,
+    }
+    expect(METHOD_MARKERS.begin).not.toBe(SKILLS_MARKERS.begin)
+
+    const both = apply(apply("# owner\n\nHouse rules.\n", methodSpec), skillsSpec)
+    expect(both).toContain("## Working under Vivicy")
+    expect(both).toContain("## Project skills")
+    expect(both.indexOf(METHOD_MARKERS.begin), "the skills block lands at the tail, after the method block").toBeLessThan(
+      both.indexOf(SKILLS_MARKERS.begin)
+    )
+    expect(apply(both, methodSpec), "re-normalizing the method block leaves the skills block byte-identical").toBe(both)
+    expect(apply(both, skillsSpec), "and the other way round").toBe(both)
   })
 })

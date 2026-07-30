@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import path from "node:path"
 
@@ -623,6 +623,18 @@ describe("readRetroReport", () => {
 })
 
 describe("startSkillsInstall", () => {
+  // The one file both clients and the stage address; the app only ever READS it.
+  function skillsStageLockPath(): string {
+    return path.join(getProjectRuntimeDir(getRuntimeDir(), targetRoot), "skills-install.lock")
+  }
+
+  function writeStageLock(pid: number): string {
+    const abs = skillsStageLockPath()
+    mkdirSync(path.dirname(abs), { recursive: true })
+    writeFileSync(abs, `${JSON.stringify({ pid, started_at: new Date().toISOString() }, null, 2)}\n`)
+    return abs
+  }
+
   it("spawns install-skills.ts detached with the target + runtime + settings env (auto mode)", () => {
     const { spawner, calls } = makeFakeSpawner()
 
@@ -665,6 +677,82 @@ describe("startSkillsInstall", () => {
     expect(calls.spawnDetached).toHaveLength(0)
   })
 
+  // The stage claims that lock itself, where the writes are; this is the probe that turns a supervised stage — which writes its report only after it boots — into an immediate 409 instead of a second spawned installer.
+  it("refuses while the STAGE holds the lock, whatever the report says", () => {
+    const { spawner, calls, alive } = makeFakeSpawner()
+    alive.add(5150)
+    writeStageLock(5150)
+
+    expect(() => startSkillsInstall(spawner)).toThrow(ControlError)
+    try {
+      startSkillsInstall(spawner)
+    } catch (error) {
+      expect((error as ControlError).code).toBe("already_running")
+    }
+    expect(calls.spawnDetached).toHaveLength(0)
+  })
+
+  it("claims no lock of its own: a start over a free lock path writes nothing there, and a dead holder's residue is left for the stage to reclaim", () => {
+    const fresh = makeFakeSpawner()
+    startSkillsInstall(fresh.spawner)
+    expect(fresh.calls.spawnDetached).toHaveLength(1)
+    expect(
+      existsSync(skillsStageLockPath()),
+      "the app used to write the child's pid here; the child does it now, under its own exclusive create"
+    ).toBe(false)
+
+    const stale = `${JSON.stringify({ pid: 5150, started_at: "2026-07-04T09:00:00Z" }, null, 2)}\n`
+    writeFileSync(writeStageLock(5150), stale)
+    const next = makeFakeSpawner()
+    startSkillsInstall(next.spawner)
+    expect(next.calls.spawnDetached).toHaveLength(1)
+    expect(readFileSync(skillsStageLockPath(), "utf8"), "the probe is read-only — reclaiming is the stage's exclusive move").toBe(stale)
+  })
+
+  it("removeSkills refuses while the stage holds the lock too", async () => {
+    const { spawner, calls, alive } = makeFakeSpawner()
+    alive.add(5150)
+    writeStageLock(5150)
+    await expect(removeSkills(spawner, { ids: ["acme/a@x"] })).rejects.toThrow(/already in flight/)
+    expect(calls.run).toHaveLength(0)
+  })
+
+  // A stage that ends `failed` writes a TERMINAL report and its own notification; the route adjudicates on `phase`, so the reason the owner has to act on must survive the child's non-zero exit instead of being replaced by its stderr.
+  it("removeSkills returns a terminal failed report rather than a generic spawn error", async () => {
+    writeSkillsReport({ phase: "green", mode: "remove", summary: "a PREVIOUS run", updated_at: "2026-07-04T09:00:00Z" })
+    const { spawner } = makeFakeSpawner()
+    spawner.run = async () => {
+      writeSkillsReport({
+        phase: "failed",
+        mode: "remove",
+        summary: "skills stage failed: CLAUDE.md refused the project skills block (EACCES: permission denied).",
+        updated_at: new Date().toISOString(),
+      })
+      return { code: 1, lastLine: "", stdout: "", stderr: "error: boom\n" }
+    }
+
+    const report = await removeSkills(spawner, { ids: ["acme/a@x"] })
+    expect(report.phase).toBe("failed")
+    expect(report.summary).toContain("CLAUDE.md refused the project skills block")
+  })
+
+  // A refused child (a lock it did not win) or a crashed one writes NO report, and `failed` is now a normal outcome — so a report that predates the invocation must never be answered as its result. The stamp the prior report carried is the discriminator.
+  it("removeSkills refuses to answer with a report this invocation did not produce", async () => {
+    for (const prior of ["failed", "green"]) {
+      writeSkillsReport({ phase: prior, mode: "remove", summary: `a PREVIOUS run ended ${prior}`, updated_at: "2026-07-04T09:00:00Z" })
+      const { spawner } = makeFakeSpawner()
+      spawner.run = async () => ({
+        code: 1,
+        lastLine: "",
+        stdout: "",
+        stderr: "error: a skills install is already in flight (pid 4242)\n",
+      })
+
+      await expect(removeSkills(spawner, { ids: ["acme/a@x"] }), `prior ${prior}`).rejects.toThrow(/already in flight \(pid 4242\)/)
+      expect(readSkillsReport()?.summary, "and the previous outcome is left exactly as it was").toBe(`a PREVIOUS run ended ${prior}`)
+    }
+  })
+
   it("treats an in-flight report with NO timestamp as live (fail toward refusal)", () => {
     writeSkillsReport({ phase: "installing" })
     const { spawner } = makeFakeSpawner()
@@ -685,7 +773,16 @@ describe("startSkillsInstall", () => {
     const { spawner, calls } = makeFakeSpawner()
     spawner.run = async (options) => {
       calls.run.push({ args: options.args, env: options.env })
-      writeSkillsReport({ phase: "green", mode: "remove", installed: [], added: [], removed: ["acme/a@x"], rejected: [] })
+      // The real stage stamps `updated_at` at every emit; the app reads that stamp to tell this run's report from a previous one.
+      writeSkillsReport({
+        phase: "green",
+        mode: "remove",
+        installed: [],
+        added: [],
+        removed: ["acme/a@x"],
+        rejected: [],
+        updated_at: new Date().toISOString(),
+      })
       return { code: 0, lastLine: "ok", stdout: "ok\n", stderr: "" }
     }
 
@@ -697,6 +794,7 @@ describe("startSkillsInstall", () => {
     expect(call.args.some((a) => a.endsWith("install-skills.ts"))).toBe(true)
     expect(call.args[call.args.indexOf("--remove") + 1]).toBe("acme/a@x")
     expect(call.env.VIVICY_TARGET_ROOT).toBe(targetRoot)
+    expect(existsSync(skillsStageLockPath()), "the stage owns that lock — the app leaves no claim of its own behind").toBe(false)
     const again = makeFakeSpawner()
     expect(() => startSkillsInstall(again.spawner)).not.toThrow()
   })
