@@ -575,6 +575,7 @@ export async function removeSkills(options: RemoveSkillsOptions = {}): Promise<S
 export interface MaintainSkillsOptions {
   repoRoot?: string
   env?: NodeJS.ProcessEnv
+  offerUpdates?: boolean
   runInstall?: RunInstall
   git?: GitSeam
   heal?: (args: HealBundleArgs) => HealOutcome
@@ -679,10 +680,11 @@ export async function maintainSkills(options: MaintainSkillsOptions = {}): Promi
       }
     }
 
-    // Only a bundle that now holds exactly the bytes the project agreed to run is offered an update: changing the contract of a bundle no rung could even restore would publish over a drift nobody has accounted for, and the standing `heal_failed` is already the owner's action item. A bundle healed BY the last rung is skipped for the opposite reason — that rung IS an upstream fetch and it succeeded only because upstream still serves the pinned bytes — which makes it an ANSWER, not an absence of one: the skill is decided exactly as a probe answering `current` decides it, or a refusal the pass has just disproved would be carried forward over its own evidence.
+    // A RESTORE-ONLY pass offers none at all and asks upstream nothing, which is indistinguishable from a probe that could not answer (refusals carried forward, no skill decided): that is the dev loop's own door at every process start, where a version sweep would cost one network round trip per healthy skill and decide nothing the next supervisor start would not. Otherwise, only a bundle that now holds exactly the bytes the project agreed to run is offered an update: changing the contract of a bundle no rung could even restore would publish over a drift nobody has accounted for, and the standing `heal_failed` is already the owner's action item. A bundle healed BY the last rung is skipped for the opposite reason — that rung IS an upstream fetch and it succeeded only because upstream still serves the pinned bytes — which makes it an ANSWER, not an absence of one: the skill is decided exactly as a probe answering `current` decides it, or a refusal the pass has just disproved would be carried forward over its own evidence.
     const provedCurrentByHeal = new Set(pinnedNow.filter(({ ref }) => healedFrom.get(ref.id) === "refetch").map(({ ref }) => ref.id))
     const matchesItsPin = new Set([...report.verified, ...healedFrom.keys()])
-    const updatable = pinnedNow.filter(({ ref }) => matchesItsPin.has(ref.id) && !provedCurrentByHeal.has(ref.id))
+    const updatable =
+      options.offerUpdates === false ? [] : pinnedNow.filter(({ ref }) => matchesItsPin.has(ref.id) && !provedCurrentByHeal.has(ref.id))
     const updates = await runUpstreamUpdates({ repoRoot, tree, updatable, fetchAudit, runInstall, report, restore })
 
     if (updates.entries.length > 0) report.installed = projectInstalledSet(repoRoot, priorReport, { installed: updates.entries })
@@ -1641,6 +1643,7 @@ if (cliEntry === fileURLToPath(import.meta.url)) {
   let ids: string[] = []
   let removeIds: string[] = []
   let maintain = false
+  let restoreOnly = false
   let json = false
   let usageError: string | null = null
   for (let i = 0; i < argv.length; i += 1) {
@@ -1649,6 +1652,8 @@ if (cliEntry === fileURLToPath(import.meta.url)) {
       json = true
     } else if (arg === "--maintain") {
       maintain = true
+    } else if (arg === "--restore-only") {
+      restoreOnly = true
     } else if (arg === "--ids") {
       const value = argv[i + 1]
       if (!value) {
@@ -1677,9 +1682,13 @@ if (cliEntry === fileURLToPath(import.meta.url)) {
   if (!usageError && [ids.length > 0, removeIds.length > 0, maintain].filter(Boolean).length > 1) {
     usageError = "--ids, --remove and --maintain are mutually exclusive (one run installs, removes OR verifies)"
   }
+  if (!usageError && restoreOnly && !maintain) {
+    usageError =
+      "--restore-only narrows --maintain (verify and restore the pinned bundles, ask upstream for nothing) and means nothing alone"
+  }
   if (usageError) {
     console.error(
-      `error: ${usageError}\nusage: node factory/install-skills.ts [--ids <id1,id2,...>] [--remove <id1,id2,...>] [--maintain] [--json]`
+      `error: ${usageError}\nusage: node factory/install-skills.ts [--ids <id1,id2,...>] [--remove <id1,id2,...>] [--maintain [--restore-only]] [--json]`
     )
     process.exit(2)
   }
@@ -1689,7 +1698,7 @@ if (cliEntry === fileURLToPath(import.meta.url)) {
     process.exit(2)
   }
   const run = maintain
-    ? maintainSkills({ repoRoot })
+    ? maintainSkills({ repoRoot, offerUpdates: !restoreOnly })
     : removeIds.length > 0
       ? removeSkills({ repoRoot, ids: removeIds })
       : installSkills({ repoRoot, ids })

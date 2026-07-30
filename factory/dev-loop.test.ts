@@ -32,6 +32,7 @@ import {
   detectRateLimit,
   footprintDistance,
   gateCommandDirective,
+  legDeps,
   runCommandDirective,
   visualReviewDirective,
   issueClaim,
@@ -630,6 +631,41 @@ test("GATE-COMMAND: while the sentinel stands, the implementer/reviewer prompt c
     assert.equal(gateCommandDirective(scratchCfg, undefined), "", "no directive once a real command is established")
   } finally {
     rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+// The last mile of every injected directive: the prompt declares a slot, `legDeps` fills it, and a key missing from that ONE object literal reaches the leg as the literal `{{name}}` while the orchestrator believes it spoke. One assertion covers all of them, present and future.
+test("DIRECTIVE WIRING: legDeps fills every slot the implementer and reviewer prompts declare — no leg ever receives a literal placeholder", () => {
+  const dir = mkdtempSync(resolve(repoRoot, "_tmp-directive-wiring-"))
+  try {
+    writeFileSync(resolve(dir, "vivicy.json"), JSON.stringify({ gateCommand: "npm test", runCommand: "npm run dev" }))
+    const deps = legDeps({ ...DEFAULT_CONFIG, execRoot: dir } as Config, undefined)
+    for (const name of ["implementer.md", "reviewer.md"]) {
+      const template = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), "prompts", name), "utf8")
+      const composed = deps.composePrompt(template, { id: "ISSUE-A" })
+      assert.doesNotMatch(composed, /\{\{[\w]+\}\}/, `${name} reached the leg with an unsubstituted placeholder`)
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+// Which TREE the correction describes is the whole of its honesty: a per-issue worktree is cut from HEAD, so the orchestrator's own root can hold a drift that leg will never read — and the reverse. Two declarations, one per root, is what tells the derivation apart from a convenient `requireRepoRoot()`.
+test("DIRECTIVE WIRING: the absent-skills correction is derived from the leg's OWN exec root, never the orchestrator's target root", () => {
+  const worktree = mkdtempSync(resolve(repoRoot, "_tmp-exec-root-"))
+  const mainConfig = resolve(repoRoot, "vivicy.json")
+  try {
+    writeFileSync(mainConfig, JSON.stringify({ gateCommand: "npm test", skills: [{ id: "orchestrator/root@ghost" }] }))
+    writeFileSync(resolve(worktree, "vivicy.json"), JSON.stringify({ gateCommand: "npm test", skills: [{ id: "leg/worktree@ghost" }] }))
+
+    const deps = legDeps({ ...DEFAULT_CONFIG, execRoot: worktree } as Config, undefined)
+    const composed = deps.composePrompt("{{skills_directive}}", { id: "ISSUE-A" })
+
+    assert.match(composed, /leg\/worktree@ghost/, "the leg is told about the tree it actually works in")
+    assert.doesNotMatch(composed, /orchestrator\/root@ghost/, "and never about a declaration only the orchestrator's root carries")
+  } finally {
+    rmSync(worktree, { recursive: true, force: true })
+    rmSync(mainConfig, { force: true })
   }
 })
 

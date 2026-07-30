@@ -580,6 +580,12 @@ const PINNED_KERNELS: Array<{ kernel: string; anchor: RegExp; prompts: string[] 
     anchor: /\{\{proofs_directive\}\}/,
     prompts: ["implementer.md", "reviewer.md"],
   },
+  {
+    kernel:
+      "absent-project-skills directive slot (the two legs the skills block instructs are the two that must be told when a bundle is not there)",
+    anchor: /\{\{skills_directive\}\}/,
+    prompts: ["implementer.md", "reviewer.md"],
+  },
 ]
 
 test("every pinned kernel sits exactly where adjudicated — present in each receiving prompt, absent everywhere else", () => {

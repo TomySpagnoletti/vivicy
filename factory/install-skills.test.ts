@@ -34,7 +34,6 @@ import {
   SKILLS_REPORT_REL,
 } from "./install-skills.ts"
 import type { SkillAuditFetch, SkillsReport } from "./install-skills.ts"
-import { checkSkills, missingDeclaredSkills, missingSkillsRefusal, readDeclaredSkills } from "./dev-preflight.ts"
 import { normalizeSkillId } from "./skill-id.ts"
 import { bundleDrift, hashBundle, maintenanceNeeded, manifestHash, readSkillDeclarations } from "./skill-pin.ts"
 import { isSkillsPhaseInFlight } from "../lib/skills-report.ts"
@@ -1700,102 +1699,6 @@ function assertReportAgreesWithSkillsBlock(report: SkillsReport): void {
     )
   }
 }
-
-describe("dev-preflight declared skills (vivicy.json, the one location)", () => {
-  function installBundle(name: string): void {
-    const abs = resolve(repo, ".agents/skills", name, "SKILL.md")
-    mkdirSync(dirname(abs), { recursive: true })
-    writeFileSync(abs, `---\nname: ${name}\n---\n`)
-  }
-
-  it("reads the vivicy.json skills declaration verbatim, as the full ids they are", () => {
-    writeJson("vivicy.json", { gateCommand: "cargo test", skills: declared(["supabase/agent-skills@postgres", "plain-name"]) })
-    assert.deepEqual(readDeclaredSkills(repo), ["supabase/agent-skills@postgres", "plain-name"])
-  })
-
-  it("a `vivicy` field in package.json declares nothing — vivicy.json is the only source", () => {
-    writeJson("package.json", { vivicy: { skills: declared(["from-pkg"]) } })
-    assert.deepEqual(readDeclaredSkills(repo), [])
-
-    writeJson("vivicy.json", { gateCommand: "npm test", skills: declared(["from-vivicy"]) })
-    assert.deepEqual(readDeclaredSkills(repo), ["from-vivicy"])
-  })
-
-  it("an explicit empty skills array in vivicy.json declares no skills", () => {
-    writeJson("vivicy.json", { gateCommand: "npm test", skills: declared([]) })
-    assert.deepEqual(readDeclaredSkills(repo), [])
-    assert.deepEqual(checkSkills(repo), { ok: true, missing: [], reason: undefined }, "nothing declared, nothing to look for")
-  })
-
-  it("no target at all declares nothing and demands nothing", () => {
-    assert.deepEqual(readDeclaredSkills(null), [])
-    assert.equal(checkSkills(null, []).ok, true)
-    assert.deepEqual(missingDeclaredSkills(null, ["a/b@c"]), ["a/b@c"], "with no target, a declared skill can only be missing")
-  })
-
-  // Exact on the declared id's own name: a bundle whose name merely CONTAINS it is a different skill, and no tool's output text is consulted.
-  it("matches the bundle by the declared id's own name — `next-auth` never answers for `auth`", () => {
-    writeJson("vivicy.json", { gateCommand: "npm test", skills: declared(["vendor/x@auth"]) })
-    installBundle("next-auth")
-    assert.deepEqual(missingDeclaredSkills(repo, readDeclaredSkills(repo)), ["vendor/x@auth"], "a longer name is a different skill")
-
-    installBundle("auth")
-    assert.deepEqual(missingDeclaredSkills(repo, readDeclaredSkills(repo)), [])
-  })
-
-  it("two vendors' ids with the same name resolve to the one bundle that carries it", () => {
-    installBundle("postgres")
-    assert.deepEqual(missingDeclaredSkills(repo, ["supabase/agent-skills@postgres", "other/pack@postgres"]), [])
-    assert.deepEqual(missingDeclaredSkills(repo, ["supabase/agent-skills@other"]), ["supabase/agent-skills@other"])
-  })
-
-  it("a bare name declares its own bundle; a traversal-shaped declaration can only be missing", () => {
-    installBundle("plain-name")
-    assert.deepEqual(missingDeclaredSkills(repo, ["plain-name"]), [])
-    assert.deepEqual(missingDeclaredSkills(repo, ["a/b@..", "..", "."]), ["a/b@..", "..", "."])
-    assert.ok(
-      existsSync(resolve(repo, ".agents/skills/..")),
-      "the parent directory really is there, so it is the segment rule that refuses `..` — never a path that happens not to exist"
-    )
-  })
-
-  // A bundle directory with no SKILL.md is not a skill: the block promises every leg a readable SKILL.md at that path.
-  it("an empty bundle directory is not an installed skill", () => {
-    mkdirSync(resolve(repo, ".agents/skills/postgres"), { recursive: true })
-    assert.deepEqual(missingDeclaredSkills(repo, ["supabase/agent-skills@postgres"]), ["supabase/agent-skills@postgres"])
-  })
-
-  it("checkSkills fails only when a declared skill's bundle is absent, and says so", () => {
-    writeJson("vivicy.json", { gateCommand: "npm test", skills: declared(["acme/pack@must-have"]) })
-    const absent = checkSkills(repo)
-    assert.equal(absent.ok, false)
-    assert.deepEqual(absent.missing, ["acme/pack@must-have"])
-    assert.match(absent.reason ?? "", /not installed in the target project/)
-
-    installBundle("must-have")
-    assert.deepEqual(checkSkills(repo), { ok: true, missing: [], reason: undefined })
-  })
-
-  // The refusal is owner-facing CONTRACT: it is the whole instruction for clearing a blocked run, so it may name only what the check itself reads.
-  it("the missing-skills refusal names vivicy.json and the bundle path, and NOTHING else", () => {
-    const refusal = missingSkillsRefusal(["supabase/agent-skills@postgres", "acme/pack@stripe"])
-    assert.match(refusal, /vivicy\.json#skills/)
-    assert.match(refusal, /\.agents\/skills\/<name>\/SKILL\.md/, "the location the check looks at is where the owner must land it")
-    assert.doesNotMatch(refusal, /package\.json/, "package.json declares nothing — pointing there cannot clear the refusal")
-    assert.doesNotMatch(refusal, /skills list/, "the check no longer asks a CLI, so naming its output would misdirect")
-    assert.match(refusal, /npx skills add <owner\/repo> --skill <name>/, "the install half is the invocation the installer itself uses")
-  })
-
-  it("the refusal's count forms agree with the number of missing skills", () => {
-    assert.match(missingSkillsRefusal(["a/b@postgres"]), /^1 required development skill missing: a\/b@postgres\n/)
-    assert.match(missingSkillsRefusal(["a/b@postgres"]), /install it into .* or drop it from/)
-    assert.match(
-      missingSkillsRefusal(["a/b@postgres", "a/b@stripe"]),
-      /^2 required development skills missing: a\/b@postgres, a\/b@stripe\n/
-    )
-    assert.match(missingSkillsRefusal(["a/b@postgres", "a/b@stripe"]), /install them into .* or drop them from/)
-  })
-})
 
 describe("official vendor owners", () => {
   it("covers the first-party vendors the selection prioritizes", () => {
@@ -3550,20 +3453,37 @@ describe("the maintenance pass verifies every pin and self-heals (real git targe
       writeFileSync(resolve(bundleDir(SKILL), "scripts/recalc.py"), TAMPERED)
       const script = resolve(dirname(fileURLToPath(import.meta.url)), "install-skills.ts")
 
-      // The real CLI path reaches the real `npx` for its one upstream check, so the case runs behind a shim that answers as an offline machine does — a test may never depend on the network to prove a restore. It lives outside the target, or the shim itself would be dirt in the tree the pass absorbs.
+      // The real CLI path reaches the real `npx` for its one upstream check, so the case runs behind a shim that answers as an offline machine does — a test may never depend on the network to prove a restore — and RECORDS every invocation, which is what makes "asked upstream nothing" provable rather than asserted. It lives outside the target, or the shim itself would be dirt in the tree the pass absorbs.
       const offlineBin = mkdtempSync(join(tmpdir(), "vivicy-offline-bin-"))
       const npx = resolve(offlineBin, "npx")
-      writeFileSync(npx, "#!/bin/sh\necho 'npm error network getaddrinfo ENOTFOUND registry.npmjs.org' >&2\nexit 1\n")
+      const calls = resolve(offlineBin, "calls.log")
+      writeFileSync(
+        npx,
+        `#!/bin/sh\necho "$@" >> ${calls}\necho 'npm error network getaddrinfo ENOTFOUND registry.npmjs.org' >&2\nexit 1\n`
+      )
       chmodSync(npx, 0o755)
+      const upstreamTouches = (): number => (existsSync(calls) ? readFileSync(calls, "utf8").trim().split("\n").filter(Boolean).length : 0)
+      const cliEnv = { ...process.env, VIVICY_TARGET_ROOT: repo, PATH: `${offlineBin}:${process.env.PATH ?? ""}` }
 
-      const healed = spawnSync(process.execPath, [script, "--maintain"], {
-        cwd: repo,
-        encoding: "utf8",
-        env: { ...process.env, VIVICY_TARGET_ROOT: repo, PATH: `${offlineBin}:${process.env.PATH ?? ""}` },
-      })
+      const healed = spawnSync(process.execPath, [script, "--maintain"], { cwd: repo, encoding: "utf8", env: cliEnv })
       assert.equal(healed.status, 0, `${healed.stdout}\n${healed.stderr}`)
       assert.match(healed.stdout, /1 bundle restored to the pinned bytes/)
       assert.deepEqual(bundleBytes(), original)
+      assert.equal(upstreamTouches(), 1, "the full pass restored from the cache and still asked upstream once — the update door")
+
+      // The dev loop's own door: verify and restore, ask upstream nothing. A process start may not cost one network round trip per healthy skill.
+      const restoreOnly = spawnSync(process.execPath, [script, "--maintain", "--restore-only"], {
+        cwd: repo,
+        encoding: "utf8",
+        env: cliEnv,
+      })
+      assert.equal(restoreOnly.status, 0, `${restoreOnly.stdout}\n${restoreOnly.stderr}`)
+      assert.match(restoreOnly.stdout, /1 bundle verified unchanged/)
+      assert.equal(upstreamTouches(), 1, "and it added no touch of its own")
+
+      const alone = spawnSync(process.execPath, [script, "--restore-only"], { cwd: repo, encoding: "utf8", env: cliEnv })
+      assert.equal(alone.status, 2)
+      assert.match(alone.stderr, /--restore-only narrows --maintain/)
 
       const clash = spawnSync(process.execPath, [script, "--maintain", "--ids", "a/b@c"], {
         cwd: repo,

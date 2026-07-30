@@ -131,10 +131,6 @@ export function writeSkillDeclarations(repoRoot: string, declarations: readonly 
   )
 }
 
-export function declaredSkillIds(repoRoot: string): string[] {
-  return readSkillDeclarations(repoRoot).map((declaration) => declaration.id)
-}
-
 export function pinnedBundles(declarations: readonly SkillDeclaration[]): PinnedBundle[] {
   const bundles: PinnedBundle[] = []
   for (const declaration of declarations) {

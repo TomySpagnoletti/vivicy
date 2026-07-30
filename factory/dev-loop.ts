@@ -24,7 +24,7 @@ import { notify } from "./notify.ts"
 import { sleepSync } from "./sleep-sync.ts"
 import { recordProgressEvent } from "./progress-ledger.ts"
 import type { ProgressEvent } from "./progress-ledger.ts"
-import { checkSkills, missingSkillsRefusal } from "./dev-preflight.ts"
+import { preflightSkills, skillsDirective } from "./dev-preflight.ts"
 import { pruneGitkeeps } from "../lib/skeleton.ts"
 import { MANAGED_GOVERNANCE_FILES } from "../lib/managed-block.ts"
 import { commandServesHttp } from "../lib/product-run.ts"
@@ -1292,12 +1292,14 @@ function runCodexLeg(leg: Leg, issue: Issue, cfg: Config): LegResult {
   return sharedRunCodexLeg(leg, legIssue(issue), cfg, legDeps(cfg, issue))
 }
 
-function legDeps(cfg: Config, issue: Issue | undefined): LegDeps {
+export function legDeps(cfg: Config, issue: Issue | undefined): LegDeps {
   const root = execRootOf(cfg)
   const directive = gateCommandDirective(cfg, issue)
   const runDirective = runCommandDirective(cfg)
   const visualDirective = visualReviewDirective(cfg, issue)
   const proofsDuty = proofsDirective(cfg, issue)
+  // Derived from the leg's OWN tree (a per-issue worktree carries what HEAD committed), so the correction describes the bundles that leg can actually open.
+  const skillsGap = skillsDirective(root)
   return {
     composePrompt: (template, iss) =>
       composePrompt(template, iss, {
@@ -1305,6 +1307,7 @@ function legDeps(cfg: Config, issue: Issue | undefined): LegDeps {
         run_command_directive: runDirective,
         visual_review_directive: visualDirective,
         proofs_directive: proofsDuty,
+        skills_directive: skillsGap,
       }),
     agentCliArgs,
     abs,
@@ -2766,12 +2769,9 @@ function writePostMergeIntegrationBlock(
 
 if (import.meta.url === `file://${process.argv[1]}`) {
   const preflightRoot = requireRepoRoot()
+  // Skills FIRST: a restore writes the bundle back and absorbs it into its own commit, so the clean-tree gate that follows sees the tree that repair left, never the drift it was there to fix.
+  preflightSkills(preflightRoot)
   ensureCleanTreeForRun(preflightRoot)
-  const skills = checkSkills(preflightRoot)
-  if (!skills.ok) {
-    process.stderr.write(`dev-loop preflight: ${skills.reason}\n  ${missingSkillsRefusal(skills.missing)}`)
-    process.exit(1)
-  }
   Promise.resolve(runLoop())
     .then((processed) => {
       process.stdout.write(`${JSON.stringify({ processed }, null, 2)}\n`)
