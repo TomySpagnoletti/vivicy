@@ -3,10 +3,10 @@
 
 export const SKILLS_REPORT_FILE = ".vivicy/development/reports/skills-report.json"
 
-export type SkillsPhase = "selecting" | "auditing" | "installing" | "removing" | "green" | "failed" | "skipped"
+export type SkillsPhase = "selecting" | "auditing" | "installing" | "removing" | "healing" | "green" | "failed" | "skipped"
 
 // The ONE in-flight set: every reader — the app's refusal probe, the CLI's, the sidebar's disabled action — imports it instead of spelling its own, or a phase added to the writer silently reads as settled in whichever copy was not updated.
-export const SKILLS_IN_FLIGHT_PHASES: readonly SkillsPhase[] = ["selecting", "auditing", "installing", "removing"]
+export const SKILLS_IN_FLIGHT_PHASES: readonly SkillsPhase[] = ["selecting", "auditing", "installing", "removing", "healing"]
 
 export function isSkillsPhaseInFlight(phase: unknown): boolean {
   return typeof phase === "string" && (SKILLS_IN_FLIGHT_PHASES as readonly string[]).includes(phase)
@@ -34,14 +34,16 @@ export interface RejectedSkill {
   detail?: string
 }
 
-// `installed` is the project's FULL installed set at every phase; `added`/`removed` are this run's own contribution.
+// `installed` is the project's FULL installed set at every phase; `added`/`removed`/`verified`/`healed` are this run's own contribution.
 export interface SkillsReport {
   phase?: SkillsPhase | string
   selection_baseline_id?: string | null
-  mode?: "auto" | "explicit" | "remove" | string
+  mode?: "auto" | "explicit" | "remove" | "maintain" | string
   installed?: InstalledSkill[]
   added?: string[]
   removed?: string[]
+  verified?: string[]
+  healed?: string[]
   rejected?: RejectedSkill[]
   summary?: string
   updated_at?: string

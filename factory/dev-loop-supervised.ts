@@ -5,6 +5,7 @@ import { dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import { findFrozenManifest } from "./extract-issues.ts"
 import { skillsStageNeeded, SKILLS_REPORT_REL } from "./install-skills.ts"
+import { maintenanceNeeded } from "./skill-pin.ts"
 import { notify } from "./notify.ts"
 import { resolveTargetRoot } from "./target-root.ts"
 import { countForm, countOf } from "../lib/count-form.ts"
@@ -156,6 +157,20 @@ function main() {
   }
 
   if (!rehearsal) {
+    // Maintenance BEFORE selection, at every start: verifying the bundles the project already pinned costs no leg and no LLM, and a selection that then installs into a tree whose skills were just restored is the only order in which both are true of the same bytes.
+    if (maintenanceNeeded(repoRoot)) {
+      process.stdout.write("supervisor: verifying the pinned project skills (install-skills.ts --maintain)\n")
+      const maintain = spawnSync("node", [join(scriptDir, "install-skills.ts"), "--maintain"], {
+        cwd: repoRoot,
+        stdio: "inherit",
+        env: process.env,
+      })
+      if ((maintain.status ?? 1) !== 0) {
+        process.stdout.write(
+          "supervisor: a pinned skill bundle could not be restored (non-fatal, retried on next start); the dev loop proceeds without it\n"
+        )
+      }
+    }
     const skillsReport = readJson(join(repoRoot, SKILLS_REPORT_REL), null) as { selection_baseline_id?: unknown } | null
     if (skillsStageNeeded(findFrozenManifest(repoRoot), skillsReport)) {
       process.stdout.write("supervisor: running the project-skills stage (install-skills.ts, auto mode)\n")

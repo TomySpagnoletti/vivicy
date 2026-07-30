@@ -1274,11 +1274,11 @@ describe("recordExtractedGateCommand — machine-fills gateCommand from the extr
   const readGate = () => JSON.parse(readFileSync(join(dir, "vivicy.json"), "utf8")).gateCommand
 
   it("fills the sentinel when the extractor stated a canonical command", () => {
-    writeFileSync(join(dir, "vivicy.json"), JSON.stringify({ gateCommand: null, requiredSkills: ["a/b@c"] }))
+    writeFileSync(join(dir, "vivicy.json"), JSON.stringify({ gateCommand: null, skills: [{ id: "a/b@c" }] }))
     writeReport({ gateCommand: "go test ./..." })
     assert.equal(recordExtractedGateCommand(dir), true)
     assert.equal(readGate(), "go test ./...")
-    assert.deepEqual(JSON.parse(readFileSync(join(dir, "vivicy.json"), "utf8")).requiredSkills, ["a/b@c"])
+    assert.deepEqual(JSON.parse(readFileSync(join(dir, "vivicy.json"), "utf8")).skills, [{ id: "a/b@c" }])
   })
 
   it("preserves the sentinel when the extractor stated nothing (no report)", () => {
@@ -1321,10 +1321,10 @@ describe("recordExtractedRunCommand — machine-fills runCommand from the extrac
   const readCfg = () => JSON.parse(readFileSync(join(dir, "vivicy.json"), "utf8"))
 
   it("fills the runCommand sentinel from the canonical run-and-ship area, preserving gateCommand + other fields", () => {
-    writeFileSync(join(dir, "vivicy.json"), JSON.stringify({ gateCommand: "npm test", runCommand: null, requiredSkills: ["a/b@c"] }))
+    writeFileSync(join(dir, "vivicy.json"), JSON.stringify({ gateCommand: "npm test", runCommand: null, skills: [{ id: "a/b@c" }] }))
     writeReport({ runCommand: "npm run dev" })
     assert.equal(recordExtractedRunCommand(dir), true)
-    assert.deepEqual(readCfg(), { gateCommand: "npm test", runCommand: "npm run dev", requiredSkills: ["a/b@c"] })
+    assert.deepEqual(readCfg(), { gateCommand: "npm test", runCommand: "npm run dev", skills: [{ id: "a/b@c" }] })
   })
 
   it("preserves the sentinel when the extractor stated no run command (no report / explicit null)", () => {

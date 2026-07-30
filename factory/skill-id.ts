@@ -36,11 +36,14 @@ export function skillBundleRel(skill: string): string {
   return `${AGENT_SKILLS_DIR}/${skill}`
 }
 
+// The one file that makes a bundle a skill: the preflight's presence probe and the pin's own sanity check ask for it by this name.
+export const SKILL_DOC_FILE = "SKILL.md"
+
 export function skillDocRel(skill: string): string {
-  return `${skillBundleRel(skill)}/SKILL.md`
+  return `${skillBundleRel(skill)}/${SKILL_DOC_FILE}`
 }
 
-// vivicy.json's `requiredSkills` is the owner's own hand-editable declaration, so both shapes they can legitimately write resolve to the bundle they mean: a full id names it by the part after `@`, a bare name IS the name. Anything else names no bundle and can only be reported missing — never quietly treated as satisfied.
+// The vivicy.json `skills` declaration is hand-editable by the owner, so both shapes they can legitimately write resolve to the bundle they mean: a full id names it by the part after `@`, a bare name IS the name. Anything else names no bundle and can only be reported missing — never quietly treated as satisfied.
 export function declaredSkillName(entry: string): string | null {
   const ref = parseSkillId(entry)
   return ref === null ? skillSegment(entry) : ref.skill

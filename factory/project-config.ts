@@ -1,5 +1,7 @@
-import { existsSync, readFileSync, writeFileSync } from "node:fs"
+import { chmodSync, existsSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs"
 import { resolve } from "node:path"
+
+import { MANAGED_TEMP_PREFIX } from "../lib/managed-block.ts"
 
 export const PROJECT_CONFIG_FILENAME = "vivicy.json"
 
@@ -79,20 +81,53 @@ export function loadProjectConfig(targetRoot: string | null | undefined): Projec
   return parseConfig(readFileSync(configPath, "utf8"), PROJECT_CONFIG_FILENAME)
 }
 
-// Writes one command field into vivicy.json while preserving every other field (requiredSkills etc.); creates the file if absent.
+// The raw object, for the readers that own their own field (the skill declarations) rather than the two command fields normalized above. Missing and unparseable both read as null; only `updateProjectConfig` tells them apart, since only a writer has to.
+export function readProjectConfigObject(targetRoot: string): Record<string, unknown> | null {
+  const configPath = resolve(targetRoot, PROJECT_CONFIG_FILENAME)
+  if (!existsSync(configPath)) return null
+  try {
+    const parsed: unknown = JSON.parse(readFileSync(configPath, "utf8"))
+    return parsed !== null && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : null
+  } catch {
+    return null
+  }
+}
+
+// The ONE read-modify-write of vivicy.json — the gate/run commands and the skill pins both land through it, so the file has a single writer with a single set of guarantees. The write is atomic (a temp beside the target, exclusively created over a removed leftover, the target's mode carried across, then one rename): this file holds the verification gate command AND every skill pin, and a torn write would lose both at once. A file that exists but is not a JSON object is never clobbered — the caller decides whether that is a typed refusal or a silent no-op.
+export function updateProjectConfig(targetRoot: string, mutate: (config: Record<string, unknown>) => void): "written" | "refused" {
+  const configPath = resolve(targetRoot, PROJECT_CONFIG_FILENAME)
+  const config = existsSync(configPath) ? readProjectConfigObject(targetRoot) : {}
+  if (config === null) return "refused"
+  mutate(config)
+  const temp = resolve(targetRoot, `${MANAGED_TEMP_PREFIX}${process.pid}.${PROJECT_CONFIG_FILENAME}`)
+  const mode = existsSync(configPath) ? statSync(configPath).mode : null
+  try {
+    rmSync(temp, { force: true })
+    writeFileSync(temp, `${JSON.stringify(config, null, 2)}\n`, { flag: "wx" })
+    if (mode !== null) chmodSync(temp, mode)
+    renameSync(temp, configPath)
+  } catch (error) {
+    rmSync(temp, { force: true })
+    throw error
+  }
+  return "written"
+}
+
+// Writes one command field into vivicy.json while preserving every other field (the skill declarations etc.); creates the file if absent.
 function setCommandField(targetRoot: string, field: CommandField, command: string): string {
   const normalized = normalizeCommand(command, field, PROJECT_CONFIG_FILENAME)
   if (normalized === null) {
     throw new ProjectConfigError(`refusing to set an empty ${field.noun} command in ${PROJECT_CONFIG_FILENAME}`, field.code)
   }
-  const configPath = resolve(targetRoot, PROJECT_CONFIG_FILENAME)
-  let config: Record<string, unknown> = {}
-  if (existsSync(configPath)) {
-    const parsed = JSON.parse(readFileSync(configPath, "utf8"))
-    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) config = parsed as Record<string, unknown>
+  const written = updateProjectConfig(targetRoot, (config) => {
+    config[field.key] = normalized
+  })
+  if (written === "refused") {
+    throw new ProjectConfigError(
+      `${PROJECT_CONFIG_FILENAME}: cannot set "${field.key}" — the file is not a JSON object. Fix or delete it; the workflow re-establishes the command mechanically.`,
+      "invalid_json"
+    )
   }
-  config[field.key] = normalized
-  writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`)
   return normalized
 }
 

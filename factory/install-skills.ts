@@ -26,7 +26,29 @@ import { ensureLocalGitIdentity, findFrozenManifest } from "./extract-issues.ts"
 import { FACTORY_PROMPTS_DIR, resolveTargetRoot } from "./target-root.ts"
 import { AGENT_SKILLS_DIR, PER_AGENT_SKILL_DIRS, SKILLS_CLI_LOCKFILE } from "../lib/spec-kind.ts"
 import { countForm, countOf } from "../lib/count-form.ts"
-import { normalizeSkillId, parseSkillId, skillBundleRel, skillDocRel, type SkillRef } from "./skill-id.ts"
+import { normalizeSkillId, parseSkillId, SKILL_DOC_FILE, skillBundleRel, skillDocRel, type SkillRef } from "./skill-id.ts"
+import {
+  bundleDrift,
+  hashBundle,
+  pinnedBundles,
+  PROJECT_SKILLS_SOURCE,
+  readSkillDeclarations,
+  writeSkillDeclarations,
+  type BundleDrift,
+  type SkillBundlePin,
+  type SkillDeclaration,
+} from "./skill-pin.ts"
+import {
+  cacheBundle,
+  healBundle,
+  sweepRuntimeResidue,
+  type GitSeam,
+  type HealAttempt,
+  type HealBundleArgs,
+  type HealOutcome,
+  type RunInstall,
+} from "./skill-heal.ts"
+import { PROJECT_CONFIG_FILENAME } from "./project-config.ts"
 import {
   MANAGED_MARKDOWN_FILES,
   MANAGED_TEMP_PREFIX,
@@ -128,7 +150,8 @@ export type SkillRejectReason =
   | "install_failed"
   | "not_installed"
   | "remove_failed"
-export type SkillsPhase = "selecting" | "auditing" | "installing" | "removing" | "green" | "failed" | "skipped"
+  | "heal_failed"
+export type SkillsPhase = "selecting" | "auditing" | "installing" | "removing" | "healing" | "green" | "failed" | "skipped"
 
 interface SkillCandidate extends SkillRef {
   name: string
@@ -167,10 +190,12 @@ export interface RejectedSkillEntry {
 export interface SkillsReport {
   phase: SkillsPhase
   selection_baseline_id: string | null
-  mode: "auto" | "explicit" | "remove"
+  mode: "auto" | "explicit" | "remove" | "maintain"
   installed: InstalledSkillEntry[]
   added: string[]
   removed: string[]
+  verified: string[]
+  healed: string[]
   rejected: RejectedSkillEntry[]
   summary: string
   updated_at: string
@@ -200,13 +225,15 @@ export interface InstallSkillsOptions {
   now?: () => Date
 }
 
+const NO_TARGET_MESSAGE =
+  "No target project configured. Set VIVICY_TARGET_ROOT to the absolute path of the target project, or pass options.repoRoot."
+
 export class SkillsConfigError extends Error {}
 
 export class SkillsLockError extends Error {}
 
 // The stage claims the lock ITSELF, where the writes are: vivicy.json, the two governance documents, the report and the absorption commit are one read-modify-write over the target, so every client — the supervisor's own child, the app's detached spawn, the CLI, Vivi — inherits one refusal instead of each claiming for itself. The clients still PROBE the same file to refuse fast; this claim is what decides a dead heat.
-function claimSkillsStage(repoRoot: string, env: NodeJS.ProcessEnv): HeldStageLock {
-  const runtimeDir = stageRuntimeDir(repoRoot, env)
+function claimSkillsStage(runtimeDir: string): HeldStageLock {
   const lock = claimStageLock(runtimeDir, SKILLS_LOCK_FILE)
   if (lock) return lock
   const holder = stageLockHolder(runtimeDir, SKILLS_LOCK_FILE)
@@ -241,11 +268,7 @@ export function skillsStageNeeded(baseline: { baselineId: string } | null, repor
 
 export async function installSkills(options: InstallSkillsOptions = {}): Promise<SkillsReport> {
   const repoRoot = options.repoRoot
-  if (!repoRoot) {
-    throw new SkillsConfigError(
-      "No target project configured. Set VIVICY_TARGET_ROOT to the absolute path of the target project, or pass options.repoRoot."
-    )
-  }
+  if (!repoRoot) throw new SkillsConfigError(NO_TARGET_MESSAGE)
   const env = options.env ?? process.env
   const now = options.now ?? (() => new Date())
   const emitReport = options.emitReport ?? defaultEmitReport
@@ -263,7 +286,7 @@ export async function installSkills(options: InstallSkillsOptions = {}): Promise
     )
   }
 
-  const tree = openStageTree(repoRoot, false, env)
+  const tree = openStageTree(repoRoot, "install", env)
   try {
     const priorReport = readJsonOrNull(resolve(repoRoot, SKILLS_REPORT_REL)) as Partial<SkillsReport> | null
     const report: SkillsReport = {
@@ -273,6 +296,8 @@ export async function installSkills(options: InstallSkillsOptions = {}): Promise
       installed: projectInstalledSet(repoRoot, priorReport),
       added: [],
       removed: [],
+      verified: [],
+      healed: [],
       rejected: [],
       summary: "",
       updated_at: "",
@@ -291,7 +316,7 @@ export async function installSkills(options: InstallSkillsOptions = {}): Promise
       return report
     }
 
-    // Every COUNT and every budget reads the installed SET, never `installedSkillIds`, whose raw ids the set deliberately drops when they name no skill: an owner typo in requiredSkills would otherwise make the cap, the scout's budget and the report disagree — and a 5-skill project would fire the at-capacity gate, settle the baseline and kill its own scouting while the summary announced 5/6. The raw id set answers exactly one kind of question, MEMBERSHIP, and never how many.
+    // Every COUNT and every budget reads the installed SET, never `installedSkillIds`, whose raw ids the set deliberately drops when they name no skill: an owner typo in the skills declaration would otherwise make the cap, the scout's budget and the report disagree — and a 5-skill project would fire the at-capacity gate, settle the baseline and kill its own scouting while the summary announced 5/6. The raw id set answers exactly one kind of question, MEMBERSHIP, and never how many.
     const alreadyInstalled = installedSkillIds(repoRoot, priorReport)
     // The scout's own budget, settled BEFORE the leg is spawned rather than discovered by discarding its proposals afterwards.
     const slots = remainingSlots(report.installed)
@@ -372,6 +397,7 @@ export async function installSkills(options: InstallSkillsOptions = {}): Promise
     report.summary = `installing ${countOf(toInstall.length, "skill", "skills")} at the repository level via the skills CLI`
     emit()
     const installedNow: InstalledSkillEntry[] = []
+    const pins: SkillDeclaration[] = []
     for (const c of toInstall) {
       recordSkillWrite(tree, c.skill)
       const r = runInstall({ repoRoot, source: c.source, skill: c.skill })
@@ -379,6 +405,18 @@ export async function installSkills(options: InstallSkillsOptions = {}): Promise
         report.rejected.push({ id: c.id, reason: "install_failed", detail: tail(r.output) })
         continue
       }
+      // The pin is taken from the bytes that just landed, before anything else can touch them, and cached machine-locally in the same breath — a pin whose bytes were never captured could only ever self-heal over the network.
+      const pin = hashBundle(resolve(repoRoot, skillBundleRel(c.skill)))
+      if (pin === null || pin.files[SKILL_DOC_FILE] === undefined) {
+        report.rejected.push({
+          id: c.id,
+          reason: "install_failed",
+          detail: `the skills CLI reported success but left no ${skillDocRel(c.skill)} in the target project, so there is nothing to pin`,
+        })
+        continue
+      }
+      cacheBundle(tree.runtimeDir, pin, resolve(repoRoot, skillBundleRel(c.skill)))
+      pins.push({ id: c.id, pin })
       installedNow.push({
         id: c.id,
         source: c.source,
@@ -392,7 +430,7 @@ export async function installSkills(options: InstallSkillsOptions = {}): Promise
     }
 
     report.added = installedNow.map((e) => e.id)
-    if (report.added.length > 0) mergeRequiredSkills(tree, report.added)
+    if (pins.length > 0) mergeSkillPins(tree, pins)
     report.installed = projectInstalledSet(repoRoot, priorReport, { installed: installedNow })
     const failures = writeSkillsBlock(tree, report.installed)
     if (failures.length > 0) return blockWriteFailed(report, failures, emit)
@@ -444,11 +482,7 @@ export interface RemoveSkillsOptions {
 
 export async function removeSkills(options: RemoveSkillsOptions = {}): Promise<SkillsReport> {
   const repoRoot = options.repoRoot
-  if (!repoRoot) {
-    throw new SkillsConfigError(
-      "No target project configured. Set VIVICY_TARGET_ROOT to the absolute path of the target project, or pass options.repoRoot."
-    )
-  }
+  if (!repoRoot) throw new SkillsConfigError(NO_TARGET_MESSAGE)
   const ids = (options.ids ?? []).map((s) => s.trim()).filter((s) => s.length > 0)
   if (ids.length === 0) {
     throw new SkillsConfigError("remove requires at least one skill id (owner/repo@skill or a skills.sh URL)")
@@ -457,7 +491,7 @@ export async function removeSkills(options: RemoveSkillsOptions = {}): Promise<S
   const emitReport = options.emitReport ?? defaultEmitReport
   const runRemove = options.runRemove ?? defaultRunRemove
 
-  const tree = openStageTree(repoRoot, true, options.env ?? process.env)
+  const tree = openStageTree(repoRoot, "remove", options.env ?? process.env)
   try {
     const priorReport = readJsonOrNull(resolve(repoRoot, SKILLS_REPORT_REL)) as Partial<SkillsReport> | null
     const installedIds = installedSkillIds(repoRoot, priorReport)
@@ -469,6 +503,8 @@ export async function removeSkills(options: RemoveSkillsOptions = {}): Promise<S
       installed: projectInstalledSet(repoRoot, priorReport),
       added: [],
       removed: [],
+      verified: [],
+      healed: [],
       rejected: [],
       summary: `removing ${countOf(ids.length, "skill", "skills")}`,
       updated_at: "",
@@ -491,7 +527,7 @@ export async function removeSkills(options: RemoveSkillsOptions = {}): Promise<S
         report.rejected.push({
           id: ref.id,
           reason: "not_installed",
-          detail: "this skill is not part of the project's installed set (vivicy.json requiredSkills / skills report)",
+          detail: "this skill is not part of the project's installed set (the vivicy.json skills declaration / the skills report)",
         })
         continue
       }
@@ -505,7 +541,7 @@ export async function removeSkills(options: RemoveSkillsOptions = {}): Promise<S
       report.removed.push(ref.id)
     }
 
-    if (toDrop.size > 0) dropRequiredSkills(tree, toDrop)
+    if (toDrop.size > 0) dropSkillDeclarations(tree, toDrop)
     report.installed = projectInstalledSet(repoRoot, priorReport, { removed: toDrop })
     const failures = writeSkillsBlock(tree, report.installed)
     if (failures.length > 0) return blockWriteFailed(report, failures, emit)
@@ -517,6 +553,177 @@ export async function removeSkills(options: RemoveSkillsOptions = {}): Promise<S
   } finally {
     settleStageTree(tree)
   }
+}
+
+export interface MaintainSkillsOptions {
+  repoRoot?: string
+  env?: NodeJS.ProcessEnv
+  runInstall?: RunInstall
+  git?: GitSeam
+  heal?: (args: HealBundleArgs) => HealOutcome
+  emitReport?: (report: SkillsReport, repoRoot: string) => void
+  now?: () => Date
+}
+
+// The owner's third rule: between passes, bytes ≠ pin with no update ordered is RESTORED automatically — no question, no red — the way the managed governance files renormalize when a project opens. It runs at every supervisor start, spawns no leg and asks no LLM, and it is deliberately write-free when everything verifies: a clean pass emits no report, no notification and no commit, so the steady state costs the project nothing and the last selection's own record survives on every surface.
+export function maintainSkills(options: MaintainSkillsOptions = {}): SkillsReport {
+  const repoRoot = options.repoRoot
+  if (!repoRoot) throw new SkillsConfigError(NO_TARGET_MESSAGE)
+  const env = options.env ?? process.env
+  const now = options.now ?? (() => new Date())
+  const emitReport = options.emitReport ?? defaultEmitReport
+  const runInstall = options.runInstall ?? defaultRunInstall
+  const heal = options.heal ?? healBundle
+
+  const report: SkillsReport = {
+    phase: "green",
+    selection_baseline_id: null,
+    mode: "maintain",
+    installed: [],
+    added: [],
+    removed: [],
+    verified: [],
+    healed: [],
+    rejected: [],
+    summary: "",
+    updated_at: "",
+  }
+  const pinned = pinnedBundles(readSkillDeclarations(repoRoot))
+  if (pinned.length === 0) {
+    report.summary = `no pinned skill bundles to verify — ${PROJECT_SKILLS_SOURCE} declares none`
+    return report
+  }
+
+  let tree: StageTree
+  try {
+    tree = openStageTree(repoRoot, "maintain", env)
+  } catch (error) {
+    // A stage already in flight IS the writer of these bytes: verifying mid-install would read a half-written bundle and "heal" it back over the installer. The next supervisor start asks again, so this is never the owner's problem and never a notification.
+    if (!(error instanceof SkillsLockError)) throw error
+    report.summary = `skills maintenance deferred: ${error.message}`
+    return report
+  }
+  try {
+    const priorReport = readJsonOrNull(resolve(repoRoot, SKILLS_REPORT_REL)) as Partial<SkillsReport> | null
+    report.selection_baseline_id = priorSelectionBaselineId(priorReport)
+    report.installed = projectInstalledSet(repoRoot, priorReport)
+    // A refusal the SELECTION recorded — a red audit, a name collision — is a standing fact the owner still has to act on, so a verification pass carries it forward instead of wiping the surface that shows it; its own restore failures replace only the previous pass's.
+    report.rejected = standingRejections(priorReport)
+    const emit = (): void => {
+      report.updated_at = now().toISOString()
+      emitReport(report, repoRoot)
+    }
+
+    // Re-read under the lock: the declarations that decided this pass runs at all were read before the claim, and an installer that published a new pin in that window would otherwise be healed back to the bytes it just replaced.
+    const drifted: Array<{ ref: SkillRef; pin: SkillBundlePin; drift: BundleDrift; abs: string }> = []
+    for (const { ref, pin } of pinnedBundles(readSkillDeclarations(repoRoot))) {
+      const abs = resolve(repoRoot, skillBundleRel(ref.skill))
+      const drift = bundleDrift(pin, hashBundle(abs))
+      if (drift === null) report.verified.push(ref.id)
+      else drifted.push({ ref, pin, drift, abs })
+    }
+
+    // The in-flight phase is published for a drift the project has not already given up on; a repeat of a failure it already exhausted every rung on would write it only to write the identical terminal state again, once per supervisor start.
+    let announced = false
+    if (drifted.length > 0) {
+      if (!repeatsPriorFailure(priorReport, drifted)) {
+        report.phase = "healing"
+        report.summary = `restoring ${countOf(drifted.length, "skill bundle", "skill bundles")} whose bytes no longer match the pin`
+        emit()
+        announced = true
+      }
+      for (const { ref, pin, drift, abs } of drifted) {
+        recordHealedBundle(tree, ref.skill)
+        // A restore that could not even RUN — an unwritable runtime dir, no git on PATH — is one more reason the bundle is not there, never an exception out of a pass that must always leave a terminal report behind.
+        let failure: string
+        try {
+          const outcome = heal({ repoRoot, ref, pin, runtimeDir: tree.runtimeDir, runInstall, git: options.git })
+          if (outcome.ok) {
+            report.healed.push(ref.id)
+            continue
+          }
+          failure = healFailureDetail(drift, abs, outcome.attempts)
+        } catch (error) {
+          failure = `${driftedFiles(drift, abs)}; the restore could not run (${error instanceof Error ? error.message : String(error)})`
+        }
+        forgetHealedBundle(tree, ref.skill)
+        report.rejected.push({ id: ref.id, reason: "heal_failed", detail: failure })
+      }
+    }
+    report.phase = report.rejected.some((entry) => entry.reason === "heal_failed") ? "failed" : "green"
+    report.summary = maintenanceSummary(report)
+    // A pass that ANNOUNCED work always publishes how it ended: byte-equality may suppress a record that says the same thing, never a phase TRANSITION, or the report keeps claiming work in progress that finished — the sidebar greyed, the stage pinned running, and the owner's own click refused for the staleness window.
+    if (announced || maintenanceWorthPublishing(priorReport, report)) emit()
+    return report
+  } finally {
+    settleStageTree(tree)
+  }
+}
+
+// Everything the prior report still says about skills the project has a problem with, minus the restore failures this pass re-decides for itself.
+function standingRejections(priorReport: Partial<SkillsReport> | null): RejectedSkillEntry[] {
+  const rejected = Array.isArray(priorReport?.rejected) ? priorReport.rejected : []
+  return rejected
+    .filter((entry): entry is RejectedSkillEntry => Boolean(entry) && typeof entry === "object" && typeof entry.id === "string")
+    .filter((entry) => entry.reason !== "heal_failed")
+    .map((entry) =>
+      entry.detail === undefined ? { id: entry.id, reason: entry.reason } : { id: entry.id, reason: entry.reason, detail: entry.detail }
+    )
+}
+
+// The drift this pass found is exactly the one a previous verification already exhausted every rung on: the retry still runs (nothing else can ever repair it without a human), but it has nothing new to announce.
+function repeatsPriorFailure(priorReport: Partial<SkillsReport> | null, drifted: readonly { ref: SkillRef }[]): boolean {
+  if (priorReport?.mode !== "maintain") return false
+  const rejected = Array.isArray(priorReport.rejected) ? priorReport.rejected : []
+  const gaveUpOn = new Set(rejected.filter((entry) => entry?.reason === "heal_failed").map((entry) => entry.id))
+  return gaveUpOn.size === drifted.length && drifted.every(({ ref }) => gaveUpOn.has(ref.id))
+}
+
+// This pass runs at EVERY supervisor start, so what it publishes has to be new or it publishes nothing — one commit and one error notification per start, for as long as a bundle stayed broken, is what the naive version costs. Two clauses: over a record a previous verification left, it writes only what DIFFERS from it (a repeated unhealable bundle is silent, a cleared failure is not); over a SELECTION's record, it writes only when it has something of its own — a restore or a failure — so a project where nothing drifted keeps the selection's own summary and counts on every surface. `updated_at` is the one field that always differs, so it is what the comparison ignores rather than what it reads.
+function maintenanceWorthPublishing(priorReport: Partial<SkillsReport> | null, report: SkillsReport): boolean {
+  const strip = (value: Partial<SkillsReport>): string => JSON.stringify({ ...value, updated_at: "" })
+  if (priorReport?.mode === "maintain") return strip(priorReport) !== strip(report)
+  return report.healed.length > 0 || report.rejected.some((entry) => entry.reason === "heal_failed")
+}
+
+// The cause the owner reads, and it must be the real one: a directory that cannot be READ is not a directory that is GONE, and a pin whose own hash disagrees with the manifest it carries was edited by hand rather than drifted.
+function driftedFiles(drift: BundleDrift, bundleAbs: string): string {
+  if (drift.missing) {
+    return existsSync(bundleAbs) ? "the bundle is on disk but could not be read" : "the bundle is gone from the project"
+  }
+  return drift.changed.length === 0
+    ? "every file matches the pin's own manifest but not its bundle hash — the pin itself looks hand-edited"
+    : `${countOf(drift.changed.length, "file differs", "files differ")} from the pin (${drift.changed.join(", ")})`
+}
+
+// Every rung's own reason, in the order they were tried: the owner acts on the real cause — an upstream deletion is a different move from an empty cache.
+function healFailureDetail(drift: BundleDrift, bundleAbs: string, attempts: readonly HealAttempt[]): string {
+  const tried = attempts.map((attempt) => `${attempt.rung}: ${attempt.reason}`).join("; ")
+  return `${driftedFiles(drift, bundleAbs)}; no restore path could reproduce the pinned bytes — ${tried}`
+}
+
+// One sentence in the order the owner cares about: what is still broken, what was repaired, what was already whole.
+function maintenanceSummary(report: SkillsReport): string {
+  const unhealable = report.rejected.filter((entry) => entry.reason === "heal_failed")
+  const parts: string[] = []
+  if (unhealable.length > 0) {
+    parts.push(
+      `${countOf(unhealable.length, "bundle", "bundles")} could NOT be restored (${unhealable.map((entry) => entry.id).join(", ")})`
+    )
+  }
+  if (report.healed.length > 0) {
+    parts.push(`${countOf(report.healed.length, "bundle", "bundles")} restored to the pinned bytes (${report.healed.join(", ")})`)
+  }
+  // Named only when there is something to name, or when it is the whole story — "0 bundles verified" beside the one that broke is noise.
+  if (report.verified.length > 0 || parts.length === 0) {
+    parts.push(`${countOf(report.verified.length, "bundle", "bundles")} verified unchanged`)
+  }
+  const head = unhealable.length > 0 ? "skills maintenance failed" : "skills maintenance green"
+  const tail =
+    unhealable.length > 0
+      ? ` — re-install ${countForm(unhealable.length, "it", "them")} or drop ${countForm(unhealable.length, "it", "them")} from ${PROJECT_SKILLS_SOURCE}; the build continues without ${countForm(unhealable.length, "it", "them")}`
+      : ""
+  return `${head}: ${parts.join(", ")}${tail}`
 }
 
 function defaultRunRemove({ repoRoot, source, skill }: { repoRoot: string; source: string; skill: string }): {
@@ -559,40 +766,50 @@ function pruneDanglingSkillLinks(repoRoot: string): void {
   }
 }
 
-const SKILLS_INSTALL_COMMIT_MESSAGE =
-  "skills: absorb the project-skills stage writes\n\n" +
-  "What this run wrote — the stage report, and for each skill it installed the bundle, its per-agent links, the vivicy.json requiredSkills entry and the skills block in AGENTS.md and CLAUDE.md — " +
-  "committed mechanically so the dev loop starts on a clean tree and every per-issue worktree, cut from HEAD, carries the skills. No human git step."
+type StageMode = "install" | "remove" | "maintain"
 
-const SKILLS_REMOVE_COMMIT_MESSAGE =
-  "skills: absorb the project-skills removal\n\n" +
-  "What this run wrote — the stage report, and for each skill it removed the deleted bundle and per-agent links, the shrunken vivicy.json requiredSkills and skills block in both governance documents — " +
-  "committed mechanically so the dev loop starts on a clean tree. No human git step."
+const STAGE_COMMIT_MESSAGE: Record<StageMode, string> = {
+  install:
+    "skills: absorb the project-skills stage writes\n\n" +
+    "What this run wrote — the stage report, and for each skill it installed the bundle, its per-agent links, the pinned vivicy.json skills entry and the skills block in AGENTS.md and CLAUDE.md — " +
+    "committed mechanically so the dev loop starts on a clean tree and every per-issue worktree, cut from HEAD, carries the skills. No human git step.",
+  remove:
+    "skills: absorb the project-skills removal\n\n" +
+    "What this run wrote — the stage report, and for each skill it removed the deleted bundle and per-agent links, the shrunken vivicy.json skills declaration and skills block in both governance documents — " +
+    "committed mechanically so the dev loop starts on a clean tree. No human git step.",
+  maintain:
+    "skills: absorb the project-skills verification pass\n\n" +
+    "What this pass wrote — the stage report, and the bundle of every skill it restored to the bytes vivicy.json pins (from the local cache, this repository's own history or an exact re-fetch) — " +
+    "committed mechanically so the dev loop starts on a clean tree and every per-issue worktree carries the pinned skills. No human git step.",
+}
 
 // One run's own git footprint, plus the exclusive claim that makes it one run. `baseline` is everything under the stage's declared paths that was ALREADY dirty when the run opened: those bytes are the owner's manuscript, and the clean-tree refusal on them is correct behavior, not something Vivicy may commit away. `written` accumulates what this run actually wrote, so a path the stage merely COULD write is never staged.
 interface StageTree {
   repoRoot: string
+  runtimeDir: string
   owns: boolean
   baseline: Set<string>
   written: Set<string>
   skills: Set<string>
-  removal: boolean
+  mode: StageMode
   lock: HeldStageLock
 }
 
-// The lock rides the tree's own lifecycle — claimed before the pre-stage snapshot, released by `settleStageTree`, which both entry points already reach from a `finally` on the return AND the throw path, so the claim cannot leak whatever the stage does. A claim whose own tree never opens is released here, since no `finally` covers it yet.
-function openStageTree(repoRoot: string, removal: boolean, env: NodeJS.ProcessEnv): StageTree {
-  const lock = claimSkillsStage(repoRoot, env)
+// The lock rides the tree's own lifecycle — claimed before the pre-stage snapshot, released by `settleStageTree`, which every entry point already reaches from a `finally` on the return AND the throw path, so the claim cannot leak whatever the stage does. A claim whose own tree never opens is released here, since no `finally` covers it yet.
+function openStageTree(repoRoot: string, mode: StageMode, env: NodeJS.ProcessEnv): StageTree {
+  const runtimeDir = stageRuntimeDir(repoRoot, env)
+  const lock = claimSkillsStage(runtimeDir)
   try {
     const owns = ownsGitRepo(repoRoot)
     return {
       repoRoot,
+      runtimeDir,
       owns,
       baseline: new Set(owns ? dirtyPaths(repoRoot, stageSnapshotPaths(repoRoot)) : []),
       // Written on every run: the report by emit(), the keeps by the pruneGitkeeps that rides it.
       written: new Set([SKILLS_REPORT_REL, ...SKELETON_GITKEEPS]),
       skills: new Set(),
-      removal,
+      mode,
       lock,
     }
   } catch (error) {
@@ -623,6 +840,20 @@ function recordSkillWrite(tree: StageTree, skill: string): void {
   recordWrite(tree, SKILLS_CLI_LOCKFILE)
   recordWrite(tree, skillBundleRel(skill))
   for (const dir of PER_AGENT_SKILL_DIRS) recordWrite(tree, `${dir}/${skill}`)
+}
+
+// A heal writes the bundle directory and NOTHING else: the per-agent links point at that directory and survive the rename, and the skills CLI lockfile is never touched — recording either would put an owner's concurrent edit there into Vivicy's own commit. The restored paths also LEAVE the pre-stage snapshot: a pinned bundle's bytes are machine-owned, the restore replaces the whole directory whatever state it was in, and keeping them out of the absorption would leave Vivicy's own bytes dirty — refusing the owner's next Run and blaming them for it. Recorded BEFORE the restore, so a crash mid-rename leaves the bundle staged rather than dirty.
+function recordHealedBundle(tree: StageTree, skill: string): void {
+  const rel = skillBundleRel(skill)
+  recordWrite(tree, rel)
+  for (const path of [...tree.baseline]) {
+    if (path === rel || path.startsWith(`${rel}/`)) tree.baseline.delete(path)
+  }
+}
+
+// What is still on disk for a bundle no rung could restore is the DRIFT. Committing it would put a tamper in HEAD under a message that claims a restore, destroy the history rung the next pass reads (the drift would then BE the committed copy, so the bundle is unhealable offline forever), and ship the tampered skill to every worktree cut from HEAD. Withdrawing the write RECORD is the whole withdrawal: the absorption stages what this run wrote and only ever SUBTRACTS the pre-stage snapshot from it, so a path that is no longer recorded cannot be staged whatever the snapshot says about it.
+function forgetHealedBundle(tree: StageTree, skill: string): void {
+  forgetWrite(tree, skillBundleRel(skill))
 }
 
 function runGit(repoRoot: string, args: string[], input?: string): { status: number; stdout: string; stderr: string } {
@@ -696,13 +927,19 @@ function relativizeSkillLinks(tree: StageTree): string[] {
   return relativized
 }
 
-// The stage's last act, reached from a `finally` so a throw closes it too: one commit over what THIS run wrote and the owner had not already touched, so the dev loop's clean-tree gate is not refused for bytes Vivicy wrote unasked and a worktree cut from HEAD carries the skills. Absorbing nothing is the normal steady state — no dirty path of ours means no commit at all, so a replayed run adds no empty commit. The lock is released last, after the commit that ends the mutation.
+// The stage's last act, reached from a `finally` so a throw closes it too: one commit over what THIS run wrote and the owner had not already touched, so the dev loop's clean-tree gate is not refused for bytes Vivicy wrote unasked and a worktree cut from HEAD carries the skills. Absorbing nothing is the normal steady state — no dirty path of ours means no commit at all, so a replayed run adds no empty commit. The cache sweep is janitorial and can never fail the pass that just ended; the lock is released last, after the commit that ends the mutation.
 function settleStageTree(tree: StageTree): void {
   try {
     absorbStageWrites(tree)
   } finally {
+    sweepRuntimeResidue(tree.runtimeDir, tree.repoRoot, pinnedBundleHashes(tree.repoRoot))
     tree.lock.release()
   }
+}
+
+// Read back from vivicy.json rather than accumulated in memory, so the sweep keeps exactly what the file now pins. An empty set is NEVER authoritative — an unparseable or absent declaration would otherwise read as "cache nothing" and destroy the very bytes the next pass heals from — so the sweep does nothing until a pin exists again.
+function pinnedBundleHashes(repoRoot: string): Set<string> {
+  return new Set(pinnedBundles(readSkillDeclarations(repoRoot)).map((entry) => entry.pin.bundle_hash))
 }
 
 function absorbStageWrites(tree: StageTree): void {
@@ -726,7 +963,7 @@ function absorbStageWrites(tree: StageTree): void {
   // Both commands take the pathspec through stdin, never argv (a bundle's file count has no upper bound) and never `-A`/a bare commit (`git add -A` would swallow the owner's in-flight work, and a pathspec-less commit would sweep in whatever they had already staged — including the .env.example lib/scaffold.ts stages deliberately without committing).
   const spec = mine.join("\0")
   const add = runGit(tree.repoRoot, ["add", "--pathspec-from-file=-", "--pathspec-file-nul"], spec)
-  const message = tree.removal ? SKILLS_REMOVE_COMMIT_MESSAGE : SKILLS_INSTALL_COMMIT_MESSAGE
+  const message = STAGE_COMMIT_MESSAGE[tree.mode]
   const commit =
     add.status === 0
       ? runGit(tree.repoRoot, ["commit", "--only", "--pathspec-from-file=-", "--pathspec-file-nul", "-m", message], spec)
@@ -746,15 +983,11 @@ function absorbStageWrites(tree: StageTree): void {
   )
 }
 
-function dropRequiredSkills(tree: StageTree, drop: Set<string>): void {
-  const abs = resolve(tree.repoRoot, "vivicy.json")
-  if (!existsSync(abs)) return
-  const parsed = readJsonOrNull(abs)
-  if (parsed === null || typeof parsed !== "object") return
-  const config = parsed as Record<string, unknown>
-  config.requiredSkills = toStringList(config.requiredSkills).filter((id) => !drop.has(id))
-  recordWrite(tree, "vivicy.json")
-  writeFileSync(abs, `${JSON.stringify(config, null, 2)}\n`)
+function dropSkillDeclarations(tree: StageTree, drop: Set<string>): void {
+  if (!existsSync(resolve(tree.repoRoot, PROJECT_CONFIG_FILENAME))) return
+  const kept = readSkillDeclarations(tree.repoRoot).filter((declaration) => !drop.has(declaration.id))
+  recordWrite(tree, PROJECT_CONFIG_FILENAME)
+  if (!writeSkillDeclarations(tree.repoRoot, kept)) forgetWrite(tree, PROJECT_CONFIG_FILENAME)
 }
 
 async function runScoutSelection({
@@ -915,10 +1148,22 @@ function defaultRunInstall({ repoRoot, source, skill }: { repoRoot: string; sour
   return { code: r.status ?? 1, output: `${r.stdout ?? ""}\n${r.stderr ?? ""}`.trim() }
 }
 
-// A green stage that kept a candidate OUT — a red security audit, the project cap, an install that failed — is the owner's to fix and re-run; a green that installed what it chose has nothing for them to do and stays silent. The rich report summary already counts the drops.
+// A green stage that kept a candidate OUT — a red security audit, the project cap, an install that failed — is the owner's to fix and re-run; a green that installed what it chose has nothing for them to do and stays silent. A successful self-heal is exactly as silent, like a managed file renormalizing: only a bundle no restore path could reproduce needs a hand, and it names the skill and the action rather than the stage. The rich report summary already counts the drops.
 export function skillsNotification(
   report: SkillsReport
 ): { level: "info" | "success" | "warning" | "error"; stage: string; event: string; message: string } | null {
+  const unhealable = (report.rejected ?? []).filter((entry) => entry.reason === "heal_failed").map((entry) => entry.id)
+  if (unhealable.length > 0) {
+    return {
+      level: "error",
+      stage: "SK",
+      event: "heal_failed",
+      message:
+        `${countOf(unhealable.length, "project skill no longer matches", "project skills no longer match")} the bytes this project pinned, ` +
+        `and no restore path could reproduce ${countForm(unhealable.length, "it", "them")} (${unhealable.join(", ")}) — ` +
+        `re-install ${countForm(unhealable.length, "it", "them")} or drop ${countForm(unhealable.length, "it", "them")} from ${PROJECT_SKILLS_SOURCE}; the build runs without ${countForm(unhealable.length, "it", "them")}`,
+    }
+  }
   if (report.phase === "failed") {
     return { level: "error", stage: "SK", event: "skills_failed", message: "project skills stage failed" }
   }
@@ -1038,21 +1283,19 @@ function blockWriteFailed(report: SkillsReport, failures: readonly BlockWriteFai
   return report
 }
 
-// requiredSkills in vivicy.json is the canonical field dev-preflight reads.
-function mergeRequiredSkills(tree: StageTree, newIds: string[]): void {
-  const abs = resolve(tree.repoRoot, "vivicy.json")
-  let config: Record<string, unknown> = {}
-  if (existsSync(abs)) {
-    const parsed = readJsonOrNull(abs)
-    if (parsed === null || typeof parsed !== "object") return
-    config = parsed as Record<string, unknown>
+// vivicy.json's `skills` is the project's standing declaration AND the pin every later pass verifies against: an id the owner hand-declared keeps its place and gains this run's pin, and the write is withdrawn from the causal record when the file refused it (an unparseable vivicy.json is never clobbered — the install still stands in the report).
+function mergeSkillPins(tree: StageTree, pins: readonly SkillDeclaration[]): void {
+  const declarations = readSkillDeclarations(tree.repoRoot)
+  const merged = declarations.map((declaration) => pins.find((pin) => pin.id === declaration.id) ?? declaration)
+  const declaredIds = new Set(declarations.map((declaration) => declaration.id))
+  for (const pin of pins) {
+    if (!declaredIds.has(pin.id)) merged.push(pin)
   }
-  config.requiredSkills = dedupe([...toStringList(config.requiredSkills), ...newIds])
-  recordWrite(tree, "vivicy.json")
-  writeFileSync(abs, `${JSON.stringify(config, null, 2)}\n`)
+  recordWrite(tree, PROJECT_CONFIG_FILENAME)
+  if (!writeSkillDeclarations(tree.repoRoot, merged)) forgetWrite(tree, PROJECT_CONFIG_FILENAME)
 }
 
-// The project's FULL installed set — the report, the skills block, the sidebar and the workflow evidence are all projections of THIS one value, so no two of them can contradict each other. Ids are vivicy.json's requiredSkills unioned with the prior report (defence in depth: mergeRequiredSkills silently no-ops on an unparseable vivicy.json), plus what this run installed, minus what it removed. Metadata priority is this-run > prior report > derived from the id alone.
+// The project's FULL installed set — the report, the skills block, the sidebar and the workflow evidence are all projections of THIS one value, so no two of them can contradict each other. Ids are vivicy.json's `skills` declaration unioned with the prior report (defence in depth: the declaration writer silently no-ops on an unparseable vivicy.json), plus what this run installed, minus what it removed. Metadata priority is this-run > prior report > derived from the id alone.
 function projectInstalledSet(
   repoRoot: string,
   priorReport: Partial<SkillsReport> | null,
@@ -1122,10 +1365,7 @@ function priorSelectionBaselineId(priorReport: Partial<SkillsReport> | null): st
 
 function installedSkillIds(repoRoot: string, priorReport: Partial<SkillsReport> | null): Set<string> {
   const ids = new Set<string>()
-  const config = readJsonOrNull(resolve(repoRoot, "vivicy.json"))
-  if (config && typeof config === "object") {
-    for (const id of toStringList((config as { requiredSkills?: unknown }).requiredSkills)) ids.add(id)
-  }
+  for (const declaration of readSkillDeclarations(repoRoot)) ids.add(declaration.id)
   for (const entry of priorInstalledEntries(priorReport)) ids.add(entry.id)
   return ids
 }
@@ -1146,15 +1386,6 @@ function readJsonOrNull(abs: string): unknown {
   }
 }
 
-function toStringList(value: unknown): string[] {
-  if (!Array.isArray(value)) return []
-  return value.map((v) => String(v).trim()).filter((v) => v.length > 0)
-}
-
-function dedupe(values: string[]): string[] {
-  return [...new Set(values)]
-}
-
 function tail(output: string | undefined, max = 800): string {
   const text = (output ?? "").trim()
   return text.length > max ? text.slice(-max) : text
@@ -1165,12 +1396,15 @@ if (cliEntry === fileURLToPath(import.meta.url)) {
   const argv = process.argv.slice(2)
   let ids: string[] = []
   let removeIds: string[] = []
+  let maintain = false
   let json = false
   let usageError: string | null = null
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i]
     if (arg === "--json") {
       json = true
+    } else if (arg === "--maintain") {
+      maintain = true
     } else if (arg === "--ids") {
       const value = argv[i + 1]
       if (!value) {
@@ -1196,11 +1430,13 @@ if (cliEntry === fileURLToPath(import.meta.url)) {
       break
     }
   }
-  if (!usageError && ids.length > 0 && removeIds.length > 0) {
-    usageError = "--ids and --remove are mutually exclusive (one run installs OR removes)"
+  if (!usageError && [ids.length > 0, removeIds.length > 0, maintain].filter(Boolean).length > 1) {
+    usageError = "--ids, --remove and --maintain are mutually exclusive (one run installs, removes OR verifies)"
   }
   if (usageError) {
-    console.error(`error: ${usageError}\nusage: node factory/install-skills.ts [--ids <id1,id2,...>] [--remove <id1,id2,...>] [--json]`)
+    console.error(
+      `error: ${usageError}\nusage: node factory/install-skills.ts [--ids <id1,id2,...>] [--remove <id1,id2,...>] [--maintain] [--json]`
+    )
     process.exit(2)
   }
   const repoRoot = resolveTargetRoot()
@@ -1208,7 +1444,11 @@ if (cliEntry === fileURLToPath(import.meta.url)) {
     console.error("error: no target project configured. Set VIVICY_TARGET_ROOT to the absolute path of the target project.")
     process.exit(2)
   }
-  const run = removeIds.length > 0 ? removeSkills({ repoRoot, ids: removeIds }) : installSkills({ repoRoot, ids })
+  const run = maintain
+    ? Promise.resolve().then(() => maintainSkills({ repoRoot }))
+    : removeIds.length > 0
+      ? removeSkills({ repoRoot, ids: removeIds })
+      : installSkills({ repoRoot, ids })
   run
     .then((report) => {
       if (json) console.log(JSON.stringify(report, null, 2))

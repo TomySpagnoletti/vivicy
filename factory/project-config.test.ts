@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import test from "node:test"
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { chmodSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import {
@@ -134,13 +134,40 @@ test("loadProjectConfig THROWS on a present-but-malformed vivicy.json (loud, not
 test("setGateCommand fills gateCommand while preserving every other field, and refuses an empty command", () => {
   const dir = scratch()
   try {
-    writeFileSync(join(dir, PROJECT_CONFIG_FILENAME), JSON.stringify({ gateCommand: null, requiredSkills: ["a/b@c"] }))
+    writeFileSync(join(dir, PROJECT_CONFIG_FILENAME), JSON.stringify({ gateCommand: null, skills: [{ id: "a/b@c" }] }))
     const written = setGateCommand(dir, "  go test ./...  ")
     assert.equal(written, "go test ./...")
     const after = JSON.parse(readFileSync(join(dir, PROJECT_CONFIG_FILENAME), "utf8"))
-    assert.deepEqual(after, { gateCommand: "go test ./...", requiredSkills: ["a/b@c"] })
+    assert.deepEqual(after, { gateCommand: "go test ./...", skills: [{ id: "a/b@c" }] })
 
     assert.throws(() => setGateCommand(dir, "   "), { code: "invalid_gate_command" })
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+// vivicy.json holds the verification gate command AND every skill pin, so it has ONE writer and that writer publishes by rename: a torn write would lose both at once.
+test("every vivicy.json write is atomic, keeps the file's mode, and refuses a file that is not a JSON object", () => {
+  const dir = scratch()
+  const config = join(dir, PROJECT_CONFIG_FILENAME)
+  try {
+    writeFileSync(config, `${JSON.stringify({ gateCommand: null, skills: [{ id: "a/b@c" }] }, null, 2)}\n`)
+    chmodSync(config, 0o600)
+    const before = statSync(config).ino
+    setGateCommand(dir, "npm test")
+    assert.equal(statSync(config).mode & 0o777, 0o600, "the owner's mode survives the rename that publishes the new bytes")
+    assert.notEqual(statSync(config).ino, before, "the bytes are published by a rename, never written into the live file")
+    assert.deepEqual(
+      readdirSync(dir).filter((entry) => entry !== PROJECT_CONFIG_FILENAME),
+      [],
+      "no temp is left beside the target"
+    )
+    assert.ok(readFileSync(config, "utf8").endsWith("}\n"))
+
+    writeFileSync(config, "{ not json at all\n")
+    assert.throws(() => setRunCommand(dir, "npm run dev"), { name: "ProjectConfigError", code: "invalid_json" })
+    assert.equal(readFileSync(config, "utf8"), "{ not json at all\n", "the owner's broken file is never clobbered")
+    assert.deepEqual(readdirSync(dir), [PROJECT_CONFIG_FILENAME], "and the refused write leaves no residue")
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
@@ -176,12 +203,12 @@ test("setRunCommand fills runCommand while preserving gateCommand + other fields
   try {
     writeFileSync(
       join(dir, PROJECT_CONFIG_FILENAME),
-      JSON.stringify({ gateCommand: "npm test", runCommand: null, requiredSkills: ["a/b@c"] })
+      JSON.stringify({ gateCommand: "npm test", runCommand: null, skills: [{ id: "a/b@c" }] })
     )
     const written = setRunCommand(dir, "  npm run dev  ")
     assert.equal(written, "npm run dev")
     const after = JSON.parse(readFileSync(join(dir, PROJECT_CONFIG_FILENAME), "utf8"))
-    assert.deepEqual(after, { gateCommand: "npm test", runCommand: "npm run dev", requiredSkills: ["a/b@c"] })
+    assert.deepEqual(after, { gateCommand: "npm test", runCommand: "npm run dev", skills: [{ id: "a/b@c" }] })
 
     assert.throws(() => setRunCommand(dir, "   "), { code: "invalid_run_command" })
   } finally {

@@ -2769,7 +2769,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   ensureCleanTreeForRun(preflightRoot)
   const skills = checkSkills(preflightRoot)
   if (!skills.ok) {
-    process.stderr.write(`dev-loop preflight: ${skills.reason}\n  ${missingSkillsRefusal(skills.missingRequired ?? [])}`)
+    process.stderr.write(`dev-loop preflight: ${skills.reason}\n  ${missingSkillsRefusal(skills.missing)}`)
     process.exit(1)
   }
   Promise.resolve(runLoop())

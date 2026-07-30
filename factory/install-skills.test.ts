@@ -15,12 +15,14 @@ import {
 } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join, resolve } from "node:path"
+import { fileURLToPath } from "node:url"
 import { after, afterEach, beforeEach, describe, it } from "node:test"
 
 import {
   auditVerdict,
   buildSkillsBlock,
   installSkills,
+  maintainSkills,
   removeSkills,
   MAX_PROJECT_SKILLS,
   OFFICIAL_VENDOR_OWNERS,
@@ -32,8 +34,11 @@ import {
   SKILLS_REPORT_REL,
 } from "./install-skills.ts"
 import type { SkillAuditFetch, SkillsReport } from "./install-skills.ts"
-import { checkSkills, missingRequiredSkills, missingSkillsRefusal, readRequiredSkills } from "./dev-preflight.ts"
+import { checkSkills, missingDeclaredSkills, missingSkillsRefusal, readDeclaredSkills } from "./dev-preflight.ts"
 import { normalizeSkillId } from "./skill-id.ts"
+import { bundleDrift, hashBundle, maintenanceNeeded, manifestHash, readSkillDeclarations } from "./skill-pin.ts"
+import { isSkillsPhaseInFlight } from "../lib/skills-report.ts"
+import { bundleCacheDir, healBundle } from "./skill-heal.ts"
 
 const SCOUT_RESULT_REL = ".vivicy/development/reports/skill-scout-result.json"
 const BASELINE_ID = "baseline-v1.0.0"
@@ -69,6 +74,33 @@ function readJson(rel: string): unknown {
   return JSON.parse(readFileSync(resolve(repo, rel), "utf8"))
 }
 
+// What an owner writes by hand: a skill the project declares, with no pin yet.
+function declared(ids: readonly string[]): Array<{ id: string }> {
+  return ids.map((id) => ({ id }))
+}
+
+function declaredIds(root = repo): string[] {
+  return readSkillDeclarations(root).map((declaration) => declaration.id)
+}
+
+function pinOf(id: string, root = repo): { bundle_hash: string; files: Record<string, string> } | null {
+  return readSkillDeclarations(root).find((declaration) => declaration.id === id)?.pin ?? null
+}
+
+function bundleDir(skill: string, root = repo): string {
+  return resolve(root, ".agents/skills", skill)
+}
+
+// The bundle a real `npx skills add` leaves behind: nested files, so a pin is more than one hash.
+function writeBundle(root: string, skill: string, files: Record<string, string> = {}): void {
+  const contents = { "SKILL.md": `# ${skill}\n`, ...files }
+  for (const [rel, body] of Object.entries(contents)) {
+    const abs = resolve(root, ".agents/skills", skill, rel)
+    mkdirSync(dirname(abs), { recursive: true })
+    writeFileSync(abs, body)
+  }
+}
+
 function seedBaseline(baselineId = BASELINE_ID): void {
   writeJson(`.vivicy/baselines/${baselineId}.json`, { baseline_id: baselineId, status: "frozen", version: "1.0.0" })
 }
@@ -97,10 +129,13 @@ function fakeAudits(bySkill: Record<string, SkillAuditFetch> = {}) {
   return async ({ source, skill }: { source: string; skill: string }) => bySkill[`${source}@${skill}`] ?? passAudit()
 }
 
-function fakeInstaller(calls: FakeInstallCall[], failFor: Set<string> = new Set()) {
-  return ({ source, skill }: { repoRoot: string; source: string; skill: string }) => {
+// The installer IS the writer of the bytes the pin is taken from, so the fake writes a real bundle: one that reports success and leaves nothing is its own test case below.
+function fakeInstaller(calls: FakeInstallCall[], failFor: Set<string> = new Set(), files: Record<string, string> = {}) {
+  return ({ repoRoot, source, skill }: { repoRoot: string; source: string; skill: string }) => {
     calls.push({ source, skill })
-    return failFor.has(`${source}@${skill}`) ? { code: 1, output: "npx skills add exploded" } : { code: 0, output: "installed" }
+    if (failFor.has(`${source}@${skill}`)) return { code: 1, output: "npx skills add exploded" }
+    writeBundle(repoRoot, skill, files)
+    return { code: 0, output: "installed" }
   }
 }
 
@@ -159,6 +194,152 @@ describe("auditVerdict", () => {
   })
 })
 
+describe("the bundle hasher (what a pin IS)", () => {
+  function bundleAt(dir: string, files: Record<string, string>): string {
+    for (const [rel, body] of Object.entries(files)) {
+      const abs = resolve(repo, dir, rel)
+      mkdirSync(dirname(abs), { recursive: true })
+      writeFileSync(abs, body)
+    }
+    return resolve(repo, dir)
+  }
+
+  // The persisted `bundle_hash` IS this function, so its canonical form is pinned here rather than through a filesystem whose listing order it must not depend on.
+  it("hashes a manifest canonically: sorted paths, NUL-delimited records, each hash bound to its own path", () => {
+    const canonical = manifestHash({ "SKILL.md": "sha256:aa", "scripts/a.py": "sha256:bb" })
+    assert.match(canonical, /^[0-9a-f]{64}$/)
+    assert.equal(canonical, manifestHash({ "scripts/a.py": "sha256:bb", "SKILL.md": "sha256:aa" }), "insertion order cannot change a pin")
+    assert.notEqual(canonical, manifestHash({ "SKILL.md": "sha256:bb", "scripts/a.py": "sha256:aa" }), "each hash is bound to its own path")
+    assert.notEqual(
+      canonical,
+      manifestHash({ "SKILL.mdsha256:aascripts/a.py": "sha256:bb" }),
+      "the record delimiter is what stops two entries being forged into one"
+    )
+  })
+
+  it("pins every file under the bundle, independently of the order the filesystem lists them in", () => {
+    const first = hashBundle(bundleAt("a", { "SKILL.md": "doc\n", "scripts/z.py": "z\n", "scripts/a.py": "a\n" }))
+    const second = hashBundle(bundleAt("b", { "scripts/a.py": "a\n", "scripts/z.py": "z\n", "SKILL.md": "doc\n" }))
+    assert.ok(first && second)
+    assert.equal(first.bundle_hash, second.bundle_hash, "the same bytes pin identically whatever order they were written in")
+    assert.deepEqual(Object.keys(first.files), ["SKILL.md", "scripts/a.py", "scripts/z.py"], "the manifest is sorted, POSIX-relative")
+    assert.match(first.files["SKILL.md"], /^sha256:[0-9a-f]{64}$/)
+  })
+
+  it("binds each hash to its own path, so swapping two files' contents is drift", () => {
+    const straight = hashBundle(bundleAt("straight", { "SKILL.md": "one\n", "other.md": "two\n" }))
+    const swapped = hashBundle(bundleAt("swapped", { "SKILL.md": "two\n", "other.md": "one\n" }))
+    assert.ok(straight && swapped)
+    assert.notEqual(straight.bundle_hash, swapped.bundle_hash)
+  })
+
+  it("names exactly which files moved: a changed byte, an added file, a removed one", () => {
+    const pin = hashBundle(bundleAt("pinned", { "SKILL.md": "doc\n", "scripts/a.py": "a\n" }))
+    assert.ok(pin)
+    assert.equal(bundleDrift(pin, hashBundle(resolve(repo, "pinned"))), null, "unchanged bytes are no drift")
+
+    writeFileSync(resolve(repo, "pinned/scripts/a.py"), "tampered\n")
+    assert.deepEqual(bundleDrift(pin, hashBundle(resolve(repo, "pinned"))), { missing: false, changed: ["scripts/a.py"] })
+
+    writeFileSync(resolve(repo, "pinned/scripts/a.py"), "a\n")
+    writeFileSync(resolve(repo, "pinned/extra.md"), "smuggled\n")
+    assert.deepEqual(bundleDrift(pin, hashBundle(resolve(repo, "pinned"))), { missing: false, changed: ["extra.md"] })
+
+    rmSync(resolve(repo, "pinned/extra.md"))
+    rmSync(resolve(repo, "pinned/SKILL.md"))
+    assert.deepEqual(bundleDrift(pin, hashBundle(resolve(repo, "pinned"))), { missing: false, changed: ["SKILL.md"] })
+
+    // A human reads the sentence this list feeds, so it is capped rather than unbounded.
+    const many = bundleAt("many", { "SKILL.md": "doc\n", a: "1", b: "2", c: "3", d: "4", e: "5" })
+    const manyPin = hashBundle(many)
+    assert.ok(manyPin)
+    for (const rel of ["a", "b", "c", "d", "e"]) writeFileSync(resolve(many, rel), "changed\n")
+    assert.deepEqual(bundleDrift(manyPin, hashBundle(many))?.changed, ["a", "b", "c", "d"], "five differ, four are named")
+  })
+
+  // A bare per-file sha256 cannot tell a file from a symlink whose target text hashes the same, which is exactly how a swap would hide.
+  it("pins a symlink by its target, so replacing a file with a link to the same text is drift", () => {
+    const dir = bundleAt("linked", { "SKILL.md": "doc\n", "real.md": "payload\n" })
+    symlinkSync("real.md", resolve(dir, "alias.md"))
+    const pin = hashBundle(dir)
+    assert.ok(pin)
+    assert.equal(pin.files["alias.md"], "symlink:real.md")
+
+    rmSync(resolve(dir, "alias.md"))
+    writeFileSync(resolve(dir, "alias.md"), "real.md")
+    const drift = bundleDrift(pin, hashBundle(dir))
+    assert.deepEqual(drift, { missing: false, changed: ["alias.md"] }, "a file whose CONTENT is the link's target is not the link")
+  })
+
+  // A walk that silently skipped an entry is where a tamper hides, so every kind gets a value — including one no bundle should ever contain.
+  it("gives even an unsupported entry kind a value, so its appearance is drift", () => {
+    const dir = bundleAt("kinds", { "SKILL.md": "doc\n" })
+    const pin = hashBundle(dir)
+    assert.ok(pin)
+    const fifo = spawnSync("mkfifo", [resolve(dir, "pipe")], { encoding: "utf8" })
+    assert.equal(fifo.status, 0, `mkfifo must be available for this case: ${fifo.stderr}`)
+    const withFifo = hashBundle(dir)
+    assert.equal(withFifo?.files["pipe"], "unsupported:10000", "a fifo is recorded by its kind, never skipped")
+    assert.deepEqual(bundleDrift(pin, withFifo), { missing: false, changed: ["pipe"] })
+    rmSync(resolve(dir, "pipe"), { force: true })
+  })
+
+  // `into["__proto__"] = value` is a silent no-op on a prototype-bearing object, and the bundle ROOT is exactly where a hostile bundle picks its own filenames.
+  it("pins a file named `__proto__` like any other, at the bundle root and below it", () => {
+    const dir = bundleAt("hostile", { "SKILL.md": "doc\n" })
+    const pin = hashBundle(dir)
+    assert.ok(pin)
+    writeFileSync(resolve(dir, "__proto__"), "payload\n")
+    const withRoot = hashBundle(dir)
+    assert.deepEqual(Object.keys(withRoot?.files ?? {}), ["SKILL.md", "__proto__"], "the entry is a real own key of the manifest")
+    assert.match(withRoot?.files["__proto__"] ?? "", /^sha256:[0-9a-f]{64}$/)
+    assert.deepEqual(bundleDrift(pin, withRoot), { missing: false, changed: ["__proto__"] }, "and its appearance is drift")
+
+    mkdirSync(resolve(dir, "sub"), { recursive: true })
+    writeFileSync(resolve(dir, "sub/__proto__"), "payload\n")
+    assert.ok(Object.keys(hashBundle(dir)?.files ?? {}).includes("sub/__proto__"))
+  })
+
+  // The pin READ BACK from vivicy.json is keyed by filenames too, and `__proto__` is the one key a plain object swallows on assignment: over a prototype-bearing map the entry is lost on the way in, and the drift then names a file that never moved.
+  it("round-trips a `__proto__` entry through vivicy.json, and names only what really moved", async () => {
+    writeBundle(repo, "quirky", { constructor: "harmless\n" })
+    writeFileSync(resolve(bundleDir("quirky"), "__proto__"), "payload\n")
+    const report = await installSkills({
+      repoRoot: repo,
+      ids: ["acme/pack@quirky"],
+      fetchAudit: fakeAudits(),
+      runInstall: () => ({ code: 0, output: "already on disk" }),
+    })
+    assert.deepEqual(report.added, ["acme/pack@quirky"], report.summary)
+    assert.match(readFileSync(resolve(repo, "vivicy.json"), "utf8"), /"__proto__": "sha256:/, "the pin on disk carries the entry")
+    const pin = pinOf("acme/pack@quirky")
+    assert.ok(pin)
+    assert.deepEqual(Object.keys(pin.files).sort(), ["SKILL.md", "__proto__", "constructor"], "and the reader keeps it as an own key")
+
+    writeFileSync(resolve(bundleDir("quirky"), "SKILL.md"), "# tampered\n")
+    assert.deepEqual(
+      bundleDrift(pin, hashBundle(bundleDir("quirky"))),
+      { missing: false, changed: ["SKILL.md"] },
+      "so a file that never moved is never named as drift"
+    )
+  })
+
+  it("has no pin at all for a bundle that is not there, and reads that as missing", () => {
+    assert.equal(hashBundle(resolve(repo, "absent")), null)
+    const pin = hashBundle(bundleAt("present", { "SKILL.md": "doc\n" }))
+    assert.ok(pin)
+    assert.deepEqual(bundleDrift(pin, null), { missing: true, changed: [] })
+  })
+
+  // git cannot represent an empty directory either, so the on-disk walk and the git-history restore agree without a rule.
+  it("is blind to empty directories, exactly as git is", () => {
+    const dir = bundleAt("empties", { "SKILL.md": "doc\n" })
+    const before = hashBundle(dir)
+    mkdirSync(resolve(dir, "nothing/here"), { recursive: true })
+    assert.equal(hashBundle(dir)?.bundle_hash, before?.bundle_hash)
+  })
+})
+
 describe("auto mode", () => {
   it("green path: scout selection -> audits -> install -> report + vivicy.json merge + the block in both documents", async () => {
     seedBaseline()
@@ -202,7 +383,7 @@ describe("auto mode", () => {
     const config = readJson("vivicy.json") as Record<string, unknown>
     assert.equal(config.gateCommand, "go test ./...")
     assert.deepEqual(config.custom, { keep: true })
-    assert.deepEqual(config.requiredSkills, ["supabase/agent-skills@postgres", "somebody/community@helper"])
+    assert.deepEqual(declaredIds(), ["supabase/agent-skills@postgres", "somebody/community@helper"])
     assert.ok(readFileSync(resolve(repo, "vivicy.json"), "utf8").endsWith("}\n"))
 
     for (const rel of MANAGED_DOCS) {
@@ -322,7 +503,7 @@ describe("auto mode", () => {
 
   it("enforces the 6-total cap official-first over already-installed skills", async () => {
     seedBaseline()
-    writeJson("vivicy.json", { gateCommand: "npm test", requiredSkills: ["a/b@one", "a/b@two", "a/b@three", "a/b@four"] })
+    writeJson("vivicy.json", { gateCommand: "npm test", skills: declared(["a/b@one", "a/b@two", "a/b@three", "a/b@four"]) })
     const installs: FakeInstallCall[] = []
     const report = await installSkills({
       repoRoot: repo,
@@ -353,8 +534,8 @@ describe("auto mode", () => {
         detail: `project already has 4 skills; the installed set may never exceed ${MAX_PROJECT_SKILLS} total`,
       },
     ])
-    const config = readJson("vivicy.json") as { requiredSkills: string[] }
-    assert.equal(config.requiredSkills.length, 6)
+    const config = readJson("vivicy.json") as { skills: { id: string }[] }
+    assert.equal(config.skills.length, 6)
   })
 })
 
@@ -430,7 +611,7 @@ describe("the scout is told the constraints it will be judged by", () => {
 
   it("hands the leg the project's real installed set", async () => {
     seedBaseline()
-    writeJson("vivicy.json", { gateCommand: "npm test", requiredSkills: ["a/b@one", "a/b@two"] })
+    writeJson("vivicy.json", { gateCommand: "npm test", skills: declared(["a/b@one", "a/b@two"]) })
     const seen: Array<{ installed: string[]; budget: string | undefined }> = []
     await installSkills({
       repoRoot: repo,
@@ -484,12 +665,12 @@ describe("the scout is told the constraints it will be judged by", () => {
     assert.equal(report.phase, "failed")
   })
 
-  // An owner typo in requiredSkills ("anthropics/skills", no @skill) is declared but names no skill: the cap, the scout's budget and the report all read the installed SET, so it cannot invent a phantom slot. The shape this pins: a 5-skill project firing the at-capacity gate, stamping the settle marker and killing its own scouting for that baseline while the summary announced 5/6.
+  // An owner typo in the skills declaration ("anthropics/skills", no @skill) is declared but names no skill: the cap, the scout's budget and the report all read the installed SET, so it cannot invent a phantom slot. The shape this pins: a 5-skill project firing the at-capacity gate, stamping the settle marker and killing its own scouting for that baseline while the summary announced 5/6.
   it("a declared id that names no skill takes no slot — on either surface", async () => {
     seedBaseline()
     writeJson("vivicy.json", {
       gateCommand: "npm test",
-      requiredSkills: ["a/b@one", "a/b@two", "a/b@three", "a/b@four", "a/b@five", "anthropics/skills"],
+      skills: declared(["a/b@one", "a/b@two", "a/b@three", "a/b@four", "a/b@five", "anthropics/skills"]),
     })
     const seen: Array<{ installed: string[]; context: string }> = []
     const report = await installSkills({
@@ -546,7 +727,7 @@ describe("the scout is told the constraints it will be judged by", () => {
     seedBaseline()
     writeJson("vivicy.json", {
       gateCommand: "npm test",
-      requiredSkills: ["a/b@one", "a/b@two", "a/b@three", "a/b@four", "a/b@five", "a/b@six"],
+      skills: declared(["a/b@one", "a/b@two", "a/b@three", "a/b@four", "a/b@five", "a/b@six"]),
     })
     const summaries: string[] = []
     const report = await installSkills({
@@ -575,7 +756,7 @@ describe("the scout is told the constraints it will be judged by", () => {
 describe("the skill NAME is the on-disk primary key", () => {
   it("refuses a candidate whose name an installed skill from another source already holds", async () => {
     seedBaseline()
-    writeJson("vivicy.json", { gateCommand: "npm test", requiredSkills: ["supabase/agent-skills@postgres"] })
+    writeJson("vivicy.json", { gateCommand: "npm test", skills: declared(["supabase/agent-skills@postgres"]) })
     const installs: FakeInstallCall[] = []
     const report = await installSkills({
       repoRoot: repo,
@@ -638,7 +819,7 @@ describe("the skill NAME is the on-disk primary key", () => {
   it("a refused collision costs no cap slot: the next distinct candidate takes it", async () => {
     writeJson("vivicy.json", {
       gateCommand: "npm test",
-      requiredSkills: ["a/b@one", "a/b@two", "a/b@three", "a/b@four", "a/b@five"],
+      skills: declared(["a/b@one", "a/b@two", "a/b@three", "a/b@four", "a/b@five"]),
     })
     const report = await installSkills({
       repoRoot: repo,
@@ -853,7 +1034,7 @@ describe("explicit mode (--ids)", () => {
   })
 
   it("works without any frozen baseline and rejects ids beyond the cap", async () => {
-    writeJson("vivicy.json", { gateCommand: "npm test", requiredSkills: ["a/b@s1", "a/b@s2", "a/b@s3", "a/b@s4", "a/b@s5"] })
+    writeJson("vivicy.json", { gateCommand: "npm test", skills: declared(["a/b@s1", "a/b@s2", "a/b@s3", "a/b@s4", "a/b@s5"]) })
     const report = await installSkills({
       repoRoot: repo,
       ids: ["x/y@first", "x/y@second"],
@@ -895,7 +1076,7 @@ describe("install failures", () => {
       ["good/repo@fine"]
     )
     assert.deepEqual(report.rejected, [{ id: "bad/repo@broken", reason: "install_failed", detail: "npx skills add exploded" }])
-    assert.deepEqual((readJson("vivicy.json") as { requiredSkills: string[] }).requiredSkills, ["good/repo@fine"])
+    assert.deepEqual(declaredIds(), ["good/repo@fine"])
   })
 
   // vivicy.json is the owner's file: an unparseable one is never clobbered, which is exactly why the reported set cannot be read back from it alone.
@@ -916,6 +1097,201 @@ describe("install failures", () => {
     )
     assert.equal(readFileSync(resolve(repo, "vivicy.json"), "utf8"), "{ this is not json\n", "the owner's broken file is theirs to fix")
     assertReportAgreesWithSkillsBlock(report)
+  })
+})
+
+describe("every install pins the bytes it landed", () => {
+  const RUNTIME = "runtime"
+
+  async function installPinned(files: Record<string, string> = { "scripts/recalc.py": "print('recalc')\n" }): Promise<SkillsReport> {
+    return installSkills({
+      repoRoot: repo,
+      ids: ["acme/pack@spreadsheets"],
+      env: { VIVICY_RUNTIME_DIR: resolve(repo, RUNTIME) },
+      fetchAudit: fakeAudits(),
+      runInstall: fakeInstaller([], new Set(), files),
+    })
+  }
+
+  it("records the bundle hash and the per-file manifest of exactly what is on disk", async () => {
+    const report = await installPinned()
+    assert.equal(report.phase, "green")
+    const pin = pinOf("acme/pack@spreadsheets")
+    const onDisk = hashBundle(bundleDir("spreadsheets"))
+    assert.ok(pin && onDisk)
+    assert.equal(pin.bundle_hash, onDisk.bundle_hash, "the pin IS the bytes that landed, never a claim about them")
+    assert.deepEqual(pin.files, onDisk.files)
+    assert.deepEqual(Object.keys(pin.files), ["SKILL.md", "scripts/recalc.py"])
+    assert.deepEqual(declaredIds(), ["acme/pack@spreadsheets"])
+    assert.match(
+      readFileSync(resolve(repo, "vivicy.json"), "utf8"),
+      /"bundle_hash": "[0-9a-f]{64}"/,
+      "the pin is readable in the owner's file"
+    )
+  })
+
+  it("caches those very bytes machine-locally, content-addressed, so a later restore needs no network", async () => {
+    const report = await installPinned()
+    const pin = pinOf("acme/pack@spreadsheets")
+    assert.ok(pin)
+    const cached = resolve(bundleCacheDir(resolve(repo, RUNTIME)), pin.bundle_hash)
+    assert.equal(hashBundle(cached)?.bundle_hash, pin.bundle_hash, "the cache entry is filed under the hash of its own bytes")
+    assert.equal(
+      readFileSync(resolve(cached, "scripts/recalc.py"), "utf8"),
+      readFileSync(resolve(bundleDir("spreadsheets"), "scripts/recalc.py"), "utf8")
+    )
+    assert.equal(report.verified.length, 0, "an install verifies nothing — it pins")
+  })
+
+  // The pin is what makes this detectable at all: a CLI that exits 0 having written nothing used to be reported as an installed skill.
+  it("refuses to pin an install that reported success and left no SKILL.md", async () => {
+    const report = await installSkills({
+      repoRoot: repo,
+      ids: ["acme/pack@spreadsheets"],
+      fetchAudit: fakeAudits(),
+      runInstall: () => ({ code: 0, output: "pretending" }),
+    })
+    assert.equal(report.phase, "green")
+    assert.deepEqual(report.added, [])
+    assert.deepEqual(report.installed, [])
+    assert.equal(report.rejected[0].reason, "install_failed")
+    assert.match(report.rejected[0].detail ?? "", /left no \.agents\/skills\/spreadsheets\/SKILL\.md .* nothing to pin/)
+    assert.ok(!existsSync(resolve(repo, "vivicy.json")), "an unpinnable install declares nothing")
+
+    const partial = await installSkills({
+      repoRoot: repo,
+      ids: ["acme/pack@spreadsheets"],
+      fetchAudit: fakeAudits(),
+      runInstall: ({ repoRoot: root, skill }) => {
+        const abs = resolve(root, ".agents/skills", skill, "README.md")
+        mkdirSync(dirname(abs), { recursive: true })
+        writeFileSync(abs, "docs but no skill\n")
+        return { code: 0, output: "pretending harder" }
+      },
+    })
+    assert.deepEqual(partial.added, [], "a bundle directory without a SKILL.md is not a skill either")
+    assert.equal(partial.rejected[0].reason, "install_failed")
+    assert.match(partial.rejected[0].detail ?? "", /left no \.agents\/skills\/spreadsheets\/SKILL\.md/)
+  })
+
+  // An id the owner declared by hand is already part of the installed set (F-090/F-092), so this run installs the OTHER one — and the declaration it did not touch keeps both its place and its unpinned state.
+  it("keeps an owner's hand-declared entry in its place and pins only what it installed", async () => {
+    writeJson("vivicy.json", { gateCommand: "npm test", skills: declared(["owner/first@handmade"]) })
+    await installPinned()
+    assert.deepEqual(
+      declaredIds(),
+      ["owner/first@handmade", "acme/pack@spreadsheets"],
+      "declaration order is preserved, new entries append"
+    )
+    assert.equal(pinOf("owner/first@handmade"), null, "the entry the stage did not install stays unpinned")
+    assert.ok(pinOf("acme/pack@spreadsheets"), "the one it installed is pinned")
+    assert.equal(readJson("vivicy.json") && (readJson("vivicy.json") as { gateCommand: string }).gateCommand, "npm test")
+    assert.equal(maintenanceNeeded(repo), true, "one pinned bundle is enough to owe a verification")
+  })
+
+  it("drops the pin together with the declaration when a skill is removed", async () => {
+    await installPinned()
+    const report = await removeSkills({ repoRoot: repo, ids: ["acme/pack@spreadsheets"], runRemove: () => ({ code: 0 }) })
+    assert.deepEqual(report.removed, ["acme/pack@spreadsheets"])
+    assert.deepEqual(declaredIds(), [])
+    assert.equal(maintenanceNeeded(repo), false, "nothing declared, nothing to verify")
+  })
+
+  // The cache is bounded by what the project actually pins; an empty keep-set is never authoritative, or an unparseable vivicy.json would destroy the bytes the next pass heals from.
+  it("sweeps cache entries no pin references any more, and never sweeps on an empty declaration", async () => {
+    const cacheDir = bundleCacheDir(resolve(repo, RUNTIME))
+    await installPinned()
+    const kept = pinOf("acme/pack@spreadsheets")?.bundle_hash
+    assert.ok(kept)
+    mkdirSync(resolve(cacheDir, "0".repeat(64)), { recursive: true })
+    writeFileSync(resolve(cacheDir, "0".repeat(64), "SKILL.md"), "an entry no pin names\n")
+
+    await installSkills({
+      repoRoot: repo,
+      ids: ["other/pack@charts"],
+      env: { VIVICY_RUNTIME_DIR: resolve(repo, RUNTIME) },
+      fetchAudit: fakeAudits(),
+      runInstall: fakeInstaller([]),
+    })
+    const alsoKept = pinOf("other/pack@charts")?.bundle_hash
+    assert.ok(alsoKept)
+    assert.deepEqual(readdirSync(cacheDir).sort(), [kept, alsoKept].sort(), "only the entries the declaration pins survive")
+
+    writeFileSync(resolve(repo, "vivicy.json"), "{ not json at all\n")
+    await removeSkills({
+      repoRoot: repo,
+      ids: ["other/pack@charts"],
+      env: { VIVICY_RUNTIME_DIR: resolve(repo, RUNTIME) },
+      runRemove: () => ({ code: 0 }),
+    })
+    assert.deepEqual(readdirSync(cacheDir).sort(), [kept, alsoKept].sort(), "an unreadable declaration sweeps nothing")
+  })
+
+  // A killed restore leaves a whole bundle copy in its scratch tree and a temp beside the bundles; the pass that next holds the lock is what removes them.
+  it("sweeps the scratch trees and bundle temps a killed restore left behind", async () => {
+    const runtime = resolve(repo, RUNTIME)
+    await installPinned()
+    const scratch = resolve(runtime, "skill-heal-abcdef")
+    const temp = resolve(repo, ".agents/skills", `.vivicy-tmp.999.spreadsheets`)
+    for (const dir of [scratch, temp]) {
+      mkdirSync(dir, { recursive: true })
+      writeFileSync(resolve(dir, "SKILL.md"), "residue\n")
+    }
+
+    const report = maintainSkills({ repoRoot: repo, env: { VIVICY_RUNTIME_DIR: runtime } })
+
+    assert.match(report.summary, /verified unchanged/)
+    assert.ok(!existsSync(scratch), "the killed restore's scratch tree is gone")
+    assert.ok(!existsSync(temp), "and so is the temp it left beside the bundles")
+    assert.ok(existsSync(bundleDir("spreadsheets")), "while the bundle itself is untouched")
+  })
+
+  // The sweep is the pass's last act and is janitorial: an entry it cannot remove may never turn a green run red.
+  it("never fails the pass it closes, even when a residue refuses to go", async () => {
+    const cacheDir = bundleCacheDir(resolve(repo, RUNTIME))
+    await installPinned()
+    const stuck = resolve(cacheDir, "1".repeat(64))
+    mkdirSync(stuck, { recursive: true })
+    writeFileSync(resolve(stuck, "SKILL.md"), "unremovable\n")
+    chmodSync(cacheDir, 0o500)
+    try {
+      const report = await installSkills({
+        repoRoot: repo,
+        ids: ["other/pack@charts"],
+        env: { VIVICY_RUNTIME_DIR: resolve(repo, RUNTIME) },
+        fetchAudit: fakeAudits(),
+        runInstall: fakeInstaller([]),
+      })
+      assert.equal(report.phase, "green", report.summary)
+      assert.deepEqual(report.added, ["other/pack@charts"])
+      assert.ok(existsSync(stuck), "the entry really was unremovable, so the case is not vacuous")
+    } finally {
+      chmodSync(cacheDir, 0o700)
+    }
+  })
+
+  // vivicy.json is hand-editable, so its readers are error-tolerant: a garbage pin declares the skill without pinning it, never a pin nothing can satisfy.
+  it("reads a hand-mangled pin as an unpinned declaration", () => {
+    writeJson("vivicy.json", {
+      skills: [
+        { id: "a/b@short", bundle_hash: "abc", files: { "SKILL.md": "sha256:x" } },
+        { id: "a/b@nofiles", bundle_hash: "b".repeat(64) },
+        { id: "", bundle_hash: "c".repeat(64) },
+        "a/b@string",
+        { id: "a/b@ok", bundle_hash: "d".repeat(64), files: { "SKILL.md": "sha256:e" } },
+      ],
+    })
+    const declarations = readSkillDeclarations(repo)
+    assert.deepEqual(
+      declarations.map((d) => [d.id, d.pin === null]),
+      [
+        ["a/b@short", true],
+        ["a/b@nofiles", false],
+        ["a/b@ok", false],
+      ],
+      "a malformed hash unpins the entry, a missing manifest only costs it the diagnostics, and a nameless or non-object entry declares nothing"
+    )
+    assert.deepEqual(Object.keys(declarations[1].pin?.files ?? {}), [], "no manifest means no file names, never a false one")
   })
 })
 
@@ -992,7 +1368,7 @@ describe("the skills block rides the managed-block engine, in both governance do
       "supabase/agent-skills@postgres",
       "the skill is installed and reported — only the document refused"
     )
-    assert.deepEqual((readJson("vivicy.json") as { requiredSkills: string[] }).requiredSkills, ["supabase/agent-skills@postgres"])
+    assert.deepEqual(declaredIds(), ["supabase/agent-skills@postgres"])
     assert.deepEqual(readFileSync(resolve(repo, "CLAUDE.md")), utf16, "a file Vivicy cannot splice byte-safely is never written at all")
     assert.match(
       readFileSync(resolve(repo, "AGENTS.md"), "utf8"),
@@ -1003,7 +1379,7 @@ describe("the skills block rides the managed-block engine, in both governance do
     assert.equal(skillsNotification(report)?.level, "error")
   })
 
-  // The recorded relay: a read-only document used to throw out of the stage mid-phase, leaving a report stuck in flight and requiredSkills naming a skill whose block no retry ever wrote.
+  // The recorded relay: a read-only document used to throw out of the stage mid-phase, leaving a report stuck in flight and the skills declaration naming a skill whose block no retry ever wrote.
   it("a read-only document that still has something to receive fails the stage — and the retry after the owner fixes it converges", async () => {
     for (const rel of MANAGED_DOCS) writeFileSync(resolve(repo, rel), OWNER_PROSE)
     chmodSync(resolve(repo, "CLAUDE.md"), 0o444)
@@ -1198,7 +1574,7 @@ describe("the report tells the truth about the project's whole installed set", (
     assert.equal(explicit.installed[0].reason, "database", "the first run's metadata rides the full set, never re-derived")
     assertReportAgreesWithSkillsBlock(explicit)
     assert.deepEqual(
-      (readJson("vivicy.json") as { requiredSkills: string[] }).requiredSkills,
+      declaredIds(),
       explicit.installed.map((e) => e.id),
       "and vivicy.json declares exactly the same set"
     )
@@ -1238,7 +1614,7 @@ describe("the report tells the truth about the project's whole installed set", (
       runInstall: fakeInstaller([]),
     })
     const config = readJson("vivicy.json") as Record<string, unknown>
-    writeJson("vivicy.json", { ...config, requiredSkills: [...(config.requiredSkills as string[]), "acme/repo@scraper"] })
+    writeJson("vivicy.json", { ...config, skills: [...(config.skills as unknown[]), { id: "acme/repo@scraper" }] })
 
     const skipped = await installSkills({
       repoRoot: repo,
@@ -1316,51 +1692,51 @@ describe("dev-preflight declared skills (vivicy.json, the one location)", () => 
     writeFileSync(abs, `---\nname: ${name}\n---\n`)
   }
 
-  it("reads vivicy.json requiredSkills verbatim, as the full ids they are", () => {
-    writeJson("vivicy.json", { gateCommand: "cargo test", requiredSkills: ["supabase/agent-skills@postgres", "plain-name"] })
-    assert.deepEqual(readRequiredSkills(repo), ["supabase/agent-skills@postgres", "plain-name"])
+  it("reads the vivicy.json skills declaration verbatim, as the full ids they are", () => {
+    writeJson("vivicy.json", { gateCommand: "cargo test", skills: declared(["supabase/agent-skills@postgres", "plain-name"]) })
+    assert.deepEqual(readDeclaredSkills(repo), ["supabase/agent-skills@postgres", "plain-name"])
   })
 
   it("a `vivicy` field in package.json declares nothing — vivicy.json is the only source", () => {
-    writeJson("package.json", { vivicy: { requiredSkills: ["from-pkg"] } })
-    assert.deepEqual(readRequiredSkills(repo), [])
+    writeJson("package.json", { vivicy: { skills: declared(["from-pkg"]) } })
+    assert.deepEqual(readDeclaredSkills(repo), [])
 
-    writeJson("vivicy.json", { gateCommand: "npm test", requiredSkills: ["from-vivicy"] })
-    assert.deepEqual(readRequiredSkills(repo), ["from-vivicy"])
+    writeJson("vivicy.json", { gateCommand: "npm test", skills: declared(["from-vivicy"]) })
+    assert.deepEqual(readDeclaredSkills(repo), ["from-vivicy"])
   })
 
-  it("an explicit empty requiredSkills in vivicy.json declares no skills", () => {
-    writeJson("vivicy.json", { gateCommand: "npm test", requiredSkills: [] })
-    assert.deepEqual(readRequiredSkills(repo), [])
-    assert.deepEqual(checkSkills(repo), { ok: true, missingRequired: [], reason: undefined }, "nothing declared, nothing to look for")
+  it("an explicit empty skills array in vivicy.json declares no skills", () => {
+    writeJson("vivicy.json", { gateCommand: "npm test", skills: declared([]) })
+    assert.deepEqual(readDeclaredSkills(repo), [])
+    assert.deepEqual(checkSkills(repo), { ok: true, missing: [], reason: undefined }, "nothing declared, nothing to look for")
   })
 
   it("no target at all declares nothing and demands nothing", () => {
-    assert.deepEqual(readRequiredSkills(null), [])
+    assert.deepEqual(readDeclaredSkills(null), [])
     assert.equal(checkSkills(null, []).ok, true)
-    assert.deepEqual(missingRequiredSkills(null, ["a/b@c"]), ["a/b@c"], "with no target, a declared skill can only be missing")
+    assert.deepEqual(missingDeclaredSkills(null, ["a/b@c"]), ["a/b@c"], "with no target, a declared skill can only be missing")
   })
 
   // Exact on the declared id's own name: a bundle whose name merely CONTAINS it is a different skill, and no tool's output text is consulted.
   it("matches the bundle by the declared id's own name — `next-auth` never answers for `auth`", () => {
-    writeJson("vivicy.json", { gateCommand: "npm test", requiredSkills: ["vendor/x@auth"] })
+    writeJson("vivicy.json", { gateCommand: "npm test", skills: declared(["vendor/x@auth"]) })
     installBundle("next-auth")
-    assert.deepEqual(missingRequiredSkills(repo, readRequiredSkills(repo)), ["vendor/x@auth"], "a longer name is a different skill")
+    assert.deepEqual(missingDeclaredSkills(repo, readDeclaredSkills(repo)), ["vendor/x@auth"], "a longer name is a different skill")
 
     installBundle("auth")
-    assert.deepEqual(missingRequiredSkills(repo, readRequiredSkills(repo)), [])
+    assert.deepEqual(missingDeclaredSkills(repo, readDeclaredSkills(repo)), [])
   })
 
   it("two vendors' ids with the same name resolve to the one bundle that carries it", () => {
     installBundle("postgres")
-    assert.deepEqual(missingRequiredSkills(repo, ["supabase/agent-skills@postgres", "other/pack@postgres"]), [])
-    assert.deepEqual(missingRequiredSkills(repo, ["supabase/agent-skills@other"]), ["supabase/agent-skills@other"])
+    assert.deepEqual(missingDeclaredSkills(repo, ["supabase/agent-skills@postgres", "other/pack@postgres"]), [])
+    assert.deepEqual(missingDeclaredSkills(repo, ["supabase/agent-skills@other"]), ["supabase/agent-skills@other"])
   })
 
   it("a bare name declares its own bundle; a traversal-shaped declaration can only be missing", () => {
     installBundle("plain-name")
-    assert.deepEqual(missingRequiredSkills(repo, ["plain-name"]), [])
-    assert.deepEqual(missingRequiredSkills(repo, ["a/b@..", "..", "."]), ["a/b@..", "..", "."])
+    assert.deepEqual(missingDeclaredSkills(repo, ["plain-name"]), [])
+    assert.deepEqual(missingDeclaredSkills(repo, ["a/b@..", "..", "."]), ["a/b@..", "..", "."])
     assert.ok(
       existsSync(resolve(repo, ".agents/skills/..")),
       "the parent directory really is there, so it is the segment rule that refuses `..` — never a path that happens not to exist"
@@ -1370,24 +1746,24 @@ describe("dev-preflight declared skills (vivicy.json, the one location)", () => 
   // A bundle directory with no SKILL.md is not a skill: the block promises every leg a readable SKILL.md at that path.
   it("an empty bundle directory is not an installed skill", () => {
     mkdirSync(resolve(repo, ".agents/skills/postgres"), { recursive: true })
-    assert.deepEqual(missingRequiredSkills(repo, ["supabase/agent-skills@postgres"]), ["supabase/agent-skills@postgres"])
+    assert.deepEqual(missingDeclaredSkills(repo, ["supabase/agent-skills@postgres"]), ["supabase/agent-skills@postgres"])
   })
 
   it("checkSkills fails only when a declared skill's bundle is absent, and says so", () => {
-    writeJson("vivicy.json", { gateCommand: "npm test", requiredSkills: ["acme/pack@must-have"] })
+    writeJson("vivicy.json", { gateCommand: "npm test", skills: declared(["acme/pack@must-have"]) })
     const absent = checkSkills(repo)
     assert.equal(absent.ok, false)
-    assert.deepEqual(absent.missingRequired, ["acme/pack@must-have"])
+    assert.deepEqual(absent.missing, ["acme/pack@must-have"])
     assert.match(absent.reason ?? "", /not installed in the target project/)
 
     installBundle("must-have")
-    assert.deepEqual(checkSkills(repo), { ok: true, missingRequired: [], reason: undefined })
+    assert.deepEqual(checkSkills(repo), { ok: true, missing: [], reason: undefined })
   })
 
   // The refusal is owner-facing CONTRACT: it is the whole instruction for clearing a blocked run, so it may name only what the check itself reads.
   it("the missing-skills refusal names vivicy.json and the bundle path, and NOTHING else", () => {
     const refusal = missingSkillsRefusal(["supabase/agent-skills@postgres", "acme/pack@stripe"])
-    assert.match(refusal, /vivicy\.json "requiredSkills"/)
+    assert.match(refusal, /vivicy\.json#skills/)
     assert.match(refusal, /\.agents\/skills\/<name>\/SKILL\.md/, "the location the check looks at is where the owner must land it")
     assert.doesNotMatch(refusal, /package\.json/, "package.json declares nothing — pointing there cannot clear the refusal")
     assert.doesNotMatch(refusal, /skills list/, "the check no longer asks a CLI, so naming its output would misdirect")
@@ -1421,6 +1797,8 @@ describe("removeSkills (deterministic uninstall)", () => {
     mode: "explicit",
     added: [],
     removed: [],
+    verified: [],
+    healed: [],
     installed: [
       {
         id: "anthropics/skills@pdf",
@@ -1450,7 +1828,7 @@ describe("removeSkills (deterministic uninstall)", () => {
 
   function seedInstalledState(): void {
     writeJson(SKILLS_REPORT_REL, PRIOR)
-    writeJson("vivicy.json", { gateCommand: "npm test", requiredSkills: ["anthropics/skills@pdf", "acme/repo@scraper"] })
+    writeJson("vivicy.json", { gateCommand: "npm test", skills: declared(["anthropics/skills@pdf", "acme/repo@scraper"]) })
     const doc = skillsDoc([
       { id: "anthropics/skills@pdf", skill: "pdf", name: "pdf", official: true, reason: "" },
       { id: "acme/repo@scraper", skill: "scraper", name: "scraper", official: false, reason: "" },
@@ -1474,9 +1852,9 @@ describe("removeSkills (deterministic uninstall)", () => {
     assert.equal(report.mode, "remove")
     assert.deepEqual(report.removed, ["anthropics/skills@pdf"])
     assert.deepEqual(calls, [{ source: "anthropics/skills", skill: "pdf" }])
-    const config = readJson("vivicy.json") as { gateCommand: string; requiredSkills: string[] }
+    const config = readJson("vivicy.json") as { gateCommand: string; skills: { id: string }[] }
     assert.equal(config.gateCommand, "npm test")
-    assert.deepEqual(config.requiredSkills, ["acme/repo@scraper"])
+    assert.deepEqual(declaredIds(), ["acme/repo@scraper"])
     for (const rel of MANAGED_DOCS) {
       const doc = readFileSync(resolve(repo, rel), "utf8")
       assert.ok(doc.includes("acme/repo@scraper"), `${rel} keeps the surviving skill`)
@@ -1491,8 +1869,8 @@ describe("removeSkills (deterministic uninstall)", () => {
     seedInstalledState()
     const report = await removeSkills({ repoRoot: repo, ids: ["https://skills.sh/acme/repo/scraper"], runRemove: fakeRemover([]) })
     assert.deepEqual(report.removed, ["acme/repo@scraper"])
-    const config = readJson("vivicy.json") as { requiredSkills: string[] }
-    assert.deepEqual(config.requiredSkills, ["anthropics/skills@pdf"])
+    const config = readJson("vivicy.json") as { skills: { id: string }[] }
+    assert.deepEqual(declaredIds(), ["anthropics/skills@pdf"])
   })
 
   it("refuses a not-installed id and an invalid id with machine reasons (never silent)", async () => {
@@ -1505,8 +1883,8 @@ describe("removeSkills (deterministic uninstall)", () => {
     assert.equal(calls.length, 0, "nothing not-installed is ever passed to the remover")
     const reasons = report.rejected.map((r) => r.reason).sort()
     assert.deepEqual(reasons, ["invalid_id", "not_installed"])
-    const config = readJson("vivicy.json") as { requiredSkills: string[] }
-    assert.equal(config.requiredSkills.length, 2)
+    const config = readJson("vivicy.json") as { skills: { id: string }[] }
+    assert.equal(config.skills.length, 2)
   })
 
   it("records a remove_failed rejection and leaves the state intact for that skill", async () => {
@@ -1522,14 +1900,14 @@ describe("removeSkills (deterministic uninstall)", () => {
       report.rejected.map((r) => ({ id: r.id, reason: r.reason })),
       [{ id: "anthropics/skills@pdf", reason: "remove_failed" }]
     )
-    const config = readJson("vivicy.json") as { requiredSkills: string[] }
-    assert.deepEqual(config.requiredSkills, ["anthropics/skills@pdf"], "the failed removal keeps its slot")
+    const config = readJson("vivicy.json") as { skills: { id: string }[] }
+    assert.deepEqual(declaredIds(), ["anthropics/skills@pdf"], "the failed removal keeps its slot")
   })
 
   // Emptying the block is the one write a zero-skill project gets; a document that never carried one is still never given one.
   it("renders the empty-set block in the documents that carry it, and creates none in the one that does not", async () => {
     writeJson(SKILLS_REPORT_REL, { ...PRIOR, installed: [PRIOR.installed[0]] })
-    writeJson("vivicy.json", { gateCommand: "npm test", requiredSkills: ["anthropics/skills@pdf"] })
+    writeJson("vivicy.json", { gateCommand: "npm test", skills: declared(["anthropics/skills@pdf"]) })
     writeFileSync(
       resolve(repo, "AGENTS.md"),
       skillsDoc([{ id: "anthropics/skills@pdf", skill: "pdf", name: "pdf", official: true, reason: "" }])
@@ -1544,7 +1922,7 @@ describe("removeSkills (deterministic uninstall)", () => {
   // Removing the last skill over documents that both refuse the write: the summary names every refused document and says what is now stale in them, never that a skill nobody has is unreadable.
   it("names both refused documents when the empty-set block cannot land", async () => {
     writeJson(SKILLS_REPORT_REL, { ...PRIOR, installed: [PRIOR.installed[0]] })
-    writeJson("vivicy.json", { gateCommand: "npm test", requiredSkills: ["anthropics/skills@pdf"] })
+    writeJson("vivicy.json", { gateCommand: "npm test", skills: declared(["anthropics/skills@pdf"]) })
     const doc = skillsDoc([{ id: "anthropics/skills@pdf", skill: "pdf", name: "pdf", official: true, reason: "" }])
     for (const rel of MANAGED_DOCS) {
       writeFileSync(resolve(repo, rel), doc)
@@ -1587,7 +1965,7 @@ describe("removeSkills (deterministic uninstall)", () => {
     )
     assert.deepEqual(readdirSync(resolve(repo, ".agents/skills")).sort(), ["pdf", "scraper"])
     assert.ok(existsSync(resolve(repo, ".agents/skills/pdf/SKILL.md")))
-    assert.deepEqual((readJson("vivicy.json") as { requiredSkills: string[] }).requiredSkills.length, 2)
+    assert.deepEqual(declaredIds().length, 2)
   })
 
   it("throws SkillsConfigError without a target or without ids", async () => {
@@ -1939,11 +2317,12 @@ console.log(\`Added \${source} (\${skill})\`)
   chmodSync(path, 0o755)
 }
 
+// The binary lives in the test target; the CWD is whatever the caller installs into — the heal's re-fetch rung deliberately runs it in a scratch directory, exactly as `npx` would.
 function runStubSkillsCli({ repoRoot, source, skill }: { repoRoot: string; source: string; skill: string }): {
   code: number
   output?: string
 } {
-  const r = spawnSync(resolve(repoRoot, "node_modules/.bin/skills"), ["add", source, "--skill", skill, "-y"], {
+  const r = spawnSync(resolve(repo, "node_modules/.bin/skills"), ["add", source, "--skill", skill, "-y"], {
     cwd: repoRoot,
     encoding: "utf8",
   })
@@ -2036,8 +2415,18 @@ describe("absorption + worktree delivery (real git target, real skills-CLI seam)
         assert.ok(bulletPath && existsSync(join(worktree, bulletPath)), `the bullet's path resolves inside the worktree: ${bulletPath}`)
 
         const config = JSON.parse(readFileSync(join(worktree, "vivicy.json"), "utf8")) as Record<string, unknown>
-        assert.deepEqual(config.requiredSkills, ["acme/pack@spreadsheets"])
+        assert.deepEqual(declaredIds(worktree), ["acme/pack@spreadsheets"])
         assert.equal(config.gateCommand, "npm test", "the owner's own vivicy.json fields ride through untouched")
+        // The PIN rides the same commit: a leg cut from HEAD carries the hashes a later pass verifies those very bytes against.
+        const pinned = pinOf("acme/pack@spreadsheets", worktree)
+        assert.ok(pinned, "the worktree's declaration carries the pin, not just the id")
+        assert.match(pinned.bundle_hash, /^[0-9a-f]{64}$/)
+        assert.equal(
+          pinned.bundle_hash,
+          hashBundle(bundleDir("spreadsheets", worktree))?.bundle_hash,
+          "and it is the hash of the bundle beside it"
+        )
+        assert.deepEqual(Object.keys(pinned.files).sort(), ["LICENSE.txt", "SKILL.md", "scripts/recalc.py"])
       } finally {
         git(repo, ["worktree", "remove", "--force", worktree])
         rmSync(worktreeParent, { recursive: true, force: true })
@@ -2449,7 +2838,7 @@ describe("absorption + worktree delivery (real git target, real skills-CLI seam)
 
       // The owner declares a skill they installed themselves: the next settled run must converge the block instead of leaving the two surfaces split.
       const config = readJson("vivicy.json") as Record<string, unknown>
-      writeJson("vivicy.json", { ...config, requiredSkills: [...(config.requiredSkills as string[]), "owner/own@handmade"] })
+      writeJson("vivicy.json", { ...config, skills: [...(config.skills as unknown[]), { id: "owner/own@handmade" }] })
       git(repo, ["add", "--", "vivicy.json"])
       git(repo, ["-c", "user.email=owner@local", "-c", "user.name=Owner", "commit", "-qm", "owner: my own skill"])
 
@@ -2506,12 +2895,593 @@ describe("absorption + worktree delivery (real git target, real skills-CLI seam)
 
       const body = git(repo, ["log", "-1", "--format=%B"]).stdout
       assert.match(body, /^skills: absorb the project-skills removal\n/)
-      assert.match(body, /the deleted bundle and per-agent links, the shrunken vivicy\.json requiredSkills/)
+      assert.match(body, /the deleted bundle and per-agent links, the shrunken vivicy\.json skills declaration/)
       assert.ok(!body.includes("Installed skill bundles"), "the install wording never rides a removal")
       assert.equal(git(repo, ["status", "--porcelain"]).stdout.trim(), "")
       const removed = git(repo, ["show", "--name-status", "--format=", "HEAD"]).stdout
       assert.match(removed, /^D\t\.agents\/skills\/spreadsheets\/SKILL\.md$/m)
       assert.match(removed, /^D\t\.claude\/skills\/spreadsheets$/m)
+    })
+  })
+})
+
+describe("the maintenance pass verifies every pin and self-heals (real git target, real skills-CLI seam)", () => {
+  const ID = "acme/pack@spreadsheets"
+  const SKILL = "spreadsheets"
+  const TAMPERED = "print('tampered')\n"
+
+  // The whole layout a governed project really has after one selection: a committed bundle, both managed blocks, a pinned vivicy.json and a warm cache.
+  async function governedInstall(): Promise<{ runtimeDir: string; report: SkillsReport; pinnedAt: string }> {
+    seedBaseline()
+    initGovernedGitTarget()
+    writeSkillsCliStub(repo, "relative")
+    const report = await installSkills({
+      repoRoot: repo,
+      spawnScout: fakeScout([{ skills: [{ id: ID, name: "Spreadsheets", reason: "the spec exports CSV" }] }]),
+      fetchAudit: fakeAudits(),
+      runInstall: runStubSkillsCli,
+    })
+    assert.equal(report.phase, "green", report.summary)
+    assert.equal(git(repo, ["status", "--porcelain"]).stdout.trim(), "", "the install absorbs its own writes")
+    const pin = pinOf(ID)
+    assert.ok(pin, "the install pinned the bundle")
+    return { runtimeDir: resolve(repo, ".vivicy-runtime"), report, pinnedAt: pin.bundle_hash }
+  }
+
+  // The runtime dir is where BOTH the cache and the notification log live, so a pass that should say nothing can be proved silent.
+  async function inGovernedProject(fn: (ctx: { runtimeDir: string; pinnedAt: string }) => Promise<void>): Promise<void> {
+    await withHermeticGitEnv(async () => {
+      const runtimeDir = resolve(repo, ".vivicy-runtime")
+      const previous = process.env.VIVICY_RUNTIME_DIR
+      process.env.VIVICY_RUNTIME_DIR = runtimeDir
+      try {
+        const { pinnedAt } = await governedInstall()
+        await fn({ runtimeDir, pinnedAt })
+      } finally {
+        if (previous === undefined) delete process.env.VIVICY_RUNTIME_DIR
+        else process.env.VIVICY_RUNTIME_DIR = previous
+      }
+    })
+  }
+
+  function notifications(runtimeDir: string): Array<{ level: string; event: string; message: string }> {
+    const file = join(runtimeDir, "notifications.jsonl")
+    if (!existsSync(file)) return []
+    return readFileSync(file, "utf8")
+      .trim()
+      .split("\n")
+      .filter((line) => line.length > 0)
+      .map((line) => JSON.parse(line))
+  }
+
+  function bundleBytes(): Record<string, string> {
+    const files: Record<string, string> = {}
+    for (const rel of ["SKILL.md", "LICENSE.txt", "scripts/recalc.py"]) {
+      files[rel] = readFileSync(resolve(bundleDir(SKILL), rel), "utf8")
+    }
+    return files
+  }
+
+  it("says NOTHING when every pinned bundle still matches: no report write, no commit, no notification", async () => {
+    await inGovernedProject(async ({ runtimeDir }) => {
+      const head = git(repo, ["rev-parse", "HEAD"]).stdout.trim()
+      const reportBefore = readFileSync(resolve(repo, SKILLS_REPORT_REL), "utf8")
+
+      const report = maintainSkills({ repoRoot: repo, runInstall: runStubSkillsCli })
+
+      assert.equal(report.phase, "green")
+      assert.equal(report.mode, "maintain")
+      assert.deepEqual(report.verified, [ID])
+      assert.deepEqual(report.healed, [])
+      assert.match(report.summary, /^skills maintenance green: 1 bundle verified unchanged$/)
+      assert.equal(readFileSync(resolve(repo, SKILLS_REPORT_REL), "utf8"), reportBefore, "the selection's own record is left standing")
+      assert.equal(git(repo, ["rev-parse", "HEAD"]).stdout.trim(), head, "a clean pass adds no commit")
+      assert.equal(git(repo, ["status", "--porcelain"]).stdout.trim(), "")
+      assert.deepEqual(notifications(runtimeDir), [], "a verify-clean pass is as silent as a managed file that needed nothing")
+      assert.equal(skillsNotification(report), null)
+    })
+  })
+
+  it("restores a tampered file byte-exact from the local cache, commits it, and still says nothing", async () => {
+    await inGovernedProject(async ({ runtimeDir }) => {
+      const original = bundleBytes()
+      writeFileSync(resolve(bundleDir(SKILL), "scripts/recalc.py"), TAMPERED)
+
+      const report = maintainSkills({
+        repoRoot: repo,
+        runInstall: () => assert.fail("a warm cache must never reach the network"),
+      })
+
+      assert.equal(report.phase, "green", report.summary)
+      assert.deepEqual(report.healed, [ID])
+      assert.deepEqual(report.verified, [])
+      assert.deepEqual(bundleBytes(), original, "the bundle is byte-identical to what was pinned")
+      assert.match(report.summary, /^skills maintenance green: 1 bundle restored to the pinned bytes \(acme\/pack@spreadsheets\)$/)
+      assert.deepEqual(notifications(runtimeDir), [], "a successful self-repair asks the owner for nothing")
+
+      assert.equal(git(repo, ["status", "--porcelain"]).stdout.trim(), "", "the restore is absorbed, so the dev loop starts clean")
+      const body = git(repo, ["log", "-1", "--format=%B"]).stdout
+      assert.match(body, /^skills: absorb the project-skills verification pass\n/)
+      assert.deepEqual(
+        git(repo, ["show", "--name-only", "--format=", "HEAD"]).stdout.trim().split("\n"),
+        [".vivicy/development/reports/skills-report.json"],
+        "the restored bundle is byte-identical to the committed one, so only the pass's own report is left to commit"
+      )
+      const onDisk = readJson(SKILLS_REPORT_REL) as SkillsReport
+      assert.equal(onDisk.mode, "maintain")
+      assert.deepEqual(onDisk.healed, [ID])
+      assert.equal(onDisk.selection_baseline_id, BASELINE_ID, "maintenance never disturbs the scout's settle marker")
+    })
+  })
+
+  // The case where the restore really has bytes to commit: the drift was committed, so putting the pinned bundle back leaves the tree dirty until the stage absorbs it — and a per-issue worktree cut from HEAD then carries the pinned bundle, not the tampered one.
+  it("absorbs the restored bundle itself when the drift had been committed", async () => {
+    await inGovernedProject(async () => {
+      const original = bundleBytes()
+      writeFileSync(resolve(bundleDir(SKILL), "scripts/recalc.py"), TAMPERED)
+      git(repo, ["add", "--", ".agents/skills/spreadsheets/scripts/recalc.py"])
+      git(repo, ["-c", "user.email=owner@local", "-c", "user.name=Owner", "commit", "-qm", "someone: patch the skill"])
+
+      const report = maintainSkills({ repoRoot: repo, runInstall: runStubSkillsCli })
+
+      assert.deepEqual(report.healed, [ID], report.summary)
+      assert.deepEqual(bundleBytes(), original)
+      assert.equal(git(repo, ["status", "--porcelain"]).stdout.trim(), "")
+      assert.deepEqual(git(repo, ["show", "--name-only", "--format=", "HEAD"]).stdout.trim().split("\n").sort(), [
+        ".agents/skills/spreadsheets/scripts/recalc.py",
+        ".vivicy/development/reports/skills-report.json",
+      ])
+      assert.equal(
+        git(repo, ["show", "HEAD:.agents/skills/spreadsheets/scripts/recalc.py"]).stdout,
+        original["scripts/recalc.py"],
+        "HEAD now carries the pinned bytes, so every worktree cut from it does too"
+      )
+    })
+  })
+
+  // A heal writes the bundle directory and nothing else, so its causal record names that path alone: anything the owner dirties DURING the pass — the skills CLI lockfile here, which a pre-pass snapshot could not have seen — stays theirs.
+  it("records the restored bundle only, so owner work appearing mid-pass is never absorbed", async () => {
+    await inGovernedProject(async () => {
+      writeFileSync(resolve(bundleDir(SKILL), "scripts/recalc.py"), TAMPERED)
+      const report = maintainSkills({
+        repoRoot: repo,
+        heal: (args) => {
+          writeFileSync(resolve(repo, "skills-lock.json"), '{ "version": 1, "skills": { "mine": {} } }\n')
+          return healBundle(args)
+        },
+      })
+
+      assert.deepEqual(report.healed, [ID], report.summary)
+      assert.equal(
+        git(repo, ["status", "--porcelain", "--", "skills-lock.json"]).stdout.trim(),
+        "M skills-lock.json",
+        "the owner's mid-pass edit is still uncommitted"
+      )
+      assert.ok(
+        !git(repo, ["show", "--name-only", "--format=", "HEAD"]).stdout.includes("skills-lock.json"),
+        "and it is not in the restore commit"
+      )
+    })
+  })
+
+  it("brings a bundle deleted whole back, links and all", async () => {
+    await inGovernedProject(async () => {
+      const original = bundleBytes()
+      rmSync(bundleDir(SKILL), { recursive: true, force: true })
+
+      const report = maintainSkills({ repoRoot: repo, runInstall: runStubSkillsCli })
+
+      assert.deepEqual(report.healed, [ID])
+      assert.deepEqual(bundleBytes(), original)
+      assert.equal(
+        readFileSync(resolve(repo, ".claude/skills", SKILL, "SKILL.md"), "utf8"),
+        original["SKILL.md"],
+        "the per-agent link points at the restored directory, so it resolves again"
+      )
+      assert.equal(git(repo, ["status", "--porcelain"]).stdout.trim(), "")
+    })
+  })
+
+  // The cold-clone shape: the absorption commit means the pinned bytes are in the repository's own history, so a machine that never held the cache still heals offline.
+  it("falls back to the repository's own history when the machine has no cache, and warms the cache from it", async () => {
+    await inGovernedProject(async ({ runtimeDir, pinnedAt }) => {
+      const original = bundleBytes()
+      // The pin does not carry modes, so the rung has to: an executable script that came back 0644 would be a silent degradation.
+      chmodSync(resolve(bundleDir(SKILL), "scripts/recalc.py"), 0o755)
+      git(repo, ["add", "--", ".agents/skills/spreadsheets/scripts/recalc.py"])
+      git(repo, ["-c", "user.email=o@l", "-c", "user.name=O", "commit", "-qm", "owner: mark the script executable"])
+      rmSync(bundleCacheDir(runtimeDir), { recursive: true, force: true })
+      writeFileSync(resolve(bundleDir(SKILL), "SKILL.md"), "# hijacked\n")
+
+      const report = maintainSkills({
+        repoRoot: repo,
+        runInstall: () => assert.fail("committed bytes must never reach the network either"),
+      })
+
+      assert.deepEqual(report.healed, [ID])
+      assert.deepEqual(bundleBytes(), original)
+      assert.equal(
+        hashBundle(resolve(bundleCacheDir(runtimeDir), pinnedAt))?.bundle_hash,
+        pinnedAt,
+        "a heal from anywhere but the cache warms it, so the same drift never pays twice"
+      )
+      assert.notEqual(
+        lstatSync(resolve(bundleDir(SKILL), "scripts/recalc.py")).mode & 0o111,
+        0,
+        "the history rung carries the committed file modes rather than inventing them"
+      )
+      assert.equal(git(repo, ["diff", "--cached", "--name-only"]).stdout.trim(), "", "the pass leaves nothing staged behind it")
+    })
+  })
+
+  it("refuses a poisoned cache entry on its hash, heals from the next rung, and repairs the entry", async () => {
+    await inGovernedProject(async ({ runtimeDir, pinnedAt }) => {
+      const original = bundleBytes()
+      const cached = resolve(bundleCacheDir(runtimeDir), pinnedAt)
+      writeFileSync(resolve(cached, "scripts/recalc.py"), "print('poison')\n")
+      writeFileSync(resolve(bundleDir(SKILL), "scripts/recalc.py"), TAMPERED)
+
+      const report = maintainSkills({
+        repoRoot: repo,
+        runInstall: () => assert.fail("the history rung answers before any network"),
+      })
+
+      assert.deepEqual(report.healed, [ID])
+      assert.deepEqual(bundleBytes(), original, "the poison never reached the project")
+      assert.equal(hashBundle(cached)?.bundle_hash, pinnedAt, "and the entry filed under that hash now really is those bytes")
+    })
+  })
+
+  it("re-fetches as the last rung, and takes the result ONLY when upstream still serves the pinned bytes", async () => {
+    await inGovernedProject(async ({ runtimeDir }) => {
+      const original = bundleBytes()
+      rmSync(bundleCacheDir(runtimeDir), { recursive: true, force: true })
+      rmSync(resolve(repo, ".git"), { recursive: true, force: true })
+      writeFileSync(resolve(bundleDir(SKILL), "scripts/recalc.py"), TAMPERED)
+
+      const exact = maintainSkills({ repoRoot: repo, runInstall: runStubSkillsCli })
+      assert.deepEqual(exact.healed, [ID], exact.summary)
+      assert.deepEqual(bundleBytes(), original)
+
+      rmSync(bundleCacheDir(runtimeDir), { recursive: true, force: true })
+      writeFileSync(resolve(bundleDir(SKILL), "scripts/recalc.py"), TAMPERED)
+      const drifted = maintainSkills({
+        repoRoot: repo,
+        runInstall: ({ repoRoot: into, skill }: { repoRoot: string; source: string; skill: string }) => {
+          writeBundle(into, skill, { "scripts/recalc.py": "print('upstream moved on')\n" })
+          return { code: 0, output: "installed a different version" }
+        },
+      })
+      assert.equal(drifted.phase, "failed", drifted.summary)
+      assert.deepEqual(drifted.healed, [])
+      assert.equal(drifted.rejected[0].reason, "heal_failed")
+      assert.match(drifted.rejected[0].detail ?? "", /refetch: the restored bytes do not match the pin/)
+      assert.equal(
+        readFileSync(resolve(bundleDir(SKILL), "scripts/recalc.py"), "utf8"),
+        TAMPERED,
+        "a candidate that fails the hash gate never replaces the bundle"
+      )
+    })
+  })
+
+  it("tells the owner exactly once when no rung can reproduce the pinned bytes, and never stops the build", async () => {
+    await inGovernedProject(async ({ runtimeDir }) => {
+      rmSync(bundleCacheDir(runtimeDir), { recursive: true, force: true })
+      rmSync(resolve(repo, ".git"), { recursive: true, force: true })
+      rmSync(bundleDir(SKILL), { recursive: true, force: true })
+
+      const report = maintainSkills({
+        repoRoot: repo,
+        runInstall: () => ({ code: 1, output: "error: skill not found upstream" }),
+      })
+
+      assert.equal(report.phase, "failed")
+      assert.deepEqual(
+        report.rejected.map((r) => [r.id, r.reason]),
+        [[ID, "heal_failed"]]
+      )
+      const detail = report.rejected[0].detail ?? ""
+      assert.match(detail, /^the bundle is gone from the project;/)
+      assert.match(detail, /cache: no cached copy of the pinned bundle on this machine/)
+      assert.match(detail, /git holds no committed copy of \.agents\/skills\/spreadsheets/)
+      assert.match(detail, /refetch: the skills CLI could not re-fetch acme\/pack@spreadsheets/)
+      assert.match(report.summary, /^skills maintenance failed: 1 bundle could NOT be restored \(acme\/pack@spreadsheets\)/)
+      assert.match(report.summary, /re-install it or drop it from vivicy\.json#skills; the build continues without it/)
+
+      const rows = notifications(runtimeDir)
+      assert.equal(rows.length, 1, "exactly one notification, for the one thing the owner must do")
+      assert.equal(rows[0].level, "error")
+      assert.equal(rows[0].event, "heal_failed")
+      assert.match(rows[0].message, /^1 project skill no longer matches the bytes this project pinned/)
+      assert.match(
+        rows[0].message,
+        /\(acme\/pack@spreadsheets\) — re-install it or drop it from vivicy\.json#skills; the build runs without it/
+      )
+    })
+  })
+
+  // The pass must always leave a terminal report: a restore that cannot even run is one more reason the bundle is not there, never an exception escaping into the supervisor.
+  it("turns a restore that could not even run into the same actionable rejection", async () => {
+    await inGovernedProject(async ({ runtimeDir }) => {
+      writeFileSync(resolve(bundleDir(SKILL), "SKILL.md"), "# tampered\n")
+      const report = maintainSkills({
+        repoRoot: repo,
+        heal: () => {
+          throw new Error("EROFS: read-only file system, mkdir '/nope'")
+        },
+      })
+
+      assert.equal(report.phase, "failed")
+      assert.equal(report.rejected[0].reason, "heal_failed")
+      assert.match(report.rejected[0].detail ?? "", /^1 file differs from the pin \(SKILL\.md\); the restore could not run \(EROFS/)
+      assert.equal(notifications(runtimeDir).length, 1, "and the owner still gets the one notification that asks for the fix")
+      assert.equal((readJson(SKILLS_REPORT_REL) as SkillsReport).phase, "failed", "the on-disk report is terminal, never stuck in flight")
+    })
+  })
+
+  // The pass runs at every supervisor start, so a bundle that stays broken must cost ONE commit and ONE notification in total, not one per start — and the re-fetch keeps being retried, because nothing but a retry can ever repair it without a human.
+  it("says the same thing only once, however many starts a broken bundle survives", async () => {
+    await inGovernedProject(async ({ runtimeDir }) => {
+      rmSync(bundleCacheDir(runtimeDir), { recursive: true, force: true })
+      rmSync(bundleDir(SKILL), { recursive: true, force: true })
+      git(repo, ["rm", "-r", "-q", "--cached", ".agents/skills/spreadsheets"])
+      git(repo, ["-c", "user.email=o@l", "-c", "user.name=O", "commit", "-qm", "someone: drop the bundle"])
+      let fetches = 0
+      const pass = () =>
+        maintainSkills({
+          repoRoot: repo,
+          runInstall: () => {
+            fetches += 1
+            return { code: 1, output: "error: 404 upstream" }
+          },
+        })
+
+      const first = pass()
+      const head = git(repo, ["rev-parse", "HEAD"]).stdout.trim()
+      const stamp = (readJson(SKILLS_REPORT_REL) as SkillsReport).updated_at
+      const second = pass()
+      const third = pass()
+
+      assert.equal(first.phase, "failed")
+      assert.deepEqual([second.phase, third.phase], ["failed", "failed"], "every pass still reports the truth")
+      assert.equal(fetches, 3, "and every pass still RETRIES the restore — a retry is the only thing that can repair it")
+      assert.equal(git(repo, ["rev-parse", "HEAD"]).stdout.trim(), head, "but an unchanged outcome adds no further commit")
+      const onDisk = readJson(SKILLS_REPORT_REL) as SkillsReport
+      assert.equal(onDisk.updated_at, stamp, "and no further report write")
+      assert.equal(onDisk.phase, "failed", "the published report is the TERMINAL one, never a pass stranded at `healing`")
+      assert.equal(notifications(runtimeDir).length, 1, "the owner is told once, not once per start")
+      assert.equal(git(repo, ["status", "--porcelain"]).stdout.trim(), "", "and the tree the dev loop meets is clean on every start")
+    })
+  })
+
+  // The heal replaces the whole bundle directory, so those bytes are Vivicy's however dirty the path was when the pass opened: leaving them out of the absorption would refuse the owner's next Run for bytes Vivicy wrote AND blame them for it.
+  it("absorbs a restore even when the drifted path was already dirty at open", async () => {
+    await inGovernedProject(async () => {
+      const original = bundleBytes()
+      // HEAD's copy is a tamper (committed), and the working tree carries a second one — so the path is dirty at open AND the restore differs from HEAD.
+      writeFileSync(resolve(bundleDir(SKILL), "scripts/recalc.py"), "print('committed tamper')\n")
+      git(repo, ["add", "--", ".agents/skills/spreadsheets/scripts/recalc.py"])
+      git(repo, ["-c", "user.email=o@l", "-c", "user.name=O", "commit", "-qm", "someone: patch the skill"])
+      writeFileSync(resolve(bundleDir(SKILL), "scripts/recalc.py"), TAMPERED)
+
+      const report = maintainSkills({ repoRoot: repo, runInstall: runStubSkillsCli })
+
+      assert.deepEqual(report.healed, [ID], report.summary)
+      assert.deepEqual(bundleBytes(), original)
+      assert.equal(
+        git(repo, ["status", "--porcelain"]).stdout.trim(),
+        "",
+        "the restored bytes are committed, never left dirty as if they were the owner's"
+      )
+      assert.equal(git(repo, ["show", "HEAD:.agents/skills/spreadsheets/scripts/recalc.py"]).stdout, original["scripts/recalc.py"])
+    })
+  })
+
+  // A red audit the SELECTION recorded is a standing fact the owner still has to act on; a verification pass writing over the report may not wipe the surface that shows it.
+  it("carries the selection's own refusals forward when it publishes over them", async () => {
+    await inGovernedProject(async () => {
+      const prior = readJson(SKILLS_REPORT_REL) as SkillsReport
+      writeJson(SKILLS_REPORT_REL, {
+        ...prior,
+        rejected: [{ id: "evil/pack@miner", reason: "red_audit", detail: "audits [gateseal:fail]" }],
+      })
+      writeFileSync(resolve(bundleDir(SKILL), "SKILL.md"), "# tampered\n")
+
+      const report = maintainSkills({ repoRoot: repo, runInstall: runStubSkillsCli })
+
+      assert.deepEqual(report.healed, [ID])
+      assert.deepEqual(
+        report.rejected,
+        [{ id: "evil/pack@miner", reason: "red_audit", detail: "audits [gateseal:fail]" }],
+        "the audit refusal survives the verification pass"
+      )
+      assert.match(report.summary, /^skills maintenance green: 1 bundle restored/, "and it is not counted as a restore failure")
+      assert.deepEqual(
+        (readJson(SKILLS_REPORT_REL) as SkillsReport).rejected?.map((r) => r.reason),
+        ["red_audit"]
+      )
+    })
+  })
+
+  // The cause the owner reads must be the real one: a directory that cannot be READ is not a directory that is GONE, and only one of the two is fixed by re-installing.
+  it("names an unreadable bundle as unreadable, never as gone", async () => {
+    await inGovernedProject(async ({ runtimeDir }) => {
+      rmSync(bundleCacheDir(runtimeDir), { recursive: true, force: true })
+      chmodSync(bundleDir(SKILL), 0o000)
+      try {
+        const report = maintainSkills({ repoRoot: repo, runInstall: () => ({ code: 1, output: "error: 404" }) })
+        assert.equal(report.phase, "failed", report.summary)
+        assert.match(report.rejected[0].detail ?? "", /^the bundle is on disk but could not be read;/)
+      } finally {
+        chmodSync(bundleDir(SKILL), 0o700)
+      }
+    })
+  })
+
+  // What is still on disk for a bundle no rung could restore is the DRIFT: committing it would put a tamper in HEAD under a message claiming a restore, destroy the history rung the next pass reads, and ship the tampered skill to every worktree cut from HEAD.
+  it("never commits the bytes it failed to restore — HEAD keeps the pin, so the next pass heals from history", async () => {
+    await inGovernedProject(async ({ runtimeDir }) => {
+      const original = bundleBytes()
+      rmSync(bundleCacheDir(runtimeDir), { recursive: true, force: true })
+      writeFileSync(resolve(bundleDir(SKILL), "SKILL.md"), "# tampered\n")
+
+      const failed = maintainSkills({
+        repoRoot: repo,
+        heal: () => {
+          throw new Error("EROFS: read-only file system, mkdir '/nope'")
+        },
+      })
+
+      assert.equal(failed.phase, "failed", failed.summary)
+      assert.equal(
+        git(repo, ["show", "HEAD:.agents/skills/spreadsheets/SKILL.md"]).stdout,
+        original["SKILL.md"],
+        "HEAD still carries the pinned bytes, so the history rung is intact"
+      )
+      assert.deepEqual(
+        git(repo, ["show", "--name-only", "--format=", "HEAD"]).stdout.trim().split("\n"),
+        [".vivicy/development/reports/skills-report.json"],
+        "the commit carries the pass's own report and NOT the drift"
+      )
+      assert.equal(
+        git(repo, ["status", "--porcelain", "--", ".agents"]).stdout.trim(),
+        "M .agents/skills/spreadsheets/SKILL.md",
+        "the drift stays uncommitted where the owner left it"
+      )
+
+      // The counterfactual the defect destroyed: with HEAD intact, the very next pass heals offline from history.
+      const healed = maintainSkills({ repoRoot: repo, runInstall: () => assert.fail("history answers before any network") })
+      assert.equal(healed.phase, "green", healed.summary)
+      assert.deepEqual(healed.healed, [ID])
+      assert.deepEqual(bundleBytes(), original)
+      assert.equal(git(repo, ["status", "--porcelain"]).stdout.trim(), "")
+    })
+  })
+
+  // Byte-equality may suppress a record that says the same thing, never a phase TRANSITION: a pass that announced `healing` and then said nothing would leave every surface reading work in progress that finished.
+  it("always publishes how a pass it announced ended, even when it ended exactly as the last one did", async () => {
+    await inGovernedProject(async () => {
+      const first = () => {
+        writeFileSync(resolve(bundleDir(SKILL), "SKILL.md"), "# tampered\n")
+        return maintainSkills({ repoRoot: repo, runInstall: runStubSkillsCli })
+      }
+      assert.deepEqual(first().healed, [ID])
+      const between = readJson(SKILLS_REPORT_REL) as SkillsReport
+      assert.equal(between.phase, "green")
+
+      const again = first()
+
+      assert.deepEqual(again.healed, [ID], "the identical repair happened again")
+      const onDisk = readJson(SKILLS_REPORT_REL) as SkillsReport
+      assert.equal(onDisk.phase, "green", "and the report on disk is SETTLED, never stranded at `healing`")
+      assert.equal(isSkillsPhaseInFlight(onDisk.phase), false, "so no surface reads it as work in progress")
+      assert.match(onDisk.summary ?? "", /^skills maintenance green: 1 bundle restored/)
+      assert.equal(git(repo, ["status", "--porcelain"]).stdout.trim(), "")
+    })
+  })
+
+  it("clears that failure the moment the bundle is whole again", async () => {
+    await inGovernedProject(async ({ runtimeDir }) => {
+      const original = bundleBytes()
+      rmSync(bundleCacheDir(runtimeDir), { recursive: true, force: true })
+      rmSync(resolve(repo, ".git"), { recursive: true, force: true })
+      rmSync(bundleDir(SKILL), { recursive: true, force: true })
+      assert.equal(maintainSkills({ repoRoot: repo, runInstall: () => ({ code: 1 }) }).phase, "failed")
+
+      writeBundle(repo, SKILL, { "LICENSE.txt": original["LICENSE.txt"], "scripts/recalc.py": original["scripts/recalc.py"] })
+      writeFileSync(resolve(bundleDir(SKILL), "SKILL.md"), original["SKILL.md"])
+
+      const clean = maintainSkills({ repoRoot: repo, runInstall: () => assert.fail("nothing drifted, nothing to fetch") })
+      assert.equal(clean.phase, "green")
+      assert.deepEqual(clean.verified, [ID])
+      const onDisk = readJson(SKILLS_REPORT_REL) as SkillsReport
+      assert.deepEqual(onDisk.rejected, [], "the report the surfaces read no longer names a broken skill")
+      assert.deepEqual(onDisk.verified, [ID])
+    })
+  })
+
+  // The verdict is the bundle hash and nothing else: an altered pin makes every rung fail its gate, which is loud, rather than silently unpinning the skill.
+  it("bites when the PIN is what changed: no rung can satisfy a hash the bytes never had", async () => {
+    await inGovernedProject(async () => {
+      const original = bundleBytes()
+      const config = readJson("vivicy.json") as { skills: Array<{ id: string; bundle_hash: string }> }
+      config.skills[0].bundle_hash = "f".repeat(64)
+      writeJson("vivicy.json", config)
+
+      const report = maintainSkills({ repoRoot: repo, runInstall: runStubSkillsCli })
+
+      assert.equal(report.phase, "failed")
+      assert.deepEqual(
+        report.rejected.map((r) => r.reason),
+        ["heal_failed"]
+      )
+      assert.match(
+        report.rejected[0].detail ?? "",
+        /^every file matches the pin's own manifest but not its bundle hash — the pin itself looks hand-edited;/,
+        "the cause names the pin, not bytes that never moved"
+      )
+      assert.match(report.rejected[0].detail ?? "", /cache: no cached copy of the pinned bundle/)
+      assert.match(report.rejected[0].detail ?? "", /git: the restored bytes do not match the pin/)
+      assert.deepEqual(bundleBytes(), original, "no rung wrote into the project: each candidate is staged and hashed outside it")
+      assert.equal(
+        git(repo, ["status", "--porcelain", "--", ".agents"]).stdout.trim(),
+        "",
+        "a pass that could restore nothing leaves the bundle exactly as it found it"
+      )
+    })
+  })
+
+  it("defers to a stage already in flight instead of reading a half-written bundle", async () => {
+    await inGovernedProject(async ({ runtimeDir }) => {
+      const reportBefore = readFileSync(resolve(repo, SKILLS_REPORT_REL), "utf8")
+      writeFileSync(resolve(bundleDir(SKILL), "SKILL.md"), "# mid-install\n")
+      writeFileSync(
+        join(runtimeDir, "skills-install.lock"),
+        `${JSON.stringify({ pid: process.pid, started_at: new Date().toISOString() }, null, 2)}\n`
+      )
+
+      const report = maintainSkills({ repoRoot: repo, runInstall: () => assert.fail("a deferred pass touches nothing") })
+
+      assert.match(report.summary, /^skills maintenance deferred: a skills install is already in flight \(pid \d+\)/)
+      assert.deepEqual(report.verified, [])
+      assert.equal(readFileSync(resolve(repo, SKILLS_REPORT_REL), "utf8"), reportBefore)
+      assert.equal(readFileSync(resolve(bundleDir(SKILL), "SKILL.md"), "utf8"), "# mid-install\n", "the holder's bytes are left alone")
+      assert.deepEqual(notifications(runtimeDir), [])
+    })
+  })
+
+  it("costs a project with nothing pinned no lock, no process and no report", () => {
+    writeJson("vivicy.json", { gateCommand: "npm test", skills: declared(["owner/own@handmade"]) })
+    assert.equal(maintenanceNeeded(repo), false, "an unpinned declaration is the owner's intent, not bytes to verify")
+    const report = maintainSkills({ repoRoot: repo, runInstall: () => assert.fail("nothing to verify") })
+    assert.match(report.summary, /^no pinned skill bundles to verify — vivicy\.json#skills declares none$/)
+    assert.ok(!existsSync(resolve(repo, SKILLS_REPORT_REL)), "and it writes no report to say so")
+    assert.ok(!existsSync(resolve(repo, ".vivicy-runtime/skills-install.lock")), "and claims no lock: it never opens a stage tree at all")
+    assert.throws(() => maintainSkills({}), SkillsConfigError)
+  })
+
+  it("runs from the CLI as --maintain, exclusive of the install and remove modes", async () => {
+    await inGovernedProject(async () => {
+      const original = bundleBytes()
+      writeFileSync(resolve(bundleDir(SKILL), "scripts/recalc.py"), TAMPERED)
+      const script = resolve(dirname(fileURLToPath(import.meta.url)), "install-skills.ts")
+
+      const healed = spawnSync(process.execPath, [script, "--maintain"], {
+        cwd: repo,
+        encoding: "utf8",
+        env: { ...process.env, VIVICY_TARGET_ROOT: repo },
+      })
+      assert.equal(healed.status, 0, `${healed.stdout}\n${healed.stderr}`)
+      assert.match(healed.stdout, /1 bundle restored to the pinned bytes/)
+      assert.deepEqual(bundleBytes(), original)
+
+      const clash = spawnSync(process.execPath, [script, "--maintain", "--ids", "a/b@c"], {
+        cwd: repo,
+        encoding: "utf8",
+        env: { ...process.env, VIVICY_TARGET_ROOT: repo },
+      })
+      assert.equal(clash.status, 2)
+      assert.match(clash.stderr, /--ids, --remove and --maintain are mutually exclusive/)
     })
   })
 })
