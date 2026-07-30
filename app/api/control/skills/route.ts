@@ -1,4 +1,4 @@
-import { ControlError, readSkillsReport, removeSkills, startSkillsInstall } from "@/lib/control"
+import { ControlError, readSkillsReport, readSkillUsage, removeSkills, startSkillsInstall } from "@/lib/control"
 import { appendNotification } from "@/lib/notifications"
 import { getSpawner } from "@/lib/spawner"
 
@@ -8,7 +8,8 @@ export const dynamic = "force-dynamic"
 
 export async function GET() {
   try {
-    return Response.json({ ok: true, report: readSkillsReport() })
+    const report = readSkillsReport()
+    return Response.json({ ok: true, report, usage: readSkillUsage(report) })
   } catch (error) {
     if (error instanceof ControlError) {
       return Response.json({ ok: false, error: error.message, code: error.code }, { status: 422 })

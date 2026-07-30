@@ -20,6 +20,7 @@ import {
   readRetroReport,
   readRunState,
   readSkillsReport,
+  readSkillUsage,
   removeSkills,
   startDocPrep,
   startProductRun,
@@ -581,6 +582,64 @@ describe("readSkillsReport", () => {
     mkdirSync(path.dirname(file), { recursive: true })
     writeFileSync(file, "{ not json")
     expect(readSkillsReport()).toBeNull()
+  })
+})
+
+function writeProgressLedger(ledger: Record<string, unknown>) {
+  const file = path.join(targetRoot, ".vivicy", "development", "progress-ledger.json")
+  mkdirSync(path.dirname(file), { recursive: true })
+  writeFileSync(file, JSON.stringify(ledger, null, 2))
+}
+
+describe("readSkillUsage", () => {
+  const report = {
+    phase: "green",
+    installed: [{ id: "acme/a@x" }, { id: "acme/b@y" }],
+  }
+
+  it("counts the ledger's per-issue declarations against the project's installed set", () => {
+    writeProgressLedger({
+      schema_version: 1,
+      revision: 3,
+      graph_item_states: [],
+      active_items: [],
+      skill_usage: [
+        { issue_id: "ISSUE-1", installed: ["acme/a@x", "acme/b@y"], applied: ["acme/a@x"], not_installed: ["ghost/z@w"] },
+        { issue_id: "ISSUE-2", installed: ["acme/a@x", "acme/b@y"], applied: ["acme/a@x"], not_installed: [] },
+        { issue_id: "ISSUE-3", installed: ["acme/a@x"], applied: [], not_installed: [] },
+      ],
+    })
+    expect(readSkillUsage(report as never)).toEqual({
+      issues: 3,
+      applied: [
+        { id: "acme/a@x", applied: 2, issues: 3 },
+        { id: "acme/b@y", applied: 0, issues: 2 },
+      ],
+      not_installed: [{ id: "ghost/z@w", issues: 1 }],
+    })
+  })
+
+  it("answers with an empty denominator — never a throw — when the ledger is absent or unreadable", () => {
+    expect(readSkillUsage(report as never).issues).toBe(0)
+    writeProgressLedger({} as Record<string, unknown>)
+    expect(readSkillUsage(report as never).issues).toBe(0)
+    writeFileSync(path.join(targetRoot, ".vivicy", "development", "progress-ledger.json"), "{ not json")
+    expect(readSkillUsage(report as never)).toEqual({
+      issues: 0,
+      applied: [
+        { id: "acme/a@x", applied: 0, issues: 0 },
+        { id: "acme/b@y", applied: 0, issues: 0 },
+      ],
+      not_installed: [],
+    })
+  })
+
+  it("names no skill — and never opens the ledger — when the project has none, since three surfaces poll this route", () => {
+    writeProgressLedger({ skill_usage: [{ issue_id: "ISSUE-1", installed: ["acme/a@x"], applied: ["acme/a@x"], not_installed: [] }] })
+    expect(readSkillUsage(null)).toEqual({ issues: 0, applied: [], not_installed: [] })
+    expect(readSkillUsage({ installed: [] } as never)).toEqual({ issues: 0, applied: [], not_installed: [] })
+    rmSync(targetRoot, { recursive: true, force: true })
+    expect(readSkillUsage(null)).toEqual({ issues: 0, applied: [], not_installed: [] })
   })
 })
 

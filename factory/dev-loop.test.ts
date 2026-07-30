@@ -53,9 +53,13 @@ import {
   runLoop,
   runLoopParallel,
   selectIndependentBatch,
+  skillDeclarationRel,
   spikeGatesSatisfied,
 } from "./dev-loop.ts"
 import type { Config, Issue, LoopSteps, ProcessedIssue } from "./dev-loop.ts"
+import type { ProgressLedger } from "./progress-ledger.ts"
+import { SKILLS_REPORT_FILE } from "../lib/skills-report.ts"
+import { deriveSkillUsage } from "../lib/skill-usage.ts"
 import { TRANSCRIPT_DIRS } from "./agent-spawn.ts"
 import { nextSupervisorAction } from "./dev-loop-supervised.ts"
 
@@ -3278,5 +3282,226 @@ test("ensureCleanTreeForRun creates no empty commit on an already-clean tree", (
     assert.deepEqual(repo.status(), [])
   } finally {
     rmSync(repo.root, { recursive: true, force: true })
+  }
+})
+
+function writeSkillsReport(installed: string[]): () => void {
+  const abs = resolve(repoRoot, SKILLS_REPORT_FILE)
+  mkdirSync(dirname(abs), { recursive: true })
+  writeFileSync(abs, `${JSON.stringify({ phase: "green", installed: installed.map((id) => ({ id })) }, null, 2)}\n`)
+  return () => rmSync(abs, { force: true })
+}
+
+function declaringLeg(role: string, byIssue: Record<string, string[] | undefined>) {
+  return (issue: Issue, cfg: Config) => {
+    const ids = byIssue[issue.id]
+    if (ids === undefined) return
+    const abs = resolve(repoRoot, skillDeclarationRel(cfg, issue.id, role))
+    mkdirSync(dirname(abs), { recursive: true })
+    writeFileSync(abs, `${JSON.stringify({ skills_applied: ids }, null, 2)}\n`)
+  }
+}
+
+test("SKILL USAGE: both legs' declarations land on the issue's ledger record, and an id the project does not have is dropped", () => {
+  const { dir, cfg } = buildScratch("true")
+  const cleanupReport = writeSkillsReport(["acme/kit@postgres", "acme/kit@shadcn"])
+  try {
+    const processed = runLoop(
+      { ...cfg, claudeQuotaProbeEnabled: false },
+      {
+        ...stubLifecycle,
+        commit: () => {},
+        runImplementer: declaringLeg("implementer", { "ISSUE-A": ["acme/kit@postgres"], "ISSUE-B": [] }),
+        runReviewer: declaringLeg("reviewer", { "ISSUE-A": ["ghost/x@y", "acme/kit@postgres", "acme/kit@shadcn"] }),
+      }
+    )
+    assert.deepEqual(processed, [
+      { id: "ISSUE-A", status: "verified" },
+      { id: "ISSUE-B", status: "verified" },
+    ])
+    const ledger = JSON.parse(readFileSync(resolve(repoRoot, cfg.progressLedgerPath), "utf8")) as ProgressLedger
+    assert.deepEqual(
+      ledger.skill_usage,
+      [
+        {
+          issue_id: "ISSUE-A",
+          installed: ["acme/kit@postgres", "acme/kit@shadcn"],
+          applied: ["acme/kit@postgres", "acme/kit@shadcn"],
+          not_installed: ["ghost/x@y"],
+        },
+        { issue_id: "ISSUE-B", installed: ["acme/kit@postgres", "acme/kit@shadcn"], applied: [], not_installed: [] },
+      ],
+      "one entry per issue: the implementer's and the reviewer's ids union, the uninstalled claim is kept apart, and a leg answering [] still answers"
+    )
+    assert.deepEqual(deriveSkillUsage({ entries: ledger.skill_usage, installed: ["acme/kit@postgres", "acme/kit@shadcn"] }), {
+      issues: 2,
+      applied: [
+        { id: "acme/kit@postgres", applied: 1, issues: 2 },
+        { id: "acme/kit@shadcn", applied: 1, issues: 2 },
+      ],
+      not_installed: [{ id: "ghost/x@y", issues: 1 }],
+    })
+  } finally {
+    cleanupReport()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test("SKILL USAGE: with no skills report in the tree, every declared id is a claim the project cannot back, said out loud per leg", () => {
+  const { dir, cfg } = buildScratch("true")
+  const realWrite = process.stderr.write.bind(process.stderr)
+  const captured: string[] = []
+  try {
+    process.stderr.write = ((chunk: string | Uint8Array) => {
+      captured.push(String(chunk))
+      return true
+    }) as typeof process.stderr.write
+    runLoop(
+      { ...cfg, claudeQuotaProbeEnabled: false },
+      {
+        ...stubLifecycle,
+        commit: () => {},
+        runImplementer: declaringLeg("implementer", { "ISSUE-A": ["acme/kit@postgres"], "ISSUE-B": [] }),
+        runReviewer: () => {},
+      }
+    )
+    process.stderr.write = realWrite
+    const ledger = JSON.parse(readFileSync(resolve(repoRoot, cfg.progressLedgerPath), "utf8")) as ProgressLedger
+    assert.deepEqual(ledger.skill_usage, [
+      { issue_id: "ISSUE-A", installed: [], applied: [], not_installed: ["acme/kit@postgres"] },
+      { issue_id: "ISSUE-B", installed: [], applied: [], not_installed: [] },
+    ])
+    const said = captured.join("")
+    assert.match(
+      said,
+      /\[skills\] ISSUE-A: the implementer declared 1 skill this project does not have — dropped from the usage record: acme\/kit@postgres/,
+      "the drop is announced, naming the issue, the leg and the id — never normalized away in silence"
+    )
+    assert.equal(said.match(/dropped from the usage record/g)?.length, 1, "only the leg that declared it speaks, and only once")
+  } finally {
+    process.stderr.write = realWrite
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test("SKILL USAGE: a declaration left behind by an earlier run is cleared, so a silent leg leaves the issue out of the record", () => {
+  const { dir, cfg } = buildScratch("true")
+  const cleanupReport = writeSkillsReport(["acme/kit@postgres"])
+  try {
+    const stale = resolve(repoRoot, skillDeclarationRel(cfg, "ISSUE-A", "implementer"))
+    mkdirSync(dirname(stale), { recursive: true })
+    writeFileSync(stale, `${JSON.stringify({ skills_applied: ["acme/kit@postgres"] }, null, 2)}\n`)
+    runLoop({ ...cfg, claudeQuotaProbeEnabled: false }, { ...stubSteps })
+    const ledger = JSON.parse(readFileSync(resolve(repoRoot, cfg.progressLedgerPath), "utf8")) as ProgressLedger
+    assert.equal(ledger.skill_usage, undefined, "legs that declared nothing this run are counted by nothing")
+    assert.ok(!existsSync(stale), "the previous run's declaration was removed before this attempt's legs ran")
+  } finally {
+    cleanupReport()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test("SKILL USAGE: a malformed declaration still counts the issue and contributes no id", () => {
+  const { dir, cfg } = buildScratch("true")
+  const cleanupReport = writeSkillsReport(["acme/kit@postgres"])
+  try {
+    runLoop(
+      { ...cfg, claudeQuotaProbeEnabled: false },
+      {
+        ...stubLifecycle,
+        commit: () => {},
+        runImplementer: (issue: Issue, c: Config) => {
+          const abs = resolve(repoRoot, skillDeclarationRel(c, issue.id, "implementer"))
+          mkdirSync(dirname(abs), { recursive: true })
+          writeFileSync(abs, issue.id === "ISSUE-A" ? `{ "skills_applied": "acme/kit@postgres" }\n` : `["acme/kit@postgres"]\n`)
+        },
+        runReviewer: () => {},
+      }
+    )
+    const ledger = JSON.parse(readFileSync(resolve(repoRoot, cfg.progressLedgerPath), "utf8")) as ProgressLedger
+    assert.deepEqual(
+      ledger.skill_usage,
+      [{ issue_id: "ISSUE-A", installed: ["acme/kit@postgres"], applied: [], not_installed: [] }],
+      "a parseable object with a wrong-typed field is an answer of none; an unparseable one, and a top-level array, are no answer at all"
+    )
+  } finally {
+    cleanupReport()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test("the implementer and reviewer prompts order the skills declaration at exactly the path the orchestrator reads", () => {
+  const read = (name: string) => readFileSync(fileURLToPath(new URL(`./prompts/${name}`, import.meta.url)), "utf8")
+  for (const role of ["implementer", "reviewer"]) {
+    const text = read(`${role}.md`)
+    assert.ok(
+      text.includes(skillDeclarationRel(DEFAULT_CONFIG, "{{issue_id}}", role)),
+      `${role}.md names the exact declaration path the orchestrator reads`
+    )
+    assert.match(text, /"skills_applied"/, `${role}.md gives the field name`)
+    assert.match(text, /## Project skills/, `${role}.md points at the block that lists the installed ids`)
+    assert.match(text, /VERBATIM/, `${role}.md requires the ids verbatim from that list`)
+    assert.match(text, /dropped by the orchestrator/, `${role}.md states that an id outside the list is dropped`)
+    assert.match(text, /"skills_applied": \[\]/, `${role}.md requires the empty declaration rather than no file`)
+  }
+})
+
+test("SKILL USAGE (parallel): the declaration and the installed set are read from the ISSUE'S WORKTREE, never the main root", async () => {
+  const issues = [{ id: "ISSUE-W", depends_on: [], graph_refs: ["node:ledger"] }]
+  const { dir, cfg } = buildParallelScratch({ issues })
+  const mainReport = resolve(repoRoot, SKILLS_REPORT_FILE)
+  const mainDeclaration = resolve(repoRoot, skillDeclarationRel(cfg, "ISSUE-W", "implementer"))
+  rmSync(mainReport, { force: true })
+  rmSync(mainDeclaration, { force: true })
+  const worktreeRoots: string[] = []
+  try {
+    // Both files exist ONLY in the worktree: reading them from the main root instead finds neither, so the issue never reaches the usage record at all.
+    const declaringInWorktree =
+      (role: string, ids: string[]) =>
+      async (issue: Issue, c?: Config): Promise<{ output: string; result: { status: number } }> => {
+        const root = c?.execRoot
+        assert.ok(root && root !== repoRoot, `the ${role} runs in the issue's worktree, not the main root`)
+        worktreeRoots.push(root!)
+        for (const [rel, body] of [
+          [SKILLS_REPORT_FILE, { installed: [{ id: "acme/kit@postgres" }] }],
+          [skillDeclarationRel(cfg, issue.id, role), { skills_applied: ids }],
+        ] as const) {
+          const abs = resolve(root!, rel)
+          mkdirSync(dirname(abs), { recursive: true })
+          writeFileSync(abs, `${JSON.stringify(body, null, 2)}\n`)
+        }
+        return { output: `${role} ${issue.id}`, result: { status: 0 } }
+      }
+    const processed = await runLoopParallel(
+      { ...cfg, maxParallel: 2, defaultGateCommand: "true", claudeQuotaProbeEnabled: false },
+      {
+        runImplementer: declaringInWorktree("implementer", ["acme/kit@postgres"]),
+        runReviewer: declaringInWorktree("reviewer", ["acme/kit@postgres", "ghost/x@y"]),
+        commit: () => {},
+        verifyBaseline: () => "baseline-test",
+        verifyTraceability: () => true,
+        skipWorktreeIgnore: true,
+      }
+    )
+    assert.deepEqual(processed, [{ id: "ISSUE-W", status: "verified" }])
+    assert.ok(worktreeRoots.length >= 2 && new Set(worktreeRoots).size === 1, "both legs ran in the one worktree of this issue")
+    assert.ok(!existsSync(mainReport), "the skills report was never written to the main root")
+    assert.ok(!existsSync(mainDeclaration), "the declaration was never written to the main root")
+    const ledger = JSON.parse(readFileSync(resolve(repoRoot, cfg.progressLedgerPath), "utf8")) as ProgressLedger
+    assert.deepEqual(
+      ledger.skill_usage,
+      [
+        {
+          issue_id: "ISSUE-W",
+          installed: ["acme/kit@postgres"],
+          applied: ["acme/kit@postgres"],
+          not_installed: ["ghost/x@y"],
+        },
+      ],
+      "the worktree's declaration AND its installed set reached the main ledger; a main-root read would have found neither and recorded nothing"
+    )
+  } finally {
+    rmSync(mainReport, { force: true })
+    rmSync(dir, { recursive: true, force: true })
   }
 })

@@ -45,6 +45,23 @@ When the diff implements or touches a PUBLIC API or boundary (any exported funct
 
 Hunt this list once per review, class by class: for every class the diff's surface actually touches, state HOW you ruled the vice out — the test, the input, the code path, the reasoning — then fix it within scope or return `not_faithful` when you cannot. "Not applicable" is a legitimate verdict PER CLASS and only per class: a blanket "nothing concurrent here" over territory you never visited is exactly the negative claim this prompt forbids. The classes are hunting grounds, not a checklist to tick — a vice you find outside all ten is a finding too.
 
+## Declare the project skills you applied (one file, always)
+
+`AGENTS.md` carries a `## Project skills` section listing the skills installed for this repository, each with the path to its `SKILL.md`. You are required to consult and apply the relevant ones when reviewing in their domain; this is where you say which you did.
+
+Before you finish, write `.vivicy/development/reports/{{issue_id}}-reviewer-skills.json` — exactly:
+
+```json
+{ "skills_applied": ["<skill id>", "…"] }
+```
+
+Rules:
+
+- Each id is copied VERBATIM from that section's bullets (the `owner/repo@skill` code span, not the display name). An id that is not in the list is dropped by the orchestrator and reported as a claim the project cannot back — never invent, guess, or reformat one.
+- List a skill only if you actually READ its `SKILL.md` and judged this diff against it. This is an observation, not a courtesy.
+- Write `{ "skills_applied": [] }` when none applied — including when the project has no skills at all. The empty answer is data; a missing file makes this issue invisible to the record.
+- This file is a declaration, never a verdict on the diff: it changes nothing about the gate, and claiming more does not help you.
+
 ## Code hygiene (MUST enforce on the whole diff)
 
 Strip every non-invariant comment the diff introduces — narration, paraphrase, JSDoc/docstrings that restate names and types, module-header essays, TODO musings, decorative banners. The only comment that may survive is a ONE-line structural invariant genuinely not derivable from the code itself; tool directives (`eslint-disable`, `@ts-expect-error`, `"use client"`, shebangs) are not comments. Strip every time-fixed reference the diff introduces — version markers, plan/phase/sprint/batch codes, "new/old/legacy/added in vX" wording, session references — in identifiers, strings, comments, and docs: code states what the system IS, never when it was written (version data a machine reads and requirement IDs from the traceability corpus are functional — those stay). These are bounded in-scope fixes: apply them to the diff's own lines, do not restyle untouched code.

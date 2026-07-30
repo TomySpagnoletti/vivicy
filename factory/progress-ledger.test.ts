@@ -857,3 +857,220 @@ test("baseline identity fields on the ledger survive a recorded event", () => {
     scratch.cleanup()
   }
 })
+
+test("a declaration folds into one per-issue skill-usage entry, both legs merged, replay-stable", () => {
+  const declare = (
+    ledger: ProgressLedger,
+    event: Pick<ProgressEvent, "actor" | "role" | "skills_applied" | "skills_installed" | "skills_not_installed">
+  ): ProgressLedger =>
+    applyProgressEvent({
+      event: {
+        event_type: "review_completed",
+        graph_refs: ["node:manager_service"],
+        issue_id: "ISSUE-MANAGER-0001",
+        session_ref: "thread-review",
+        timestamp: "2026-06-08T12:05:00.000Z",
+        ...event,
+      },
+      issueIndex,
+      ledger,
+    })
+
+  const afterImplementer = declare(createEmptyProgressLedger(), {
+    actor: "claude",
+    role: "implementer",
+    skills_applied: ["m/m@middle"],
+    skills_installed: ["m/m@middle", "a/a@first"],
+  })
+  assert.deepEqual(afterImplementer.skill_usage, [
+    { issue_id: "ISSUE-MANAGER-0001", installed: ["a/a@first", "m/m@middle"], applied: ["m/m@middle"], not_installed: [] },
+  ])
+
+  const reviewerDeclaration = {
+    actor: "codex",
+    role: "reviewer" as const,
+    skills_applied: ["a/a@first", "m/m@middle"],
+    skills_installed: ["m/m@middle", "a/a@first"],
+    skills_not_installed: ["ghost/x@y"],
+  }
+  const afterReviewer = declare(afterImplementer, reviewerDeclaration)
+  assert.deepEqual(
+    afterReviewer.skill_usage,
+    [
+      {
+        issue_id: "ISSUE-MANAGER-0001",
+        installed: ["a/a@first", "m/m@middle"],
+        applied: ["a/a@first", "m/m@middle"],
+        not_installed: ["ghost/x@y"],
+      },
+    ],
+    "one entry per issue: the two legs union into it in sorted order whatever order they landed in, never a second entry"
+  )
+
+  const replayed = declare(afterReviewer, reviewerDeclaration)
+  assert.deepEqual(replayed.skill_usage, afterReviewer.skill_usage, "a redelivered declaration changes nothing")
+  assert.notEqual(replayed.skill_usage, afterReviewer.skill_usage, "the prior ledger's array is never mutated in place")
+})
+
+test("declaring no skill counts the issue; declaring nothing at all leaves it out of the denominator", () => {
+  const base: ProgressEvent = {
+    actor: "codex",
+    role: "reviewer",
+    event_type: "review_completed",
+    graph_refs: ["node:manager_service"],
+    issue_id: "ISSUE-MANAGER-0001",
+    session_ref: "thread-review",
+    timestamp: "2026-06-08T12:05:00.000Z",
+  }
+  const silent = applyProgressEvent({ event: base, issueIndex, ledger: createEmptyProgressLedger() })
+  assert.equal(silent.skill_usage, undefined, "no declaration writes no entry, so the issue is not counted")
+
+  const empty = applyProgressEvent({ event: { ...base, skills_applied: [] }, issueIndex, ledger: silent })
+  assert.deepEqual(
+    empty.skill_usage,
+    [{ issue_id: "ISSUE-MANAGER-0001", installed: [], applied: [], not_installed: [] }],
+    "an explicit empty declaration IS an answer and counts toward the denominator"
+  )
+})
+
+test("a skill declaration that is not a string array is refused at the boundary", () => {
+  const event = {
+    actor: "codex",
+    role: "reviewer",
+    event_type: "review_completed",
+    graph_refs: ["node:manager_service"],
+    issue_id: "ISSUE-MANAGER-0001",
+    session_ref: "thread-review",
+    timestamp: "2026-06-08T12:05:00.000Z",
+  } as ProgressEvent
+  assert.throws(
+    () =>
+      applyProgressEvent({
+        event: { ...event, skills_applied: "a/b@postgres" as unknown as string[] },
+        issueIndex,
+        ledger: createEmptyProgressLedger(),
+      }),
+    /Expected string array/
+  )
+  assert.throws(
+    () =>
+      applyProgressEvent({
+        event: { ...event, skills_applied: [], skills_not_installed: [7] as unknown as string[] },
+        issueIndex,
+        ledger: createEmptyProgressLedger(),
+      }),
+    /Expected string array/
+  )
+})
+
+test("a prior ledger's skill usage survives an unrelated event and a malformed entry cannot poison the merge", () => {
+  const seeded: ProgressLedger = {
+    ...createEmptyProgressLedger(),
+    skill_usage: [
+      { issue_id: "ISSUE-OTHER", installed: [], applied: ["a/b@postgres"], not_installed: [] },
+      { issue_id: "ISSUE-MANAGER-0001", installed: [], applied: "not-an-array" as unknown as string[], not_installed: [] },
+    ],
+  }
+  const next = applyProgressEvent({
+    event: {
+      actor: "codex",
+      role: "reviewer",
+      event_type: "review_completed",
+      graph_refs: ["node:manager_service"],
+      issue_id: "ISSUE-MANAGER-0001",
+      session_ref: "thread-review",
+      timestamp: "2026-06-08T12:05:00.000Z",
+      skills_applied: ["d/e@shadcn"],
+    },
+    issueIndex,
+    ledger: seeded,
+  })
+  assert.deepEqual(next.skill_usage, [
+    { issue_id: "ISSUE-OTHER", installed: [], applied: ["a/b@postgres"], not_installed: [] },
+    { issue_id: "ISSUE-MANAGER-0001", installed: [], applied: ["d/e@shadcn"], not_installed: [] },
+  ])
+
+  const unrelated = applyProgressEvent({
+    event: {
+      actor: "claude",
+      role: "implementer",
+      event_type: "issue_started",
+      graph_refs: ["node:manager_service"],
+      issue_id: "ISSUE-MANAGER-0001",
+      session_ref: "thread-impl",
+      timestamp: "2026-06-08T12:06:00.000Z",
+    },
+    issueIndex,
+    ledger: next,
+  })
+  assert.deepEqual(unrelated.skill_usage, next.skill_usage, "an event carrying no declaration passes the record through untouched")
+})
+
+test("review_completed after review_started is the same active item, and never downgrades a verified graph status", () => {
+  const started = applyProgressEvent({
+    event: {
+      actor: "codex",
+      role: "reviewer",
+      event_type: "review_started",
+      graph_refs: ["node:manager_service"],
+      issue_id: "ISSUE-MANAGER-0001",
+      session_ref: "dev-loop:ISSUE-MANAGER-0001",
+      timestamp: "2026-06-08T12:05:00.000Z",
+    },
+    issueIndex,
+    ledger: createEmptyProgressLedger(),
+  })
+  const completed = applyProgressEvent({
+    event: {
+      actor: "codex",
+      role: "reviewer",
+      event_type: "review_completed",
+      graph_refs: ["node:manager_service"],
+      issue_id: "ISSUE-MANAGER-0001",
+      session_ref: "dev-loop:ISSUE-MANAGER-0001",
+      timestamp: "2026-06-08T12:06:00.000Z",
+      skills_applied: [],
+    },
+    issueIndex,
+    ledger: started,
+  })
+  assert.equal(completed.active_items.length, 1, "the reviewer's own item is updated, never a second one")
+  assert.equal(completed.active_items[0].id, started.active_items[0].id)
+  assert.equal(completed.active_items[0].state, "reviewing")
+
+  const verified = applyProgressEvent({
+    event: {
+      actor: "claude",
+      role: "implementer",
+      event_type: "gate_passed",
+      graph_refs: ["node:manager_service"],
+      issue_id: "ISSUE-MANAGER-0001",
+      session_ref: "dev-loop:ISSUE-MANAGER-0001",
+      evidence_refs: [gateEvidenceRel],
+      timestamp: "2026-06-08T12:10:00.000Z",
+    },
+    issueIndex,
+    ledger: completed,
+  })
+  const retried = applyProgressEvent({
+    event: {
+      actor: "codex",
+      role: "reviewer",
+      event_type: "review_completed",
+      graph_refs: ["node:manager_service"],
+      issue_id: "ISSUE-MANAGER-0001",
+      session_ref: "dev-loop:ISSUE-MANAGER-0001",
+      timestamp: "2026-06-08T12:11:00.000Z",
+      skills_applied: ["a/b@postgres"],
+      skills_installed: ["a/b@postgres"],
+    },
+    issueIndex,
+    ledger: verified,
+  })
+  assert.equal(
+    retried.graph_item_states[0].issue_states["ISSUE-MANAGER-0001"],
+    "verified",
+    "the rank guard holds: a later review_completed cannot pull a verified issue back to reviewing"
+  )
+  assert.deepEqual(retried.skill_usage?.[0].applied, ["a/b@postgres"], "the declaration still lands")
+})

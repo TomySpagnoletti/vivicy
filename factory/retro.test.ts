@@ -4,8 +4,9 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, 
 import { dirname, join, relative } from "node:path"
 import { tmpdir } from "node:os"
 
-import { RETRO_REPORT_REL, RETRO_VERDICT_REL, RetroConfigError, runRetro } from "./retro.ts"
+import { RETRO_REPORT_REL, RETRO_VERDICT_REL, RetroConfigError, retroContext, runRetro } from "./retro.ts"
 import type { SpawnRetroLeg } from "./retro.ts"
+import type { SkillUsage } from "../lib/skill-usage.ts"
 
 function makeRepo({ total = 2, done = total, baseline = true }: { total?: number; done?: number; baseline?: boolean } = {}): string {
   const root = mkdtempSync(join(tmpdir(), "vivicy-retro-"))
@@ -395,5 +396,93 @@ test("the retro summary agrees in number with the classes and proposals it count
     assert.match(many.summary!, /^1 method amendment proposed \(1 settings\) from 2 recurring classes;/)
   } finally {
     cleanup(loud)
+  }
+})
+
+test("the retro context hands the leg the run's declared skill usage, per skill, with the never-applied ones visible", () => {
+  const context = retroContext({
+    manifestPath: ".vivicy/baselines/baseline-v1.0.0.json",
+    baselineId: "baseline-v1.0.0",
+    verdictRel: RETRO_VERDICT_REL,
+    skillUsage: {
+      issues: 12,
+      applied: [
+        { id: "acme/kit@postgres", applied: 7, issues: 12 },
+        { id: "acme/kit@shadcn", applied: 0, issues: 4 },
+      ],
+      not_installed: [{ id: "ghost/x@y", issues: 2 }],
+    },
+  })
+  assert.match(context, /12 issues declared which skills their legs applied/)
+  assert.match(context, /`acme\/kit@postgres` applied on 7 of the 12 issues that had it installed/)
+  assert.match(
+    context,
+    /`acme\/kit@shadcn` applied on 0 of the 4 issues that had it installed/,
+    "a skill installed part-way through carries its OWN denominator, never the run's"
+  )
+  assert.match(context, /Claimed by a leg but not installed, so dropped: `ghost\/x@y` on 2 issues/)
+})
+
+test("the retro context says plainly when nothing has declared yet, and when the project has no skills", () => {
+  const base = { manifestPath: "m.json", baselineId: "b", verdictRel: RETRO_VERDICT_REL }
+  assert.match(
+    retroContext({ ...base, skillUsage: { issues: 0, applied: [{ id: "acme/kit@postgres", applied: 0, issues: 0 }], not_installed: [] } }),
+    /1 skill is installed, but no issue's legs have declared yet/
+  )
+  assert.match(
+    retroContext({ ...base, skillUsage: { issues: 0, applied: [], not_installed: [] } }),
+    /no skills are installed and no issue's legs declared/
+  )
+  assert.match(
+    retroContext({ ...base, skillUsage: { issues: 4, applied: [], not_installed: [{ id: "ghost/x@y", issues: 3 }] } }),
+    /no skills are installed; 4 issues still answered the declaration\. Claimed by a leg but not installed, so dropped: `ghost\/x@y` on 3 issues\./,
+    "the project with no skills at all is exactly where an unbacked claim is worth saying"
+  )
+})
+
+test("runRetro reads the run's declared usage itself and hands it to the leg", async () => {
+  const root = makeRepo()
+  try {
+    mkdirSync(join(root, ".vivicy/development/reports"), { recursive: true })
+    writeFileSync(
+      join(root, ".vivicy/development/progress-ledger.json"),
+      JSON.stringify({
+        skill_usage: [
+          {
+            issue_id: "ISSUE-0001",
+            installed: ["acme/kit@postgres", "acme/kit@shadcn"],
+            applied: ["acme/kit@postgres"],
+            not_installed: [],
+          },
+          { issue_id: "ISSUE-0002", installed: ["acme/kit@postgres"], applied: [], not_installed: ["ghost/x@y"] },
+        ],
+      })
+    )
+    writeFileSync(
+      join(root, ".vivicy/development/reports/skills-report.json"),
+      JSON.stringify({ phase: "green", installed: [{ id: "acme/kit@postgres" }, { id: "acme/kit@shadcn" }] })
+    )
+    let seen: SkillUsage | null = null
+    await runRetro({
+      repoRoot: root,
+      spawnLeg: async (args) => {
+        seen = args.skillUsage
+        await verdictLeg({ recurring_classes: [], proposals: [] })(args)
+      },
+    })
+    assert.deepEqual(seen, {
+      issues: 2,
+      applied: [
+        { id: "acme/kit@postgres", applied: 1, issues: 2 },
+        { id: "acme/kit@shadcn", applied: 0, issues: 1 },
+      ],
+      not_installed: [{ id: "ghost/x@y", issues: 1 }],
+    })
+    assert.match(
+      retroContext({ manifestPath: "m", baselineId: "b", verdictRel: RETRO_VERDICT_REL, skillUsage: seen! }),
+      /`ghost\/x@y` on 1 issue/
+    )
+  } finally {
+    cleanup(root)
   }
 })

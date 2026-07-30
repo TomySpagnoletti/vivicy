@@ -27,7 +27,8 @@ import { DOC_PREP_IN_FLIGHT_PHASES, DOC_PREP_REPORT_FILE, type DocPrepReport } f
 import { ACCEPTANCE_REPORT_FILE, type AcceptanceReport } from "@/lib/acceptance-report"
 import { RETRO_REPORT_FILE, type RetroReport } from "@/lib/retro-report"
 import { deriveProductRunUrl, normalizeRunCommandValue, type ProductRunView } from "@/lib/product-run"
-import { canonicalHasSpecDoc, getTargetRoot } from "@/lib/target"
+import { deriveSkillUsage, reportedSkillIds, type SkillUsage } from "@/lib/skill-usage"
+import { canonicalHasSpecDoc, getTargetRoot, PROGRESS_LEDGER_RELATIVE_PATH } from "@/lib/target"
 
 export interface DetachedHandle {
   pid: number
@@ -796,6 +797,20 @@ export function readSkillsReport(): SkillsReport | null {
     throw new ControlError(`target root does not exist: ${targetRoot}`, "missing_target")
   }
   return readSkillsReportFrom(targetRoot)
+}
+
+// A view over the progress ledger the dev loop already writes — never a store of its own. The report is passed in rather than re-read, so one response can never mix two reads of it; a project with no skills never touches the ledger at all, since this route is polled by three surfaces and re-fetched on every status frame.
+export function readSkillUsage(report: SkillsReport | null): SkillUsage {
+  const installed = reportedSkillIds(report)
+  if (installed.length === 0) return { issues: 0, applied: [], not_installed: [] }
+  const { targetRoot } = resolveContext()
+  let ledger: { skill_usage?: unknown } | null = null
+  try {
+    ledger = JSON.parse(readFileSync(path.join(targetRoot, PROGRESS_LEDGER_RELATIVE_PATH), "utf8")) as { skill_usage?: unknown }
+  } catch {
+    ledger = null
+  }
+  return deriveSkillUsage({ entries: ledger?.skill_usage, installed })
 }
 
 function isSkillsInstallInFlight(targetRoot: string): boolean {

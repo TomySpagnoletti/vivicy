@@ -121,6 +121,8 @@
     "emptyState": "No skills installed yet — they are selected from the frozen spec before development.",
     "official": "official",
     "community": "community",
+    "appliedOn": "applied on {count} of {issues, plural, one {# issue} other {# issues}}",
+    "notAppliedYet": "not applied yet ({issues, plural, one {# issue} other {# issues}})",
     "securityWaived": "installed with audits waived — security not guaranteed",
     "rejectedCount": "{count} rejected",
     "toastStartFailedTitle": "Skills install failed to start",

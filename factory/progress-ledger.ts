@@ -3,6 +3,7 @@ import { dirname, isAbsolute, relative, resolve } from "node:path"
 import { resolveTargetRoot } from "./target-root.ts"
 import { atomicWriteJson } from "./atomic-write.ts"
 import { sleepSync } from "./sleep-sync.ts"
+import { MAX_SKILL_IDS, type SkillUsageEntry } from "../lib/skill-usage.ts"
 
 const repoRoot = resolveTargetRoot()
 const issueIndexPath = ".vivicy/development/issue-index.json"
@@ -92,6 +93,10 @@ export interface ProgressEvent {
   timestamp?: string
   transcript_refs?: string[]
   worktree?: string
+  // Absent means the issue's legs declared nothing; an empty array means they declared applying no skill — the two are not the same fact and only the second counts toward the usage denominator.
+  skills_applied?: string[]
+  skills_installed?: string[]
+  skills_not_installed?: string[]
 }
 
 export interface ProgressIssue {
@@ -146,6 +151,7 @@ export interface ProgressLedger {
   updated_at: string | null
   graph_item_states: GraphItemState[]
   active_items: ActiveItem[]
+  skill_usage?: SkillUsageEntry[]
   // Deliberately open: unknown fields (e.g. baseline identity data) are written by other code and pass through untouched.
   [key: string]: unknown
 }
@@ -296,6 +302,10 @@ export function applyProgressEvent({
     active_items: [...(ledger.active_items ?? [])],
   }
 
+  if (normalized.skills_applied !== undefined) {
+    recordSkillUsage(nextLedger, normalized.issue_id, normalized)
+  }
+
   if (normalized.event_type === "issue_completed" || normalized.event_type === "gate_passed") {
     upsertGraphStates(nextLedger, graphRefs, normalized.issue_id, "verified", normalized.evidence_refs, now, {
       transcriptRefs: normalized.transcript_refs,
@@ -357,6 +367,9 @@ interface NormalizedProgressEvent {
   issue_id: string
   role: ProgressRole | undefined
   session_ref: string
+  skills_applied: string[] | undefined
+  skills_installed: string[]
+  skills_not_installed: string[]
   timestamp: string
   transcript_refs: string[]
   worktree: string | undefined
@@ -372,6 +385,9 @@ function normalizeProgressEvent(event: ProgressEvent): NormalizedProgressEvent {
     issue_id: requiredString(event.issue_id, "issue_id"),
     role: optionalString(event.role) as ProgressRole | undefined,
     session_ref: requiredString(event.session_ref, "session_ref"),
+    skills_applied: event.skills_applied === undefined ? undefined : stringArray(event.skills_applied),
+    skills_installed: stringArray(event.skills_installed ?? []),
+    skills_not_installed: stringArray(event.skills_not_installed ?? []),
     timestamp: optionalString(event.timestamp) ?? new Date().toISOString(),
     // Gitignored JSONL transcript paths captured by the orchestrator; unlike evidence_refs, not existence-validated (may be absent in tests).
     transcript_refs: stringArray(event.transcript_refs ?? []),
@@ -499,6 +515,28 @@ function upsertGraphStates(
       updated_at: timestamp ?? null,
     })
   }
+}
+
+// One entry per issue: an issue's two legs and its successive attempts merge into it as a sorted union, so a redelivered event leaves the ledger byte-identical and a leg's answer is never withdrawn by a later attempt that saw less.
+function recordSkillUsage(ledger: ProgressLedger, issueId: string, declared: NormalizedProgressEvent): void {
+  const entries = Array.isArray(ledger.skill_usage) ? [...ledger.skill_usage] : []
+  const index = entries.findIndex((entry) => entry !== null && typeof entry === "object" && entry.issue_id === issueId)
+  const prior = index >= 0 ? entries[index] : null
+  const merged: SkillUsageEntry = {
+    issue_id: issueId,
+    installed: mergeSkillIds(prior?.installed, declared.skills_installed),
+    applied: mergeSkillIds(prior?.applied, declared.skills_applied ?? []),
+    not_installed: mergeSkillIds(prior?.not_installed, declared.skills_not_installed),
+  }
+  if (index >= 0) entries[index] = merged
+  else entries.push(merged)
+  ledger.skill_usage = entries
+}
+
+// Bounded on the WRITE side too: the read normalizes, but a record that grew past the bound would already have grown the file every event carries whole.
+function mergeSkillIds(prior: unknown, next: readonly string[]): string[] {
+  const priorIds = Array.isArray(prior) ? prior.filter((id): id is string => typeof id === "string") : []
+  return [...new Set([...priorIds, ...next])].sort().slice(0, MAX_SKILL_IDS)
 }
 
 // Displays the least-advanced linked issue state; blocked wins ties so a blocker stays visible.

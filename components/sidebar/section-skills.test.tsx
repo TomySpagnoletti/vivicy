@@ -10,14 +10,14 @@ vi.mock("sonner", () => ({
   toast: { success: vi.fn(), error: vi.fn() },
 }))
 
-function stubFetch(report: unknown = null) {
+function stubFetch(report: unknown = null, usage: unknown = null) {
   return vi.fn<typeof fetch>(async (input, init) => {
     const url = String(input)
     if (url.includes("/api/control/skills")) {
       if (init?.method === "POST") {
         return new Response(JSON.stringify({ ok: true, pid: 4242, mode: "auto", ids: [] }), { status: 200 })
       }
-      return new Response(JSON.stringify({ ok: true, report }), { status: 200 })
+      return new Response(JSON.stringify({ ok: true, report, usage }), { status: 200 })
     }
     return new Response(JSON.stringify({ ok: true }), { status: 200 })
   })
@@ -281,5 +281,112 @@ describe("SectionSkills — find skills action (confirm flow)", () => {
     renderWithIntl(<SectionSkills />)
 
     await waitFor(() => expect(screen.getByRole("button", { name: /Find skills/ })).toHaveAttribute("aria-disabled", "false"))
+  })
+})
+
+describe("SectionSkills — declared usage", () => {
+  const usage = (applied: { id: string; applied: number; issues: number }[], issues: number) => ({ issues, applied, not_installed: [] })
+
+  test("each card states how many issues applied it, counting from one to many", async () => {
+    vi.stubGlobal(
+      "fetch",
+      stubFetch(
+        GREEN_REPORT,
+        usage(
+          [
+            { id: "anthropic/skills@pdf", applied: 7, issues: 12 },
+            { id: "acme/community@scraper", applied: 1, issues: 12 },
+          ],
+          12
+        )
+      )
+    )
+    renderWithIntl(<SectionSkills />)
+
+    await waitFor(() => expect(document.querySelector('[data-skill-usage="anthropic/skills@pdf"]')).toBeTruthy())
+    expect(screen.getByText("applied on 7 of 12 issues")).toBeInTheDocument()
+    expect(screen.getByText("applied on 1 of 12 issues")).toBeInTheDocument()
+  })
+
+  test("a skill no issue applied says so with the same denominator, never a blank", async () => {
+    vi.stubGlobal(
+      "fetch",
+      stubFetch(
+        GREEN_REPORT,
+        usage(
+          [
+            { id: "anthropic/skills@pdf", applied: 0, issues: 3 },
+            { id: "acme/community@scraper", applied: 3, issues: 3 },
+          ],
+          3
+        )
+      )
+    )
+    renderWithIntl(<SectionSkills />)
+
+    await waitFor(() => expect(screen.getByText("not applied yet (3 issues)")).toBeInTheDocument())
+    const never = document.querySelector('[data-skill-usage="anthropic/skills@pdf"]') as HTMLElement
+    expect(never).toHaveClass("text-muted-foreground")
+    const used = document.querySelector('[data-skill-usage="acme/community@scraper"]') as HTMLElement
+    expect(used).toHaveTextContent("applied on 3 of 3 issues")
+    expect(used).toHaveClass("text-foreground")
+  })
+
+  test("the denominator agrees with itself at one issue", async () => {
+    vi.stubGlobal(
+      "fetch",
+      stubFetch(
+        GREEN_REPORT,
+        usage(
+          [
+            { id: "anthropic/skills@pdf", applied: 1, issues: 1 },
+            { id: "acme/community@scraper", applied: 0, issues: 1 },
+          ],
+          1
+        )
+      )
+    )
+    renderWithIntl(<SectionSkills />)
+
+    await waitFor(() => expect(screen.getByText("applied on 1 of 1 issue")).toBeInTheDocument())
+    expect(screen.getByText("not applied yet (1 issue)")).toBeInTheDocument()
+  })
+
+  test("a skill installed after issues had already declared carries its OWN denominator, never the run's", async () => {
+    vi.stubGlobal(
+      "fetch",
+      stubFetch(
+        GREEN_REPORT,
+        usage(
+          [
+            { id: "anthropic/skills@pdf", applied: 7, issues: 12 },
+            { id: "acme/community@scraper", applied: 0, issues: 0 },
+          ],
+          12
+        )
+      )
+    )
+    renderWithIntl(<SectionSkills />)
+
+    await waitFor(() => expect(screen.getByText("applied on 7 of 12 issues")).toBeInTheDocument())
+    expect(document.querySelector('[data-skill-usage="acme/community@scraper"]')).toBeNull()
+    expect(screen.queryByText(/not applied yet/)).toBeNull()
+  })
+
+  test("before any issue has declared, the cards claim nothing at all", async () => {
+    vi.stubGlobal("fetch", stubFetch(GREEN_REPORT, usage([{ id: "anthropic/skills@pdf", applied: 0, issues: 0 }], 0)))
+    renderWithIntl(<SectionSkills />)
+
+    await waitFor(() => expect(document.querySelectorAll("[data-skill]")).toHaveLength(2))
+    expect(document.querySelectorAll("[data-skill-usage]")).toHaveLength(0)
+    expect(screen.queryByText(/applied/)).toBeNull()
+  })
+
+  test("a response carrying no usage at all leaves the cards intact", async () => {
+    vi.stubGlobal("fetch", stubFetch(GREEN_REPORT))
+    renderWithIntl(<SectionSkills />)
+
+    await waitFor(() => expect(document.querySelectorAll("[data-skill]")).toHaveLength(2))
+    expect(document.querySelectorAll("[data-skill-usage]")).toHaveLength(0)
   })
 })

@@ -6,6 +6,7 @@ import { useTranslations } from "next-intl"
 import { toast } from "sonner"
 
 import { isSkillsPhaseInFlight, type InstalledSkill, type RejectedSkill, type SkillsReport } from "@/lib/skills-report"
+import type { SkillUsage } from "@/lib/skill-usage"
 import { errorText } from "@/lib/i18n-errors"
 import {
   AlertDialog,
@@ -28,6 +29,7 @@ const POLL_INTERVAL_MS = 10_000
 interface SkillsReportResponse {
   ok?: boolean
   report?: SkillsReport | null
+  usage?: SkillUsage | null
   error?: string
 }
 
@@ -35,6 +37,7 @@ export function SectionSkills() {
   const t = useTranslations("sidebar.skills")
   const tErrors = useTranslations("errors")
   const [report, setReport] = useState<SkillsReport | null>(null)
+  const [usage, setUsage] = useState<SkillUsage | null>(null)
   const [starting, setStarting] = useState(false)
   const [confirmOpen, setConfirmOpen] = useState(false)
 
@@ -42,7 +45,10 @@ export function SectionSkills() {
     try {
       const res = await fetch("/api/control/skills", { cache: "no-store" })
       const body = (await res.json().catch(() => ({}))) as SkillsReportResponse
-      if (res.ok && body.ok !== false) setReport(body.report ?? null)
+      if (res.ok && body.ok !== false) {
+        setReport(body.report ?? null)
+        setUsage(body.usage ?? null)
+      }
     } catch {
       // Best-effort: keep the last known report.
     }
@@ -122,7 +128,7 @@ export function SectionSkills() {
       ) : (
         <ul className="flex flex-col gap-2">
           {installed.map((skill) => (
-            <SkillCard key={skill.id} skill={skill} />
+            <SkillCard key={skill.id} skill={skill} usage={usage} />
           ))}
         </ul>
       )}
@@ -132,8 +138,11 @@ export function SectionSkills() {
   )
 }
 
-function SkillCard({ skill }: { skill: InstalledSkill }) {
+function SkillCard({ skill, usage }: { skill: InstalledSkill; usage: SkillUsage | null }) {
   const t = useTranslations("sidebar.skills")
+  const count = usage?.applied.find((entry) => entry.id === skill.id)
+  const issues = count?.issues ?? 0
+  const applied = count?.applied ?? 0
   return (
     <li data-skill={skill.id} className="flex flex-col gap-1 rounded-md border border-border bg-card p-2">
       <div className="flex items-center gap-1.5">
@@ -143,6 +152,11 @@ function SkillCard({ skill }: { skill: InstalledSkill }) {
         </Badge>
       </div>
       <span className="font-mono break-all text-muted-foreground">{skill.id}</span>
+      {issues > 0 ? (
+        <span data-skill-usage={skill.id} className={applied > 0 ? "text-foreground" : "text-muted-foreground"}>
+          {applied > 0 ? t("appliedOn", { count: applied, issues }) : t("notAppliedYet", { issues })}
+        </span>
+      ) : null}
       {skill.security_waived ? (
         <span className="flex items-center gap-1 text-status-implemented">
           <ShieldAlert className="size-3.5 shrink-0" aria-hidden />

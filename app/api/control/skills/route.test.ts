@@ -4,14 +4,15 @@ import path from "node:path"
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
-const { readSkillsReport, startSkillsInstall } = vi.hoisted(() => ({
+const { readSkillsReport, readSkillUsage, startSkillsInstall } = vi.hoisted(() => ({
   readSkillsReport: vi.fn(),
+  readSkillUsage: vi.fn(),
   startSkillsInstall: vi.fn(),
 }))
 
 vi.mock("@/lib/control", async () => {
   const actual = await vi.importActual<typeof import("@/lib/control")>("@/lib/control")
-  return { ...actual, readSkillsReport, startSkillsInstall }
+  return { ...actual, readSkillsReport, readSkillUsage, startSkillsInstall }
 })
 
 vi.mock("@/lib/spawner", () => ({ getSpawner: () => ({}) }))
@@ -45,16 +46,31 @@ afterEach(() => {
   else process.env.VIVICY_RUNTIME_DIR = prevRuntimeEnv
 })
 
+const EMPTY_USAGE = { issues: 0, applied: [], not_installed: [] }
+
 describe("GET /api/control/skills", () => {
   it("returns the report verbatim, and null when no install has run", async () => {
     readSkillsReport.mockReturnValue(null)
+    readSkillUsage.mockReturnValue(EMPTY_USAGE)
     let body = await (await GET()).json()
-    expect(body).toEqual({ ok: true, report: null })
+    expect(body).toEqual({ ok: true, report: null, usage: EMPTY_USAGE })
 
     const report = { phase: "green", mode: "auto", installed: [], rejected: [], summary: "ok" }
     readSkillsReport.mockReturnValue(report)
     body = await (await GET()).json()
-    expect(body).toEqual({ ok: true, report })
+    expect(body).toEqual({ ok: true, report, usage: EMPTY_USAGE })
+  })
+
+  it("derives the usage from the very report it answers with, so one response can never mix two reads", async () => {
+    const report = { phase: "green", mode: "auto", installed: [{ id: "acme/a@x" }], rejected: [], summary: "ok" }
+    const usage = { issues: 4, applied: [{ id: "acme/a@x", issues: 3 }], not_installed: [] }
+    readSkillsReport.mockReturnValue(report)
+    readSkillUsage.mockReturnValue(usage)
+
+    const body = await (await GET()).json()
+    expect(readSkillsReport).toHaveBeenCalledOnce()
+    expect(readSkillUsage).toHaveBeenCalledExactlyOnceWith(report)
+    expect(body).toEqual({ ok: true, report, usage })
   })
 
   it("maps a ControlError (no target) to 422 with its code", async () => {

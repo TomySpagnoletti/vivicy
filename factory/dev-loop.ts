@@ -26,8 +26,11 @@ import { recordProgressEvent } from "./progress-ledger.ts"
 import type { ProgressEvent } from "./progress-ledger.ts"
 import { preflightSkills, skillsDirective } from "./dev-preflight.ts"
 import { pruneGitkeeps } from "../lib/skeleton.ts"
+import { countOf } from "../lib/count-form.ts"
 import { MANAGED_GOVERNANCE_FILES } from "../lib/managed-block.ts"
 import { commandServesHttp } from "../lib/product-run.ts"
+import { SKILLS_REPORT_FILE } from "../lib/skills-report.ts"
+import { MAX_SKILL_IDS, normalizeSkillIds, reportedSkillIds } from "../lib/skill-usage.ts"
 import {
   gateEvidenceRel,
   inspectDeclaredProofs,
@@ -159,6 +162,9 @@ interface EmitEvent {
   role?: string
   evidence_refs?: string[]
   transcript_refs?: string[]
+  skills_applied?: string[]
+  skills_installed?: string[]
+  skills_not_installed?: string[]
 }
 
 interface WorktreeHandle {
@@ -868,6 +874,89 @@ function missingProofDetail(status: ProofStatus): string {
   if (status.class === "gate_evidence") return home
   if (!status.recipe) return `${home} with its ${PROOF_RECIPE_FILE}`
   return `${home} (recipe present, observation missing)`
+}
+
+const SKILL_DECLARATION_ROLES = ["implementer", "reviewer"] as const
+
+// The path the prompts spell out for the leg; `factory/dev-loop.test.ts` pins the two against each other so the prose and the reader can never drift.
+export function skillDeclarationRel(cfg: Pick<Config, "reportsDir">, issueId: string, role: string): string {
+  return `${cfg.reportsDir}/${issueId}-${role}-skills.json`
+}
+
+// Cleared before every attempt's legs run, exactly like a declared proof's home: what is read afterwards can only be THIS attempt's answer, never a committed declaration from an earlier run replaying as a fresh one.
+function resetSkillDeclarations(issue: Issue, cfg: Config): void {
+  for (const role of SKILL_DECLARATION_ROLES) {
+    try {
+      unlinkSync(resolve(execRootOf(cfg), skillDeclarationRel(cfg, issue.id, role)))
+    } catch {}
+  }
+}
+
+interface DeclaredSkills {
+  installed: string[]
+  applied: string[]
+  notInstalled: string[]
+}
+
+// The set a leg COULD have applied is the one installed in the tree it ran in — on the parallel path its worktree, cut from the commit the skills stage absorbed.
+function installedSkillIdsForLegs(cfg: Config): Set<string> {
+  try {
+    const report = JSON.parse(readFileSync(resolve(execRootOf(cfg), SKILLS_REPORT_FILE), "utf8")) as { installed?: unknown }
+    return new Set(reportedSkillIds(report))
+  } catch {
+    return new Set()
+  }
+}
+
+// An id naming no installed skill is dropped from the usage record and SAID — never silently normalized away: a leg claiming what the project does not have is the one thing this record exists to make falsifiable.
+function readSkillDeclarations(issue: Issue, cfg: Config): DeclaredSkills | null {
+  const installed = installedSkillIdsForLegs(cfg)
+  const applied = new Set<string>()
+  const notInstalled = new Set<string>()
+  let declared = false
+  for (const role of SKILL_DECLARATION_ROLES) {
+    let parsed: { skills_applied?: unknown } | null
+    try {
+      parsed = JSON.parse(readFileSync(resolve(execRootOf(cfg), skillDeclarationRel(cfg, issue.id, role)), "utf8")) as {
+        skills_applied?: unknown
+      } | null
+    } catch {
+      continue
+    }
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) continue
+    declared = true
+    const ids = normalizeSkillIds(parsed.skills_applied)
+    const raw = Array.isArray(parsed.skills_applied) ? parsed.skills_applied.length : 0
+    const dropped = ids.filter((id) => !installed.has(id))
+    for (const id of ids) (installed.has(id) ? applied : notInstalled).add(id)
+    if (dropped.length > 0) {
+      process.stderr.write(
+        `[skills] ${issue.id}: the ${role} declared ${countOf(dropped.length, "skill", "skills")} this project does not have — dropped from the usage record: ${dropped.join(", ")}\n`
+      )
+    }
+    if (raw > ids.length) {
+      process.stderr.write(
+        `[skills] ${issue.id}: the ${role}'s declaration held ${raw} entries and ${ids.length} survived the boundary (duplicate, unusable or past the ${MAX_SKILL_IDS}-id bound)\n`
+      )
+    }
+  }
+  return declared ? { installed: [...installed], applied: [...applied], notInstalled: [...notInstalled] } : null
+}
+
+// `review_completed` is the one point both legs of an attempt sit behind, so the declaration is read ONCE, from the tree the legs ran in, and lands on the issue's ledger record. An attempt cut short by a quota block never reaches it; its resume re-runs both legs and re-declares.
+function emitReviewCompleted(issue: Issue, cfg: Config, transcripts: string[]): void {
+  const declared = readSkillDeclarations(issue, cfg)
+  emit(cfg, {
+    event_type: "review_completed",
+    issue_id: issue.id,
+    graph_refs: issue.graph_refs,
+    actor: cfg.reviewer.actor,
+    role: cfg.reviewer.role,
+    transcript_refs: transcripts,
+    ...(declared
+      ? { skills_applied: declared.applied, skills_installed: declared.installed, skills_not_installed: declared.notInstalled }
+      : {}),
+  })
 }
 
 export function agentCliArgs(
@@ -2146,6 +2235,7 @@ export function runIssueCycle(issue: Issue, cfg: Config, steps: CycleSteps): Cyc
       role: cfg.implementer.role,
     })
     const unclearedProofs = resetDeclaredProofArtifacts(issue, cfg)
+    resetSkillDeclarations(issue, cfg)
     const implResult = runLegWithQuota(runImplementer, cfg.implementer, issue, cfg)
     if (implResult.quotaBlocked) return quotaBlock(issue, cfg, cfg.implementer, allTranscripts)
     lastTimeoutReason = legTimeoutReason(implResult) ?? lastTimeoutReason
@@ -2171,6 +2261,7 @@ export function runIssueCycle(issue: Issue, cfg: Config, steps: CycleSteps): Cyc
         }
       })
     allTranscripts.push(...transcripts)
+    emitReviewCompleted(issue, cfg, transcripts)
 
     const gate = runGate(issue, cfg)
     lastGateReason = gate.reason ?? lastGateReason
@@ -2239,6 +2330,7 @@ export async function runIssueCycleAsync(issue: Issue, cfg: Config, steps: Async
       role: cfg.implementer.role,
     })
     const unclearedProofs = resetDeclaredProofArtifacts(issue, cfg)
+    resetSkillDeclarations(issue, cfg)
     const implResult = await runLegWithQuotaAsync(runImplementer, cfg.implementer, issue, cfg)
     if (implResult.quotaBlocked) return quotaBlock(issue, cfg, cfg.implementer, allTranscripts)
     lastTimeoutReason = legTimeoutReason(implResult) ?? lastTimeoutReason
@@ -2264,6 +2356,7 @@ export async function runIssueCycleAsync(issue: Issue, cfg: Config, steps: Async
         }
       })
     allTranscripts.push(...transcripts)
+    emitReviewCompleted(issue, cfg, transcripts)
 
     const gate = await runGate(issue, cfg)
     lastGateReason = gate.reason ?? lastGateReason

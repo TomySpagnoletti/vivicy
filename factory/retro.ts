@@ -14,6 +14,8 @@ import type { Leg, LegResult } from "./dev-loop.ts"
 import { findFrozenManifest } from "./extract-issues.ts"
 import { notify } from "./notify.ts"
 import { FACTORY_PROMPTS_DIR, resolveTargetRoot } from "./target-root.ts"
+import { SKILLS_REPORT_FILE } from "../lib/skills-report.ts"
+import { deriveSkillUsage, reportedSkillIds, type SkillUsage } from "../lib/skill-usage.ts"
 import {
   RETRO_LANDINGS,
   RETRO_REPORT_FILE,
@@ -43,6 +45,7 @@ export type SpawnRetroLeg = (args: {
   manifestPath: string
   baselineId: string
   verdictRel: string
+  skillUsage: SkillUsage
 }) => Promise<LegResult | void>
 
 export interface RunRetroOptions {
@@ -84,11 +87,51 @@ function readJsonOrNull(abs: string): unknown {
   }
 }
 
-function retroContext({ manifestPath, baselineId, verdictRel }: { manifestPath: string; baselineId: string; verdictRel: string }): string {
+function readDeclaredSkillUsage(repoRoot: string): SkillUsage {
+  const ledger = readJsonOrNull(resolve(repoRoot, DEFAULT_CONFIG.progressLedgerPath!)) as { skill_usage?: unknown } | null
+  const report = readJsonOrNull(resolve(repoRoot, SKILLS_REPORT_FILE)) as { installed?: unknown } | null
+  return deriveSkillUsage({ entries: ledger?.skill_usage, installed: reportedSkillIds(report) })
+}
+
+// Each skill's denominator is its OWN — the issues that declared while it was installed — so a skill added mid-cycle is never reported as ignored by issues that never had it.
+function skillUsageLine(usage: SkillUsage): string {
+  const claimed = usage.not_installed.map((entry) => `\`${entry.id}\` on ${countOf(entry.issues, "issue", "issues")}`).join(", ")
+  const claimedClause = claimed ? ` Claimed by a leg but not installed, so dropped: ${claimed}.` : ""
+  if (usage.applied.length === 0) {
+    const head =
+      usage.issues === 0
+        ? "no skills are installed and no issue's legs declared."
+        : `no skills are installed; ${countOf(usage.issues, "issue", "issues")} still answered the declaration.`
+    return head + claimedClause
+  }
+  if (usage.issues === 0) {
+    return (
+      `${countOf(usage.applied.length, "skill is", "skills are")} installed, but no issue's legs have declared yet — nothing is known about their use.` +
+      claimedClause
+    )
+  }
+  const perSkill = usage.applied
+    .map((entry) => `\`${entry.id}\` applied on ${entry.applied} of the ${countOf(entry.issues, "issue", "issues")} that had it installed`)
+    .join(", ")
+  return `${countOf(usage.issues, "issue", "issues")} declared which skills their legs applied; ${perSkill}.` + claimedClause
+}
+
+export function retroContext({
+  manifestPath,
+  baselineId,
+  verdictRel,
+  skillUsage,
+}: {
+  manifestPath: string
+  baselineId: string
+  verdictRel: string
+  skillUsage: SkillUsage
+}): string {
   return (
     `\n\n---\n\n## Retro context for this run\n\n` +
     `- Frozen baseline manifest: \`${manifestPath}\` (baseline_id \`${baselineId}\`). The cycle you are reviewing built the product from this baseline.\n` +
     `- Read the run's lived history: the progress ledger \`.vivicy/development/progress-ledger.json\`, every block report under \`.vivicy/development/reports/*-blocked.json\` and \`*-integration-blocked.json\`, the gate evidence under \`.vivicy/development/gates/*.json\`, the whole-product \`.vivicy/development/reports/acceptance-report.json\`, and the quota history \`.vivicy/development/reports/quota-state.json\`.\n` +
+    `- Project-skill usage, declared by each issue's implementer and reviewer and recorded in that same ledger: ${skillUsageLine(skillUsage)}\n` +
     `- A RECURRING class is the SAME failure shape seen at least TWICE across the cycle (same gate flake, same blocked cause, same review finding, same quota exhaustion). One-off failures are not recurring.\n` +
     `- Write your JSON verdict — and nothing else — to \`${verdictRel}\`. Write no other file: you propose, the orchestrator records and the owner decides.\n`
   )
@@ -107,7 +150,7 @@ function makeDefaultSpawnRetroLeg(options: RunRetroOptions): SpawnRetroLeg {
     fast: false,
   }
   const leg: Leg = { ...implementer, role: "retro" }
-  return async ({ repoRoot, manifestPath, baselineId, verdictRel }) => {
+  return async ({ repoRoot, manifestPath, baselineId, verdictRel, skillUsage }) => {
     const legCfg = { ...cfg, promptsDir, execRoot: repoRoot }
     const issue: AgentIssue = {
       id: TRANSCRIPT_DIRS.retro,
@@ -115,7 +158,7 @@ function makeDefaultSpawnRetroLeg(options: RunRetroOptions): SpawnRetroLeg {
       graph_refs: ["node:retro"],
       path: verdictRel,
     }
-    const context = retroContext({ manifestPath, baselineId, verdictRel })
+    const context = retroContext({ manifestPath, baselineId, verdictRel, skillUsage })
     const deps = legDepsForTarget(repoRoot, context)
     return leg.provider === "codex"
       ? runCodexLeg(leg, issue, legCfg as LegConfig, deps)
@@ -243,6 +286,7 @@ export async function runRetro(options: RunRetroOptions = {}): Promise<RetroRepo
       manifestPath: baseline.manifestPath,
       baselineId: baseline.baselineId,
       verdictRel: RETRO_VERDICT_REL,
+      skillUsage: readDeclaredSkillUsage(repoRoot),
     })
   } catch (error) {
     report.phase = "failed"

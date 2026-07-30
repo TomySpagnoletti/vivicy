@@ -52,6 +52,23 @@ Apply this whenever the issue implements or touches a PUBLIC API or boundary (an
 
 Prevent, never merely test afterwards: for each class above that your slice ACTUALLY touches, pick the construction that makes the vice impossible — shared mutable state → one writer, or a lock/transaction taken before the read, never a read-then-write gap; a file the product rewrites → an atomic write (temp + rename), never truncate-then-write; a replayable action (retry, webhook, queue, resume) → idempotent by construction, keyed so the second delivery is a no-op; time → an injected clock and monotonic durations, never `now()` read inline; an external call → idempotent retries with backoff, or none; anything you open (descriptor, listener, timer, child process) → closed on every path including the failure one; input crossing a boundary → validated and normalized once, at the boundary; an action a user can fire twice (double-click, resubmit, second tab) → guarded where the state lives, never on the button alone. A class your slice does not touch costs you nothing; a class it touches and you left to chance is a defect you shipped.
 
+## Declare the project skills you applied (one file, always)
+
+`AGENTS.md` carries a `## Project skills` section listing the skills installed for this repository, each with the path to its `SKILL.md`. You are required to consult and apply the relevant ones; this is where you say which you did.
+
+Before you finish, write `.vivicy/development/reports/{{issue_id}}-implementer-skills.json` — exactly:
+
+```json
+{ "skills_applied": ["<skill id>", "…"] }
+```
+
+Rules:
+
+- Each id is copied VERBATIM from that section's bullets (the `owner/repo@skill` code span, not the display name). An id that is not in the list is dropped by the orchestrator and reported as a claim the project cannot back — never invent, guess, or reformat one.
+- List a skill only if you actually READ its `SKILL.md` and its guidance shaped this issue's code or tests. This is an observation, not a courtesy.
+- Write `{ "skills_applied": [] }` when none applied — including when the project has no skills at all. The empty answer is data; a missing file makes this issue invisible to the record.
+- This file is a declaration, never a verdict on your work: it changes nothing about the gate, and claiming more does not help you.
+
 ## CODE HYGIENE — comments and time-fixed references
 
 Write ZERO comments by default: the code, its names, and its tests are the documentation. Code here is written and read mostly by AI agents — comments cost tokens on every read and rot into lies. The ONLY comment allowed is a structural invariant, constraint, or danger genuinely not derivable from the code itself (a cross-file/cross-process contract, a deliberately non-obvious ordering, a platform trap, a security boundary) — ONE dense line, no story. Never write narration or paraphrase of the next line, JSDoc/docstrings that restate names and types, module-header essays, TODO musings, or decorative banners. Tool directives (`eslint-disable`, `@ts-expect-error`, `"use client"`, shebangs) are not comments — keep them. NEVER match the comment density of a heavily-commented codebase: that density is a defect, not a style to imitate. In code you touch for this issue, drop non-invariant comments as you pass; do not restyle untouched code just to strip its comments.
