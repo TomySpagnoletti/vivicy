@@ -56,7 +56,6 @@ import {
 } from "./dev-loop.ts"
 import type { Config, Issue, LoopSteps, ProcessedIssue } from "./dev-loop.ts"
 import { TRANSCRIPT_DIRS } from "./agent-spawn.ts"
-import { checkSkills, missingSkills, readDeclaredSkills } from "./dev-preflight.ts"
 import { nextSupervisorAction } from "./dev-loop-supervised.ts"
 
 after(() => {
@@ -1209,60 +1208,6 @@ test("supervisor relaunches while progressing and stops on done/block/stall/cap"
   assert.equal(nextSupervisorAction({ done: 3, total: 8, blocked: 0, attempt: 5, stall: 0 }, limits).action, "max_relaunches")
   assert.equal(nextSupervisorAction({ done: 3, total: 8, blocked: 0, attempt: 2, stall: 3 }, limits).action, "stalled")
   assert.equal(nextSupervisorAction({ done: 3, total: 8, blocked: 0, attempt: 2, stall: 1 }, limits).action, "relaunch")
-})
-
-test("missingSkills detects absent skills against a project-defined list (substring-robust)", () => {
-  const declared = ["alpha-skill", "beta-skill", "gamma-skill"]
-  assert.deepEqual(missingSkills(declared.join(" "), declared), [])
-  assert.deepEqual(missingSkills("only alpha-skill installed", declared), ["beta-skill", "gamma-skill"])
-  assert.deepEqual(missingSkills("anything"), [])
-})
-
-test("checkSkills is ok with no declared skills and never runs the CLI (generic project)", () => {
-  let ran = false
-  const result = checkSkills(
-    () => {
-      ran = true
-      return { ok: true, output: "" }
-    },
-    { required: [], recommended: [] }
-  )
-  assert.equal(result.ok, true)
-  assert.deepEqual(result.missingRequired, [])
-  assert.deepEqual(result.notes, [])
-  assert.equal(ran, false, "no declared skills => the skills CLI is never invoked")
-})
-
-test("checkSkills only NOTES absent recommended skills, never fails", () => {
-  const result = checkSkills(() => ({ ok: true, output: "" }), { required: [], recommended: ["nice-to-have"] })
-  assert.equal(result.ok, true)
-  assert.deepEqual(result.missingRecommended, ["nice-to-have"])
-  assert.equal(result.notes.length, 1)
-  assert.match(result.notes[0], /informational only/)
-})
-
-test("checkSkills fails only when a declared REQUIRED skill is missing", () => {
-  const present = checkSkills(() => ({ ok: true, output: "must-have other" }), { required: ["must-have"], recommended: [] })
-  assert.equal(present.ok, true)
-  assert.deepEqual(present.missingRequired, [])
-
-  const absent = checkSkills(() => ({ ok: true, output: "other" }), { required: ["must-have"], recommended: [] })
-  assert.equal(absent.ok, false)
-  assert.deepEqual(absent.missingRequired, ["must-have"])
-})
-
-test("checkSkills blocks on an unavailable CLI only when required skills are declared", () => {
-  const blocked = checkSkills(() => ({ ok: false }), { required: ["must-have"], recommended: [] })
-  assert.equal(blocked.ok, false)
-  assert.deepEqual(blocked.missingRequired, ["must-have"])
-
-  const noted = checkSkills(() => ({ ok: false }), { required: [], recommended: ["nice-to-have"] })
-  assert.equal(noted.ok, true)
-  assert.equal(noted.notes.length, 1)
-})
-
-test("readDeclaredSkills returns no skills when the target declares none", () => {
-  assert.deepEqual(readDeclaredSkills(null), { required: [], recommended: [] })
 })
 
 test("runLoop blocks an issue whose gate stays red after maxRetries and stops", () => {

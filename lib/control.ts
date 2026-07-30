@@ -21,7 +21,7 @@ import type { ActiveCycle, CyclesView, PastCycle } from "@/lib/cycles"
 import type { CycleKind } from "@/lib/doc-prep-report"
 import { settingsToEnv } from "@/lib/settings"
 import { readSettings } from "@/lib/settings-store"
-import { SKILLS_IN_FLIGHT_PHASES, SKILLS_REPORT_FILE, type SkillsReport } from "@/lib/skills-report"
+import { isSkillsPhaseInFlight, SKILLS_REPORT_FILE, type SkillsReport } from "@/lib/skills-report"
 import { SKILLS_LOCK_FILE, stageLockHolder } from "@/lib/stage-lock"
 import { DOC_PREP_IN_FLIGHT_PHASES, DOC_PREP_REPORT_FILE, type DocPrepReport } from "@/lib/doc-prep-report"
 import { ACCEPTANCE_REPORT_FILE, type AcceptanceReport } from "@/lib/acceptance-report"
@@ -780,8 +780,6 @@ export function getExtractionStatus(): ExtractionStatus | null {
 // Deliberately generous: a false "stale" read would double-spawn agent legs — worse than waiting out a slow install.
 const SKILLS_STALE_MS = 15 * 60 * 1000
 
-const SKILLS_IN_FLIGHT = new Set<string>(SKILLS_IN_FLIGHT_PHASES)
-
 function readSkillsReportFrom(targetRoot: string): SkillsReport | null {
   const file = path.join(targetRoot, SKILLS_REPORT_FILE)
   if (!existsSync(file)) return null
@@ -802,7 +800,7 @@ export function readSkillsReport(): SkillsReport | null {
 
 function isSkillsInstallInFlight(targetRoot: string): boolean {
   const report = readSkillsReportFrom(targetRoot)
-  if (!report?.phase || !SKILLS_IN_FLIGHT.has(report.phase)) return false
+  if (report === null || !isSkillsPhaseInFlight(report.phase)) return false
   const updated = Date.parse(report.updated_at ?? "")
   // Unparseable timestamp fails toward "in flight" (refuse) rather than risk a double-spawned install.
   if (!Number.isFinite(updated)) return true

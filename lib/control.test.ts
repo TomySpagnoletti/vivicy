@@ -33,6 +33,7 @@ import {
 } from "@/lib/control"
 import { getProjectRuntimeDir } from "@/lib/project-runtime"
 import { getRuntimeDir } from "@/lib/runtime-dir"
+import { SKILLS_IN_FLIGHT_PHASES } from "@/lib/skills-report"
 
 function makeFakeSpawner(overrides: Partial<Spawner> = {}) {
   const alive = new Set<number>()
@@ -664,8 +665,9 @@ describe("startSkillsInstall", () => {
     expect(args[args.indexOf("--ids") + 1]).toBe("acme/a@x,acme/b@y")
   })
 
-  it("refuses while a fresh in-flight report says an install is running", () => {
-    writeSkillsReport({ phase: "auditing", updated_at: new Date().toISOString() })
+  // Every in-flight phase refuses, `removing` included: the set is imported from lib/skills-report, so a phase the writer adds can never read as settled here.
+  it.each(SKILLS_IN_FLIGHT_PHASES)("refuses while a fresh in-flight report says the stage is %s", (phase) => {
+    writeSkillsReport({ phase, updated_at: new Date().toISOString() })
     const { spawner, calls } = makeFakeSpawner()
 
     expect(() => startSkillsInstall(spawner)).toThrow(ControlError)

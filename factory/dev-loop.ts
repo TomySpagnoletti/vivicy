@@ -2765,11 +2765,9 @@ function writePostMergeIntegrationBlock(
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
-  ensureCleanTreeForRun(requireRepoRoot())
-  const skills = checkSkills()
-  for (const note of skills.notes ?? []) {
-    process.stderr.write(`dev-loop preflight: note: ${note}\n`)
-  }
+  const preflightRoot = requireRepoRoot()
+  ensureCleanTreeForRun(preflightRoot)
+  const skills = checkSkills(preflightRoot)
   if (!skills.ok) {
     process.stderr.write(`dev-loop preflight: ${skills.reason}\n  ${missingSkillsRefusal(skills.missingRequired ?? [])}`)
     process.exit(1)

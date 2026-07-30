@@ -26,6 +26,7 @@ import { ensureLocalGitIdentity, findFrozenManifest } from "./extract-issues.ts"
 import { FACTORY_PROMPTS_DIR, resolveTargetRoot } from "./target-root.ts"
 import { AGENT_SKILLS_DIR, PER_AGENT_SKILL_DIRS, SKILLS_CLI_LOCKFILE } from "../lib/spec-kind.ts"
 import { countForm, countOf } from "../lib/count-form.ts"
+import { normalizeSkillId, parseSkillId, skillBundleRel, skillDocRel, type SkillRef } from "./skill-id.ts"
 import {
   MANAGED_MARKDOWN_FILES,
   MANAGED_TEMP_PREFIX,
@@ -53,7 +54,6 @@ const SKILLS_STAGE_PATHS: readonly string[] = [
   ...SKELETON_GITKEEPS,
 ]
 export const MAX_PROJECT_SKILLS = 6
-const SKILL_ID_RE = /^[\w.-]+\/[\w.-]+@[\w.-]+$/
 
 // Priority/label only — never a security gate; the audits are the gate.
 export const OFFICIAL_VENDOR_OWNERS: ReadonlySet<string> = new Set([
@@ -119,15 +119,16 @@ export const OFFICIAL_VENDOR_OWNERS: ReadonlySet<string> = new Set([
 ])
 
 export type SkillRejectReason =
-  "red_audit" | "too_many_warnings" | "unaudited" | "cap_exceeded" | "invalid_id" | "install_failed" | "not_installed" | "remove_failed"
+  | "red_audit"
+  | "too_many_warnings"
+  | "unaudited"
+  | "cap_exceeded"
+  | "name_collision"
+  | "invalid_id"
+  | "install_failed"
+  | "not_installed"
+  | "remove_failed"
 export type SkillsPhase = "selecting" | "auditing" | "installing" | "removing" | "green" | "failed" | "skipped"
-
-interface SkillRef {
-  id: string
-  owner: string
-  source: string
-  skill: string
-}
 
 interface SkillCandidate extends SkillRef {
   name: string
@@ -182,6 +183,7 @@ interface SpawnScoutArgs {
   resultRel: string
   attempt: number
   feedback: string | null
+  installed: readonly InstalledSkillEntry[]
 }
 
 export interface InstallSkillsOptions {
@@ -217,20 +219,6 @@ function stageRuntimeDir(repoRoot: string, env: NodeJS.ProcessEnv): string {
   return fromEnv && fromEnv.trim().length > 0 ? resolve(fromEnv) : resolve(repoRoot, ".vivicy-runtime")
 }
 
-export function parseSkillId(id: string): SkillRef | null {
-  if (!SKILL_ID_RE.test(id)) return null
-  const at = id.lastIndexOf("@")
-  const source = id.slice(0, at)
-  return { id, owner: source.slice(0, source.indexOf("/")), source, skill: id.slice(at + 1) }
-}
-
-export function normalizeSkillId(raw: string): SkillRef | null {
-  const trimmed = raw.trim()
-  const url = /^https?:\/\/skills\.sh\/([\w.-]+)\/([\w.-]+)\/([\w.-]+)\/?$/.exec(trimmed)
-  if (url) return parseSkillId(`${url[1]}/${url[2]}@${url[3]}`)
-  return parseSkillId(trimmed)
-}
-
 export function auditVerdict(audit: SkillAuditFetch): "safe" | "red_audit" | "too_many_warnings" | "unaudited" {
   if (!audit.found) return "unaudited"
   const fails = audit.audits.filter((a) => a.status === "fail").length
@@ -238,6 +226,11 @@ export function auditVerdict(audit: SkillAuditFetch): "safe" | "red_audit" | "to
   const warns = audit.audits.filter((a) => a.status === "warn").length
   if (warns > 1) return "too_many_warnings"
   return "safe"
+}
+
+// The ONE derivation of how much room a project has left, over the installed SET — so the cap, the scout's budget and the sentence the scout reads cannot state different numbers.
+function remainingSlots(installed: readonly InstalledSkillEntry[]): number {
+  return Math.max(0, MAX_PROJECT_SKILLS - installed.length)
 }
 
 // The ONE predicate for "this baseline still owes an automatic skill selection", read by the supervisor before spawning the stage and by the stage itself to skip — so the gate and the skip can never drift apart. `selection_baseline_id` is written by the AUTO path alone, which is what makes an explicit install or a removal incapable of cancelling scouting the project has not had: a settled auto stage is the only thing that can settle it.
@@ -298,8 +291,14 @@ export async function installSkills(options: InstallSkillsOptions = {}): Promise
       return report
     }
 
-    report.summary =
-      mode === "auto"
+    // Every COUNT and every budget reads the installed SET, never `installedSkillIds`, whose raw ids the set deliberately drops when they name no skill: an owner typo in requiredSkills would otherwise make the cap, the scout's budget and the report disagree — and a 5-skill project would fire the at-capacity gate, settle the baseline and kill its own scouting while the summary announced 5/6. The raw id set answers exactly one kind of question, MEMBERSHIP, and never how many.
+    const alreadyInstalled = installedSkillIds(repoRoot, priorReport)
+    // The scout's own budget, settled BEFORE the leg is spawned rather than discovered by discarding its proposals afterwards.
+    const slots = remainingSlots(report.installed)
+    const atCapacity = mode === "auto" && slots === 0
+    report.summary = atCapacity
+      ? `project already holds all ${MAX_PROJECT_SKILLS} skill slots; no selection to run`
+      : mode === "auto"
         ? "scouting project skills from the frozen canonical docs"
         : `validating ${countOf(explicitIds.length, "explicitly requested skill id", "explicitly requested skill ids")}`
     emit()
@@ -318,6 +317,9 @@ export async function installSkills(options: InstallSkillsOptions = {}): Promise
         seen.add(ref.id)
         candidates.push({ ...ref, name: ref.skill, reason: "explicitly requested", official: OFFICIAL_VENDOR_OWNERS.has(ref.owner) })
       }
+    } else if (atCapacity) {
+      // Not a refusal and not a skip: the selection has nothing to choose. Spawning the leg would burn an agent run whose every proposal the cap already refuses.
+      candidates = []
     } else {
       const spawnScout = options.spawnScout ?? makeDefaultSpawnScout(options)
       const selection = await runScoutSelection({
@@ -325,6 +327,7 @@ export async function installSkills(options: InstallSkillsOptions = {}): Promise
         spawnScout,
         manifestPath: baseline!.manifestPath,
         baselineId: baseline!.baselineId,
+        installed: report.installed,
       })
       if (!selection.ok) {
         report.phase = "failed"
@@ -335,18 +338,17 @@ export async function installSkills(options: InstallSkillsOptions = {}): Promise
       candidates = selection.candidates
     }
 
-    const alreadyInstalled = installedSkillIds(repoRoot, priorReport)
     candidates = candidates.filter((c) => !alreadyInstalled.has(c.id))
-    const slots = Math.max(0, MAX_PROJECT_SKILLS - alreadyInstalled.size)
     if (mode === "auto") {
       candidates = [...candidates.filter((c) => c.official), ...candidates.filter((c) => !c.official)]
     }
+    candidates = withoutNameCollisions(candidates, report)
     const accepted = candidates.slice(0, slots)
     for (const c of candidates.slice(slots)) {
       report.rejected.push({
         id: c.id,
         reason: "cap_exceeded",
-        detail: `project already has ${countOf(alreadyInstalled.size, "skill", "skills")}; the installed set may never exceed ${MAX_PROJECT_SKILLS} total`,
+        detail: `project already has ${countOf(report.installed.length, "skill", "skills")}; the installed set may never exceed ${MAX_PROJECT_SKILLS} total`,
       })
     }
 
@@ -399,12 +401,36 @@ export async function installSkills(options: InstallSkillsOptions = {}): Promise
     if (mode === "auto") report.selection_baseline_id = baseline!.baselineId
     report.summary =
       `skills stage green: ${report.added.length} installed, ${report.rejected.length} rejected this run; project total ${report.installed.length}/${MAX_PROJECT_SKILLS}` +
-      (report.installed.length === 0 && report.rejected.length === 0 ? " (zero skills is a legitimate outcome)" : "")
+      (atCapacity
+        ? " — every slot was already filled, so no selection ran; remove a skill to free one"
+        : report.installed.length === 0 && report.rejected.length === 0
+          ? " (zero skills is a legitimate outcome)"
+          : "")
     emit()
     return report
   } finally {
     settleStageTree(tree)
   }
+}
+
+// One bundle directory per NAME, whatever vendor published it: `.agents/skills/<name>` is the on-disk primary key, so a second vendor's same-named skill would overwrite the first's bundle and removing either would orphan the other. Refused rather than installed, naming the id that holds the name — and the run's own acceptances hold names too, so two colliding candidates in ONE selection cannot both land. Order decides the winner, which is why the official-first pass runs before this one.
+function withoutNameCollisions(candidates: readonly SkillCandidate[], report: SkillsReport): SkillCandidate[] {
+  const holders = new Map<string, string>(report.installed.map((entry) => [entry.skill, entry.id]))
+  const kept: SkillCandidate[] = []
+  for (const candidate of candidates) {
+    const holder = holders.get(candidate.skill)
+    if (holder === undefined) {
+      holders.set(candidate.skill, candidate.id)
+      kept.push(candidate)
+      continue
+    }
+    report.rejected.push({
+      id: candidate.id,
+      reason: "name_collision",
+      detail: `the name "${candidate.skill}" is already taken by ${holder}; ${skillBundleRel(candidate.skill)} holds one skill, so keep one of the two`,
+    })
+  }
+  return kept
 }
 
 export interface RemoveSkillsOptions {
@@ -501,7 +527,7 @@ function defaultRunRemove({ repoRoot, source, skill }: { repoRoot: string; sourc
   if ((viaCli.status ?? 1) === 0) {
     return { code: 0, output: `${viaCli.stdout ?? ""}\n${viaCli.stderr ?? ""}`.trim() }
   }
-  const skillDir = resolve(repoRoot, AGENT_SKILLS_DIR, skill)
+  const skillDir = resolve(repoRoot, skillBundleRel(skill))
   if (!existsSync(skillDir)) {
     return { code: 1, output: `skills CLI could not remove "${skill}" (${source}) and ${skillDir} does not exist` }
   }
@@ -591,19 +617,12 @@ function forgetWrite(tree: StageTree, rel: string): void {
   tree.written.delete(rel)
 }
 
-// Recorded BEFORE the skills CLI runs, since it is the writer either way: a half-written bundle a failed install left behind is the stage's own residue, and leaving it uncommitted would re-open the very refusal this absorption closes.
+// Recorded BEFORE the skills CLI runs, since it is the writer either way: a half-written bundle a failed install left behind is the stage's own residue, and leaving it uncommitted would re-open the very refusal this absorption closes. Every skill reaching here came out of `parseSkillId`, so its name is a plain segment by construction.
 function recordSkillWrite(tree: StageTree, skill: string): void {
-  const segment = safeSkillSegment(skill)
-  if (segment === null) return
-  tree.skills.add(segment)
+  tree.skills.add(skill)
   recordWrite(tree, SKILLS_CLI_LOCKFILE)
-  recordWrite(tree, `${AGENT_SKILLS_DIR}/${segment}`)
-  for (const dir of PER_AGENT_SKILL_DIRS) recordWrite(tree, `${dir}/${segment}`)
-}
-
-// A skill name becomes a pathspec and a symlink path here: `.` and `..` satisfy SKILL_ID_RE and would name the parent directory.
-function safeSkillSegment(skill: string): string | null {
-  return /^[\w.-]+$/.test(skill) && skill !== "." && skill !== ".." ? skill : null
+  recordWrite(tree, skillBundleRel(skill))
+  for (const dir of PER_AGENT_SKILL_DIRS) recordWrite(tree, `${dir}/${skill}`)
 }
 
 function runGit(repoRoot: string, args: string[], input?: string): { status: number; stdout: string; stderr: string } {
@@ -743,17 +762,19 @@ async function runScoutSelection({
   spawnScout,
   manifestPath,
   baselineId,
+  installed,
 }: {
   repoRoot: string
   spawnScout: (args: SpawnScoutArgs) => Promise<LegResult | void>
   manifestPath: string
   baselineId: string
+  installed: readonly InstalledSkillEntry[]
 }): Promise<{ ok: true; candidates: SkillCandidate[] } | { ok: false; problems: string[] }> {
   let feedback: string | null = null
   let problems: string[] = []
   for (let attempt = 1; attempt <= 2; attempt += 1) {
     clearScoutResult(repoRoot)
-    await spawnScout({ repoRoot, manifestPath, baselineId, resultRel: SCOUT_RESULT_REL, attempt, feedback })
+    await spawnScout({ repoRoot, manifestPath, baselineId, resultRel: SCOUT_RESULT_REL, attempt, feedback, installed })
     const raw = readJsonOrNull(resolve(repoRoot, SCOUT_RESULT_REL))
     clearScoutResult(repoRoot)
     const validated = validateScoutResult(raw)
@@ -789,6 +810,11 @@ function validateScoutResult(raw: unknown): { ok: true; candidates: SkillCandida
     seen.add(ref.id)
     const name = String((entry as { name?: unknown }).name ?? ref.skill).trim() || ref.skill
     const reason = String((entry as { reason?: unknown }).reason ?? "").trim()
+    // The reason is not decoration: it becomes the skill's line in the block every leg reads, and the sidebar card. An unjustified candidate is a selection nobody can audit, so it is re-prompted rather than installed with an empty line.
+    if (reason.length === 0) {
+      problems.push(`${ref.id} has an empty "reason" — every skill must state the project need it covers, in one line`)
+      continue
+    }
     candidates.push({ ...ref, name, reason, official: OFFICIAL_VENDOR_OWNERS.has(ref.owner) })
   }
   if (problems.length > 0) return { ok: false, problems }
@@ -812,7 +838,7 @@ function makeDefaultSpawnScout(options: InstallSkillsOptions): (args: SpawnScout
     fast: false,
   }
   const leg: Leg = { ...implementer, role: "skill-scout" }
-  return async ({ repoRoot, manifestPath, baselineId, resultRel, attempt, feedback }) => {
+  return async ({ repoRoot, manifestPath, baselineId, resultRel, attempt, feedback, installed }) => {
     const legCfg = { ...cfg, promptsDir, execRoot: repoRoot }
     const issue: AgentIssue = {
       id: TRANSCRIPT_DIRS.autoskills,
@@ -820,7 +846,7 @@ function makeDefaultSpawnScout(options: InstallSkillsOptions): (args: SpawnScout
       graph_refs: ["node:skills"],
       path: SKILLS_REPORT_REL,
     }
-    const context = scoutContext({ manifestPath, baselineId, resultRel, attempt, feedback })
+    const context = scoutContext({ manifestPath, baselineId, resultRel, attempt, feedback, installed })
     const deps = legDepsForTarget(repoRoot, context)
     return leg.provider === "codex"
       ? runCodexLeg(leg, issue, legCfg as LegConfig, deps)
@@ -828,24 +854,32 @@ function makeDefaultSpawnScout(options: InstallSkillsOptions): (args: SpawnScout
   }
 }
 
-function scoutContext({
+// Everything the scout cannot derive from the canonical: where the corpus is, where its answer goes, and the three constraints the orchestrator will enforce on it afterwards — what the project already has, how many slots that leaves, and the audit gate. Told here rather than discovered by having its proposals discarded. The budget is DERIVED from the very set printed above it, never handed in beside it, so two adjacent lines cannot state different arithmetic.
+export function scoutContext({
   manifestPath,
   baselineId,
   resultRel,
   attempt,
   feedback,
+  installed,
 }: {
   manifestPath: string
   baselineId: string
   resultRel: string
   attempt: number
   feedback: string | null
+  installed: readonly InstalledSkillEntry[]
 }): string {
   return (
     `\n\n---\n\n## Skill scouting context for this run\n\n` +
     `- Frozen baseline manifest: \`${manifestPath}\` (baseline_id \`${baselineId}\`). The canonical corpus it pins under \`.vivicy/canonical/**\` is your ONLY source of truth about the project.\n` +
     `- Write your JSON result — and nothing else — to \`${resultRel}\`.\n` +
-    `- Select AT MOST ${MAX_PROJECT_SKILLS} skills; fewer is better, zero is valid.\n` +
+    (installed.length === 0
+      ? `- This project has NO skills installed yet: all ${MAX_PROJECT_SKILLS} slots are free.\n`
+      : `- Already installed (${installed.length}/${MAX_PROJECT_SKILLS} slots taken): ${installed.map((entry) => `\`${entry.id}\``).join(", ")}. Never propose one of these again — a re-proposal is discarded — and never propose a different vendor's skill whose name (the part after \`@\`) matches one of theirs: \`${AGENT_SKILLS_DIR}/<name>\` holds ONE skill, so the orchestrator refuses a name collision.\n`) +
+    `- Propose AT MOST ${countOf(remainingSlots(installed), "skill", "skills")}: ${MAX_PROJECT_SKILLS} is the project TOTAL across every run, not a per-run budget, and ${countOf(installed.length, "slot is", "slots are")} already taken. Fewer is better; zero is valid.\n` +
+    `- Every skill you propose is then checked against the skills.sh security audits and REFUSED — never installed — when any audit fails, more than one warns, or no audit exists at all. Prefer skills that a first-party vendor publishes and that the registry actually audits; a skill nobody audited is a skill this project will not get.\n` +
+    `- Every entry needs a non-empty one-line \`reason\` naming the canonical need it covers; one missing reason invalidates your whole result.\n` +
     `- Attempt: ${attempt}.\n` +
     (feedback
       ? `\n### What was INVALID last time\n\nYour previous result was rejected by the orchestrator's strict validation. Fix exactly this and rewrite the result file:\n\n\`\`\`text\n${feedback}\n\`\`\`\n`
@@ -914,17 +948,10 @@ export interface SkillBlockEntry {
   reason: string
 }
 
-// The bundle path is the leg's ONE actionable instruction — auto-discovery may be off in the agent CLI, a path never is. A skill part that is not a plain segment (`.`/`..`, which `SKILL_ID_RE` still admits) names no bundle, so nothing is claimed for it.
-function skillDocPath(entry: SkillBlockEntry): string | null {
-  const segment = safeSkillSegment(entry.skill)
-  return segment === null ? null : `${AGENT_SKILLS_DIR}/${segment}/SKILL.md`
-}
-
+// The bundle path is the leg's ONE actionable instruction — auto-discovery may be off in the agent CLI, a path never is.
 function skillBullet(entry: SkillBlockEntry): string {
-  const doc = skillDocPath(entry)
   return (
-    `- **${entry.name}** (\`${entry.id}\`, ${entry.official ? "official" : "community"})` +
-    (doc === null ? "" : ` — \`${doc}\``) +
+    `- **${entry.name}** (\`${entry.id}\`, ${entry.official ? "official" : "community"}) — \`${skillDocRel(entry.skill)}\`` +
     (entry.reason ? ` — ${entry.reason}` : "")
   )
 }
@@ -1062,20 +1089,20 @@ function derivedSkillEntry(id: string): InstalledSkillEntry | null {
   }
 }
 
-// The single normalization of the prior report's installed entries — every reader of that agent-independent file goes through here rather than trusting its shape.
+// The single normalization of the prior report's installed entries — every reader of that agent-independent file goes through here rather than trusting its shape. `source` and `skill` are re-derived from the id rather than read back: they are projections of it, and a hand-edited pair disagreeing with the id would name a bundle the id does not. An id that does not parse describes no skill at all and is dropped, exactly as an unparseable vivicy.json declaration is.
 function priorInstalledEntries(priorReport: Partial<SkillsReport> | null): InstalledSkillEntry[] {
   const raw = priorReport && Array.isArray(priorReport.installed) ? priorReport.installed : []
   const entries: InstalledSkillEntry[] = []
   for (const value of raw) {
     if (!value || typeof value !== "object") continue
     const record = value as Partial<InstalledSkillEntry>
-    if (typeof record.id !== "string" || record.id.length === 0) continue
-    const ref = parseSkillId(record.id)
+    const ref = typeof record.id === "string" ? parseSkillId(record.id) : null
+    if (ref === null) continue
     entries.push({
-      id: record.id,
-      source: typeof record.source === "string" ? record.source : (ref?.source ?? ""),
-      skill: typeof record.skill === "string" ? record.skill : (ref?.skill ?? record.id),
-      name: typeof record.name === "string" && record.name.length > 0 ? record.name : (ref?.skill ?? record.id),
+      id: ref.id,
+      source: ref.source,
+      skill: ref.skill,
+      name: typeof record.name === "string" && record.name.length > 0 ? record.name : ref.skill,
       official: record.official === true,
       security_waived: record.security_waived === true,
       audits: Array.isArray(record.audits)

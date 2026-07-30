@@ -5,7 +5,7 @@ import { ChevronRight, Search, ShieldAlert } from "lucide-react"
 import { useTranslations } from "next-intl"
 import { toast } from "sonner"
 
-import type { InstalledSkill, RejectedSkill, SkillsReport } from "@/lib/skills-report"
+import { isSkillsPhaseInFlight, type InstalledSkill, type RejectedSkill, type SkillsReport } from "@/lib/skills-report"
 import { errorText } from "@/lib/i18n-errors"
 import {
   AlertDialog,
@@ -25,8 +25,6 @@ import { cn } from "@/lib/utils"
 
 const POLL_INTERVAL_MS = 10_000
 
-const IN_FLIGHT = new Set(["selecting", "auditing", "installing"])
-
 interface SkillsReportResponse {
   ok?: boolean
   report?: SkillsReport | null
@@ -38,6 +36,7 @@ export function SectionSkills() {
   const tErrors = useTranslations("errors")
   const [report, setReport] = useState<SkillsReport | null>(null)
   const [starting, setStarting] = useState(false)
+  const [confirmOpen, setConfirmOpen] = useState(false)
 
   const load = useCallback(async () => {
     try {
@@ -88,17 +87,19 @@ export function SectionSkills() {
 
   const installed = report?.installed ?? []
   const rejected = report?.rejected ?? []
-  const running = typeof report?.phase === "string" && IN_FLIGHT.has(report.phase)
+  const inFlight = isSkillsPhaseInFlight(report?.phase)
+  const busy = starting || inFlight
 
   return (
     <div className="flex flex-col gap-3 text-xs">
       <div className="flex items-center justify-between gap-2">
         <span className="text-muted-foreground">
-          {running ? t("installInProgress", { phase: report?.phase ?? "" }) : (report?.summary ?? "")}
+          {inFlight ? t("stageInProgress", { phase: report?.phase ?? "" }) : (report?.summary ?? "")}
         </span>
-        <AlertDialog>
+        {/* aria-disabled + a guarded open, never native `disabled`: AlertDialog returns focus to its trigger on close, and a natively-disabled trigger cannot receive it — confirming a run disables this very button, so focus would drop to <body> every time. */}
+        <AlertDialog open={confirmOpen} onOpenChange={(next) => setConfirmOpen(next && !busy)}>
           <AlertDialogTrigger asChild>
-            <Button variant="outline" size="sm" disabled={starting || running}>
+            <Button variant="outline" size="sm" aria-disabled={busy} className={cn("shrink-0", busy && "opacity-60")}>
               <Search aria-hidden />
               {t("findSkills")}
             </Button>
@@ -116,7 +117,7 @@ export function SectionSkills() {
         </AlertDialog>
       </div>
 
-      {installed.length === 0 && !running ? (
+      {installed.length === 0 && !inFlight ? (
         <p className="text-muted-foreground">{t("emptyState")}</p>
       ) : (
         <ul className="flex flex-col gap-2">

@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest"
 
 import { SectionSkills } from "@/components/sidebar/section-skills"
+import { SKILLS_IN_FLIGHT_PHASES } from "@/lib/skills-report"
 import { renderWithIntl } from "@/test/render"
 
 vi.mock("sonner", () => ({
@@ -161,11 +162,47 @@ describe("SectionSkills — find skills action (confirm flow)", () => {
     })
   })
 
-  test("the action is disabled while an install is in flight", async () => {
-    vi.stubGlobal("fetch", stubFetch({ phase: "auditing", mode: "auto", installed: [], rejected: [], updated_at: "2026-07-04T09:00:00Z" }))
+  // The label is per-phase, never the machine word and never "install" over a removal; the whole set is covered, so a phase without copy is a red test rather than a wrong sentence.
+  const IN_FLIGHT_LABEL: Record<string, string> = {
+    selecting: "Selecting skills…",
+    auditing: "Auditing candidates…",
+    installing: "Installing skills…",
+    removing: "Removing skills…",
+  }
+
+  // aria-disabled, never the native attribute: the dialog returns focus to this very trigger on close, and confirming a run is what disables it.
+  test.each(SKILLS_IN_FLIGHT_PHASES)("the action is greyed and refuses to open while the stage is %s", async (phase) => {
+    const user = userEvent.setup()
+    const fetchMock = stubFetch({ phase, mode: "auto", installed: [], rejected: [], updated_at: "2026-07-04T09:00:00Z" })
+    vi.stubGlobal("fetch", fetchMock)
     renderWithIntl(<SectionSkills />)
 
-    await waitFor(() => expect(screen.getByText(/Install in progress \(auditing\)/)).toBeInTheDocument())
-    expect(screen.getByRole("button", { name: /Find skills/ })).toBeDisabled()
+    await waitFor(() => expect(screen.getByText(IN_FLIGHT_LABEL[phase])).toBeInTheDocument())
+    const trigger = screen.getByRole("button", { name: /Find skills/ })
+    expect(trigger).toHaveAttribute("aria-disabled", "true")
+    expect(trigger).not.toBeDisabled()
+
+    await user.click(trigger)
+    expect(screen.queryByRole("alertdialog")).toBeNull()
+    expect(fetchMock.mock.calls.some((c) => (c[1] as RequestInit | undefined)?.method === "POST")).toBe(false)
+  })
+
+  test("a removal in flight greys the action and names itself", async () => {
+    vi.stubGlobal(
+      "fetch",
+      stubFetch({ phase: "removing", mode: "remove", installed: [], rejected: [], updated_at: "2026-07-04T09:00:00Z" })
+    )
+    renderWithIntl(<SectionSkills />)
+
+    await waitFor(() => expect(screen.getByText("Removing skills…")).toBeInTheDocument())
+    expect(screen.queryByText(/Install in progress/)).toBeNull()
+    expect(screen.getByRole("button", { name: /Find skills/ })).toHaveAttribute("aria-disabled", "true")
+  })
+
+  test("the trigger is live again once the stage settles", async () => {
+    vi.stubGlobal("fetch", stubFetch(GREEN_REPORT))
+    renderWithIntl(<SectionSkills />)
+
+    await waitFor(() => expect(screen.getByRole("button", { name: /Find skills/ })).toHaveAttribute("aria-disabled", "false"))
   })
 })

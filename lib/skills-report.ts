@@ -3,9 +3,14 @@
 
 export const SKILLS_REPORT_FILE = ".vivicy/development/reports/skills-report.json"
 
-export const SKILLS_IN_FLIGHT_PHASES = ["selecting", "auditing", "installing", "removing"] as const
-
 export type SkillsPhase = "selecting" | "auditing" | "installing" | "removing" | "green" | "failed" | "skipped"
+
+// The ONE in-flight set: every reader — the app's refusal probe, the CLI's, the sidebar's disabled action — imports it instead of spelling its own, or a phase added to the writer silently reads as settled in whichever copy was not updated.
+export const SKILLS_IN_FLIGHT_PHASES: readonly SkillsPhase[] = ["selecting", "auditing", "installing", "removing"]
+
+export function isSkillsPhaseInFlight(phase: unknown): boolean {
+  return typeof phase === "string" && (SKILLS_IN_FLIGHT_PHASES as readonly string[]).includes(phase)
+}
 
 export interface SkillAudit {
   provider: string

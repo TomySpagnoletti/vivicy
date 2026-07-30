@@ -23,8 +23,8 @@ import {
   installSkills,
   removeSkills,
   MAX_PROJECT_SKILLS,
-  normalizeSkillId,
   OFFICIAL_VENDOR_OWNERS,
+  scoutContext,
   SkillsConfigError,
   SkillsLockError,
   skillsNotification,
@@ -32,7 +32,8 @@ import {
   SKILLS_REPORT_REL,
 } from "./install-skills.ts"
 import type { SkillAuditFetch, SkillsReport } from "./install-skills.ts"
-import { missingSkillsRefusal, readDeclaredSkills } from "./dev-preflight.ts"
+import { checkSkills, missingRequiredSkills, missingSkillsRefusal, readRequiredSkills } from "./dev-preflight.ts"
+import { normalizeSkillId } from "./skill-id.ts"
 
 const SCOUT_RESULT_REL = ".vivicy/development/reports/skill-scout-result.json"
 const BASELINE_ID = "baseline-v1.0.0"
@@ -117,6 +118,16 @@ describe("normalizeSkillId", () => {
     assert.equal(normalizeSkillId("owner/repo"), null)
     assert.equal(normalizeSkillId("owner@skill"), null)
     assert.equal(normalizeSkillId("https://skills.sh/owner/repo"), null)
+  })
+
+  // Ids arrive from LLM output and from chat text; every part of one becomes a directory name, a symlink path, a git pathspec or a URL element.
+  it("refuses a `.` or `..` segment in EVERY part of an id, and in the URL form", () => {
+    for (const id of ["a/b@..", "a/b@.", "../b@skill", "a/..@skill", "./b@skill", "a/.@skill", "../..@..", "a/b@../../etc"]) {
+      assert.equal(normalizeSkillId(id), null, `${id} must not parse`)
+    }
+    assert.equal(normalizeSkillId("https://skills.sh/a/b/.."), null, "the URL form re-parses through the same rule")
+    assert.equal(normalizeSkillId("a/b@...")?.skill, "...", "three dots is an ordinary name, not a traversal")
+    assert.equal(normalizeSkillId("a/b@.hidden")?.skill, ".hidden")
   })
 })
 
@@ -297,7 +308,7 @@ describe("auto mode", () => {
 
   it("more than 6 proposed skills is invalid scout output (re-prompted, then failed)", async () => {
     seedBaseline()
-    const seven = { skills: Array.from({ length: 7 }, (_, i) => ({ id: `owner/repo@skill-${i}` })) }
+    const seven = { skills: Array.from({ length: 7 }, (_, i) => ({ id: `owner/repo@skill-${i}`, reason: "the spec needs it" })) }
     const report = await installSkills({
       repoRoot: repo,
       spawnScout: fakeScout([seven, seven]),
@@ -318,10 +329,10 @@ describe("auto mode", () => {
       spawnScout: fakeScout([
         {
           skills: [
-            { id: "somebody/community@first" },
-            { id: "stripe/agent-skills@payments" },
-            { id: "supabase/agent-skills@auth" },
-            { id: "a/b@one" },
+            { id: "somebody/community@first", reason: "no official option" },
+            { id: "stripe/agent-skills@payments", reason: "the spec takes payments" },
+            { id: "supabase/agent-skills@auth", reason: "the spec authenticates users" },
+            { id: "a/b@one", reason: "already installed" },
           ],
         },
       ]),
@@ -344,6 +355,347 @@ describe("auto mode", () => {
     ])
     const config = readJson("vivicy.json") as { requiredSkills: string[] }
     assert.equal(config.requiredSkills.length, 6)
+  })
+})
+
+describe("the scout is told the constraints it will be judged by", () => {
+  const BASE = {
+    manifestPath: "/t/.vivicy/baselines/b.json",
+    baselineId: BASELINE_ID,
+    resultRel: SCOUT_RESULT_REL,
+    attempt: 1,
+    feedback: null,
+  }
+
+  function entry(id: string, skill: string): Parameters<typeof scoutContext>[0]["installed"][number] {
+    return {
+      id,
+      source: id.slice(0, id.lastIndexOf("@")),
+      skill,
+      name: skill,
+      official: true,
+      security_waived: false,
+      audits: [],
+      reason: "",
+    }
+  }
+
+  it("names the installed set, the remaining slots, the collision rule, the audit gate and the reason requirement", () => {
+    const context = scoutContext({
+      ...BASE,
+      installed: [entry("supabase/agent-skills@postgres", "postgres"), entry("stripe/agent-skills@payments", "payments")],
+    })
+    assert.match(context, /Already installed \(2\/6 slots taken\): `supabase\/agent-skills@postgres`, `stripe\/agent-skills@payments`/)
+    assert.match(context, /Never propose one of these again/)
+    assert.match(context, /name \(the part after `@`\) matches one of theirs/, "the collision refusal is stated, not discovered")
+    assert.match(context, /`\.agents\/skills\/<name>` holds ONE skill/)
+    assert.match(
+      context,
+      /Propose AT MOST 4 skills: 6 is the project TOTAL across every run, not a per-run budget, and 2 slots are already taken/
+    )
+    assert.match(context, /REFUSED — never installed — when any audit fails, more than one warns, or no audit exists at all/)
+    assert.match(context, /non-empty one-line `reason`/)
+    assert.doesNotMatch(context, /Select AT MOST 6 skills/, "the stale flat cap is gone — the per-run bound is the remaining slots")
+  })
+
+  it("tells an empty project all six slots are free, without an empty list", () => {
+    const context = scoutContext({ ...BASE, installed: [] })
+    assert.match(context, /This project has NO skills installed yet: all 6 slots are free\./)
+    assert.match(
+      context,
+      /Propose AT MOST 6 skills: 6 is the project TOTAL across every run, not a per-run budget, and 0 slots are already taken\./
+    )
+    assert.doesNotMatch(context, /Already installed/)
+  })
+
+  it("one slot left reads in the singular", () => {
+    const context = scoutContext({ ...BASE, installed: [entry("a/b@one", "one")] })
+    assert.match(context, /Already installed \(1\/6 slots taken\)/)
+    assert.match(context, /and 1 slot is already taken/)
+    const five = Array.from({ length: 5 }, (_, i) => entry(`a/b@s${i}`, `s${i}`))
+    assert.match(scoutContext({ ...BASE, installed: five }), /Propose AT MOST 1 skill:/)
+  })
+
+  // The budget is DERIVED from the set the very next line prints, so the two can never state different arithmetic — the shape that let a raw id count and the projected set disagree.
+  it("the printed set and the stated budget always add up to the cap", () => {
+    for (let taken = 0; taken <= MAX_PROJECT_SKILLS; taken += 1) {
+      const context = scoutContext({ ...BASE, installed: Array.from({ length: taken }, (_, i) => entry(`a/b@s${i}`, `s${i}`)) })
+      const budget = Number(/Propose AT MOST (\d+) skills?:/.exec(context)?.[1])
+      const printed = taken === 0 ? 0 : Number(/Already installed \((\d+)\/6 slots taken\)/.exec(context)?.[1])
+      assert.equal(printed, taken, `context at ${taken} installed printed the wrong set size`)
+      assert.equal(printed + budget, MAX_PROJECT_SKILLS, `context at ${taken} installed states ${printed} taken and ${budget} free`)
+      assert.match(context, new RegExp(`and ${taken} slots? (is|are) already taken`), `the taken tail is stated at ${taken} too`)
+    }
+  })
+
+  it("hands the leg the project's real installed set", async () => {
+    seedBaseline()
+    writeJson("vivicy.json", { gateCommand: "npm test", requiredSkills: ["a/b@one", "a/b@two"] })
+    const seen: Array<{ installed: string[]; budget: string | undefined }> = []
+    await installSkills({
+      repoRoot: repo,
+      spawnScout: async (args) => {
+        seen.push({
+          installed: args.installed.map((e) => e.id),
+          budget: /Propose AT MOST (\d+ skills?):/.exec(scoutContext({ ...BASE, ...args }))?.[1],
+        })
+        mkdirSync(dirname(resolve(repo, SCOUT_RESULT_REL)), { recursive: true })
+        writeFileSync(resolve(repo, SCOUT_RESULT_REL), JSON.stringify({ skills: [] }))
+      },
+      fetchAudit: fakeAudits(),
+      runInstall: fakeInstaller([]),
+      emitReport: () => {},
+    })
+    assert.deepEqual(seen, [{ installed: ["a/b@one", "a/b@two"], budget: "4 skills" }])
+  })
+
+  it("re-prompts a candidate with an empty reason, naming it, and fails when it comes back the same", async () => {
+    seedBaseline()
+    const calls: Array<{ attempt: number; feedback: string | null }> = []
+    const proposal = {
+      skills: [
+        { id: "supabase/agent-skills@postgres", name: "Supabase Postgres", reason: "the spec uses Supabase" },
+        { id: "somebody/community@helper", name: "Helper" },
+      ],
+    }
+    const report = await installSkills({
+      repoRoot: repo,
+      spawnScout: fakeScout([proposal, proposal], calls),
+      fetchAudit: fakeAudits(),
+      runInstall: fakeInstaller([]),
+      emitReport: () => {},
+    })
+    assert.equal(calls.length, 2, "the bounded re-prompt loop enforces it")
+    assert.match(calls[1].feedback ?? "", /somebody\/community@helper has an empty "reason"/)
+    assert.equal(report.phase, "failed", "an unjustified candidate is never installed with an empty line in the block")
+    assert.match(report.summary, /empty "reason"/)
+    assert.deepEqual(report.installed, [], "not even the well-justified half of an invalid result lands")
+  })
+
+  it("a whitespace-only reason is empty", async () => {
+    seedBaseline()
+    const report = await installSkills({
+      repoRoot: repo,
+      spawnScout: fakeScout([{ skills: [{ id: "a/b@one", reason: "   \n  " }] }]),
+      fetchAudit: fakeAudits(),
+      runInstall: fakeInstaller([]),
+      emitReport: () => {},
+    })
+    assert.equal(report.phase, "failed")
+  })
+
+  // An owner typo in requiredSkills ("anthropics/skills", no @skill) is declared but names no skill: the cap, the scout's budget and the report all read the installed SET, so it cannot invent a phantom slot. The shape this pins: a 5-skill project firing the at-capacity gate, stamping the settle marker and killing its own scouting for that baseline while the summary announced 5/6.
+  it("a declared id that names no skill takes no slot — on either surface", async () => {
+    seedBaseline()
+    writeJson("vivicy.json", {
+      gateCommand: "npm test",
+      requiredSkills: ["a/b@one", "a/b@two", "a/b@three", "a/b@four", "a/b@five", "anthropics/skills"],
+    })
+    const seen: Array<{ installed: string[]; context: string }> = []
+    const report = await installSkills({
+      repoRoot: repo,
+      spawnScout: async (args) => {
+        seen.push({ installed: args.installed.map((e) => e.id), context: scoutContext({ ...BASE, ...args }) })
+        mkdirSync(dirname(resolve(repo, SCOUT_RESULT_REL)), { recursive: true })
+        writeFileSync(
+          resolve(repo, SCOUT_RESULT_REL),
+          JSON.stringify({
+            skills: [
+              { id: "stripe/agent-skills@payments", reason: "the spec takes payments" },
+              { id: "anthropics/skills@pdf", reason: "the spec emails PDF invoices" },
+            ],
+          })
+        )
+      },
+      fetchAudit: fakeAudits(),
+      runInstall: fakeInstaller([]),
+      emitReport: () => {},
+    })
+
+    assert.equal(seen.length, 1, "the leg IS spawned: a project with five real skills is not at capacity")
+    assert.deepEqual(
+      seen[0].installed,
+      ["a/b@one", "a/b@two", "a/b@three", "a/b@four", "a/b@five"],
+      "the id that names no skill is not in the set"
+    )
+    assert.match(seen[0].context, /Already installed \(5\/6 slots taken\)/)
+    assert.match(
+      seen[0].context,
+      /Propose AT MOST 1 skill: 6 is the project TOTAL across every run, not a per-run budget, and 5 slots are already taken/
+    )
+    assert.ok(!seen[0].context.includes("anthropics/skills"), "an id no skill answers to is never named to the leg")
+
+    assert.deepEqual(report.added, ["stripe/agent-skills@payments"], "the free slot was really free")
+    assert.equal(report.installed.length, 6)
+    assert.deepEqual(
+      report.rejected,
+      [
+        {
+          id: "anthropics/skills@pdf",
+          reason: "cap_exceeded",
+          detail: `project already has 5 skills; the installed set may never exceed ${MAX_PROJECT_SKILLS} total`,
+        },
+      ],
+      "the cap detail counts the SET the owner can see, never the raw declared ids"
+    )
+    assert.doesNotMatch(report.summary, /every slot was already filled/, "the at-capacity sentence may never contradict its own count")
+    assert.match(report.summary, /project total 6\/6$/)
+  })
+
+  it("a project already at the cap spawns NO leg at all, and settles the baseline anyway", async () => {
+    seedBaseline()
+    writeJson("vivicy.json", {
+      gateCommand: "npm test",
+      requiredSkills: ["a/b@one", "a/b@two", "a/b@three", "a/b@four", "a/b@five", "a/b@six"],
+    })
+    const summaries: string[] = []
+    const report = await installSkills({
+      repoRoot: repo,
+      spawnScout: async () => {
+        throw new Error("a project at capacity has nothing to scout")
+      },
+      fetchAudit: fakeAudits(),
+      runInstall: fakeInstaller([]),
+      emitReport: (r) => summaries.push(r.summary),
+    })
+    assert.equal(report.phase, "green")
+    assert.deepEqual(report.added, [])
+    assert.deepEqual(report.rejected, [], "the owner is told once why nothing ran, never with six cap_exceeded rows")
+    assert.equal(report.installed.length, MAX_PROJECT_SKILLS)
+    assert.equal(report.selection_baseline_id, BASELINE_ID, "the baseline is settled, so the supervisor stops re-spawning the stage")
+    assert.match(report.summary, /every slot was already filled, so no selection ran; remove a skill to free one/)
+    assert.ok(
+      summaries.includes("project already holds all 6 skill slots; no selection to run"),
+      `the in-flight phase says it too: ${summaries.join(" | ")}`
+    )
+    assert.equal(skillsNotification(report), null, "and it asks the owner for nothing")
+  })
+})
+
+describe("the skill NAME is the on-disk primary key", () => {
+  it("refuses a candidate whose name an installed skill from another source already holds", async () => {
+    seedBaseline()
+    writeJson("vivicy.json", { gateCommand: "npm test", requiredSkills: ["supabase/agent-skills@postgres"] })
+    const installs: FakeInstallCall[] = []
+    const report = await installSkills({
+      repoRoot: repo,
+      spawnScout: fakeScout([
+        {
+          skills: [
+            { id: "other/pack@postgres", name: "Other Postgres", reason: "the spec uses Postgres" },
+            { id: "stripe/agent-skills@payments", name: "Payments", reason: "the spec takes card payments" },
+          ],
+        },
+      ]),
+      fetchAudit: fakeAudits(),
+      runInstall: fakeInstaller(installs),
+      emitReport: () => {},
+    })
+
+    assert.deepEqual(report.added, ["stripe/agent-skills@payments"], "the colliding candidate never reached the installer")
+    assert.deepEqual(installs, [{ source: "stripe/agent-skills", skill: "payments" }])
+    assert.deepEqual(report.rejected, [
+      {
+        id: "other/pack@postgres",
+        reason: "name_collision",
+        detail:
+          'the name "postgres" is already taken by supabase/agent-skills@postgres; .agents/skills/postgres holds one skill, so keep one of the two',
+      },
+    ])
+    assert.deepEqual(
+      report.installed.map((e) => e.id),
+      ["supabase/agent-skills@postgres", "stripe/agent-skills@payments"],
+      "and the installed set still describes one skill per on-disk name"
+    )
+  })
+
+  it("two vendors of the SAME name in one selection: the first keeps the name, the second is refused", async () => {
+    seedBaseline()
+    const installs: FakeInstallCall[] = []
+    const report = await installSkills({
+      repoRoot: repo,
+      spawnScout: fakeScout([
+        {
+          skills: [
+            { id: "somebody/community@postgres", name: "Community Postgres", reason: "no official option found" },
+            { id: "supabase/agent-skills@postgres", name: "Supabase Postgres", reason: "the spec uses Supabase" },
+          ],
+        },
+      ]),
+      fetchAudit: fakeAudits(),
+      runInstall: fakeInstaller(installs),
+      emitReport: () => {},
+    })
+
+    assert.deepEqual(installs, [{ source: "supabase/agent-skills", skill: "postgres" }], "official-first decides who keeps the name")
+    assert.deepEqual(
+      report.rejected.map((r) => ({ id: r.id, reason: r.reason })),
+      [{ id: "somebody/community@postgres", reason: "name_collision" }]
+    )
+    assert.deepEqual(report.added, ["supabase/agent-skills@postgres"])
+  })
+
+  it("a refused collision costs no cap slot: the next distinct candidate takes it", async () => {
+    writeJson("vivicy.json", {
+      gateCommand: "npm test",
+      requiredSkills: ["a/b@one", "a/b@two", "a/b@three", "a/b@four", "a/b@five"],
+    })
+    const report = await installSkills({
+      repoRoot: repo,
+      ids: ["x/y@one", "x/y@six"],
+      fetchAudit: fakeAudits(),
+      runInstall: fakeInstaller([]),
+      emitReport: () => {},
+    })
+    assert.deepEqual(report.added, ["x/y@six"], "the last free slot went to the candidate that could actually use it")
+    assert.deepEqual(
+      report.rejected.map((r) => ({ id: r.id, reason: r.reason })),
+      [{ id: "x/y@one", reason: "name_collision" }]
+    )
+  })
+
+  // The block's bullet, the removal fallback's rmSync target and the absorption pathspec are all this one derivation.
+  it("a prior report whose entry contradicts its own id is normalized back onto the id", async () => {
+    writeJson(SKILLS_REPORT_REL, {
+      phase: "green",
+      selection_baseline_id: null,
+      mode: "explicit",
+      added: [],
+      removed: [],
+      installed: [
+        {
+          id: "acme/pack@scraper",
+          source: "somebody/else",
+          skill: "..",
+          name: "Scraper",
+          official: true,
+          security_waived: false,
+          audits: [],
+          reason: "hand-edited",
+        },
+        { id: "not-an-id", source: "x/y", skill: "ghost", name: "Ghost", official: false, security_waived: false, audits: [], reason: "" },
+      ],
+      rejected: [],
+      summary: "",
+      updated_at: "t",
+    })
+    const report = await installSkills({
+      repoRoot: repo,
+      ids: ["stripe/agent-skills@payments"],
+      fetchAudit: fakeAudits(),
+      runInstall: fakeInstaller([]),
+      emitReport: () => {},
+    })
+    assert.deepEqual(
+      report.installed.map((e) => ({ id: e.id, source: e.source, skill: e.skill })),
+      [
+        { id: "stripe/agent-skills@payments", source: "stripe/agent-skills", skill: "payments" },
+        { id: "acme/pack@scraper", source: "acme/pack", skill: "scraper" },
+      ],
+      "source and skill are projections of the id, and an entry whose id names no skill is dropped"
+    )
+    assert.equal(report.installed[1].name, "Scraper", "the metadata that is NOT derivable from the id still rides")
+    assertReportAgreesWithSkillsBlock(report)
   })
 })
 
@@ -526,7 +878,14 @@ describe("install failures", () => {
     const installs: FakeInstallCall[] = []
     const report = await installSkills({
       repoRoot: repo,
-      spawnScout: fakeScout([{ skills: [{ id: "good/repo@fine" }, { id: "bad/repo@broken" }] }]),
+      spawnScout: fakeScout([
+        {
+          skills: [
+            { id: "good/repo@fine", reason: "the spec needs it" },
+            { id: "bad/repo@broken", reason: "the spec needs it too" },
+          ],
+        },
+      ]),
       fetchAudit: fakeAudits(),
       runInstall: fakeInstaller(installs, new Set(["bad/repo@broken"])),
     })
@@ -759,7 +1118,7 @@ describe("supervisor hook decision (skillsStageNeeded)", () => {
 
     const auto = await installSkills({
       repoRoot: repo,
-      spawnScout: fakeScout([{ skills: [{ id: "stripe/agent-skills@payments" }] }]),
+      spawnScout: fakeScout([{ skills: [{ id: "stripe/agent-skills@payments", reason: "the spec takes payments" }] }]),
       fetchAudit: fakeAudits(),
       runInstall: fakeInstaller([]),
     })
@@ -858,7 +1217,7 @@ describe("the report tells the truth about the project's whole installed set", (
     const seen: string[][] = []
     await installSkills({
       repoRoot: repo,
-      spawnScout: fakeScout([{ skills: [{ id: "stripe/agent-skills@payments" }] }]),
+      spawnScout: fakeScout([{ skills: [{ id: "stripe/agent-skills@payments", reason: "the spec takes payments" }] }]),
       fetchAudit: fakeAudits(),
       runInstall: fakeInstaller([]),
       emitReport: (r) => seen.push(r.installed.map((e) => e.id)),
@@ -951,45 +1310,98 @@ function assertReportAgreesWithSkillsBlock(report: SkillsReport): void {
 }
 
 describe("dev-preflight declared skills (vivicy.json, the one location)", () => {
-  it("reads vivicy.json requiredSkills as skill-name parts", () => {
-    writeJson("vivicy.json", {
-      gateCommand: "cargo test",
-      requiredSkills: ["supabase/agent-skills@postgres", "plain-name"],
-      recommendedSkills: ["nice-to-have"],
-    })
-    const declared = readDeclaredSkills(repo)
-    assert.deepEqual(declared.required, ["postgres", "plain-name"], "ids match `skills list` output by their skill-name part")
-    assert.deepEqual(declared.recommended, ["nice-to-have"])
+  function installBundle(name: string): void {
+    const abs = resolve(repo, ".agents/skills", name, "SKILL.md")
+    mkdirSync(dirname(abs), { recursive: true })
+    writeFileSync(abs, `---\nname: ${name}\n---\n`)
+  }
+
+  it("reads vivicy.json requiredSkills verbatim, as the full ids they are", () => {
+    writeJson("vivicy.json", { gateCommand: "cargo test", requiredSkills: ["supabase/agent-skills@postgres", "plain-name"] })
+    assert.deepEqual(readRequiredSkills(repo), ["supabase/agent-skills@postgres", "plain-name"])
   })
 
   it("a `vivicy` field in package.json declares nothing — vivicy.json is the only source", () => {
-    writeJson("package.json", { vivicy: { requiredSkills: ["from-pkg"], recommendedSkills: ["also-pkg"] } })
-    assert.deepEqual(readDeclaredSkills(repo), { required: [], recommended: [] })
+    writeJson("package.json", { vivicy: { requiredSkills: ["from-pkg"] } })
+    assert.deepEqual(readRequiredSkills(repo), [])
 
     writeJson("vivicy.json", { gateCommand: "npm test", requiredSkills: ["from-vivicy"] })
-    assert.deepEqual(readDeclaredSkills(repo).required, ["from-vivicy"])
-    assert.deepEqual(readDeclaredSkills(repo).recommended, [])
+    assert.deepEqual(readRequiredSkills(repo), ["from-vivicy"])
   })
 
   it("an explicit empty requiredSkills in vivicy.json declares no skills", () => {
     writeJson("vivicy.json", { gateCommand: "npm test", requiredSkills: [] })
-    assert.deepEqual(readDeclaredSkills(repo).required, [])
+    assert.deepEqual(readRequiredSkills(repo), [])
+    assert.deepEqual(checkSkills(repo), { ok: true, missingRequired: [], reason: undefined }, "nothing declared, nothing to look for")
   })
 
-  // The refusal is owner-facing CONTRACT: it is the whole instruction for clearing a blocked run, so it may name only the location readDeclaredSkills actually reads.
-  it("the missing-skills refusal names vivicy.json and NOTHING else — following it really clears the refusal", () => {
-    const refusal = missingSkillsRefusal(["postgres", "stripe"])
+  it("no target at all declares nothing and demands nothing", () => {
+    assert.deepEqual(readRequiredSkills(null), [])
+    assert.equal(checkSkills(null, []).ok, true)
+    assert.deepEqual(missingRequiredSkills(null, ["a/b@c"]), ["a/b@c"], "with no target, a declared skill can only be missing")
+  })
+
+  // Exact on the declared id's own name: a bundle whose name merely CONTAINS it is a different skill, and no tool's output text is consulted.
+  it("matches the bundle by the declared id's own name — `next-auth` never answers for `auth`", () => {
+    writeJson("vivicy.json", { gateCommand: "npm test", requiredSkills: ["vendor/x@auth"] })
+    installBundle("next-auth")
+    assert.deepEqual(missingRequiredSkills(repo, readRequiredSkills(repo)), ["vendor/x@auth"], "a longer name is a different skill")
+
+    installBundle("auth")
+    assert.deepEqual(missingRequiredSkills(repo, readRequiredSkills(repo)), [])
+  })
+
+  it("two vendors' ids with the same name resolve to the one bundle that carries it", () => {
+    installBundle("postgres")
+    assert.deepEqual(missingRequiredSkills(repo, ["supabase/agent-skills@postgres", "other/pack@postgres"]), [])
+    assert.deepEqual(missingRequiredSkills(repo, ["supabase/agent-skills@other"]), ["supabase/agent-skills@other"])
+  })
+
+  it("a bare name declares its own bundle; a traversal-shaped declaration can only be missing", () => {
+    installBundle("plain-name")
+    assert.deepEqual(missingRequiredSkills(repo, ["plain-name"]), [])
+    assert.deepEqual(missingRequiredSkills(repo, ["a/b@..", "..", "."]), ["a/b@..", "..", "."])
+    assert.ok(
+      existsSync(resolve(repo, ".agents/skills/..")),
+      "the parent directory really is there, so it is the segment rule that refuses `..` — never a path that happens not to exist"
+    )
+  })
+
+  // A bundle directory with no SKILL.md is not a skill: the block promises every leg a readable SKILL.md at that path.
+  it("an empty bundle directory is not an installed skill", () => {
+    mkdirSync(resolve(repo, ".agents/skills/postgres"), { recursive: true })
+    assert.deepEqual(missingRequiredSkills(repo, ["supabase/agent-skills@postgres"]), ["supabase/agent-skills@postgres"])
+  })
+
+  it("checkSkills fails only when a declared skill's bundle is absent, and says so", () => {
+    writeJson("vivicy.json", { gateCommand: "npm test", requiredSkills: ["acme/pack@must-have"] })
+    const absent = checkSkills(repo)
+    assert.equal(absent.ok, false)
+    assert.deepEqual(absent.missingRequired, ["acme/pack@must-have"])
+    assert.match(absent.reason ?? "", /not installed in the target project/)
+
+    installBundle("must-have")
+    assert.deepEqual(checkSkills(repo), { ok: true, missingRequired: [], reason: undefined })
+  })
+
+  // The refusal is owner-facing CONTRACT: it is the whole instruction for clearing a blocked run, so it may name only what the check itself reads.
+  it("the missing-skills refusal names vivicy.json and the bundle path, and NOTHING else", () => {
+    const refusal = missingSkillsRefusal(["supabase/agent-skills@postgres", "acme/pack@stripe"])
     assert.match(refusal, /vivicy\.json "requiredSkills"/)
+    assert.match(refusal, /\.agents\/skills\/<name>\/SKILL\.md/, "the location the check looks at is where the owner must land it")
     assert.doesNotMatch(refusal, /package\.json/, "package.json declares nothing — pointing there cannot clear the refusal")
-    assert.doesNotMatch(refusal, /vivicy\.(required|recommended)Skills/, "the pkg-scoped spelling is dead too")
-    assert.match(refusal, /npx skills add <skill>/, "the install half stays actionable")
+    assert.doesNotMatch(refusal, /skills list/, "the check no longer asks a CLI, so naming its output would misdirect")
+    assert.match(refusal, /npx skills add <owner\/repo> --skill <name>/, "the install half is the invocation the installer itself uses")
   })
 
   it("the refusal's count forms agree with the number of missing skills", () => {
-    assert.match(missingSkillsRefusal(["postgres"]), /^1 required development skill missing: postgres\n/)
-    assert.match(missingSkillsRefusal(["postgres"]), /install it with .* or drop it from/)
-    assert.match(missingSkillsRefusal(["postgres", "stripe"]), /^2 required development skills missing: postgres, stripe\n/)
-    assert.match(missingSkillsRefusal(["postgres", "stripe"]), /install them with .* or drop them from/)
+    assert.match(missingSkillsRefusal(["a/b@postgres"]), /^1 required development skill missing: a\/b@postgres\n/)
+    assert.match(missingSkillsRefusal(["a/b@postgres"]), /install it into .* or drop it from/)
+    assert.match(
+      missingSkillsRefusal(["a/b@postgres", "a/b@stripe"]),
+      /^2 required development skills missing: a\/b@postgres, a\/b@stripe\n/
+    )
+    assert.match(missingSkillsRefusal(["a/b@postgres", "a/b@stripe"]), /install them into .* or drop them from/)
   })
 })
 
@@ -1155,6 +1567,29 @@ describe("removeSkills (deterministic uninstall)", () => {
     }
   })
 
+  // The removal fallback resolves `.agents/skills/<skill>` and removes it recursively, so a `..` skill part admitted by the id grammar would delete EVERY installed bundle. The refusal is the grammar's, upstream of the remover — which is why no remover is injected here: reaching the default at all is the defect.
+  it("a traversal-shaped id is refused before any remover runs, and every bundle survives", async () => {
+    seedInstalledState()
+    for (const name of ["pdf", "scraper"]) {
+      mkdirSync(resolve(repo, ".agents/skills", name), { recursive: true })
+      writeFileSync(resolve(repo, ".agents/skills", name, "SKILL.md"), `---\nname: ${name}\n---\n`)
+    }
+
+    const report = await removeSkills({ repoRoot: repo, ids: ["a/b@..", "a/b@."] })
+
+    assert.deepEqual(report.removed, [])
+    assert.deepEqual(
+      report.rejected.map((r) => ({ id: r.id, reason: r.reason })),
+      [
+        { id: "a/b@..", reason: "invalid_id" },
+        { id: "a/b@.", reason: "invalid_id" },
+      ]
+    )
+    assert.deepEqual(readdirSync(resolve(repo, ".agents/skills")).sort(), ["pdf", "scraper"])
+    assert.ok(existsSync(resolve(repo, ".agents/skills/pdf/SKILL.md")))
+    assert.deepEqual((readJson("vivicy.json") as { requiredSkills: string[] }).requiredSkills.length, 2)
+  })
+
   it("throws SkillsConfigError without a target or without ids", async () => {
     await assert.rejects(() => removeSkills({ ids: ["a/b@c"] }), SkillsConfigError)
     await assert.rejects(() => removeSkills({ repoRoot: repo, ids: [] }), SkillsConfigError)
@@ -1167,7 +1602,7 @@ describe("stage summaries agree in number", () => {
     const summaries: string[] = []
     await installSkills({
       repoRoot: repo,
-      spawnScout: fakeScout([{ skills: ids.map((id) => ({ id })) }]),
+      spawnScout: fakeScout([{ skills: ids.map((id) => ({ id, reason: "the canonical needs it" })) }]),
       fetchAudit: fakeAudits(),
       runInstall: fakeInstaller([]),
       emitReport: (r) => summaries.push(r.summary),

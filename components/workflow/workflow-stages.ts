@@ -1,5 +1,5 @@
 import type { RunStatus } from "@/lib/run-status"
-import type { SkillsReport } from "@/lib/skills-report"
+import { isSkillsPhaseInFlight, type SkillsReport } from "@/lib/skills-report"
 import type { DocPrepReport } from "@/lib/doc-prep-report"
 import { ACCEPTANCE_IN_FLIGHT_PHASES, type AcceptanceReport } from "@/lib/acceptance-report"
 
@@ -114,11 +114,9 @@ function applyExtractionStates(states: Record<string, StageState>, extraction: E
   }
 }
 
-const SKILLS_RUNNING_PHASES = new Set(["selecting", "auditing", "installing"])
-
 function applySkillsStates(states: Record<string, StageState>, skills: SkillsReport | null): void {
   if (!skills?.phase) return
-  if (SKILLS_RUNNING_PHASES.has(skills.phase)) states.SK = "running"
+  if (isSkillsPhaseInFlight(skills.phase)) states.SK = "running"
   else if (skills.phase === "green" || skills.phase === "skipped") states.SK = "green"
   else if (skills.phase === "failed") states.SK = "red"
 }

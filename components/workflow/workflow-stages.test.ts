@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 
 import { deriveStageStates, MARKER_GLYPH, WORKFLOW_STAGES } from "@/components/workflow/workflow-stages"
 import type { RunStatus } from "@/lib/run-status"
+import { SKILLS_IN_FLIGHT_PHASES } from "@/lib/skills-report"
 
 function status(overrides: Partial<RunStatus> = {}): RunStatus {
   return {
@@ -223,10 +224,12 @@ describe("deriveStageStates — honest state truth, no fake progress", () => {
     expect(deriveStageStates(null, { phase: "green" }, null).SK).toBe("pending")
   })
 
-  it("SK pulses running for every in-flight skills phase", () => {
-    for (const phase of ["selecting", "auditing", "installing"]) {
+  // The set is imported from lib/skills-report, so a phase the writer adds can never read as settled here.
+  it("SK pulses running for every in-flight skills phase, removal included", () => {
+    for (const phase of SKILLS_IN_FLIGHT_PHASES) {
       expect(deriveStageStates(null, { phase: "green" }, { phase }).SK).toBe("running")
     }
+    expect(SKILLS_IN_FLIGHT_PHASES).toContain("removing")
   })
 
   it("SK is green on a green install AND on skipped (honest 'nothing to install')", () => {
