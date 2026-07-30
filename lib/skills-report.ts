@@ -28,13 +28,16 @@ export interface InstalledSkill {
   reason: string
 }
 
+// `verdict` and `candidate_hash` are carried by a refused upstream UPDATE alone: the audit verdict its notification names, and the candidate bytes that refusal is about.
 export interface RejectedSkill {
   id: string
   reason: string
   detail?: string
+  verdict?: string
+  candidate_hash?: string
 }
 
-// `installed` is the project's FULL installed set at every phase; `added`/`removed`/`verified`/`healed` are this run's own contribution.
+// `installed` is the project's FULL installed set at every phase; `added`/`removed`/`verified`/`healed`/`updated` are this run's own contribution.
 export interface SkillsReport {
   phase?: SkillsPhase | string
   selection_baseline_id?: string | null
@@ -44,6 +47,7 @@ export interface SkillsReport {
   removed?: string[]
   verified?: string[]
   healed?: string[]
+  updated?: string[]
   rejected?: RejectedSkill[]
   summary?: string
   updated_at?: string

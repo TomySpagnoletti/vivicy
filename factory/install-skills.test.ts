@@ -29,7 +29,7 @@ import {
   scoutContext,
   SkillsConfigError,
   SkillsLockError,
-  skillsNotification,
+  skillsNotifications,
   skillsStageNeeded,
   SKILLS_REPORT_REL,
 } from "./install-skills.ts"
@@ -127,6 +127,20 @@ function passAudit(): SkillAuditFetch {
 
 function fakeAudits(bySkill: Record<string, SkillAuditFetch> = {}) {
   return async ({ source, skill }: { source: string; skill: string }) => bySkill[`${source}@${skill}`] ?? passAudit()
+}
+
+// The walk-away case, and the DEFAULT shape of upstream in every maintenance test that is not about the update door: the machine has no network, so the one upstream check per pinned skill answers nothing and the pass is exactly the verify/heal it was without it. Never `assert.fail` — the probe swallows a throw as one more transport failure, which would make such a case pass vacuously.
+function offlineCli(): { code: number; output: string } {
+  return { code: 1, output: "npm error code ENOTFOUND\nnpm error network getaddrinfo ENOTFOUND registry.npmjs.org" }
+}
+
+// Upstream as the creator's LATEST: the probe's only comparable is the bytes `skills add` serves today, so a stub that writes different bytes IS a newer version.
+function upstreamServing(files: Record<string, string>, calls: FakeInstallCall[] = []) {
+  return ({ repoRoot, source, skill }: { repoRoot: string; source: string; skill: string }) => {
+    calls.push({ source, skill })
+    writeBundle(repoRoot, skill, files)
+    return { code: 0, output: "installed" }
+  }
 }
 
 // The installer IS the writer of the bytes the pin is taken from, so the fake writes a real bundle: one that reports success and leaves nothing is its own test case below.
@@ -749,7 +763,7 @@ describe("the scout is told the constraints it will be judged by", () => {
       summaries.includes("project already holds all 6 skill slots; no selection to run"),
       `the in-flight phase says it too: ${summaries.join(" | ")}`
     )
-    assert.equal(skillsNotification(report), null, "and it asks the owner for nothing")
+    assert.deepEqual(skillsNotifications(report), [], "and it asks the owner for nothing")
   })
 })
 
@@ -898,11 +912,12 @@ describe("security audits", () => {
     assert.equal(report.rejected[0].reason, "red_audit")
     assert.match(report.rejected[0].detail ?? "", /gateseal:fail/)
 
-    const note = skillsNotification(report)
-    assert.equal(note?.event, "skills_findings", "a skill kept out by a red audit is the owner's to look at, never a silent green")
-    assert.equal(note?.level, "warning")
-    assert.equal(note?.stage, "SK")
-    assert.equal(note?.message, report.summary)
+    const notes = skillsNotifications(report)
+    assert.equal(notes.length, 1)
+    assert.equal(notes[0].event, "skills_findings", "a skill kept out by a red audit is the owner's to look at, never a silent green")
+    assert.equal(notes[0].level, "warning")
+    assert.equal(notes[0].stage, "SK")
+    assert.equal(notes[0].message, report.summary)
   })
 
   it("a green stage that installed everything it chose says nothing at all", async () => {
@@ -916,17 +931,18 @@ describe("security audits", () => {
     })
     assert.equal(report.phase, "green")
     assert.deepEqual(report.rejected, [])
-    assert.equal(skillsNotification(report), null)
+    assert.deepEqual(skillsNotifications(report), [])
   })
 
   it("only a failed stage and a green-with-rejections speak; every in-flight phase is silent", () => {
-    const at = (phase: string, rejected: unknown[] = []) => skillsNotification({ phase, rejected, summary: "s" } as unknown as SkillsReport)
-    assert.equal(at("failed")?.event, "skills_failed")
-    assert.equal(at("failed")?.message, "project skills stage failed")
-    assert.equal(at("green")?.event, undefined)
-    assert.equal(at("green", [{ id: "x" }])?.event, "skills_findings")
+    const at = (phase: string, rejected: unknown[] = []) =>
+      skillsNotifications({ phase, rejected, summary: "s" } as unknown as SkillsReport)
+    assert.equal(at("failed")[0]?.event, "skills_failed")
+    assert.equal(at("failed")[0]?.message, "project skills stage failed")
+    assert.deepEqual(at("green"), [])
+    assert.equal(at("green", [{ id: "x" }])[0]?.event, "skills_findings")
     for (const phase of ["selecting", "validating", "auditing", "installing", "removing"]) {
-      assert.equal(at(phase, [{ id: "x" }]), null, `${phase} is in flight and asks the owner for nothing`)
+      assert.deepEqual(at(phase, [{ id: "x" }]), [], `${phase} is in flight and asks the owner for nothing`)
     }
   })
 
@@ -1231,14 +1247,14 @@ describe("every install pins the bytes it landed", () => {
   it("sweeps the scratch trees and bundle temps a killed restore left behind", async () => {
     const runtime = resolve(repo, RUNTIME)
     await installPinned()
-    const scratch = resolve(runtime, "skill-heal-abcdef")
+    const scratch = resolve(runtime, "skill-candidate-abcdef")
     const temp = resolve(repo, ".agents/skills", `.vivicy-tmp.999.spreadsheets`)
     for (const dir of [scratch, temp]) {
       mkdirSync(dir, { recursive: true })
       writeFileSync(resolve(dir, "SKILL.md"), "residue\n")
     }
 
-    const report = maintainSkills({ repoRoot: repo, env: { VIVICY_RUNTIME_DIR: runtime } })
+    const report = await maintainSkills({ repoRoot: repo, env: { VIVICY_RUNTIME_DIR: runtime }, runInstall: offlineCli })
 
     assert.match(report.summary, /verified unchanged/)
     assert.ok(!existsSync(scratch), "the killed restore's scratch tree is gone")
@@ -1375,8 +1391,8 @@ describe("the skills block rides the managed-block engine, in both governance do
       /vivicy:skills:begin/,
       "and the document it CAN write still gets the block"
     )
-    assert.equal(skillsNotification(report)?.event, "skills_failed")
-    assert.equal(skillsNotification(report)?.level, "error")
+    assert.equal(skillsNotifications(report)[0]?.event, "skills_failed")
+    assert.equal(skillsNotifications(report)[0]?.level, "error")
   })
 
   // The recorded relay: a read-only document used to throw out of the stage mid-phase, leaving a report stuck in flight and the skills declaration naming a skill whose block no retry ever wrote.
@@ -1799,6 +1815,7 @@ describe("removeSkills (deterministic uninstall)", () => {
     removed: [],
     verified: [],
     healed: [],
+    updated: [],
     installed: [
       {
         id: "anthropics/skills@pdf",
@@ -2967,18 +2984,19 @@ describe("the maintenance pass verifies every pin and self-heals (real git targe
       const head = git(repo, ["rev-parse", "HEAD"]).stdout.trim()
       const reportBefore = readFileSync(resolve(repo, SKILLS_REPORT_REL), "utf8")
 
-      const report = maintainSkills({ repoRoot: repo, runInstall: runStubSkillsCli })
+      const report = await maintainSkills({ repoRoot: repo, runInstall: runStubSkillsCli })
 
       assert.equal(report.phase, "green")
       assert.equal(report.mode, "maintain")
       assert.deepEqual(report.verified, [ID])
       assert.deepEqual(report.healed, [])
+      assert.deepEqual(report.updated, [], "upstream serves exactly the pinned bytes, so there is no newer version to take")
       assert.match(report.summary, /^skills maintenance green: 1 bundle verified unchanged$/)
       assert.equal(readFileSync(resolve(repo, SKILLS_REPORT_REL), "utf8"), reportBefore, "the selection's own record is left standing")
       assert.equal(git(repo, ["rev-parse", "HEAD"]).stdout.trim(), head, "a clean pass adds no commit")
       assert.equal(git(repo, ["status", "--porcelain"]).stdout.trim(), "")
       assert.deepEqual(notifications(runtimeDir), [], "a verify-clean pass is as silent as a managed file that needed nothing")
-      assert.equal(skillsNotification(report), null)
+      assert.deepEqual(skillsNotifications(report), [])
     })
   })
 
@@ -2987,11 +3005,20 @@ describe("the maintenance pass verifies every pin and self-heals (real git targe
       const original = bundleBytes()
       writeFileSync(resolve(bundleDir(SKILL), "scripts/recalc.py"), TAMPERED)
 
-      const report = maintainSkills({
+      let fetches = 0
+      const report = await maintainSkills({
         repoRoot: repo,
-        runInstall: () => assert.fail("a warm cache must never reach the network"),
+        runInstall: () => {
+          fetches += 1
+          return offlineCli()
+        },
       })
 
+      assert.equal(
+        fetches,
+        1,
+        "the cache answered with no network at all: the ONE upstream touch is the update check, which offline cannot answer"
+      )
       assert.equal(report.phase, "green", report.summary)
       assert.deepEqual(report.healed, [ID])
       assert.deepEqual(report.verified, [])
@@ -3022,7 +3049,7 @@ describe("the maintenance pass verifies every pin and self-heals (real git targe
       git(repo, ["add", "--", ".agents/skills/spreadsheets/scripts/recalc.py"])
       git(repo, ["-c", "user.email=owner@local", "-c", "user.name=Owner", "commit", "-qm", "someone: patch the skill"])
 
-      const report = maintainSkills({ repoRoot: repo, runInstall: runStubSkillsCli })
+      const report = await maintainSkills({ repoRoot: repo, runInstall: runStubSkillsCli })
 
       assert.deepEqual(report.healed, [ID], report.summary)
       assert.deepEqual(bundleBytes(), original)
@@ -3043,7 +3070,7 @@ describe("the maintenance pass verifies every pin and self-heals (real git targe
   it("records the restored bundle only, so owner work appearing mid-pass is never absorbed", async () => {
     await inGovernedProject(async () => {
       writeFileSync(resolve(bundleDir(SKILL), "scripts/recalc.py"), TAMPERED)
-      const report = maintainSkills({
+      const report = await maintainSkills({
         repoRoot: repo,
         heal: (args) => {
           writeFileSync(resolve(repo, "skills-lock.json"), '{ "version": 1, "skills": { "mine": {} } }\n')
@@ -3069,7 +3096,7 @@ describe("the maintenance pass verifies every pin and self-heals (real git targe
       const original = bundleBytes()
       rmSync(bundleDir(SKILL), { recursive: true, force: true })
 
-      const report = maintainSkills({ repoRoot: repo, runInstall: runStubSkillsCli })
+      const report = await maintainSkills({ repoRoot: repo, runInstall: runStubSkillsCli })
 
       assert.deepEqual(report.healed, [ID])
       assert.deepEqual(bundleBytes(), original)
@@ -3093,11 +3120,16 @@ describe("the maintenance pass verifies every pin and self-heals (real git targe
       rmSync(bundleCacheDir(runtimeDir), { recursive: true, force: true })
       writeFileSync(resolve(bundleDir(SKILL), "SKILL.md"), "# hijacked\n")
 
-      const report = maintainSkills({
+      let fetches = 0
+      const report = await maintainSkills({
         repoRoot: repo,
-        runInstall: () => assert.fail("committed bytes must never reach the network either"),
+        runInstall: () => {
+          fetches += 1
+          return offlineCli()
+        },
       })
 
+      assert.equal(fetches, 1, "history answered with no network: the one fetch is the update check an offline machine cannot answer")
       assert.deepEqual(report.healed, [ID])
       assert.deepEqual(bundleBytes(), original)
       assert.equal(
@@ -3121,11 +3153,16 @@ describe("the maintenance pass verifies every pin and self-heals (real git targe
       writeFileSync(resolve(cached, "scripts/recalc.py"), "print('poison')\n")
       writeFileSync(resolve(bundleDir(SKILL), "scripts/recalc.py"), TAMPERED)
 
-      const report = maintainSkills({
+      let fetches = 0
+      const report = await maintainSkills({
         repoRoot: repo,
-        runInstall: () => assert.fail("the history rung answers before any network"),
+        runInstall: () => {
+          fetches += 1
+          return offlineCli()
+        },
       })
 
+      assert.equal(fetches, 1, "the history rung answered offline; the one fetch is the update check")
       assert.deepEqual(report.healed, [ID])
       assert.deepEqual(bundleBytes(), original, "the poison never reached the project")
       assert.equal(hashBundle(cached)?.bundle_hash, pinnedAt, "and the entry filed under that hash now really is those bytes")
@@ -3139,19 +3176,34 @@ describe("the maintenance pass verifies every pin and self-heals (real git targe
       rmSync(resolve(repo, ".git"), { recursive: true, force: true })
       writeFileSync(resolve(bundleDir(SKILL), "scripts/recalc.py"), TAMPERED)
 
-      const exact = maintainSkills({ repoRoot: repo, runInstall: runStubSkillsCli })
+      let fetches = 0
+      const exact = await maintainSkills({
+        repoRoot: repo,
+        runInstall: (args) => {
+          fetches += 1
+          return runStubSkillsCli(args)
+        },
+      })
       assert.deepEqual(exact.healed, [ID], exact.summary)
       assert.deepEqual(bundleBytes(), original)
+      assert.equal(
+        fetches,
+        1,
+        "the last rung IS an upstream fetch, and it succeeded only because upstream still serves the pinned bytes — so the update check has nothing left to buy"
+      )
+      assert.deepEqual(exact.updated, [])
 
       rmSync(bundleCacheDir(runtimeDir), { recursive: true, force: true })
       writeFileSync(resolve(bundleDir(SKILL), "scripts/recalc.py"), TAMPERED)
-      const drifted = maintainSkills({
+      let driftedFetches = 0
+      const drifted = await maintainSkills({
         repoRoot: repo,
-        runInstall: ({ repoRoot: into, skill }: { repoRoot: string; source: string; skill: string }) => {
-          writeBundle(into, skill, { "scripts/recalc.py": "print('upstream moved on')\n" })
-          return { code: 0, output: "installed a different version" }
+        runInstall: (args) => {
+          driftedFetches += 1
+          return upstreamServing({ "scripts/recalc.py": "print('upstream moved on')\n" })(args)
         },
       })
+      assert.equal(driftedFetches, 1, "and a bundle no rung could restore is never offered an update either")
       assert.equal(drifted.phase, "failed", drifted.summary)
       assert.deepEqual(drifted.healed, [])
       assert.equal(drifted.rejected[0].reason, "heal_failed")
@@ -3170,7 +3222,7 @@ describe("the maintenance pass verifies every pin and self-heals (real git targe
       rmSync(resolve(repo, ".git"), { recursive: true, force: true })
       rmSync(bundleDir(SKILL), { recursive: true, force: true })
 
-      const report = maintainSkills({
+      const report = await maintainSkills({
         repoRoot: repo,
         runInstall: () => ({ code: 1, output: "error: skill not found upstream" }),
       })
@@ -3204,8 +3256,9 @@ describe("the maintenance pass verifies every pin and self-heals (real git targe
   it("turns a restore that could not even run into the same actionable rejection", async () => {
     await inGovernedProject(async ({ runtimeDir }) => {
       writeFileSync(resolve(bundleDir(SKILL), "SKILL.md"), "# tampered\n")
-      const report = maintainSkills({
+      const report = await maintainSkills({
         repoRoot: repo,
+        runInstall: offlineCli,
         heal: () => {
           throw new Error("EROFS: read-only file system, mkdir '/nope'")
         },
@@ -3236,11 +3289,11 @@ describe("the maintenance pass verifies every pin and self-heals (real git targe
           },
         })
 
-      const first = pass()
+      const first = await pass()
       const head = git(repo, ["rev-parse", "HEAD"]).stdout.trim()
       const stamp = (readJson(SKILLS_REPORT_REL) as SkillsReport).updated_at
-      const second = pass()
-      const third = pass()
+      const second = await pass()
+      const third = await pass()
 
       assert.equal(first.phase, "failed")
       assert.deepEqual([second.phase, third.phase], ["failed", "failed"], "every pass still reports the truth")
@@ -3264,7 +3317,7 @@ describe("the maintenance pass verifies every pin and self-heals (real git targe
       git(repo, ["-c", "user.email=o@l", "-c", "user.name=O", "commit", "-qm", "someone: patch the skill"])
       writeFileSync(resolve(bundleDir(SKILL), "scripts/recalc.py"), TAMPERED)
 
-      const report = maintainSkills({ repoRoot: repo, runInstall: runStubSkillsCli })
+      const report = await maintainSkills({ repoRoot: repo, runInstall: runStubSkillsCli })
 
       assert.deepEqual(report.healed, [ID], report.summary)
       assert.deepEqual(bundleBytes(), original)
@@ -3287,7 +3340,7 @@ describe("the maintenance pass verifies every pin and self-heals (real git targe
       })
       writeFileSync(resolve(bundleDir(SKILL), "SKILL.md"), "# tampered\n")
 
-      const report = maintainSkills({ repoRoot: repo, runInstall: runStubSkillsCli })
+      const report = await maintainSkills({ repoRoot: repo, runInstall: runStubSkillsCli })
 
       assert.deepEqual(report.healed, [ID])
       assert.deepEqual(
@@ -3303,13 +3356,43 @@ describe("the maintenance pass verifies every pin and self-heals (real git targe
     })
   })
 
+  // The IN-FLIGHT write is the dangerous one: a pass killed right after it leaves that report as the next pass's prior, so a standing refusal missing from it is off the record for good.
+  it("carries those refusals into the in-flight write too, not just the terminal one", async () => {
+    await inGovernedProject(async () => {
+      const standing = { id: "evil/pack@miner", reason: "red_audit", detail: "audits [gateseal:fail]" }
+      const prior = readJson(SKILLS_REPORT_REL) as SkillsReport
+      writeJson(SKILLS_REPORT_REL, { ...prior, rejected: [standing] })
+      writeFileSync(resolve(bundleDir(SKILL), "SKILL.md"), "# tampered\n")
+
+      const published: SkillsReport[] = []
+      const report = await maintainSkills({
+        repoRoot: repo,
+        runInstall: runStubSkillsCli,
+        emitReport: (value) => published.push(JSON.parse(JSON.stringify(value)) as SkillsReport),
+      })
+
+      assert.deepEqual(
+        published.map((value) => value.phase),
+        ["healing", "green"],
+        "the pass announced its work and published how it ended"
+      )
+      assert.deepEqual(published[0].rejected, [standing], "the in-flight write already states the standing refusal")
+      assert.deepEqual(
+        published[0].installed.map((entry) => entry.id),
+        [ID],
+        "as it already states the project's whole installed set"
+      )
+      assert.deepEqual(report.healed, [ID], report.summary)
+    })
+  })
+
   // The cause the owner reads must be the real one: a directory that cannot be READ is not a directory that is GONE, and only one of the two is fixed by re-installing.
   it("names an unreadable bundle as unreadable, never as gone", async () => {
     await inGovernedProject(async ({ runtimeDir }) => {
       rmSync(bundleCacheDir(runtimeDir), { recursive: true, force: true })
       chmodSync(bundleDir(SKILL), 0o000)
       try {
-        const report = maintainSkills({ repoRoot: repo, runInstall: () => ({ code: 1, output: "error: 404" }) })
+        const report = await maintainSkills({ repoRoot: repo, runInstall: () => ({ code: 1, output: "error: 404" }) })
         assert.equal(report.phase, "failed", report.summary)
         assert.match(report.rejected[0].detail ?? "", /^the bundle is on disk but could not be read;/)
       } finally {
@@ -3325,8 +3408,9 @@ describe("the maintenance pass verifies every pin and self-heals (real git targe
       rmSync(bundleCacheDir(runtimeDir), { recursive: true, force: true })
       writeFileSync(resolve(bundleDir(SKILL), "SKILL.md"), "# tampered\n")
 
-      const failed = maintainSkills({
+      const failed = await maintainSkills({
         repoRoot: repo,
+        runInstall: offlineCli,
         heal: () => {
           throw new Error("EROFS: read-only file system, mkdir '/nope'")
         },
@@ -3350,7 +3434,7 @@ describe("the maintenance pass verifies every pin and self-heals (real git targe
       )
 
       // The counterfactual the defect destroyed: with HEAD intact, the very next pass heals offline from history.
-      const healed = maintainSkills({ repoRoot: repo, runInstall: () => assert.fail("history answers before any network") })
+      const healed = await maintainSkills({ repoRoot: repo, runInstall: offlineCli })
       assert.equal(healed.phase, "green", healed.summary)
       assert.deepEqual(healed.healed, [ID])
       assert.deepEqual(bundleBytes(), original)
@@ -3361,15 +3445,15 @@ describe("the maintenance pass verifies every pin and self-heals (real git targe
   // Byte-equality may suppress a record that says the same thing, never a phase TRANSITION: a pass that announced `healing` and then said nothing would leave every surface reading work in progress that finished.
   it("always publishes how a pass it announced ended, even when it ended exactly as the last one did", async () => {
     await inGovernedProject(async () => {
-      const first = () => {
+      const first = async () => {
         writeFileSync(resolve(bundleDir(SKILL), "SKILL.md"), "# tampered\n")
         return maintainSkills({ repoRoot: repo, runInstall: runStubSkillsCli })
       }
-      assert.deepEqual(first().healed, [ID])
+      assert.deepEqual((await first()).healed, [ID])
       const between = readJson(SKILLS_REPORT_REL) as SkillsReport
       assert.equal(between.phase, "green")
 
-      const again = first()
+      const again = await first()
 
       assert.deepEqual(again.healed, [ID], "the identical repair happened again")
       const onDisk = readJson(SKILLS_REPORT_REL) as SkillsReport
@@ -3386,12 +3470,12 @@ describe("the maintenance pass verifies every pin and self-heals (real git targe
       rmSync(bundleCacheDir(runtimeDir), { recursive: true, force: true })
       rmSync(resolve(repo, ".git"), { recursive: true, force: true })
       rmSync(bundleDir(SKILL), { recursive: true, force: true })
-      assert.equal(maintainSkills({ repoRoot: repo, runInstall: () => ({ code: 1 }) }).phase, "failed")
+      assert.equal((await maintainSkills({ repoRoot: repo, runInstall: () => ({ code: 1 }) })).phase, "failed")
 
       writeBundle(repo, SKILL, { "LICENSE.txt": original["LICENSE.txt"], "scripts/recalc.py": original["scripts/recalc.py"] })
       writeFileSync(resolve(bundleDir(SKILL), "SKILL.md"), original["SKILL.md"])
 
-      const clean = maintainSkills({ repoRoot: repo, runInstall: () => assert.fail("nothing drifted, nothing to fetch") })
+      const clean = await maintainSkills({ repoRoot: repo, runInstall: offlineCli })
       assert.equal(clean.phase, "green")
       assert.deepEqual(clean.verified, [ID])
       const onDisk = readJson(SKILLS_REPORT_REL) as SkillsReport
@@ -3408,7 +3492,7 @@ describe("the maintenance pass verifies every pin and self-heals (real git targe
       config.skills[0].bundle_hash = "f".repeat(64)
       writeJson("vivicy.json", config)
 
-      const report = maintainSkills({ repoRoot: repo, runInstall: runStubSkillsCli })
+      const report = await maintainSkills({ repoRoot: repo, runInstall: runStubSkillsCli })
 
       assert.equal(report.phase, "failed")
       assert.deepEqual(
@@ -3440,7 +3524,7 @@ describe("the maintenance pass verifies every pin and self-heals (real git targe
         `${JSON.stringify({ pid: process.pid, started_at: new Date().toISOString() }, null, 2)}\n`
       )
 
-      const report = maintainSkills({ repoRoot: repo, runInstall: () => assert.fail("a deferred pass touches nothing") })
+      const report = await maintainSkills({ repoRoot: repo, runInstall: () => assert.fail("a deferred pass touches nothing") })
 
       assert.match(report.summary, /^skills maintenance deferred: a skills install is already in flight \(pid \d+\)/)
       assert.deepEqual(report.verified, [])
@@ -3450,14 +3534,14 @@ describe("the maintenance pass verifies every pin and self-heals (real git targe
     })
   })
 
-  it("costs a project with nothing pinned no lock, no process and no report", () => {
+  it("costs a project with nothing pinned no lock, no process and no report", async () => {
     writeJson("vivicy.json", { gateCommand: "npm test", skills: declared(["owner/own@handmade"]) })
     assert.equal(maintenanceNeeded(repo), false, "an unpinned declaration is the owner's intent, not bytes to verify")
-    const report = maintainSkills({ repoRoot: repo, runInstall: () => assert.fail("nothing to verify") })
+    const report = await maintainSkills({ repoRoot: repo, runInstall: () => assert.fail("nothing to verify, nothing to check upstream") })
     assert.match(report.summary, /^no pinned skill bundles to verify — vivicy\.json#skills declares none$/)
     assert.ok(!existsSync(resolve(repo, SKILLS_REPORT_REL)), "and it writes no report to say so")
     assert.ok(!existsSync(resolve(repo, ".vivicy-runtime/skills-install.lock")), "and claims no lock: it never opens a stage tree at all")
-    assert.throws(() => maintainSkills({}), SkillsConfigError)
+    await assert.rejects(() => maintainSkills({}), SkillsConfigError)
   })
 
   it("runs from the CLI as --maintain, exclusive of the install and remove modes", async () => {
@@ -3466,10 +3550,16 @@ describe("the maintenance pass verifies every pin and self-heals (real git targe
       writeFileSync(resolve(bundleDir(SKILL), "scripts/recalc.py"), TAMPERED)
       const script = resolve(dirname(fileURLToPath(import.meta.url)), "install-skills.ts")
 
+      // The real CLI path reaches the real `npx` for its one upstream check, so the case runs behind a shim that answers as an offline machine does — a test may never depend on the network to prove a restore. It lives outside the target, or the shim itself would be dirt in the tree the pass absorbs.
+      const offlineBin = mkdtempSync(join(tmpdir(), "vivicy-offline-bin-"))
+      const npx = resolve(offlineBin, "npx")
+      writeFileSync(npx, "#!/bin/sh\necho 'npm error network getaddrinfo ENOTFOUND registry.npmjs.org' >&2\nexit 1\n")
+      chmodSync(npx, 0o755)
+
       const healed = spawnSync(process.execPath, [script, "--maintain"], {
         cwd: repo,
         encoding: "utf8",
-        env: { ...process.env, VIVICY_TARGET_ROOT: repo },
+        env: { ...process.env, VIVICY_TARGET_ROOT: repo, PATH: `${offlineBin}:${process.env.PATH ?? ""}` },
       })
       assert.equal(healed.status, 0, `${healed.stdout}\n${healed.stderr}`)
       assert.match(healed.stdout, /1 bundle restored to the pinned bytes/)
@@ -3482,6 +3572,727 @@ describe("the maintenance pass verifies every pin and self-heals (real git targe
       })
       assert.equal(clash.status, 2)
       assert.match(clash.stderr, /--ids, --remove and --maintain are mutually exclusive/)
+    })
+  })
+
+  // The creator's own evolution of the same bundle: the probe has no version to read, so what makes it "newer" is that `skills add` serves these bytes instead of the pinned ones.
+  describe("the audited update door (a creator's newer version reaches a governed project, or is refused for the owner)", () => {
+    const NEWER: Record<string, string> = {
+      "SKILL.md": "---\nname: spreadsheets\ndescription: bundle from acme/pack\n---\n\n## Recalculation\n",
+      "LICENSE.txt": "MIT\n",
+      "scripts/recalc.py": "print('recalc, faster')\n",
+      "scripts/audit.py": "print('new in this version')\n",
+    }
+    const RED: SkillAuditFetch = { found: true, audits: [{ provider: "gateseal", status: "fail" }] }
+    const TWO_WARNS: SkillAuditFetch = {
+      found: true,
+      audits: [
+        { provider: "gateseal", status: "warn" },
+        { provider: "socket", status: "warn" },
+      ],
+    }
+    const UNAUDITED: SkillAuditFetch = { found: false, audits: [] }
+
+    function audits(fetch: SkillAuditFetch) {
+      return fakeAudits({ [`acme/pack@${SKILL}`]: fetch })
+    }
+
+    function newerBundle(): Record<string, string> {
+      const files: Record<string, string> = {}
+      for (const rel of Object.keys(NEWER)) files[rel] = readFileSync(resolve(bundleDir(SKILL), rel), "utf8")
+      return files
+    }
+
+    it("takes a green newer version through the same audit gate, re-pins it, warms the cache and says NOTHING", async () => {
+      await inGovernedProject(async ({ runtimeDir, pinnedAt }) => {
+        const head = git(repo, ["rev-parse", "HEAD"]).stdout.trim()
+        const calls: FakeInstallCall[] = []
+
+        const report = await maintainSkills({ repoRoot: repo, runInstall: upstreamServing(NEWER, calls), fetchAudit: audits(passAudit()) })
+
+        assert.deepEqual(calls, [{ source: "acme/pack", skill: SKILL }], "ONE upstream check for the one pinned skill, and it is the fetch")
+        assert.equal(report.phase, "green", report.summary)
+        assert.deepEqual(report.updated, [ID])
+        assert.deepEqual(
+          report.verified,
+          [],
+          "one terminal outcome per skill: it holds the NEW bytes, so it is not also verified-unchanged"
+        )
+        assert.deepEqual(report.rejected, [])
+        assert.deepEqual(newerBundle(), NEWER, "the project runs the creator's newer bytes, file for file")
+
+        const pin = pinOf(ID)
+        assert.ok(pin)
+        assert.notEqual(pin.bundle_hash, pinnedAt, "the pin moved with the bytes")
+        assert.equal(pin.bundle_hash, hashBundle(bundleDir(SKILL))?.bundle_hash, "and it IS what is on disk, never a claim about it")
+        assert.deepEqual(Object.keys(pin.files).sort(), Object.keys(NEWER).sort(), "the manifest names the new file too")
+        assert.deepEqual(
+          readdirSync(bundleCacheDir(runtimeDir)),
+          [pin.bundle_hash],
+          "the cache carries the new pin (so the next drift heals offline) and the superseded entry is swept"
+        )
+        assert.equal(
+          readFileSync(resolve(repo, ".claude/skills", SKILL, "SKILL.md"), "utf8"),
+          NEWER["SKILL.md"],
+          "the per-agent link points at the directory, so it serves the new version with no relink"
+        )
+
+        assert.equal(git(repo, ["status", "--porcelain"]).stdout.trim(), "", "the update is absorbed, so the dev loop starts clean")
+        assert.notEqual(git(repo, ["rev-parse", "HEAD"]).stdout.trim(), head)
+        assert.deepEqual(git(repo, ["show", "--name-only", "--format=", "HEAD"]).stdout.trim().split("\n").sort(), [
+          ".agents/skills/spreadsheets/SKILL.md",
+          ".agents/skills/spreadsheets/scripts/audit.py",
+          ".agents/skills/spreadsheets/scripts/recalc.py",
+          ".vivicy/development/reports/skills-report.json",
+          "vivicy.json",
+        ])
+        assert.match(
+          report.summary,
+          /^skills maintenance green: 1 bundle updated to a newer audited version \(acme\/pack@spreadsheets\)$/,
+          "the settled summary is where an update is reported"
+        )
+        const body = git(repo, ["log", "-1", "--format=%B"]).stdout
+        assert.match(body, /newer upstream version passed the same security audit an install must pass/)
+        assert.match(
+          body,
+          /vivicy\.json pin moved onto it/,
+          "the body describes the bytes and the pin it really carries, never a restore it did not make"
+        )
+        assert.deepEqual(notifications(runtimeDir), [], "a successful update is self-maintenance: it asks the owner for nothing")
+        assert.deepEqual(skillsNotifications(report), [])
+      })
+    })
+
+    it("a settled update is idempotent: the pass after it settles the record, and the one after that says nothing", async () => {
+      await inGovernedProject(async ({ runtimeDir }) => {
+        const pass = () => maintainSkills({ repoRoot: repo, runInstall: upstreamServing(NEWER), fetchAudit: audits(passAudit()) })
+        assert.deepEqual((await pass()).updated, [ID])
+
+        // Exactly as a repaired bundle settles: the record of work that is over gives way to the steady state ONCE, and never writes again.
+        const settling = await pass()
+        assert.deepEqual(settling.verified, [ID], "upstream now serves what the project pins, so there is nothing left to take")
+        assert.deepEqual(settling.updated, [])
+        const settled = readFileSync(resolve(repo, SKILLS_REPORT_REL), "utf8")
+        const head = git(repo, ["rev-parse", "HEAD"]).stdout.trim()
+
+        await pass()
+
+        assert.equal(readFileSync(resolve(repo, SKILLS_REPORT_REL), "utf8"), settled, "the steady state is not rewritten")
+        assert.equal(git(repo, ["rev-parse", "HEAD"]).stdout.trim(), head, "and adds no commit")
+        assert.deepEqual(notifications(runtimeDir), [], "and nothing in the whole sequence asks the owner for anything")
+      })
+    })
+
+    for (const [name, fetch, cause] of [
+      ["a red audit", RED, "a security audit fails it"],
+      ["more than one warning", TWO_WARNS, "more than one audit warns about it"],
+      ["no audit at all", UNAUDITED, "no security audit covers it"],
+    ] as const) {
+      it(`refuses a newer version on ${name}, keeps the pinned bytes, and warns exactly once`, async () => {
+        await inGovernedProject(async ({ runtimeDir, pinnedAt }) => {
+          const pinnedBytes = bundleBytes()
+          const head = git(repo, ["rev-parse", "HEAD"]).stdout.trim()
+
+          const report = await maintainSkills({ repoRoot: repo, runInstall: upstreamServing(NEWER), fetchAudit: audits(fetch) })
+
+          assert.equal(report.phase, "green", "refusing risk is a successful pass, never a red stage")
+          assert.deepEqual(report.updated, [])
+          assert.deepEqual(report.verified, [ID], "the pinned bundle still verifies — that is the version the project keeps running")
+          assert.deepEqual(bundleBytes(), pinnedBytes, "not one byte of the refused candidate reached the project")
+          assert.ok(!existsSync(resolve(bundleDir(SKILL), "scripts/audit.py")), "and none of its new files either")
+          assert.equal(pinOf(ID)?.bundle_hash, pinnedAt, "the pin is untouched")
+
+          const refusal = report.rejected[0]
+          assert.equal(report.rejected.length, 1)
+          assert.equal(refusal.id, ID)
+          assert.equal(refusal.reason, "update_refused")
+          assert.equal(refusal.verdict, fetch === RED ? "red_audit" : fetch === TWO_WARNS ? "too_many_warnings" : "unaudited")
+          assert.match(refusal.detail ?? "", new RegExp(`^a newer version is available upstream but ${cause} —`))
+          assert.match(
+            refusal.detail ?? "",
+            /the project keeps the version it pinned, and the install-time risk waiver is never read on an update$/
+          )
+          assert.match(refusal.candidate_hash ?? "", /^[0-9a-f]{64}$/)
+          assert.notEqual(refusal.candidate_hash, pinnedAt, "the hash recorded is the REFUSED candidate's, not the pin's")
+          assert.match(
+            report.summary,
+            /^skills maintenance green: 1 newer version refused by the security audit \(acme\/pack@spreadsheets\), 1 bundle verified unchanged$/
+          )
+
+          const rows = notifications(runtimeDir)
+          assert.equal(rows.length, 1, "one warning: the awaited trace of the standing risk switch")
+          assert.equal(rows[0].level, "warning", "warning is what arms the Ask-Vivi pill")
+          assert.equal(rows[0].event, "update_refused")
+          assert.match(
+            rows[0].message,
+            new RegExp(
+              `^Vivicy refused a newer version of a project skill and kept the version this project pinned and audited: acme/pack@spreadsheets \\(${cause}\\)`
+            )
+          )
+          assert.match(rows[0].message, /nothing to install; the risk waiver is an install-time switch and is never read on an update$/)
+          assert.notEqual(git(repo, ["rev-parse", "HEAD"]).stdout.trim(), head, "the refusal is recorded in the report the surfaces read")
+          assert.equal(git(repo, ["status", "--porcelain"]).stdout.trim(), "")
+        })
+      })
+    }
+
+    it("says the same refusal only once, and re-evaluates the moment upstream publishes different bytes", async () => {
+      await inGovernedProject(async ({ runtimeDir }) => {
+        const refuse = (files: Record<string, string>) =>
+          maintainSkills({ repoRoot: repo, runInstall: upstreamServing(files), fetchAudit: audits(RED) })
+
+        await refuse(NEWER)
+        const head = git(repo, ["rev-parse", "HEAD"]).stdout.trim()
+        const stamp = (readJson(SKILLS_REPORT_REL) as SkillsReport).updated_at
+
+        const same = await refuse(NEWER)
+
+        assert.equal(same.rejected.length, 1, "the identical candidate is still refused")
+        assert.equal((readJson(SKILLS_REPORT_REL) as SkillsReport).updated_at, stamp, "but nothing is rewritten")
+        assert.equal(git(repo, ["rev-parse", "HEAD"]).stdout.trim(), head, "no second commit")
+        assert.equal(notifications(runtimeDir).length, 1, "and the owner is told once, not once per supervisor start")
+
+        const evolved = await refuse({ ...NEWER, "scripts/recalc.py": "print('recalc, third try')\n" })
+
+        assert.equal(notifications(runtimeDir).length, 2, "a DIFFERENT candidate is a new fact and earns its own warning")
+        assert.notEqual(
+          evolved.rejected[0].candidate_hash,
+          same.rejected[0].candidate_hash,
+          "the refusal names the bytes it is about, which is what makes the repeat detectable at all"
+        )
+        assert.notEqual(git(repo, ["rev-parse", "HEAD"]).stdout.trim(), head)
+      })
+    })
+
+    it("re-announces nothing when an unrelated fact republishes the report, and clears the refusal when upstream comes back to the pinned bytes", async () => {
+      await inGovernedProject(async ({ runtimeDir }) => {
+        const refused = await maintainSkills({ repoRoot: repo, runInstall: upstreamServing(NEWER), fetchAudit: audits(RED) })
+        assert.equal(refused.rejected[0]?.reason, "update_refused")
+        assert.equal(notifications(runtimeDir).length, 1)
+
+        // An unrelated fact: the bundle drifts, so the report legitimately publishes again with the SAME refusal still in it.
+        writeFileSync(resolve(bundleDir(SKILL), "scripts/recalc.py"), TAMPERED)
+        const republished = await maintainSkills({ repoRoot: repo, runInstall: upstreamServing(NEWER), fetchAudit: audits(RED) })
+
+        assert.deepEqual(republished.healed, [ID], republished.summary)
+        assert.equal(republished.rejected.length, 1, "the refusal still stands")
+        assert.equal(
+          notifications(runtimeDir).length,
+          1,
+          "but the owner is told about a refused candidate ONCE, not again every time anything else moves"
+        )
+
+        // Upstream reverts to the very bytes the project pins: the probe re-decides the skill, so the refusal has nothing left to stand on.
+        const reverted = await maintainSkills({ repoRoot: repo, runInstall: runStubSkillsCli, fetchAudit: audits(RED) })
+
+        assert.deepEqual(reverted.verified, [ID], reverted.summary)
+        assert.deepEqual(reverted.updated, [])
+        assert.deepEqual(reverted.rejected, [], "an upstream that no longer offers anything newer is not a standing refusal")
+        assert.deepEqual((readJson(SKILLS_REPORT_REL) as SkillsReport).rejected, [])
+        assert.equal(notifications(runtimeDir).length, 1)
+      })
+    })
+
+    // The in-flight write is the dangerous one for a carried refusal exactly as it is for a selection's: a pass killed there leaves it as the next pass's prior.
+    it("states a carried refusal in the in-flight write too, not only in the terminal one", async () => {
+      await inGovernedProject(async () => {
+        await maintainSkills({ repoRoot: repo, runInstall: upstreamServing(NEWER), fetchAudit: audits(RED) })
+        writeFileSync(resolve(bundleDir(SKILL), "scripts/recalc.py"), TAMPERED)
+
+        const published: SkillsReport[] = []
+        await maintainSkills({
+          repoRoot: repo,
+          runInstall: upstreamServing(NEWER),
+          fetchAudit: audits(RED),
+          emitReport: (value) => published.push(JSON.parse(JSON.stringify(value)) as SkillsReport),
+        })
+
+        assert.equal(published[0].phase, "healing")
+        assert.deepEqual(
+          published[0].rejected?.map((entry) => entry.reason),
+          ["update_refused"],
+          "the refusal the probe has not re-decided yet is stated by every write this pass makes"
+        )
+      })
+    })
+
+    // The pass's own re-fetch rung is evidence about upstream, not a gap in it: healing FROM it proves upstream serves the pinned bytes, which is precisely what a standing refusal claims is no longer true.
+    it("clears a refusal when its own restore proved upstream still serves the pinned bytes", async () => {
+      await inGovernedProject(async ({ runtimeDir, pinnedAt }) => {
+        const refused = await maintainSkills({ repoRoot: repo, runInstall: upstreamServing(NEWER), fetchAudit: audits(RED) })
+        assert.equal(refused.rejected[0]?.reason, "update_refused")
+        assert.equal(notifications(runtimeDir).length, 1)
+
+        // The cold-cache, not-its-own-git-root shape: the only rung left is the re-fetch, and upstream now serves exactly the pinned bytes.
+        rmSync(bundleCacheDir(runtimeDir), { recursive: true, force: true })
+        rmSync(resolve(repo, ".git"), { recursive: true, force: true })
+        writeFileSync(resolve(bundleDir(SKILL), "scripts/recalc.py"), TAMPERED)
+        let fetches = 0
+        const healed = await maintainSkills({
+          repoRoot: repo,
+          runInstall: (args) => {
+            fetches += 1
+            return runStubSkillsCli(args)
+          },
+          fetchAudit: async () => assert.fail("the rung that healed already answered for upstream; nothing is left to audit"),
+        })
+
+        assert.deepEqual(healed.healed, [ID], healed.summary)
+        assert.equal(fetches, 1, "one upstream touch: the rung's own, and no probe after it")
+        assert.equal(pinOf(ID)?.bundle_hash, pinnedAt)
+        assert.deepEqual(
+          healed.rejected,
+          [],
+          "the pass may not republish a refusal it has just disproved — the bytes it restored came FROM upstream"
+        )
+        assert.match(healed.summary, /^skills maintenance green: 1 bundle restored to the pinned bytes/)
+        assert.deepEqual((readJson(SKILLS_REPORT_REL) as SkillsReport).rejected, [])
+        assert.equal(notifications(runtimeDir).length, 1)
+      })
+    })
+
+    // vivicy.json and the report are hand-editable, so a verdict read back from one is data: the owner's sentence may never render a `Record` miss.
+    it("never renders an unknown verdict into the owner's warning", async () => {
+      await inGovernedProject(async ({ runtimeDir }) => {
+        await maintainSkills({ repoRoot: repo, runInstall: upstreamServing(NEWER), fetchAudit: audits(RED) })
+        const stored = readJson(SKILLS_REPORT_REL) as SkillsReport
+        writeJson(SKILLS_REPORT_REL, {
+          ...stored,
+          rejected: (stored.rejected ?? []).map((entry) => ({ ...entry, verdict: "constructor" })),
+        })
+
+        // An unrelated fact republishes the report, so the hand-edited record is read back and re-stated.
+        writeFileSync(resolve(bundleDir(SKILL), "scripts/recalc.py"), TAMPERED)
+        const report = await maintainSkills({ repoRoot: repo, runInstall: offlineCli })
+
+        assert.equal(report.rejected[0]?.reason, "update_refused")
+        assert.equal(report.rejected[0]?.verdict, undefined, "the unknown verdict is dropped where every rejection record is built")
+        assert.equal((readJson(SKILLS_REPORT_REL) as SkillsReport).rejected?.[0].verdict, undefined, "and never written back out")
+        assert.equal(notifications(runtimeDir).length, 1, "and the refusal is still the one already told, so it stays silent")
+
+        // The renderer's own half of that guard, since a record can reach it without passing the constructor — and an unknown key is not merely absent: `constructor` and `toString` RESOLVE on a plain object's prototype and would render a function into the owner's sentence.
+        for (const verdict of ["constructor", "toString", "nonsense"]) {
+          const direct = skillsNotifications({
+            ...report,
+            rejected: [{ id: ID, reason: "update_refused", detail: "d", verdict: verdict as never, candidate_hash: "a".repeat(64) }],
+          })
+          assert.equal(direct.length, 1)
+          assert.match(
+            direct[0].message,
+            /kept the version this project pinned and audited: acme\/pack@spreadsheets — nothing to install/,
+            `verdict ${verdict} must fall through to the id-only branch: ${direct[0].message}`
+          )
+        }
+      })
+    })
+
+    // The one-time opt-in must never become standing consent: the switch is read at the install door and the update door does not have one.
+    it("never applies the risk waiver to an update, even for a skill installed under it", async () => {
+      await inGovernedProject(async ({ runtimeDir, pinnedAt }) => {
+        const prior = readJson(SKILLS_REPORT_REL) as SkillsReport
+        writeJson(SKILLS_REPORT_REL, {
+          ...prior,
+          installed: (prior.installed ?? []).map((entry) => ({ ...entry, security_waived: true, reason: "red_audit" })),
+        })
+        const pinnedBytes = bundleBytes()
+        const previous = process.env.VIVICY_ALLOW_UNSAFE_SKILLS
+        process.env.VIVICY_ALLOW_UNSAFE_SKILLS = "1"
+        try {
+          const report = await maintainSkills({
+            repoRoot: repo,
+            env: { ...process.env, VIVICY_ALLOW_UNSAFE_SKILLS: "1" },
+            runInstall: upstreamServing(NEWER),
+            fetchAudit: audits(RED),
+          })
+
+          assert.deepEqual(report.updated, [], "the waiver that let the skill IN does not let a red update in after it")
+          assert.equal(report.rejected[0]?.reason, "update_refused")
+          assert.deepEqual(bundleBytes(), pinnedBytes)
+          assert.equal(pinOf(ID)?.bundle_hash, pinnedAt)
+          assert.equal(report.installed[0].security_waived, true, "and the entry keeps saying what it is: running waived bytes")
+          assert.equal(notifications(runtimeDir).filter((row) => row.event === "update_refused").length, 1)
+        } finally {
+          if (previous === undefined) delete process.env.VIVICY_ALLOW_UNSAFE_SKILLS
+          else process.env.VIVICY_ALLOW_UNSAFE_SKILLS = previous
+        }
+      })
+    })
+
+    // The waiver is about the bytes that are running: once the audited newer version replaces them, the warning the owner sees would be a lie.
+    it("a GREEN update clears the waiver flag and refreshes the audit record", async () => {
+      await inGovernedProject(async () => {
+        const prior = readJson(SKILLS_REPORT_REL) as SkillsReport
+        writeJson(SKILLS_REPORT_REL, {
+          ...prior,
+          installed: (prior.installed ?? []).map((entry) => ({
+            ...entry,
+            security_waived: true,
+            audits: [{ provider: "gateseal", status: "fail" }],
+          })),
+        })
+
+        const report = await maintainSkills({
+          repoRoot: repo,
+          runInstall: upstreamServing(NEWER),
+          fetchAudit: audits({ found: true, audits: [{ provider: "gateseal", status: "pass" }] }),
+        })
+
+        assert.deepEqual(report.updated, [ID])
+        assert.equal(report.installed.length, 1)
+        assert.equal(report.installed[0].security_waived, false, "the bytes running now passed the gate on their own")
+        assert.deepEqual(report.installed[0].audits, [{ provider: "gateseal", status: "pass" }])
+        assert.equal(report.installed[0].name, "Spreadsheets", "and everything the selection knew about the skill survives")
+        assert.equal((readJson(SKILLS_REPORT_REL) as SkillsReport).installed?.[0].security_waived, false)
+      })
+    })
+
+    // Changing the contract of a bundle no rung could even restore would publish over a drift nobody has accounted for, on top of a failure the owner is already being asked to fix.
+    it("offers no update at all to a bundle it could not restore", async () => {
+      await inGovernedProject(async ({ runtimeDir, pinnedAt }) => {
+        rmSync(bundleCacheDir(runtimeDir), { recursive: true, force: true })
+        rmSync(resolve(repo, ".git"), { recursive: true, force: true })
+        writeFileSync(resolve(bundleDir(SKILL), "SKILL.md"), "# tampered\n")
+
+        const broken = await maintainSkills({
+          repoRoot: repo,
+          runInstall: upstreamServing(NEWER),
+          fetchAudit: async () => assert.fail("a bundle nobody could restore is never offered an update, so nothing is audited"),
+        })
+
+        assert.equal(broken.phase, "failed", broken.summary)
+        assert.deepEqual(broken.updated, [])
+        assert.deepEqual(
+          broken.rejected.map((entry) => entry.reason),
+          ["heal_failed"]
+        )
+        assert.equal(pinOf(ID)?.bundle_hash, pinnedAt, "the pin is the standing contract until the owner acts")
+        assert.equal(readFileSync(resolve(bundleDir(SKILL), "SKILL.md"), "utf8"), "# tampered\n", "and the drift is left exactly as found")
+      })
+    })
+
+    // The block's `<bundle>/SKILL.md` line is what every leg reads, so a candidate without one would break the project's own reference on a bundle that works.
+    it("never takes a candidate upstream serves without a SKILL.md, and does not bother the owner about it", async () => {
+      await inGovernedProject(async ({ runtimeDir, pinnedAt }) => {
+        const pinnedBytes = bundleBytes()
+        const reportBefore = readFileSync(resolve(repo, SKILLS_REPORT_REL), "utf8")
+
+        const docless = await maintainSkills({
+          repoRoot: repo,
+          runInstall: ({ repoRoot: into, skill }) => {
+            const abs = resolve(into, ".agents/skills", skill, "README.md")
+            mkdirSync(dirname(abs), { recursive: true })
+            writeFileSync(abs, "docs, but no SKILL.md\n")
+            return { code: 0, output: "installed" }
+          },
+          fetchAudit: async () => assert.fail("a candidate with no SKILL.md is not a skill: it never reaches the audit gate"),
+        })
+
+        assert.deepEqual(docless.verified, [ID], docless.summary)
+        assert.deepEqual(docless.updated, [])
+        assert.deepEqual(docless.rejected, [], "silence, not a refusal: upstream failing to describe itself is not the owner's business")
+        assert.deepEqual(bundleBytes(), pinnedBytes)
+        assert.equal(pinOf(ID)?.bundle_hash, pinnedAt)
+        assert.equal(readFileSync(resolve(repo, SKILLS_REPORT_REL), "utf8"), reportBefore, "and the pass stays write-free")
+        assert.deepEqual(notifications(runtimeDir), [])
+      })
+    })
+
+    it("restores the pinned bytes first and offers the update to what it repaired", async () => {
+      await inGovernedProject(async ({ runtimeDir }) => {
+        writeFileSync(resolve(bundleDir(SKILL), "scripts/recalc.py"), TAMPERED)
+
+        const report = await maintainSkills({ repoRoot: repo, runInstall: upstreamServing(NEWER), fetchAudit: audits(passAudit()) })
+
+        assert.deepEqual(report.updated, [ID], report.summary)
+        assert.deepEqual(
+          report.healed,
+          [],
+          "the restore was a step, not the outcome: the bytes it put back were superseded in the same pass"
+        )
+        assert.deepEqual(newerBundle(), NEWER)
+        assert.equal(pinOf(ID)?.bundle_hash, hashBundle(bundleDir(SKILL))?.bundle_hash)
+        assert.match(report.summary, /^skills maintenance green: 1 bundle updated to a newer audited version \(acme\/pack@spreadsheets\)$/)
+        assert.deepEqual(notifications(runtimeDir), [])
+        assert.equal(git(repo, ["status", "--porcelain"]).stdout.trim(), "")
+      })
+    })
+
+    it("an offline pass is byte-identical to one with no update door at all", async () => {
+      await inGovernedProject(async ({ runtimeDir, pinnedAt }) => {
+        const head = git(repo, ["rev-parse", "HEAD"]).stdout.trim()
+        const reportBefore = readFileSync(resolve(repo, SKILLS_REPORT_REL), "utf8")
+
+        const report = await maintainSkills({
+          repoRoot: repo,
+          runInstall: offlineCli,
+          fetchAudit: async () => assert.fail("a probe that answered nothing has nothing to audit"),
+        })
+
+        assert.equal(report.phase, "green", report.summary)
+        assert.deepEqual(report.verified, [ID])
+        assert.deepEqual(report.updated, [])
+        assert.deepEqual(report.rejected, [], "a transport failure is never an event")
+        assert.match(report.summary, /^skills maintenance green: 1 bundle verified unchanged$/)
+        assert.equal(pinOf(ID)?.bundle_hash, pinnedAt)
+        assert.equal(readFileSync(resolve(repo, SKILLS_REPORT_REL), "utf8"), reportBefore, "no report write")
+        assert.equal(git(repo, ["rev-parse", "HEAD"]).stdout.trim(), head, "no commit")
+        assert.deepEqual(notifications(runtimeDir), [], "no notification")
+        assert.ok(
+          readdirSync(runtimeDir).every((entry) => !entry.startsWith("skill-candidate-")),
+          "and the scratch the probe opened is gone whatever the probe answered"
+        )
+      })
+    })
+
+    it("keeps a refusal standing while the probe cannot re-decide it, and clears it when upstream comes back green", async () => {
+      await inGovernedProject(async ({ runtimeDir }) => {
+        const refused = await maintainSkills({ repoRoot: repo, runInstall: upstreamServing(NEWER), fetchAudit: audits(RED) })
+        assert.equal(refused.rejected[0].reason, "update_refused")
+        const stamp = (readJson(SKILLS_REPORT_REL) as SkillsReport).updated_at
+
+        const offline = await maintainSkills({ repoRoot: repo, runInstall: offlineCli, fetchAudit: audits(RED) })
+
+        assert.equal(offline.rejected.length, 1, "the pin is still the older audited version — the fact the owner was told still holds")
+        assert.equal(offline.rejected[0].reason, "update_refused")
+        assert.deepEqual(offline.rejected[0], refused.rejected[0], "carried forward whole, so the record cannot drift by being re-stated")
+        assert.equal((readJson(SKILLS_REPORT_REL) as SkillsReport).updated_at, stamp, "and an unchanged record is not republished")
+        assert.equal(notifications(runtimeDir).length, 1)
+
+        const green = await maintainSkills({ repoRoot: repo, runInstall: upstreamServing(NEWER), fetchAudit: audits(passAudit()) })
+
+        assert.deepEqual(green.updated, [ID], green.summary)
+        assert.deepEqual(green.rejected, [], "the refusal is gone the moment the pass re-decides it")
+        assert.deepEqual((readJson(SKILLS_REPORT_REL) as SkillsReport).rejected, [])
+        assert.equal(notifications(runtimeDir).length, 1, "and taking the update announces nothing")
+      })
+    })
+
+    // A project holds up to six skills, so every sentence and every count in this door has to read right for more than one of them.
+    describe("a project with two pinned skills", () => {
+      const CHARTS = "other/pack@charts"
+      const NEWER_CHARTS: Record<string, string> = { "SKILL.md": "---\nname: charts\n---\n\n## Stacked bars\n" }
+
+      async function pinBoth(): Promise<void> {
+        const second = await installSkills({
+          repoRoot: repo,
+          ids: [CHARTS],
+          fetchAudit: fakeAudits(),
+          runInstall: runStubSkillsCli,
+        })
+        assert.equal(second.phase, "green", second.summary)
+        assert.deepEqual(
+          readSkillDeclarations(repo).map((declaration) => declaration.id),
+          [ID, CHARTS]
+        )
+      }
+
+      // Every probe is observed from INSIDE the fetch, which is the only place a leaked scratch is visible: the pass's own janitorial sweep removes them all at the end, so a probe that never closed its own would still leave nothing behind afterwards.
+      function upstreamPerSkill(bySkill: Record<string, Record<string, string>>, scratchesInFlight: number[] = []) {
+        return ({ repoRoot: into, skill }: { repoRoot: string; source: string; skill: string }) => {
+          scratchesInFlight.push(readdirSync(resolve(repo, ".vivicy-runtime")).filter((e) => e.startsWith("skill-candidate-")).length)
+          writeBundle(into, skill, bySkill[skill])
+          return { code: 0, output: "installed" }
+        }
+      }
+
+      it("takes one skill forward and holds the other back, in one pass and one sentence", async () => {
+        await inGovernedProject(async ({ runtimeDir }) => {
+          await pinBoth()
+          const chartsPinnedAt = pinOf(CHARTS)?.bundle_hash
+          const scratchesInFlight: number[] = []
+
+          const report = await maintainSkills({
+            repoRoot: repo,
+            runInstall: upstreamPerSkill({ [SKILL]: NEWER, charts: NEWER_CHARTS }, scratchesInFlight),
+            fetchAudit: fakeAudits({ [`acme/pack@${SKILL}`]: passAudit(), [CHARTS]: RED }),
+          })
+
+          assert.deepEqual(
+            scratchesInFlight,
+            [1, 1],
+            "each probe closes its own scratch: two skills never mean two whole bundle copies staged at once"
+          )
+
+          assert.equal(report.phase, "green", report.summary)
+          assert.deepEqual(report.updated, [ID])
+          assert.deepEqual(
+            report.verified,
+            [CHARTS],
+            "the refused skill's own bundle still matches its pin — that is the version it keeps running"
+          )
+          assert.deepEqual(
+            report.rejected.map((entry) => [entry.id, entry.reason]),
+            [[CHARTS, "update_refused"]]
+          )
+          assert.deepEqual(newerBundle(), NEWER, "the audited one moved")
+          assert.equal(pinOf(CHARTS)?.bundle_hash, chartsPinnedAt, "the refused one did not")
+          assert.match(
+            report.summary,
+            /^skills maintenance green: 1 newer version refused by the security audit \(other\/pack@charts\), 1 bundle updated to a newer audited version \(acme\/pack@spreadsheets\), 1 bundle verified unchanged$/
+          )
+          const rows = notifications(runtimeDir)
+          assert.equal(rows.length, 1, "the update that succeeded is silent; only the refusal speaks")
+          assert.match(rows[0].message, /^Vivicy refused a newer version of a project skill and kept the version this project pinned/)
+          assert.match(rows[0].message, /other\/pack@charts \(a security audit fails it\)/)
+          assert.equal(git(repo, ["status", "--porcelain"]).stdout.trim(), "")
+        })
+      })
+
+      it("reads in the plural when both skills are held back, and names each one's own cause", async () => {
+        await inGovernedProject(async ({ runtimeDir }) => {
+          await pinBoth()
+
+          const report = await maintainSkills({
+            repoRoot: repo,
+            runInstall: upstreamPerSkill({ [SKILL]: NEWER, charts: NEWER_CHARTS }),
+            fetchAudit: fakeAudits({ [`acme/pack@${SKILL}`]: RED, [CHARTS]: UNAUDITED }),
+          })
+
+          assert.deepEqual(report.updated, [])
+          assert.deepEqual(
+            report.rejected.map((entry) => [entry.id, entry.verdict]),
+            [
+              [ID, "red_audit"],
+              [CHARTS, "unaudited"],
+            ]
+          )
+          assert.match(
+            report.summary,
+            /^skills maintenance green: 2 newer versions refused by the security audit \(acme\/pack@spreadsheets, other\/pack@charts\)/
+          )
+          const rows = notifications(runtimeDir)
+          assert.equal(rows.length, 1, "one notification for the one thing that happened, however many skills it names")
+          assert.match(
+            rows[0].message,
+            /^Vivicy refused newer versions of 2 project skills and kept the versions this project pinned and audited: acme\/pack@spreadsheets \(a security audit fails it\), other\/pack@charts \(no security audit covers it\) —/
+          )
+        })
+      })
+
+      // The same "told once" rule the refusal needs, on the event that already existed: a report republished for one skill's news may not re-announce another skill's standing failure.
+      it("tells the owner about an unrestorable bundle once, even when another skill's news republishes the report", async () => {
+        await inGovernedProject(async ({ runtimeDir }) => {
+          await pinBoth()
+          const unhealable = (args: Parameters<typeof healBundle>[0]) => {
+            if (args.ref.id === ID) throw new Error("EROFS: read-only file system, mkdir '/nope'")
+            return healBundle(args)
+          }
+          writeFileSync(resolve(bundleDir(SKILL), "SKILL.md"), "# tampered\n")
+
+          const first = await maintainSkills({ repoRoot: repo, runInstall: offlineCli, heal: unhealable })
+          assert.deepEqual(
+            first.rejected.map((entry) => entry.reason),
+            ["heal_failed"]
+          )
+          assert.equal(notifications(runtimeDir).length, 1)
+
+          writeFileSync(resolve(bundleDir(SKILL), "SKILL.md"), "# tampered again\n")
+          writeFileSync(resolve(bundleDir("charts"), "SKILL.md"), "# also tampered\n")
+          const second = await maintainSkills({ repoRoot: repo, runInstall: offlineCli, heal: unhealable })
+
+          assert.deepEqual(second.healed, [CHARTS], "the other skill's repair is real news, so the report is republished")
+          assert.deepEqual(
+            second.rejected.map((entry) => entry.reason),
+            ["heal_failed"],
+            "and the standing failure is still stated"
+          )
+          assert.equal(notifications(runtimeDir).length, 1, "but the owner is told about it once, not once per republish")
+        })
+      })
+
+      it("writes both notifications when a pass has both kinds of news, each with its own level", async () => {
+        await inGovernedProject(async ({ runtimeDir }) => {
+          await pinBoth()
+          rmSync(bundleCacheDir(runtimeDir), { recursive: true, force: true })
+          rmSync(resolve(repo, ".git"), { recursive: true, force: true })
+          rmSync(bundleDir(SKILL), { recursive: true, force: true })
+
+          const report = await maintainSkills({
+            repoRoot: repo,
+            runInstall: ({ repoRoot: into, skill }) => {
+              if (skill === SKILL) return { code: 1, output: "error: 404 upstream" }
+              writeBundle(into, skill, NEWER_CHARTS)
+              return { code: 0, output: "installed" }
+            },
+            fetchAudit: fakeAudits({ [CHARTS]: TWO_WARNS }),
+          })
+
+          assert.equal(report.phase, "failed", report.summary)
+          assert.deepEqual(
+            report.rejected.map((entry) => [entry.id, entry.reason]),
+            [
+              [CHARTS, "update_refused"],
+              [ID, "heal_failed"],
+            ],
+            "rebuilt in pinned order, refusals before restore failures, so an identical pass serializes identically"
+          )
+          assert.deepEqual(
+            skillsNotifications(report).map((note) => [note.level, note.event]),
+            [
+              ["error", "heal_failed"],
+              ["warning", "update_refused"],
+            ],
+            "two independent facts, neither of which may swallow the other"
+          )
+          assert.deepEqual(
+            notifications(runtimeDir).map((row) => row.event),
+            ["heal_failed", "update_refused"]
+          )
+          assert.match(report.summary, /^skills maintenance failed: 1 bundle could NOT be restored \(acme\/pack@spreadsheets\)/)
+          assert.match(report.summary, /1 newer version refused by the security audit \(other\/pack@charts\)/)
+        })
+      })
+    })
+
+    // The publish is a temp, a remove and a rename, and the fetch before it takes real time: a failure that finds the bundle no longer where the verify left it may not keep the verify's `verified` claim, which is exactly the lie the pin exists to prevent.
+    it("re-derives what is really on disk when its own publish fails, and restores the pin", async () => {
+      await inGovernedProject(async ({ runtimeDir, pinnedAt }) => {
+        const pinnedBytes = bundleBytes()
+        const report = await maintainSkills({
+          repoRoot: repo,
+          runInstall: upstreamServing(NEWER),
+          // The audit is the one seam BETWEEN the candidate being hashed and it being published: the bundle the verify blessed drifts here, and the staged candidate goes with it, so the publish fails with the tree no longer as the pass found it.
+          fetchAudit: async () => {
+            writeFileSync(resolve(bundleDir(SKILL), "scripts/recalc.py"), TAMPERED)
+            for (const entry of readdirSync(runtimeDir)) {
+              if (entry.startsWith("skill-candidate-")) rmSync(resolve(runtimeDir, entry), { recursive: true, force: true })
+            }
+            return passAudit()
+          },
+        })
+
+        assert.deepEqual(report.updated, [], report.summary)
+        assert.deepEqual(report.rejected, [], "a local publish failure is not the owner's action item; the next pass retries it")
+        assert.deepEqual(report.verified, [], "the verify's claim is withdrawn: those bytes are not what is on disk any more")
+        assert.deepEqual(report.healed, [ID], "and the ladder is what settles the bundle, so the report states the truth")
+        assert.deepEqual(bundleBytes(), pinnedBytes, "the pinned bytes are back")
+        assert.equal(hashBundle(bundleDir(SKILL))?.bundle_hash, pinnedAt)
+        assert.equal(git(repo, ["status", "--porcelain"]).stdout.trim(), "", "and the tree the dev loop meets is clean")
+      })
+    })
+
+    // The other half of "landed WHOLE": bytes without a pin are bytes the next pass reverts, so a declaration that refuses the new hash undoes the update instead of leaving the two disagreeing — and a file the owner made unwritable may never take the stage down mid-phase.
+    it("reverts its own published bytes when vivicy.json will not take the new pin", async () => {
+      await inGovernedProject(async ({ runtimeDir, pinnedAt }) => {
+        const pinnedBytes = bundleBytes()
+        const report = await maintainSkills({
+          repoRoot: repo,
+          runInstall: upstreamServing(NEWER),
+          // Read-only between the hash and the publish: `updateProjectConfig` writes a temp beside the target, so the refusal lands exactly where the re-pin happens.
+          fetchAudit: async () => {
+            chmodSync(repo, 0o500)
+            return passAudit()
+          },
+        })
+        chmodSync(repo, 0o700)
+
+        assert.deepEqual(report.updated, [], report.summary)
+        assert.deepEqual(report.rejected, [], "nothing for the owner to do: the project still runs the version it pinned")
+        assert.equal(report.phase, "green")
+        assert.equal(pinOf(ID)?.bundle_hash, pinnedAt, "the declaration still pins the bytes it always did")
+        assert.deepEqual(bundleBytes(), pinnedBytes, "and the bundle was put back to them, so pin and disk agree")
+        assert.deepEqual(report.healed, [ID])
+      })
     })
   })
 })

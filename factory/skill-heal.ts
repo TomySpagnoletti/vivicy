@@ -4,11 +4,11 @@ import { basename, dirname, resolve } from "node:path"
 
 import { MANAGED_TEMP_PREFIX } from "../lib/managed-block.ts"
 import { AGENT_SKILLS_DIR } from "../lib/spec-kind.ts"
-import { skillBundleRel, type SkillRef } from "./skill-id.ts"
+import { skillBundleRel, skillDocRel, SKILL_DOC_FILE, type SkillRef } from "./skill-id.ts"
 import { hashBundle, type SkillBundlePin } from "./skill-pin.ts"
 
 const CACHE_SUBDIR = "skill-bundles"
-const HEAL_SCRATCH_PREFIX = "skill-heal-"
+const CANDIDATE_SCRATCH_PREFIX = "skill-candidate-"
 
 export function bundleCacheDir(runtimeDir: string): string {
   return resolve(runtimeDir, CACHE_SUBDIR)
@@ -23,6 +23,9 @@ export interface HealAttempt {
 
 export type HealOutcome = { ok: true; rung: HealRung } | { ok: false; attempts: HealAttempt[] }
 
+type UpstreamCandidate =
+  { state: "unavailable"; reason: string } | { state: "current" } | { state: "newer"; pin: SkillBundlePin; dir: string }
+
 export type RunInstall = (args: { repoRoot: string; source: string; skill: string }) => { code: number; output?: string }
 
 export type GitSeam = (args: string[], envOverrides?: NodeJS.ProcessEnv) => { status: number; stderr: string }
@@ -34,6 +37,13 @@ export interface HealBundleArgs {
   runtimeDir: string
   runInstall: RunInstall
   git?: GitSeam
+}
+
+interface UpstreamProbeArgs {
+  ref: SkillRef
+  pin: SkillBundlePin
+  runtimeDir: string
+  runInstall: RunInstall
 }
 
 // The deposit that makes self-healing offline: published by one rename over a content-addressed name, so a killed copy leaves a temp nobody reads and a concurrent depositor of the same bytes is a no-op, never a half-populated entry.
@@ -73,7 +83,7 @@ export function sweepRuntimeResidue(runtimeDir: string, repoRoot: string, keep: 
     }
   }
   for (const entry of readdirQuietly(runtimeDir)) {
-    if (entry.startsWith(HEAL_SCRATCH_PREFIX)) removeQuietly(resolve(runtimeDir, entry))
+    if (entry.startsWith(CANDIDATE_SCRATCH_PREFIX)) removeQuietly(resolve(runtimeDir, entry))
   }
   const bundles = resolve(repoRoot, AGENT_SKILLS_DIR)
   for (const entry of readdirQuietly(bundles)) {
@@ -115,7 +125,7 @@ function publishBundle(target: string, candidate: string, pin: SkillBundlePin): 
     renameSync(temp, target)
   } catch (error) {
     rmSync(temp, { recursive: true, force: true })
-    return `could not write the bundle back (${error instanceof Error ? error.message : String(error)})`
+    return `could not write the bundle back (${reasonOf(error)})`
   }
   return hashBundle(target)?.bundle_hash === pin.bundle_hash ? null : "the bundle on disk still does not match the pin after the restore"
 }
@@ -131,8 +141,9 @@ function gitCandidate(repoRoot: string, bundleRel: string, scratch: string, git:
   return { dir: resolve(worktree, bundleRel) }
 }
 
-function refetchCandidate(ref: SkillRef, bundleRel: string, scratch: string, runInstall: RunInstall): { dir: string } | { reason: string } {
-  const fetchRoot = resolve(scratch, "refetch")
+// The one upstream touch this module knows how to make, shared by the ladder's last rung and by the update probe: `skills add` takes no ref, so it always serves LATEST and a scratch root is the only place that answer may land.
+function fetchUpstream(ref: SkillRef, bundleRel: string, scratch: string, runInstall: RunInstall): { dir: string } | { reason: string } {
+  const fetchRoot = resolve(scratch, "upstream")
   mkdirSync(fetchRoot, { recursive: true })
   const result = runInstall({ repoRoot: fetchRoot, source: ref.source, skill: ref.skill })
   if ((result.code ?? 1) !== 0) {
@@ -141,14 +152,74 @@ function refetchCandidate(ref: SkillRef, bundleRel: string, scratch: string, run
   return { dir: resolve(fetchRoot, bundleRel) }
 }
 
+function openScratch(runtimeDir: string): string {
+  mkdirSync(runtimeDir, { recursive: true })
+  return mkdtempSync(resolve(runtimeDir, CANDIDATE_SCRATCH_PREFIX))
+}
+
+// AT MOST ONE upstream touch per pinned skill, and the fetch IS the probe; `newer` carries the CANDIDATE's own pin, which is what a caller that accepts it publishes and re-pins: `skills add` takes no ref and no registry endpoint exposes a version (measured), so the only comparable notion of "newer" is the bytes upstream serves now against the pin's own bundle hash. The candidate lands in a scratch that dies with this call and NEVER in the live bundle, so unaudited bytes cannot reach the project before the gate has judged them; a probe that could not run at all is one more `unavailable`, never an exception out of a pass that must always leave a terminal report.
+export async function withUpstreamCandidate<T>(args: UpstreamProbeArgs, use: (candidate: UpstreamCandidate) => Promise<T>): Promise<T> {
+  let scratch: string
+  try {
+    scratch = openScratch(args.runtimeDir)
+  } catch (error) {
+    return use({ state: "unavailable", reason: `no scratch tree for the upstream check (${reasonOf(error)})` })
+  }
+  try {
+    return await use(probeUpstream(args, scratch))
+  } finally {
+    rmSync(scratch, { recursive: true, force: true })
+  }
+}
+
+function probeUpstream({ ref, pin, runInstall }: UpstreamProbeArgs, scratch: string): UpstreamCandidate {
+  let located: { dir: string } | { reason: string }
+  try {
+    located = fetchUpstream(ref, skillBundleRel(ref.skill), scratch, runInstall)
+  } catch (error) {
+    return { state: "unavailable", reason: `the upstream check could not run (${reasonOf(error)})` }
+  }
+  if ("reason" in located) return { state: "unavailable", reason: located.reason }
+  const candidate = hashBundle(located.dir)
+  // A candidate with no SKILL.md is not a skill: the block's `<bundle>/SKILL.md` line is what every leg reads, so publishing one would break the project's own reference on a bundle that already works.
+  if (candidate === null || candidate.files[SKILL_DOC_FILE] === undefined) {
+    return { state: "unavailable", reason: `upstream served no ${skillDocRel(ref.skill)} for ${ref.id}` }
+  }
+  if (candidate.bundle_hash === pin.bundle_hash) return { state: "current" }
+  return { state: "newer", pin: candidate, dir: located.dir }
+}
+
+// An accepted update rides the ladder's own gate — hashed before the bundle is touched, hashed again after the rename — and warms the cache with the bytes it published, so the new pin can self-heal offline from the very next pass.
+export function publishCandidate({
+  repoRoot,
+  ref,
+  pin,
+  dir,
+  runtimeDir,
+}: {
+  repoRoot: string
+  ref: SkillRef
+  pin: SkillBundlePin
+  dir: string
+  runtimeDir: string
+}): string | null {
+  const target = resolve(repoRoot, skillBundleRel(ref.skill))
+  const failure = publishBundle(target, dir, pin)
+  if (failure === null) cacheBundle(runtimeDir, pin, target)
+  return failure
+}
+
+function reasonOf(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}
+
 // The ladder, in cost order: the machine-local cache (zero network), the repository's own history (zero network), then one re-fetch that is accepted ONLY if upstream still serves the pinned bytes. Every rung publishes through the same hash gate, so "healed" always means byte-identical to the pin — and when no rung can satisfy it the caller gets every rung's reason, because the owner has to act on the real one.
 export function healBundle({ repoRoot, ref, pin, runtimeDir, runInstall, git }: HealBundleArgs): HealOutcome {
   const bundleRel = skillBundleRel(ref.skill)
   const target = resolve(repoRoot, bundleRel)
   const gitSeam = git ?? defaultGit(repoRoot)
   const attempts: HealAttempt[] = []
-  mkdirSync(runtimeDir, { recursive: true })
-  const scratch = mkdtempSync(resolve(runtimeDir, HEAL_SCRATCH_PREFIX))
+  const scratch = openScratch(runtimeDir)
   try {
     const rungs: Array<{ rung: HealRung; locate: () => { dir: string } | { reason: string } }> = [
       {
@@ -159,7 +230,7 @@ export function healBundle({ repoRoot, ref, pin, runtimeDir, runInstall, git }: 
         },
       },
       { rung: "git", locate: () => gitCandidate(repoRoot, bundleRel, scratch, gitSeam) },
-      { rung: "refetch", locate: () => refetchCandidate(ref, bundleRel, scratch, runInstall) },
+      { rung: "refetch", locate: () => fetchUpstream(ref, bundleRel, scratch, runInstall) },
     ]
     for (const { rung, locate } of rungs) {
       const located = locate()

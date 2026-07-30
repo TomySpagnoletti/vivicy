@@ -169,6 +169,44 @@ describe("SectionSkills — installed list", () => {
     expect(row.textContent).toMatch(/heal_failed/)
     expect(row.textContent).toMatch(/1 file differs from the pin \(SKILL\.md\)/)
   })
+
+  // A maintenance pass that refused a creator's newer version: the card is the pinned skill, still installed and still audited, and the refusal is the ordinary collapsed row carrying what was refused and why.
+  test("an upstream update Vivicy refused reads as a green pass that kept the pinned version", async () => {
+    const user = userEvent.setup()
+    vi.stubGlobal(
+      "fetch",
+      stubFetch({
+        ...GREEN_REPORT,
+        mode: "maintain",
+        added: [],
+        verified: ["acme/community@scraper"],
+        updated: ["anthropic/skills@pdf"],
+        rejected: [
+          {
+            id: "acme/community@scraper",
+            reason: "update_refused",
+            detail:
+              "a newer version is available upstream but a security audit fails it — audits [gateseal:fail]; the project keeps the version it pinned, and the install-time risk waiver is never read on an update",
+            verdict: "red_audit",
+            candidate_hash: "9f2b6c4d8e1a7053b9c2d4e6f8a0b1c3d5e7f9a0b1c2d3e4f5a6b7c8d9e0f1a2",
+          },
+        ],
+        summary:
+          "skills maintenance green: 1 newer version refused by the security audit (acme/community@scraper), 1 bundle updated to a newer audited version (anthropic/skills@pdf)",
+      })
+    )
+    renderWithIntl(<SectionSkills />)
+
+    await waitFor(() => expect(document.querySelectorAll("[data-skill]")).toHaveLength(2))
+    expect(screen.getByText(/1 newer version refused by the security audit/)).toBeInTheDocument()
+    expect(screen.getByText(/1 bundle updated to a newer audited version/)).toBeInTheDocument()
+    await user.click(await screen.findByRole("button", { name: /1 rejected/ }))
+    const row = document.querySelector('[data-rejected-skill="acme/community@scraper"]') as HTMLElement
+    expect(row.textContent).toMatch(/update_refused/)
+    expect(row.textContent).toMatch(/a security audit fails it/)
+    expect(row.textContent).toMatch(/the project keeps the version it pinned/)
+    expect(row.textContent).not.toMatch(/9f2b6c4d/)
+  })
 })
 
 describe("SectionSkills — find skills action (confirm flow)", () => {

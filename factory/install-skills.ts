@@ -35,17 +35,21 @@ import {
   readSkillDeclarations,
   writeSkillDeclarations,
   type BundleDrift,
+  type PinnedBundle,
   type SkillBundlePin,
   type SkillDeclaration,
 } from "./skill-pin.ts"
 import {
   cacheBundle,
   healBundle,
+  publishCandidate,
   sweepRuntimeResidue,
+  withUpstreamCandidate,
   type GitSeam,
   type HealAttempt,
   type HealBundleArgs,
   type HealOutcome,
+  type HealRung,
   type RunInstall,
 } from "./skill-heal.ts"
 import { PROJECT_CONFIG_FILENAME } from "./project-config.ts"
@@ -151,6 +155,9 @@ export type SkillRejectReason =
   | "not_installed"
   | "remove_failed"
   | "heal_failed"
+  | "update_refused"
+type SkillAuditVerdict = "safe" | "red_audit" | "too_many_warnings" | "unaudited"
+export type SkillAuditRefusal = Exclude<SkillAuditVerdict, "safe">
 export type SkillsPhase = "selecting" | "auditing" | "installing" | "removing" | "healing" | "green" | "failed" | "skipped"
 
 interface SkillCandidate extends SkillRef {
@@ -185,6 +192,8 @@ export interface RejectedSkillEntry {
   id: string
   reason: SkillRejectReason
   detail?: string
+  verdict?: SkillAuditRefusal
+  candidate_hash?: string
 }
 
 export interface SkillsReport {
@@ -196,6 +205,7 @@ export interface SkillsReport {
   removed: string[]
   verified: string[]
   healed: string[]
+  updated: string[]
   rejected: RejectedSkillEntry[]
   summary: string
   updated_at: string
@@ -246,7 +256,12 @@ function stageRuntimeDir(repoRoot: string, env: NodeJS.ProcessEnv): string {
   return fromEnv && fromEnv.trim().length > 0 ? resolve(fromEnv) : resolve(repoRoot, ".vivicy-runtime")
 }
 
-export function auditVerdict(audit: SkillAuditFetch): "safe" | "red_audit" | "too_many_warnings" | "unaudited" {
+// The owner's risk switch, read at the INSTALL door and NOWHERE else: a one-time opt-in must never become standing consent, so the maintenance pass's update path never asks this question and a red update is refused even for a skill that was installed under the waiver.
+function riskWaived(env: NodeJS.ProcessEnv): boolean {
+  return env.VIVICY_ALLOW_UNSAFE_SKILLS === "1"
+}
+
+export function auditVerdict(audit: SkillAuditFetch): SkillAuditVerdict {
   if (!audit.found) return "unaudited"
   const fails = audit.audits.filter((a) => a.status === "fail").length
   if (fails > 0) return "red_audit"
@@ -277,7 +292,7 @@ export async function installSkills(options: InstallSkillsOptions = {}): Promise
   const findBaseline = options.findBaseline ?? findFrozenManifest
   const explicitIds = (options.ids ?? []).map((s) => s.trim()).filter((s) => s.length > 0)
   const mode: "auto" | "explicit" = explicitIds.length > 0 ? "explicit" : "auto"
-  const allowUnsafe = env.VIVICY_ALLOW_UNSAFE_SKILLS === "1"
+  const allowUnsafe = riskWaived(env)
 
   const baseline = findBaseline(repoRoot)
   if (mode === "auto" && !baseline) {
@@ -298,6 +313,7 @@ export async function installSkills(options: InstallSkillsOptions = {}): Promise
       removed: [],
       verified: [],
       healed: [],
+      updated: [],
       rejected: [],
       summary: "",
       updated_at: "",
@@ -505,6 +521,7 @@ export async function removeSkills(options: RemoveSkillsOptions = {}): Promise<S
       removed: [],
       verified: [],
       healed: [],
+      updated: [],
       rejected: [],
       summary: `removing ${countOf(ids.length, "skill", "skills")}`,
       updated_at: "",
@@ -561,18 +578,20 @@ export interface MaintainSkillsOptions {
   runInstall?: RunInstall
   git?: GitSeam
   heal?: (args: HealBundleArgs) => HealOutcome
-  emitReport?: (report: SkillsReport, repoRoot: string) => void
+  fetchAudit?: (args: { source: string; skill: string }) => Promise<SkillAuditFetch>
+  emitReport?: (report: SkillsReport, repoRoot: string, prior?: Partial<SkillsReport> | null) => void
   now?: () => Date
 }
 
-// The owner's third rule: between passes, bytes ≠ pin with no update ordered is RESTORED automatically — no question, no red — the way the managed governance files renormalize when a project opens. It runs at every supervisor start, spawns no leg and asks no LLM, and it is deliberately write-free when everything verifies: a clean pass emits no report, no notification and no commit, so the steady state costs the project nothing and the last selection's own record survives on every surface.
-export function maintainSkills(options: MaintainSkillsOptions = {}): SkillsReport {
+// The owner's third rule: between passes, bytes ≠ pin with no update ordered is RESTORED automatically — no question, no red — the way the managed governance files renormalize when a project opens. Then, and only for a bundle that now matches its pin, ONE upstream check per skill offers the creator's newer bytes to the SAME audit gate the install door uses: green publishes and re-pins silently, anything else keeps the pin and says so once. It runs at every supervisor start, spawns no leg and asks no LLM, and it is deliberately write-free when everything verifies and nothing moved upstream: a clean pass emits no report, no notification and no commit, so the steady state costs the project nothing and the last selection's own record survives on every surface.
+export async function maintainSkills(options: MaintainSkillsOptions = {}): Promise<SkillsReport> {
   const repoRoot = options.repoRoot
   if (!repoRoot) throw new SkillsConfigError(NO_TARGET_MESSAGE)
   const env = options.env ?? process.env
   const now = options.now ?? (() => new Date())
   const emitReport = options.emitReport ?? defaultEmitReport
   const runInstall = options.runInstall ?? defaultRunInstall
+  const fetchAudit = options.fetchAudit ?? defaultFetchAudit
   const heal = options.heal ?? healBundle
 
   const report: SkillsReport = {
@@ -584,6 +603,7 @@ export function maintainSkills(options: MaintainSkillsOptions = {}): SkillsRepor
     removed: [],
     verified: [],
     healed: [],
+    updated: [],
     rejected: [],
     summary: "",
     updated_at: "",
@@ -607,24 +627,45 @@ export function maintainSkills(options: MaintainSkillsOptions = {}): SkillsRepor
     const priorReport = readJsonOrNull(resolve(repoRoot, SKILLS_REPORT_REL)) as Partial<SkillsReport> | null
     report.selection_baseline_id = priorSelectionBaselineId(priorReport)
     report.installed = projectInstalledSet(repoRoot, priorReport)
-    // A refusal the SELECTION recorded — a red audit, a name collision — is a standing fact the owner still has to act on, so a verification pass carries it forward instead of wiping the surface that shows it; its own restore failures replace only the previous pass's.
-    report.rejected = standingRejections(priorReport)
+    report.rejected = carriedRejections(priorReport)
     const emit = (): void => {
       report.updated_at = now().toISOString()
-      emitReport(report, repoRoot)
+      emitReport(report, repoRoot, priorReport)
     }
 
     // Re-read under the lock: the declarations that decided this pass runs at all were read before the claim, and an installer that published a new pin in that window would otherwise be healed back to the bytes it just replaced.
+    const pinnedNow = pinnedBundles(readSkillDeclarations(repoRoot))
     const drifted: Array<{ ref: SkillRef; pin: SkillBundlePin; drift: BundleDrift; abs: string }> = []
-    for (const { ref, pin } of pinnedBundles(readSkillDeclarations(repoRoot))) {
+    for (const { ref, pin } of pinnedNow) {
       const abs = resolve(repoRoot, skillBundleRel(ref.skill))
       const drift = bundleDrift(pin, hashBundle(abs))
       if (drift === null) report.verified.push(ref.id)
       else drifted.push({ ref, pin, drift, abs })
     }
 
+    const healFailures = new Map<string, RejectedSkillEntry>()
+    // A restore that could not even RUN — an unwritable runtime dir, no git on PATH — is one more reason the bundle is not there, never an exception out of a pass that must always leave a terminal report behind.
+    const restore = (ref: SkillRef, pin: SkillBundlePin, drift: BundleDrift, abs: string): HealRung | null => {
+      recordBundleWrite(tree, ref.skill)
+      let failure: string
+      try {
+        const outcome = heal({ repoRoot, ref, pin, runtimeDir: tree.runtimeDir, runInstall, git: options.git })
+        if (outcome.ok) {
+          report.healed.push(ref.id)
+          return outcome.rung
+        }
+        failure = healFailureDetail(drift, abs, outcome.attempts)
+      } catch (error) {
+        failure = `${driftedFiles(drift, abs)}; the restore could not run (${reasonOf(error)})`
+      }
+      forgetBundleWrite(tree, ref.skill)
+      healFailures.set(ref.id, rejectionRecord({ id: ref.id, reason: "heal_failed", detail: failure }))
+      return null
+    }
+
     // The in-flight phase is published for a drift the project has not already given up on; a repeat of a failure it already exhausted every rung on would write it only to write the identical terminal state again, once per supervisor start.
     let announced = false
+    const healedFrom = new Map<string, HealRung>()
     if (drifted.length > 0) {
       if (!repeatsPriorFailure(priorReport, drifted)) {
         report.phase = "healing"
@@ -633,24 +674,29 @@ export function maintainSkills(options: MaintainSkillsOptions = {}): SkillsRepor
         announced = true
       }
       for (const { ref, pin, drift, abs } of drifted) {
-        recordHealedBundle(tree, ref.skill)
-        // A restore that could not even RUN — an unwritable runtime dir, no git on PATH — is one more reason the bundle is not there, never an exception out of a pass that must always leave a terminal report behind.
-        let failure: string
-        try {
-          const outcome = heal({ repoRoot, ref, pin, runtimeDir: tree.runtimeDir, runInstall, git: options.git })
-          if (outcome.ok) {
-            report.healed.push(ref.id)
-            continue
-          }
-          failure = healFailureDetail(drift, abs, outcome.attempts)
-        } catch (error) {
-          failure = `${driftedFiles(drift, abs)}; the restore could not run (${error instanceof Error ? error.message : String(error)})`
-        }
-        forgetHealedBundle(tree, ref.skill)
-        report.rejected.push({ id: ref.id, reason: "heal_failed", detail: failure })
+        const rung = restore(ref, pin, drift, abs)
+        if (rung !== null) healedFrom.set(ref.id, rung)
       }
     }
-    report.phase = report.rejected.some((entry) => entry.reason === "heal_failed") ? "failed" : "green"
+
+    // Only a bundle that now holds exactly the bytes the project agreed to run is offered an update: changing the contract of a bundle no rung could even restore would publish over a drift nobody has accounted for, and the standing `heal_failed` is already the owner's action item. A bundle healed BY the last rung is skipped for the opposite reason — that rung IS an upstream fetch and it succeeded only because upstream still serves the pinned bytes — which makes it an ANSWER, not an absence of one: the skill is decided exactly as a probe answering `current` decides it, or a refusal the pass has just disproved would be carried forward over its own evidence.
+    const provedCurrentByHeal = new Set(pinnedNow.filter(({ ref }) => healedFrom.get(ref.id) === "refetch").map(({ ref }) => ref.id))
+    const matchesItsPin = new Set([...report.verified, ...healedFrom.keys()])
+    const updatable = pinnedNow.filter(({ ref }) => matchesItsPin.has(ref.id) && !provedCurrentByHeal.has(ref.id))
+    const updates = await runUpstreamUpdates({ repoRoot, tree, updatable, fetchAudit, runInstall, report, restore })
+
+    if (updates.entries.length > 0) report.installed = projectInstalledSet(repoRoot, priorReport, { installed: updates.entries })
+    // Rebuilt in PINNED order every pass, never appended to the previous pass's order: an identical outcome has to produce identical bytes or the byte-equality that keeps this pass quiet stops holding. A refusal the probe could not re-decide (offline, upstream down) is carried forward — the pin is still the older audited version, which is still the fact the owner was told.
+    const carried = new Map(priorRejections(priorReport).flatMap((entry) => (entry.reason === "update_refused" ? [[entry.id, entry]] : [])))
+    const decided = (id: string): boolean => updates.decided.has(id) || provedCurrentByHeal.has(id)
+    const refusedUpdate = (id: string): RejectedSkillEntry | undefined =>
+      updates.refusals.get(id) ?? (decided(id) ? undefined : carried.get(id))
+    report.rejected = [
+      ...standingRejections(priorReport),
+      ...pinnedNow.map(({ ref }) => refusedUpdate(ref.id)).filter((entry): entry is RejectedSkillEntry => entry !== undefined),
+      ...pinnedNow.map(({ ref }) => healFailures.get(ref.id)).filter((entry): entry is RejectedSkillEntry => entry !== undefined),
+    ]
+    report.phase = healFailures.size > 0 ? "failed" : "green"
     report.summary = maintenanceSummary(report)
     // A pass that ANNOUNCED work always publishes how it ended: byte-equality may suppress a record that says the same thing, never a phase TRANSITION, or the report keeps claiming work in progress that finished — the sidebar greyed, the stage pinned running, and the owner's own click refused for the staleness window.
     if (announced || maintenanceWorthPublishing(priorReport, report)) emit()
@@ -660,15 +706,134 @@ export function maintainSkills(options: MaintainSkillsOptions = {}): SkillsRepor
   }
 }
 
-// Everything the prior report still says about skills the project has a problem with, minus the restore failures this pass re-decides for itself.
+// Two readers of what the prior report still says about skills the project has a problem with: the terminal rebuild drops both verdicts it re-decides itself, while the write this pass makes BEFORE deciding anything drops only the restore failures — a refusal not yet re-decided is still a fact the report must state, and a pass killed there leaves that report as the next one's prior.
 function standingRejections(priorReport: Partial<SkillsReport> | null): RejectedSkillEntry[] {
+  return priorRejections(priorReport).filter((entry) => entry.reason !== "heal_failed" && entry.reason !== "update_refused")
+}
+
+function carriedRejections(priorReport: Partial<SkillsReport> | null): RejectedSkillEntry[] {
+  return priorRejections(priorReport).filter((entry) => entry.reason !== "heal_failed")
+}
+
+// The single normalization of the prior report's rejections, and the single field ORDER every rejection record in this module is built in — a carried-forward refusal has to serialize byte-for-byte like the freshly decided one it stands in for.
+function priorRejections(priorReport: Partial<SkillsReport> | null): RejectedSkillEntry[] {
   const rejected = Array.isArray(priorReport?.rejected) ? priorReport.rejected : []
   return rejected
     .filter((entry): entry is RejectedSkillEntry => Boolean(entry) && typeof entry === "object" && typeof entry.id === "string")
-    .filter((entry) => entry.reason !== "heal_failed")
-    .map((entry) =>
-      entry.detail === undefined ? { id: entry.id, reason: entry.reason } : { id: entry.id, reason: entry.reason, detail: entry.detail }
-    )
+    .map(rejectionRecord)
+}
+
+function rejectionRecord(entry: RejectedSkillEntry): RejectedSkillEntry {
+  const record: RejectedSkillEntry = { id: entry.id, reason: entry.reason }
+  if (entry.detail !== undefined) record.detail = entry.detail
+  if (refusalCause(entry.verdict) !== undefined) record.verdict = entry.verdict
+  if (entry.candidate_hash !== undefined) record.candidate_hash = entry.candidate_hash
+  return record
+}
+
+interface UpstreamUpdates {
+  entries: InstalledSkillEntry[]
+  refusals: Map<string, RejectedSkillEntry>
+  decided: Set<string>
+}
+
+// The update door, and the ONLY place the maintenance pass reaches the network for anything but a restore. Per skill, in order: one upstream fetch into a scratch, the pin's own hash as the comparison, then — for newer bytes only — the SAME audit gate the install door runs, with the risk waiver deliberately unread. Green publishes and re-pins immediately, so the window in which vivicy.json pins bytes that are not the ones on disk is one rename wide, and a crash inside it is repaired by the very next pass's restore. Anything the probe could not answer is silence: a transport failure is never an event, and the pinned skill keeps working.
+async function runUpstreamUpdates({
+  repoRoot,
+  tree,
+  updatable,
+  fetchAudit,
+  runInstall,
+  report,
+  restore,
+}: {
+  repoRoot: string
+  tree: StageTree
+  updatable: readonly PinnedBundle[]
+  fetchAudit: (args: { source: string; skill: string }) => Promise<SkillAuditFetch>
+  runInstall: RunInstall
+  report: SkillsReport
+  restore: (ref: SkillRef, pin: SkillBundlePin, drift: BundleDrift, abs: string) => HealRung | null
+}): Promise<UpstreamUpdates> {
+  // ONE terminal outcome per skill: what the pass last did to that bundle is what its state is, so an updated bundle is never also reported verified-unchanged (it no longer holds those bytes) or restored (they were superseded within the same pass).
+  const claimOutcome = (id: string): void => {
+    report.verified = report.verified.filter((verified) => verified !== id)
+    report.healed = report.healed.filter((healed) => healed !== id)
+  }
+  const updates: UpstreamUpdates = { entries: [], refusals: new Map(), decided: new Set() }
+  for (const { ref, pin } of updatable) {
+    await withUpstreamCandidate({ ref, pin, runtimeDir: tree.runtimeDir, runInstall }, async (candidate) => {
+      if (candidate.state === "unavailable") return
+      updates.decided.add(ref.id)
+      if (candidate.state === "current") return
+      const audit = await fetchAudit({ source: ref.source, skill: ref.skill })
+      const verdict = auditVerdict(audit)
+      if (verdict !== "safe") {
+        updates.refusals.set(
+          ref.id,
+          rejectionRecord({
+            id: ref.id,
+            reason: "update_refused",
+            detail: updateRefusedDetail(audit, verdict),
+            verdict,
+            candidate_hash: candidate.pin.bundle_hash,
+          })
+        )
+        return
+      }
+      // An update that did not land WHOLE is not an update: the publish is a temp, a remove and a rename, and the re-pin can be refused by a hand-broken or unwritable vivicy.json — either way the bytes on disk and the pin the project stands on would disagree, and the next pass would revert what this report claimed. So the pass re-derives what is really there instead of keeping a claim nobody checked, and the ladder puts the pinned bytes back.
+      const abandon = (failure: string): void => {
+        process.stderr.write(`install-skills: could not take the audited update of ${ref.id} (${failure})\n`)
+        const abs = resolve(repoRoot, skillBundleRel(ref.skill))
+        const drift = bundleDrift(pin, hashBundle(abs))
+        if (drift === null) return
+        claimOutcome(ref.id)
+        restore(ref, pin, drift, abs)
+      }
+      recordBundleWrite(tree, ref.skill)
+      const failure = publishCandidate({ repoRoot, ref, pin: candidate.pin, dir: candidate.dir, runtimeDir: tree.runtimeDir })
+      if (failure !== null) {
+        forgetBundleWrite(tree, ref.skill)
+        abandon(failure)
+        return
+      }
+      if (!mergeSkillPins(tree, [{ id: ref.id, pin: candidate.pin }])) {
+        abandon(`${PROJECT_CONFIG_FILENAME} would not take the new pin`)
+        return
+      }
+      claimOutcome(ref.id)
+      report.updated.push(ref.id)
+      updates.entries.push(updatedInstalledEntry(report.installed, ref, audit))
+    })
+  }
+  return updates
+}
+
+// The audit facts describe the BYTES that are running, so a green update refreshes exactly those two and nothing else: the waiver is gone because the new bytes passed the gate on their own, and `reason` stays the selection's slot — an update changes which bytes run, never why the project chose the skill.
+function updatedInstalledEntry(installed: readonly InstalledSkillEntry[], ref: SkillRef, audit: SkillAuditFetch): InstalledSkillEntry {
+  return {
+    ...(installed.find((entry) => entry.id === ref.id) ?? skillEntryFromRef(ref)),
+    security_waived: false,
+    audits: audit.audits.map((a) => ({ provider: a.provider, status: a.status })),
+  }
+}
+
+const UPDATE_REFUSAL_CAUSE: Record<SkillAuditRefusal, string> = {
+  red_audit: "a security audit fails it",
+  too_many_warnings: "more than one audit warns about it",
+  unaudited: "no security audit covers it",
+}
+
+// The install door's own detail points at the risk switch; this one deliberately does not — that switch is read at install and never on an update, so offering it here would promise a door that does not exist.
+function updateRefusedDetail(audit: SkillAuditFetch, verdict: SkillAuditRefusal): string {
+  const counts = audit.audits.map((a) => `${a.provider}:${a.status}`).join(", ")
+  const evidence =
+    verdict === "unaudited" ? "no audit is published for it (endpoint unreachable or the skill is unaudited)" : `audits [${counts}]`
+  return `a newer version is available upstream but ${UPDATE_REFUSAL_CAUSE[verdict]} — ${evidence}; the project keeps the version it pinned, and the install-time risk waiver is never read on an update`
+}
+
+function reasonOf(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
 }
 
 // The drift this pass found is exactly the one a previous verification already exhausted every rung on: the retry still runs (nothing else can ever repair it without a human), but it has nothing new to announce.
@@ -679,11 +844,15 @@ function repeatsPriorFailure(priorReport: Partial<SkillsReport> | null, drifted:
   return gaveUpOn.size === drifted.length && drifted.every(({ ref }) => gaveUpOn.has(ref.id))
 }
 
-// This pass runs at EVERY supervisor start, so what it publishes has to be new or it publishes nothing — one commit and one error notification per start, for as long as a bundle stayed broken, is what the naive version costs. Two clauses: over a record a previous verification left, it writes only what DIFFERS from it (a repeated unhealable bundle is silent, a cleared failure is not); over a SELECTION's record, it writes only when it has something of its own — a restore or a failure — so a project where nothing drifted keeps the selection's own summary and counts on every surface. `updated_at` is the one field that always differs, so it is what the comparison ignores rather than what it reads.
+// This pass runs at EVERY supervisor start, so what it publishes has to be new or it publishes nothing — one commit and one error notification per start, for as long as a bundle stayed broken, is what the naive version costs. Two clauses: over a record a previous verification left, it writes only what DIFFERS from it (a repeated unhealable bundle and a re-refused identical candidate are silent, a cleared failure is not); over a SELECTION's record, it writes only when it has something of its own — a restore, an update, or either one's refusal — so a project where nothing drifted and nothing moved upstream keeps the selection's own summary and counts on every surface. `updated_at` is the one field that always differs, so it is what the comparison ignores rather than what it reads.
 function maintenanceWorthPublishing(priorReport: Partial<SkillsReport> | null, report: SkillsReport): boolean {
   const strip = (value: Partial<SkillsReport>): string => JSON.stringify({ ...value, updated_at: "" })
   if (priorReport?.mode === "maintain") return strip(priorReport) !== strip(report)
-  return report.healed.length > 0 || report.rejected.some((entry) => entry.reason === "heal_failed")
+  return (
+    report.healed.length > 0 ||
+    report.updated.length > 0 ||
+    report.rejected.some((entry) => entry.reason === "heal_failed" || entry.reason === "update_refused")
+  )
 }
 
 // The cause the owner reads, and it must be the real one: a directory that cannot be READ is not a directory that is GONE, and a pin whose own hash disagrees with the manifest it carries was edited by hand rather than drifted.
@@ -702,14 +871,23 @@ function healFailureDetail(drift: BundleDrift, bundleAbs: string, attempts: read
   return `${driftedFiles(drift, bundleAbs)}; no restore path could reproduce the pinned bytes — ${tried}`
 }
 
-// One sentence in the order the owner cares about: what is still broken, what was repaired, what was already whole.
+// One sentence in the order the owner cares about: what is still broken, what risk was kept out, what moved forward, what was repaired, what was already whole.
 function maintenanceSummary(report: SkillsReport): string {
   const unhealable = report.rejected.filter((entry) => entry.reason === "heal_failed")
+  const refused = report.rejected.filter((entry) => entry.reason === "update_refused")
   const parts: string[] = []
   if (unhealable.length > 0) {
     parts.push(
       `${countOf(unhealable.length, "bundle", "bundles")} could NOT be restored (${unhealable.map((entry) => entry.id).join(", ")})`
     )
+  }
+  if (refused.length > 0) {
+    parts.push(
+      `${countOf(refused.length, "newer version refused by the security audit", "newer versions refused by the security audit")} (${refused.map((entry) => entry.id).join(", ")})`
+    )
+  }
+  if (report.updated.length > 0) {
+    parts.push(`${countOf(report.updated.length, "bundle", "bundles")} updated to a newer audited version (${report.updated.join(", ")})`)
   }
   if (report.healed.length > 0) {
     parts.push(`${countOf(report.healed.length, "bundle", "bundles")} restored to the pinned bytes (${report.healed.join(", ")})`)
@@ -743,7 +921,7 @@ function defaultRunRemove({ repoRoot, source, skill }: { repoRoot: string; sourc
     pruneDanglingSkillLinks(repoRoot)
     return { code: 0, output: `removed ${skillDir} directly (skills CLI remove unavailable)` }
   } catch (error) {
-    return { code: 1, output: `failed to remove ${skillDir}: ${error instanceof Error ? error.message : String(error)}` }
+    return { code: 1, output: `failed to remove ${skillDir}: ${reasonOf(error)}` }
   }
 }
 
@@ -779,7 +957,7 @@ const STAGE_COMMIT_MESSAGE: Record<StageMode, string> = {
     "committed mechanically so the dev loop starts on a clean tree. No human git step.",
   maintain:
     "skills: absorb the project-skills verification pass\n\n" +
-    "What this pass wrote — the stage report, and the bundle of every skill it restored to the bytes vivicy.json pins (from the local cache, this repository's own history or an exact re-fetch) — " +
+    "What this pass wrote — the stage report; the bundle of every skill it restored to the bytes vivicy.json pins (from the local cache, this repository's own history or an exact re-fetch); and, for every skill whose newer upstream version passed the same security audit an install must pass, that version's bundle together with the vivicy.json pin moved onto it — " +
     "committed mechanically so the dev loop starts on a clean tree and every per-issue worktree carries the pinned skills. No human git step.",
 }
 
@@ -842,8 +1020,8 @@ function recordSkillWrite(tree: StageTree, skill: string): void {
   for (const dir of PER_AGENT_SKILL_DIRS) recordWrite(tree, `${dir}/${skill}`)
 }
 
-// A heal writes the bundle directory and NOTHING else: the per-agent links point at that directory and survive the rename, and the skills CLI lockfile is never touched — recording either would put an owner's concurrent edit there into Vivicy's own commit. The restored paths also LEAVE the pre-stage snapshot: a pinned bundle's bytes are machine-owned, the restore replaces the whole directory whatever state it was in, and keeping them out of the absorption would leave Vivicy's own bytes dirty — refusing the owner's next Run and blaming them for it. Recorded BEFORE the restore, so a crash mid-rename leaves the bundle staged rather than dirty.
-function recordHealedBundle(tree: StageTree, skill: string): void {
+// A restore and an accepted update both write the bundle directory and NOTHING else: the per-agent links point at that directory and survive the rename, and the skills CLI lockfile is never touched — recording either would put an owner's concurrent edit there into Vivicy's own commit. The written paths also LEAVE the pre-stage snapshot: a pinned bundle's bytes are machine-owned, both writers replace the whole directory whatever state it was in, and keeping them out of the absorption would leave Vivicy's own bytes dirty — refusing the owner's next Run and blaming them for it. Recorded BEFORE the write, so a crash mid-rename leaves the bundle staged rather than dirty.
+function recordBundleWrite(tree: StageTree, skill: string): void {
   const rel = skillBundleRel(skill)
   recordWrite(tree, rel)
   for (const path of [...tree.baseline]) {
@@ -851,8 +1029,8 @@ function recordHealedBundle(tree: StageTree, skill: string): void {
   }
 }
 
-// What is still on disk for a bundle no rung could restore is the DRIFT. Committing it would put a tamper in HEAD under a message that claims a restore, destroy the history rung the next pass reads (the drift would then BE the committed copy, so the bundle is unhealable offline forever), and ship the tampered skill to every worktree cut from HEAD. Withdrawing the write RECORD is the whole withdrawal: the absorption stages what this run wrote and only ever SUBTRACTS the pre-stage snapshot from it, so a path that is no longer recorded cannot be staged whatever the snapshot says about it.
-function forgetHealedBundle(tree: StageTree, skill: string): void {
+// What is still on disk for a bundle no rung could restore — or for an update whose publish failed — is bytes nobody vouched for. Committing them would put a tamper in HEAD under a message that claims a restore, destroy the history rung the next pass reads (the drift would then BE the committed copy, so the bundle is unhealable offline forever), and ship the tampered skill to every worktree cut from HEAD. Withdrawing the write RECORD is the whole withdrawal: the absorption stages what this run wrote and only ever SUBTRACTS the pre-stage snapshot from it, so a path that is no longer recorded cannot be staged whatever the snapshot says about it.
+function forgetBundleWrite(tree: StageTree, skill: string): void {
   forgetWrite(tree, skillBundleRel(skill))
 }
 
@@ -1139,50 +1317,107 @@ async function defaultFetchAudit({ source, skill }: { source: string; skill: str
   }
 }
 
+// A blocking spawn on every supervisor start, once per pinned skill: a blackholed network or a stalled registry hangs at connect, not at the DNS failure an offline machine gives, and the walk-away promise cannot rest on the CLI deciding to come back. The cap is a HANG guard, not a budget — a cold `npx -y skills add` was measured at 25-30 s.
+const SKILLS_CLI_TIMEOUT_MS = 120_000
+
 // Installs at .agents/skills/<skill> with per-agent symlinks (.claude/skills, .codex/skills) — defaultRunRemove's fallback and pruneDanglingSkillLinks assume this exact layout.
 function defaultRunInstall({ repoRoot, source, skill }: { repoRoot: string; source: string; skill: string }): {
   code: number
   output?: string
 } {
-  const r = spawnSync("npx", ["-y", "skills", "add", source, "--skill", skill, "-y"], { cwd: repoRoot, encoding: "utf8", env: process.env })
-  return { code: r.status ?? 1, output: `${r.stdout ?? ""}\n${r.stderr ?? ""}`.trim() }
-}
-
-// A green stage that kept a candidate OUT — a red security audit, the project cap, an install that failed — is the owner's to fix and re-run; a green that installed what it chose has nothing for them to do and stays silent. A successful self-heal is exactly as silent, like a managed file renormalizing: only a bundle no restore path could reproduce needs a hand, and it names the skill and the action rather than the stage. The rich report summary already counts the drops.
-export function skillsNotification(
-  report: SkillsReport
-): { level: "info" | "success" | "warning" | "error"; stage: string; event: string; message: string } | null {
-  const unhealable = (report.rejected ?? []).filter((entry) => entry.reason === "heal_failed").map((entry) => entry.id)
-  if (unhealable.length > 0) {
-    return {
-      level: "error",
-      stage: "SK",
-      event: "heal_failed",
-      message:
-        `${countOf(unhealable.length, "project skill no longer matches", "project skills no longer match")} the bytes this project pinned, ` +
-        `and no restore path could reproduce ${countForm(unhealable.length, "it", "them")} (${unhealable.join(", ")}) — ` +
-        `re-install ${countForm(unhealable.length, "it", "them")} or drop ${countForm(unhealable.length, "it", "them")} from ${PROJECT_SKILLS_SOURCE}; the build runs without ${countForm(unhealable.length, "it", "them")}`,
-    }
-  }
-  if (report.phase === "failed") {
-    return { level: "error", stage: "SK", event: "skills_failed", message: "project skills stage failed" }
-  }
-  if (report.phase !== "green" || (report.rejected?.length ?? 0) === 0) return null
+  const r = spawnSync("npx", ["-y", "skills", "add", source, "--skill", skill, "-y"], {
+    cwd: repoRoot,
+    encoding: "utf8",
+    env: process.env,
+    timeout: SKILLS_CLI_TIMEOUT_MS,
+  })
+  const timedOut = r.error !== undefined && (r.error as NodeJS.ErrnoException).code === "ETIMEDOUT"
   return {
-    level: "warning",
-    stage: "SK",
-    event: "skills_findings",
-    message: report.summary || "the skills stage kept a candidate skill out of the project",
+    code: r.status ?? 1,
+    output: timedOut
+      ? `the skills CLI did not answer within ${Math.round(SKILLS_CLI_TIMEOUT_MS / 1000)}s and was killed`
+      : `${r.stdout ?? ""}\n${r.stderr ?? ""}`.trim(),
   }
 }
 
-function defaultEmitReport(report: SkillsReport, repoRoot: string): void {
+interface SkillsNotification {
+  level: "info" | "success" | "warning" | "error"
+  stage: string
+  event: string
+  message: string
+}
+
+function rejectionKey(entry: RejectedSkillEntry): string {
+  return `${entry.reason}\u0000${entry.id}\u0000${entry.candidate_hash ?? ""}`
+}
+
+// A green stage that kept a candidate OUT — a red security audit, the project cap, an install that failed — is the owner's to fix and re-run; a green that installed what it chose has nothing for them to do and stays silent. A successful self-heal and a successful UPDATE are exactly as silent, like a managed file renormalizing. Two facts here are the owner's, and they are independent, so a pass carrying both writes both: a bundle no restore path could reproduce (their hand is the only fix), and an upstream update refused on the audit — the one trace the standing risk switch owes them, which asks for nothing but says Vivicy chose their safety over a version bump.
+// `told` is what a PREVIOUS state of this report already announced — keyed by skill, verdict and, for a refused update, WHICH upstream bytes were refused, so a newer candidate is a new fact and the same one never is — and it is what makes "told once" real rather than accidental: the report is legitimately republished for any unrelated new fact (another skill drifted, a failure cleared), and without this every such publish would re-fire every standing refusal, forever. A notification fires only when at least one of the entries driving it is new; it then names them ALL, since what the owner acts on is the standing picture, not the delta.
+export function skillsNotifications(report: SkillsReport, prior?: Partial<SkillsReport> | null): SkillsNotification[] {
+  const told = new Set(
+    (Array.isArray(prior?.rejected) ? prior.rejected : [])
+      .filter((entry): entry is RejectedSkillEntry => Boolean(entry) && typeof entry === "object" && typeof entry.id === "string")
+      .map(rejectionKey)
+  )
+  const isNew = (entry: RejectedSkillEntry): boolean => !told.has(rejectionKey(entry))
+  const notifications: SkillsNotification[] = []
+  const rejected = report.rejected ?? []
+  const unhealable = rejected.filter((entry) => entry.reason === "heal_failed")
+  const refused = rejected.filter((entry) => entry.reason === "update_refused")
+  const findings = rejected.filter((entry) => entry.reason !== "heal_failed" && entry.reason !== "update_refused")
+  if (unhealable.length > 0) {
+    const ids = unhealable.map((entry) => entry.id)
+    if (unhealable.some(isNew)) {
+      notifications.push({
+        level: "error",
+        stage: "SK",
+        event: "heal_failed",
+        message:
+          `${countOf(ids.length, "project skill no longer matches", "project skills no longer match")} the bytes this project pinned, ` +
+          `and no restore path could reproduce ${countForm(ids.length, "it", "them")} (${ids.join(", ")}) — ` +
+          `re-install ${countForm(ids.length, "it", "them")} or drop ${countForm(ids.length, "it", "them")} from ${PROJECT_SKILLS_SOURCE}; the build runs without ${countForm(ids.length, "it", "them")}`,
+      })
+    }
+  } else if (report.phase === "failed") {
+    notifications.push({ level: "error", stage: "SK", event: "skills_failed", message: "project skills stage failed" })
+  } else if (report.phase === "green" && findings.length > 0 && findings.some(isNew)) {
+    notifications.push({
+      level: "warning",
+      stage: "SK",
+      event: "skills_findings",
+      message: report.summary || "the skills stage kept a candidate skill out of the project",
+    })
+  }
+  if (refused.length > 0 && refused.some(isNew)) {
+    notifications.push({
+      level: "warning",
+      stage: "SK",
+      event: "update_refused",
+      message:
+        `Vivicy refused ${countForm(refused.length, "a newer version of a project skill", `newer versions of ${refused.length} project skills`)} ` +
+        `and kept ${countForm(refused.length, "the version", "the versions")} this project pinned and audited: ${refused.map(refusedUpdateSummary).join(", ")} — ` +
+        `nothing to install; the risk waiver is an install-time switch and is never read on an update`,
+    })
+  }
+  return notifications
+}
+
+// A verdict read back from the report is agent-independent data, not a promise: the ONE guard both the record constructor and the owner's sentence ask, so an unknown one is dropped at the boundary AND can never be indexed into the cause table if it reaches the renderer another way. `hasOwn`, or `constructor`/`toString` would resolve on the prototype and render a function into the message.
+function refusalCause(verdict: SkillAuditRefusal | undefined): string | undefined {
+  return verdict !== undefined && Object.hasOwn(UPDATE_REFUSAL_CAUSE, verdict) ? UPDATE_REFUSAL_CAUSE[verdict] : undefined
+}
+
+function refusedUpdateSummary(entry: RejectedSkillEntry): string {
+  const cause = refusalCause(entry.verdict)
+  return cause === undefined ? entry.id : `${entry.id} (${cause})`
+}
+
+function defaultEmitReport(report: SkillsReport, repoRoot: string, prior?: Partial<SkillsReport> | null): void {
   const abs = resolve(repoRoot, SKILLS_REPORT_REL)
   mkdirSync(dirname(abs), { recursive: true })
   writeFileSync(abs, `${JSON.stringify(report, null, 2)}\n`)
   pruneGitkeeps(repoRoot)
-  const mapped = skillsNotification(report)
-  if (mapped) notify(mapped)
+  for (const mapped of skillsNotifications(report, prior)) notify(mapped)
 }
 
 export interface SkillBlockEntry {
@@ -1283,8 +1518,8 @@ function blockWriteFailed(report: SkillsReport, failures: readonly BlockWriteFai
   return report
 }
 
-// vivicy.json's `skills` is the project's standing declaration AND the pin every later pass verifies against: an id the owner hand-declared keeps its place and gains this run's pin, and the write is withdrawn from the causal record when the file refused it (an unparseable vivicy.json is never clobbered — the install still stands in the report).
-function mergeSkillPins(tree: StageTree, pins: readonly SkillDeclaration[]): void {
+// vivicy.json's `skills` is the project's standing declaration AND the pin every later pass verifies against: an id the owner hand-declared keeps its place and gains this run's pin, and the write is withdrawn from the causal record when the file refused it. A refusal is REPORTED, never thrown — a file that is hand-broken or read-only may not take a stage down mid-phase, leaving the report stuck at whatever it last published; the install still stands in the report, and the update path reverts its own bytes rather than leave them disagreeing with the pin.
+function mergeSkillPins(tree: StageTree, pins: readonly SkillDeclaration[]): boolean {
   const declarations = readSkillDeclarations(tree.repoRoot)
   const merged = declarations.map((declaration) => pins.find((pin) => pin.id === declaration.id) ?? declaration)
   const declaredIds = new Set(declarations.map((declaration) => declaration.id))
@@ -1292,7 +1527,14 @@ function mergeSkillPins(tree: StageTree, pins: readonly SkillDeclaration[]): voi
     if (!declaredIds.has(pin.id)) merged.push(pin)
   }
   recordWrite(tree, PROJECT_CONFIG_FILENAME)
-  if (!writeSkillDeclarations(tree.repoRoot, merged)) forgetWrite(tree, PROJECT_CONFIG_FILENAME)
+  let written = false
+  try {
+    written = writeSkillDeclarations(tree.repoRoot, merged)
+  } catch {
+    written = false
+  }
+  if (!written) forgetWrite(tree, PROJECT_CONFIG_FILENAME)
+  return written
 }
 
 // The project's FULL installed set — the report, the skills block, the sidebar and the workflow evidence are all projections of THIS one value, so no two of them can contradict each other. Ids are vivicy.json's `skills` declaration unioned with the prior report (defence in depth: the declaration writer silently no-ops on an unparseable vivicy.json), plus what this run installed, minus what it removed. Metadata priority is this-run > prior report > derived from the id alone.
@@ -1316,12 +1558,9 @@ function projectInstalledSet(
   return set
 }
 
-// An id declared in vivicy.json that no report ever described: everything derivable from the id is derived, and nothing is claimed — no audit, no waiver.
-function derivedSkillEntry(id: string): InstalledSkillEntry | null {
-  const ref = parseSkillId(id)
-  if (!ref) return null
+function skillEntryFromRef(ref: SkillRef): InstalledSkillEntry {
   return {
-    id,
+    id: ref.id,
     source: ref.source,
     skill: ref.skill,
     name: ref.skill,
@@ -1330,6 +1569,11 @@ function derivedSkillEntry(id: string): InstalledSkillEntry | null {
     audits: [],
     reason: "",
   }
+}
+
+function derivedSkillEntry(id: string): InstalledSkillEntry | null {
+  const ref = parseSkillId(id)
+  return ref === null ? null : skillEntryFromRef(ref)
 }
 
 // The single normalization of the prior report's installed entries — every reader of that agent-independent file goes through here rather than trusting its shape. `source` and `skill` are re-derived from the id rather than read back: they are projections of it, and a hand-edited pair disagreeing with the id would name a bundle the id does not. An id that does not parse describes no skill at all and is dropped, exactly as an unparseable vivicy.json declaration is.
@@ -1445,7 +1689,7 @@ if (cliEntry === fileURLToPath(import.meta.url)) {
     process.exit(2)
   }
   const run = maintain
-    ? Promise.resolve().then(() => maintainSkills({ repoRoot }))
+    ? maintainSkills({ repoRoot })
     : removeIds.length > 0
       ? removeSkills({ repoRoot, ids: removeIds })
       : installSkills({ repoRoot, ids })
