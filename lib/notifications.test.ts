@@ -103,7 +103,7 @@ describe("appendNotification (writer)", () => {
   it("appends without disturbing prior lines (one line per call, oldest first)", () => {
     appendNotification({ level: "error", stage: "extract", event: "blocked", message: "a" })
     appendNotification({ level: "error", stage: "extract", event: "failed", message: "b" })
-    appendNotification({ level: "error", stage: "S9", event: "issue_blocked", message: "c" })
+    appendNotification({ level: "error", stage: "S9", event: "issue_blocked", message: "c", params: { id: "ISSUE-0003" } })
 
     const rows = readNotifications()
     expect(rows.map((r) => r.message)).toEqual(["a", "b", "c"])
@@ -191,7 +191,8 @@ describe("dismissNotifications (dismissal mechanism: rewrite dismissed in place,
       level: "warning",
       stage: "S9",
       event: "gate_failed",
-      message: "idle 90s",
+      message: "ISSUE-0007: gate red",
+      params: { id: "ISSUE-0007" },
     })
     dismissNotifications([written.id])
 

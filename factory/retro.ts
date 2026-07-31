@@ -16,6 +16,7 @@ import { notify } from "./notify.ts"
 import { FACTORY_PROMPTS_DIR, resolveTargetRoot } from "./target-root.ts"
 import { SKILLS_REPORT_FILE } from "../lib/skills-report.ts"
 import { deriveSkillUsage, reportedSkillIds, type SkillUsage } from "../lib/skill-usage.ts"
+import type { NotificationInput } from "../lib/notification-events.ts"
 import {
   RETRO_LANDINGS,
   RETRO_REPORT_FILE,
@@ -165,19 +166,24 @@ function makeDefaultSpawnRetroLeg(options: RunRetroOptions): SpawnRetroLeg {
   }
 }
 
-const NOTIFY_BY_PHASE: Record<string, { level: "info" | "success" | "warning" | "error"; message: string }> = {
-  proposals: {
-    level: "warning",
-    message: "post-cycle retro found recurring failure classes and drafted method amendments for you to decide",
-  },
-}
+const NOTIFY_BY_PHASE = new Map<string, (summary: string) => NotificationInput>([
+  [
+    "proposals",
+    (summary) => ({
+      level: "warning",
+      stage: "SR",
+      event: "retro_proposals",
+      message: summary || "post-cycle retro found recurring failure classes and drafted method amendments for you to decide",
+    }),
+  ],
+])
 
 function defaultEmitReport(report: RetroReport, repoRoot: string): void {
   const abs = resolve(repoRoot, RETRO_REPORT_REL)
   mkdirSync(dirname(abs), { recursive: true })
   writeFileSync(abs, `${JSON.stringify(report, null, 2)}\n`)
-  const mapped = NOTIFY_BY_PHASE[report.phase ?? ""]
-  if (mapped) notify({ level: mapped.level, stage: "SR", event: `retro_${report.phase}`, message: report.summary || mapped.message })
+  const mapped = NOTIFY_BY_PHASE.get(report.phase ?? "")
+  if (mapped) notify(mapped(report.summary ?? ""))
 }
 
 function normalizeClasses(raw: unknown): RetroRecurringClass[] {

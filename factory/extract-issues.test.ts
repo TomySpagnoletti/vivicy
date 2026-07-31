@@ -444,8 +444,25 @@ describe("extractIssues — S3 proving before freeze (order) + the spike-verific
     const blocked = seams._calls.statusEvents.find((e) => e.phase === "blocked_on_unverified_spikes")
     assert.ok(blocked, "a blocked_on_unverified_spikes status was emitted")
     assert.deepEqual(blocked!.unverified_spike_gate_ids, [s.gate_id])
-    assert.match(result.summary, /blocked_on_unverified_spikes/)
+    assert.match(result.summary, /^issue extraction refuses to run while 1 required spike is not transitively verified: /)
+    assert.match(result.summary, /Prove or defer it \(S3\)/)
     assert.match(result.summary, new RegExp(s.gate_id.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")))
+  })
+
+  it("names several unverified spikes in the plural, subject and verb agreeing", async () => {
+    seedInputs(temp)
+    const first = writeSpike(temp, "01-provider-auth.md", "REQ-ARCH-001", "pending")
+    const second = writeSpike(temp, "02-provider-quota.md", "REQ-ARCH-001", "pending")
+    const { spawnExtractor } = fakeAgent([(ctx) => writeValidCorpus(ctx.repoRoot)])
+    const { spawnVerifier } = alwaysFaithfulVerifier()
+    const seams = stubSeams({ runSpikeProving: async () => ({ proved: [], failed: [], skipped: [], changeRequests: [] }) })
+
+    const result = await extractIssues({ repoRoot: temp, spawnExtractor, spawnVerifier, ...seams })
+
+    assert.equal(result.status, "blocked_on_unverified_spikes")
+    assert.deepEqual(result.unverified_spike_gate_ids!.sort(), [first.gate_id, second.gate_id].sort())
+    assert.match(result.summary, /^issue extraction refuses to run while 2 required spikes are not transitively verified: /)
+    assert.match(result.summary, /Prove or defer them \(S3\)/)
   })
 
   it("PROCEEDS to green when every required spike is verified", async () => {
@@ -869,7 +886,11 @@ describe("extractIssues — fidelity fix loop (the independent verifier)", () =>
     assert.equal(calls.length, 3, "the extractor was re-prompted up to the bound")
     assert.equal(verifyCalls.length, 3, "the verifier judged every deterministic-green attempt")
     assert.equal(seams._calls.mapCalls.length, 3, "the map gate runs on each deterministic-green attempt")
-    assert.match(result.summary, /^extraction_blocked: the extraction was still not green after 3 attempts\. /)
+    assert.match(
+      result.summary,
+      /^the extraction was still not green after 3 attempts\. /,
+      "the phase is a field of its own — the owner-facing summary never re-spells it"
+    )
     assert.match(result.summary, /faithful:false/)
     assert.match(result.summary, /scope_drift/)
     assert.equal(result.verdict!.faithful, false)
@@ -979,7 +1000,7 @@ describe("extractIssues — map-generation GATE (the live-run fragility this fix
     assert.equal(calls.length, 3, "the extractor was re-prompted on every map-fail attempt")
     assert.equal(mapCalls.length, 3, "the map gate ran on every deterministic-green attempt")
     assert.equal(verifyCalls.length, 0, "a failing map short-circuits the fidelity verifier every time")
-    assert.match(result.summary, /extraction_blocked/)
+    assert.match(result.summary, /^the extraction was still not green after 3 attempts\. /)
     assert.match(result.summary, /architecture-map generation/)
     assert.match(result.summary, /Unsupported architecture-map\.yml line/)
     assert.equal(result.map!.code, 1)
@@ -1000,7 +1021,7 @@ describe("extractIssues — bounded retries / blocked (deterministic)", () => {
     assert.equal(calls.length, 3)
     assert.equal(verifyCalls.length, 0, "the verifier never runs while deterministic checks are red")
     assert.equal(seams._calls.mapCalls.length, 0, "map never runs when blocked")
-    assert.match(result.summary, /extraction_blocked/)
+    assert.match(result.summary, /^the extraction was still not green after 3 attempts\. /)
     assert.match(result.summary, /pin mismatch/i)
     assert.ok(seams._calls.statusEvents.some((e) => e.phase === "extraction_blocked"))
   })

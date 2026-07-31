@@ -21,13 +21,18 @@ export async function POST() {
     const run = startDocPrep(getSpawner())
     return Response.json({ ok: true, ...run })
   } catch (error) {
+    const reason = (error instanceof Error && error.message) || "no reason given"
+    appendNotification({
+      level: "error",
+      stage: "prepare",
+      event: "failed",
+      message: `document preparation could not start — ${reason}`,
+      params: { reason },
+    })
     if (error instanceof ControlError) {
-      appendNotification({ level: "error", stage: "prepare", event: "failed", message: error.message })
       const status = error.code === "already_running" ? 409 : 422
       return Response.json({ ok: false, error: error.message, code: error.code }, { status })
     }
-    const message = error instanceof Error ? error.message : "document preparation failed to start"
-    appendNotification({ level: "error", stage: "prepare", event: "failed", message })
-    return Response.json({ ok: false, error: message }, { status: 500 })
+    return Response.json({ ok: false, error: reason }, { status: 500 })
   }
 }

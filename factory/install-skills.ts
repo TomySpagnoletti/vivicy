@@ -64,6 +64,7 @@ import {
 } from "../lib/managed-block.ts"
 import { pruneGitkeeps, SKELETON_DIRS } from "../lib/skeleton.ts"
 import { claimStageLock, SKILLS_LOCK_FILE, stageLockHolder, type HeldStageLock } from "../lib/stage-lock.ts"
+import type { NotificationInput } from "../lib/notification-events.ts"
 
 export const SKILLS_REPORT_REL = ".vivicy/development/reports/skills-report.json"
 const SCOUT_RESULT_REL = ".vivicy/development/reports/skill-scout-result.json"
@@ -1323,26 +1324,19 @@ function defaultRunInstall({ repoRoot, source, skill }: { repoRoot: string; sour
   }
 }
 
-interface SkillsNotification {
-  level: "info" | "success" | "warning" | "error"
-  stage: string
-  event: string
-  message: string
-}
-
 function rejectionKey(entry: RejectedSkillEntry): string {
   return `${entry.reason}\u0000${entry.id}\u0000${entry.candidate_hash ?? ""}`
 }
 
 // `told` is keyed by skill, verdict and the refused candidate's bytes: fire only when at least one driving entry is NEW, then name them all.
-export function skillsNotifications(report: SkillsReport, prior?: Partial<SkillsReport> | null): SkillsNotification[] {
+export function skillsNotifications(report: SkillsReport, prior?: Partial<SkillsReport> | null): NotificationInput[] {
   const told = new Set(
     (Array.isArray(prior?.rejected) ? prior.rejected : [])
       .filter((entry): entry is RejectedSkillEntry => Boolean(entry) && typeof entry === "object" && typeof entry.id === "string")
       .map(rejectionKey)
   )
   const isNew = (entry: RejectedSkillEntry): boolean => !told.has(rejectionKey(entry))
-  const notifications: SkillsNotification[] = []
+  const notifications: NotificationInput[] = []
   const rejected = report.rejected ?? []
   const unhealable = rejected.filter((entry) => entry.reason === "heal_failed")
   const refused = rejected.filter((entry) => entry.reason === "update_refused")
@@ -1361,7 +1355,12 @@ export function skillsNotifications(report: SkillsReport, prior?: Partial<Skills
       })
     }
   } else if (report.phase === "failed") {
-    notifications.push({ level: "error", stage: "SK", event: "skills_failed", message: "project skills stage failed" })
+    notifications.push({
+      level: "error",
+      stage: "SK",
+      event: "skills_failed",
+      message: report.summary || "project skills stage failed",
+    })
   } else if (report.phase === "green" && findings.length > 0 && findings.some(isNew)) {
     notifications.push({
       level: "warning",

@@ -86,7 +86,7 @@ describe("POST /api/control/extract — notification emissions", () => {
       ok: false,
       blocked: false,
       status: "blocked_on_unverified_spikes",
-      summary: "blocked_on_unverified_spikes: SPIKE-01, SPIKE-02",
+      summary: "issue extraction refuses to run while 2 required spikes are not transitively verified: SPIKE-01, SPIKE-02.",
     })
     await POST()
     const rows = readNotifications()
@@ -103,20 +103,41 @@ describe("POST /api/control/extract — notification emissions", () => {
     expect(rows[0].message).toBe("extractor exited 1")
   })
 
-  it("appends 'refused_empty_canonical' distinctly from a generic error", async () => {
+  it("appends 'refused_empty_canonical' distinctly from a generic error, the refusal riding as the key's own value", async () => {
     runExtract.mockRejectedValue(new ControlError("canonical is empty", "empty_canonical"))
     const res = await POST()
     expect(res.status).toBe(422)
     const rows = readNotifications()
     expect(rows.map((n) => n.event)).toEqual(["refused_empty_canonical"])
+    expect(rows[0].params).toEqual({ reason: "canonical is empty" })
   })
 
-  it("appends a generic 'error' event for an unexpected throw", async () => {
+  it.each([
+    { arm: "blocked", result: { ok: false, blocked: true, status: "extraction_blocked", summary: "" } },
+    { arm: "blocked_on_unverified_spikes", result: { ok: false, blocked: false, status: "blocked_on_unverified_spikes", summary: "" } },
+    { arm: "failed", result: { ok: false, blocked: false, status: "error", summary: "" } },
+  ])("a spawn that dies saying nothing still gives the $arm row a sentence — never an empty body", async ({ result }) => {
+    runExtract.mockResolvedValue(result)
+    await POST()
+    const [row] = readNotifications()
+    expect(row.message.trim().length, "an empty row would arm an Ask-Vivi pill that pre-fills nothing").toBeGreaterThan(0)
+  })
+
+  it("a throw carrying no message still gives its row a reason — the frame never ends on a dangling dash", async () => {
+    runExtract.mockRejectedValue(new Error(""))
+    await POST()
+    const [row] = readNotifications()
+    expect(row.params?.reason).toBe("no reason given")
+    expect(row.message).not.toMatch(/—\s*$/)
+  })
+
+  it("appends a generic 'error' event for an unexpected throw, framing the reason it also carries as a value", async () => {
     runExtract.mockRejectedValue(new Error("spawn exploded"))
     const res = await POST()
     expect(res.status).toBe(500)
     const rows = readNotifications()
     expect(rows.map((n) => n.event)).toEqual(["error"])
-    expect(rows[0].message).toBe("spawn exploded")
+    expect(rows[0].message).toBe("extraction failed — spawn exploded")
+    expect(rows[0].params).toEqual({ reason: "spawn exploded" })
   })
 })

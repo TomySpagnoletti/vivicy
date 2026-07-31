@@ -23,11 +23,13 @@ export async function POST(request: Request) {
   try {
     const result = await decideCr(getSpawner(), { id, decision, decidedBy: DECIDED_BY })
     if (decision === "approved" && !result.applied?.ok) {
+      const summary = result.summary || "no reason given"
       appendNotification({
         level: "error",
         stage: "crs",
         event: "approved_apply_blocked",
-        message: `${id} approved but the apply chain is blocked: ${result.summary}`,
+        message: `${id} approved, but the apply chain is blocked — ${summary}`,
+        params: { id, summary },
       })
     }
     return Response.json(
@@ -40,11 +42,17 @@ export async function POST(request: Request) {
       { status: result.ok ? 200 : 422 }
     )
   } catch (error) {
-    const message = error instanceof ControlError ? error.message : error instanceof Error ? error.message : "decision failed"
-    appendNotification({ level: "error", stage: "crs", event: "decide_error", message: `${id}: ${message}` })
+    const reason = (error instanceof Error && error.message) || "no reason given"
+    appendNotification({
+      level: "error",
+      stage: "crs",
+      event: "decide_error",
+      message: `${id}: the decision failed — ${reason}`,
+      params: { id, reason },
+    })
     if (error instanceof ControlError) {
       return Response.json({ ok: false, error: error.message, code: error.code }, { status: 422 })
     }
-    return Response.json({ ok: false, error: message }, { status: 500 })
+    return Response.json({ ok: false, error: reason }, { status: 500 })
   }
 }

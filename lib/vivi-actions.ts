@@ -15,6 +15,7 @@ import {
 import { countOf } from "@/lib/count-form"
 import { readFencedBlock, stripFencedBlock } from "@/lib/fenced-block"
 import { applyLayoutSave, validateLayoutSavePayload } from "@/lib/map-layout-save"
+import type { NotificationInput } from "@/lib/notification-events"
 import { appendNotification, readNotifications, type Notification } from "@/lib/notifications"
 
 const ACTION_TAG = "vivicy-action"
@@ -131,6 +132,33 @@ function isKnownTool(tool: string): tool is ViviActionTool {
   return (VIVI_ACTION_TOOLS as readonly string[]).includes(tool)
 }
 
+export function viviActionNotification(tool: string, reason: string): NotificationInput {
+  if (!isKnownTool(tool)) {
+    return {
+      level: "error",
+      stage: "vivi",
+      event: "action_unknown_error",
+      message: `Vivi asked for an action Vivicy does not offer (${tool}) — nothing ran`,
+      params: { tool },
+    }
+  }
+  const detail = reason || "no reason given"
+  return {
+    level: "error",
+    stage: "vivi",
+    event: viviActionEvent(tool),
+    message: `Vivi action ${tool}: ${detail}`,
+    params: { reason: detail },
+  }
+}
+
+export function viviActionEvent(tool: ViviActionTool): ViviActionErrorEvent {
+  return `action_${tool.replace(".", "_") as Underscored<ViviActionTool>}_error`
+}
+
+type Underscored<T extends string> = T extends `${infer Family}.${infer Verb}` ? `${Family}_${Verb}` : never
+type ViviActionErrorEvent = `action_${Underscored<ViviActionTool>}_error`
+
 function stringList(args: Record<string, unknown>, key: string): string[] | null {
   const raw = args[key]
   if (!Array.isArray(raw) || raw.length === 0) return null
@@ -153,12 +181,7 @@ export async function executeViviActions(
     const result = await executeOne(spawner, action, deps)
     if (!result.ok) {
       try {
-        deps.notify({
-          level: "error",
-          stage: "vivi",
-          event: `action_${action.tool.replace(/\./g, "_")}_error`,
-          message: `Vivi action ${action.tool}: ${result.summary}`,
-        })
+        deps.notify(viviActionNotification(action.tool, result.summary))
       } catch {}
     }
     results.push(result)
@@ -256,7 +279,7 @@ async function executeOne(spawner: Spawner, action: ViviActionRequest, deps: Viv
         return {
           tool,
           ok: report.phase === "green",
-          summary: report.summary ?? `skills remove: ${removed} removed, ${refused} refused`,
+          summary: report.summary || `skills remove: ${removed} removed, ${refused} refused`,
           data: { removed: report.removed ?? [], rejected: report.rejected ?? [] },
         }
       }
@@ -309,7 +332,7 @@ async function executeOne(spawner: Spawner, action: ViviActionRequest, deps: Viv
       }
     }
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error)
+    const message = (error instanceof Error ? error.message : String(error)) || "the action threw without saying why"
     return { tool, ok: false, summary: message }
   }
 }

@@ -19,6 +19,7 @@ vi.mock("@/lib/control", async () => {
 vi.mock("@/lib/spawner", () => ({ getSpawner: () => ({}) }))
 
 import { ControlError } from "@/lib/control"
+import { readNotifications } from "@/lib/notifications"
 
 import { POST } from "./route"
 
@@ -72,6 +73,16 @@ describe("POST /api/control/retry-stage", () => {
     const body = await res.json()
     expect(body.ok).toBe(false)
     expect(body.blocked).toBe(true)
+  })
+
+  it("a blocked retry that said nothing still gives its row a sentence — never an empty body", async () => {
+    runExtract.mockResolvedValue({ ok: false, blocked: true, status: "extraction_blocked", summary: "" })
+
+    await POST(postJson({ stage: "extract" }))
+
+    const [row] = readNotifications()
+    expect(row.event).toBe("retry_extract_blocked")
+    expect(row.message.trim().length, "an empty row would arm an Ask-Vivi pill that pre-fills nothing").toBeGreaterThan(0)
   })
 
   it("dispatches stage=prepare to a detached document-preparation run", async () => {

@@ -7,6 +7,7 @@ import {
   renderActionResults,
   stripActionFence,
   VIVI_ACTION_TOOLS,
+  viviActionNotification,
   type ViviActionDeps,
   type ViviActionResult,
 } from "@/lib/vivi-actions"
@@ -175,9 +176,45 @@ describe("executeViviActions — registry dispatch", () => {
     expect(results[0].ok).toBe(false)
     expect(results[0].summary).toContain('unknown tool "cr.decide"')
     for (const tool of VIVI_ACTION_TOOLS) expect(results[0].summary).toContain(tool)
-    const notified = calls.notify?.[0]?.[0] as { level: string; event: string }
+    const notified = calls.notify?.[0]?.[0] as { level: string; event: string; params?: Record<string, string> }
     expect(notified.level).toBe("error")
-    expect(notified.event).toBe("action_cr_decide_error")
+    expect(notified.event, "an LLM-authored tool name never becomes an event id of its own").toBe("action_unknown_error")
+    expect(notified.params).toEqual({ tool: "cr.decide" })
+  })
+
+  it("a producer that refuses saying nothing still hands its row a reason — the dangling-dash class dies at the seam", () => {
+    const notification = viviActionNotification("workflow.start", "")
+
+    expect(notification.event).toBe("action_workflow_start_error")
+    expect(notification.params).toEqual({ reason: "no reason given" })
+    expect(notification.message).not.toMatch(/:\s*$/)
+  })
+
+  it("a stage report and a throw that both say nothing still yield a non-empty summary", async () => {
+    const { deps } = makeDeps({
+      removeSkills: (async () => ({
+        phase: "failed",
+        mode: "remove",
+        removed: [],
+        rejected: [],
+        summary: "",
+      })) as ViviActionDeps["removeSkills"],
+      startSupervisor: (() => {
+        throw new Error("")
+      }) as ViviActionDeps["startSupervisor"],
+    })
+
+    const [removed, started] = await executeViviActions(
+      inertSpawner,
+      [
+        { tool: "skills.remove", args: { ids: ["acme/repo@scraper"] } },
+        { tool: "workflow.start", args: {} },
+      ],
+      deps
+    )
+
+    expect(removed.summary.trim().length, "a report with an empty summary must not become an empty reason").toBeGreaterThan(0)
+    expect(started.summary.trim().length, "an Error with an empty message must not become an empty reason").toBeGreaterThan(0)
   })
 
   it("status.read composes the honest snapshot from the three readers", async () => {

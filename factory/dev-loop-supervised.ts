@@ -11,6 +11,7 @@ import { resolveTargetRoot } from "./target-root.ts"
 import { countForm, countOf } from "../lib/count-form.ts"
 import { ACCEPTANCE_REPORT_FILE } from "../lib/acceptance-report.ts"
 import { RETRO_REPORT_FILE } from "../lib/retro-report.ts"
+import type { NotificationInput } from "../lib/notification-events.ts"
 
 const STALL_LIMIT = Number(process.env.DEV_LOOP_STALL_LIMIT ?? "3")
 const MAX_RELAUNCHES = Number(process.env.DEV_LOOP_MAX_RELAUNCHES ?? "200")
@@ -43,19 +44,11 @@ export function nextSupervisorAction(
   return { action: "relaunch" }
 }
 
-type SupervisorNotifyLevel = "info" | "success" | "warning" | "error"
-interface SupervisorNotification {
-  level: SupervisorNotifyLevel
-  stage: string
-  event: string
-  message: string
-}
-
 // Never map the acceptance-not-green exit to a notification here: acceptance.ts already emits its own for that moment.
 export function supervisorTerminalNotification(
   action: SupervisorAction,
   { done, total, blocked }: { done: number; total: number; blocked: number }
-): SupervisorNotification | null {
+): NotificationInput | null {
   const progress = `${done}/${total} delivered`
   switch (action) {
     case "done":

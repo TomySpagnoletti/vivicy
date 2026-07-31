@@ -28,6 +28,7 @@ import { preflightSkills, skillsDirective } from "./dev-preflight.ts"
 import { pruneGitkeeps } from "../lib/skeleton.ts"
 import { countOf } from "../lib/count-form.ts"
 import { MANAGED_GOVERNANCE_FILES } from "../lib/managed-block.ts"
+import type { NotificationInput } from "../lib/notification-events.ts"
 import { commandServesHttp } from "../lib/product-run.ts"
 import { SKILLS_REPORT_FILE } from "../lib/skills-report.ts"
 import { MAX_SKILL_IDS, normalizeSkillIds, reportedSkillIds } from "../lib/skill-usage.ts"
@@ -151,8 +152,6 @@ export interface ProcessedIssue {
   status: string
   error?: string
 }
-
-type NotifyLevel = "info" | "success" | "warning" | "error"
 
 interface EmitEvent {
   event_type: string
@@ -1919,24 +1918,38 @@ function ensureWorktreesIgnored(cfg: Config): void {
   writeFileSync(gitignorePath, next)
 }
 
-const NOTIFY_BY_EVENT: Record<string, { level: NotifyLevel; stage: string; label: string }> = {
-  gate_failed: { level: "warning", stage: "S9", label: "gate red" },
-  issue_blocked: { level: "error", stage: "S9", label: "issue blocked" },
-  issue_parked_on_cr: { level: "warning", stage: "S8", label: "parked on CR" },
-  merge_conflict_unresolved: { level: "error", stage: "S10", label: "merge conflict unresolved" },
-  post_merge_gate_failed: { level: "error", stage: "S10", label: "post-merge gate red — merge reverted" },
-}
+const NOTIFY_BY_EVENT = new Map<string, (id: string) => NotificationInput>([
+  ["gate_failed", (id) => ({ level: "warning", stage: "S9", event: "gate_failed", message: `${id}: gate red`, params: { id } })],
+  ["issue_blocked", (id) => ({ level: "error", stage: "S9", event: "issue_blocked", message: `${id}: issue blocked`, params: { id } })],
+  [
+    "issue_parked_on_cr",
+    (id) => ({ level: "warning", stage: "S8", event: "issue_parked_on_cr", message: `${id}: parked on CR`, params: { id } }),
+  ],
+  [
+    "merge_conflict_unresolved",
+    (id) => ({
+      level: "error",
+      stage: "S10",
+      event: "merge_conflict_unresolved",
+      message: `${id}: merge conflict unresolved`,
+      params: { id },
+    }),
+  ],
+  [
+    "post_merge_gate_failed",
+    (id) => ({
+      level: "error",
+      stage: "S10",
+      event: "post_merge_gate_failed",
+      message: `${id}: post-merge gate red — merge reverted`,
+      params: { id },
+    }),
+  ],
+])
 
 function emit(cfg: Config, event: EmitEvent): ReturnType<typeof recordProgressEvent> {
-  const mapped = NOTIFY_BY_EVENT[event.event_type]
-  if (mapped) {
-    notify({
-      level: mapped.level,
-      stage: mapped.stage,
-      event: event.event_type,
-      message: `${event.issue_id}: ${mapped.label}`,
-    })
-  }
+  const mapped = NOTIFY_BY_EVENT.get(event.event_type)
+  if (mapped) notify(mapped(event.issue_id))
   return recordProgressEvent({ session_ref: `dev-loop:${event.issue_id}`, ...event } as ProgressEvent, {
     issueIndexPath: cfg.issueIndexPath,
     progressLedgerPath: cfg.progressLedgerPath,
@@ -1969,10 +1982,7 @@ function writeQuotaState(cfg: Config, actor: string, agentState: AgentQuotaState
 }
 
 // Transition-only: markAgentThrottled runs on every backoff tick, so the owner is told once at the start, never per tick.
-export function quotaPauseNotification(
-  prior: string | undefined,
-  actor: string
-): { level: NotifyLevel; stage: string; event: string; message: string } | null {
+export function quotaPauseNotification(prior: string | undefined, actor: string): NotificationInput | null {
   if (prior === "throttled") return null
   return {
     level: "warning",

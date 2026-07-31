@@ -22,9 +22,10 @@ import { runReopen } from "./reopen.ts"
 import { formatMapReviewFix, mapReviewLensContext, mapReviewReportRel, runMapReview } from "./map-review.ts"
 import type { MapReviewLens, MapReviewResult as LensFindings, TaggedFinding } from "./map-review.ts"
 import { FACTORY_DIR, FACTORY_PROMPTS_DIR, resolveTargetRoot } from "./target-root.ts"
-import { countOf } from "../lib/count-form.ts"
+import { countForm, countOf } from "../lib/count-form.ts"
 import { pruneGitkeeps } from "../lib/skeleton.ts"
 import { clearSpecCycle, readSpecCycle } from "../lib/spec-cycle.ts"
+import type { NotificationInput } from "../lib/notification-events.ts"
 import type { SpecKind } from "../lib/spec-kind.ts"
 import {
   isGateCommandEstablished,
@@ -347,9 +348,9 @@ async function runExtraction(options: ExtractIssuesOptions, layoutBaseline: { di
       unverified_spike_gate_ids: unverifiedRequiredGates,
       transcripts,
       summary:
-        `blocked_on_unverified_spikes: issue extraction refuses to run while ${unverifiedRequiredGates.length} ` +
-        `required spike(s) are not transitively verified: ${unverifiedRequiredGates.join(", ")}. ` +
-        `Prove or defer them (S3) before extraction (S6).`,
+        `issue extraction refuses to run while ${countOf(unverifiedRequiredGates.length, "required spike is", "required spikes are")} ` +
+        `not transitively verified: ${unverifiedRequiredGates.join(", ")}. ` +
+        `Prove or defer ${countForm(unverifiedRequiredGates.length, "it", "them")} (S3) before extraction (S6).`,
     }
     record({
       phase: "blocked_on_unverified_spikes",
@@ -498,7 +499,7 @@ async function runExtraction(options: ExtractIssuesOptions, layoutBaseline: { di
     transcripts,
     ...(lastTimeoutReason ? { timeoutReason: lastTimeoutReason } : {}),
     summary:
-      `extraction_blocked: the extraction was still not green after ${countOf(maxAttempts, "attempt", "attempts")}. ` +
+      `the extraction was still not green after ${countOf(maxAttempts, "attempt", "attempts")}. ` +
       (lastTimeoutReason ? `A leg was killed: ${lastTimeoutReason}. ` : "") +
       formatFixContext(lastChecks, lastVerdict, lastMap),
   }
@@ -814,10 +815,16 @@ function defaultRunGenerateMap({ repoRoot, reconcileAgainst }: { repoRoot: strin
   return { code: result.status ?? 1, output: `${result.stdout ?? ""}\n${result.stderr ?? ""}`.trim() }
 }
 
-const NOTIFY_BY_PHASE: Record<string, { level: "info" | "success" | "warning" | "error"; stage: string; message: string }> = {
-  blocked_on_unverified_spikes: { level: "error", stage: "S3", message: "extraction refused: unverified spikes" },
-  extraction_blocked: { level: "error", stage: "S6", message: "extraction blocked after bounded retries" },
-}
+const NOTIFY_BY_PHASE = new Map<string, NotificationInput>([
+  [
+    "blocked_on_unverified_spikes",
+    { level: "error", stage: "S3", event: "extraction_blocked_on_unverified_spikes", message: "extraction refused: unverified spikes" },
+  ],
+  [
+    "extraction_blocked",
+    { level: "error", stage: "S6", event: "extraction_extraction_blocked", message: "extraction blocked after bounded retries" },
+  ],
+])
 
 function defaultEmitStatus(status: StatusEvent, repoRoot: string): void {
   const abs = resolve(repoRoot, EXTRACTION_STATUS_REL)
@@ -825,8 +832,8 @@ function defaultEmitStatus(status: StatusEvent, repoRoot: string): void {
   const payload = { ...status, updated_at: new Date().toISOString() }
   writeFileSync(abs, `${JSON.stringify(payload, null, 2)}\n`)
   pruneGitkeeps(repoRoot)
-  const mapped = NOTIFY_BY_PHASE[status?.phase]
-  if (mapped) notify({ ...mapped, event: `extraction_${status.phase}` })
+  const mapped = NOTIFY_BY_PHASE.get(status?.phase)
+  if (mapped) notify(mapped)
 }
 
 function recordExtractedCommand(

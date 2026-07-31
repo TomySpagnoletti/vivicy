@@ -34,13 +34,18 @@ export async function POST(request: Request) {
     const { id } = await cancelSpecCycle(getSpawner())
     return Response.json({ ok: true, id })
   } catch (error) {
+    const reason = (error instanceof Error && error.message) || "no reason given"
+    appendNotification({
+      level: "error",
+      stage: "cycle",
+      event: "cycle_error",
+      message: `spec-cycle transition refused — ${reason}`,
+      params: { reason },
+    })
     if (error instanceof ControlError) {
-      appendNotification({ level: "error", stage: "cycle", event: "cycle_error", message: error.message })
       const status = error.code === "already_running" ? 409 : 422
       return Response.json({ ok: false, error: error.message, code: error.code }, { status })
     }
-    const message = error instanceof Error ? error.message : "cycle transition failed"
-    appendNotification({ level: "error", stage: "cycle", event: "cycle_error", message })
-    return Response.json({ ok: false, error: message }, { status: 500 })
+    return Response.json({ ok: false, error: reason }, { status: 500 })
   }
 }

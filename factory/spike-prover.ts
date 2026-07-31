@@ -13,6 +13,7 @@ import { notify } from "./notify.ts"
 import { readSpikes } from "./spike-check.ts"
 import type { Spike, SpikeStatus } from "./spike-check.ts"
 import { FACTORY_PROMPTS_DIR } from "./target-root.ts"
+import type { NotificationInput } from "../lib/notification-events.ts"
 
 interface SpikeLegResult {
   result?: { status?: number | null; timedOut?: boolean; timeoutReason?: string }
@@ -160,9 +161,7 @@ export async function runSpikeProving(args: RunSpikeProvingArgs = {}): Promise<R
   return { proved, failed, skipped, changeRequests }
 }
 
-export function spikeProvingCrNotification(
-  changeRequests: ChangeRequestRef[]
-): { level: "warning"; stage: string; event: string; message: string } | null {
+export function spikeProvingCrNotification(changeRequests: ChangeRequestRef[]): NotificationInput | null {
   if (changeRequests.length === 0) return null
   const ids = changeRequests.map((cr) => cr.id).join(", ")
   return {

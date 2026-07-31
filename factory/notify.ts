@@ -1,6 +1,8 @@
 import { appendFileSync, existsSync, mkdirSync } from "node:fs"
 import { join } from "node:path"
 
+import type { NotificationInput } from "../lib/notification-events.ts"
+
 let counter = 0
 
 function stampId(nowMs: number): string {
@@ -8,34 +10,18 @@ function stampId(nowMs: number): string {
   return `${process.pid.toString(36)}-${nowMs.toString(36)}-${counter.toString(36)}`
 }
 
-type NotificationLevel = "info" | "success" | "warning" | "error"
-
-interface NotifyPayload {
-  level?: NotificationLevel
-  stage?: string
-  event?: string
-  message?: string
-}
-
 interface NotifyOptions {
   runtimeDir?: string
   now?: () => number
 }
 
-export function notify({ level = "info", stage, event, message }: NotifyPayload, options: NotifyOptions = {}): boolean {
+export function notify(payload: NotificationInput, options: NotifyOptions = {}): boolean {
   const runtimeDir = options.runtimeDir ?? process.env.VIVICY_RUNTIME_DIR
-  if (!runtimeDir || !stage || !event) return false
+  if (!runtimeDir) return false
   try {
     if (!existsSync(runtimeDir)) mkdirSync(runtimeDir, { recursive: true })
     const nowMs = options.now ? options.now() : Date.now()
-    const line = JSON.stringify({
-      id: stampId(nowMs),
-      ts: new Date(nowMs).toISOString(),
-      level,
-      stage,
-      event,
-      message: String(message ?? event),
-    })
+    const line = JSON.stringify({ id: stampId(nowMs), ts: new Date(nowMs).toISOString(), ...payload })
     appendFileSync(join(runtimeDir, "notifications.jsonl"), `${line}\n`, "utf8")
     return true
   } catch {

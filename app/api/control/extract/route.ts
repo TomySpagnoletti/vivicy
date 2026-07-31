@@ -25,21 +25,21 @@ export async function POST() {
           level: "error",
           stage: "extract",
           event: "blocked",
-          message: result.summary,
+          message: result.summary || "extraction blocked after bounded retries",
         })
       } else if (result.status === "blocked_on_unverified_spikes") {
         appendNotification({
           level: "warning",
           stage: "extract",
           event: "blocked_on_unverified_spikes",
-          message: result.summary,
+          message: result.summary || "extraction refused: unverified spikes",
         })
       } else {
         appendNotification({
           level: "error",
           stage: "extract",
           event: "failed",
-          message: result.summary,
+          message: result.summary || "extraction did not reach green and said nothing about why — ask Vivi to look",
         })
       }
     }
@@ -54,20 +54,28 @@ export async function POST() {
     )
   } catch (error) {
     if (error instanceof ControlError) {
-      appendNotification({
-        level: "error",
-        stage: "extract",
-        event: error.code === "empty_canonical" ? "refused_empty_canonical" : "error",
-        message: error.message,
-      })
+      const reason = error.message || "no reason given"
+      if (error.code === "empty_canonical") {
+        appendNotification({
+          level: "error",
+          stage: "extract",
+          event: "refused_empty_canonical",
+          message: `extraction refused — ${reason}`,
+          params: { reason },
+        })
+      } else {
+        appendNotification({
+          level: "error",
+          stage: "extract",
+          event: "error",
+          message: `extraction failed — ${reason}`,
+          params: { reason },
+        })
+      }
       return Response.json({ ok: false, error: error.message, code: error.code }, { status: 422 })
     }
-    appendNotification({
-      level: "error",
-      stage: "extract",
-      event: "error",
-      message: error instanceof Error ? error.message : "extract failed",
-    })
-    return Response.json({ ok: false, error: error instanceof Error ? error.message : "extract failed" }, { status: 500 })
+    const reason = (error instanceof Error && error.message) || "no reason given"
+    appendNotification({ level: "error", stage: "extract", event: "error", message: `extraction failed — ${reason}`, params: { reason } })
+    return Response.json({ ok: false, error: reason }, { status: 500 })
   }
 }

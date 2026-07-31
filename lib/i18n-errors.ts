@@ -1,6 +1,8 @@
-// Server code never imports next-intl: routes/lib emit a stable {code, message}; only the client translates, by code.
+// Server code never imports next-intl: routes/lib/factory emit a stable {code|event, message, params}; only the client translates.
 
 import type { useTranslations } from "next-intl"
+
+import { translatedNotificationParams, type NotificationParamValue } from "@/lib/notification-events"
 
 type ErrorsTranslator = ReturnType<typeof useTranslations<"errors">>
 
@@ -23,15 +25,15 @@ type NotificationsTranslator = ReturnType<typeof useTranslations<"notifications"
 
 export function notificationText(
   t: NotificationsTranslator,
-  stage: string | undefined,
-  event: string | undefined,
-  message: string | undefined
+  notification: { stage?: string; event?: string; message?: string; params?: Record<string, NotificationParamValue> }
 ): string {
-  const fallback = message ?? ""
+  const fallback = notification.message ?? ""
+  const { stage, event } = notification
   if (!stage || !event) return fallback
+  const declared = translatedNotificationParams(stage, event)
   const key = `events.${stage}.${event}`
-  if (!t.has(key)) return fallback
-  const idMatch = /^(\S+?)[: ]/.exec(fallback)
-  const id = idMatch?.[1]
-  return t(key, id ? { id } : undefined)
+  if (declared === null || !t.has(key)) return fallback
+  const params = notification.params ?? {}
+  if (!declared.every((name) => Object.hasOwn(params, name))) return fallback
+  return t(key, declared.length > 0 ? params : undefined)
 }

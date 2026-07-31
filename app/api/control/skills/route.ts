@@ -27,14 +27,19 @@ export async function POST(request: Request) {
       const report = await removeSkills(getSpawner(), { ids: body.remove })
       return Response.json({ ok: report.phase === "green", report })
     } catch (error) {
+      const reason = (error instanceof Error && error.message) || "no reason given"
+      appendNotification({
+        level: "error",
+        stage: "skills",
+        event: "remove_failed",
+        message: `the skills removal was refused — ${reason}`,
+        params: { reason },
+      })
       if (error instanceof ControlError) {
-        appendNotification({ level: "error", stage: "skills", event: "remove_failed", message: error.message })
         const status = error.code === "already_running" ? 409 : 422
         return Response.json({ ok: false, error: error.message, code: error.code }, { status })
       }
-      const message = error instanceof Error ? error.message : "skills remove failed"
-      appendNotification({ level: "error", stage: "skills", event: "remove_failed", message })
-      return Response.json({ ok: false, error: message }, { status: 500 })
+      return Response.json({ ok: false, error: reason }, { status: 500 })
     }
   }
   if (body.ids !== undefined && !isStringArray(body.ids)) {
@@ -45,19 +50,19 @@ export async function POST(request: Request) {
     const run = startSkillsInstall(getSpawner(), { ids })
     return Response.json({ ok: true, ...run })
   } catch (error) {
+    const reason = (error instanceof Error && error.message) || "no reason given"
+    appendNotification({
+      level: "error",
+      stage: "skills",
+      event: "failed",
+      message: `the skills install was refused — ${reason}`,
+      params: { reason },
+    })
     if (error instanceof ControlError) {
-      appendNotification({
-        level: "error",
-        stage: "skills",
-        event: "failed",
-        message: error.message,
-      })
       const status = error.code === "already_running" ? 409 : 422
       return Response.json({ ok: false, error: error.message, code: error.code }, { status })
     }
-    const message = error instanceof Error ? error.message : "skills install failed to start"
-    appendNotification({ level: "error", stage: "skills", event: "failed", message })
-    return Response.json({ ok: false, error: message }, { status: 500 })
+    return Response.json({ ok: false, error: reason }, { status: 500 })
   }
 }
 

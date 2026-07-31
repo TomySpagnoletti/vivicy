@@ -18,64 +18,59 @@
     "daysAgo": "{days}d ago"
   },
   "events": {
-    "S9": {
-      "gate_failed": "{id}: gate red",
-      "issue_blocked": "{id}: issue blocked"
-    },
-    "S8": {
-      "issue_parked_on_cr": "{id}: parked on CR"
-    },
-    "S10": {
-      "merge_conflict_unresolved": "{id}: merge conflict unresolved",
-      "post_merge_gate_failed": "{id}: post-merge gate red — merge reverted"
-    },
     "S3": {
       "extraction_blocked_on_unverified_spikes": "extraction refused: unverified spikes"
     },
     "S6": {
       "extraction_extraction_blocked": "extraction blocked after bounded retries"
     },
-    "SK": {
-      "skills_failed": "project skills stage failed"
+    "S8": {
+      "issue_parked_on_cr": "{id}: parked on CR"
     },
-    "extract": {
-      "blocked": "extraction blocked",
-      "blocked_on_unverified_spikes": "extraction refused: unverified spikes",
-      "refused_empty_canonical": "extraction refused: the canonical spec is empty",
-      "error": "stage error"
+    "S9": {
+      "gate_failed": "{id}: gate red",
+      "issue_blocked": "{id}: issue blocked"
     },
-    "skills": {
-      "failed": "skills install failed",
-      "remove_failed": "skills remove failed"
-    },
-    "retry": {
-      "retry_extract_blocked": "extraction retried and blocked",
-      "retry_extract_error": "extract retry failed",
-      "retry_skills_error": "skills retry failed",
-      "retry_dev_error": "dev-loop retry failed"
+    "S10": {
+      "merge_conflict_unresolved": "{id}: merge conflict unresolved",
+      "post_merge_gate_failed": "{id}: post-merge gate red — merge reverted"
     },
     "crs": {
-      "approved_apply_blocked": "{id} approved but the apply chain is blocked",
-      "decide_error": "decision failed"
-    },
-    "vivi": {
-      "action_status_read_error": "Vivi could not read the status",
-      "action_workflow_start_error": "Vivi could not start the build",
-      "action_workflow_resume_error": "Vivi could not resume the build",
-      "action_workflow_stop_error": "Vivi could not stop the build",
-      "action_workflow_extract_error": "Vivi's extraction did not reach green",
-      "action_workflow_retry_error": "Vivi's stage retry failed",
-      "action_skills_install_error": "Vivi's skills install was refused",
-      "action_skills_remove_error": "Vivi's skills remove was refused",
-      "action_map_move_error": "Vivi's map move was refused",
-      "action_crs_list_error": "Vivi could not list the change requests",
-      "action_cycle_open_error": "Vivi could not open a spec cycle",
-      "action_cycle_cancel_error": "Vivi could not cancel the spec cycle",
-      "action_notifications_read_error": "Vivi could not read the notifications",
-      "action_cr_decide_error": "Vivi was refused a CR decision (owner-only)"
+      "approved_apply_blocked": "{id} approved, but the apply chain is blocked — {summary}",
+      "decide_error": "{id}: the decision failed — {reason}"
     },
     "cycle": {
-      "cycle_error": "spec-cycle transition refused"
+      "cycle_error": "spec-cycle transition refused — {reason}"
+    },
+    "extract": {
+      "error": "extraction failed — {reason}",
+      "refused_empty_canonical": "extraction refused — {reason}"
+    },
+    "prepare": {
+      "failed": "document preparation could not start — {reason}"
+    },
+    "retry": {
+      "retry_error": "the {stage} retry failed — {reason}"
+    },
+    "skills": {
+      "failed": "the skills install was refused — {reason}",
+      "remove_failed": "the skills removal was refused — {reason}"
+    },
+    "vivi": {
+      "action_status_read_error": "Vivi could not read the status — {reason}",
+      "action_workflow_start_error": "Vivi could not start the build — {reason}",
+      "action_workflow_resume_error": "Vivi could not resume the build — {reason}",
+      "action_workflow_stop_error": "Vivi could not stop the build — {reason}",
+      "action_workflow_extract_error": "Vivi's extraction did not reach green — {reason}",
+      "action_workflow_retry_error": "Vivi's stage retry failed — {reason}",
+      "action_skills_install_error": "Vivi's skills install was refused — {reason}",
+      "action_skills_remove_error": "Vivi's skills remove was refused — {reason}",
+      "action_map_move_error": "Vivi's map move was refused — {reason}",
+      "action_crs_list_error": "Vivi could not list the change requests — {reason}",
+      "action_cycle_open_error": "Vivi could not open a spec cycle — {reason}",
+      "action_cycle_cancel_error": "Vivi could not cancel the spec cycle — {reason}",
+      "action_notifications_read_error": "Vivi could not read the notifications — {reason}",
+      "action_unknown_error": "Vivi asked for an action Vivicy does not offer ({tool}) — nothing ran"
     }
   }
 }

@@ -501,7 +501,7 @@ describe("runExtract", () => {
   it("surfaces the blocked case honestly when the orchestrator stays red", async () => {
     const { spawner } = makeFakeSpawner({
       run: async () => {
-        writeExtractionStatus("extraction_blocked", "extraction_blocked: checks still red after 4 attempts")
+        writeExtractionStatus("extraction_blocked", "the extraction was still not green after 4 attempts. Checks still red.")
         return { code: 1, lastLine: "extraction_blocked", stdout: "", stderr: "blocked\n" }
       },
     })
@@ -511,7 +511,9 @@ describe("runExtract", () => {
     expect(result.ok).toBe(false)
     expect(result.blocked).toBe(true)
     expect(result.status).toBe("extraction_blocked")
-    expect(result.summary).toMatch(/extraction_blocked/)
+    expect(result.summary, "the status file's summary is forwarded verbatim — the phase rides its own field").toMatch(
+      /still not green after 4 attempts/
+    )
   })
 
   it("reports a non-blocked failure when the orchestrator errors without a status file", async () => {

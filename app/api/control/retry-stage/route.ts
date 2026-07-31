@@ -44,7 +44,7 @@ export async function POST(request: Request) {
           level: "error",
           stage: "retry",
           event: "retry_extract_blocked",
-          message: result.summary,
+          message: result.summary || "the extract retry did not reach green and said nothing about why — ask Vivi to look",
         })
       }
       return Response.json(
@@ -59,18 +59,18 @@ export async function POST(request: Request) {
     const run = startSupervisor(getSpawner(), "resume")
     return Response.json({ ok: true, stage, run })
   } catch (error) {
+    const reason = (error instanceof Error && error.message) || "no reason given"
+    appendNotification({
+      level: "error",
+      stage: "retry",
+      event: "retry_error",
+      message: `the ${stage} retry failed — ${reason}`,
+      params: { stage, reason },
+    })
     if (error instanceof ControlError) {
-      appendNotification({
-        level: "error",
-        stage: "retry",
-        event: `retry_${stage}_error`,
-        message: error.message,
-      })
       const status = error.code === "already_running" ? 409 : 422
       return Response.json({ ok: false, error: error.message, code: error.code }, { status })
     }
-    const message = error instanceof Error ? error.message : "retry failed"
-    appendNotification({ level: "error", stage: "retry", event: `retry_${stage}_error`, message })
-    return Response.json({ ok: false, error: message }, { status: 500 })
+    return Response.json({ ok: false, error: reason }, { status: 500 })
   }
 }

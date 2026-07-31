@@ -16,6 +16,7 @@ import { notify } from "./notify.ts"
 import { FACTORY_PROMPTS_DIR, resolveTargetRoot } from "./target-root.ts"
 import { countOf } from "../lib/count-form.ts"
 import { ACCEPTANCE_REPORT_FILE, type AcceptanceFinding, type AcceptanceReport, type AcceptanceScenario } from "../lib/acceptance-report.ts"
+import type { NotificationInput } from "../lib/notification-events.ts"
 
 export const ACCEPTANCE_REPORT_REL = ACCEPTANCE_REPORT_FILE
 export const ACCEPTANCE_VERDICT_REL = ".vivicy/development/reports/acceptance-verdict.json"
@@ -152,20 +153,33 @@ function makeDefaultSpawnAcceptanceLeg(options: RunAcceptanceOptions): SpawnAcce
   }
 }
 
-const NOTIFY_BY_PHASE: Record<string, { level: "info" | "success" | "warning" | "error"; message: string }> = {
-  findings: {
-    level: "warning",
-    message: "whole-product acceptance is not clean — every gap it found is drafted as a change request, Done withheld",
-  },
-  failed: { level: "error", message: "whole-product acceptance could not complete — Done withheld" },
-}
+const NOTIFY_BY_PHASE = new Map<string, (summary: string) => NotificationInput>([
+  [
+    "findings",
+    (summary) => ({
+      level: "warning",
+      stage: "SA",
+      event: "acceptance_findings",
+      message: summary || "whole-product acceptance is not clean — every gap it found is drafted as a change request, Done withheld",
+    }),
+  ],
+  [
+    "failed",
+    (summary) => ({
+      level: "error",
+      stage: "SA",
+      event: "acceptance_failed",
+      message: summary || "whole-product acceptance could not complete — Done withheld",
+    }),
+  ],
+])
 
 function defaultEmitReport(report: AcceptanceReport, repoRoot: string): void {
   const abs = resolve(repoRoot, ACCEPTANCE_REPORT_REL)
   mkdirSync(dirname(abs), { recursive: true })
   writeFileSync(abs, `${JSON.stringify(report, null, 2)}\n`)
-  const mapped = NOTIFY_BY_PHASE[report.phase ?? ""]
-  if (mapped) notify({ level: mapped.level, stage: "SA", event: `acceptance_${report.phase}`, message: report.summary || mapped.message })
+  const mapped = NOTIFY_BY_PHASE.get(report.phase ?? "")
+  if (mapped) notify(mapped(report.summary ?? ""))
 }
 
 function normalizeScenarios(raw: unknown): AcceptanceScenario[] {

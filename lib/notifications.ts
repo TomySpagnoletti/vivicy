@@ -1,14 +1,14 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import path from "node:path"
 
+import type { NotificationInput, NotificationLevel, NotificationParamValue } from "@/lib/notification-events"
 import { getProjectRuntimeDir } from "@/lib/project-runtime"
 import { getRuntimeDir } from "@/lib/runtime-dir"
 import { getTargetRoot } from "@/lib/target"
 
 const NOTIFICATIONS_FILE = "notifications.jsonl"
 
-// factory/notify.ts declares the same union for the factory-side writer — edit together.
-export type NotificationLevel = "info" | "success" | "warning" | "error"
+export type { NotificationLevel }
 
 // Cross-process wire contract with factory/cli.ts (newline-delimited JSON): id is the unique key, ts may collide across writers and is display-only.
 export interface Notification {
@@ -18,14 +18,8 @@ export interface Notification {
   stage: string
   event: string
   message: string
+  params?: Record<string, NotificationParamValue>
   dismissed?: boolean
-}
-
-export interface NotificationInput {
-  level: NotificationLevel
-  stage: string
-  event: string
-  message: string
 }
 
 export function getNotificationsPath(): string {

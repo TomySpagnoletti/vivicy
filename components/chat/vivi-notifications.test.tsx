@@ -2,6 +2,7 @@ import { screen } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { describe, expect, test, vi } from "vitest"
 
+import { TRANSLATED_NOTIFICATION_EVENTS } from "@/lib/notification-events"
 import type { Notification } from "@/lib/notifications"
 import { isActionableNotification, NotificationsFeed } from "@/components/chat/vivi-notifications"
 import { renderWithIntl } from "@/test/render"
@@ -52,5 +53,40 @@ describe("Ask Vivi pill", () => {
 
     expect(await screen.findByText(message)).toBeInTheDocument()
     expect(screen.queryByRole("button", { name: "Ask Vivi" })).toBeNull()
+  })
+})
+
+function sampleParams(stage: string, event: string, declared: readonly string[]): Record<string, string> {
+  return Object.fromEntries(declared.map((name) => [name, `${name}-of-${stage}-${event}`]))
+}
+
+describe("catalogue rendering through the real provider", () => {
+  const keyed = Object.entries(TRANSLATED_NOTIFICATION_EVENTS).flatMap(([stage, events]) =>
+    Object.entries(events).map(([event, params]) => ({ stage, event, params: params as readonly string[] }))
+  )
+
+  test.each(keyed)("$stage.$event renders its key with every declared value substituted", ({ stage, event, params }) => {
+    const values = sampleParams(stage, event, params)
+    renderFeed([notification({ level: "error", stage, event, message: `RAW-${stage}-${event}`, params: values })])
+
+    const row = screen.getByRole("listitem")
+    expect(row).not.toHaveTextContent(`RAW-${stage}-${event}`)
+    for (const value of Object.values(values)) expect(row).toHaveTextContent(value)
+    expect(row.textContent).not.toMatch(/[{}]/)
+  })
+
+  test("a row missing a value its key interpolates renders the writer's own sentence instead", () => {
+    renderFeed([
+      notification({ level: "error", stage: "cycle", event: "cycle_error", message: "spec-cycle transition refused — a cycle is open" }),
+    ])
+
+    expect(screen.getByText("spec-cycle transition refused — a cycle is open")).toBeInTheDocument()
+  })
+
+  test("a declared-untranslated event renders the writer's composed sentence verbatim", () => {
+    const message = "2 possible secret keys detected in 1 file of batch 2026-07-31 — remove or rotate them and re-import"
+    renderFeed([notification({ level: "warning", stage: "import", event: "secret_finding", message })])
+
+    expect(screen.getByText(message)).toBeInTheDocument()
   })
 })

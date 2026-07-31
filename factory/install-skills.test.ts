@@ -917,10 +917,15 @@ describe("security audits", () => {
   })
 
   it("only a failed stage and a green-with-rejections speak; every in-flight phase is silent", () => {
-    const at = (phase: string, rejected: unknown[] = []) =>
-      skillsNotifications({ phase, rejected, summary: "s" } as unknown as SkillsReport)
+    const at = (phase: string, rejected: unknown[] = [], summary = "s") =>
+      skillsNotifications({ phase, rejected, summary } as unknown as SkillsReport)
     assert.equal(at("failed")[0]?.event, "skills_failed")
-    assert.equal(at("failed")[0]?.message, "project skills stage failed")
+    assert.equal(
+      at("failed")[0]?.message,
+      "s",
+      "the report already names what refused the stage — the owner reads that, never a dead-end sentence"
+    )
+    assert.equal(at("failed", [], "")[0]?.message, "project skills stage failed")
     assert.deepEqual(at("green"), [])
     assert.equal(at("green", [{ id: "x" }])[0]?.event, "skills_findings")
     for (const phase of ["selecting", "validating", "auditing", "installing", "removing"]) {

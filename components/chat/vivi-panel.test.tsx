@@ -67,7 +67,7 @@ const PENDING_CR = {
   source: "agent",
 }
 
-// This stage/event pair must stay unmapped in notifications.json: these assertions read notificationText's raw-message fallback.
+// This stage/event pair must stay out of lib/notification-events.ts: these assertions read notificationText's raw-message fallback.
 function notificationRows(...overrides: Array<Partial<Notification>>): Notification[] {
   return overrides.map((o, i) => ({
     id: `test-id-${i}`,

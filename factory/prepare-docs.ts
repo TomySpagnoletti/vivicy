@@ -24,6 +24,7 @@ import { pruneGitkeeps } from "../lib/skeleton.ts"
 import { activeCycleId, activeCycleKind, completeBatches, consumedSet, unconsumedActiveCycleBatches } from "../lib/spec-cycle.ts"
 import type { Batch } from "../lib/spec-cycle.ts"
 import type { SpecKind } from "../lib/spec-kind.ts"
+import type { NotificationInput } from "../lib/notification-events.ts"
 
 export { completeBatches, unconsumedActiveCycleBatches }
 export type { Batch }
@@ -549,9 +550,7 @@ function legContext({
   )
 }
 
-export function docPrepNotification(
-  report: DocPrepReport
-): { level: "info" | "success" | "warning" | "error"; stage: string; event: string; message: string } | null {
+export function docPrepNotification(report: DocPrepReport): NotificationInput | null {
   if (report.phase === "failed") {
     return { level: "error", stage: "SP", event: "doc_prep_failed", message: report.summary || "document-preparation stage failed" }
   }

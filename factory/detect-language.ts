@@ -10,6 +10,7 @@ import { DEFAULT_CONFIG } from "./dev-loop.ts"
 import { notify } from "./notify.ts"
 import { FACTORY_PROMPTS_DIR } from "./target-root.ts"
 import { extractScannableText } from "../lib/text-extract.ts"
+import type { NotificationInput } from "../lib/notification-events.ts"
 
 const UNDETERMINED = "und"
 const MANIFEST_FILE = "manifest.json"
@@ -43,7 +44,7 @@ export interface ResolveBatchLanguageOptions {
   cfg?: Record<string, unknown>
   promptsDir?: string
   spawnLeg?: (args: LangSpawnArgs) => Promise<unknown>
-  notifyFn?: (payload: { level: "info" | "success" | "warning" | "error"; stage: string; event: string; message: string }) => void
+  notifyFn?: (payload: NotificationInput) => void
 }
 
 export async function resolveBatchLanguage(options: ResolveBatchLanguageOptions): Promise<LanguageResolution> {

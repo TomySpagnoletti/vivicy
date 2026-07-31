@@ -137,7 +137,7 @@ describe("status --json", () => {
     writeIssueIndex(target, ["ISSUE-1"])
     writeExtractionStatus(target, {
       phase: "extraction_blocked",
-      summary: "extraction_blocked: checks still red after 4 attempts",
+      summary: "the extraction was still not green after 4 attempts. Checks still red.",
     })
 
     const r = runCli(["status", "--dir", target, "--runtime-dir", runtimeDir, "--json"])

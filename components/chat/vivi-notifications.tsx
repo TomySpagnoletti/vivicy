@@ -238,7 +238,7 @@ function NotificationRow({
   onAskVivi: (text: string) => void
 }) {
   const t = useTranslations("notifications")
-  const text = notificationText(t, notification.stage, notification.event, notification.message)
+  const text = notificationText(t, notification)
   return (
     <li
       className={cn(
