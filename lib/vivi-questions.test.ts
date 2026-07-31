@@ -111,7 +111,6 @@ describe("parseQuestionsDirective — the validated fence", () => {
     expect(directive).toMatchObject({ questions: [{ question: "one two three" }] })
   })
 
-  // ZWJ/ZWNJ are not invisible — they are what makes these one glyph, one word, one cluster. `oneLine` also governs the owner's own typed answer, so stripping them would break "an answer is strictly equivalent to typing it".
   it.each([
     ["family emoji (ZWJ)", "Un Raspberry Pi chez moi \uD83D\uDC68\u200D\uD83D\uDC69\u200D\uD83D\uDC67"],
     ["Persian mi-ravad (ZWNJ)", "\u0645\u06CC\u200C\u0631\u0648\u062F"],

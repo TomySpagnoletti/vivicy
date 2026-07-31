@@ -12,7 +12,7 @@ export const SKELETON_DIRS = [
   ".vivicy/change-requests",
 ] as const
 
-// Mirrors resolveTargetDir's noise rule in lib/scaffold.ts — keep both in sync.
+// Hand-synced with resolveTargetDir's noise rule in lib/scaffold.ts — edit together.
 export function pruneGitkeeps(targetRoot: string): string[] {
   const pruned: string[] = []
   for (const rel of SKELETON_DIRS) {

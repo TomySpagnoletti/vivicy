@@ -7,7 +7,7 @@ export interface SkillRef {
   skill: string
 }
 
-// The ONE segment rule every part of a skill id passes: a plain path segment, never `.` or `..`. Ids arrive from LLM output and from chat text, and the skill part becomes a directory name, a symlink path, a git pathspec and a URL path element — `a/b@..` admitted here is a recursive delete of every installed bundle at the removal fallback.
+// Security boundary: ids arrive from LLM output and chat text and become directory names, symlink targets and git pathspecs — admitting `.` or `..` here is a recursive delete at the removal fallback.
 function skillSegment(value: string): string | null {
   return /^[\w.-]+$/.test(value) && value !== "." && value !== ".." ? value : null
 }
@@ -31,19 +31,16 @@ export function normalizeSkillId(raw: string): SkillRef | null {
   return url ? parseSkillId(`${url[1]}/${url[2]}@${url[3]}`) : parseSkillId(trimmed)
 }
 
-// The skill part of an id is the on-disk PRIMARY KEY: one bundle directory per name, whatever vendor published it. Every reader and writer of that layout derives its path here, so the installer, the removal fallback, the skills block's bullet and the preflight all name one location.
 export function skillBundleRel(skill: string): string {
   return `${AGENT_SKILLS_DIR}/${skill}`
 }
 
-// The one file that makes a bundle a skill: the preflight's presence probe and the pin's own sanity check ask for it by this name.
 export const SKILL_DOC_FILE = "SKILL.md"
 
 export function skillDocRel(skill: string): string {
   return `${skillBundleRel(skill)}/${SKILL_DOC_FILE}`
 }
 
-// The vivicy.json `skills` declaration is hand-editable by the owner, so both shapes they can legitimately write resolve to the bundle they mean: a full id names it by the part after `@`, a bare name IS the name. Anything else names no bundle and can only be reported missing — never quietly treated as satisfied.
 export function declaredSkillName(entry: string): string | null {
   const ref = parseSkillId(entry)
   return ref === null ? skillSegment(entry) : ref.skill

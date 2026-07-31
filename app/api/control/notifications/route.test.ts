@@ -1,6 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
-// The read contract (missing/empty => [], malformed lines skipped) and the append/dismiss round-trip are covered in lib/notifications.test.ts.
 const { readNotifications, dismissNotifications } = vi.hoisted(() => ({
   readNotifications: vi.fn(),
   dismissNotifications: vi.fn(),

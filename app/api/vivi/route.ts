@@ -15,7 +15,6 @@ export async function POST(request: Request) {
     const sessionId = typeof body?.sessionId === "string" ? body.sessionId : undefined
 
     const spawner = getSpawner()
-    // A read orphaned by a dead process is picked back up before this turn queues behind it, so the owner's next message never runs on a corpus Vivi silently never read.
     if (sessionId) recoverInterruptedReads(spawner, sessionId)
     const result = await runViviTurn(spawner, { sessionId, message })
     return Response.json({

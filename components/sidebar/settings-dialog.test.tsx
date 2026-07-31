@@ -93,10 +93,9 @@ describe("fast toggle compatibility", () => {
 
     const fast = screen.getByLabelText("Implementer fast mode")
     expect(fast).toBeDisabled()
-    // Radix opens the tooltip on focus of the trigger, not hover — hover is undeterministic under jsdom.
+    // Open the tooltip by focus, never hover: hover is nondeterministic under jsdom.
     const trigger = screen.getByLabelText("Implementer fast mode unavailable")
     trigger.focus()
-    // Radix renders the tooltip text twice (visible content + an a11y mirror) — assert at least one match.
     const reasons = await screen.findAllByText(/only available on Opus 4\.6–4\.8/i)
     expect(reasons.length).toBeGreaterThan(0)
   })
@@ -221,7 +220,6 @@ describe("save guard", () => {
   })
 
   test("Save is disabled when the persisted document is an invalid combo", async () => {
-    // The loader sets a persisted document verbatim into the draft (no validation) — the Save guard is the only thing that catches an invalid same-CLI-both-roles combo.
     stubSettings({
       implementer: { provider: "claude", model: "claude-opus-4-8", effort: "xhigh", fast: false },
       reviewer: { provider: "claude", model: "claude-opus-4-7", effort: "high", fast: false },

@@ -16,8 +16,7 @@ import project from "@/messages/en/project.json"
 import sidebar from "@/messages/en/sidebar.json"
 import workflow from "@/messages/en/workflow.json"
 
-/** The full message catalog, mirroring i18n/request.ts, so any component under
- *  test resolves the same namespaces it gets at runtime. */
+// Mirrors i18n/request.ts's namespace set — edit together, or a component resolves different messages under test than at runtime.
 const MESSAGES = { common, app, project, map, workflow, sidebar, chat, crs, agents, notifications, errors }
 
 function AllProviders({ children }: { children: ReactNode }) {
@@ -28,8 +27,6 @@ function AllProviders({ children }: { children: ReactNode }) {
   )
 }
 
-/** `render` pre-wrapped with `NextIntlClientProvider`, for any component that
- *  calls `useTranslations`. Drop-in replacement for RTL's `render`. */
 export function renderWithIntl(ui: ReactElement, options?: Omit<RenderOptions, "wrapper">) {
   return render(ui, { wrapper: AllProviders, ...options })
 }

@@ -97,7 +97,6 @@ describe("SectionRun states", () => {
     expect(screen.getByRole("button", { name: /Run/ })).toBeInTheDocument()
   })
 
-  // The live path the reviewer broke: the owner watches running -> crash on ONE mounted instance; the log must open on the transition, not only on a fresh page-load into exited.
   test("running -> exited transition auto-opens the log on the SAME mounted instance", async () => {
     vi.useFakeTimers()
     try {
@@ -125,7 +124,6 @@ describe("SectionRun states", () => {
         await vi.advanceTimersByTimeAsync(10)
       })
       expect(screen.getByRole("button", { name: /Stop/ })).toBeInTheDocument()
-      // running: the log is collapsed by default, so its tail text is not mounted
       expect(screen.queryByText(/watching for file changes/)).toBeNull()
 
       box.run = view({ phase: "exited", command: "npm run dev", log_tail: "Error: EADDRINUSE :::3000" })
@@ -133,7 +131,6 @@ describe("SectionRun states", () => {
         await vi.advanceTimersByTimeAsync(3000)
       })
       expect(screen.getByText(/stopped on its own/)).toBeInTheDocument()
-      // the log auto-opened on the live transition (phase-keyed remount), not only on a fresh mount
       expect(screen.getByText(/EADDRINUSE/)).toBeInTheDocument()
     } finally {
       vi.useRealTimers()

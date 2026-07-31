@@ -1,4 +1,4 @@
-// Client-safe: no filesystem imports here — client components pull this in directly without dragging in node:fs.
+// Client-safe: never add a filesystem import here.
 
 export interface CurrentProject {
   root: string

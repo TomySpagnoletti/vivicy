@@ -108,7 +108,7 @@ export function FolderBrowser({
     }
   }, [browse, listing, newFolderName, t, tErrors])
 
-  // onBusyChange reports ownBusy, not busy — folding in the parent's own disabled would echo it back as a useless round-trip.
+  // Report ownBusy, never busy: folding in the parent's own disabled echoes it straight back.
   const ownBusy = loading || creatingFolder
   useEffect(() => {
     onBusyChange?.(ownBusy)

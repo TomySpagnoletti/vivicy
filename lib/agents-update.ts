@@ -1,4 +1,4 @@
-// node:child_process must stay server-only here — importing this file into the client bundle breaks the build.
+// Server-only (node:child_process): never import this from a client component.
 
 import { execFile } from "node:child_process"
 
@@ -9,7 +9,7 @@ export interface UpdateCommand {
   args: readonly string[]
 }
 
-// The ONLY commands this route may run — exactly one fixed entry per agent, no templating/interpolation, or the closed surface breaks.
+// Closed allow-list: exactly one fixed entry per agent, never templated or interpolated.
 export const AGENT_UPDATE_COMMANDS: Record<AgentKey, UpdateCommand> = {
   claude: { cmd: "claude", args: ["update"] },
   codex: { cmd: "codex", args: ["update"] },
@@ -39,12 +39,11 @@ export function isAgentKey(value: unknown): value is AgentKey {
   return value === "claude" || value === "codex"
 }
 
-// A naive byte-slice could split a multi-byte UTF-8 code point, corrupting the last character into U+FFFD — must accumulate whole code points instead.
+// Never cap by byte-slicing: it splits a multi-byte code point into U+FFFD.
 export function capBytes(text: string, max: number): string {
   if (Buffer.byteLength(text, "utf8") <= max) return text
   let used = 0
   let out = ""
-  // for...of yields whole code points (surrogate pairs intact), unlike indexed access.
   for (const ch of text) {
     const size = Buffer.byteLength(ch, "utf8")
     if (used + size > max) break
@@ -62,7 +61,6 @@ export const nodeExec: AgentExec = (cmd, args) =>
       {
         timeout: UPDATE_TIMEOUT_MS,
         maxBuffer: MAX_UPDATE_OUTPUT_BYTES * 2,
-        // execFile spawns without a shell — switching to exec() here reintroduces injection risk.
         windowsHide: true,
       },
       (error, stdout, stderr) => {

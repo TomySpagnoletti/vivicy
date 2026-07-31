@@ -175,8 +175,6 @@ function walkFiles(dir: string): string[] {
   return out
 }
 
-// Binary docs (docx/pdf/odt/rtf) carry no scannable text in their raw bytes; extract first, then detect, so a batch of
-// French .docx files never collapses to 'und'. Undetectable files add no weight, so any real language dominates noise.
 async function summarizeBatch(batchDir: string): Promise<{ files: ManifestFile[]; language: string; findings: SecretFileFinding[] }> {
   const files: ManifestFile[] = []
   const weights = new Map<string, number>()
@@ -230,7 +228,7 @@ function writeBatchFile(batchDir: string, rel: string, bytes: Uint8Array): void 
   writeFileSync(abs, bytes)
 }
 
-// Explode is done ONCE by the caller (before any write) so an all-unsupported batch never scaffolds/touches the target; no_supported_files is a whole-batch refusal.
+// Explode before any write: an all-unsupported batch must never scaffold or touch the target.
 function explodeOrThrow(entries: RawEntry[]): { accepted: AcceptedEntry[]; rejected: RejectedFile[] } {
   const exploded = explode(entries)
   if (exploded.accepted.length === 0) {
@@ -239,7 +237,7 @@ function explodeOrThrow(entries: RawEntry[]): { accepted: AcceptedEntry[]; rejec
   return exploded
 }
 
-// Guard-less core shared by both entry points: mint → write → summarize → manifest, silent unless the scan finds a secret. A batch only ever lands under an already-governed root.
+// Guard-less core: every caller must have already proved the root governed.
 async function persistBatch(root: string, exploded: { accepted: AcceptedEntry[]; rejected: RejectedFile[] }): Promise<BatchResult> {
   const batchId = mintBatchId(root)
   const batchDir = path.join(root, UPLOADS_DIR, batchId)
@@ -296,7 +294,7 @@ export async function importIntoGoverned(input: { root: string; entries: RawEntr
   return persistBatch(input.root, explodeOrThrow(input.entries))
 }
 
-// manifest.json is the batch-complete marker: it is the LAST write of an import, so a batch dir lacking it is an interrupted, non-consumable batch the workflow must skip.
+// manifest.json is the batch-complete marker: it must stay the LAST write of an import.
 function writeManifest(batchDir: string, manifest: BatchManifest): void {
   writeFileSync(path.join(batchDir, MANIFEST_FILE), `${JSON.stringify(manifest, null, 2)}\n`)
 }

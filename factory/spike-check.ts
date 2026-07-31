@@ -100,7 +100,6 @@ export function runSpikeCheck(options: { repoRoot?: string | null } = {}): Spike
       }
     }
 
-    // Checks field LABELS are present, not evidence quality — content trust is the fidelity verifier's job, not this deterministic check.
     if (block && block.status === "verified") {
       const evidence = extractSection(text, "Evidence Required").toLowerCase()
       const missing = COMPLETION_FIELDS.filter((field) => !evidence.includes(field))
@@ -142,7 +141,7 @@ export function runSpikeCheck(options: { repoRoot?: string | null } = {}): Spike
   return done(errors, `${files.length} spike(s)`)
 }
 
-// Filtering to well-formed spikes keeps gate_id inherently unique — other gate_id-keyed Maps in this file rely on that and silently drop collisions otherwise.
+// Never relax the well-formed filter: every gate_id-keyed Map built from this list assumes uniqueness and drops collisions silently.
 export function readSpikes(root: string | null = repoRoot): Spike[] {
   const spikes: Spike[] = []
   if (!root) return spikes
@@ -170,7 +169,6 @@ export function readSpikeGateStatuses(root: string | null = repoRoot): Map<strin
   return new Map(readSpikes(root).map((spike) => [spike.gate_id, spike.status]))
 }
 
-// Verified only if its entire transitive gated_by chain is also verified — guards against a hand-flipped spike silently unblocking a dependent issue.
 export function transitivelyVerifiedGates(root: string | null = repoRoot): Set<string> {
   const spikes = readSpikes(root)
   const byGate = new Map(spikes.map((spike) => [spike.gate_id, spike]))
@@ -257,7 +255,7 @@ function validateSpikeGatingGraph(spikes: Spike[], fail: FailFn): void {
 }
 
 function findGateCycle(nodes: string[], edgesOf: (g: string) => string[]): string[] | null {
-  const color = new Map<string, number>(nodes.map((n) => [n, 0])) // 0 white, 1 gray (on path), 2 black
+  const color = new Map<string, number>(nodes.map((n) => [n, 0]))
   const path: string[] = []
   let cycle: string[] | null = null
   const visit = (n: string) => {

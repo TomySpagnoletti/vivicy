@@ -4,7 +4,6 @@ import path from "node:path"
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
-// ControlError stays real (not mocked) — the route's `instanceof` check on it depends on referential identity.
 const { runExtract, startSkillsInstall, startSupervisor, startDocPrep } = vi.hoisted(() => ({
   runExtract: vi.fn(),
   startSkillsInstall: vi.fn(),
@@ -31,7 +30,6 @@ function postJson(body: unknown): Request {
   })
 }
 
-// lib/notifications is unmocked and its failure arms write for real — isolate to a temp dir so tests don't touch the real .vivicy-runtime.
 let runtimeDir: string
 let prevRuntimeEnv: string | undefined
 

@@ -7,7 +7,7 @@ export const FACTORY_PROMPTS_DIR = resolve(FACTORY_DIR, "prompts")
 
 export const FACTORY_REHEARSAL_DIR = resolve(FACTORY_DIR, "rehearsal")
 
-// Deliberately no directory-walking (../..) fallback: Vivicy is standalone, so an unset VIVICY_TARGET_ROOT means NO target — never a guessed ancestor directory.
+// Never add a directory-walking fallback: an unset VIVICY_TARGET_ROOT means NO target, never a guessed ancestor.
 export function resolveTargetRoot(env: NodeJS.ProcessEnv = process.env): string | null {
   const override = env.VIVICY_TARGET_ROOT
   if (override && override.trim().length > 0) return resolve(override)

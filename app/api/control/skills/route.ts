@@ -2,7 +2,6 @@ import { ControlError, readSkillsReport, readSkillUsage, removeSkills, startSkil
 import { appendNotification } from "@/lib/notifications"
 import { getSpawner } from "@/lib/spawner"
 
-// Launches a detached installer process — requires the Node runtime, not Edge.
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 

@@ -97,7 +97,6 @@ beforeEach(() => {
   process.env.VIVICY_TARGET_ROOT = targetRoot
   delete process.env.VIVICY_FAKE_SPAWN
 
-  // getRuntimeDir() is relative to cwd; isolate it per test.
   prevCwd = process.cwd()
   process.chdir(runtimeDir)
 })
@@ -683,7 +682,6 @@ describe("readRetroReport", () => {
 })
 
 describe("startSkillsInstall", () => {
-  // The one file both clients and the stage address; the app only ever READS it.
   function skillsStageLockPath(): string {
     return path.join(getProjectRuntimeDir(getRuntimeDir(), targetRoot), "skills-install.lock")
   }
@@ -724,7 +722,6 @@ describe("startSkillsInstall", () => {
     expect(args[args.indexOf("--ids") + 1]).toBe("acme/a@x,acme/b@y")
   })
 
-  // Every in-flight phase refuses, `removing` included: the set is imported from lib/skills-report, so a phase the writer adds can never read as settled here.
   it.each(SKILLS_IN_FLIGHT_PHASES)("refuses while a fresh in-flight report says the stage is %s", (phase) => {
     writeSkillsReport({ phase, updated_at: new Date().toISOString() })
     const { spawner, calls } = makeFakeSpawner()
@@ -738,7 +735,6 @@ describe("startSkillsInstall", () => {
     expect(calls.spawnDetached).toHaveLength(0)
   })
 
-  // The stage claims that lock itself, where the writes are; this is the probe that turns a supervised stage — which writes its report only after it boots — into an immediate 409 instead of a second spawned installer.
   it("refuses while the STAGE holds the lock, whatever the report says", () => {
     const { spawner, calls, alive } = makeFakeSpawner()
     alive.add(5150)
@@ -778,7 +774,6 @@ describe("startSkillsInstall", () => {
     expect(calls.run).toHaveLength(0)
   })
 
-  // A stage that ends `failed` writes a TERMINAL report and its own notification; the route adjudicates on `phase`, so the reason the owner has to act on must survive the child's non-zero exit instead of being replaced by its stderr.
   it("removeSkills returns a terminal failed report rather than a generic spawn error", async () => {
     writeSkillsReport({ phase: "green", mode: "remove", summary: "a PREVIOUS run", updated_at: "2026-07-04T09:00:00Z" })
     const { spawner } = makeFakeSpawner()
@@ -797,7 +792,6 @@ describe("startSkillsInstall", () => {
     expect(report.summary).toContain("CLAUDE.md refused the project skills block")
   })
 
-  // A refused child (a lock it did not win) or a crashed one writes NO report, and `failed` is now a normal outcome — so a report that predates the invocation must never be answered as its result. The stamp the prior report carried is the discriminator.
   it("removeSkills refuses to answer with a report this invocation did not produce", async () => {
     for (const prior of ["failed", "green"]) {
       writeSkillsReport({ phase: prior, mode: "remove", summary: `a PREVIOUS run ended ${prior}`, updated_at: "2026-07-04T09:00:00Z" })
@@ -834,7 +828,6 @@ describe("startSkillsInstall", () => {
     const { spawner, calls } = makeFakeSpawner()
     spawner.run = async (options) => {
       calls.run.push({ args: options.args, env: options.env })
-      // The real stage stamps `updated_at` at every emit; the app reads that stamp to tell this run's report from a previous one.
       writeSkillsReport({
         phase: "green",
         mode: "remove",
@@ -950,7 +943,6 @@ describe("path safety", () => {
   it("keeps the lock inside the PROJECT's runtime namespace", () => {
     const { spawner } = makeFakeSpawner()
     startSupervisor(spawner)
-    // Lock path derives from the shared lib/project-runtime.ts helper (app + CLI) — same target, same file.
     const lock = path.join(getProjectRuntimeDir(getRuntimeDir(), targetRoot), "run-state.json")
     expect(existsSync(lock)).toBe(true)
     expect(lock.startsWith(getRuntimeDir())).toBe(true)

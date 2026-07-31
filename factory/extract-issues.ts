@@ -262,7 +262,7 @@ async function runExtraction(options: ExtractIssuesOptions, layoutBaseline: { di
   const version = options.version ?? resolveFreezeVersion(repoRoot)
   const openCycle = readSpecCycle(repoRoot)
   const cfg: Record<string, unknown> = { ...DEFAULT_CONFIG, ...(options.cfg ?? {}) }
-  // resolveAgentLegs enforces implementer != reviewer CLI: the fidelity verifier must never be the extractor, or the check becomes self-review.
+  // The fidelity verifier must never be the extractor's own CLI; resolveAgentLegs enforces implementer != reviewer.
   const legs: ResolvedLegs = resolveAgentLegs(process.env)
   const spawnExtractor = options.spawnExtractor ?? makeDefaultSpawnExtractor(options, cfg, legs)
   const spawnVerifier = options.spawnVerifier ?? makeDefaultSpawnVerifier(options, cfg, legs)
@@ -292,7 +292,6 @@ async function runExtraction(options: ExtractIssuesOptions, layoutBaseline: { di
     skipped: spikeProving.skipped.length,
   }
 
-  // Freeze must precede any record(): extraction-status.json lives under a tracked path, and doc-baseline refuses to freeze a dirty tree.
   let frozen: FrozenBaseline | null = findFrozenManifest(repoRoot)
   let froze = false
   if (frozen && !verifyFrozenManifest({ repoRoot, manifestPath: frozen.manifestPath, baselineId: frozen.baselineId })) {
@@ -317,7 +316,7 @@ async function runExtraction(options: ExtractIssuesOptions, layoutBaseline: { di
   let lastMapReview: MapReviewAggregate | null = null
   let lastTimeoutReason: string | null = null
   const maxAttempts = maxRetries + 1
-  // Snapshot taken before the extractor can touch the map, so runGenerateMap's reconcileAgainst can self-heal layout_* fields back to it afterward.
+  // Snapshot the map BEFORE the extractor can touch it: runGenerateMap's reconcileAgainst restores the layout_* fields from it afterwards.
   const mapAbs = resolve(repoRoot, ".vivicy/architecture-map/architecture-map.yml")
   let layoutBaselinePath: string | null = null
   const mapMode = existsSync(mapAbs) ? "reused" : "authored"
@@ -327,7 +326,7 @@ async function runExtraction(options: ExtractIssuesOptions, layoutBaseline: { di
     writeFileSync(layoutBaselinePath, readFileSync(mapAbs, "utf8"))
   }
   const spikeMode = readSpikes(repoRoot).length > 0 ? "integrate" : "extract"
-  // Snapshot taken before re-authoring overwrites source-map.json, so Change-Control reopening (runReopen) can diff prior vs current deterministically.
+  // Snapshot source-map.json BEFORE re-authoring overwrites it: runReopen diffs this prior against the current one.
   const sourceMapAbs = resolve(repoRoot, ".vivicy/requirements/source-map.json")
   const priorSourceMap = readJsonOrNull(sourceMapAbs)
 
@@ -421,7 +420,6 @@ async function runExtraction(options: ExtractIssuesOptions, layoutBaseline: { di
       continue
     }
 
-    // Hard gate, not a post-green afterthought: a non-parsing architecture-map.yml (exit != 0) is NOT green — its error feeds back to the extractor.
     record({ phase: "mapping", attempt })
     const map = runGenerateMap({ repoRoot, reconcileAgainst: layoutBaselinePath })
     lastMap = map
@@ -799,7 +797,7 @@ export function defaultReadVerdict({ repoRoot }: { repoRoot: string }): Verdict 
   return { faithful, problems }
 }
 
-// Cleared both before a verifier leg and after each read: without the pre-clear, a dead/non-writing verifier leg would read back a stale faithful:true from a PRIOR attempt.
+// The pre-clear must run before every verifier leg: a leg that dies without writing would otherwise read back a prior attempt's faithful:true.
 function clearVerdict(repoRoot: string): void {
   rmSync(resolve(repoRoot, VERDICT_REL), { force: true })
 }
@@ -831,7 +829,6 @@ function defaultEmitStatus(status: StatusEvent, repoRoot: string): void {
   if (mapped) notify({ ...mapped, event: `extraction_${status.phase}` })
 }
 
-// If the extractor stated the project's real command from the canonical, fill vivicy.json — but only while that field is the sentinel; never override an established command, never guess when the extractor stated nothing.
 function recordExtractedCommand(
   repoRoot: string,
   opts: {
@@ -1054,7 +1051,6 @@ function countIssues(repoRoot: string): number {
   }
 }
 
-// Document preparation is the FIRST workflow stage: it turns the latest upload batch into canonical docs the freeze then snapshots, so it must run before extractIssues() (never after). Staleness-gated like the supervisor's skills auto-run; non-fatal.
 function maybeRunDocPrep(repoRoot: string): void {
   const report = readJsonOrNull(resolve(repoRoot, DOC_PREP_REPORT_REL)) as DocPrepReport | null
   if (!docPrepStageNeeded(repoRoot, report)) return

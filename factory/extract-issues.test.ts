@@ -401,7 +401,6 @@ describe("extractIssues — S2 spike mode + S5 map mode", () => {
 
 describe("extractIssues — S3 proving before freeze (order) + the spike-verification gate", () => {
   it("runs the S3 proving stage BEFORE the freeze (S3 precedes S4)", async () => {
-    // Spike proving must run before the freeze — correcting canonical after freezing would force a re-freeze on every correction.
     cpSync(resolve(FIXTURE, ".vivicy/canonical"), resolve(temp, ".vivicy/canonical"), { recursive: true })
     cpSync(resolve(FIXTURE, "README.md"), resolve(temp, "README.md"))
 
@@ -531,7 +530,7 @@ after(() => {
   rmSync(HERMETIC_GIT_HOME, { recursive: true, force: true })
 })
 
-// HOME and XDG_CONFIG_HOME are redirected, not just the config files: git reads its DEFAULT per-user excludes ($XDG_CONFIG_HOME/git/ignore, else $HOME/.config/git/ignore) whether or not core.excludesFile is set, and a per-user rule can only ADD ignores — which silently turns every "not tracked" / "tree clean" assertion green.
+// HOME and XDG_CONFIG_HOME must stay redirected on top of the config vars: git reads its per-user excludes whatever core.excludesFile says, and one inherited ignore turns every "not tracked" / "tree clean" assertion green.
 function git(root: string, args: string[]) {
   const r = spawnSync("git", args, {
     cwd: root,
@@ -766,7 +765,6 @@ describe("extractIssues — freeze-if-needed branch", () => {
 
 describe("extractIssues — freeze runs before ANY status emission (live-proof regression)", () => {
   it("emits NO status before the freeze seam runs, so the freeze never sees a tree we dirtied", async () => {
-    // The freeze must be the first observable side effect — any status write before it would dirty the tree doc-baseline requires clean.
     cpSync(resolve(FIXTURE, ".vivicy/canonical"), resolve(temp, ".vivicy/canonical"), { recursive: true })
     cpSync(resolve(FIXTURE, "README.md"), resolve(temp, "README.md"))
 
@@ -1042,7 +1040,7 @@ describe("extractIssues — bounded retries / blocked (deterministic)", () => {
 
   it("a TIMED-OUT extractor leg is retried, then extraction_blocked with the timeout reason (never hangs)", async () => {
     seedInputs(temp)
-    // Mirrors leg-timeout.ts/spawnLegSync's return shape for a killed leg, so a real timeout is exercised faithfully.
+    // This fake must keep mirroring spawnLegSync's killed-leg return shape, or the timeout path is never really exercised.
     const calls = []
     const spawnExtractor = async (ctx: ExtractorCtx) => {
       calls.push(ctx)
@@ -1193,7 +1191,6 @@ describe("formatMapError", () => {
 })
 
 describe("scaffold + fixture gitignore the COMPLETE never-commit set, and ONLY that", () => {
-  // NEVER_COMMIT is exhaustive — every other Vivicy output is committed, so `git add -A` after every checkpoint is safe. The secret excludes (dotenv AND direnv) ride here because that same add -A would otherwise commit and push the owner's real values; `.vivicy-tmp.*` because it would otherwise commit the temp a crash left behind mid managed-file replacement.
   const NEVER_COMMIT = [
     ".env",
     ".env.*",
@@ -1205,9 +1202,7 @@ describe("scaffold + fixture gitignore the COMPLETE never-commit set, and ONLY t
     ".vivicy/development/transcripts/",
     ".vivicy-tmp.*",
   ]
-  // A re-include is the inverse of a never-commit entry, and the env family has none anywhere: the managed block is appended at EOF, so the first marker repair would re-append it BELOW any `!` line and flip the placeholder to ignored for good. The committed template reaches history TRACKED (scaffold force-adds `.env.example` into the initial commit), which no ignore rule can undo.
   const NEVER_RE_INCLUDED = ["!.env.example", "!.env.sample"]
-  // The scaffold emits its temp pattern from the same constant its writer builds the temp name with, so no such literal line exists in its SOURCE; the RENDERED greenfield output is the oracle there, pinned exactly-once and inside the block by lib/scaffold.test.ts, and re-proven at git level by its abandoned-temp cases. Grepping the identifier here would pin a name, not a rule.
   const EMITTED_FROM_A_CONSTANT = new Set([".vivicy-tmp.*"])
   const MUST_STAY_TRACKED = [
     "architecture-data.json",

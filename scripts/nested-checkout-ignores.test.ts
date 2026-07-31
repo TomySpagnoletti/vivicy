@@ -43,7 +43,6 @@ describe("nested checkouts are invisible to the repo's file-discovering tools", 
     expect(await eslint.isPathIgnored(LINTED_SOURCE_FILE)).toBe(false)
   })
 
-  // The format gate carries no ignore entry of its own for these: prettier defaults --ignore-path to .gitignore + .prettierignore, so the repo's own gitignore lines are what keep `npm run format:check` blind to a phantom copy of the whole tree.
   it("prettier reads .gitignore, so neither nested checkout reaches the format gate", () => {
     const root = syntheticRoot()
     copyFileSync(path.join(REPO_ROOT, ".gitignore"), path.join(root, ".gitignore"))
@@ -90,7 +89,6 @@ describe("nested checkouts are invisible to the repo's file-discovering tools", 
   })
 })
 
-// The machine must not decide the answer: HOME and XDG_CONFIG_HOME are redirected too, because git reads its DEFAULT per-user excludes file ($XDG_CONFIG_HOME/git/ignore, else $HOME/.config/git/ignore) whether or not core.excludesFile is set — neutralizing the CONFIG files alone leaves a machine whose per-user ignore lists node_modules answering for this repo's rules.
 function git(cwd: string, args: string[]): { status: number; stdout: string } {
   const r = spawnSync("git", ["-c", "user.email=t@vivicy.local", "-c", "user.name=Test", ...args], {
     cwd,
@@ -126,7 +124,6 @@ describe("the repo's own .gitignore covers node_modules in every form git can se
     expect(git(root, ["status", "--porcelain"]).stdout.trim(), "nothing of either form is left for a later add -A").toBe("")
   })
 
-  // Why `.prettierignore` may keep the trailing slash the git carriers dropped — an upstream default the repo now depends on, so it is pinned rather than assumed.
   it("prettier never descends a symlinked directory, so its ignore rules are never consulted for one", () => {
     const base = syntheticRoot()
     const project = path.join(base, "project")

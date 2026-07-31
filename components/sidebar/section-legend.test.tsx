@@ -22,7 +22,6 @@ function node(id: string, kind: string): MapNode {
 const NODES = [node("a", "service"), node("b", "agent")]
 
 beforeEach(() => {
-  // Persisted-open state lives in a module store AND localStorage — reset both so each test starts collapsed.
   __resetPersistedBooleanStoresForTests()
   window.localStorage.clear()
 })

@@ -3,7 +3,6 @@ import { dismissNotifications, readNotifications } from "@/lib/notifications"
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 
-// The `vivicy notifications` CLI reads this same log file; a missing/empty log is an empty list here, not an error.
 export async function GET() {
   try {
     return Response.json({ ok: true, notifications: readNotifications() })
@@ -12,7 +11,6 @@ export async function GET() {
   }
 }
 
-// Dismissing an already-dismissed or unknown id is a harmless no-op, not an error.
 export async function POST(request: Request) {
   let body: { id?: unknown; all?: unknown }
   try {

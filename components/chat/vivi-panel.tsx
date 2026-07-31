@@ -37,23 +37,21 @@ import { NotificationsFeed, pendingCrs, useNotificationsFeed, visibleNotificatio
 type PanelTab = "chat" | "notifications"
 
 const RESUME_POLL_MS = 5_000
-// The backstop, derived from the very timeouts that bound a turn server-side (every round is one leg, each leg dies at the cap) plus a margin — never a hand-tuned literal that would drift from them. The primary signal is the server's own liveness flag below; this only catches a turn that outlives every bound the factory enforces.
+// Never hand-tune this backstop: it must stay derived from the server-side turn ceiling or it drifts from the bound the factory enforces.
 const RESUME_POLL_MAX = Math.ceil((VIVI_TURN_CEILING_MS * 1.2) / RESUME_POLL_MS)
 
-// A card answer is a RECORDED line, not a dispatched turn: only the one that empties its pile sends the batch, exactly as pressing Send sends a typed line. Without this the thread would claim Vivi was thinking while the owner is still working through the pile.
 function stackComplete(turns: ViviTurn[], stackId: string): boolean {
   const stack = turns.find((turn) => turn.questions?.id === stackId)?.questions
   return stack !== undefined && remainingQuestions(stack, turns).length === 0
 }
 
-// A thread is awaiting Vivi when she owes it an answer: the last turn is a message the owner actually sent, or a batch anywhere in the thread is still being read (position-independent — the reading turn's own action rounds, or another turn finishing ahead of it, append after the acknowledgment).
 function awaitingVivi(turns: ViviTurn[]): boolean {
   const last = turns[turns.length - 1]
   const sent = last?.role === "user" && (last.answered === undefined || stackComplete(turns, last.answered.stackId))
   return sent || turns.some((turn) => turn.imported?.read?.status === "pending")
 }
 
-// Identity of what is being waited ON, so a give-up survives the owner's next message instead of being erased by it, and a new wait never inherits an old one's verdict.
+// Key the wait to WHAT is awaited, never to the session alone: a verdict must not be erased by the next message nor inherited by the next wait.
 function waitIdentity(turns: ViviTurn[]): string | null {
   const reading = turns.find((turn) => turn.imported?.read?.status === "pending")
   if (reading) return `read:${reading.imported!.batchId}`
@@ -114,7 +112,7 @@ export function ViviPanel({
   const closeRef = useRef<HTMLButtonElement | null>(null)
   const hydratedRef = useRef(false)
 
-  // Bumps on thread-identity reset (project switch); an in-flight response captured before the bump is discarded instead of written into the wrong thread.
+  // Guard every post-await write on this epoch: it bumps on a thread-identity reset, so a stale in-flight response never lands in the new thread.
   const epochRef = useRef(0)
   const sessionIdRef = useRef(sessionId)
   useEffect(() => {
@@ -134,11 +132,10 @@ export function ViviPanel({
     else pendingFocusRef.current = true
   }, [])
 
-  // Deliberately unconditional (not gated on `open`) so the closed-panel launcher badge stays live.
   const { notifications, crs, reload: reloadFeed } = useNotificationsFeed()
   const attentionCount = visibleNotifications(notifications).length + pendingCrs(crs).length
 
-  // Sessions are per-project on the server; the initial undefined→known transition is a resolution, not a switch, so it skips the reset below.
+  // Sessions are per-project on the server, and the initial undefined→known transition is a resolution, not a switch.
   const prevRootRef = useRef(projectRoot)
   useEffect(() => {
     if (prevRootRef.current === projectRoot) return
@@ -151,7 +148,7 @@ export function ViviPanel({
     setTurns([])
     setSendError(null)
     setImportNote(null)
-    // Reset here too: the old send's/import's epoch-guarded finally won't clear it, and skipping this would strand the new project "thinking" behind a stale in-flight turn.
+    // Reset these two here: the old turn's epoch-guarded finally never will, and the new project would hang "thinking".
     setSending(false)
     setImporting(false)
   }, [projectRoot])
@@ -167,11 +164,10 @@ export function ViviPanel({
           sessions?: { sessionId: string }[]
         }
         if (cancelled) return
-        // A failed fetch leaves hydratedRef false so the next effect run retries, instead of latching on a transient error.
         if (!res.ok || body.ok === false) return
         const newest = body.sessions?.[0]
         if (!newest) {
-          // No prior session is still a completed attempt — latch so the empty index isn't refetched every render.
+          // An empty index is still a completed attempt: latch, or every render refetches it.
           hydratedRef.current = true
           return
         }
@@ -179,7 +175,6 @@ export function ViviPanel({
         if (cancelled || restored === null) return
         setSessionId(newest.sessionId)
         setTurns(restored.turns)
-        // Latches only on a successful, non-cancelled restore, so a mid-fetch cancellation retries next run instead of getting stuck unhydrated.
         hydratedRef.current = true
       } catch {}
     })()
@@ -188,7 +183,7 @@ export function ViviPanel({
     }
   }, [open, projectRoot, hasTarget])
 
-  // Focus follows the panel (inert would otherwise drop it to body on close); falls back to the close button when the composer doesn't exist yet (onboarding).
+  // Focus must follow the panel: `inert` on close otherwise drops it to <body>; the close button is the fallback before the composer exists.
   const prevOpenRef = useRef(open)
   useEffect(() => {
     if (open) (textareaRef.current ?? closeRef.current)?.focus()
@@ -215,9 +210,8 @@ export function ViviPanel({
 
   const send = useCallback(async () => {
     const message = draft.trim()
-    // Gate the action itself, not just the callsites: an in-flight import has no session yet, so a concurrent send would mint a SECOND server session and orphan one of the two (the import ack or the message reply). aria-disabled on the button is only the visual echo of this guard.
+    // Guard inside the action, never only at the callsite: a send racing an import with no session yet mints a SECOND server session and orphans one of the two.
     if (message.length === 0 || sending || importing) return
-    // Capture the era before the awaits; every post-await write is guarded on it.
     const epoch = epochRef.current
     setDraft("")
     setSendError(null)
@@ -272,7 +266,6 @@ export function ViviPanel({
     }
   }, [draft, sending, importing, sessionId, onActivity, t, tErrors])
 
-  // The paperclip beside Send: the file pick IS the whole action (P2), so it uploads straight to the current session — no chat message, the server appends Vivi's deterministic acknowledgment. Epoch-guarded exactly like send so a project switch mid-upload discards the stale result. Gated on `sending` too (the symmetric no-session-yet race): a concurrent send + import would each mint their own session.
   const importDocs = useCallback(
     async (files: File[]) => {
       if (files.length === 0 || importing || sending) return
@@ -335,7 +328,6 @@ export function ViviPanel({
     [send]
   )
 
-  // A decided card re-syncs the thread from the transcript (the decided stamp and any appended turns live there); a dismiss doesn't count as activity.
   const onCardDecided = useCallback(
     (action: ViviCardAction) => {
       const cardSession = sessionId
@@ -343,7 +335,6 @@ export function ViviPanel({
         const epoch = epochRef.current
         void (async () => {
           const restored = await fetchSessionTurns(cardSession)
-          // Discard if the thread moved on mid-resync: an epoch bump or the live sessionId changed underneath this card (project switch).
           if (epoch !== epochRef.current || sessionIdRef.current !== cardSession || restored === null) return
           setTurns(restored.turns)
         })()
@@ -355,7 +346,6 @@ export function ViviPanel({
 
   const awaitingReply = !sending && !!sessionId && awaitingVivi(turns)
   const reading = turns.some((turn) => turn.imported?.read?.status === "pending")
-  // Keyed to WHAT is awaited (the pending batch, or the owner's own message by its timestamp), so a verdict cannot be erased by the next message or inherited by the next wait.
   const identity = waitIdentity(turns)
   const waitKey = sessionId && identity ? `${sessionId}:${identity}` : null
   const lostTurn = lostWait !== null && lostWait === waitKey
@@ -377,7 +367,7 @@ export function ViviPanel({
           setTurns(restored.turns)
           return
         }
-        // The server's own liveness beats any wall-clock guess: still awaiting with no turn running means the turn died with its process.
+        // busy=false while still awaiting means the turn died with its process — the server's liveness beats any wall-clock guess.
         if (!restored.busy) {
           clearInterval(timer)
           setLostWait(waitKey)
@@ -387,7 +377,6 @@ export function ViviPanel({
     return () => clearInterval(timer)
   }, [awaitingReply, sessionId, waitKey])
 
-  // An answered card re-syncs the thread from the transcript (the answer line lives there); when the last one empties the pile, the composer takes the focus the card just gave up — but only if the pile still held it.
   const onQuestionAnswered = useCallback(
     ({ remaining, takeFocus }: QuestionAnswerOutcome) => {
       const answerSession = sessionId
@@ -516,7 +505,6 @@ export function ViviPanel({
                         {threadRenderOrder(turns).map((i) => {
                           const turn = turns[i]
                           const remaining = turn.questions ? remainingQuestions(turn.questions, turns) : null
-                          // A pile with nothing left on it leaves no trace: the answers are the lines it became.
                           if (remaining?.length === 0) return null
                           return (
                             <MessageScrollerItem key={i} messageId={String(i)}>
@@ -700,7 +688,6 @@ function TurnView({
   return null
 }
 
-// The answered card's whole trace in the thread: the question it settled, muted, above the owner's own word. It is an ordinary user turn — the two halves are the one serialized line, split back apart for reading.
 function AnsweredLine({ question, answer }: { question: string; answer: string }) {
   return (
     <Message align="end">

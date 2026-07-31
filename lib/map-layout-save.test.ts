@@ -15,7 +15,6 @@ import {
   type LayoutSavePayload,
 } from "@/lib/map-layout-save"
 
-// Exact source style the line-oriented patcher depends on: 2-space "- " list items, 4-space props.
 const SOURCE = `version: 1
 updated: "2026-06-22"
 name: "Test Map"

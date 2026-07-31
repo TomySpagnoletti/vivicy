@@ -12,7 +12,7 @@ const FACTORY_DIR = dirname(fileURLToPath(import.meta.url))
 const REPO_ROOT = resolve(FACTORY_DIR, "..")
 const MODULE_URL = pathToFileURL(join(FACTORY_DIR, "cleanup-tree.ts")).href
 
-// The writer must be its OWN process: a write from inside this process could never race a synchronous removal. Names and directories cycle over a BOUNDED set (unbounded ones grow the tree by ~100k files per second of race) but the set is wide on purpose: a remover only loses the race if entries reappear between its walk and its rmdir, so the tree must take long enough to walk that the writer cannot possibly stay idle across it.
+// The writer must stay in its OWN process (an in-process write cannot race a synchronous removal) and cycle a bounded but wide name set (a narrower tree walks faster than the writer can make entries reappear).
 const WRITER_SOURCE = `const { mkdirSync, writeFileSync } = require("node:fs");
 const dir = process.argv[1];
 const until = Number(process.argv[2]);
@@ -27,7 +27,7 @@ while (Date.now() < until) {
 }
 `
 
-// Hosts one obstruction per mode, lets cleanupTree fail against it, then clears it and exits: the announcements and the exit drain only exist in another process's stderr, since they are written with writeSync(2) that no in-process stub can intercept.
+// The announcements and the exit drain are written with writeSync(2), which no in-process stub can intercept: they can only be read from another process's stderr.
 const HOST_SOURCE = `const { spawn } = require("node:child_process");
 const { chmodSync, existsSync, mkdirSync, writeFileSync } = require("node:fs");
 const [mode, target, moduleUrl, writerSource] = process.argv.slice(1);
@@ -219,7 +219,6 @@ test("a failure nothing can retry (a path that is not a string) is announced onc
   }
 })
 
-// The artifact wrapper (npm test / npm run e2e) removes trees the just-exited webServer and its children may still be flushing into; the real script bytes run against a temp repo root, so the exit-code contract is proven rather than asserted. The obstruction here is a permission-blocked subdirectory rather than a live writer — the wrapper's contract does not depend on WHY a tree resists, and this way the case is deterministic instead of racing.
 test("the artifact wrapper preserves the wrapped command's exit code when an artifact tree cannot be removed, and keeps cleaning past it", async () => {
   const repo = mkdtempSync(resolve(tmpdir(), "cleanup-tree-test-wrapper-"))
   const blocked = join(repo, "test-results", "blocked")

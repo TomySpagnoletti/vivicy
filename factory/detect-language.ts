@@ -18,7 +18,6 @@ const VERDICT_FILE = "language.json"
 const SAMPLE_LINE_CAP = 40
 const SAMPLE_CHAR_CAP = 4000
 
-// Verified Codex model family (gpt-5.6 Sol/Terra/Luna): Luna is the fast, cheap tier — the right fit for a one-shot language verdict.
 const DEFAULT_LANG_MODEL = "gpt-5.6-luna"
 const DEFAULT_LANG_EFFORT = "low"
 
@@ -47,9 +46,6 @@ export interface ResolveBatchLanguageOptions {
   notifyFn?: (payload: { level: "info" | "success" | "warning" | "error"; stage: string; event: string; message: string }) => void
 }
 
-// P5: the leg proposes a per-file + dominant ISO 639-3 verdict; this orchestrator validates it and writes the manifest.
-// The manifest language field is updated in place (temp+rename via atomicWriteJson) so a crash mid-update never leaves a
-// half-written manifest: the batch-complete marker (manifest present + parseable) holds at every instant, only `language` flips.
 export async function resolveBatchLanguage(options: ResolveBatchLanguageOptions): Promise<LanguageResolution> {
   const { repoRoot, batchDir } = options
   const notifyFn =
@@ -94,9 +90,7 @@ export async function resolveBatchLanguage(options: ResolveBatchLanguageOptions)
   const spawnLeg = options.spawnLeg ?? makeDefaultLangLeg(options)
   try {
     await spawnLeg({ repoRoot, inputDir, outputDir })
-  } catch {
-    // A crashed leg is a failed verdict, never a thrown orchestrator — fall through to the und fallback.
-  }
+  } catch {}
 
   const verdict = readVerdict(join(outputDir, VERDICT_FILE))
   clearScratch(repoRoot)
@@ -180,7 +174,6 @@ function clearScratch(repoRoot: string): boolean {
   return cleanupTree(resolve(repoRoot, SCRATCH_REL))
 }
 
-// Mirrors prepare-docs' makeDefaultSpawnLeg, but binds a fixed fast Codex leg (default gpt-5.6-luna) instead of the implementer leg.
 function makeDefaultLangLeg(options: ResolveBatchLanguageOptions): (args: LangSpawnArgs) => Promise<unknown> {
   const promptsDir = options.promptsDir ?? FACTORY_PROMPTS_DIR
   const env = options.env ?? process.env

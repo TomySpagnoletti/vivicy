@@ -136,7 +136,6 @@ describe("Page — first-boot loading state", () => {
   })
 })
 
-// Wiring only — the one-shot/governed contract itself is pinned in hooks/use-reopen-persisted-project.test.tsx.
 describe("Page — a returning session re-opens its persisted project through the selection seam", () => {
   const GOVERNED: CurrentProject = { root: "/repos/acme", name: "acme", hasCanonicalSpec: true }
 
@@ -156,7 +155,6 @@ describe("Page — a returning session re-opens its persisted project through th
     vi.stubGlobal("fetch", fetchMock)
     const seamPosts = () => calls.filter((c) => c.url.endsWith("/api/project") && c.init?.method === "POST")
 
-    // StrictMode, because the App Router runs it by default: the mount-time double-invoke must not double-fire the seam.
     renderWithIntl(
       <StrictMode>
         <Page />

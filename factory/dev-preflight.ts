@@ -17,7 +17,6 @@ export interface SkillsPreflightDeps {
   announce?: (line: string) => void
 }
 
-// Usable means the bundle in THIS tree is the skill the project agreed to run: `.agents/skills/<name>/SKILL.md` is what the skills block hands every leg and what a per-issue worktree cut from HEAD carries, so a skill living only in the machine's user-level store satisfies nothing this project's agents can read — and for a PINNED skill the bytes must additionally BE the pinned ones, since bytes nobody vouched for are not that skill but whatever replaced it. The declared id is matched by its own on-disk name, exactly, never as a substring of some tool's output, where `vendor/next-auth@auth`'s bundle would answer for `vendor/x@auth`.
 export function declaredSkillStates(targetRoot: string | null): DeclaredSkillState[] {
   if (targetRoot === null) return []
   return readSkillDeclarations(targetRoot).map(({ id, pin }) => {
@@ -28,7 +27,6 @@ export function declaredSkillStates(targetRoot: string | null): DeclaredSkillSta
   })
 }
 
-// Zero humans in the loop: a pinned bundle that is gone, or that no longer holds the bytes the project pinned, is RESTORED here instead of refusing the run — through the very maintenance pass the supervisor runs at every start, spawned as the ONE owner of the heal ladder, the report, the told-once notification and the absorption commit. This is the second door onto that pass, reached whenever maintenance did not run first (a bare `vivicy loop`, a hand-edited declaration, a state the supervisor's pass could not fix), so it must run BEFORE the clean-tree gate: a restore lands its own absorption commit, and the run then starts on a clean tree. The states are then RE-READ rather than taken from the pass's exit code, so a pass that deferred on a held lock, failed every rung or could not spawn at all all leave the one evidence that matters, the bytes on disk. What no rung could reproduce DEGRADES the run rather than killing it — the skill is absent for this run, both legs are told so by name, and every line written here states what happened and what Vivicy did rather than instructing anyone to install anything — the owner's action item, when there is one, is the notification that pass already wrote.
 export function preflightSkills(targetRoot: string, deps: SkillsPreflightDeps = {}): DeclaredSkillState[] {
   const announce =
     deps.announce ??
@@ -47,7 +45,6 @@ export function preflightSkills(targetRoot: string, deps: SkillsPreflightDeps = 
   return states
 }
 
-// The same child the supervisor spawns, narrowed to the half this door owns — RESTORE, never the update sweep: a process start must not cost one upstream round trip per healthy skill, and a version that legitimately moved is the supervisor's own pass's business, once per build. The root is the one this preflight already resolved rather than a second resolution of it, and the child's stage lock decides every overlap: a skills stage in flight is the writer of these very bytes, so the pass DEFERS and this run degrades honestly instead of healing over an installer mid-write.
 function spawnMaintenance(targetRoot: string): void {
   spawnSync(process.execPath, [resolve(FACTORY_DIR, "install-skills.ts"), "--maintain", "--restore-only"], {
     cwd: targetRoot,
@@ -71,14 +68,12 @@ function degradedLine(absent: readonly DeclaredSkillState[]): string {
   )
 }
 
-// The ONE reason a declared skill is not available, told to the owner and to the legs in the same words: a pin the ladder could not reproduce is a different fact from a declaration nothing ever installed, and only the first is something Vivicy tried and failed to do.
 function absenceCause(state: DeclaredSkillState): string {
   return state.pinned
     ? `no restore path could reproduce the bytes ${PROJECT_SKILLS_SOURCE} pins for it`
     : `${PROJECT_SKILLS_SOURCE} declares it with no pin, and no bundle for it is installed here`
 }
 
-// A leg learns about this project's skills from the block in the target's own governance documents — a FILE it opens, never this prompt — and that block lists the project's installed set, which a skill the run cannot use may or may not be in (a hand-declared id joins it only at the next settled stage). So the correction names the DECLARED ids it must not rely on and points at where that block lives, rather than claiming what the block says; it is derived from the same states the preflight acted on and re-derived at every leg spawn, so a bundle that came back mid-run stops being named the moment it is back.
 export function skillsDirective(targetRoot: string | null): string {
   const absent = declaredSkillStates(targetRoot).filter((state) => !state.usable)
   return absent.length === 0 ? "" : skillsDirectiveText(absent)

@@ -1,6 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
-// createDirectory/getDefaultBrowseRoot are mocked; FsBrowseError stays real so the route's instanceof check still matches.
 const { createDirectory, getDefaultBrowseRoot } = vi.hoisted(() => ({
   createDirectory: vi.fn(),
   getDefaultBrowseRoot: vi.fn(),

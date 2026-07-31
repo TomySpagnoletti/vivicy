@@ -153,7 +153,7 @@ function Sidebar({
   }
 
   if (isMobile) {
-    // role/aria-label land on the inner div, not Sheet Root (renders nothing), so mobile and desktop expose the same complementary landmark for browser-agnostic locators.
+    // role/aria-label must land on the inner div, never on Sheet Root (it renders nothing): mobile and desktop expose the same landmark.
     const { role, "aria-label": ariaLabel, ...restProps } = props
     return (
       <Sheet open={openMobile} onOpenChange={setOpenMobile} {...restProps}>

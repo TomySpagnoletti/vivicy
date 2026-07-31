@@ -137,7 +137,6 @@ describe("SectionSkills — installed list", () => {
     expect(row.textContent).toMatch(/2 fail verdicts/)
   })
 
-  // A maintenance pass that could not restore a bundle rides the same two surfaces: the card list stays the project's whole set, and the one skill needing a hand is the collapsed rejection with its real cause.
   test("a bundle no restore path could reproduce is named where every other refusal is", async () => {
     const user = userEvent.setup()
     vi.stubGlobal(
@@ -170,7 +169,6 @@ describe("SectionSkills — installed list", () => {
     expect(row.textContent).toMatch(/1 file differs from the pin \(SKILL\.md\)/)
   })
 
-  // A maintenance pass that refused a creator's newer version: the card is the pinned skill, still installed and still audited, and the refusal is the ordinary collapsed row carrying what was refused and why.
   test("an upstream update Vivicy refused reads as a green pass that kept the pinned version", async () => {
     const user = userEvent.setup()
     vi.stubGlobal(
@@ -233,7 +231,6 @@ describe("SectionSkills — find skills action (confirm flow)", () => {
     })
   })
 
-  // The label is per-phase, never the machine word and never "install" over a removal; the whole set is covered, so a phase without copy is a red test rather than a wrong sentence.
   const IN_FLIGHT_LABEL: Record<string, string> = {
     selecting: "Selecting skills…",
     auditing: "Auditing candidates…",
@@ -242,12 +239,10 @@ describe("SectionSkills — find skills action (confirm flow)", () => {
     healing: "Restoring skills…",
   }
 
-  // Both directions, or the coverage below is self-referential: a phase dropped from the shared set would silently drop its own case, and a phase added without copy would render the machine word.
   test("every in-flight phase the writer can publish has its own copy, and no copy names a phase that is not one", () => {
     expect(Object.keys(IN_FLIGHT_LABEL).sort()).toEqual([...SKILLS_IN_FLIGHT_PHASES].sort())
   })
 
-  // aria-disabled, never the native attribute: the dialog returns focus to this very trigger on close, and confirming a run is what disables it.
   test.each(SKILLS_IN_FLIGHT_PHASES)("the action is greyed and refuses to open while the stage is %s", async (phase) => {
     const user = userEvent.setup()
     const fetchMock = stubFetch({ phase, mode: "auto", installed: [], rejected: [], updated_at: "2026-07-04T09:00:00Z" })

@@ -14,7 +14,6 @@ let factoryRoot: string
 let targetRoot: string
 let runtimeDir: string
 
-// A second evaluation of lib/spawner.ts in the same process — what a server that duplicates or re-evaluates the module per entry produces.
 async function reimportSpawner() {
   vi.resetModules()
   return (await import("@/lib/spawner")).fakeSpawner

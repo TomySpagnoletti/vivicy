@@ -8,7 +8,7 @@ import test from "node:test"
 import { hashBundle } from "./skill-pin.ts"
 import { FACTORY_DIR } from "./target-root.ts"
 
-// The single git seam of this file: HOME and XDG_CONFIG_HOME are redirected on top of the config vars, because git reads its DEFAULT per-user excludes ($XDG_CONFIG_HOME/git/ignore, else $HOME/.config/git/ignore) whether or not core.excludesFile is set — and a per-user rule can only ADD ignores, which would silently turn this file's "tree clean" assertion green over a supervisor that dirtied it.
+// HOME and XDG_CONFIG_HOME must stay redirected on top of the config vars: git reads its per-user excludes whatever core.excludesFile says, and one inherited ignore turns every clean-tree assertion here green over a dirtied tree.
 function git(root: string, args: string[], home: string) {
   const r = spawnSync("git", args, {
     cwd: root,
@@ -25,7 +25,6 @@ function git(root: string, args: string[], home: string) {
   return { status: r.status ?? 1, stdout: r.stdout ?? "", stderr: r.stderr ?? "" }
 }
 
-// An empty porcelain is this file's whole verdict, and a git that never ran prints exactly that — so the observer's own exit status is asserted before its silence is read as cleanliness.
 function porcelain(root: string, home: string): string {
   const r = git(root, ["status", "--porcelain"], home)
   assert.equal(r.status, 0, `git status could not observe the tree, so its empty output means nothing: ${r.stderr.trim()}`)
@@ -53,7 +52,6 @@ test("the supervisor spawns its child WITHOUT dirtying committed territory, so t
     git(root, ["commit", "-qm", "initial"], gitHome)
     assert.equal(porcelain(root, gitHome), "", "precondition: the owner's tree is clean")
 
-    // Bounded to a single child launch: one relaunch, then the unchanged done count terminates the loop.
     const supervisor = spawnSync(process.execPath, [join(FACTORY_DIR, "dev-loop-supervised.ts")], {
       cwd: root,
       encoding: "utf8",
@@ -77,7 +75,6 @@ test("the supervisor spawns its child WITHOUT dirtying committed territory, so t
   }
 })
 
-// The wiring, end to end and with no leg in sight: every start verifies the bundles vivicy.json pins, restores what drifted, and reaches the dev loop anyway. The cache is deliberately absent, so the restore comes from the repository's own history — the cold-clone shape.
 test("every supervisor start verifies the pinned skills and restores a drifted bundle before launching the loop", () => {
   const scratch = mkdtempSync(join(tmpdir(), "vivicy-supervised-skills-"))
   try {
@@ -137,7 +134,6 @@ test("every supervisor start verifies the pinned skills and restores a drifted b
   }
 })
 
-// The zero-human law at the seam: a pinned bundle no rung can reproduce leaves the supervisor announcing it and launching the loop anyway — degraded, never a dead stop. The re-fetch rung is shimmed off the network by a fake `npx` on PATH.
 test("a pinned bundle the supervisor cannot restore is a loud line, never a stop", () => {
   const scratch = mkdtempSync(join(tmpdir(), "vivicy-supervised-unhealable-"))
   try {
@@ -170,7 +166,6 @@ test("a pinned bundle the supervisor cannot restore is a loud line, never a stop
     git(root, ["config", "commit.gpgsign", "false"], gitHome)
     git(root, ["add", "-A"], gitHome)
     git(root, ["commit", "-qm", "initial"], gitHome)
-    // Nothing left to restore FROM: the bundle is gone from the working tree and from history, and the cache never existed.
     rmSync(bundle, { recursive: true, force: true })
     git(root, ["rm", "-r", "-q", "--cached", ".agents/skills/spreadsheets"], gitHome)
     git(root, ["commit", "-qm", "someone: drop the bundle"], gitHome)

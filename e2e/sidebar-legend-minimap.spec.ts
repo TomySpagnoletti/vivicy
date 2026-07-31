@@ -41,14 +41,14 @@ test.describe("sidebar widths (24rem / 36rem)", () => {
 
 test.describe("no hydration error (the reported bug)", () => {
   test("loads clean even with a non-default panel width persisted", async ({ page }, testInfo) => {
-    // Pre-seed via addInitScript so the persisted state exists BEFORE first paint — a post-load write would miss the hydration mismatch.
+    // Never seed after load: the persisted state must exist before first paint or the mismatch this test hunts cannot occur.
     await page.addInitScript(() => {
       try {
         window.localStorage.setItem("vivicy:panel-state", "wide")
       } catch {}
     })
 
-    // Firefox's Next dev build emits a benign console.timeStamp("Hydrated") marker; require error/warning severity plus explicit mismatch wording so it isn't mistaken for a real one.
+    // Never loosen to a bare /hydrat/: Firefox's Next dev build emits a benign console.timeStamp("Hydrated") marker.
     const isHydrationMismatch = (text: string) =>
       /hydrat/i.test(text) &&
       /(mismatch|did not match|didn't match|server rendered|server-rendered|while hydrating|text content)/i.test(text)
@@ -99,7 +99,6 @@ test.describe("legend lives in the sidebar (collapsed by default)", () => {
 
     await expect(page.locator(".map-legend")).toHaveCount(0)
 
-    // Mobile Sheet: panel content can overlap this footer trigger at rest.
     await clickPastOverlap(trigger)
     await expect(trigger).toHaveAttribute("data-state", "open")
     const content = sidebar.locator('[data-slot="collapsible-content"]')

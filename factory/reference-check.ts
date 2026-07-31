@@ -102,15 +102,12 @@ function cleanLinkTarget(raw: string): string {
     const close = target.indexOf(">")
     target = close === -1 ? target.slice(1) : target.slice(1, close)
   } else {
-    // A CommonMark link destination has no literal whitespace, so the text up to the first space is the destination and the rest is the (ignored) title.
     target = target.split(/\s/)[0]
   }
   target = stripAnchor(target)
   try {
     target = decodeURIComponent(target)
-  } catch {
-    // Malformed percent-escape: left as-is rather than throwing.
-  }
+  } catch {}
   return target
 }
 

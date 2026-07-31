@@ -2,7 +2,6 @@ import { ControlError, getExtractionStatus, runExtract } from "@/lib/control"
 import { appendNotification } from "@/lib/notifications"
 import { getSpawner } from "@/lib/spawner"
 
-// Spawns factory scripts — requires the Node runtime, not Edge.
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 

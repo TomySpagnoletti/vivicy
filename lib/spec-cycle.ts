@@ -3,7 +3,7 @@ import path from "node:path"
 
 import type { SpecKind } from "./spec-kind.ts"
 
-// Must match extract-issues' findFrozenManifest and change-control's readFrozenBaselineIdentity — three independent implementations of the same freeze predicate.
+// Hand-synced with extract-issues' findFrozenManifest, change-control's readFrozenBaselineIdentity and doc-baseline's supersede logic — all four move together.
 export function hasActiveFrozenBaseline(targetRoot: string): boolean {
   const dir = path.join(targetRoot, ".vivicy", "baselines")
   if (!existsSync(dir)) return false
@@ -72,7 +72,7 @@ export const PROJECT_CYCLE_ID = "project"
 
 export type BatchCycleBinding = { binding: "active"; id: string } | { binding: "seed" }
 
-// The canonical is immutable ⟺ an active frozen baseline exists AND no drafting cycle reopened it — the single frozen-phase predicate the write allowlist and the batch binding both gate on.
+// The ONE frozen-phase predicate: the write allowlist and the batch binding gate on it, never on a spelling of their own.
 export function isCanonicalFrozen(targetRoot: string): boolean {
   return hasActiveFrozenBaseline(targetRoot) && !isSpecCycleOpen(targetRoot)
 }
@@ -100,7 +100,7 @@ export interface CycleOpenRefusal {
   reason: string
 }
 
-// The one-active-feature-cycle + project-cycle-singular law (AGENTS.md "Cycle concurrency"): the single gate lib/control.ts and factory/cli.ts must both open a cycle through, so the policy can never drift between them.
+// The ONE cycle-open gate for both lib/control.ts and factory/cli.ts — see AGENTS.md "Cycle concurrency".
 export function featureCycleOpenRefusal(targetRoot: string): CycleOpenRefusal | null {
   if (!hasActiveFrozenBaseline(targetRoot)) {
     return {
@@ -126,7 +126,6 @@ export function parseCycleBinding(value: unknown): BatchCycleBinding | null {
   return null
 }
 
-// A seed matches (its cycle has opened) and a same-id active batch matches; a batch bound to a different, non-current cycle stays out; an unparseable binding falls to the active cycle.
 export function batchMatchesActiveCycle(storedBinding: unknown, currentActiveCycleId: string | null): boolean {
   if (currentActiveCycleId === null) return false
   const binding = parseCycleBinding(storedBinding)
@@ -182,7 +181,6 @@ function readBatchManifest(abs: string): BatchManifest | null {
   }
 }
 
-// The batch-complete marker is manifest.json (written LAST by import); a batch dir without it is an interrupted, non-consumable batch.
 export function completeBatches(repoRoot: string): Batch[] {
   const uploadsDir = path.resolve(repoRoot, UPLOADS_REL)
   if (!existsSync(uploadsDir)) return []
@@ -196,13 +194,10 @@ export function completeBatches(repoRoot: string): Batch[] {
   return batches.sort((a, b) => a.batchId.localeCompare(b.batchId))
 }
 
-// Never-reset ledger of every batch a prep run has fully placed: a batch is added only after all its files land, so a mid-run crash never marks an unconsumed batch consumed.
 export function consumedSet(report: ConsumedSource | null): Set<string> {
   return new Set(Array.isArray(report?.batches_consumed) ? report.batches_consumed : [])
 }
 
-// The batches the active cycle's prep must consume: complete + bound to (or seeding) the active cycle + not yet consumed by a prior run.
-// Empty when the canonical is frozen (no active cycle) — seed batches then wait for the cycle they seed to open.
 export function unconsumedActiveCycleBatches(repoRoot: string, report: ConsumedSource | null): Batch[] {
   const cycleId = activeCycleId(repoRoot)
   if (cycleId === null) return []

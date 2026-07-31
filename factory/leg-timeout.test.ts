@@ -97,7 +97,6 @@ test("a killed leg leaves NO orphaned child process (whole tree is reaped)", asy
     const grandPid = Number(readFileSync(marker, "utf8").trim())
     assert.ok(Number.isInteger(grandPid) && grandPid > 0, "the grandchild recorded its pid")
 
-    // process.kill(pid, 0) throws ESRCH once the process is gone — used here as an existence check, not a kill.
     await new Promise((r) => setTimeout(r, 700))
     let alive = true
     try {

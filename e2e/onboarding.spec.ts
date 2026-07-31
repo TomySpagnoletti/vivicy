@@ -5,7 +5,7 @@ import { expect, test } from "./browser-issues"
 
 import { onboardScaffoldParent, RUNTIME_DIR } from "../playwright.config"
 
-// Two isolations, one concern: serial because the scaffold test persists a current-project into this server's runtime dir and changes map state for the rest of the file, and per-browser scaffold parents (global-setup wipes each) because parallel matrix runs would otherwise race the same target.
+// Never parallelize and never share one scaffold parent across browsers: the scaffold test persists a current-project into this server's runtime dir.
 test.describe.configure({ mode: "serial" })
 
 function browserKeyFor(projectName: string): string {
@@ -17,7 +17,7 @@ function scaffoldTargetFor(projectName: string): string {
 }
 
 test.describe("Vivicy onboarding (panel-hosted)", () => {
-  // Resets current-project.json before each test: Playwright's serial-mode retry re-runs the whole group, so without this a retried run would boot into the scaffolded state instead of pristine no_target.
+  // A serial-mode retry re-runs the whole group, so a leftover current-project.json would boot it into the scaffolded state instead of no_target.
   test.beforeEach(async ({}, testInfo) => {
     rmSync(path.join(RUNTIME_DIR("onboarding", browserKeyFor(testInfo.project.name)), "current-project.json"), {
       force: true,
@@ -44,7 +44,7 @@ test.describe("Vivicy onboarding (panel-hosted)", () => {
 
     await expect(page.getByLabel("Message Vivi")).toHaveCount(0)
 
-    // Captured before the scaffold test below mutates current-project.json — this is the first test in the serial file.
+    // This capture must stay in the first test of this serial file: the next one mutates current-project.json.
     await page.waitForTimeout(300)
     await page.screenshot({
       path: `/tmp/vivicy-xbrowser/06-onboarding--${testInfo.project.name}.png`,
@@ -65,7 +65,6 @@ test.describe("Vivicy onboarding (panel-hosted)", () => {
 
     await page.getByRole("button", { name: /Start governance/i }).click()
 
-    // Navigate the folder browser to the scaffold parent, then create + enter the new folder — the created dir IS the target, no absolute-path field. The "tmp" crumb resolves the macOS /tmp -> /private/tmp symlink for us.
     const parentSegments = path.dirname(scaffoldTarget).split("/").filter(Boolean)
     await page.getByLabel("Current path").getByRole("button", { name: "/" }).click()
     const folders = page.getByRole("group", { name: "Folders" })
@@ -83,7 +82,6 @@ test.describe("Vivicy onboarding (panel-hosted)", () => {
       timeout: 30_000,
     })
 
-    // A freshly governed project has an empty canonical (only the skeleton seed), so the map shows the bare empty-canonical arrow sentence, not the no_map Extract card.
     const canonicalHint = page.locator('[data-empty-reason="empty_canonical"]')
     await expect(canonicalHint).toBeVisible({ timeout: 30_000 })
     await expect(canonicalHint).toContainText("Talk to Vivi to get grilled")
@@ -112,7 +110,6 @@ test.describe("Vivicy onboarding (panel-hosted)", () => {
     await expect(importButton).toHaveCount(0)
     await expect(panel.getByText(/in the kitchen/i)).toBeVisible()
 
-    // Importing IS the request: the reading turn is dispatched server-side, so the leg answers with nothing typed.
     await expect(panel.getByText(/dry mode/i)).toHaveCount(1, { timeout: 30_000 })
 
     const attach = panel.getByRole("button", { name: "Attach documents" })

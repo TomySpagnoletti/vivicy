@@ -54,7 +54,7 @@ export function describeProject(candidate: string): CurrentProject {
   if (!stat.isDirectory()) {
     throw new ProjectError(`path is not a directory: ${root}`, "not_a_directory")
   }
-  // Resolve symlinks: the runtime key hashes this string, so an unresolved alias (e.g. macOS /tmp vs /private/tmp) would fork the project's runtime namespace.
+  // Never drop this realpath: the runtime key hashes the string, and macOS /tmp vs /private/tmp forks the namespace.
   try {
     root = realpathSync(root)
   } catch {}

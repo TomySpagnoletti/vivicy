@@ -1,4 +1,4 @@
-// Imported by the Next app (`@/lib/stage-lock`) AND by plain node from the factory (raw `../lib/stage-lock.ts`), so it must stay a LEAF with no Next alias and no relative value import: an extensionless one fails NodeNext, a `.ts` one fails the app program (TS5097).
+// Must stay a LEAF — loaded by the Next app and by plain node from the factory, so no Next alias and no relative value import.
 
 import { linkSync, lstatSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import path from "node:path"
@@ -9,7 +9,7 @@ export interface HeldStageLock {
   release(): void
 }
 
-// EPERM is a live process this user does not own; only ESRCH proves the recorded holder is gone. A pid that is not a positive integer would make `kill(0, 0)`/`kill(-1, 0)` succeed and read as a holder, so the shape is checked before the signal.
+// Check the pid shape before the signal — `kill(0, 0)`/`kill(-1, 0)` succeed and would read as a holder; only ESRCH proves the holder gone, EPERM is a live process this user does not own.
 function livePid(pid: number): boolean {
   if (!Number.isInteger(pid) || pid <= 0) return false
   try {
@@ -78,7 +78,7 @@ function create(abs: string): boolean {
   }
 }
 
-// The marker is published temp-then-LINK, never written in place: an exclusive create is two syscalls (open, write) and a kill between them would leave a PARTIAL marker, which reads as abandoned and lets a live breaker be dispossessed — the one thing the destructive step below cannot survive. The lock file itself keeps its plain exclusive create, where a torn read costs a bounded race the identity guards contain instead of the break's exclusivity.
+// Publish the marker temp-then-LINK, never an exclusive create: a kill between its open and its write leaves a PARTIAL marker that reads as abandoned.
 function publishMarker(marker: string): boolean {
   const temp = `${marker}.new.${process.pid}`
   try {
@@ -96,7 +96,7 @@ function publishMarker(marker: string): boolean {
   }
 }
 
-// A marker whose owner is GONE is residue (a killed break must never dead-end the stage), and taking it over runs the same discipline as the residue below: hard-linked aside so the marker path is never freed, the linked marker re-proved by the owner that was judged abandoned AND by the entry that was linked, unlinked only on a match. That makes a REFUSING taker non-destructive — moving the marker aside to inspect it would instead dispossess a breaker that published in the window, its own cleanup deleting what it moved. A SUCCEEDING taker's unlink is still path-based, so two takers of one abandoned marker can both pass these re-proofs and the second's unlink can remove the first's freshly published marker: this function does NOT promise one breaker at a time, and what contains that ordering is the residue's own re-proofs below, not an assumption here. An UNPARSEABLE marker cannot come from this protocol (publication is atomic), so it is a foreign artifact, refused rather than taken over; the sweep clears one whenever anyone holds the lock.
+// Never move the marker aside to inspect it — hard-link, re-prove owner and entry, unlink last; refuse an unparseable marker rather than take it over, and never assume this admits one breaker at a time.
 function claimBreakMarker(marker: string, isAlive: (pid: number) => boolean): boolean {
   if (publishMarker(marker)) return true
   const owner = pidOf(readOrNull(marker))
@@ -119,7 +119,7 @@ function claimBreakMarker(marker: string, isAlive: (pid: number) => boolean): bo
   }
 }
 
-// The residue is unlinked only once its identity is CONFIRMED, and the path is never freed to confirm it: `abs` is hard-linked aside, the linked bytes must be the residue that was inspected, the marker must still name THIS process, and `abs` must still be the very entry that was linked. These two re-proofs are where the protocol's containment actually lives — the marker's takeover can hand the break to a second taker, so a breaker that lost its marker or whose path was replaced meanwhile stops HERE rather than unlinking someone's live claim. The residual they cannot cover is an ordering that needs two simultaneous one-syscall stalls in two processes (measured, `cli-supervisor-process-infra.557`): POSIX offers no compare-and-swap on a path, so an unlink names a path while every proof is about an inode. A residue whose bytes could not be READ is broken on that entry-identity alone, which is sound only because the ENOENT case never reaches here and a claim this protocol writes is readable by its own writer.
+// Never free the path to confirm identity: hard-link aside, then re-prove the bytes, the marker's owner and the entry immediately before the unlink — those re-proofs are the whole containment.
 function breakResidue(abs: string, residue: Buffer | null, isAlive: (pid: number) => boolean): boolean {
   const marker = `${abs}.break`
   if (!claimBreakMarker(marker, isAlive)) return false
@@ -146,7 +146,7 @@ function breakResidue(abs: string, residue: Buffer | null, isAlive: (pid: number
   }
 }
 
-// A break killed inside its own window leaves its aside-name and its marker behind, and only the pid recorded in each says whether it is still owned — never the sweeper's position, since a break can run while another process holds the lock. Janitorial by nature: whoever just won the lock does the sweeping, and a sweep that could throw would replace the claim its caller just won.
+// Sweep on the pid recorded in each name, never on the sweeper's position, and never throw: the caller has already won its claim.
 function sweepAbandonedBreaks(abs: string, isAlive: (pid: number) => boolean): void {
   try {
     const dir = path.dirname(abs)

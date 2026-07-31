@@ -304,7 +304,6 @@ function requireRepoRoot(): string {
   return repoRootOrNull
 }
 
-// Mirrors lib/settings.ts — keep the two in sync.
 export const CLI_DEFAULTS: Record<string, { model: string; effort: string }> = {
   claude: { model: "claude-opus-4-8", effort: "xhigh" },
   codex: { model: "gpt-5.5", effort: "high" },
@@ -312,7 +311,6 @@ export const CLI_DEFAULTS: Record<string, { model: string; effort: string }> = {
 
 export const KNOWN_CLIS = ["claude", "codex"]
 
-// Mirrors lib/settings.ts — keep the two in sync.
 export const FAST_CAPABLE_MODELS: Record<string, Set<string>> = {
   claude: new Set(["claude-opus-4-8", "claude-opus-4-7", "claude-opus-4-6"]),
   codex: new Set(["gpt-5.5", "gpt-5.4"]),
@@ -322,7 +320,6 @@ function modelSupportsFast(provider: string, model: string): boolean {
   return FAST_CAPABLE_MODELS[provider]?.has(model) ?? false
 }
 
-// Mirrors lib/settings.ts — keep the two in sync.
 const VALID_EFFORTS: Record<string, Set<string>> = {
   claude: new Set(["low", "medium", "high", "xhigh", "max"]),
   codex: new Set(["minimal", "low", "medium", "high", "xhigh"]),
@@ -337,7 +334,6 @@ function isKnownCli(value: string | undefined): value is string {
   return value === "claude" || value === "codex"
 }
 
-// Mirrors lib/settings.ts MIN_PARALLEL/MAX_PARALLEL — keep the two in sync.
 export const MIN_CONCURRENCY = 1
 export const MAX_CONCURRENCY = 12
 
@@ -350,7 +346,7 @@ export function clampConcurrency(value: unknown): number {
 export function resolveAgentLegs(env: Record<string, string | undefined> = {}): { implementer: Leg; reviewer: Leg } {
   const implementerCli = isKnownCli(env.VIVICY_IMPLEMENTER_CLI) ? env.VIVICY_IMPLEMENTER_CLI : "claude"
   let reviewerCli = isKnownCli(env.VIVICY_REVIEWER_CLI) ? env.VIVICY_REVIEWER_CLI : "codex"
-  // Implementer and reviewer must be different CLIs — a CLI never reviews its own work.
+  // A CLI never reviews its own work: the two legs must stay different CLIs.
   if (reviewerCli === implementerCli) {
     reviewerCli = implementerCli === "claude" ? "codex" : "claude"
   }
@@ -386,7 +382,7 @@ export const DEFAULT_CONFIG: Config = {
   promptsDir: FACTORY_PROMPTS_DIR,
   transcriptsDir: ".vivicy/development/transcripts",
   maxRetries: 2,
-  // Deliberately unset: the target project must declare its own gate in vivicy.json — no hidden npm-test default.
+  // Never give this a default: the target declares its own gate in vivicy.json.
   defaultGateCommand: undefined,
   maxParallel: clampConcurrency(process.env.VIVICY_MAX_PARALLEL),
   worktreesDir: ".vivicy-worktrees",
@@ -401,7 +397,6 @@ export const DEFAULT_CONFIG: Config = {
 }
 
 export function frozenIntegrationPaths(cfg: Pick<Config, "issueIndexPath">): string[] {
-  // package.json is deliberately NOT frozen: a legitimate new runtime dependency must survive integration.
   return [
     ".vivicy/canonical/",
     ".vivicy/baselines/",
@@ -814,7 +809,7 @@ export function proofsDirective(cfg: Config, issue: Issue | undefined): string {
   return statuses.length === 0 ? "" : proofsDirectiveText(statuses)
 }
 
-// Cleared by the orchestrator before every attempt's legs run, so presence afterwards can only witness THIS attempt: a replayed close can never ride a previous run's artifact. The committed recipe.txt is left in place — deleting a tracked file here would stage a deletion the loop never asked for.
+// Must run before every attempt's legs and must spare each recipe.txt: presence afterwards may only witness THIS attempt.
 function resetDeclaredProofArtifacts(issue: Issue, cfg: Config): string[] {
   const body = readIssueBody(issue, cfg)
   if (body === null) return []
@@ -846,7 +841,7 @@ function proofsOutcome(issue: Issue, cfg: Config, uncleared: string[]): ProofsOu
   }
 }
 
-// The machine checks PRESENCE only (P5): the reviewer judges whether a present proof is replayable and shows the claimed behaviour. An unreadable declaration is `unreadable`, never `satisfied` — a leg cannot repair the frozen issue file, so the loop must not spend attempts on it.
+// Presence only (P5): never judge a proof's content here, that is the reviewer's call.
 export function declaredProofsPresence(issue: Issue, cfg: Config): ProofsOutcome {
   const body = readIssueBody(issue, cfg)
   if (body === null) {
@@ -878,12 +873,12 @@ function missingProofDetail(status: ProofStatus): string {
 
 const SKILL_DECLARATION_ROLES = ["implementer", "reviewer"] as const
 
-// The path the prompts spell out for the leg; `factory/dev-loop.test.ts` pins the two against each other so the prose and the reader can never drift.
+// The implementer and reviewer prompts spell this path out — edit them together.
 export function skillDeclarationRel(cfg: Pick<Config, "reportsDir">, issueId: string, role: string): string {
   return `${cfg.reportsDir}/${issueId}-${role}-skills.json`
 }
 
-// Cleared before every attempt's legs run, exactly like a declared proof's home: what is read afterwards can only be THIS attempt's answer, never a committed declaration from an earlier run replaying as a fresh one.
+// Must run before every attempt's legs: a surviving declaration would read back as this attempt's answer.
 function resetSkillDeclarations(issue: Issue, cfg: Config): void {
   for (const role of SKILL_DECLARATION_ROLES) {
     try {
@@ -898,7 +893,6 @@ interface DeclaredSkills {
   notInstalled: string[]
 }
 
-// The set a leg COULD have applied is the one installed in the tree it ran in — on the parallel path its worktree, cut from the commit the skills stage absorbed.
 function installedSkillIdsForLegs(cfg: Config): Set<string> {
   try {
     const report = JSON.parse(readFileSync(resolve(execRootOf(cfg), SKILLS_REPORT_FILE), "utf8")) as { installed?: unknown }
@@ -908,7 +902,6 @@ function installedSkillIdsForLegs(cfg: Config): Set<string> {
   }
 }
 
-// An id naming no installed skill is dropped from the usage record and SAID — never silently normalized away: a leg claiming what the project does not have is the one thing this record exists to make falsifiable.
 function readSkillDeclarations(issue: Issue, cfg: Config): DeclaredSkills | null {
   const installed = installedSkillIdsForLegs(cfg)
   const applied = new Set<string>()
@@ -943,7 +936,6 @@ function readSkillDeclarations(issue: Issue, cfg: Config): DeclaredSkills | null
   return declared ? { installed: [...installed], applied: [...applied], notInstalled: [...notInstalled] } : null
 }
 
-// `review_completed` is the one point both legs of an attempt sit behind, so the declaration is read ONCE, from the tree the legs ran in, and lands on the issue's ledger record. An attempt cut short by a quota block never reaches it; its resume re-runs both legs and re-declares.
 function emitReviewCompleted(issue: Issue, cfg: Config, transcripts: string[]): void {
   const declared = readSkillDeclarations(issue, cfg)
   emit(cfg, {
@@ -1387,7 +1379,6 @@ export function legDeps(cfg: Config, issue: Issue | undefined): LegDeps {
   const runDirective = runCommandDirective(cfg)
   const visualDirective = visualReviewDirective(cfg, issue)
   const proofsDuty = proofsDirective(cfg, issue)
-  // Derived from the leg's OWN tree (a per-issue worktree carries what HEAD committed), so the correction describes the bundles that leg can actually open.
   const skillsGap = skillsDirective(root)
   return {
     composePrompt: (template, iss) =>
@@ -1405,7 +1396,6 @@ export function legDeps(cfg: Config, issue: Issue | undefined): LegDeps {
   }
 }
 
-// A tracked product issue's transcripts live under the ISSUES family; the synthetic work units of the other stages declare their own home at their constructor.
 function legIssue(issue: Issue): AgentIssue {
   return { ...issue, transcript_dir: issueTranscriptDir(issue.id) }
 }
@@ -1662,7 +1652,7 @@ export function defaultResetWorktreeFrozenArtifacts(issue: Issue, cfg: Config, w
   const root = requireRepoRoot()
   const base = currentBranch(root)
   const paths = frozenIntegrationPaths(cfg)
-  // Per-path, never batched: `git checkout <base> -- <a> <b>` aborts entirely if any one pathspec is absent from <base>.
+  // Per-path, never batched: one pathspec absent from <base> aborts the whole checkout.
   for (const path of paths) {
     spawnSync("git", ["checkout", base, "--", path], { cwd: worktreeRoot, encoding: "utf8" })
   }
@@ -1721,7 +1711,7 @@ export function defaultRemoveWorktree(issue: Issue, cfg: Config, worktreeRoot: s
   if (branch) spawnSync("git", ["branch", "-D", branch], { cwd: root, encoding: "utf8" })
 }
 
-// `git add -- <a> <b>` aborts WHOLESALE when any one pathspec matches neither the worktree nor the index (same trap as frozenIntegrationPaths), and several of these paths are written lazily — proofsDir only once an artifact-bearing proof exists, reportsDir only once a report does. Absent paths are therefore dropped before the add, and BOTH git statuses are checked: a discarded exit code here silently loses a whole per-issue checkpoint.
+// `git add -- <a> <b>` aborts WHOLESALE on a pathspec matching neither worktree nor index, and several of these paths are written lazily.
 function commitDoneMove(issue: Issue, cfg: Config): { ok: boolean; detail: string } {
   const root = requireRepoRoot()
   const paths = [
@@ -1730,7 +1720,6 @@ function commitDoneMove(issue: Issue, cfg: Config): { ok: boolean; detail: strin
     cfg.issueIndexPath,
     cfg.progressLedgerPath,
     cfg.gatesDir,
-    // Only each proof's recipe.txt is trackable under proofsDir; the artifacts beside it are gitignored.
     cfg.proofsDir,
     cfg.reportsDir,
   ].filter((p): p is string => typeof p === "string" && p.length > 0 && existsSync(resolve(root, p)))
@@ -1824,7 +1813,7 @@ function assertCleanTree(root: string): void {
   }
 }
 
-// The run's clean-tree precondition, absorption FIRST: opening a project renormalizes the managed governance files in the owner's tree without touching git (lib/scaffold.ts), so the refusal would otherwise fire on bytes the owner never wrote and blame them for it.
+// Absorption FIRST: opening a project renormalizes the managed governance files in the owner's tree, so the refusal would fire on bytes they never wrote.
 export function ensureCleanTreeForRun(root: string): void {
   absorbManagedGovernanceRefresh(root)
   assertCleanTree(root)
@@ -1979,7 +1968,7 @@ function writeQuotaState(cfg: Config, actor: string, agentState: AgentQuotaState
   return state
 }
 
-// Transition-only so a multi-hour rate-limit wait, which loops through markAgentThrottled on every backoff tick, notifies the absent owner exactly once when it starts — never per tick.
+// Transition-only: markAgentThrottled runs on every backoff tick, so the owner is told once at the start, never per tick.
 export function quotaPauseNotification(
   prior: string | undefined,
   actor: string
@@ -2414,7 +2403,7 @@ function legTimeoutReason(legResult: LegResult): string | null {
   return legResult?.result?.timedOut ? legResult.result.timeoutReason || "leg timed out" : null
 }
 
-// A declaration the machine cannot read is not fixable by a leg (the issue file is frozen corpus), so this blocks on the spot instead of burning the remaining attempts.
+// An unreadable declaration is not fixable by a leg (the issue file is frozen corpus) — block on the spot, never spend attempts on it.
 function proofsUnreadableBlock(issue: Issue, cfg: Config, reason: string, allTranscripts: string[]): CycleResult {
   mkdirSync(abs(cfg.reportsDir!), { recursive: true })
   const rel = `${cfg.reportsDir}/${issue.id}-blocked.json`
@@ -2459,7 +2448,6 @@ function writeBlockedEvidence(issue: Issue, cfg: Config, reasons: BlockReasons =
     ...(reasons.gate ? [{ kind: "gate_command_unset", text: `${reasons.gate} (still unresolved after ${attempts})` }] : []),
     ...(reasons.proofs ? [{ kind: "proofs_missing", text: `${reasons.proofs} (still missing after ${attempts})` }] : []),
   ]
-  // Every observed cause is named: a proof miss on the last attempt must not vanish behind an earlier attempt's timeout.
   const reason =
     observed.length === 0
       ? `gate red after ${attempts}`
@@ -2552,7 +2540,7 @@ export function runLoop(userConfig: Partial<Config> = {}, steps: LoopSteps = {})
 
     const result = runIssueCycle(issue, cfg, resolvedSteps)
     if (result.status === "verified") {
-      // Before commit: a crash between the two must never leave an issue committed but missing from done/.
+      // Persist the move BEFORE the commit: a crash between the two must never leave an issue committed but absent from done/.
       moveIssueToDone(issue, cfg)
       resolvedSteps.commit(issue, cfg)
       processed.push({ id: issue.id, status: "verified" })
@@ -2631,7 +2619,7 @@ export async function runLoopParallel(userConfig: Partial<Config> = {}, steps: L
       const commit = steps.commit ?? ((iss: Issue, c?: Config) => defaultCommit(iss, c ?? issueCfg))
       commit(issue, issueCfg)
       return await withIntegrationLock(cfg, async (): Promise<ProcessedIssue> => {
-        // Captured under the integration lock so it is the exact pre-merge sha a failed post-merge gate reverts to.
+        // Capture under the integration lock: this is the exact pre-merge sha a failed post-merge gate reverts to.
         const preMergeSha = wt.captureHead()
         wt.resetFrozenArtifacts(issue, created!.worktreeRoot)
         let merge = wt.integrateWorktree(issue, created!.branch)
@@ -2695,7 +2683,6 @@ export async function runLoopParallel(userConfig: Partial<Config> = {}, steps: L
           })
           return { id: issue.id, status: "blocked" }
         }
-        // Same move-before-commit invariant as the sequential path.
         moveIssueToDone(issue, cfg)
         emit(cfg, {
           event_type: "gate_passed",
@@ -2708,7 +2695,6 @@ export async function runLoopParallel(userConfig: Partial<Config> = {}, steps: L
         })
         if (steps.commitDoneMove !== false) {
           const checkpoint = commitDoneMove(issue, cfg)
-          // Integrated-but-bookkeeping-failed is NOT blocked: the code is on the integration branch, the gate was green, and the issue is in done/. What is missing is the git checkpoint, so the issue completes and the absent owner is told loudly instead.
           if (!checkpoint.ok) notifyCheckpointFailure(issue, checkpoint.detail)
         }
         return { id: issue.id, status: "verified" }
@@ -2862,7 +2848,7 @@ function writePostMergeIntegrationBlock(
 
 if (import.meta.url === `file://${process.argv[1]}`) {
   const preflightRoot = requireRepoRoot()
-  // Skills FIRST: a restore writes the bundle back and absorbs it into its own commit, so the clean-tree gate that follows sees the tree that repair left, never the drift it was there to fix.
+  // Skills FIRST: the clean-tree gate must see the tree the repair left, never the drift it was there to fix.
   preflightSkills(preflightRoot)
   ensureCleanTreeForRun(preflightRoot)
   Promise.resolve(runLoop())

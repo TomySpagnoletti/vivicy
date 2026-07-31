@@ -1,4 +1,4 @@
-// Framework-free (no filesystem access): loads under both the Next.js bundler and the factory generator's raw Node TS execution; both /api/map and generate-viewer-data.ts share this derivation so the ledger->overlay mapping can't diverge between them.
+// Framework-free leaf (no fs, no `@/` alias, no extensionless relative import): loads under both the Next bundler and the factory generator's raw Node TS execution.
 
 export const OVERLAY_STATUSES = ["not_started", "in_progress", "reviewing", "implemented", "verified", "blocked"] as const
 
@@ -40,7 +40,6 @@ export type OverlayIssue = {
   graph_refs: string[]
 }
 
-// Read path omits this checker deliberately — enforcing on-disk evidence at request time would 500 the API on any stale evidence_ref.
 export type EvidenceRefChecker = (evidenceRef: string, owner: string) => void
 
 export type DeriveOverlayOptions = {
@@ -111,7 +110,6 @@ function validateGraphItemState(
       evidenceRefChecker(evidenceRef, `Progress graph item state ${graph_ref}`)
     }
   }
-  // `blocked` evidence need not point to implemented code — it may reference the blocking issue, an unresolved decision, missing access, or a failed gate.
   if ((statusNeedsEvidence(input.status) || input.status === "verified") && evidenceRefs.length === 0) {
     throw new Error(`Progress graph item state ${graph_ref} status ${String(input.status)} requires evidence_refs`)
   }
@@ -219,12 +217,11 @@ export function nodeGraphRef(nodeId: string): string {
   return `node:${nodeId}`
 }
 
-// Edges are structural only — EdgeSpec carries no status/evidence field, so edge-level progress isn't tracked (deliberately, not an oversight).
 export function edgeGraphRef(edge: { from: string; to: string; relation?: string; protocol?: string }): string {
   return `edge:${edge.from}->${edge.to}:${slugGraphRefPart(edge.relation ?? "")}:${slugGraphRefPart(edge.protocol ?? "")}`
 }
 
-// Must stay byte-for-byte identical to generate-viewer-data.ts's slugGraphRefPart — overlay code consumes generator-emitted graph_refs verbatim and never recomputes them independently.
+// Must stay byte-identical to generate-viewer-data.ts's slugGraphRefPart.
 function slugGraphRefPart(value: string): string {
   return value
     .trim()
@@ -249,7 +246,6 @@ function requiredStringArray(value: unknown, label: string): string[] {
 
 function requiredIsoTimestamp(value: unknown, label: string): string {
   const stringValue = requiredString(value, label)
-  // Liveness/expiry is deliberately not checked here.
   if (!ISO_8601_TIMESTAMP.test(stringValue) || Number.isNaN(Date.parse(stringValue))) {
     throw new Error(`${label} must be an ISO-8601 timestamp`)
   }
@@ -263,7 +259,6 @@ function requiredEnum<T extends readonly string[]>(value: unknown, allowedValues
   return value as T[number]
 }
 
-// Kept local, not imported from @/lib/type-guards: the factory's raw Node TS loader can't resolve the @/ alias or extensionless .ts imports, so a cross-module import would break here.
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value)
 }

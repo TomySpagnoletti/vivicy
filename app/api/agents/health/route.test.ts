@@ -2,7 +2,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import type { AgentsHealth } from "@/lib/agents-health-types"
 
-// The route's memo is module-scoped; each test re-imports the route through a fresh module graph to start from an empty cache.
 const { getAgentsHealth } = vi.hoisted(() => ({ getAgentsHealth: vi.fn() }))
 
 vi.mock("@/lib/agents-health", () => ({ getAgentsHealth }))

@@ -1,4 +1,4 @@
-// Dependency-free: the SectionRun client component imports this directly, and lib/control.ts (server) imports it too — keep it free of node/@ imports so both reach it.
+// Keep free of node/@ imports: the SectionRun client component and lib/control.ts both import this directly.
 
 export type ProductRunPhase = "not_established" | "stopped" | "running" | "exited"
 
@@ -14,7 +14,7 @@ export interface ProductRunView {
   started_at: string | null
 }
 
-// Loopback / bind-all hosts only — we surface a URL the owner can click on their own machine, never an arbitrary host printed in the log.
+// Loopback/bind-all hosts only: never surface an arbitrary host read out of the log.
 const LOOPBACK_URL_RE = /https?:\/\/(?:localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1?\])(?::\d{2,5})?(?:\/[^\s"'<>)\]]*)?/gi
 
 function normalizeLoopbackUrl(url: string): string {
@@ -46,7 +46,6 @@ export function detectPortFromCommand(command: string): number | null {
   return null
 }
 
-// Log sniff is authoritative (the server printed its real URL); the command-string port is a best-effort guess; otherwise honest "see log".
 export function deriveProductRunUrl(
   logText: string | null,
   command: string | null
@@ -62,7 +61,7 @@ export function normalizeRunCommandValue(raw: unknown): string | null {
   return typeof raw === "string" && raw.trim().length > 0 ? raw.trim() : null
 }
 
-// Under-fire is the safe direction: a compiled/CLI run command must match none of these so a non-UI target's reviewer stays byte-identical; only add tokens that unambiguously boot a browser-facing HTTP server.
+// Under-fire is the safe direction: only add a token that unambiguously boots a browser-facing HTTP server.
 const WEB_SERVE_COMMAND_RE =
   /(?:\b(?:next|vite|nuxt|astro|remix|gatsby|parcel|storybook|webpack(?:-dev-server)?|http-server|live-server|serve|ng|vue-cli-service|react-scripts|svelte-kit|flask|runserver|rails|puma|rackup|uvicorn|gunicorn|hypercorn|daphne|streamlit)\b|php\s+-S)/i
 

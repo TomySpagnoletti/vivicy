@@ -1,4 +1,4 @@
-// rename(2) is atomic only within a filesystem; write a sibling temp file then rename so concurrent readers (status probe, SSE) never see a half-written file.
+// The temp must stay a SIBLING of the target: rename(2) is atomic only within one filesystem.
 import { closeSync, openSync, renameSync, unlinkSync, writeSync } from "node:fs"
 
 export function atomicWriteJson(absolutePath: string, value: unknown): void {

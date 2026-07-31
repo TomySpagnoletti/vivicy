@@ -304,7 +304,6 @@ test("isolateAgentEnv drops every agent-CLI-configuring variable and keeps exact
   )
 })
 
-// Each list is the family exactly as the installed claude 2.1.191 binary groups it: the six selectors and five skip-auth flags of its provider arrays, and the seven names it clusters around the `oidc_federation` / `env-quad` literals plus the inline `ANTHROPIC_IDENTITY_TOKEN` its own error message offers as the alternative to the _FILE form.
 const CLI_AUTH_FAMILIES: Record<string, string[]> = {
   anthropicOidcFederation: [
     "ANTHROPIC_BASE_URL",
@@ -555,7 +554,6 @@ test("the ratified transcript taxonomy is the whole namespace, named once", () =
   assert.equal(issueTranscriptDir("ISSUE-0007"), "ISSUES/ISSUE-0007", "a tracked product issue is grouped, never flat at the root")
 })
 
-// The synthetic work units live inside their spawn factories, so no runtime seam exposes them: the assignment is pinned where it is written.
 test("every leg family declares its ratified transcript home exactly once, and no other factory module composes one", () => {
   const homes: Record<string, string> = {
     "extract-issues.ts": "transcript_dir: TRANSCRIPT_DIRS.extraction",
@@ -625,7 +623,6 @@ test("transcriptDirRel refuses a declared home that is not a plain relative subp
   }
 })
 
-// Runs the REAL spawn seam once per family the taxonomy groups: what lands on disk is the pin, not the string the composer returned.
 test("a leg's transcript lands under its family's directory, role-named so two legs of one family never collide", () => {
   const root = mkdtempSync(join(tmpdir(), "vivicy-transcript-layout-"))
   try {
@@ -638,7 +635,7 @@ test("a leg's transcript lands under its family's directory, role-named so two l
     mkdirSync(sessions, { recursive: true })
     const rollout = join(sessions, "rollout.jsonl")
     writeFileSync(rollout, '{"type":"session_meta"}\n')
-    // Every leg captures this one rollout: findNewestCodexRollout takes the newest at or after the leg's start, so it must outlast them all.
+    // The rollout mtime must stay ahead of every leg below: findNewestCodexRollout only takes a rollout at or after the leg's start.
     const ahead = new Date(Date.now() + 3_600_000)
     utimesSync(rollout, ahead, ahead)
 

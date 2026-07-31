@@ -20,7 +20,6 @@ const variantColorVars = Object.fromEntries(
   ])
 )
 
-// Centred on the CANVAS, not the viewport: the stack is shifted by half the live rail width (0 while the rail is undocked — below `md`, or panel closed) so it can never overlap the process control bar it announces — see AGENTS.md "Platform traps".
 const Toaster = ({ ...props }: ToasterProps) => {
   const panel = usePanelState()
   return (
@@ -42,7 +41,7 @@ const Toaster = ({ ...props }: ToasterProps) => {
       style={
         {
           "--vivicy-panel-width": panel.open ? panel.width : "0px",
-          // Inline (not a utility class): sonner injects its own stylesheet at runtime, and only an inline declaration is guaranteed to win over it.
+          // Keep this inline: sonner injects its own stylesheet at runtime and a utility class does not reliably beat it.
           "--width": "min(356px, calc(100vw - var(--vivicy-rail) - 6rem))",
           translate: "calc(var(--vivicy-rail) * -0.5)",
           "--normal-bg": "var(--popover)",

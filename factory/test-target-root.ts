@@ -1,4 +1,4 @@
-// Must be the FIRST import in any test file: factory modules read VIVICY_TARGET_ROOT at module-load time, so this sets it before any later import captures the unset value.
+// Must be the FIRST import in a test file: factory modules capture VIVICY_TARGET_ROOT at module-load time.
 import { mkdtempSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { resolve } from "node:path"

@@ -13,7 +13,6 @@ export default defineConfig({
   test: {
     environment: "jsdom",
     globals: true,
-    // jsdom withholds window.localStorage under the default opaque origin; this setup file polyfills it for the panel-state hook and quota footer.
     setupFiles: ["./vitest.setup.ts"],
     include: ["**/*.test.ts", "**/*.test.tsx"],
     exclude: [

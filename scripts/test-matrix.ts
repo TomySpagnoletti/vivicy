@@ -9,7 +9,6 @@ export const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url
 export const MATRIX_FILE = "test/TEST-MATRIX.md"
 export const FINGERPRINT_RE = /^Reconciled fingerprint: `([0-9a-f]{64})` @ commit `([0-9a-f]{7,40}|unknown)`$/m
 
-// Test files (.test/.spec) are deliberately excluded from the fingerprint — adding a test alone must not force a re-stamp.
 const BEHAVIOR_DIRS = ["app", "components", "lib", "factory", "hooks", "scripts", "e2e"]
 const BEHAVIOR_ROOT_FILES = [
   "playwright.config.ts",
@@ -20,9 +19,10 @@ const BEHAVIOR_ROOT_FILES = [
   "package.json",
 ]
 
-// Regenerated gitignored artifacts must stay excluded from the fingerprint, or every rehearsal run would invalidate a freshly-stamped matrix.
+// Keep regenerated artifacts out of the fingerprint, or every rehearsal run invalidates a freshly-stamped matrix.
 const ARTIFACT_PATHS = ["factory/rehearsal/reports/"]
 
+// Never fingerprint .test/.spec files: adding a test alone must not force a matrix re-stamp.
 function isBehaviorFile(rel: string): boolean {
   if (/\.(test|spec)\.(ts|tsx)$/.test(rel)) return false
   if (ARTIFACT_PATHS.some((p) => rel.startsWith(p))) return false
@@ -43,9 +43,7 @@ export function computeBehaviorFingerprint(root = REPO_ROOT): string {
   for (const dir of BEHAVIOR_DIRS) {
     try {
       walk(path.join(root, dir), files)
-    } catch {
-      // A missing behavior dir is itself a behavior change; it shows up through the file list.
-    }
+    } catch {}
   }
   const rels = files.map((abs) => path.relative(root, abs).split(path.sep).join("/")).filter(isBehaviorFile)
   for (const rootFile of BEHAVIOR_ROOT_FILES) rels.push(rootFile)

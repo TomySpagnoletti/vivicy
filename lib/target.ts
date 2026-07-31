@@ -3,7 +3,7 @@ import path from "node:path"
 
 import { readCurrentProjectRoot } from "@/lib/project"
 
-// Persisted roots are realpath-canonical (see project.ts), so the runtime-key hash never forks across symlinked spellings; the env fallback is used verbatim.
+// Persisted roots arrive realpath-canonical from project.ts; the env fallback is used verbatim, never re-resolved.
 export function getTargetRoot(): string | null {
   const persisted = readCurrentProjectRoot()
   if (persisted) return path.resolve(persisted)
@@ -23,13 +23,12 @@ export function getArchitectureDataPath(): string | null {
 
 export const PROGRESS_LEDGER_RELATIVE_PATH = path.join(".vivicy", "development", "progress-ledger.json")
 
-// architecture-data.json is a static snapshot from extraction; this ledger is the live overlay (graph_item_states, active_items) computed at request time — no regeneration.
 export function getProgressLedgerPath(): string | null {
   const root = getTargetRoot()
   return root === null ? null : path.join(root, PROGRESS_LEDGER_RELATIVE_PATH)
 }
 
-// The single witness that the canonical holds an authored spec, not just the scaffold seed (.gitkeep/README.md); shared by the extract guard and the map's empty-canonical reason so both agree on "there is something to extract".
+// The ONE witness that the canonical holds an authored spec: the extract guard and the map's empty-canonical reason both read it, never a spelling of their own.
 export function canonicalHasSpecDoc(root: string): boolean {
   const stack = [path.join(root, ".vivicy", "canonical")]
   while (stack.length > 0) {
@@ -51,7 +50,6 @@ export function canonicalHasSpecDoc(root: string): boolean {
   return false
 }
 
-// Distinct from getArchitectureDataPath()'s null case: a target can have .vivicy/canonical/ but no generated map yet.
 export function isTargetResolved(): boolean {
   const root = getTargetRoot()
   if (root === null) return false

@@ -392,7 +392,7 @@ describe("readIssueBodyFromDisk", () => {
     expect(readIssueBodyFromDisk(root, "ISSUE-0008")).toMatch(/open/)
     expect(readIssueBodyFromDisk(root, "ISSUE-0003")).toMatch(/done/)
     expect(readIssueBodyFromDisk(root, "ISSUE-9999")).toBeNull()
-    // Plant the file exactly where the unguarded join would land (.vivicy/development/issues/../../etc/passwd.md), so the guard is what refuses it — not a missing file.
+    // The planted path must stay exactly where the UNGUARDED join lands, or the null below is a missing file rather than a refusal.
     write(".vivicy/etc/passwd.md", "root:x:0:0\n")
     expect(
       readIssueBodyFromDisk(root, "../../etc/passwd"),

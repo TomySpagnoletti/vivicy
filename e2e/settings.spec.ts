@@ -2,7 +2,7 @@ import { expect, test } from "./browser-issues"
 
 import { clickPastOverlap, openSettingsDialog } from "./helpers"
 
-// Serial: the settings store is process-global on disk; concurrent runs would race it.
+// Never parallelize: the settings store is process-global on disk.
 test.describe.configure({ mode: "serial" })
 
 test.describe("Vivicy agent settings", () => {
@@ -23,7 +23,6 @@ test.describe("Vivicy agent settings", () => {
     await expect(effortTrigger).toContainText("max")
 
     await clickPastOverlap(dialog.getByRole("button", { name: "Save" }))
-    // sonner stacks toasts; .first() avoids a strict-mode violation from a lingering prior toast.
     await expect(page.getByText(/Settings saved/i).first()).toBeVisible({ timeout: 15_000 })
     await expect(dialog).not.toBeVisible()
 

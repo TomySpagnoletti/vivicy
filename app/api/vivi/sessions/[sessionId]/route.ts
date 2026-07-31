@@ -3,7 +3,6 @@ import { getSpawner } from "@/lib/spawner"
 import { getTargetRoot } from "@/lib/target"
 import { isViviTurnRunning, readTranscript, recoverInterruptedReads } from "@/lib/vivi"
 
-// Reads the SAME JSONL the turn engine writes elsewhere — no separate read-side representation.
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 
@@ -15,7 +14,6 @@ export async function GET(_request: Request, { params }: { params: Promise<{ ses
     return Response.json({ ok: false, error: "invalid session id" }, { status: 400 })
   }
   try {
-    // Session load and the resume poll both land here, so this is where a read orphaned by a dead process is repaired — the UI is never handed one as if it were in flight.
     recoverInterruptedReads(getSpawner(), sessionId)
     const targetRoot = getTargetRoot()
     return Response.json({

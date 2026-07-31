@@ -94,7 +94,7 @@ function RecommendedMarker({ show }: { show: boolean }) {
   )
 }
 
-// @/lib/settings is the validation source of truth — this form only mirrors it, never re-implements the rules.
+// Never re-implement a rule from @/lib/settings here: this form only mirrors that source of truth.
 export function SettingsDialog({ onSaved }: { onSaved?: (settings: AgentsSettings) => void }) {
   const t = useTranslations("sidebar.settings")
   const [open, setOpen] = useState(false)
@@ -112,7 +112,7 @@ export function SettingsDialog({ onSaved }: { onSaved?: (settings: AgentsSetting
         const body = (await res.json()) as { settings?: AgentsSettings }
         if (!cancelled && body.settings) setDraft(body.settings)
       } catch {
-        // Deliberate: keep the last draft on a failed load rather than surface an error.
+        // Never clear the draft on a failed load, and never surface it.
       } finally {
         if (!cancelled) setLoading(false)
       }
@@ -428,7 +428,7 @@ function AgentFields({
         ) : (
           <Tooltip>
             <TooltipTrigger asChild>
-              {/* disabled switch swallows pointer events — span wrapper keeps the tooltip reachable on hover/focus */}
+              {/* Keep this span wrapper: a disabled control swallows pointer events, leaving the tooltip unreachable. */}
               <span tabIndex={0} className="inline-flex" aria-label={t("fastModeUnavailableAriaLabel", { role: roleLabel })}>
                 <Switch id={fastId} checked={false} disabled aria-label={t("fastModeAriaLabel", { role: roleLabel })} />
               </span>

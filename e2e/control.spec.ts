@@ -2,10 +2,9 @@ import { expect, test } from "./browser-issues"
 
 import { clickPastOverlap, ensurePanelOpen, isMobileProject } from "./helpers"
 
-// Widths where the panel is a docked rail (>= Tailwind's md): the toast stack is centred on the canvas, so it must clear the control bar at the narrowest one too, not just at the default viewport.
 const DOCKED_RAIL_WIDTHS = [768, 1024, 1600]
 
-// Serial: the run lock is process-global, so concurrent control flows would race it.
+// Never parallelize: the run lock is process-global and concurrent control flows race it.
 test.describe.configure({ mode: "serial" })
 
 test.describe("Vivicy control plane", () => {
@@ -50,14 +49,12 @@ test.describe("Vivicy control plane", () => {
       page.getByText(/Already extracted — \d+ issues?\. To run it again, retry the extraction stage in the workflow, or ask Vivi\./)
     ).toBeVisible({ timeout: 10_000 })
 
-    // exact:true avoids matching the file-path text that also contains the issue id.
     await clickPastOverlap(page.getByRole("button", { name: "Tasks" }))
     await expect(sidebar.getByText("ISSUE-0001", { exact: true })).toBeVisible()
     await expect(nodes.first()).toBeVisible()
   })
 
   test("a live toast never covers the control bar, at every docked-rail width", async ({ page }, testInfo) => {
-    // The docked rail only exists at >= md; resizing a mobile project into that range would leave the Sheet mounted alongside it (two status badges).
     test.skip(isMobileProject(testInfo), "the docked rail is a >= md shape")
 
     await page.goto("/")
@@ -74,7 +71,7 @@ test.describe("Vivicy control plane", () => {
 
     for (const width of DOCKED_RAIL_WIDTHS) {
       await page.setViewportSize({ width, height: 800 })
-      // Guards both probes against a vacuous pass: an auto-dismissed toast covers nothing.
+      // Never drop: an auto-dismissed toast covers nothing, so both probes below would pass vacuously.
       await expect(toast, `the toast auto-dismissed before the ${width}px probe`).toBeVisible()
 
       const toastBox = await toast.boundingBox()

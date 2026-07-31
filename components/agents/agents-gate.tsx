@@ -27,7 +27,7 @@ export function AgentsGate({ health, onHealth }: { health: AgentsHealth; onHealt
   const recheck = useCallback(async () => {
     setChecking(true)
     try {
-      // ?fresh=1 bypasses the health route's once-per-server-process memo — otherwise "Check again" would keep returning the first snapshot.
+      // Keep ?fresh=1: the health route memoizes once per server process and would replay the first snapshot.
       const res = await fetch("/api/agents/health?fresh=1", { cache: "no-store" })
       const body = (await res.json().catch(() => ({}))) as { agents?: AgentsHealth }
       if (body.agents) onHealth(body.agents)
@@ -37,7 +37,7 @@ export function AgentsGate({ health, onHealth }: { health: AgentsHealth; onHealt
     }
   }, [onHealth])
 
-  // items-start + m-auto, not items-center: items-center would clip the top of overflowing content unreachably (short windows, 200% zoom).
+  // Never items-center here: on a short window it clips the top of the overflowing content unreachably; items-start + m-auto instead.
   return (
     <div className="flex h-svh w-full items-start justify-center overflow-y-auto p-6">
       <div className="m-auto flex w-full max-w-xl flex-col gap-4">

@@ -6,12 +6,11 @@ import { runAgentUpdate, UnknownAgentError } from "@/lib/agents-update"
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 
-// Validated against this closed enum here AND again inside runAgentUpdate — only an allow-listed, fixed command ever runs (no shell, no interpolation of request input).
+// Never widen this closed enum: runAgentUpdate re-validates it, and no request input ever reaches a command string.
 const UpdateRequest = z.object({
   agent: z.enum(["claude", "codex"]),
 })
 
-// Vivicy is a local single-user tool, so this route may exec — but only the CLI's own allow-listed self-update command, never arbitrary input.
 export async function POST(request: Request) {
   let parsed: { agent: "claude" | "codex" }
   try {
@@ -23,7 +22,6 @@ export async function POST(request: Request) {
 
   try {
     const result = await runAgentUpdate(parsed.agent)
-    // Re-detect AFTER the update (not before) so the response reflects the new version; detection is read-only (which/--version/auth-file reads), never runs the agent.
     const agents = getAgentsHealth()
     return Response.json({
       ok: result.ok,

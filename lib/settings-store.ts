@@ -4,7 +4,7 @@ import path from "node:path"
 import { getRuntimeDir } from "@/lib/runtime-dir"
 import { DEFAULT_SETTINGS, normalizeSettings, type AgentsSettings } from "@/lib/settings"
 
-// Filesystem I/O split out from ./settings so that module stays node:fs-free for the client bundle.
+// Never move this fs I/O into ./settings: that module must stay node:fs-free for the client bundle.
 const SETTINGS_FILE = "settings.json"
 
 export function getSettingsPath(): string {

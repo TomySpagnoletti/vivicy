@@ -47,7 +47,7 @@ const WITH_DOCS: GovernanceResult = {
   },
 }
 
-// The route only calls request.formData(); a real multipart round-trip is fragile across the jsdom/undici global split, so stub the parsed form directly.
+// Never swap this stub for a real multipart Request: FormData does not round-trip across the jsdom/undici global split.
 function postForm(fields: Record<string, string>, files: Array<{ name: string; content: string }> = []): Request {
   const form = new FormData()
   for (const [key, value] of Object.entries(fields)) form.append(key, value)

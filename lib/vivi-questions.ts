@@ -11,7 +11,7 @@ export interface ViviQuestion {
   options: ViviQuestionOption[]
 }
 
-// Server-minted id, LLM-authored questions: the stack turn carries the QUESTIONS only. An answer is never stored here — it is the ordinary user turn that carries it, so the thread stays the single store and a replayed answer can only ever produce the one line already in it.
+// Never store an answer here: the thread is the single store, and an answer is an ordinary user turn.
 export interface ViviQuestionStack {
   id: string
   questions: ViviQuestion[]
@@ -32,20 +32,19 @@ const MAX_QUESTION_LENGTH = 200
 const MAX_OPTION_LABEL_LENGTH = 80
 export const MAX_OTHER_ANSWER_LENGTH = 400
 
-// The fence body is refused on SIZE before it is parsed or normalized: a leg reply is an untrusted-length boundary, and a stack of 6 cards at these bounds cannot exceed a fraction of this.
+// Refuse on SIZE before parsing or normalizing: a leg reply is an untrusted-length boundary.
 const MAX_FENCE_BODY_LENGTH = 16_384
 
-// The serialized Q+A line's one separator: the server composes with it, the transcript carries it to the leg, the panel splits on it to render the two halves.
+// Wire separator of the serialized question→answer line: the server composes with it and the panel splits on it — move both or neither.
 export const ANSWER_SEPARATOR = " → "
 
 const QUESTION_ID_SHAPE = /^[A-Za-z0-9][A-Za-z0-9_-]*$/
 
 export type QuestionsDirective = { questions: ViviQuestion[] } | { malformed: string } | null
 
-// Stripped BEFORE the whitespace collapse, and the two orders are NOT equivalent: an invisible sitting between two whitespace runs would otherwise leave the double space `oneLine` exists to remove. Membership is one test — does the character render as NOTHING — because a label is LLM-authored, steerable by the documents the owner imports, and is BOTH rendered as an option and recorded verbatim into the transcript as the owner's answer: a character that makes those two disagree is a spoof, not a typo. Three classes deliberately FAIL that test and stay out: what renders as a BREAK (U+2028/U+2029), so the collapse turns it into a space instead of deleting a word boundary; the JOINERS U+200C/U+200D, which change what renders (they are what makes the family emoji one glyph, Persian mi-ravad one word, Devanagari k-ssa one cluster) and which this same function must pass through untouched since it also governs the owner's own typed answer; and `\p{Cf}` wholesale, which would eat the Arabic number signs (U+0600-0605).
+// Strip BEFORE the whitespace collapse, and never widen this class: U+2028/2029 must survive to collapse into a space, the joiners U+200C/200D change what renders, and `\p{Cf}` wholesale would eat U+0600-0605.
 const INVISIBLE = /[\u0000-\u0008\u000E-\u001F\u007F-\u009F\u00AD\u200B\u200E\u200F\u202A-\u202E\u2060-\u2064\u2066-\u206F\uFEFF]/g
 
-// One normalization at the boundary: a newline or a doubled space inside an LLM JSON string would otherwise reach a one-line serialization and a single-line card title.
 export function oneLine(value: string): string {
   return value.replace(INVISIBLE, "").replace(/\s+/g, " ").trim()
 }
@@ -142,7 +141,7 @@ export function parseQuestionsDirective(reply: string): QuestionsDirective {
       }
     }
 
-    // Recommended-first is settled once, here, so no renderer sorts and no answer index depends on a view: the owner always reads the senior default first.
+    // Sort recommended-first ONCE, here: no renderer may re-sort, and no answer may depend on a view's order.
     questions.push({
       id,
       question,
@@ -156,7 +155,6 @@ export function stripQuestionsFence(reply: string): string {
   return stripFencedBlock(reply, QUESTIONS_TAG)
 }
 
-// The answered set is derived from the thread, never stored twice: a turn stamped with this stack's id retires exactly its own question.
 export function remainingQuestions(stack: ViviQuestionStack, turns: readonly { answered?: ViviQuestionAnswerRef }[]): ViviQuestion[] {
   const answered = new Set<string>()
   for (const turn of turns) {
@@ -165,7 +163,6 @@ export function remainingQuestions(stack: ViviQuestionStack, turns: readonly { a
   return stack.questions.filter((question) => !answered.has(question.id))
 }
 
-// A STANDING pile is a live object, not a past line: it renders after everything else so the card the owner must act on is always the last thing in the thread, never pushed off the top by its own answer lines. A spent pile stays where it happened (it renders as nothing at all).
 export function threadRenderOrder(turns: readonly { questions?: ViviQuestionStack; answered?: ViviQuestionAnswerRef }[]): number[] {
   const settled: number[] = []
   const standing: number[] = []
@@ -190,7 +187,7 @@ function splitAnsweredLine(text: string): { question: string; answer: string } |
   }
 }
 
-// The card it answers is the exact split, since a question of Vivi's may itself carry an arrow ("draft → review"); the separator search is only the fallback for a line whose stack is not in the loaded thread.
+// Prefer the exact ref split: a question may itself carry the arrow separator, so the indexOf search is only a fallback.
 export function readAnsweredLine(
   turns: readonly { questions?: ViviQuestionStack }[],
   turn: { text: string; answered?: ViviQuestionAnswerRef }

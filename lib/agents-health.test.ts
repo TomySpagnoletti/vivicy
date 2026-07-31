@@ -19,7 +19,6 @@ const CODEX_AUTH = path.join(HOME, ".codex", "auth.json")
 const CLAUDE_CRED = path.join(HOME, ".claude", ".credentials.json")
 const CLAUDE_SETTINGS = path.join(HOME, ".claude", "settings.json")
 
-// path.join stays posix even in "win32" tests run on a posix host — harmless, since the platform SEAM (an explicit param) drives Windows behavior, not the real host OS, and both sides key paths with the same join.
 const WIN_HOME = "C:\\Users\\test-user"
 const WIN_CLAUDE_CRED = path.join(WIN_HOME, ".claude", ".credentials.json")
 const WIN_CLAUDE_SETTINGS = path.join(WIN_HOME, ".claude", "settings.json")
@@ -455,7 +454,6 @@ describe("resolveOnPath (cross-platform presence, no real spawn)", () => {
 })
 
 describe("Windows auth detection (file store, per official docs)", () => {
-  // Per https://code.claude.com/docs/en/authentication, Windows stores Claude creds in a FILE (%USERPROFILE%\.claude\.credentials.json), never the Keychain — detection must never fall through to the Keychain branch there.
   it("Claude: reads %USERPROFILE%\\.claude\\.credentials.json as subscription", () => {
     const probe = makeProbe({
       platform: "win32",
@@ -595,7 +593,6 @@ describe("config-dir overrides (cross-platform)", () => {
 
 describe("honest unknown vs unauthenticated by OS", () => {
   it("Codex keyring mode (no auth.json on disk) degrades to not-authenticated, never fabricated", () => {
-    // With cli_auth_credentials_store=keyring, creds live in the OS keyring and auth.json never appears; unreadable non-interactively, so the honest verdict is "not authenticated," never a fabricated "authenticated."
     const probe = makeProbe({
       present: { codex: "/usr/bin/codex" },
       versions: { codex: "codex-cli 0.141.0" },

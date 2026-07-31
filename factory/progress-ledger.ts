@@ -23,7 +23,7 @@ export const progressEventTypes = [
   "issue_reopened",
   "review_started",
   "review_completed",
-  // Keyed by a spike gate_id, not a graph item; recorded via the spike prover's own sink, not applyProgressEvent.
+  // Keyed by a spike gate_id, not a graph item: recorded through the spike prover's own sink, never applyProgressEvent.
   "spike_proof_started",
   "spike_proof_completed",
   "readiness_check_started",
@@ -66,7 +66,7 @@ const activeStateByEvent: Partial<Record<ProgressEventType, ActiveItemState>> = 
 
 export type GraphItemStatus = "in_progress" | "blocked" | "reviewing" | "implemented" | "verified"
 
-// Rank only moves forward (>=); blocked shares in_progress's rank so it can flip an in-progress item but never downgrade a verified one.
+// blocked deliberately shares in_progress's rank: rank only moves forward, so it can flip an in-progress item but never downgrade a verified one.
 const graphStatusRank: Record<GraphItemStatus, number> = {
   in_progress: 1,
   blocked: 1,
@@ -75,7 +75,6 @@ const graphStatusRank: Record<GraphItemStatus, number> = {
   verified: 4,
 }
 
-// Hand-rolled O_EXCL lockfile: deliberately avoids adding a dependency.
 const LOCK_STALE_MS = 30_000
 const LOCK_ACQUIRE_TIMEOUT_MS = 10_000
 const LOCK_RETRY_MS = 25
@@ -93,7 +92,6 @@ export interface ProgressEvent {
   timestamp?: string
   transcript_refs?: string[]
   worktree?: string
-  // Absent means the issue's legs declared nothing; an empty array means they declared applying no skill — the two are not the same fact and only the second counts toward the usage denominator.
   skills_applied?: string[]
   skills_installed?: string[]
   skills_not_installed?: string[]
@@ -110,7 +108,6 @@ export interface ProgressIssueIndex {
   verification_evidence_ref_grammar: string
 }
 
-// Written by the dev-loop gate runner (a separate module).
 export interface GateRunRecord {
   gate_id: string
   issue_id: string
@@ -152,7 +149,6 @@ export interface ProgressLedger {
   graph_item_states: GraphItemState[]
   active_items: ActiveItem[]
   skill_usage?: SkillUsageEntry[]
-  // Deliberately open: unknown fields (e.g. baseline identity data) are written by other code and pass through untouched.
   [key: string]: unknown
 }
 
@@ -172,7 +168,6 @@ export function recordProgressEvent(event: ProgressEvent, paths: ProgressLedgerP
 
   const lock = acquireLock(lockPath)
   try {
-    // Lock already serializes writers; CAS additionally guards against a lock force-stolen mid-write.
     for (let attempt = 0; attempt < CAS_MAX_ATTEMPTS; attempt += 1) {
       const baseLedger = readProgressLedger(ledgerRelPath)
       const baseRevision = baseLedger.revision ?? 0
@@ -230,9 +225,7 @@ function acquireLock(lockPath: string): LockHandle {
 function releaseLock(lock: LockHandle): void {
   try {
     unlinkSync(lock.lockPath)
-  } catch {
-    // Lock already removed (e.g. reclaimed as stale by another writer); ignore.
-  }
+  } catch {}
 }
 
 function reclaimStaleLock(lockPath: string): boolean {
@@ -240,7 +233,6 @@ function reclaimStaleLock(lockPath: string): boolean {
   try {
     stat = statSync(lockPath)
   } catch {
-    // Lock vanished between EEXIST and stat — treat as reclaimable, retry.
     return true
   }
   let owner: LockOwner | null = null
@@ -262,7 +254,6 @@ function reclaimStaleLock(lockPath: string): boolean {
     unlinkSync(lockPath)
     return true
   } catch {
-    // Someone else reclaimed it first; retry the acquire loop anyway.
     return true
   }
 }
@@ -272,7 +263,6 @@ function isProcessAlive(pid: number): boolean {
     process.kill(pid, 0)
     return true
   } catch (error) {
-    // ESRCH => no such process. EPERM => process exists but not ours (alive).
     return (error && (error as NodeJS.ErrnoException).code === "EPERM") as boolean
   }
 }
@@ -289,11 +279,10 @@ export function applyProgressEvent({
   const normalized = normalizeProgressEvent(event)
   validateProgressEvent(normalized, issueIndex)
   const now = normalized.timestamp
-  // graphRefs come from the event, not the issue's full set — events declare their explicit graph focus (validated above).
   const graphRefs = normalized.graph_refs
   const activeItemId = normalized.active_item_id ?? `${normalized.actor}:${normalized.session_ref}:${normalized.issue_id}`
   const nextLedger: ProgressLedger = {
-    // Spread the ledger first: reordering would silently drop unknown fields (e.g. baseline identity data) instead of round-tripping them.
+    // Spread the ledger FIRST: any other order silently drops the unknown fields other writers keep here.
     ...ledger,
     schema_version: 1,
     updated_at: maxTimestamp(ledger.updated_at, now),
@@ -357,7 +346,7 @@ export function createEmptyProgressLedger(): ProgressLedger {
   }
 }
 
-// Casts below are sound only because validateProgressEvent, called right after, enforces event_type/role membership.
+// The casts below are unchecked — validateProgressEvent must run immediately after normalizeProgressEvent.
 interface NormalizedProgressEvent {
   active_item_id: string | undefined
   actor: string
@@ -389,7 +378,7 @@ function normalizeProgressEvent(event: ProgressEvent): NormalizedProgressEvent {
     skills_installed: stringArray(event.skills_installed ?? []),
     skills_not_installed: stringArray(event.skills_not_installed ?? []),
     timestamp: optionalString(event.timestamp) ?? new Date().toISOString(),
-    // Gitignored JSONL transcript paths captured by the orchestrator; unlike evidence_refs, not existence-validated (may be absent in tests).
+    // Never existence-validate these like evidence_refs: transcripts are gitignored and may be absent.
     transcript_refs: stringArray(event.transcript_refs ?? []),
     worktree: optionalString(event.worktree),
   }
@@ -517,7 +506,6 @@ function upsertGraphStates(
   }
 }
 
-// One entry per issue: an issue's two legs and its successive attempts merge into it as a sorted union, so a redelivered event leaves the ledger byte-identical and a leg's answer is never withdrawn by a later attempt that saw less.
 function recordSkillUsage(ledger: ProgressLedger, issueId: string, declared: NormalizedProgressEvent): void {
   const entries = Array.isArray(ledger.skill_usage) ? [...ledger.skill_usage] : []
   const index = entries.findIndex((entry) => entry !== null && typeof entry === "object" && entry.issue_id === issueId)
@@ -533,13 +521,11 @@ function recordSkillUsage(ledger: ProgressLedger, issueId: string, declared: Nor
   ledger.skill_usage = entries
 }
 
-// Bounded on the WRITE side too: the read normalizes, but a record that grew past the bound would already have grown the file every event carries whole.
 function mergeSkillIds(prior: unknown, next: readonly string[]): string[] {
   const priorIds = Array.isArray(prior) ? prior.filter((id): id is string => typeof id === "string") : []
   return [...new Set([...priorIds, ...next])].sort().slice(0, MAX_SKILL_IDS)
 }
 
-// Displays the least-advanced linked issue state; blocked wins ties so a blocker stays visible.
 function aggregateGraphStatus(issueStates: Record<string, GraphItemStatus>): GraphItemStatus {
   const statuses = Object.values(issueStates)
   let lowest = statuses[0]
@@ -555,7 +541,6 @@ function rankOf(status: GraphItemStatus): number {
   return graphStatusRank[status] ?? 0
 }
 
-// ISO-8601 timestamps compare correctly lexicographically; null sorts first.
 function maxTimestamp(a: string | null, b: string | null): string | null {
   if (a == null) return b ?? null
   if (b == null) return a
@@ -605,7 +590,6 @@ function upsertActiveItem(
   ledger.active_items.push(next)
 }
 
-// Clears every active item for the issue, not just the completing actor's — the reviewer runs under a different actor than the implementer, so a single-id removal would leave its item dangling and hold the aggregate below verified forever.
 function removeActiveItemsForIssue(ledger: ProgressLedger, issueId: string): void {
   ledger.active_items = ledger.active_items.filter((item) => item.issue_id !== issueId)
 }
@@ -615,7 +599,6 @@ function readProgressLedger(path: string): ProgressLedger {
   return readJson<ProgressLedger>(path, "progress ledger")
 }
 
-// T is the caller's trusted shape only — JSON.parse here isn't validated; downstream guards (validateProgressEvent, ?? defaults) tolerate drift.
 function readJson<T>(path: string, label: string): T {
   try {
     return JSON.parse(readFileSync(resolveRepoPath(path), "utf8")) as T

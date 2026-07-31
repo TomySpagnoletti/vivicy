@@ -1,8 +1,4 @@
-/*
- * Map-only styles. The architecture map is intentionally allowed a custom
- * (non-shadcn) slate-palette diagram style. These literals are scoped to the
- * React Flow surface and never leak into the shadcn sidebar.
- */
+/* Non-shadcn by design: never refactor these literals to design-system tokens. */
 
 .architecture-map-root {
   width: 100%;
@@ -94,7 +90,6 @@
   animation: map-work-pulse 2.1s ease-in-out infinite;
 }
 
-/* Cluster backdrops sit behind the nodes, grouping each layout_cluster. */
 .architecture-map-root .react-flow__viewport-portal {
   pointer-events: none;
   z-index: 0;
@@ -129,8 +124,7 @@
   white-space: nowrap;
 }
 
-/* Edit mode: the cluster title becomes a drag handle. Pointer-events are
-   re-enabled here even though the backdrop and viewport portal disable them. */
+/* Keep pointer-events: auto — the backdrop and the viewport portal above disable them. */
 .map-cluster-handle {
   background: rgb(248 250 252 / 84%);
   border: 1px solid rgb(203 213 225 / 78%);
@@ -165,7 +159,6 @@
   cursor: grabbing;
 }
 
-/* Edge protocol labels. */
 .map-edge-label {
   background: #ffffff;
   border: 1px solid #cbd5e1;
@@ -295,7 +288,6 @@
   z-index: 20;
 }
 
-/* In edit mode the protocol label is draggable along its edge. */
 .map-edge-label.editable {
   cursor: grab;
   touch-action: none;
@@ -305,9 +297,6 @@
   cursor: grabbing;
 }
 
-/* Edit-layout toolbar: a sober overlay control. Read-only by default; toggling
-   it ON enables drag + reveals Save. Kept minimal so the default map is
-   unchanged apart from this single control. */
 .map-edit-toolbar {
   align-items: flex-start;
   background: rgb(255 255 255 / 92%);

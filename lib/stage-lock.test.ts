@@ -16,7 +16,6 @@ import path from "node:path"
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
-// The protocol's dangerous instants are all reads — of the residue, of the aside-name, of the entry the unlink is about to remove — so interposing the module's OWN fs reads is what lets another party act INSIDE one of those windows, which is the only place the ordering guarantees are observable.
 const interposed = vi.hoisted(() => ({
   hooks: [] as { call: "read" | "lstat"; match: (file: string) => boolean; after: boolean; fire: () => void }[],
 }))
@@ -74,7 +73,7 @@ const armAfterRead = (target: () => string, fire: () => void) => {
 
 const MODULE = path.resolve("lib/stage-lock.ts")
 
-// A REAL second process running the very same protocol: the only faithful co-breaker, since two claims inside one process share a pid and the protocol reads pids.
+// Never claim in-process here: two claims share a pid, and the protocol judges by pid.
 function claimInChild(dir: string): { claimed: boolean; pid: number } {
   const script = `const { claimStageLock, SKILLS_LOCK_FILE } = await import(${JSON.stringify(MODULE)})
 const held = claimStageLock(process.env.STAGE_LOCK_DIR, SKILLS_LOCK_FILE)
@@ -104,7 +103,7 @@ function recordedPid(abs: string): number | null {
 
 let reaped: number | null = null
 
-// spawnSync returns only after the child has been reaped, so signalling this pid is ESRCH — a killed run's residue, not a holder. One suffices for the whole file, a reaped pid staying dead, and spawning per call would load every other suite's budget for nothing.
+// Guaranteed-dead pid: spawnSync returns only after the child is reaped.
 function reapedPid(): number {
   if (reaped === null) {
     const child = spawnSync(process.execPath, ["-e", "process.exit(0)"], { encoding: "utf8" })
@@ -143,13 +142,11 @@ describe("claimStageLock — exactly one holder", () => {
   })
 })
 
-// The break is the one destructive step in the protocol, and its guard has to be IDENTITY, not the path: between reading the residue's liveness and breaking it, a competitor can claim that very path.
 describe("claimStageLock — breaking residue is exactly-once", () => {
   it("refuses instead of stealing a claim that appeared between the liveness read and the break", () => {
     writeLock(reapedPid())
     let competitor: ReturnType<typeof claimStageLock> = null
 
-    // Fires at the ordinary instruction boundary between the residue read and the break: a real competing stage takes the lock there.
     const stolenBy = claimStageLock(runtimeDir, SKILLS_LOCK_FILE, () => {
       competitor ??= claimStageLock(runtimeDir, SKILLS_LOCK_FILE)
       return false
@@ -215,7 +212,6 @@ describe("claimStageLock — breaking residue is exactly-once", () => {
     expect(stolenBy).toBeNull()
     expect(Object.keys(killed), "at the break's most dangerous instant the claim is still AT the lock path").toContain(SKILLS_LOCK_FILE)
 
-    // Replay those artifacts with the breaker HARD-KILLED: its marker and its aside-name now name a pid that is gone.
     const dead = reapedPid()
     const replay = path.join(runtimeDir, "killed-breaker")
     mkdirSync(replay)
@@ -244,7 +240,6 @@ describe("claimStageLock — breaking residue is exactly-once", () => {
     writeLock(reapedPid(), `${SKILLS_LOCK_FILE}.break`)
     const taker = `${JSON.stringify({ pid: 4242, started_at: "2026-07-04T09:00:00Z" }, null, 2)}\n`
 
-    // Taking over an abandoned marker is a remove and a create, so a later taker can end up holding the marker while this break is still verifying.
     arm(".stale.", () => writeFileSync(`${lockPath()}.break`, taker))
 
     expect(claimStageLock(runtimeDir, SKILLS_LOCK_FILE), "the break belongs to whoever holds the marker NOW").toBeNull()
@@ -256,7 +251,6 @@ describe("claimStageLock — breaking residue is exactly-once", () => {
     writeLock(reapedPid())
     const winner = `${JSON.stringify({ pid: process.pid, started_at: "2026-07-04T09:00:00Z" }, null, 2)}\n`
 
-    // Another breaker of the same residue completing between this one's identity read and its unlink: what it verified is gone and a LIVE claim stands in its place.
     arm(".stale.", () => {
       rmSync(lockPath())
       writeFileSync(lockPath(), winner, { flag: "wx" })
@@ -333,7 +327,6 @@ describe("claimStageLock — breaking residue is exactly-once", () => {
     let liveMarker: { claimed: boolean; pid: number } | null = null
     let tornMarker: { claimed: boolean; pid: number } | null = null
 
-    // This process links the residue aside, compares its bytes, re-reads its marker and re-proves the entry — then STALLS on that last proof, which is the only window left in the protocol. A real second process runs the whole protocol there, twice: once against this breaker's live marker, once against a PARTIAL one — the artifact a killed create would leave if the marker were written in place instead of published atomically.
     armAfterLstat(lockPath, () => {
       liveMarker = claimInChild(runtimeDir)
       writeFileSync(`${lockPath()}.break`, "")
@@ -357,7 +350,6 @@ describe("claimStageLock — breaking residue is exactly-once", () => {
     writeLock(reapedPid(), `${SKILLS_LOCK_FILE}.break`)
     const published = `${JSON.stringify({ pid: process.ppid, started_at: "2026-07-04T09:00:00Z" }, null, 2)}\n`
 
-    // Between this taker's owner read and its destructive step, a LIVE breaker (a real process — this one's parent) takes that abandoned marker over and publishes its own.
     armAfterRead(
       () => markerPath,
       () => {
@@ -382,7 +374,6 @@ describe("claimStageLock — breaking residue is exactly-once", () => {
     const markerPath = `${lockPath()}.break`
     writeLock(owner, `${SKILLS_LOCK_FILE}.break`)
 
-    // Fires between the link and the checks: a different entry appears at the marker path carrying the very pid this taker judged abandoned, so only its identity separates them.
     armAfterLstat(
       () => `${markerPath}.taken.${process.pid}`,
       () => {
@@ -475,7 +466,7 @@ describe("stageLockHolder — the clients' read-only probe", () => {
     writeLock(4242)
     expect(stageLockHolder(runtimeDir, SKILLS_LOCK_FILE, () => true)).toBe(4242)
     expect(stageLockHolder(runtimeDir, SKILLS_LOCK_FILE, () => false)).toBeNull()
-    // pid 1 is alive and owned by root: signalling it raises EPERM, which is a holder, not a corpse.
+    // pid 1 is root-owned: signalling it raises EPERM, so only this pid exercises the EPERM branch.
     writeLock(1)
     expect(stageLockHolder(runtimeDir, SKILLS_LOCK_FILE)).toBe(1)
   })

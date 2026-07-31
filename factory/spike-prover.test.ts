@@ -22,7 +22,6 @@ afterEach(() => {
 const SPIKES_DIR = ".vivicy/development/spikes"
 const REPORTS_DIR = ".vivicy/development/reports"
 
-// spike-check requires the evidence fields only at status: verified; a pending spike with just the placeholder still passes.
 function writeSpike(
   filename: string,
   {
@@ -87,12 +86,10 @@ function readStatus(file: string): string | null {
   return readSpikes(temp).find((s) => s.file === file)?.status ?? null
 }
 
-// ctx: any — the prover seam's call context is internal/non-exported in spike-prover; avoids re-exporting that type just for the fake.
 function fakeProver(verdictByGate: Record<string, string> = {}, { onAttempt }: { onAttempt?: (ctx: any) => string | null } = {}) {
   const calls: Array<{ gate_id: string; attempt: number; disagreement: string | null }> = []
   const spawnProver = async (ctx: any) => {
     calls.push({ gate_id: ctx.spike.gate_id, attempt: ctx.attempt, disagreement: ctx.disagreement })
-    // ctx.spike.file is repo-relative (as readSpikes() indexes it); resolve to an absolute path before writing, mirroring the real prover.
     fillEvidence(resolve(temp, ctx.spike.file))
     const decided = onAttempt ? onAttempt(ctx) : null
     const verdict = decided ?? verdictByGate[ctx.spike.gate_id] ?? "verified"
@@ -273,7 +270,6 @@ describe("runSpikeProving — agree + failed drafts a Change Request", () => {
     assert.match(crText, /classification: major_product_change/)
     assert.match(crText, new RegExp(proofRel(s.file).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")), "CR cites the prover report")
     assert.match(crText, new RegExp(verdictRel(s.file).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")), "CR cites the verifier report")
-    // affected_verification_gates carries this spike's gate_id so cr-apply can later retire it (failed -> deferred) once the CR is folded.
     assert.match(
       crText,
       new RegExp(`affected_verification_gates: \\[${s.gate_id.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\]`),

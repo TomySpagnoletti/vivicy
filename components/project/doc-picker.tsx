@@ -227,7 +227,7 @@ function formatBytes(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
-// Platform trap: `DataTransfer.files` is never populated for a dropped directory, so without `webkitGetAsEntry` a folder drop yields zero files, not a flat listing of its contents.
+// `DataTransfer.files` is never populated for a dropped directory: without `webkitGetAsEntry` a folder drop yields zero files.
 async function entriesFromDataTransfer(dataTransfer: DataTransfer): Promise<RawEntry[]> {
   const items = Array.from(dataTransfer.items || [])
   const getAsEntry = items[0]?.webkitGetAsEntry

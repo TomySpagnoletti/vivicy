@@ -31,7 +31,7 @@ const requirementFilePattern = /^\.vivicy\/canonical\/[a-z0-9-]+\.md$/
 const issuePathPattern = /^\.vivicy\/development\/issues\/[A-Za-z0-9._/-]+\.md$/
 const issueIdPattern = /^ISSUE-\d{4}$/
 
-// Schema must stay aligned with the viewer validator (factory/generate-viewer-data.ts); it rejects the index if a live status field appears here (progress lives only in the ledger).
+// Edit together with the viewer validator (factory/generate-viewer-data.ts), which rejects the index if a live status field appears here.
 const issueEntrySchema = z.object({
   depends_on: z.array(z.string().min(1)),
   graph_refs: z.array(z.string().min(1)).min(1),
@@ -222,7 +222,6 @@ export function runSemanticExtractionCheck(options: SemanticCheckOptions = {}): 
   }
   const corpusPaths = new Set(corpusFiles.map((file) => file.path))
 
-  // Line counts are read from the working tree; valid only because the baseline gate elsewhere guarantees tree content matches the manifest hashes.
   const docLinesCache = new Map<string, string[]>()
   const loadDocLines = (path: string): string[] => {
     if (docLinesCache.has(path)) return docLinesCache.get(path)!
@@ -359,7 +358,7 @@ export function runSemanticExtractionCheck(options: SemanticCheckOptions = {}): 
       for (let line = resolved.start; line <= resolved.end; line += 1) lines.add(line)
       coveredByFile.set(resolved.file, lines)
     }
-    // Declared proofs are shape-checked here so a malformed block fails at extraction, where the extractor can fix it, instead of silently declaring nothing at the issue's close. Their refs never feed line coverage: a proof points AT an obligation, it does not carry one.
+    // A proof's evidence refs are resolved but never folded into line coverage: a proof points AT an obligation, it does not carry one.
     const declaredProofs = parseDeclaredProofs(markdown)
     for (const problem of declaredProofs.problems) errors.push(`${label}: ${problem}`)
     for (const proof of declaredProofs.proofs) {
@@ -429,7 +428,6 @@ export function runSemanticExtractionCheck(options: SemanticCheckOptions = {}): 
     totals.uncovered_lines += counts.uncovered
   }
 
-  // Reports are written before the verdict is returned, deliberately: a failing run still leaves evidence of what's uncovered.
   const toleratedUncovered = index.status === inProgressStatus && !strict && totals.uncovered_lines > 0
   if (toleratedUncovered) {
     warnings.push(
@@ -743,7 +741,6 @@ function zodIssueMessages(label: string, error: z.ZodError): string[] {
   return error.issues.map((issue) => `${label}: ${issue.path.join(".") || "(root)"}: ${issue.message}`)
 }
 
-// atomicWriteJson never creates parent directories, so mkdir here first (report dirs may not exist yet in a fresh target).
 function writeReport(absolutePath: string, value: unknown): void {
   mkdirSync(dirname(absolutePath), { recursive: true })
   atomicWriteJson(absolutePath, value)

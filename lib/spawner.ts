@@ -13,7 +13,7 @@ interface FakeProcesses {
   nextPid: number
 }
 
-// Module scope is not process scope: a second evaluation of this module (a server that duplicates or re-evaluates it per entry) would fork the writer (control routes) from the readers (status routes), so the fake process table is process-global — see AGENTS.md "Platform traps".
+// Cross-request server state stays process-global, never a module `let` — see AGENTS.md "Platform traps & security boundaries".
 const FAKE_PROCESSES = Symbol.for("vivicy.fake-spawner.processes")
 
 function fakeProcesses(): FakeProcesses {
@@ -40,9 +40,7 @@ function writeFakeViviReply(args: string[]): void {
       replyFile,
       "Vivi is running in dry mode — no agent was spawned this turn. Connect an agent CLI to grill your spec for real."
     )
-  } catch {
-    // Best-effort: the fake path must never throw and break the demo flow.
-  }
+  } catch {}
 }
 
 function writeFakeExtractionStatus(targetRoot: string): void {
@@ -50,9 +48,7 @@ function writeFakeExtractionStatus(targetRoot: string): void {
     const file = path.join(targetRoot, ".vivicy/development/reports/extraction-status.json")
     mkdirSync(path.dirname(file), { recursive: true })
     writeFileSync(file, `${JSON.stringify({ phase: "green", summary: "extraction green (fake spawn)" }, null, 2)}\n`)
-  } catch {
-    // Best-effort: the fake path must never throw and break the demo flow.
-  }
+  } catch {}
 }
 
 export const fakeSpawner: Spawner = {
@@ -65,7 +61,6 @@ export const fakeSpawner: Spawner = {
 
   async run({ args }: RunOptions): Promise<RunResult> {
     const name = scriptName(args)
-    // resolveContext() asserts a target before any run reaches here, so a null targetRoot would be a caller bug.
     const targetRoot = getTargetRoot()
     if (name === "dev-status.ts" && targetRoot !== null) {
       const status = readDevStatusFromDisk(targetRoot)

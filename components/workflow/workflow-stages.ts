@@ -41,7 +41,7 @@ export const MARKER_GLYPH: Record<StageMarker, string> = {
 
 const EXTRACTION_RUNNING_PHASES = new Set(["authoring", "fixing", "refreezing", "validating", "mapping", "verifying", "map-review"])
 
-// Subset of @/lib/control's ExtractionStatus, redeclared here because this file and its consumers (the widget, SectionWorkflow) are client components that can't import the server-only control module.
+// Never import this shape from @/lib/control: that module is server-only and this file is client-reachable.
 export interface ExtractionStatusLike {
   phase?: string
   spike_mode?: "integrate" | "extract"
@@ -61,7 +61,6 @@ export function deriveStageStates(
   const states: Record<string, StageState> = {}
   for (const stage of WORKFLOW_STAGES) states[stage.id] = "pending"
 
-  // S0/S1 have no observable automatism; reaching the dev-loop (or having prepared docs) is the only honest signal that they completed.
   const reachedDevLoop = extraction !== null || (status?.issues_total ?? 0) > 0 || Boolean(docPrep?.phase)
   if (reachedDevLoop) {
     states.S0 = "green"
@@ -146,7 +145,6 @@ function applyDevStates(states: Record<string, StageState>, status: RunStatus | 
 
   if (!hasIssues) return
 
-  // Defensive fallback: dev status can outlive an old extraction run, so only set S7 here if extraction never reported it.
   if (states.S7 === "pending") states.S7 = "green"
 
   if (status.run_active) {
@@ -160,15 +158,11 @@ function applyDevStates(states: Record<string, StageState>, status: RunStatus | 
     states.S9 = "green"
     states.S10 = "green"
   }
-  // Stopped mid-way with no failing gate: S8-S10 stay pending, not green — resolveRunPhase treats this as "idle", not "done", and marking them green would fabricate completion.
-
-  // S11 has no signal here (the widget doesn't poll the CR registry) — left pending rather than fabricating a CR-free "green".
-  // S12 (Done) is NOT flipped here: it is withheld until the whole-product acceptance pass reports clean (applyAcceptanceStates).
+  // Never green S8–S10 on a stop with no failing gate, S11 (no CR signal reaches here) or S12 (withheld until applyAcceptanceStates is clean): each would fabricate completion.
 }
 
 const ACCEPTANCE_RUNNING_PHASES = new Set<string>(ACCEPTANCE_IN_FLIGHT_PHASES)
 
-// SA is the whole-product acceptance leg; Done (S12) flips only once SA is green, so an all-issues-done build with a broken cross-issue seam never reads as delivered.
 function applyAcceptanceStates(states: Record<string, StageState>, status: RunStatus | null, acceptance: AcceptanceReport | null): void {
   const total = status?.issues_total ?? 0
   const done = status?.issues_done ?? 0

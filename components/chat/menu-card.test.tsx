@@ -8,7 +8,6 @@ function root(): HTMLElement {
   return document.querySelector('[data-slot="menu-card"]') as HTMLElement
 }
 
-// Each pile case renders into its own container, so the document-wide sheet query only ever sees the pile under test.
 function renderWithClamp(ui: Parameters<typeof render>[0]) {
   document.body.innerHTML = ""
   render(ui)

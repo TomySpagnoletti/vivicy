@@ -236,7 +236,6 @@ function ArchitectureMapInner({ data, view, query, laneFilter, statusFilter, sco
             linkedIssueCount: issuesByRef.get(ref)?.length ?? 0,
             isActive: activeRefs.has(ref),
             color,
-            // MapNodeCard reads this field for the dim affordance.
             matched: true,
             selected: selectedNodeId === node.id,
             isFuture: node.scope === "future",
@@ -314,7 +313,7 @@ function ArchitectureMapInner({ data, view, query, laneFilter, statusFilter, sco
     visibleNodeIds,
   ])
 
-  // The sync below preserves in-flight drag position, or a background refresh mid-drag would snap the node back.
+  // The sync effect below must keep an in-flight drag position: a wholesale replace snaps the dragged node back mid-drag.
   const [nodes, setNodes, onNodesChange] = useNodesState<Node<MapNodeData>>(flowNodes)
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge<EdgeData>>(flowEdges)
 
@@ -433,7 +432,7 @@ function ArchitectureMapInner({ data, view, query, laneFilter, statusFilter, sco
     }
   }, [edgeLabelRatios, edgesById, nodePositions, nodesById, t, tErrors])
 
-  // Resolved from the immutable data prop, not local nodes/edges, so selection survives background refreshes that replace those objects.
+  // Resolve from the immutable data prop, never from local nodes/edges: selection must survive a background refresh that replaces those objects.
   const selectNode = useCallback(
     (event: React.MouseEvent, node: Node<MapNodeData>) => {
       event.stopPropagation()
@@ -497,7 +496,7 @@ function ArchitectureMapInner({ data, view, query, laneFilter, statusFilter, sco
           zoomable
           nodeBorderRadius={8}
           nodeStrokeWidth={3}
-          // nodeStrokeColor is set too: some status bg tones (e.g. not_started) are near-white and would vanish on the minimap's white backdrop otherwise.
+          // Keep nodeStrokeColor: the near-white status tones vanish on the minimap's white backdrop without it.
           nodeColor={(n) => nodeMinimapColor(n).bg}
           nodeStrokeColor={(n) => nodeMinimapColor(n).border}
         />
@@ -572,7 +571,7 @@ function ArchitectureEdge({ id, sourceX, sourceY, targetX, targetY, markerEnd, s
     try {
       event.currentTarget.setPointerCapture(event.pointerId)
     } catch {
-      // Synthetic pointer events (tests) may not own an active pointer.
+      // setPointerCapture throws when no pointer is active on the element.
     }
     const startX = event.clientX
     const startY = event.clientY
@@ -713,7 +712,7 @@ function ClusterBackdrops({
     try {
       event.currentTarget.setPointerCapture(event.pointerId)
     } catch {
-      // Synthetic pointer events (tests) may not own an active pointer.
+      // setPointerCapture throws when no pointer is active on the element.
     }
     setDraggingClusterId(clusterId)
 

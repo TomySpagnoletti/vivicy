@@ -40,13 +40,11 @@ export function resolveBrowsePath(requested: string | null | undefined): string 
   return real
 }
 
-// path.dirname of a filesystem/drive root returns the root itself; surface null so the UI hides the parent-up entry there (posix "/", Windows "C:\\", UNC share root).
 export function browseParent(dir: string, p: PlatformPath = path): string | null {
   const parent = p.dirname(dir)
   return parent === dir ? null : parent
 }
 
-// The client renders these instead of splitting the path itself, so the segments stay separator-correct on every OS (posix, Windows drive/UNC roots).
 export function pathCrumbs(dir: string, p: PlatformPath = path): DirCrumb[] {
   const { root } = p.parse(dir)
   const crumbs: DirCrumb[] = [{ label: root, path: root }]
@@ -65,7 +63,7 @@ export function listDirectories(requested: string | null | undefined): DirListin
   const entries = readdirSync(dir, { withFileTypes: true })
     .filter((dirent) => !dirent.name.startsWith("."))
     .filter((dirent) => {
-      // A symlink's dirent kind doesn't reflect its target; stat the resolved child instead, and skip unreadable/broken entries rather than fail the listing.
+      // A symlink's dirent kind never reflects its target: stat the resolved child, and skip a broken one rather than fail the listing.
       if (dirent.isDirectory()) return true
       if (!dirent.isSymbolicLink()) return false
       try {
@@ -96,7 +94,7 @@ export function createDirectory(parent: string | null | undefined, name: unknown
   const safeName = validateFolderName(name)
   const target = path.join(dir, safeName)
 
-  // Defense in depth against a hypothetical validation bug: the joined target must still be a direct child of the resolved parent.
+  // Never drop this containment check: the joined target must stay a direct child of the resolved parent.
   if (path.dirname(target) !== dir) {
     throw new FsBrowseError(`folder name does not resolve to a direct child: ${safeName}`, "unsafe")
   }
@@ -104,7 +102,7 @@ export function createDirectory(parent: string | null | undefined, name: unknown
     throw new FsBrowseError(`a file or folder named "${safeName}" already exists here`, "exists")
   }
 
-  // recursive:false intentionally — a name that somehow resolved deeper must fail loudly, never silently create a chain.
+  // Never pass recursive:true: a name that resolved deeper must fail loudly, never silently create a chain.
   mkdirSync(target)
   return target
 }

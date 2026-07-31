@@ -45,7 +45,7 @@ export interface BaselineSupersededMarker {
   at: string
 }
 
-// The hash-chained freeze artifact; extract-issues.ts and cr-apply.ts read this shape back after a freeze, so field renames here ripple there.
+// extract-issues.ts and cr-apply.ts read this shape back after a freeze — a field rename here ripples there.
 export interface BaselineManifest {
   schema_version: number
   baseline_id: string
@@ -149,7 +149,6 @@ function generate(args: ParsedArgs): void {
     }
   }
 
-  // Required so an agent cannot self-assert a freeze — verify --require-status frozen checks for this approval block.
   let approval: BaselineApproval | null = null
   if (status === "frozen") {
     if (!args["approved-by"] || !args["approval-ref"]) {
@@ -437,10 +436,8 @@ function computeDocumentSetHash(files: BaselineFileEntry[]): string {
 
 function computeManifestHash(manifestWithoutHash: Record<string, unknown>): string {
   const hashableManifest = { ...manifestWithoutHash }
-  // Same document set => same manifest_hash regardless of commit/working-tree state: time-bound evidence stays outside the hash.
   delete hashableManifest.generated_at
   delete hashableManifest.git
-  // Also outside the hash: a later freeze can stamp `superseded` onto a prior manifest without invalidating its recorded hash.
   delete hashableManifest.approval
   delete hashableManifest.superseded
   return sha256(stableJson(hashableManifest))
@@ -479,7 +476,7 @@ function titleCase(name: string): string {
 
 function readGitEvidence(): BaselineGitEvidence {
   const headSha = git(["rev-parse", "HEAD"])
-  // `-- .` scopes cleanliness to the target subtree so a freeze under VIVICY_TARGET_ROOT ignores dirt elsewhere in the surrounding repo.
+  // Never drop the `-- .` pathspec: it scopes cleanliness to the target subtree, ignoring dirt elsewhere in a surrounding repo.
   const status = git(["status", "--porcelain", "--untracked-files=all", "--", "."])
   return {
     available: Boolean(headSha.ok && status.ok),
@@ -694,7 +691,7 @@ function supersedePriorFrozenManifests(newBaselineId: string, newManifestAbsolut
   }
 }
 
-// The corpus is owned by this tool, not the manifest — otherwise an edited include/exclude could silently shrink the tracked set and still verify clean.
+// The corpus policy is owned by this tool, never by the manifest: a manifest defining its own include/exclude could shrink the tracked set and still verify clean.
 function assertCorpusPolicy(manifest: ParsedManifest): void {
   if (!sameStringSet(manifest.include, defaultInclude)) {
     fail(

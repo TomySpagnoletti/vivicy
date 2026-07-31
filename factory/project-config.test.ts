@@ -146,7 +146,6 @@ test("setGateCommand fills gateCommand while preserving every other field, and r
   }
 })
 
-// vivicy.json holds the verification gate command AND every skill pin, so it has ONE writer and that writer publishes by rename: a torn write would lose both at once.
 test("every vivicy.json write is atomic, keeps the file's mode, and refuses a file that is not a JSON object", () => {
   const dir = scratch()
   const config = join(dir, PROJECT_CONFIG_FILENAME)

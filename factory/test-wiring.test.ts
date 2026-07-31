@@ -7,7 +7,7 @@ import { FACTORY_DIR } from "./target-root.ts"
 
 const REPO_ROOT = resolve(FACTORY_DIR, "..")
 
-// vitest's factory exclude is a top-level-only glob, so a test file in a factory SUBdirectory is picked up by vitest and can never be an orphan — this read matches that glob's depth.
+// Keep this read non-recursive: vitest's factory exclude is a top-level-only glob, so a subdirectory test can never be an orphan.
 function testFilesOnDisk(): string[] {
   return readdirSync(FACTORY_DIR)
     .filter((name) => name.endsWith(".test.ts"))

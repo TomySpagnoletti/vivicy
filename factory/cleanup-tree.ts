@@ -1,4 +1,3 @@
-// A tree a child process may still be flushing into needs the WHOLE recursive removal re-invoked after a wait (AGENTS.md "Platform traps" — fs.rm's own retry budget cannot do it), and a cleanup that throws would replace its caller's outcome, so a leftover is announced on fd 2, never raised, and retried at exit when every child is reaped.
 import { existsSync, rmSync, writeSync } from "node:fs"
 import { countOf } from "../lib/count-form.ts"
 import { sleepSync } from "./sleep-sync.ts"
@@ -7,7 +6,7 @@ const DEFAULT_ATTEMPTS = 10
 const DEFAULT_BACKOFF_STEP_MS = 50
 const EXIT_ATTEMPTS = 3
 
-// The codes worth re-invoking the removal for, each stating only what it witnesses: ENOTEMPTY covers BOTH a live writer and a subdirectory whose permissions deny removal (node reports that inner EACCES as a non-empty parent), so the hint never asserts a cause it cannot know. A code absent from this table is not transient — it is announced once and never retried.
+// node surfaces a subdirectory's own EACCES as the parent's ENOTEMPTY, so no hint here may assert a single cause.
 const RETRYABLE: Record<string, string> = {
   ENOTEMPTY: "entries keep reappearing or resist removal — a live writer, or a subdirectory that denies removal",
   EBUSY: "the tree or a file in it is held open",

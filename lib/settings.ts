@@ -68,14 +68,13 @@ export interface AgentsSettings {
   implementer: AgentSettings
   reviewer: AgentSettings
   maxParallel: number
-  // true drops Vivicy's security-audit guarantee for installed skills.
   allowUnsafeSkills: boolean
 }
 
 export const MIN_PARALLEL = 1
 export const MAX_PARALLEL = 12
 
-// Must mirror the dev-loop's DEFAULT_CONFIG — the two are not otherwise kept in sync.
+// Hand-synced with the dev-loop's DEFAULT_CONFIG — edit together.
 export const DEFAULT_SETTINGS: AgentsSettings = {
   implementer: { provider: "claude", model: "claude-opus-4-8", effort: "xhigh", fast: false },
   reviewer: { provider: "codex", model: "gpt-5.5", effort: "high", fast: false },

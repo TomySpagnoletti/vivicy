@@ -29,7 +29,6 @@ function postJson(body: unknown): Request {
   })
 }
 
-// lib/notifications is unmocked and writes real files; isolate via a temp VIVICY_RUNTIME_DIR.
 let runtimeDir: string
 let prevRuntimeEnv: string | undefined
 

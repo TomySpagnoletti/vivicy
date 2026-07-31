@@ -54,10 +54,10 @@ const VIVICY_DIR = ".vivicy"
 
 const UPLOADS_DIR_POSIX = UPLOADS_DIR.split(path.sep).join("/")
 
-// Ignored by every .vivicy snapshot/diff: the leg writes its own transcript here mid-turn, which would otherwise trip the allowlist and roll back every turn's legitimate writes.
+// Excluded from every .vivicy snapshot/diff/rollback: the leg writes its own transcript here mid-turn.
 const IGNORED_SUBTREE = path.join(".vivicy", "development", "transcripts")
 
-// action executes only on the owner's click — nothing on a card ever self-fires.
+// A card action fires only on the owner's click — nothing ever self-fires.
 export interface ViviCardAction {
   id: string
   label: string
@@ -70,7 +70,7 @@ export interface ViviCardAction {
     | { kind: "dismiss" }
 }
 
-// server-authored, deterministic — a decision card's content never comes from the LLM reply; the question card below is the one sanctioned amendment to that law.
+// A card's content is server-authored and deterministic, never from the LLM reply; the question card is the one sanctioned amendment (AGENTS.md, "Vivi enforcement").
 export interface ViviCard {
   id: string
   title: string
@@ -84,17 +84,15 @@ export interface ViviCardDecision {
   summary?: string
 }
 
-// A pending claim names its OWNER, because the claim outlives nothing else: a process killed mid-read leaves it on disk, and only the pid tells a later reader whether the read is in flight or orphaned.
+// A pending claim must carry its owner's pid: only that tells a later reader whether the read is in flight or orphaned.
 export type ViviImportRead = { status: "pending"; pid: number } | { status: "done" } | { status: "interrupted" }
 
-// Rides on the Vivi turn that acknowledges a batch: the transcript is the ledger for the reading turn that batch owes — `read` is both the claim (exactly one live reader per batch) and the in-flight flag the UI reads to know a reply is still coming.
 export interface ViviImportEvent {
   batchId: string
   files: string[]
   read?: ViviImportRead
 }
 
-// The one amendment to the card law above: question CONTENT may be LLM-authored, but ONLY through the validated `vivicy-questions` fence; every ACTION stays deterministic — an answer appends one ordinary user turn carrying the answer text, strictly equivalent to typing that line, with no other effect and nothing firing without the owner's click. Full invariant in AGENTS.md, "Vivi enforcement".
 export interface ViviTurn {
   role: "user" | "vivi" | "action" | "card" | "questions"
   text: string
@@ -129,7 +127,7 @@ function transcriptPath(sessionId: string): string {
   return path.join(viviRuntimeDir(), `${sessionId}.jsonl`)
 }
 
-// reject anything that isn't our own minted UUID — this guards against path traversal via the session id.
+// transcriptPath interpolates the session id into a file path unsanitized: refuse anything but our own minted UUID.
 function assertSessionId(sessionId: string): void {
   if (!/^[0-9a-fA-F-]{36}$/.test(sessionId)) {
     throw new ControlError(`invalid vivi session id: ${sessionId}`, "missing_target")
@@ -169,7 +167,6 @@ const VIVI_WELCOME_INTRO =
 
 export const VIVI_WELCOME_MESSAGE = `${VIVI_WELCOME_INTRO} Allora, let's start: what do you want to build?`
 
-// Governance with a corpus never opens on "what do you want to build?" — the documents answer that. The welcome carries the same intro, then the import acknowledgment whose reading turn (dispatched by the caller) answers it with a synthesis.
 export function seedViviWelcome(batch?: BatchResult | null): string {
   const sessionId = randomUUID()
   appendTurn(
@@ -179,7 +176,6 @@ export function seedViviWelcome(batch?: BatchResult | null): string {
   return sessionId
 }
 
-// The one decision card that rides on the seeded welcome: a last chance to hand Vivi existing docs before the grill begins. Its single action opens a native file picker client-side; the upload lands in the CURRENT governed project.
 export const WELCOME_IMPORT_CARD: ViviCard = {
   id: "welcome-import-docs",
   title: "Already wrote some of this down?",
@@ -187,7 +183,7 @@ export const WELCOME_IMPORT_CARD: ViviCard = {
   actions: [{ id: "import", label: "I have docs to import", action: { kind: "import_docs" } }],
 }
 
-// mirrors the feed's own status filter — keep both in sync.
+// Hand-synced with components/chat/vivi-notifications.tsx's own PENDING_STATUSES — edit together.
 const PENDING_CR_STATUSES = new Set(["idea", "under_review"])
 
 const MAX_CR_CARDS_PER_TURN = 3
@@ -253,7 +249,7 @@ export function listViviSessions(): ViviSessionSummary[] {
   return out.sort((a, b) => (a.updated_at < b.updated_at ? 1 : -1))
 }
 
-// The transcript is rewritten WHOLE by every claim stamped on a past turn, and it is the conversation's only copy — so the bytes land beside it and rename over it atomically; a crash mid-write leaves the previous thread intact, never a truncated one. The temp name is outside the session-id shape listViviSessions matches, so a leftover is invisible to it.
+// Publish by temp-then-rename (this file is the conversation's only copy), and keep the temp name outside the session-id shape listViviSessions matches.
 function rewriteTranscript(sessionId: string, turns: ViviTurn[]): void {
   const file = transcriptPath(sessionId)
   const tmp = `${file}.${randomUUID()}.tmp`
@@ -285,7 +281,7 @@ function findCardAction(sessionId: string, cardId: string, actionId: string): { 
   return { turn, action }
 }
 
-// Stamps against a fresh read every time — turns appended concurrently (another Vivi turn, the action turns below) must survive the rewrite. A same-action re-stamp keeps the original `at`; only a DIFFERENT already-decided action reports back as a lost claim.
+// Always stamp against a FRESH read: turns appended concurrently must survive the rewrite.
 function stampCardDecision(
   sessionId: string,
   cardId: string,
@@ -325,7 +321,7 @@ export async function decideCardAction(
 
   const stamp = (summary: string) => stampCardDecision(input.sessionId, input.cardId, action.id, summary)
 
-  // initial.decided is a stale read; stamp() below does the real read-check-write claim, so two concurrent clicks can't both execute the action.
+  // initial.decided is a stale read: the real claim is stamp()'s read-check-write, never this check.
   if (initial.decided) return alreadyDecidedResult(initial.decided)
   const claim = stamp("deciding…")
   if (claim.alreadyDecided) return alreadyDecidedResult(claim.alreadyDecided)
@@ -401,7 +397,7 @@ function failAnswer(reason: string): never {
   throw new ControlError(reason, "missing_target")
 }
 
-// The click's WHOLE effect, and the only writer of an answer: read the thread, refuse a second answer to the same card, append ONE ordinary user turn carrying the serialized Q+A. Synchronous through the check-then-append (no await inside), so two clicks racing the same card can never both record one; the append is idempotent by construction since the first answer is what refuses the second.
+// The only writer of an answer: keep the check-then-append synchronous (no await inside), or two racing clicks both record one.
 export function answerViviQuestion(
   spawner: Spawner,
   input: {
@@ -454,7 +450,7 @@ export function answerViviQuestion(
   return { ok: true, summary: answer, answer, remaining }
 }
 
-// Detached and TOTAL: the owner's last click is the Send, so the continuation runs like any other turn — and a continuation that cannot run says so in the thread instead of leaving the answered pile silently unanswered.
+// Detached and TOTAL: this must never reject — a continuation that cannot run says so in the thread.
 async function dispatchQuestionAnswers(spawner: Spawner, sessionId: string, count: number): Promise<void> {
   try {
     await runTurn(spawner, sessionId, { kind: "question_answers", count })
@@ -484,7 +480,7 @@ export interface CardImportResult {
 
 const MAX_FINDINGS_IN_ACK = 5
 
-// Deterministic, redacted security clause: names the file:line and the four-char shape signal (never the secret) plus the fix — the secret value is never re-emitted by construction (lib/secret-scan redaction invariant).
+// Never emit a secret value here: only the file:line and lib/secret-scan's redacted shape signal.
 function secretFindingAckClause(findings: SecretFileFinding[]): string {
   if (findings.length === 0) return ""
   const files = [...new Set(findings.map((f) => f.path))]
@@ -500,7 +496,6 @@ function secretFindingAckClause(findings: SecretFileFinding[]): string {
   )
 }
 
-// Server-authored, deterministic — names the count + detected language and reflects the SERVER's cycle binding (seed = the canonical is frozen, so the batch feeds the next cycle). Zero LLM in the render (P2), and it promises only what the dispatched reading turn then delivers.
 function viviImportAck(batch: BatchResult, opts: { welcome: boolean }): string {
   const count = batch.accepted.length
   const name = languageDisplayName(batch.language)
@@ -533,7 +528,7 @@ function importDecisionSummary(count: number, skipped: number, language: string)
   return parts.join(" · ")
 }
 
-// The one import+ack+read primitive both the welcome card and the standing composer share, so neither path can fork the sequence or forget the read.
+// The ONE import+ack+read primitive: every entry point goes through it, never its own sequence.
 async function importAndAcknowledge(spawner: Spawner, sessionId: string, entries: RawEntry[]): Promise<BatchResult> {
   const targetRoot = resolveTarget()
   const batch = await importIntoGoverned({ root: targetRoot, entries })
@@ -542,7 +537,6 @@ async function importAndAcknowledge(spawner: Spawner, sessionId: string, entries
   return batch
 }
 
-// The same existence probe lib/node-spawner.ts uses; a claim this very process holds needs no syscall.
 function readerAlive(pid: number): boolean {
   if (pid === process.pid) return true
   try {
@@ -554,13 +548,13 @@ function readerAlive(pid: number): boolean {
   }
 }
 
-// Exactly one LIVE reader per batch: a finished read closes it forever, a pending one closes it only while its owner is alive. An orphan (owner dead) is re-claimable — that is what makes a process killed mid-read recoverable instead of a batch stuck pending forever.
+// Exactly one LIVE reader per batch: a done read closes it forever, an orphaned pending one is re-claimable.
 function claimable(read: ViviImportRead | undefined): boolean {
   if (read === undefined || read.status === "interrupted") return true
   return read.status === "pending" && !readerAlive(read.pid)
 }
 
-// Detect → settle → re-claim runs with no await in between (JS is single-threaded), so two concurrent readers can never both recover the same orphan.
+// Keep detect→settle→re-claim free of any await: that is what stops two readers recovering one orphan.
 function stampImportRead(sessionId: string, batchId: string, read: ViviImportRead): ViviImportEvent | null {
   const fresh = readTranscript(sessionId)
   const index = fresh.findIndex((t) => t.imported?.batchId === batchId)
@@ -573,7 +567,7 @@ function stampImportRead(sessionId: string, batchId: string, read: ViviImportRea
   return stamped
 }
 
-// Importing documents IS the request: the batch's own reading turn is dispatched here, server-side, exactly once per CLAIM. Detached on purpose (the leg takes minutes; the upload response must not wait) and TOTAL — nothing it does can reject, since both call sites fire it without awaiting, and a read that could not run says so in the thread instead of leaving the batch silently pending.
+// Detached and TOTAL: both call sites fire this without awaiting, so it must never reject — and it runs exactly once per CLAIM.
 export async function dispatchImportRead(spawner: Spawner, input: { sessionId: string; batch: BatchResult }): Promise<boolean> {
   return runImportRead(spawner, input.sessionId, {
     batchId: input.batch.batchId,
@@ -598,7 +592,7 @@ async function runImportRead(spawner: Spawner, sessionId: string, imported: { ba
   return claimed
 }
 
-// A read whose owner died (restart, Ctrl-C, kill) is settled honestly and picked straight back up — once per orphaned claim, never while a live owner holds it. Synchronous through the re-claim so a session load and a resume poll landing together cannot both recover it; the leg itself then runs detached.
+// Keep the re-claim synchronous: a session load and a resume poll landing together must never both recover one read.
 export function recoverInterruptedReads(spawner: Spawner, sessionId: string): number {
   assertSessionId(sessionId)
   let recovered = 0
@@ -630,7 +624,7 @@ function noteImportReadFailure(sessionId: string, count: number, error: unknown)
   } catch {}
 }
 
-// The multipart counterpart to decideCardAction: the file upload IS the decision, so the card is stamped only once the import lands. A failed import throws BEFORE stamping, leaving the card undecided for a clean retry.
+// Stamp the card only AFTER the import lands: a failed import must leave it undecided for a clean retry.
 export async function decideCardImport(
   spawner: Spawner,
   input: {
@@ -675,7 +669,6 @@ export interface SessionImportResult {
   rejected: RejectedFile[]
 }
 
-// The standing-composer counterpart to decideCardImport: the paperclip beside Send imports into the current governed project and appends the acknowledgment to the live session — no card to stamp. A missing sessionId mints one the client then adopts, exactly like the first message of a send.
 export async function importDocsIntoSession(
   spawner: Spawner,
   input: {
@@ -704,7 +697,6 @@ function readPersona(factoryRoot: string): string {
   return readFileSync(path.join(factoryRoot, "prompts", "vivi.md"), "utf8")
 }
 
-// The pile's own state, so a later turn sees which cards are still standing and never re-asks one whose answer line is already above it.
 function renderQuestionStack(stack: ViviQuestionStack, turns: ViviTurn[]): string {
   const standing = new Set(remainingQuestions(stack, turns).map((q) => q.id))
   return stack.questions
@@ -732,7 +724,7 @@ function renderTranscript(turns: ViviTurn[]): string {
           ? ` [decided: ${turn.decided.actionId}${turn.decided.summary ? ` — ${firstLine(turn.decided.summary, 80)}` : ""}]`
           : " [awaiting the owner's choice]"
         : ""
-    // An answered card is rendered WHOLE, never through firstLine: its text is `question → answer`, so a length clip is spent on the question and eats the answer's tail — and by construction every answer but the terminal one is a non-last turn, so the clip would silently drop most of what the owner actually said from the one prompt the spec is built out of. It is a structured line, not free prose, and bounded by construction (question ≤ MAX_QUESTION_LENGTH, answer ≤ MAX_OTHER_ANSWER_LENGTH or an ≤ MAX_OPTION_LABEL_LENGTH label).
+    // An answered turn is rendered WHOLE, never through firstLine: the clip is spent on the question and eats the owner's answer.
     const body =
       turn.role === "questions" && turn.questions
         ? renderQuestionStack(turn.questions, turns)
@@ -779,7 +771,7 @@ function listMarkdown(dir: string): string[] {
   return out.sort()
 }
 
-// must mirror change-control's own CR_FILENAME regex — keep both in sync.
+// Hand-synced with factory/change-control.ts's own CR_FILENAME — edit together.
 const CR_FILENAME = /^CR-(\d{4})-[a-z0-9-]+\.md$/
 const NON_CR_FILES = new Set(["cr-template.md", "readme.md"])
 
@@ -792,7 +784,7 @@ function listChangeRequestFiles(targetRoot: string): string[] {
     .map((f) => path.join(CHANGE_REQUESTS_DIR, f))
 }
 
-// computed here, not left to the agent, so the id it's told to use always satisfies change-control's sequential-numbering gate.
+// Compute the id here, never let the agent pick one: change-control gates on sequential numbering.
 function nextCrId(targetRoot: string): string {
   const dirAbs = path.join(targetRoot, CHANGE_REQUESTS_DIR)
   let max = 0
@@ -834,7 +826,7 @@ const CANONICAL_WRITE_ORDER =
   `\`.vivicy/canonical/\` or \`.vivicy/development/spikes/\`, in the target repo you are ` +
   `running inside)`
 
-// This turn has no user message to answer, so the task carries the batch itself and points at the law; the reading rules themselves live ONLY in the persona (factory/prompts/vivi.md), never restated here.
+// The reading rules live ONLY in factory/prompts/vivi.md — never restate them here.
 function importReadTask(imported: ViviImportEvent, frozen: boolean, crId: string): string {
   const count = imported.files.length
   const noun = countForm(count, "1 document", `${count} documents`)
@@ -856,7 +848,6 @@ function importReadTask(imported: ViviImportEvent, frozen: boolean, crId: string
   )
 }
 
-// This turn has no typed message either: the owner answered the cards, so their answers ARE the message — one user turn per card, already above.
 function questionAnswersTask(count: number, frozen: boolean, crId: string): string {
   const asked = countForm(count, "the question you carded", `the ${count} questions you carded`)
   const tail = frozen
@@ -913,7 +904,7 @@ function composePrompt(
   )
 }
 
-// sync reads only, never a spawn — a failing probe reports "unavailable", never a fabricated value.
+// Sync reads only, never a spawn: a failing probe reports "unavailable", never a fabricated value.
 function buildStatusLine(spawner: Spawner, targetRoot: string, frozen: boolean): string {
   try {
     const extraction = getExtractionStatus()
@@ -961,7 +952,7 @@ function isAllowedWrite(rel: string, allowedDirs: readonly string[]): boolean {
   return allowedDirs.some((dir) => rel === dir || rel.startsWith(`${dir}${path.sep}`))
 }
 
-// snapshots the WHOLE .vivicy tree, not just the allowlist — narrowing it would make restoreSnapshot delete (not restore) a pre-existing out-of-allowlist file it never hashed.
+// Never narrow this to the allowlist: restoreSnapshot would then DELETE a pre-existing file it never hashed.
 function snapshotVivicyBytes(targetRoot: string): Map<string, Buffer> {
   const bytes = new Map<string, Buffer>()
   for (const abs of walkFiles(path.join(targetRoot, VIVICY_DIR))) {
@@ -1005,7 +996,7 @@ function restoreSnapshot(targetRoot: string, diff: DiffResult, bytesBefore: Map<
   }
 }
 
-// git status is the whole-target witness that Vivi wrote no code outside .vivicy — the byte diff above can't see there, since the leg runs with cwd=targetRoot and permissions bypassed. Gitignored paths (e.g. the leg's own transcript) are invisible to this probe by design; null means git is unusable, so the caller falls back to .vivicy-only enforcement with a loud note.
+// A null return means this probe is unusable, never that Vivi is clean; gitignored paths are structurally invisible to it.
 function gitDirtyPaths(targetRoot: string): Set<string> | null {
   let raw: string
   try {
@@ -1024,7 +1015,7 @@ function gitDirtyPaths(targetRoot: string): Set<string> | null {
     if (entry.length < 4) continue
     const status = entry.slice(0, 2)
     dirty.add(entry.slice(3))
-    // git porcelain -z rename/copy records carry the origin path as the next NUL field — consumed here since the origin disappeared from the worktree too.
+    // git porcelain -z rename/copy records carry the origin path in the NEXT NUL field.
     if (status.includes("R") || status.includes("C")) {
       const origin = entries[i + 1]
       if (origin && origin.length > 0) {
@@ -1058,7 +1049,7 @@ interface PreDirtyEntry {
   bytes: Buffer | null
 }
 
-// guards a leg hiding a code write inside an already-dirty file: detectCodeWrites exempts owner-dirty paths from the new-write check, so this snapshot is their only witness.
+// The only witness against a leg hiding a code write inside an already-dirty file: detectCodeWrites exempts owner-dirty paths.
 function snapshotPreDirty(targetRoot: string, preDirty: Set<string> | null): Map<string, PreDirtyEntry> {
   const snapshot = new Map<string, PreDirtyEntry>()
   if (preDirty === null) return snapshot
@@ -1107,7 +1098,7 @@ function restorePreDirty(targetRoot: string, snapshot: Map<string, PreDirtyEntry
   return unrestorable
 }
 
-// repeated passes: restoring a tampered .gitignore can re-reveal files it was hiding from git status, unmasking a new violation only after cleanup.
+// Repeat the pass: restoring a tampered .gitignore can unmask violations git status was hiding.
 function cleanupCodeWritesDeep(targetRoot: string, initial: string[], preDirty: Set<string>): string[] {
   const failed: string[] = []
   const processed = new Set<string>()
@@ -1162,7 +1153,7 @@ type TurnOrigin =
 
 type TurnQueue = Map<string, Promise<void>>
 
-// Module scope is not process scope — the queue lives on the process-global registry so every evaluation of this module shares it (same trap as lib/spawner.ts).
+// Cross-request server state stays process-global, never a module `let` — same trap as lib/spawner.ts.
 const TURN_QUEUE = Symbol.for("vivicy.vivi.turn-queue")
 
 function turnQueue(): TurnQueue {
@@ -1174,12 +1165,11 @@ function turnQueue(): TurnQueue {
   return created
 }
 
-// The queue doubles as the liveness truth for the UI: a target with an entry has a turn running in THIS process, so a thread awaiting a reply with no entry is awaiting a turn that died with its process.
 export function isViviTurnRunning(targetRoot: string): boolean {
   return turnQueue().has(targetRoot)
 }
 
-// One turn at a time per TARGET: a turn snapshots the whole `.vivicy` tree and, on a rejection, restores ITS pre-turn bytes — a second concurrent turn (an auto-dispatched reading turn overlapping the owner's next message, or two tabs on one project) would have its legitimate writes wiped by the other's rollback. Queued, never refused, and released on every path so a failing turn can never wedge the target.
+// One turn at a time per TARGET, queued and never refused, released on every path: a concurrent turn's legitimate writes would be wiped by the other's rollback.
 async function withTargetTurnLock<T>(targetRoot: string, run: () => Promise<T>): Promise<T> {
   const queue = turnQueue()
   const previous = queue.get(targetRoot)
@@ -1212,7 +1202,7 @@ export async function runViviTurn(
   return runTurn(spawner, sessionId, { kind: "user", message })
 }
 
-// The owner's turn is recorded BEFORE the queue wait, so the thread shows their message (and the pending marker) the moment they send it, whatever is still running ahead of it.
+// Record the owner's turn BEFORE the queue wait, or the thread hides their message behind whatever is running ahead of it.
 async function runTurn(spawner: Spawner, sessionId: string, origin: TurnOrigin): Promise<ViviReply> {
   const targetRoot = resolveTarget()
   const factoryRoot = getFactoryRoot()
@@ -1237,9 +1227,9 @@ async function runTurnLocked(
       ? "\n\n⚠ this target has no usable git repository — Vivi's no-code enforcement outside `.vivicy` was unavailable this turn."
       : ""
 
-  // re-derived every round: an action tool (e.g. workflow.extract, cycle.open/close) can freeze or reopen the baseline mid-turn.
+  // Re-derive every round: an action tool can freeze or reopen the baseline mid-turn.
   let frozen = isCanonicalFrozen(targetRoot)
-  // folds in each accepted round's writes so they're never re-judged by a later round's (possibly stricter) allowlist.
+  // Fold each accepted round's writes in, or a later round's stricter allowlist re-judges them.
   let roundBase = snapshotVivicy(targetRoot)
 
   const maxRounds = resolveMaxActionRounds(process.env.VIVICY_VIVI_MAX_ROUNDS)
@@ -1386,7 +1376,7 @@ async function runTurnLocked(
     })
     appendPendingCrCards(sessionId, results)
 
-    // actions' own writes fold into roundBase here — that state is orchestrator-owned, not Vivi's; without this the next round's diff would blame Vivi and roll back what the action just created.
+    // Fold the actions' own writes in: that state is orchestrator-owned, and the next round's diff would otherwise roll it back.
     roundBase = snapshotVivicy(targetRoot)
     if (preDirty !== null) {
       const dirtyNow = gitDirtyPaths(targetRoot)
@@ -1509,7 +1499,7 @@ interface SpokenReply {
   questions: ViviQuestion[] | null
 }
 
-// The fence never reaches the thread — valid or malformed, it comes out of her prose, because a raw JSON block in the chat is the owner reading what the machine owed them rendered. A refusal degrades to prose plus one honest line, exactly like the skills directive's.
+// The fence never reaches the thread, valid or malformed: it always comes out of her prose.
 function takeQuestions(reply: string): SpokenReply {
   const directive = parseQuestionsDirective(reply)
   if (directive === null) return { text: reply, questions: null }
@@ -1521,7 +1511,7 @@ function takeQuestions(reply: string): SpokenReply {
   return { text: spoken, questions: directive.questions }
 }
 
-// The stack rides its OWN turn so the pile is an object in the thread, not prose: its id is server-minted (the fence never names it), and a reply that was the fence and nothing else leaves no bubble above the pile — unless she also wrote files, which the turn still speaks through its attachments.
+// The stack id is server-minted — the fence never names it — and the stack rides its OWN turn.
 function appendViviReply(sessionId: string, text: string, wrote: string[], questions: ViviQuestion[] | null): void {
   if (text.trim().length > 0 || wrote.length > 0 || questions === null) {
     appendTurn(sessionId, { role: "vivi", text, ts: new Date().toISOString(), wrote })

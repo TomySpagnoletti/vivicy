@@ -10,7 +10,6 @@ function spec(over: Partial<ManagedSpec> = {}): ManagedSpec {
   return { block: BLOCK, template: TEMPLATE, markers: MARKERS, ...over }
 }
 
-// The engine's seam is bytes; these cases are pure ASCII, so encoding both ways keeps them readable as text. The byte-level pins below work on Buffers directly.
 function apply(current: string | null, over: ManagedSpec = spec()): string {
   return ensureManagedBlock(current === null ? null : Buffer.from(current, "utf8"), over).toString("utf8")
 }
@@ -53,7 +52,6 @@ describe("ensureManagedBlock — the four states", () => {
 })
 
 describe("ensureManagedBlock — the owner's bytes, whatever encoding they are in", () => {
-  // The block Vivicy writes is UTF-8 and carries non-ASCII (the templates are full of em dashes), while the owner's file may be latin-1: encoding the block as latin-1 too would mojibake it, decoding their bytes as UTF-8 would replace every accent with U+FFFD. Both directions are pinned here, at the byte level — EF BF BD is what a lossy decode leaves behind.
   const BLOCK_UTF8 = `${MARKERS.begin}\ncanonical — line\n${MARKERS.end}`
   const REPLACEMENT_CHAR = Buffer.from([0xef, 0xbf, 0xbd])
   const utf8Spec = spec({ block: BLOCK_UTF8 })
@@ -130,7 +128,6 @@ describe("ensureManagedBlock — marker-lookalike owner text", () => {
 })
 
 describe("ensureManagedBlock — damaged markers self-repair, never block", () => {
-  // A span's interior is block content and goes, exactly as on the healthy in-place path — but only for a MUTUALLY nearest begin/end pair, so lines between two begins stay the owner's.
   const cases: Array<{ name: string; current: string; owner: string }> = [
     { name: "duplicated begin marker", current: `a\n${MARKERS.begin}\nx\n${MARKERS.begin}\ny\n${MARKERS.end}\n`, owner: "a\nx\n" },
     { name: "duplicated end marker", current: `${MARKERS.begin}\nx\n${MARKERS.end}\ny\n${MARKERS.end}\n`, owner: "y\n" },
@@ -178,7 +175,6 @@ describe("ensureManagedBlock — damaged markers self-repair, never block", () =
 })
 
 describe("ensureManagedBlock — totality is exhaustive, not sampled", () => {
-  // "Never throws on any input" cannot be shown by enumerated shapes, so walk EVERY arrangement of the alphabet that decides the outcome (both markers, their CRLF spellings, a lookalike, an owner line, a blank), each with and without a trailing newline.
   const ALPHABET = [MARKERS.begin, MARKERS.end, `${MARKERS.begin}\r`, `${MARKERS.end}\r`, "owner", "", `  ${MARKERS.begin}`]
   const MAX_LINES = 5
 
@@ -186,7 +182,7 @@ describe("ensureManagedBlock — totality is exhaustive, not sampled", () => {
     return line.endsWith("\r") ? line.slice(0, -1) : line
   }
 
-  // The POLICY, stated declaratively so it shares no scan with the implementation: a pair is MUTUALLY nearest — b is the last begin before e AND e is the first end after b. Only such a pair's span is Vivicy's; every other non-marker line is the owner's.
+  // Independent oracle: never share a scan with the implementation, or the walk below becomes a tautology.
   function ownerLines(text: string): string[] {
     const lines = text.split("\n").map(bare)
     const at = (kind: string) => lines.flatMap((line, i) => (line === kind ? [i] : []))
@@ -256,7 +252,6 @@ describe("ensureManagedBlock — real marker idioms", () => {
     expect(apply(gi, giSpec)).toBe(gi)
   })
 
-  // The two markdown blocks share both documents and each is owned by its own writer: one pass may only ever touch its own span.
   it("the method and skills idioms coexist in one document, each pass byte-preserving the other's block", () => {
     const methodSpec: ManagedSpec = {
       markers: METHOD_MARKERS,

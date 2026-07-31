@@ -1,6 +1,5 @@
-// Leaf by construction (zero imports): factory/dev-loop.ts, factory/progress-ledger.ts and factory/retro.ts load it by relative .ts path with no bundler, the Next app through `@/lib/skill-usage`, and the sidebar renders it in a client component — so no Next alias, no relative import, nothing from node:.
+// Leaf by construction: no Next alias, no relative import, nothing from `node:` — the factory loads it by relative `.ts` path and a client component renders it.
 
-// `installed` is the set the issue's legs COULD have applied, read from the skills report in the tree they ran in: it is what gives each skill its OWN denominator, without which a skill added today would be reported as ignored by the issues that never had it. A claim naming no installed skill stops being a claim once that skill IS installed.
 export interface SkillUsageEntry {
   issue_id: string
   installed: string[]
@@ -19,7 +18,7 @@ interface SkillClaimCount {
   issues: number
 }
 
-// Counts are arrays, never objects keyed by id: a `not_installed` id is whatever an agent wrote, and a map keyed by them would take `__proto__` as a key.
+// Counts stay arrays, never objects keyed by id: an agent-authored id would take `__proto__` as a key.
 export interface SkillUsage {
   issues: number
   applied: SkillAppliedCount[]
@@ -39,7 +38,7 @@ function isCleanSkillId(id: string): boolean {
   return true
 }
 
-// The ONE normalization of a skill-id list read from an untrusted source (an agent's declaration file, the ledger's own record): bounded, because a leg authors its own list and the ledger is rewritten whole on every event, and refusing interior whitespace or a control character, because a claimed id rides verbatim into the retro leg's prompt where a newline would close the sentence quoting it and open an instruction.
+// The ONE normalization of an untrusted skill-id list: never loosen the bound or admit interior whitespace or a control character — a claimed id rides verbatim into the retro leg's prompt.
 export function normalizeSkillIds(value: unknown): string[] {
   if (!Array.isArray(value)) return []
   const ids: string[] = []

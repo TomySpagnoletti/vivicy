@@ -28,12 +28,12 @@ const BROWSERS: BrowserShape[] = [
 export const RUNTIME_DIR = (shape: string, browserKey: string) => `/tmp/vivicy-rt-${shape}-${browserKey}`
 export const onboardScaffoldParent = (browserKey: string) => `/tmp/vivicy-onboard-scaffold-${browserKey}`
 
-// layout-edit writes the SHARED demo target's on-disk architecture-map.yml — concurrent browsers would race that file.
+// Keep layout-edit on one browser: it writes the SHARED demo target's architecture-map.yml, which concurrent browsers would race.
 const CHROMIUM_DESKTOP_ONLY = /layout-edit\.spec\.ts/
 
 const DEMO_TEST_IGNORE = /(empty-state|onboarding)\.spec\.ts/
 
-// overflow.spec swaps the server's process-global current-project root mid-run; it runs as a same-server dependency phase so no concurrent spec can read mid-switch state.
+// Keep overflow.spec a same-server dependency phase: it swaps the server's process-global current-project root mid-run, which no concurrent spec may read.
 const OVERFLOW_SPEC = /overflow\.spec\.ts/
 
 type ShapeName = "demo" | "empty" | "onboarding"
@@ -72,7 +72,6 @@ const TARGET_FOR: Record<ShapeName, string> = {
   onboarding: ONBOARD_TARGET_ROOT,
 }
 
-// Platform trap: /tmp may symlink to /private/tmp; realpath keeps this in lock-step with global-setup's seeds so the runtime key (a hash of the root string) can't fork across spellings.
 function canonicalIfExists(p: string): string {
   try {
     return realpathSync(p)
@@ -81,7 +80,7 @@ function canonicalIfExists(p: string): string {
   }
 }
 
-// Sharing one server across parallel browser projects would race the on-disk runtime store (current-project, settings, run-lock).
+// Never share one server across browser projects: they would race the on-disk runtime store (current-project, settings, run-lock).
 function webServersForShape(shape: ShapeName) {
   return BROWSERS.map((browser, index) => {
     const port = portFor(shape, index)
@@ -93,7 +92,7 @@ function webServersForShape(shape: ShapeName) {
       env: {
         VIVICY_TARGET_ROOT: canonicalIfExists(TARGET_FOR[shape]),
         VIVICY_FAKE_SPAWN: "1",
-        // Next's dev server single-instance-locks on .next/dev, so a shared dist dir would collide.
+        // One dist dir per server: Next's dev server single-instance-locks on .next/dev, so a shared one collides.
         VIVICY_DIST_DIR: `.next-e2e-${shape}-${browser.key}`,
         VIVICY_RUNTIME_DIR: RUNTIME_DIR(shape, browser.key),
       },

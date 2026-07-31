@@ -1,4 +1,4 @@
-// Server-only (node:fs): the dev-loop's presence check, the extraction gate, and the /api/map reader all resolve declared proofs through this one module — never fork it. Client components use the subset shapes in lib/types.ts, which the /api/map assignment keeps structurally in lock-step.
+// Server-only (node:fs): the ONE resolver of declared proofs — never fork it, and never let a client component reach it (subset shapes live in lib/types.ts).
 
 import { lstatSync, readFileSync, readdirSync } from "node:fs"
 import path from "node:path"
@@ -84,7 +84,7 @@ interface ProofDirs {
   gatesDir?: string
 }
 
-// Both ids below are interpolated into a filesystem path, so the accepted set is closed on every axis: no separator, no dot segment, bounded length.
+// These ids are interpolated into a filesystem path: keep the accepted set closed — no separator, no dot segment, bounded length.
 const PROOF_SLUG_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*$/
 
 const PROOF_SLUG_MAX = 64
@@ -122,14 +122,12 @@ const ATX_HEADING_RE = /^ {0,3}#{1,6}(?:\s|$)/
 
 const DECLARATION_SHAPED_RE = /^\s*(?:-\s*id\s*:|class\s*:|evidences\s*:)/
 
-// CommonMark ATX: up to three leading spaces, and an optional closing run of #s.
 function isProofsHeading(line: string): boolean {
   const match = /^ {0,3}##[ \t]+(.*?)[ \t]*$/.exec(line)
   if (!match) return false
   return match[1].replace(/[ \t]*#+$/, "").trim() === PROOF_SECTION_HEADING
 }
 
-// Line-based and fence-aware: a heading quoted inside a CLOSED fence is an example, not a section, but a heading swallowed by an UNTERMINATED fence is a defect the reader must report rather than vanish. CRLF is normalized once, here, at the boundary.
 function proofsSection(body: string): ProofsSection {
   const lines = body.replace(/\r\n?/g, "\n").split("\n")
   let start = -1
@@ -148,7 +146,6 @@ function proofsSection(body: string): ProofsSection {
     fencedCandidate = true
   }
   if (start === -1) {
-    // An unterminated fence above the section is what hid it; a closed one means the heading was only quoted.
     return { found: inFence && fencedCandidate, block: null, strayDeclaration: null, unreachable: inFence && fencedCandidate }
   }
 
@@ -173,7 +170,6 @@ function proofsSection(body: string): ProofsSection {
       if (block === null) collected.push(line)
       continue
     }
-    // A half-read declaration is indistinguishable from an honest one, so declaration-shaped prose outside the block is reported, never dropped.
     if (stray === null && DECLARATION_SHAPED_RE.test(line)) stray = line.trim()
   }
   return { found: true, block, strayDeclaration: stray, unreachable: false }
@@ -376,7 +372,6 @@ export function inspectDeclaredProofs({
 
 const ISSUE_DIRS = [ISSUES_DIR, `${ISSUES_DIR}/done`]
 
-// An issue file sits in the open dir before its close and in done/ after it; every reader looks in both.
 export function readIssueBodyFromDisk(targetRoot: string, issueId: string): string | null {
   if (!isProofSlug(issueId)) return null
   for (const rel of ISSUE_DIRS) {

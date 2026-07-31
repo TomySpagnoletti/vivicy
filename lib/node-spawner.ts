@@ -16,7 +16,6 @@ function lastNonEmptyLine(text: string): string {
 
 export const nodeSpawner: Spawner = {
   spawnDetached({ command, args, cwd, env, logFile, shell }: SpawnDetachedOptions): DetachedHandle {
-    // Append so resume runs accumulate rather than truncate the prior log.
     const out = openSync(logFile, "a")
     const err = openSync(logFile, "a")
     const options: SpawnOptions = {
@@ -30,7 +29,6 @@ export const nodeSpawner: Spawner = {
     if (typeof child.pid !== "number") {
       throw new Error("child process did not start (no pid)")
     }
-    // unref() lets the Next.js server process exit without waiting on this detached child.
     child.unref()
     return { pid: child.pid }
   },
@@ -67,7 +65,6 @@ export const nodeSpawner: Spawner = {
 
   killGroup(pid: number, signal: NodeJS.Signals = "SIGTERM"): boolean {
     try {
-      // Negative pid targets the whole process group created by detached spawn.
       process.kill(-pid, signal)
       return true
     } catch {
@@ -82,7 +79,6 @@ export const nodeSpawner: Spawner = {
 
   isAlive(pid: number): boolean {
     try {
-      // Signal 0 probes existence without affecting the process.
       process.kill(pid, 0)
       return true
     } catch {

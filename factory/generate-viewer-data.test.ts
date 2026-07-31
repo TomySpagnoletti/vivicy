@@ -2,7 +2,7 @@ import { tmpdir } from "node:os"
 
 import { beforeAll, describe, expect, it } from "vitest"
 
-// generate-viewer-data.ts exits at module-load if VIVICY_TARGET_ROOT is unset, so we set it and import dynamically AFTER — the pure parser itself reads no files.
+// generate-viewer-data.ts exits at module load when VIVICY_TARGET_ROOT is unset: the import must stay dynamic and follow the env write.
 let parseArchitectureMap: typeof import("./generate-viewer-data.ts").parseArchitectureMap
 let reconcileLayout: typeof import("./generate-viewer-data.ts").reconcileLayout
 

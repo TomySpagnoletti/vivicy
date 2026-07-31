@@ -73,7 +73,7 @@ export function CopyableCommand({ hint, command, label }: { hint: string; comman
       <Separator />
       <p className="text-xs text-muted-foreground">{hint}</p>
       <div className="flex items-stretch gap-2">
-        {/* tabIndex+aria-label: keyboard users must be able to reach/scroll this overflowing line, not just mouse-scroll it. */}
+        {/* Keep tabIndex on this overflow-x line: a browser gives keyboard scrolling only to a focusable scroll container. */}
         <code
           tabIndex={0}
           aria-label={t("commandScrollAriaLabel", { label })}

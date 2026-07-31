@@ -5,7 +5,6 @@ import { MANAGED_TEMP_PREFIX } from "../lib/managed-block.ts"
 
 export const PROJECT_CONFIG_FILENAME = "vivicy.json"
 
-// null in vivicy.json#gateCommand / #runCommand means "not yet established"; the workflow fills a real command mechanically, never a human.
 export const GATE_COMMAND_SENTINEL = null
 export const RUN_COMMAND_SENTINEL = null
 
@@ -81,7 +80,6 @@ export function loadProjectConfig(targetRoot: string | null | undefined): Projec
   return parseConfig(readFileSync(configPath, "utf8"), PROJECT_CONFIG_FILENAME)
 }
 
-// The raw object, for the readers that own their own field (the skill declarations) rather than the two command fields normalized above. Missing and unparseable both read as null; only `updateProjectConfig` tells them apart, since only a writer has to.
 export function readProjectConfigObject(targetRoot: string): Record<string, unknown> | null {
   const configPath = resolve(targetRoot, PROJECT_CONFIG_FILENAME)
   if (!existsSync(configPath)) return null
@@ -93,7 +91,6 @@ export function readProjectConfigObject(targetRoot: string): Record<string, unkn
   }
 }
 
-// The ONE read-modify-write of vivicy.json — the gate/run commands and the skill pins both land through it, so the file has a single writer with a single set of guarantees. The write is atomic (a temp beside the target, exclusively created over a removed leftover, the target's mode carried across, then one rename): this file holds the verification gate command AND every skill pin, and a torn write would lose both at once. A file that exists but is not a JSON object is never clobbered — the caller decides whether that is a typed refusal or a silent no-op.
 export function updateProjectConfig(targetRoot: string, mutate: (config: Record<string, unknown>) => void): "written" | "refused" {
   const configPath = resolve(targetRoot, PROJECT_CONFIG_FILENAME)
   const config = existsSync(configPath) ? readProjectConfigObject(targetRoot) : {}
@@ -113,7 +110,6 @@ export function updateProjectConfig(targetRoot: string, mutate: (config: Record<
   return "written"
 }
 
-// Writes one command field into vivicy.json while preserving every other field (the skill declarations etc.); creates the file if absent.
 function setCommandField(targetRoot: string, field: CommandField, command: string): string {
   const normalized = normalizeCommand(command, field, PROJECT_CONFIG_FILENAME)
   if (normalized === null) {

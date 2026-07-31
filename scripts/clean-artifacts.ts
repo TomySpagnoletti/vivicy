@@ -8,10 +8,10 @@ import { cleanupTree } from "../factory/cleanup-tree.ts"
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..")
 
-// .next is deliberately excluded here — it's a reusable dev/build cache, not a per-run artifact.
+// Never add .next: it is a reusable dev/build cache, not a per-run artifact.
 const ARTIFACTS = ["test-results", "playwright-report"]
 
-// The e2e matrix writes one dist dir per shape×browser as .next-e2e-<shape>-<browser>, set via VIVICY_DIST_DIR in playwright.config. Removal runs through cleanupTree because the webServer Next process and its children may still be flushing into these trees when playwright exits: a raised ENOTEMPTY here would replace the wrapped command's exit code, which this wrapper exists to preserve.
+// The .next-e2e- prefix swept below is playwright.config's VIVICY_DIST_DIR naming — edit together.
 function cleanArtifacts(): void {
   for (const rel of ARTIFACTS) {
     cleanupTree(resolve(REPO_ROOT, rel))
@@ -30,7 +30,7 @@ function cleanArtifacts(): void {
   pruneTsconfigIncludes()
 }
 
-// Next.js appends every dist dir it serves to tsconfig.json's include and never removes them; .next and the e2e matrix dirs are kept unconditionally (Next re-adds them) to avoid tsconfig diff noise.
+// Next appends every dist dir it serves to tsconfig.json's include and never removes it.
 const MATRIX_DIST_RE = /^\.next-e2e-(demo|empty|onboarding)-(chromium|firefox|webkit)-(desktop|mobile)$/
 
 function pruneTsconfigIncludes(): void {
@@ -47,9 +47,7 @@ function pruneTsconfigIncludes(): void {
     if (keep.length === config.include.length) return
     config.include = keep
     writeFileSync(file, `${JSON.stringify(config, null, 2)}\n`)
-  } catch {
-    // Never let cleanup break the wrapped command's exit semantics.
-  }
+  } catch {}
 }
 
 const argv = process.argv.slice(2)

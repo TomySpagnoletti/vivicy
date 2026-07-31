@@ -1,4 +1,4 @@
-// Server-only; deliberately independent of factory/cli.ts (Next-bundled TS vs a plain Node ESM bin) — parity is both spawning the same factory scripts/args and reading the same state files, not shared code.
+// Server-only, and never imports factory/cli.ts: parity is the identical spawned scripts/args and state-file schemas, never shared code.
 
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs"
 import path from "node:path"
@@ -47,7 +47,7 @@ export interface SpawnDetachedOptions {
   cwd: string
   env: NodeJS.ProcessEnv
   logFile: string
-  // shell: true runs the product's own runCommand through the platform shell (like the gate command), and never for factory node scripts.
+  // shell: true is for the product's own runCommand only, never for a factory node script.
   shell?: boolean
 }
 
@@ -161,7 +161,7 @@ export function getFactoryRoot(): string {
   return path.resolve(process.cwd(), "factory")
 }
 
-// Runtime files live under <runtime>/projects/<key>/, derived here from the shared lib/project-runtime.ts — cli.ts uses the same module so CLI-started state stays visible to the UI and vice versa.
+// Derive only through lib/project-runtime.ts: factory/cli.ts uses the same module, which is what keeps CLI- and UI-started state in one namespace.
 function projectRuntimeDir(targetRoot: string): string {
   return getProjectRuntimeDir(getRuntimeDir(), targetRoot)
 }
@@ -192,7 +192,7 @@ function resolveScript(factoryRoot: string, relativeScript: string): string {
 }
 
 function devEnv(targetRoot: string): NodeJS.ProcessEnv {
-  // VIVICY_RUNTIME_DIR must be set explicitly — factory-side notify is a silent no-op without it.
+  // Never drop VIVICY_RUNTIME_DIR: factory-side notify is a silent no-op without it.
   return { ...process.env, VIVICY_TARGET_ROOT: targetRoot, VIVICY_RUNTIME_DIR: projectRuntimeDir(targetRoot) }
 }
 
@@ -212,7 +212,7 @@ function updateRunState(targetRoot: string, state: RunState): void {
   writeFileSync(getRunStatePath(targetRoot), `${JSON.stringify(state, null, 2)}\n`)
 }
 
-// Lock claimed with wx (exclusive create) before spawn to close the check-then-spawn TOCTOU window; a dead pid is cleared and the claim retried once.
+// Claim with wx (exclusive create) BEFORE the spawn, never a plain write: that is the check-then-spawn TOCTOU window.
 function claimRunLock(spawner: Spawner, targetRoot: string, placeholder: RunState): void {
   mkdirSync(projectRuntimeDir(targetRoot), { recursive: true })
   const file = getRunStatePath(targetRoot)
@@ -279,7 +279,7 @@ export function startSupervisor(spawner: Spawner, mode: "start" | "resume" = "st
   const command = resolveScript(factoryRoot, SUPERVISOR_SCRIPT)
   const logFile = getLogPath(targetRoot)
 
-  // Placeholder pid is THIS server's own pid (not the eventual child's) so isAlive sees it as live during the claim-to-spawn window.
+  // The placeholder pid must be THIS server's, so isAlive reads the lock as live across the claim-to-spawn window.
   const state: RunState = {
     pid: process.pid,
     started_at: new Date().toISOString(),
@@ -482,7 +482,6 @@ export function stopSupervisor(spawner: Spawner): { pid: number } {
   return { pid: state.pid }
 }
 
-// Running the DELIVERED product (serve-the-pizza) — a long-lived child of the target's own `runCommand`, isolated from the autonomous build's supervisor run lock.
 const PRODUCT_RUN_STATE_FILE = "product-run-state.json"
 const PRODUCT_RUN_LOG_FILE = "product-run.log"
 const PRODUCT_RUN_LOG_WINDOW_BYTES = 256 * 1024
@@ -547,7 +546,6 @@ function tailLines(text: string | null, count: number): string | null {
   return tail.trim().length > 0 ? tail : null
 }
 
-// Same TOCTOU-safe wx-claim as the supervisor run lock — the state file is the lock; a dead prior run is reclaimed, a live one refuses.
 function claimProductRunLock(spawner: Spawner, targetRoot: string, state: ProductRunState): void {
   mkdirSync(projectRuntimeDir(targetRoot), { recursive: true })
   const file = productRunStatePath(targetRoot)
@@ -593,10 +591,10 @@ export function startProductRun(spawner: Spawner): ProductRunState {
     log_file: logFile,
   }
   claimProductRunLock(spawner, targetRoot, state)
-  // Fresh log per run so URL detection reads the current process, never a stale prior one.
+  // Truncate per run: the spawner appends, and URL detection must never read a prior process's log.
   writeFileSync(logFile, "")
 
-  // Vivicy's own PORT must not leak into the product — the product would bind Vivicy's port and collide; its own command/config sets the port it wants.
+  // Never leak Vivicy's own PORT into the product: it would bind Vivicy's port and collide.
   const env = { ...process.env }
   delete env.PORT
 
@@ -663,7 +661,6 @@ export function readProductRun(spawner: Spawner): ProductRunView {
     }
   }
 
-  // The process died on its own — an owner stop clears the state, so a surviving state + dead pid means it exited unexpectedly. Surface it loudly with the log that carries the reason.
   return {
     phase: "exited",
     command: state.command,
@@ -701,7 +698,6 @@ export async function readDevStatus(spawner: Spawner): Promise<DevStatus & { run
 const EXTRACTION_STATUS_FILE = ".vivicy/development/reports/extraction-status.json"
 
 export interface ExtractionStatus {
-  // phase: "authoring" | "fixing" | "refreezing" | "validating" | "mapping" | "verifying" | "map-review" | "green" | "extraction_blocked" | "blocked_on_unverified_spikes"
   phase?: string
   attempt?: number
   spike_mode?: "integrate" | "extract"
@@ -743,7 +739,7 @@ export async function runExtract(spawner: Spawner): Promise<ExtractResult> {
   }
 }
 
-// Without this guard, extracting against an empty canonical launches agents into a void that spins until the retry budget dies.
+// Never drop this guard: extracting an empty canonical spins agent legs into a void until the retry budget dies.
 function assertRealCanonical(targetRoot: string): void {
   const canonicalDir = path.join(targetRoot, ".vivicy", "canonical")
   if (!existsSync(canonicalDir)) {
@@ -778,7 +774,7 @@ export function getExtractionStatus(): ExtractionStatus | null {
   return readExtractionStatus(targetRoot)
 }
 
-// Deliberately generous: a false "stale" read would double-spawn agent legs — worse than waiting out a slow install.
+// Keep generous: a false "stale" read double-spawns agent legs, worse than waiting out a slow install.
 const SKILLS_STALE_MS = 15 * 60 * 1000
 
 function readSkillsReportFrom(targetRoot: string): SkillsReport | null {
@@ -799,7 +795,7 @@ export function readSkillsReport(): SkillsReport | null {
   return readSkillsReportFrom(targetRoot)
 }
 
-// A view over the progress ledger the dev loop already writes — never a store of its own. The report is passed in rather than re-read, so one response can never mix two reads of it; a project with no skills never touches the ledger at all, since this route is polled by three surfaces and re-fetched on every status frame.
+// A view over the dev loop's progress ledger, never a store of its own; take the report as an argument, never re-read it, or one response mixes two reads.
 export function readSkillUsage(report: SkillsReport | null): SkillUsage {
   const installed = reportedSkillIds(report)
   if (installed.length === 0) return { issues: 0, applied: [], not_installed: [] }
@@ -817,12 +813,12 @@ function isSkillsInstallInFlight(targetRoot: string): boolean {
   const report = readSkillsReportFrom(targetRoot)
   if (report === null || !isSkillsPhaseInFlight(report.phase)) return false
   const updated = Date.parse(report.updated_at ?? "")
-  // Unparseable timestamp fails toward "in flight" (refuse) rather than risk a double-spawned install.
+  // Fail toward "in flight": an unparseable timestamp must refuse, never risk a double-spawned install.
   if (!Number.isFinite(updated)) return true
   return Date.now() - updated < SKILLS_STALE_MS
 }
 
-// The stage claims `skills-install.lock` itself (factory/install-skills.ts, where the writes are); the app only PROBES it, so a stage the supervisor spawned refuses an owner's click here — synchronously, with the typed refusal the route maps to 409 — while a dead heat between two spawns is still decided by the child's own exclusive claim. targetRoot is threaded through, never re-resolved mid-operation, so a project switch mid-call cannot read another project's lock.
+// PROBE the lock only, never claim it here (the stage claims it in the process that writes); thread targetRoot through, never re-resolve it mid-operation.
 function refuseWhileSkillsStageHolds(spawner: Spawner, targetRoot: string): void {
   const holder = stageLockHolder(projectRuntimeDir(targetRoot), SKILLS_LOCK_FILE, (pid) => spawner.isAlive(pid))
   if (holder !== null) {
@@ -878,7 +874,7 @@ export async function removeSkills(spawner: Spawner, opts: { ids: string[] }): P
   }
   refuseWhileSkillsStageHolds(spawner, targetRoot)
   const command = resolveScript(factoryRoot, SKILLS_SCRIPT)
-  // The stamp the PRIOR report carried: a child that refused (a lock it did not win) or died writes no report at all, and answering the owner with the previous run's outcome — now legitimately `failed` — would show them an old failure as this attempt's result.
+  // Capture the PRIOR report's stamp: a child that refused or died writes no report, and the previous run's outcome must never answer for this attempt.
   const priorStamp = readSkillsReportFrom(targetRoot)?.updated_at
   const result = await spawner.run({
     command: process.execPath,
@@ -888,7 +884,7 @@ export async function removeSkills(spawner: Spawner, opts: { ids: string[] }): P
   })
   const report = readSkillsReportFrom(targetRoot)
   const ours = report !== null && report.updated_at !== priorStamp
-  // A stage that ended `failed` wrote a terminal report of its OWN and its own notification; the route adjudicates on `phase`, so that report must survive the non-zero exit — while a child that wrote nothing leaves only its stderr to answer with.
+  // A terminal `failed` report must survive the non-zero exit: the route adjudicates on `phase`.
   if (!ours || (result.code !== 0 && report.phase !== "failed")) {
     throw new ControlError(
       `skills remove failed (exit ${result.code}): ${result.stderr.trim() || result.lastLine || "no report written"}`,
@@ -996,7 +992,6 @@ function isDocPrepLockLive(spawner: Spawner, targetRoot: string): boolean {
   return false
 }
 
-// Same TOCTOU-safe wx-claim as the run/skills locks — the report file alone can't stop two callers from double-spawning the leg.
 function claimDocPrepLock(spawner: Spawner, targetRoot: string): void {
   mkdirSync(path.dirname(docPrepLockPath(targetRoot)), { recursive: true })
   const body = `${JSON.stringify({ pid: process.pid, started_at: new Date().toISOString() }, null, 2)}\n`

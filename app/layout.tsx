@@ -10,7 +10,7 @@ import { BRAND } from "@/lib/brand"
 import { LOCALE } from "@/lib/i18n"
 import { cn } from "@/lib/utils"
 
-// Self-hosted (not next/font/google) for a deterministic, offline-capable build; woff2 files are the latin variable axes so font-weight still works.
+// Never switch to next/font/google: the build must stay offline-capable and deterministic.
 const geist = localFont({
   src: "./fonts/Geist-latin.woff2",
   variable: "--font-sans",
@@ -41,12 +41,7 @@ export default async function RootLayout({
   const messages = await getMessages()
 
   return (
-    <html
-      lang={LOCALE}
-      className={cn("antialiased", fontMono.variable, "font-sans", geist.variable)}
-      // suppressHydrationWarning here only silences browser-extension attribute mutations (LanguageTool, Grammarly, etc.) on html/body — the tree below stays fully hydration-checked.
-      suppressHydrationWarning
-    >
+    <html lang={LOCALE} className={cn("antialiased", fontMono.variable, "font-sans", geist.variable)} suppressHydrationWarning>
       <body suppressHydrationWarning>
         <NextIntlClientProvider messages={messages}>
           <TooltipProvider>{children}</TooltipProvider>

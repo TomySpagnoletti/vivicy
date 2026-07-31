@@ -1,4 +1,4 @@
-// Client-safe types belong in lib/project-types.ts, not here — importing this file client-side would pull node:fs into the browser bundle.
+// Server-only (node:fs): never import this from a client component — client-safe types live in lib/project-types.ts.
 
 import { spawnSync } from "node:child_process"
 import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs"
@@ -35,7 +35,6 @@ export class ScaffoldError extends Error {
   constructor(
     message: string,
     readonly code: "not_absolute" | "not_a_directory" | "invalid_name" | "templates_missing" | "unsupported_encoding",
-    // The same refusal without its subject, for the surfaces that already name the file; carried, never parsed back out of the message.
     readonly detail?: string
   ) {
     super(message)
@@ -94,8 +93,6 @@ export function resolveTargetDir(candidate: unknown): { target: string; mode: Sc
   return { target, mode: entries.length > 0 ? "existing_project" : "from_scratch" }
 }
 
-// Also consumed by the factory's pruneGitkeeps (lib/skeleton.ts) — the same set drives both directory creation here and pruning there.
-
 function vivicyConfig(gateCommand: string | null): string {
   return `${JSON.stringify({ gateCommand, runCommand: null }, null, 2)}\n`
 }
@@ -122,7 +119,7 @@ export function detectGateCommand(targetRoot: string): string | null {
   return null
 }
 
-// Single-sourced into the greenfield .gitignore AND the brownfield block, which is why it carries EXCLUDES only apart from the proofs recipe: the block is appended at EOF, so a `!` line here would silently override an owner rule above it and hand `git add -A` a file they deliberately ignored. A superfluous entry drops a real output from history.
+// Appended at EOF of an owner's .gitignore, so a `!` line here overrides their rules above: keep it EXCLUDES-only apart from the proofs recipe, and never add a superfluous entry.
 const VIVICY_ESSENTIAL_IGNORES = `# Secrets: dotenv (.env, .env.*) and direnv (.envrc) hold real values, and the loop runs git add -A at every checkpoint, so anything here would be committed and pushed. Keep a placeholder template in history by tracking it once (git add -f .env.example), never by re-including it here.
 .env
 .env.*
@@ -265,7 +262,7 @@ obj/
 
 const ENV_EXAMPLE_FILENAME = ".env.example"
 
-// Must stay a code constant, never a factory/templates/ file: Vivicy's own .gitignore `.env*` would leave that file untracked and missing from the shipped build.
+// Must stay a code constant, never a factory/templates/ file: Vivicy's own `.env*` ignore would leave it untracked and out of the shipped build.
 const ENV_EXAMPLE = `# Environment variables — the shape of your configuration, never its values.
 #
 # Copy this file to .env and put your real values there: cp .env.example .env
@@ -278,7 +275,6 @@ const ENV_EXAMPLE = `# Environment variables — the shape of your configuration
 # API_KEY=replace-me
 `
 
-// spawnSync takes an argv array (no shell) — never build a shell string here or this becomes an injection surface.
 function git(cwd: string, args: string[]): { status: number; stdout: string; stderr: string } {
   const r = spawnSync("git", args, { cwd, encoding: "utf8" })
   return { status: r.status ?? 1, stdout: r.stdout ?? "", stderr: r.stderr ?? "" }
@@ -296,7 +292,7 @@ function canonical(p: string): string {
   }
 }
 
-// The placeholder is written ONLY where Vivicy can also TRACK it: the managed block ignores the whole .env family, so an untracked one is invisible to git forever and the file's own text about being the one that goes into git would be false. Deliverable when the target IS its work tree's root — the repo Vivicy is about to init, or an empty repo the owner init'd for this project, whose index Vivicy may stage into — never when the target merely sits under a FOREIGN parent repo, whose index is not Vivicy's to write.
+// Never stage into a FOREIGN parent repo's index: the placeholder is deliverable only when the target IS its own work tree's root.
 function envExampleIsDeliverable(target: string): boolean {
   const toplevel = git(target, ["rev-parse", "--show-toplevel"])
   if (toplevel.status !== 0) return true
@@ -304,7 +300,7 @@ function envExampleIsDeliverable(target: string): boolean {
   return root === "" || canonical(root) === canonical(target)
 }
 
-// Bare `git config` (no --global) reads/writes LOCAL scope only, never the owner's global identity; git commit fails hard without one.
+// Bare `git config` is LOCAL scope: never add --global here, it would rewrite the owner's own identity.
 function ensureLocalGitIdentity(cwd: string): void {
   if (git(cwd, ["config", "user.email"]).stdout.trim() === "") {
     git(cwd, ["config", "user.email", "vivicy@local"])
@@ -319,7 +315,7 @@ function initFromScratchRepo(target: string, placeholderWritten: boolean): { ini
     if (placeholderWritten) git(target, ["add", "-f", "--", ENV_EXAMPLE_FILENAME])
   }
   if (isGitRepo(target)) {
-    // The owner's own repo for this project: stage the placeholder into THEIR index so their first commit carries it, without creating a commit or an identity Vivicy does not already create here.
+    // The owner's own repo: stage only — never create a commit or a git identity here.
     trackPlaceholder()
     return { initialized: false, committed: false }
   }
@@ -358,7 +354,7 @@ function managedSpec(template: string, markers: MarkerPair): ManagedSpec {
   return { template, block: extractManagedBlock(template, markers), markers }
 }
 
-// The app's typed boundary for a refused write is ScaffoldError — the govern route maps its code — so the engine's own refusal is translated here, at the one site that lets it escape, rather than leaked as a second error type.
+// Never let a ManagedWriteError escape to the app: ScaffoldError is the route's typed boundary.
 function writeGovernanceFile(abs: string, spec: ManagedSpec): string | null {
   try {
     return writeManaged(abs, spec)
@@ -429,7 +425,7 @@ export function scaffoldProject(input: { targetDir: unknown; projectName: unknow
   const written: string[] = []
   const at = (rel: string) => path.join(target, rel)
 
-  // null is the sentinel: gateCommand + runCommand are established mechanically (extraction, else the stack-setup issue), never by a human. runCommand is never brownfield-detected — "the run command" is semantically loaded (dev vs start vs a specific entrypoint) and belongs to the canonical run-and-ship area the owner grills, unlike the deterministically-detectable test gate.
+  // null is the sentinel — never hand-write either command, and never brownfield-detect runCommand: only the test gate is deterministically detectable.
   const gateCommand = mode === "existing_project" ? detectGateCommand(target) : null
 
   for (const dir of SKELETON_DIRS) {
@@ -454,7 +450,7 @@ export function scaffoldProject(input: { targetDir: unknown; projectName: unknow
     if (w) written.push(w)
   }
 
-  // Must run after .gitignore is written above — otherwise this git add -A would pick up node_modules/logs/runtime noise.
+  // Must run AFTER .gitignore is written above, or this `git add -A` picks up node_modules and runtime noise.
   const gitResult = mode === "from_scratch" ? initFromScratchRepo(target, placeholder) : { initialized: false, committed: false }
 
   const project = setCurrentProject(target)

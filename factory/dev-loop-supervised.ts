@@ -51,7 +51,7 @@ interface SupervisorNotification {
   message: string
 }
 
-// The acceptance-not-green exit maps to null on purpose: acceptance.ts already emits its own SA notification for that moment, so mapping it here would double it.
+// Never map the acceptance-not-green exit to a notification here: acceptance.ts already emits its own for that moment.
 export function supervisorTerminalNotification(
   action: SupervisorAction,
   { done, total, blocked }: { done: number; total: number; blocked: number }
@@ -91,7 +91,6 @@ export function supervisorTerminalNotification(
   }
 }
 
-// Any outcome other than a written "green" report (explicit "findings"/"failed", a crashed child, a missing report) withholds Done loudly — never a silent success.
 function runAcceptanceStage(scriptDir: string, repoRoot: string): "green" | "findings" | "failed" {
   process.stdout.write("supervisor: running the whole-product acceptance stage (acceptance.ts)\n")
   spawnSync("node", [join(scriptDir, "acceptance.ts")], { cwd: repoRoot, stdio: "inherit", env: process.env })
@@ -106,7 +105,6 @@ function runAcceptanceStage(scriptDir: string, repoRoot: string): "green" | "fin
   return "failed"
 }
 
-// Observability-class, runs AFTER acceptance green: retro NEVER blocks the close — its outcome is a loud note, never an exit signal.
 function runRetroStage(scriptDir: string, repoRoot: string): void {
   process.stdout.write("supervisor: running the post-cycle retro stage (retro.ts) — observability, never blocks the close\n")
   spawnSync("node", [join(scriptDir, "retro.ts")], { cwd: repoRoot, stdio: "inherit", env: process.env })
@@ -157,7 +155,7 @@ function main() {
   }
 
   if (!rehearsal) {
-    // Maintenance BEFORE selection, at every start: verifying the bundles the project already pinned costs no leg and no LLM, and a selection that then installs into a tree whose skills were just restored is the only order in which both are true of the same bytes.
+    // Maintenance must run BEFORE the selection stage, so a selection only ever installs into a tree whose pinned bundles are already restored.
     if (maintenanceNeeded(repoRoot)) {
       process.stdout.write("supervisor: verifying the pinned project skills (install-skills.ts --maintain)\n")
       const maintain = spawnSync("node", [join(scriptDir, "install-skills.ts"), "--maintain"], {

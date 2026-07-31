@@ -50,7 +50,7 @@ export function AgentsHealthDialog({
     [onWarning, t]
   )
 
-  // Two effects, deliberately not merged: mount always loads (fires the onWarning side-effect even while the dialog stays closed); open re-probes with fresh=1 to catch a CLI just installed/logged into.
+  // Never merge these two effects: mount must load even while the dialog stays closed, to fire onWarning.
   useEffect(() => {
     void (async () => {
       await load()
@@ -203,7 +203,7 @@ function UpdateAction({ agentKey, onHealth }: { agentKey: AgentKey; onHealth: (h
     setResult(null)
     setOutput([`$ ${guidance.updateCommand}`])
     try {
-      // The server execs ONLY the fixed allow-listed command for this agent.
+      // Never send a command in this body: the route execs only its own allow-listed command for the named agent.
       const res = await fetch("/api/agents/update", {
         method: "POST",
         headers: { "content-type": "application/json" },

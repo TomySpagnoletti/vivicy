@@ -52,7 +52,6 @@ describe("useReopenPersistedProject", () => {
     rerender(<Probe project={GOVERNED} />)
     await flush()
 
-    // Each resolution hands down a FRESH object — the identity every /api/project GET produces, and what a Vivi-activity or picker refresh re-runs.
     rerender(<Probe project={{ ...GOVERNED }} />)
     rerender(<Probe project={{ ...GOVERNED }} />)
     rerender(<Probe project={{ root: "/repos/other", name: "other", hasCanonicalSpec: true }} />)

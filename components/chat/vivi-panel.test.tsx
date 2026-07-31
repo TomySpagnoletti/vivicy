@@ -67,7 +67,7 @@ const PENDING_CR = {
   source: "agent",
 }
 
-// stage/event intentionally unmapped in notifications.json: keeps notificationText falling back to the raw message, which these assertions rely on.
+// This stage/event pair must stay unmapped in notifications.json: these assertions read notificationText's raw-message fallback.
 function notificationRows(...overrides: Array<Partial<Notification>>): Notification[] {
   return overrides.map((o, i) => ({
     id: `test-id-${i}`,
@@ -179,7 +179,6 @@ function stubFetch(opts: {
         ok: true,
         sessionId: id,
         turns: opts.turnsBySession?.[id] ?? [],
-        // The server reports a turn running on this target unless a test says otherwise.
         busy: opts.busy ?? true,
       })
     }
@@ -190,7 +189,7 @@ function stubFetch(opts: {
       const post = opts.post?.() ?? { body: { ok: true } }
       return jsonResponse(post.body, post.status)
     }
-    // Engine data is load-bearing, not dead: it makes the "no engine badge" test discriminating — a regressed on-open engine fetch would render the badge and turn the assertion red.
+    // Keep the engine payload: it is what makes the "no engine badge" assertion discriminating.
     return jsonResponse({
       ok: true,
       engine: {
@@ -348,7 +347,6 @@ describe("ViviPanel — rehydration", () => {
       </ViviPanelProvider>
     )
     await waitFor(() => expect(screen.queryByText("I want a todo app.")).not.toBeInTheDocument())
-    // The new project has no sessions: a bare composer, no dead hint sentence.
     expect(screen.getByLabelText("Message Vivi")).toBeInTheDocument()
   })
 })
@@ -723,13 +721,11 @@ describe("ViviPanel — composer document import", () => {
     expect(attach).toHaveAttribute("aria-disabled", "true")
     expect(screen.getByText("Bringing your documents into the kitchen…")).toBeInTheDocument()
 
-    // The real proof: the guard lives in send() itself, so neither a click nor Enter mints a competing (session-orphaning) turn while the import is in flight.
     await user.click(send)
     await user.type(composer, "{Enter}")
     expect(viviTurnPosts()).toBe(0)
     expect(composer).toHaveValue("hi")
 
-    // Shift+Enter still composes a newline (import doesn't lock typing) and still sends nothing.
     await user.type(composer, "{Shift>}{Enter}{/Shift}")
     expect(composer).toHaveValue("hi\n")
     expect(viviTurnPosts()).toBe(0)
@@ -764,7 +760,6 @@ describe("ViviPanel — composer document import", () => {
     const attach = screen.getByRole("button", { name: "Attach documents" })
     await waitFor(() => expect(attach).toHaveAttribute("aria-disabled", "true"))
 
-    // Bypass the picker's UX guard by dropping files straight onto the hidden input: importDocs() must still refuse while a send holds the (not-yet-minted) session.
     await user.upload(fileInput(container), [new File(["# brief"], "brief.md", { type: "text/markdown" })])
     expect(fetchMock.mock.calls.filter((c) => String(c[0]) === "/api/vivi/import")).toHaveLength(0)
 
@@ -787,7 +782,6 @@ describe("ViviPanel — onboarding view (no target project)", () => {
     expect(screen.queryByText(/develops one project from its canonical spec/)).not.toBeInTheDocument()
     expect(screen.getByRole("button", { name: /Open a governed project/ })).toBeInTheDocument()
     expect(screen.getByRole("button", { name: /Start governance/ })).toBeInTheDocument()
-    // The standing import is a post-governance feature, never an entry choice — the picker offers exactly two.
     expect(screen.queryByRole("button", { name: /Import documents/ })).not.toBeInTheDocument()
 
     expect(screen.queryByLabelText("Message Vivi")).not.toBeInTheDocument()
@@ -804,7 +798,6 @@ describe("ViviPanel — onboarding view (no target project)", () => {
     await user.click(screen.getByTestId("vivi-cta"))
     await user.click(await screen.findByRole("button", { name: /Start governance/ }))
 
-    // The browsed folder (mocked "/home/dev") IS the target — no docs required to govern.
     const submit = await screen.findByRole("button", { name: /Start governance/ })
     await waitFor(() => expect(submit).toBeEnabled(), { timeout: 5_000 })
     await user.click(submit)
@@ -819,7 +812,7 @@ describe("ViviPanel — onboarding view (no target project)", () => {
       expect(form.getAll("files")).toEqual([])
     })
     await waitFor(() => expect(onActivity).toHaveBeenCalled())
-    // 15s test timeout must clear the internal 5s waitFor above with headroom, or full-suite contention flakes.
+    // Keep this budget well above the internal 5s waitFor, or full-suite contention flakes it.
   }, 15_000)
 
   test("acquisition flips the panel to chat mode with the composer focused", async () => {
@@ -838,7 +831,6 @@ describe("ViviPanel — onboarding view (no target project)", () => {
 
     const composer = await screen.findByLabelText("Message Vivi")
     await waitFor(() => expect(composer).toHaveFocus())
-    // No dead hint sentence above the composer — an empty non-scaffold chat is composer-only.
     expect(screen.queryByText(/Tell Vivi what you want to build/)).not.toBeInTheDocument()
     expect(screen.queryByText("Start a project")).not.toBeInTheDocument()
   })
@@ -889,12 +881,10 @@ describe("ViviPanel — onboarding view (no target project)", () => {
     await waitFor(() => expect(submit).toBeEnabled(), { timeout: 5_000 })
     await user.click(submit)
 
-    // The user closes the panel while the govern POST is still in flight.
     const aside = screen.getByRole("complementary", { name: "Vivi", hidden: true })
     await user.click(screen.getByRole("button", { name: "Close Vivi" }))
     await waitFor(() => expect(aside).toHaveAttribute("aria-hidden", "true"))
 
-    // Governance completes → the panel re-opens on its own to greet with the seeded welcome.
     governGate.resolve()
     await waitFor(() => expect(aside).toHaveAttribute("aria-hidden", "false"))
   }, 15_000)
@@ -1020,7 +1010,6 @@ describe("ViviPanel — notifications tab", () => {
     await user.click(screen.getByRole("button", { name: "Open Vivi" }))
     await user.click(screen.getByRole("tab", { name: /Notifications/ }))
 
-    // id extraction must stop before the ": " delimiter in "{id}: gate red", or this renders a double colon.
     expect(await screen.findByText("ISSUE-0004: gate red")).toBeInTheDocument()
     expect(screen.queryByText(/ISSUE-0004::/)).not.toBeInTheDocument()
   })
@@ -1209,7 +1198,6 @@ describe("ViviPanel — turn resilience", () => {
       }
       if (url.startsWith("/api/vivi/sessions")) {
         sessionsCalls += 1
-        // The first project owns session A; the project we switch to has none.
         return jsonResponse({
           ok: true,
           sessions:
@@ -1236,9 +1224,7 @@ describe("ViviPanel — turn resilience", () => {
     await user.click(screen.getByRole("button", { name: "Open Vivi" }))
     expect(await screen.findByText("I want a todo app.")).toBeInTheDocument()
 
-    // Deciding the card fires a gated resync of session A.
     await user.click(screen.getByRole("button", { name: "Freeze it" }))
-    // Switching project resets the thread underneath that in-flight resync.
     view.rerender(
       <ViviPanelProvider>
         <ViviPanel projectRoot="/proj/y" hasTarget />
@@ -1386,7 +1372,6 @@ describe("ViviPanel — mid-turn resume", () => {
           imported: { batchId: "2026-07-08T11-00-00-000Z", files: ["cdc.docx", "annexe.docx"], read: { status: "pending", pid: 4242 } },
         },
       ]
-      // The server stamps the batch `done` as the reading turn ends, in the same transcript the poll reads.
       const readThread: ViviTurn[] = [
         {
           ...readingThread[0],
@@ -1449,7 +1434,6 @@ describe("ViviPanel — mid-turn resume", () => {
     ]
   }
 
-  // The same stuck state over a MULTI-file batch: the marker and the give-up line carry no count, so they must read identically here.
   function stuckMultiDocThread(): ViviTurn[] {
     const [turn] = stuckReadThread()
     return [
@@ -1528,7 +1512,7 @@ describe("ViviPanel — mid-turn resume", () => {
       vi.stubGlobal("fetch", fetchMock)
       await openOnReadingThread()
 
-      // Past the ceiling of ONE leg (45 min): a multi-round turn legitimately lives longer, so the bound must not be a leg's.
+      // Past ONE leg's cap: a multi-round turn legitimately outlives it, so the backstop must never be a leg's.
       await act(async () => {
         await vi.advanceTimersByTimeAsync(50 * 60_000)
       })
@@ -1536,7 +1520,6 @@ describe("ViviPanel — mid-turn resume", () => {
       expect(screen.queryByText(/never came back/)).not.toBeInTheDocument()
       const polled = sessionPolls(fetchMock)
 
-      // Past the whole TURN's ceiling (every round is one leg), the backstop finally fires.
       await act(async () => {
         await vi.advanceTimersByTimeAsync(VIVI_TURN_CEILING_MS * 1.3)
       })
@@ -1572,7 +1555,6 @@ describe("ViviPanel — mid-turn resume", () => {
       })
       expect(screen.getByText(READING_LOST)).toBeInTheDocument()
 
-      // The owner sends a message anyway and gets answered: the verdict on the STILL-pending read must survive it, or the false spinner returns under a fully answered exchange.
       await act(async () => {
         fireEvent.change(screen.getByLabelText("Message Vivi"), { target: { value: "Alors?" } })
         fireEvent.keyDown(screen.getByLabelText("Message Vivi"), { key: "Enter" })
@@ -1678,7 +1660,6 @@ describe("ViviPanel — the question pile lives in the thread", () => {
     expect(screen.queryByText(/→/)).not.toBeInTheDocument()
     expect(screen.queryByText("Vivi is thinking…")).not.toBeInTheDocument()
 
-    // The standing pile sits BELOW the lines it already produced, so the card to act on is never pushed off the top by its own answers.
     const line = screen.getByText("Which datastore should v1 run on?")
     const pile = document.querySelector('[data-slot="menu-card-pile"]') as HTMLElement
     expect(line.compareDocumentPosition(pile) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()

@@ -1,4 +1,4 @@
-// Reimplements factory/dev-status.ts's deterministic status (minus live-process checks) for the E2E fake-spawner's dry path — keep both in sync.
+// Hand-synced twin of factory/dev-status.ts's deterministic status (minus live-process checks) — edit together.
 import { existsSync, readFileSync, readdirSync } from "node:fs"
 import path from "node:path"
 
@@ -58,7 +58,6 @@ export function readDevStatusFromDisk(root: string): DevStatus {
   const gatesPass = gateRecords.filter((g) => g.status === "pass").length
   const gatesFail = gateRecords.filter((g) => g.status === "fail").length
 
-  // Absent quota data must render as unknown, never fabricated — mirrors dev-status.ts.
   const quota = readJson<QuotaBlock>(path.join(dev, "reports", "quota-state.json"), {
     updated_at: null,
     agents: {},

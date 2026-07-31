@@ -224,7 +224,6 @@ describe("deriveStageStates — honest state truth, no fake progress", () => {
     expect(deriveStageStates(null, { phase: "green" }, null).SK).toBe("pending")
   })
 
-  // The set is imported from lib/skills-report, so a phase the writer adds can never read as settled here.
   it("SK pulses running for every in-flight skills phase, removal included", () => {
     for (const phase of SKILLS_IN_FLIGHT_PHASES) {
       expect(deriveStageStates(null, { phase: "green" }, { phase }).SK).toBe("running")

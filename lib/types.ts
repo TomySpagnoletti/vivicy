@@ -58,7 +58,7 @@ export interface GraphItemState {
   transcript_refs?: string[]
 }
 
-// Subset-redeclared from the server-only lib/proofs.ts (which imports node:fs) so no client component ever reaches it; the /api/map assignment of readProofsByIssue()'s result into DevelopmentBlock.proofs is what type-checks the two in lock-step.
+// Subset-redeclared from the server-only lib/proofs.ts — never import it here; the /api/map assignment type-checks the two in lock-step.
 export interface ProofView {
   id: string
   class: string

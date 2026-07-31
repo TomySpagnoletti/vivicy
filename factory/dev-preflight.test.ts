@@ -48,7 +48,6 @@ function writeJson(rel: string, value: unknown): void {
   writeFileSync(abs, `${JSON.stringify(value, null, 2)}\n`)
 }
 
-// The pin is taken from the bytes on disk by the very function the installer pins with, so the fixture can never disagree with what the ladder verifies against.
 function pin(id = ID, skill = SKILL): void {
   const bundle = hashBundle(resolve(repo, ".agents/skills", skill))
   assert.ok(bundle, "fixture: the bundle must exist before it can be pinned")
@@ -98,7 +97,6 @@ describe("what a declared skill's state IS (the one derivation the preflight and
     assert.deepEqual(declaredSkillStates(repo), [{ id: ID, pinned: true, usable: false }], "and a bundle that is gone stays pinned")
   })
 
-  // The block promises every leg a readable SKILL.md at that path; a directory without one promises nothing.
   it("a bundle directory with no SKILL.md is not an installed skill", () => {
     writeBundle({ "scripts/recalc.py": "print('recalc')\n" })
     writeJson("vivicy.json", { gateCommand: "npm test", skills: [{ id: ID }] })
@@ -195,7 +193,6 @@ describe("the preflight heals what drifted and degrades what it cannot", () => {
     )
   })
 
-  // Nothing pinned it, so nothing can reproduce it: installing a hand-declared id needs the audit gate the skills stage owns, and the preflight neither heals it nor stops the run for it.
   it("never spawns the pass for an unpinned declaration, and states the fact instead", () => {
     writeJson("vivicy.json", { gateCommand: "npm test", skills: [{ id: ID }] })
     let restores = 0
@@ -275,7 +272,6 @@ describe("the legs are told by name (the absent-skills directive)", () => {
         { id: "acme/pack@charts", pin: charts },
       ])
     )
-    // One bundle drifts from its pin AFTER both were taken: its SKILL.md is still on disk, which is exactly why the leg has to be told not to read it.
     writeFileSync(resolve(repo, ".agents/skills", SKILL, "SKILL.md"), "tampered\n")
 
     const directive = skillsDirective(repo)
@@ -289,7 +285,6 @@ describe("the legs are told by name (the absent-skills directive)", () => {
     assert.match(directive, /Every OTHER skill that block lists IS installed and stays mandatory\./)
   })
 
-  // The leg gets the SAME cause the owner's line carries, per skill: telling it Vivicy "could not restore" a skill nothing ever pinned would be the inverse of the promise this directive exists to withdraw.
   it("gives each absent skill its own true reason, never the pinned one for a hand-declared id", () => {
     writeBundle()
     pin()
@@ -314,7 +309,6 @@ describe("the legs are told by name (the absent-skills directive)", () => {
     assert.match(directive, /do NOT read, cite, follow, or claim to have applied those skills/)
   })
 
-  // A file that is not a JSON object declares nothing, exactly as it does for every other reader of vivicy.json: the run is not stopped by an unreadable declaration, and no skill is invented from one.
   it("declares nothing on a vivicy.json that is not a JSON object, and stops nothing", () => {
     writeBundle()
     writeFileSync(resolve(repo, "vivicy.json"), "{ not json at all\n")
@@ -335,7 +329,6 @@ describe("the legs are told by name (the absent-skills directive)", () => {
 const HERMETIC_HOME = mkdtempSync(join(tmpdir(), "vivicy-preflight-home-"))
 const OFFLINE_BIN = mkdtempSync(join(tmpdir(), "vivicy-preflight-bin-"))
 
-// The ONE upstream touch the real ladder makes is `npx skills add`; a stub that always refuses is what makes "the cache answered" and "no rung could" provable offline, on any machine, in bounded time — and one that RECORDS its invocations is what makes the door's cost contract provable too: this door restores, it never sweeps for newer versions.
 const UPSTREAM_CALLS = resolve(OFFLINE_BIN, "calls.log")
 writeFileSync(resolve(OFFLINE_BIN, "npx"), `#!/bin/sh\necho "$@" >> ${UPSTREAM_CALLS}\necho 'offline: no registry reachable' >&2\nexit 1\n`)
 chmodSync(resolve(OFFLINE_BIN, "npx"), 0o755)
@@ -349,7 +342,7 @@ after(() => {
   rmSync(OFFLINE_BIN, { recursive: true, force: true })
 })
 
-// HOME and XDG_CONFIG_HOME are redirected, not just the config files: git reads its default per-user excludes ($XDG_CONFIG_HOME/git/ignore, else $HOME/.config/git/ignore) whether or not core.excludesFile is set, and a per-user rule can only ADD ignores — which silently turns the "tree clean" assertions below green. process.env itself is mutated because the preflight spawns the maintenance pass, which spawns git and the skills CLI, with the inherited environment.
+// HOME and XDG_CONFIG_HOME must stay redirected (git reads its per-user excludes whatever core.excludesFile says, and one inherited ignore turns the clean-tree assertions green) and process.env itself must be what is mutated: the pass spawns git and the skills CLI with the inherited environment.
 function withRealTarget(fn: (ctx: { runtimeDir: string }) => void): void {
   const runtimeDir = resolve(repo, ".vivicy-runtime")
   rmSync(UPSTREAM_CALLS, { force: true })
@@ -395,7 +388,6 @@ function notifications(runtimeDir: string): Array<{ level: string; event: string
     .map((line) => JSON.parse(line))
 }
 
-// A governed project as the skills stage leaves one: the bundle committed, the pin in vivicy.json, and — unless the case is about a cold machine — the pinned bytes in the content-addressed cache, deposited by the very function the installer deposits with.
 function governedTarget({ warmCache = true } = {}): void {
   writeFileSync(resolve(repo, ".gitignore"), ".vivicy-runtime/\n.vivicy-tmp.*\n")
   writeFileSync(resolve(repo, "AGENTS.md"), "# Agent instructions\n")
@@ -410,7 +402,6 @@ function governedTarget({ warmCache = true } = {}): void {
   git(["-c", "user.email=owner@local", "-c", "user.name=Owner", "commit", "-qm", "owner: a governed project with one pinned skill"])
 }
 
-// The state no rung can answer: the bundle holds bytes that are not the pin, and so does the project's own history — which is what makes the git rung refuse rather than restore, exactly like an upstream that moved on.
 function commitTamper(): void {
   writeFileSync(resolve(repo, ".agents/skills", SKILL, "scripts/recalc.py"), "print('tampered')\n")
   git(["add", "-A"])
@@ -471,7 +462,6 @@ describe("driven on a real target: the preflight runs the maintenance pass itsel
         "one touch, and it is the ladder's own re-fetch rung for the broken bundle — never a version sweep"
       )
 
-      // Told once: the retry still runs on the next start, but a failure the owner already knows about is not announced again.
       preflightSkills(repo, { announce: () => {} })
       assert.equal(notifications(runtimeDir).length, 1)
       assert.equal(upstreamTouches(), 2, "and the retry is never suppressed: nothing but a re-fetch can repair it without a human")
@@ -498,7 +488,6 @@ describe("driven on a real target: the preflight runs the maintenance pass itsel
       } finally {
         held.release()
       }
-      // The next start asks again, and with the lock free the same cache rung repairs it.
       assert.deepEqual(preflightSkills(repo, { announce: () => {} }), [{ id: ID, pinned: true, usable: true }])
     })
   })
@@ -522,7 +511,6 @@ describe("driven on a real target: the preflight runs the maintenance pass itsel
     })
   })
 
-  // A committed bundle that was deleted leaves the tree DIRTY, so the repair has to happen before the clean-tree gate reads it — otherwise the owner's run is refused for bytes Vivicy is about to put back itself.
   it("the dev-loop CLI entry repairs the tree the clean-tree gate is about to read, instead of being refused by it", () => {
     withRealTarget(({ runtimeDir }) => {
       governedTarget()

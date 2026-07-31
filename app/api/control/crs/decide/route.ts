@@ -2,11 +2,9 @@ import { ControlError, decideCr } from "@/lib/control"
 import { appendNotification } from "@/lib/notifications"
 import { getSpawner } from "@/lib/spawner"
 
-// The apply leg itself lives in the factory script; this route only launches it via the control plane.
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 
-// decidedBy is a parameter of decideCr because other callers (e.g. the CLI) pass their own actor; this route always attributes decisions to the UI owner.
 const DECIDED_BY = "owner:ui"
 
 export async function POST(request: Request) {
@@ -24,7 +22,6 @@ export async function POST(request: Request) {
 
   try {
     const result = await decideCr(getSpawner(), { id, decision, decidedBy: DECIDED_BY })
-    // ok:false here means the decision landed but the apply chain is blocked, not that the decision failed (mirrors the extract route's 200/422 split).
     if (decision === "approved" && !result.applied?.ok) {
       appendNotification({
         level: "error",

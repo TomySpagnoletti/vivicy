@@ -145,7 +145,6 @@ export function normalizeMapData(raw: unknown): ArchitectureMapData | null {
   }
 }
 
-// Shares deriveDevelopmentOverlay with the extraction generator — do not fork it, or read-time and generation-time overlays will diverge.
 export function applyLiveOverlay(data: ArchitectureMapData, ledger: unknown): ArchitectureMapData {
   const graphRefs = new Set<string>()
   for (const node of data.nodes) graphRefs.add(canonicalNodeGraphRef(node.id))
@@ -162,7 +161,7 @@ export function applyLiveOverlay(data: ArchitectureMapData, ledger: unknown): Ar
     graphRefs,
     issues,
     ledger,
-    // Permissive on purpose: items were already gate-validated at write time; re-checking on read would 500 on stale on-disk evidence.
+    // Never tighten this matcher: the read path must not 500 on stale on-disk evidence.
     verificationGateMatcher: /.*/,
   })
 
@@ -235,7 +234,7 @@ export interface MapFilters {
   scopeFilter: string
 }
 
-// Must mirror the map's actual render-filter logic (including which edge endpoints the status filter keeps), or these counts drift from what's displayed.
+// Must mirror the map's render-filter logic, edge-endpoint keeps included — edit together with the renderer.
 export function computeVisibleCounts(data: ArchitectureMapData, filters: MapFilters): { nodes: number; edges: number } {
   const overlay = buildStatusOverlay(data.development?.graph_item_states)
   const statesByRef = buildGraphStatesByRef(data.development?.graph_item_states)
@@ -274,7 +273,6 @@ export function computeVisibleCounts(data: ArchitectureMapData, filters: MapFilt
   return { nodes: visible.size, edges: edgeCount }
 }
 
-/** Parse the trailing `-<i>` index from a React Flow edge id (`${from}->${to}-${i}`); -1 when absent. */
 export function edgeIndexFromId(id: string): number {
   const match = id.match(/-(\d+)$/)
   return match ? Number(match[1]) : -1

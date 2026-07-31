@@ -15,7 +15,7 @@ function Providers({ children }: { children: React.ReactNode }) {
   )
 }
 
-// matches must mirror shadcn useIsMobile's real breakpoint (innerWidth < 768); drifting from it silently invalidates this mock.
+// This breakpoint must mirror shadcn useIsMobile's own (innerWidth < 768): drift silently invalidates the mock.
 function setViewport(width: number) {
   Object.defineProperty(window, "innerWidth", { configurable: true, value: width, writable: true })
   window.matchMedia = vi.fn().mockImplementation((query: string) => ({

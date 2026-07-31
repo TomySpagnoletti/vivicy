@@ -35,7 +35,6 @@ function stubFetch(opts: { current: AgentsHealth; updateBody?: unknown; updateSt
 }
 
 beforeEach(() => {
-  // jsdom always reports scrollHeight 0; stub it so scroll-dependent logic behaves in tests.
   Object.defineProperty(HTMLElement.prototype, "scrollHeight", {
     configurable: true,
     value: 100,

@@ -20,7 +20,6 @@ import {
 let root: string
 
 beforeEach(() => {
-  // realpathSync: macOS /tmp is a symlink to /private/tmp, and the browser canonicalizes paths — compare against the resolved real path.
   root = realpathSync(mkdtempSync(path.join(tmpdir(), "vivicy-fs-")))
   mkdirSync(path.join(root, "alpha"))
   mkdirSync(path.join(root, "beta"))

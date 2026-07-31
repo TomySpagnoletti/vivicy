@@ -46,7 +46,6 @@ function collapseBlankLines(text: string): string {
     .trim()
 }
 
-// OOXML/ODF text lives inside element runs; closing a paragraph/heading is the only structural break we preserve.
 function markupToText(xml: string, paragraphCloseTags: string[]): string {
   let text = xml
   for (const tag of paragraphCloseTags) text = text.split(tag).join("\n")
@@ -91,7 +90,6 @@ const RTF_NON_TEXT_DESTINATIONS = new Set([
   "mmathPr",
 ])
 
-// RTF is 7-bit-ASCII markup: control words steer, groups nest, and only literal runs are text.
 export function extractRtfText(bytes: Uint8Array): string {
   const src = new TextDecoder("latin1").decode(bytes)
   let out = ""
@@ -183,8 +181,7 @@ export async function extractBinaryDocText(ext: string, bytes: Uint8Array): Prom
   }
 }
 
-// The single "give me this file's natural-language text" seam: utf8 for text formats, deterministic
-// extraction for binary docs, "" for anything unscannable (or when extraction fails) so callers never throw.
+// Never let this throw: an unscannable file, or a failed extraction, is "".
 export async function extractScannableText(ext: string, bytes: Uint8Array): Promise<string> {
   const lower = ext.toLowerCase()
   if (TEXT_LANGUAGE_EXTENSIONS.has(lower)) return new TextDecoder("utf-8").decode(bytes)

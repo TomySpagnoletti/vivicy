@@ -6,7 +6,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import type { CurrentProject } from "@/lib/project-types"
 
-// ProjectError stays the real class (not mocked) so the route's instanceof check still holds.
 const { getCurrentProject, setCurrentProject } = vi.hoisted(() => ({
   getCurrentProject: vi.fn(),
   setCurrentProject: vi.fn(),
@@ -17,7 +16,6 @@ vi.mock("@/lib/project", async () => {
   return { ...actual, getCurrentProject, setCurrentProject }
 })
 
-// A recording pass-through, never a stub: the wiring assertions read the spy while the open-seam case below drives the real engine over a real governed root.
 const { renormalizeManagedFiles } = vi.hoisted(() => ({ renormalizeManagedFiles: vi.fn() }))
 
 vi.mock("@/lib/scaffold", async () => {
@@ -181,7 +179,6 @@ describe("POST /api/project", () => {
   })
 })
 
-// End to end over the real store and the real engine: this is what makes "an already-governed repo receives block-definition evolutions at its next open" true in production rather than only at acquisition.
 describe("POST /api/project — opening a governed repo brings its managed block to the current definition", () => {
   let workDir: string
   let prevRuntime: string | undefined

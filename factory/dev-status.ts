@@ -13,7 +13,7 @@ function flag(name: string): string | null {
 }
 const asJson = process.argv.includes("--json")
 const dir = flag("--dir")
-// Deliberate: the cast keeps join(root, …) crashing on an unset target instead of guarding it away.
+// Never guard this cast away: an unset target must crash at the first join(root, …).
 const root = (dir ? resolve(dir) : resolveTargetRoot()) as string
 
 interface Issue {

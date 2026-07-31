@@ -135,7 +135,7 @@ const allowedStatuses = ["not_started", "in_progress", "reviewing", "implemented
 const allowedLayoutRoles = ["primary_flow", "support", "shared_state", "provider", "future"] as const
 const allowedScopes = ["mvp", "present", "future"] as const
 
-// Contract: never throws — a malformed reference or unplaceable patch just yields fewer restorations, so a refine pass can never lose a manual placement or block the run.
+// Must never throw: a refine pass may restore fewer placements, never lose a manual one or block the run.
 export function reconcileLayout(reference: string, current: string): { source: string; restored: string[]; warning?: string } {
   let ref: ArchitectureMap
   try {
@@ -477,7 +477,7 @@ function validateHighRiskLinePrecision(input: ArchitectureMap): void {
   }
 }
 
-// Enforces the YAML subset the hand-rolled line-oriented parseArchitectureMap depends on; loosen only if that parser is upgraded too.
+// Never loosen this subset without upgrading the hand-rolled parseArchitectureMap that depends on it.
 export function assertYamlSourceStyle(source: string): void {
   source.split(/\r?\n/).forEach((raw, index) => {
     const lineNumber = index + 1
@@ -515,7 +515,6 @@ export function assertYamlSourceStyle(source: string): void {
   })
 }
 
-// FILE-level coverage gate only; BLOCK-level (within-file) coverage is enforced separately by the semantic-extraction coverage report.
 function validateCanonicalCoverage(input: ArchitectureMap): void {
   const matchedFiles = enumerateBaselineFiles(input.source_baseline)
 
@@ -541,7 +540,7 @@ function validateCanonicalCoverage(input: ArchitectureMap): void {
   }
 }
 
-// Closes a gap the glob-only check misses: a doc added/renamed after the freeze still matches the include glob but is absent from the frozen manifest, so in-scope refs must also appear in the manifest's frozen files set.
+// Not redundant with the glob check: a doc added or renamed after the freeze still matches the include glob but is absent from the frozen manifest.
 function validateSourceRefsInManifest(input: ArchitectureMap): void {
   const manifestPath = input.source_baseline.manifest_path
   const manifestAbsolutePath = resolve(repoRoot, manifestPath)
@@ -696,7 +695,6 @@ function loadDevelopmentOverlay(map: ArchitectureMap): DevelopmentOverlay {
   const issueIndex = readOptionalJson(issueIndexPath, "issue index")
   const progressLedger = readOptionalJson(progressLedgerPath, "progress ledger")
   const issues = readIssues(issueIndex, graphRefs, map.verification_gate_ref_grammar)
-  // Shared with the /api/map read path, which calls this WITHOUT evidenceRefChecker so a stale on-disk evidence file never 500s a request — keep that path checker-free.
   const { graph_item_states, active_items } = deriveDevelopmentOverlay({
     graphRefs,
     issues,
@@ -757,7 +755,7 @@ function readIssues(input: unknown, graphRefs: Set<string>, verificationGateRefG
   if (!isRecord(input) || !Array.isArray(input.issues)) {
     throw new Error("Development issue index must define an issues array")
   }
-  // Grammar check runs even when issues is empty because progress-ledger.ts reads the grammar from the issue index regardless.
+  // Keep this check outside the issues.length guard: progress-ledger.ts reads the grammar from the index even when there are no issues.
   const issueIndexGrammar = requiredString(input.verification_evidence_ref_grammar, "Issue index verification_evidence_ref_grammar")
   if (issueIndexGrammar !== verificationGateRefGrammar) {
     throw new Error("Issue index verification_evidence_ref_grammar must match architecture map verification_gate_ref_grammar")

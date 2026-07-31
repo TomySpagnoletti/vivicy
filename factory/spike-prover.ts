@@ -98,7 +98,6 @@ interface RunSpikeProvingResult {
 }
 
 const REPORTS_DIR = ".vivicy/development/reports"
-// graph_refs is required by the shared leg-spawn infra but never consumed for a spike leg.
 const SPIKE_GRAPH_REF = "node:spike-proof"
 
 export async function runSpikeProving(args: RunSpikeProvingArgs = {}): Promise<RunSpikeProvingResult> {
@@ -161,7 +160,6 @@ export async function runSpikeProving(args: RunSpikeProvingArgs = {}): Promise<R
   return { proved, failed, skipped, changeRequests }
 }
 
-// Spike proving runs inside the autonomous extraction, so a CR it drafts would otherwise sit silent in the list until the owner happens to look; one notification per run, never per CR.
 export function spikeProvingCrNotification(
   changeRequests: ChangeRequestRef[]
 ): { level: "warning"; stage: string; event: string; message: string } | null {
@@ -193,7 +191,7 @@ async function proveOneSpike(ctx: {
   emit(recordEvent, {
     event_type: "spike_proof_started",
     actor: "spike-prover",
-    // progressRoles requires the underscore form; "spike-prover" (hyphen) is the LEG role / prompt filename.
+    // Ledger identity, not the leg role: progressRoles requires the underscore spelling.
     role: "spike_prover",
     gate_id: spike.gate_id,
     file: spike.file,
@@ -296,7 +294,7 @@ export function flipSpikeStatus(repoRoot: string, spike: { file: string }, statu
   writeFileSync(abs, lines.join(eol), "utf8")
 }
 
-// spike.gate_id rides on affected_verification_gates — cr-apply reads it to retire this spike (failed -> deferred) once the CR is folded.
+// cr-apply retires this spike by reading affected_verification_gates — never drop spike.gate_id from it.
 export function defaultWriteChangeRequest({
   repoRoot,
   spike,
@@ -329,7 +327,7 @@ export function defaultWriteChangeRequest({
   return { file: path, id }
 }
 
-// Everything returned here goes AFTER the frontmatter; createChangeRequest prepends the frontmatter itself.
+// createChangeRequest prepends the frontmatter — this body must never carry one.
 function renderChangeRequest({
   title,
   spike,
@@ -496,7 +494,6 @@ function spikeProofCompleted(spike: Spike, verdict: string, now: () => string, e
   }
 }
 
-// Assumes the graph is validated acyclic upstream by spike-check; the stack-based guard below is a defensive fallback, not the primary correctness mechanism.
 function topoOrder(spikes: Spike[]): Spike[] {
   const byGate = new Map(spikes.map((s) => [s.gate_id, s]))
   const visited = new Set<string>()
@@ -513,7 +510,7 @@ function topoOrder(spikes: Spike[]): Spike[] {
   return order
 }
 
-// Mirrors spike-check's own (private) transitiveGatedBy; kept local rather than imported since that one isn't exported.
+// Hand-synced duplicate of spike-check's unexported transitiveGatedBy — edit together.
 function transitiveGatedBy(gate: string, byGate: Map<string, Spike>): string[] {
   const seen = new Set<string>()
   const stack = [...(byGate.get(gate)?.gated_by ?? [])]
@@ -540,7 +537,7 @@ function readJsonOrNull(abs: string): unknown {
   }
 }
 
-// Cleared before each attempt so a leg that dies before writing reads back as no_report, never a stale prior-attempt result.
+// Must run before every attempt: a surviving prior-attempt file reads back as this attempt's verdict.
 function clearFile(repoRoot: string, rel: string): void {
   rmSync(resolve(repoRoot, rel), { force: true })
 }

@@ -1,10 +1,10 @@
 import { createHash } from "node:crypto"
 import path from "node:path"
 
-// Imported directly by factory/cli.ts via a relative .ts path (no bundler) — this file must stay free of Next path aliases and any Next-only imports.
+// Imported by factory/cli.ts via a relative `.ts` path (no bundler): keep free of Next path aliases and Next-only imports.
 export const PROJECTS_SUBDIR = "projects"
 
-// Changing this key's derivation orphans already-created project folders on disk.
+// Never change this derivation: it orphans every already-created project folder on disk.
 export function projectRuntimeKey(targetRoot: string): string {
   const abs = path.resolve(targetRoot)
   const slug =

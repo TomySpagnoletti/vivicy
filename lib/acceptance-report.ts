@@ -1,4 +1,4 @@
-// Dependency-free: client components import this directly, and factory/acceptance.ts imports it too — keep it free of node/@ imports so both reach it.
+// Keep free of node/@ imports: client components and factory/acceptance.ts both import this directly.
 
 export const ACCEPTANCE_REPORT_FILE = ".vivicy/development/reports/acceptance-report.json"
 

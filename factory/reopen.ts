@@ -48,7 +48,6 @@ function readJsonSafe<T>(abs: string): T | null {
   }
 }
 
-// "done" = file under issues/done/ AND ledger not downgraded; reopen must do both (move the file back + emit issue_reopened) or the two fall out of sync.
 export function runReopen({
   repoRoot = resolveTargetRoot(),
   priorSourceMap,

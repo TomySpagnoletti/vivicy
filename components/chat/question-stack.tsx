@@ -42,7 +42,7 @@ export function QuestionStack({
   const total = stack.questions.length
   const index = total - remaining.length + 1
 
-  // The answered card unmounts with the focus on it, dropping it to <body>: the next card picks it up. Derived from where the focus actually IS when the pile advances, never from a flag latched at click time — a latch outlives a failed re-sync and yanks the focus back much later, from wherever it had legitimately moved.
+  // Never latch a take-focus flag at click time: read where the focus IS when the pile advances, or a stale latch yanks it back long after it legitimately moved.
   const previousIdRef = useRef(active?.id)
   useEffect(() => {
     const previous = previousIdRef.current
@@ -73,7 +73,7 @@ export function QuestionStack({
         remaining?: number
         error?: string
       }
-      // A 409 is this card already carrying its line — resync the thread instead of alarming the owner.
+      // A 409 means this card already carries its line: resync, never surface an error.
       if (!res.ok && res.status !== 409) {
         setError(body.error ?? t("questionFailed"))
         return

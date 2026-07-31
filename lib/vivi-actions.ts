@@ -104,11 +104,11 @@ export function defaultViviActionDeps(): ViviActionDeps {
   }
 }
 
-/** The stages `workflow.retry` accepts — identical to the retry-stage route/CLI. */
+// Hand-synced with the retry-stage route and CLI — edit together.
 const RETRYABLE_STAGES = ["extract", "skills", "dev"] as const
 type RetryableStage = (typeof RETRYABLE_STAGES)[number]
 
-/** Mirrored in prompts/vivi.md — keep in sync. `cr.decide` is deliberately absent: the CR decision is the sole human touchpoint, recorded only by the owner's click. */
+// Mirrored in factory/prompts/vivi.md — edit together; `cr.decide` stays absent, the CR decision being the owner's alone.
 export const VIVI_ACTION_TOOLS = [
   "status.read",
   "workflow.start",
@@ -142,7 +142,7 @@ function stringList(args: Record<string, unknown>, key: string): string[] | null
   return out
 }
 
-/** Sequential by design — actions mutate shared external state (supervisor process, files); do not parallelize. */
+// Never parallelize: these actions mutate shared external state (the supervisor process, files on disk).
 export async function executeViviActions(
   spawner: Spawner,
   actions: ViviActionRequest[],
@@ -261,7 +261,7 @@ async function executeOne(spawner: Spawner, action: ViviActionRequest, deps: Viv
         }
       }
       case "map.move": {
-        // Same validated path as the UI save — unknown ids refused, VIVICY_MAP_LAYOUT_WRITE kill-switch still applies; no privileged bypass for Vivi.
+        // Reuse the UI's validated save path: no privileged bypass for Vivi, the VIVICY_MAP_LAYOUT_WRITE kill-switch included.
         const payload = deps.validateLayoutSavePayload(args)
         const saved = await deps.applyLayoutSave({ payload })
         const moved = payload.nodes.length

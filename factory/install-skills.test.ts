@@ -43,12 +43,10 @@ const SCOUT_RESULT_REL = ".vivicy/development/reports/skill-scout-result.json"
 const BASELINE_ID = "baseline-v1.0.0"
 const MANAGED_DOCS = ["AGENTS.md", "CLAUDE.md"] as const
 
-// What the stage writes into a document that does not exist yet: its own head plus the block.
 function skillsDoc(entries: Parameters<typeof buildSkillsBlock>[0]): string {
   return `# Agent instructions\n\n${buildSkillsBlock(entries)}\n`
 }
 
-// A UTF-16LE document with its BOM: the one encoding the managed-block engine refuses rather than mangle.
 function utf16le(text: string): Buffer {
   return Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(text, "utf16le")])
 }
@@ -73,7 +71,6 @@ function readJson(rel: string): unknown {
   return JSON.parse(readFileSync(resolve(repo, rel), "utf8"))
 }
 
-// What an owner writes by hand: a skill the project declares, with no pin yet.
 function declared(ids: readonly string[]): Array<{ id: string }> {
   return ids.map((id) => ({ id }))
 }
@@ -90,7 +87,6 @@ function bundleDir(skill: string, root = repo): string {
   return resolve(root, ".agents/skills", skill)
 }
 
-// The bundle a real `npx skills add` leaves behind: nested files, so a pin is more than one hash.
 function writeBundle(root: string, skill: string, files: Record<string, string> = {}): void {
   const contents = { "SKILL.md": `# ${skill}\n`, ...files }
   for (const [rel, body] of Object.entries(contents)) {
@@ -128,12 +124,11 @@ function fakeAudits(bySkill: Record<string, SkillAuditFetch> = {}) {
   return async ({ source, skill }: { source: string; skill: string }) => bySkill[`${source}@${skill}`] ?? passAudit()
 }
 
-// The walk-away case, and the DEFAULT shape of upstream in every maintenance test that is not about the update door: the machine has no network, so the one upstream check per pinned skill answers nothing and the pass is exactly the verify/heal it was without it. Never `assert.fail` — the probe swallows a throw as one more transport failure, which would make such a case pass vacuously.
+// Never `assert.fail` inside an upstream stub: the probe swallows a throw as one more transport failure, so the case would pass vacuously.
 function offlineCli(): { code: number; output: string } {
   return { code: 1, output: "npm error code ENOTFOUND\nnpm error network getaddrinfo ENOTFOUND registry.npmjs.org" }
 }
 
-// Upstream as the creator's LATEST: the probe's only comparable is the bytes `skills add` serves today, so a stub that writes different bytes IS a newer version.
 function upstreamServing(files: Record<string, string>, calls: FakeInstallCall[] = []) {
   return ({ repoRoot, source, skill }: { repoRoot: string; source: string; skill: string }) => {
     calls.push({ source, skill })
@@ -142,7 +137,6 @@ function upstreamServing(files: Record<string, string>, calls: FakeInstallCall[]
   }
 }
 
-// The installer IS the writer of the bytes the pin is taken from, so the fake writes a real bundle: one that reports success and leaves nothing is its own test case below.
 function fakeInstaller(calls: FakeInstallCall[], failFor: Set<string> = new Set(), files: Record<string, string> = {}) {
   return ({ repoRoot, source, skill }: { repoRoot: string; source: string; skill: string }) => {
     calls.push({ source, skill })
@@ -168,7 +162,6 @@ describe("normalizeSkillId", () => {
     assert.equal(normalizeSkillId("https://skills.sh/owner/repo"), null)
   })
 
-  // Ids arrive from LLM output and from chat text; every part of one becomes a directory name, a symlink path, a git pathspec or a URL element.
   it("refuses a `.` or `..` segment in EVERY part of an id, and in the URL form", () => {
     for (const id of ["a/b@..", "a/b@.", "../b@skill", "a/..@skill", "./b@skill", "a/.@skill", "../..@..", "a/b@../../etc"]) {
       assert.equal(normalizeSkillId(id), null, `${id} must not parse`)
@@ -217,7 +210,6 @@ describe("the bundle hasher (what a pin IS)", () => {
     return resolve(repo, dir)
   }
 
-  // The persisted `bundle_hash` IS this function, so its canonical form is pinned here rather than through a filesystem whose listing order it must not depend on.
   it("hashes a manifest canonically: sorted paths, NUL-delimited records, each hash bound to its own path", () => {
     const canonical = manifestHash({ "SKILL.md": "sha256:aa", "scripts/a.py": "sha256:bb" })
     assert.match(canonical, /^[0-9a-f]{64}$/)
@@ -262,7 +254,6 @@ describe("the bundle hasher (what a pin IS)", () => {
     rmSync(resolve(repo, "pinned/SKILL.md"))
     assert.deepEqual(bundleDrift(pin, hashBundle(resolve(repo, "pinned"))), { missing: false, changed: ["SKILL.md"] })
 
-    // A human reads the sentence this list feeds, so it is capped rather than unbounded.
     const many = bundleAt("many", { "SKILL.md": "doc\n", a: "1", b: "2", c: "3", d: "4", e: "5" })
     const manyPin = hashBundle(many)
     assert.ok(manyPin)
@@ -270,7 +261,6 @@ describe("the bundle hasher (what a pin IS)", () => {
     assert.deepEqual(bundleDrift(manyPin, hashBundle(many))?.changed, ["a", "b", "c", "d"], "five differ, four are named")
   })
 
-  // A bare per-file sha256 cannot tell a file from a symlink whose target text hashes the same, which is exactly how a swap would hide.
   it("pins a symlink by its target, so replacing a file with a link to the same text is drift", () => {
     const dir = bundleAt("linked", { "SKILL.md": "doc\n", "real.md": "payload\n" })
     symlinkSync("real.md", resolve(dir, "alias.md"))
@@ -284,7 +274,6 @@ describe("the bundle hasher (what a pin IS)", () => {
     assert.deepEqual(drift, { missing: false, changed: ["alias.md"] }, "a file whose CONTENT is the link's target is not the link")
   })
 
-  // A walk that silently skipped an entry is where a tamper hides, so every kind gets a value — including one no bundle should ever contain.
   it("gives even an unsupported entry kind a value, so its appearance is drift", () => {
     const dir = bundleAt("kinds", { "SKILL.md": "doc\n" })
     const pin = hashBundle(dir)
@@ -297,7 +286,6 @@ describe("the bundle hasher (what a pin IS)", () => {
     rmSync(resolve(dir, "pipe"), { force: true })
   })
 
-  // `into["__proto__"] = value` is a silent no-op on a prototype-bearing object, and the bundle ROOT is exactly where a hostile bundle picks its own filenames.
   it("pins a file named `__proto__` like any other, at the bundle root and below it", () => {
     const dir = bundleAt("hostile", { "SKILL.md": "doc\n" })
     const pin = hashBundle(dir)
@@ -313,7 +301,6 @@ describe("the bundle hasher (what a pin IS)", () => {
     assert.ok(Object.keys(hashBundle(dir)?.files ?? {}).includes("sub/__proto__"))
   })
 
-  // The pin READ BACK from vivicy.json is keyed by filenames too, and `__proto__` is the one key a plain object swallows on assignment: over a prototype-bearing map the entry is lost on the way in, and the drift then names a file that never moved.
   it("round-trips a `__proto__` entry through vivicy.json, and names only what really moved", async () => {
     writeBundle(repo, "quirky", { constructor: "harmless\n" })
     writeFileSync(resolve(bundleDir("quirky"), "__proto__"), "payload\n")
@@ -344,7 +331,6 @@ describe("the bundle hasher (what a pin IS)", () => {
     assert.deepEqual(bundleDrift(pin, null), { missing: true, changed: [] })
   })
 
-  // git cannot represent an empty directory either, so the on-disk walk and the git-history restore agree without a rule.
   it("is blind to empty directories, exactly as git is", () => {
     const dir = bundleAt("empties", { "SKILL.md": "doc\n" })
     const before = hashBundle(dir)
@@ -610,7 +596,6 @@ describe("the scout is told the constraints it will be judged by", () => {
     assert.match(scoutContext({ ...BASE, installed: five }), /Propose AT MOST 1 skill:/)
   })
 
-  // The budget is DERIVED from the set the very next line prints, so the two can never state different arithmetic — the shape that let a raw id count and the projected set disagree.
   it("the printed set and the stated budget always add up to the cap", () => {
     for (let taken = 0; taken <= MAX_PROJECT_SKILLS; taken += 1) {
       const context = scoutContext({ ...BASE, installed: Array.from({ length: taken }, (_, i) => entry(`a/b@s${i}`, `s${i}`)) })
@@ -678,7 +663,6 @@ describe("the scout is told the constraints it will be judged by", () => {
     assert.equal(report.phase, "failed")
   })
 
-  // An owner typo in the skills declaration ("anthropics/skills", no @skill) is declared but names no skill: the cap, the scout's budget and the report all read the installed SET, so it cannot invent a phantom slot. The shape this pins: a 5-skill project firing the at-capacity gate, stamping the settle marker and killing its own scouting for that baseline while the summary announced 5/6.
   it("a declared id that names no skill takes no slot — on either surface", async () => {
     seedBaseline()
     writeJson("vivicy.json", {
@@ -848,7 +832,6 @@ describe("the skill NAME is the on-disk primary key", () => {
     )
   })
 
-  // The block's bullet, the removal fallback's rmSync target and the absorption pathspec are all this one derivation.
   it("a prior report whose entry contradicts its own id is normalized back onto the id", async () => {
     writeJson(SKILLS_REPORT_REL, {
       phase: "green",
@@ -1094,7 +1077,6 @@ describe("install failures", () => {
     assert.deepEqual(declaredIds(), ["good/repo@fine"])
   })
 
-  // vivicy.json is the owner's file: an unparseable one is never clobbered, which is exactly why the reported set cannot be read back from it alone.
   it("an unparseable vivicy.json is left untouched and the report still lists what was installed", async () => {
     seedBaseline()
     writeFileSync(resolve(repo, "vivicy.json"), "{ this is not json\n")
@@ -1158,7 +1140,6 @@ describe("every install pins the bytes it landed", () => {
     assert.equal(report.verified.length, 0, "an install verifies nothing — it pins")
   })
 
-  // The pin is what makes this detectable at all: a CLI that exits 0 having written nothing used to be reported as an installed skill.
   it("refuses to pin an install that reported success and left no SKILL.md", async () => {
     const report = await installSkills({
       repoRoot: repo,
@@ -1189,7 +1170,6 @@ describe("every install pins the bytes it landed", () => {
     assert.match(partial.rejected[0].detail ?? "", /left no \.agents\/skills\/spreadsheets\/SKILL\.md/)
   })
 
-  // An id the owner declared by hand is already part of the installed set (F-090/F-092), so this run installs the OTHER one — and the declaration it did not touch keeps both its place and its unpinned state.
   it("keeps an owner's hand-declared entry in its place and pins only what it installed", async () => {
     writeJson("vivicy.json", { gateCommand: "npm test", skills: declared(["owner/first@handmade"]) })
     await installPinned()
@@ -1212,7 +1192,6 @@ describe("every install pins the bytes it landed", () => {
     assert.equal(maintenanceNeeded(repo), false, "nothing declared, nothing to verify")
   })
 
-  // The cache is bounded by what the project actually pins; an empty keep-set is never authoritative, or an unparseable vivicy.json would destroy the bytes the next pass heals from.
   it("sweeps cache entries no pin references any more, and never sweeps on an empty declaration", async () => {
     const cacheDir = bundleCacheDir(resolve(repo, RUNTIME))
     await installPinned()
@@ -1242,7 +1221,6 @@ describe("every install pins the bytes it landed", () => {
     assert.deepEqual(readdirSync(cacheDir).sort(), [kept, alsoKept].sort(), "an unreadable declaration sweeps nothing")
   })
 
-  // A killed restore leaves a whole bundle copy in its scratch tree and a temp beside the bundles; the pass that next holds the lock is what removes them.
   it("sweeps the scratch trees and bundle temps a killed restore left behind", async () => {
     const runtime = resolve(repo, RUNTIME)
     await installPinned()
@@ -1261,7 +1239,6 @@ describe("every install pins the bytes it landed", () => {
     assert.ok(existsSync(bundleDir("spreadsheets")), "while the bundle itself is untouched")
   })
 
-  // The sweep is the pass's last act and is janitorial: an entry it cannot remove may never turn a green run red.
   it("never fails the pass it closes, even when a residue refuses to go", async () => {
     const cacheDir = bundleCacheDir(resolve(repo, RUNTIME))
     await installPinned()
@@ -1285,7 +1262,6 @@ describe("every install pins the bytes it landed", () => {
     }
   })
 
-  // vivicy.json is hand-editable, so its readers are error-tolerant: a garbage pin declares the skill without pinning it, never a pin nothing can satisfy.
   it("reads a hand-mangled pin as an unpinned declaration", () => {
     writeJson("vivicy.json", {
       skills: [
@@ -1340,7 +1316,6 @@ describe("the skills block rides the managed-block engine, in both governance do
     MANAGED_DOCS.forEach((rel, i) => assert.equal(readFileSync(resolve(repo, rel), "utf8"), before[i], `${rel}: byte-identical re-run`))
   })
 
-  // The hand-rolled splice this replaced paired the first begin with the first end by index, so an owner who damaged a marker got a SECOND block; the engine repairs the residue instead.
   it("repairs markers the owner damaged instead of stacking a second block", async () => {
     const damaged = `# Mine\n\n<!-- vivicy:skills:end -->\n<!-- vivicy:skills:begin -->\n## Project skills\n\nhalf a block\n`
     for (const rel of MANAGED_DOCS) writeFileSync(resolve(repo, rel), damaged)
@@ -1394,7 +1369,6 @@ describe("the skills block rides the managed-block engine, in both governance do
     assert.equal(skillsNotifications(report)[0]?.level, "error")
   })
 
-  // The recorded relay: a read-only document used to throw out of the stage mid-phase, leaving a report stuck in flight and the skills declaration naming a skill whose block no retry ever wrote.
   it("a read-only document that still has something to receive fails the stage — and the retry after the owner fixes it converges", async () => {
     for (const rel of MANAGED_DOCS) writeFileSync(resolve(repo, rel), OWNER_PROSE)
     chmodSync(resolve(repo, "CLAUDE.md"), 0o444)
@@ -1419,7 +1393,6 @@ describe("the skills block rides the managed-block engine, in both governance do
     }
   })
 
-  // The block is rewritten only where it would CHANGE, which is what lets every settled re-run converge it without turning a read-only AGENTS.md — a document Vivicy has nothing left to say to — into a failed skills stage.
   it("a settled re-run over a converged block writes nothing, even when AGENTS.md is read-only", async () => {
     seedBaseline()
     await installSkills({
@@ -1674,7 +1647,6 @@ describe("the report tells the truth about the project's whole installed set", (
   })
 })
 
-// The acceptance the whole slice exists for: the report's set and the block a leg reads are one value projected twice, so they cannot state different things — in EITHER document, since the two CLIs read different files.
 function assertReportAgreesWithSkillsBlock(report: SkillsReport): void {
   for (const rel of MANAGED_DOCS) {
     const doc = readFileSync(resolve(repo, rel), "utf8")
@@ -1824,7 +1796,6 @@ describe("removeSkills (deterministic uninstall)", () => {
     assert.deepEqual(declaredIds(), ["anthropics/skills@pdf"], "the failed removal keeps its slot")
   })
 
-  // Emptying the block is the one write a zero-skill project gets; a document that never carried one is still never given one.
   it("renders the empty-set block in the documents that carry it, and creates none in the one that does not", async () => {
     writeJson(SKILLS_REPORT_REL, { ...PRIOR, installed: [PRIOR.installed[0]] })
     writeJson("vivicy.json", { gateCommand: "npm test", skills: declared(["anthropics/skills@pdf"]) })
@@ -1839,7 +1810,6 @@ describe("removeSkills (deterministic uninstall)", () => {
     assert.ok(!existsSync(resolve(repo, "CLAUDE.md")), "a document with no block is not handed an empty one")
   })
 
-  // Removing the last skill over documents that both refuse the write: the summary names every refused document and says what is now stale in them, never that a skill nobody has is unreadable.
   it("names both refused documents when the empty-set block cannot land", async () => {
     writeJson(SKILLS_REPORT_REL, { ...PRIOR, installed: [PRIOR.installed[0]] })
     writeJson("vivicy.json", { gateCommand: "npm test", skills: declared(["anthropics/skills@pdf"]) })
@@ -1865,7 +1835,7 @@ describe("removeSkills (deterministic uninstall)", () => {
     }
   })
 
-  // The removal fallback resolves `.agents/skills/<skill>` and removes it recursively, so a `..` skill part admitted by the id grammar would delete EVERY installed bundle. The refusal is the grammar's, upstream of the remover — which is why no remover is injected here: reaching the default at all is the defect.
+  // No remover may be injected here: the refusal is the id grammar's, upstream of the default remover, and reaching that default — an rmSync of `.agents/skills/<skill>` — is itself the defect.
   it("a traversal-shaped id is refused before any remover runs, and every bundle survives", async () => {
     seedInstalledState()
     for (const name of ["pdf", "scraper"]) {
@@ -1946,7 +1916,7 @@ describe("stage summaries agree in number", () => {
 describe("the stage lock (one skills stage per project, claimed where the writes are)", () => {
   const SKILLS_LOCK_FILE = "skills-install.lock"
 
-  // spawnSync returns only after the child has been reaped, so signalling this pid is ESRCH — a killed stage's residue, not a holder.
+  // spawnSync returns only after the child is reaped, so this pid is guaranteed dead: signalling it is ESRCH.
   function reapedPid(): number {
     const r = spawnSync(process.execPath, ["-e", "process.exit(0)"], { encoding: "utf8" })
     assert.equal(r.status, 0)
@@ -2009,7 +1979,6 @@ describe("the stage lock (one skills stage per project, claimed where the writes
     assert.ok(existsSync(join(runtimeDir, SKILLS_LOCK_FILE)))
   })
 
-  // A stage whose lock was reclaimed out from under it (its own pid gone from the file) must not delete the successor's claim on its way out.
   it("releases only its OWN claim, never a lock another holder has since taken", async () => {
     seedBaseline()
     const runtimeDir = join(repo, "runtime")
@@ -2062,7 +2031,6 @@ describe("the stage lock (one skills stage per project, claimed where the writes
     assert.ok(!existsSync(abs), "and the claim is released on the way out, never left for the next run to reclaim")
   })
 
-  // Breaking a killed run's residue is exclusive per residue (lib/stage-lock.ts owns the protocol and its races); what the STAGE owes is surfacing a break it did not win as its own typed refusal, having written nothing.
   it("refuses when another stage is already breaking the same residue", async () => {
     seedBaseline()
     const runtimeDir = join(repo, "runtime")
@@ -2129,7 +2097,6 @@ describe("the stage lock (one skills stage per project, claimed where the writes
     assert.equal(after.phase, "green")
   })
 
-  // Every client hands the stage a project-scoped VIVICY_RUNTIME_DIR; a caller that hands none still gets a project-scoped lock, never one keyed on the cwd it happened to be spawned in.
   it("falls back to the project's own gitignored runtime dir when no runtime dir is handed in", async () => {
     seedBaseline()
     const abs = resolve(repo, ".vivicy-runtime", SKILLS_LOCK_FILE)
@@ -2155,7 +2122,7 @@ after(() => {
   rmSync(HERMETIC_GIT_HOME, { recursive: true, force: true })
 })
 
-// HOME and XDG_CONFIG_HOME are redirected, not just the config files: git reads its DEFAULT per-user excludes ($XDG_CONFIG_HOME/git/ignore, else $HOME/.config/git/ignore) whether or not core.excludesFile is set, and a per-user rule can only ADD ignores — which silently turns the "tree clean" assertion below green. The identity vars go too, so the absorption really has to establish one. process.env itself is mutated because the stage spawns its own git and npx children with the inherited environment.
+// HOME and XDG_CONFIG_HOME must stay redirected on top of the config vars (git reads its per-user excludes whatever core.excludesFile says, and one inherited ignore turns the clean-tree assertions green), the identity vars must stay unset (so the absorption has to establish one), and process.env itself must be what is mutated: the stage spawns its own git and npx children with the inherited environment.
 async function withHermeticGitEnv<T>(fn: () => Promise<T>): Promise<T> {
   const overrides: Record<string, string | undefined> = {
     HOME: HERMETIC_GIT_HOME,
@@ -2199,7 +2166,6 @@ The product truth is the frozen canonical spec.
 Run the linter before pushing.
 `
 
-// The pointer document a governed repo really carries (factory/templates/CLAUDE.md): its own method block, and an import of AGENTS.md.
 const OWNER_CLAUDE_MD = `<!-- vivicy:method:begin -->
 This repository is governed by the **Vivicy** development factory;
 the operating guide for every agent working here — Claude included — is [AGENTS.md](./AGENTS.md).
@@ -2209,7 +2175,6 @@ Read it first.
 <!-- vivicy:method:end -->
 `
 
-// Reproduces the layout MEASURED from `npx skills add` (bundle under .agents/skills, a per-agent link, a root lockfile); the link target is the one variable, since the guard under test reads exactly that.
 function writeSkillsCliStub(root: string, linkTarget: "relative" | "absolute"): void {
   const bin = resolve(root, "node_modules/.bin")
   mkdirSync(bin, { recursive: true })
@@ -2237,7 +2202,6 @@ console.log(\`Added \${source} (\${skill})\`)
   chmodSync(path, 0o755)
 }
 
-// The binary lives in the test target; the CWD is whatever the caller installs into — the heal's re-fetch rung deliberately runs it in a scratch directory, exactly as `npx` would.
 function runStubSkillsCli({ repoRoot, source, skill }: { repoRoot: string; source: string; skill: string }): {
   code: number
   output?: string
@@ -2323,7 +2287,6 @@ describe("absorption + worktree delivery (real git target, real skills-CLI seam)
           /\*\*spreadsheets\*\* \(`acme\/pack@spreadsheets`, community\) — `\.agents\/skills\/spreadsheets\/SKILL\.md` — explicitly requested/
         )
 
-        // The bullet is an instruction, so its path has to resolve in the tree the leg actually works in.
         const claude = readFileSync(join(worktree, "CLAUDE.md"), "utf8")
         assert.match(claude, /@AGENTS\.md/, "the Claude pointer document keeps its own method block")
         assert.match(
@@ -2337,7 +2300,6 @@ describe("absorption + worktree delivery (real git target, real skills-CLI seam)
         const config = JSON.parse(readFileSync(join(worktree, "vivicy.json"), "utf8")) as Record<string, unknown>
         assert.deepEqual(declaredIds(worktree), ["acme/pack@spreadsheets"])
         assert.equal(config.gateCommand, "npm test", "the owner's own vivicy.json fields ride through untouched")
-        // The PIN rides the same commit: a leg cut from HEAD carries the hashes a later pass verifies those very bytes against.
         const pinned = pinOf("acme/pack@spreadsheets", worktree)
         assert.ok(pinned, "the worktree's declaration carries the pin, not just the id")
         assert.match(pinned.bundle_hash, /^[0-9a-f]{64}$/)
@@ -2383,7 +2345,6 @@ describe("absorption + worktree delivery (real git target, real skills-CLI seam)
   it("absorbs what THIS RUN wrote — owner work INSIDE the very directories the stage uses is never captured", async () => {
     await withHermeticGitEnv(async () => {
       initGovernedGitTarget()
-      // The owner's own Claude Code project skill, tracked and mid-edit: `.claude/skills` is THEIR directory too, the stage only ever puts links there named after what it installed.
       mkdirSync(resolve(repo, ".claude/skills/owner-writing-style"), { recursive: true })
       writeFileSync(resolve(repo, ".claude/skills/owner-writing-style/SKILL.md"), "committed draft\n")
       git(repo, ["add", "-A"])
@@ -2443,7 +2404,6 @@ describe("absorption + worktree delivery (real git target, real skills-CLI seam)
     })
   })
 
-  // The causal record is the engine's `onWrite`, so a document the run does NOT change never enters the pathspec: recording it up front would hand Vivicy an owner edit that appeared mid-run on a converged document.
   it("a document this run leaves converged is not in the pathspec at all — an owner's mid-run edit to it stays theirs", async () => {
     await withHermeticGitEnv(async () => {
       seedBaseline()
@@ -2458,7 +2418,6 @@ describe("absorption + worktree delivery (real git target, real skills-CLI seam)
       git(repo, ["add", "-A"])
       git(repo, ["-c", "user.email=owner@local", "-c", "user.name=Owner", "commit", "-qm", "owner: the next freeze"])
 
-      // The scout runs after the pre-stage snapshot, and re-proposes what is already installed, so the rendered block is identical and no document is written.
       const report = await installSkills({
         repoRoot: repo,
         fetchAudit: fakeAudits(),
@@ -2486,19 +2445,16 @@ describe("absorption + worktree delivery (real git target, real skills-CLI seam)
     })
   })
 
-  // A write that got as far as the causal record and THEN failed to publish must withdraw it: an owner edit landing on that document after the pre-stage snapshot would otherwise ride Vivicy's commit — the very inversion the record exists to prevent. The blocked temp path is the failure mode that reaches the record (an encoding refusal happens before it), and it leaves the document itself perfectly writable by the owner.
   it("a document whose write could not be PUBLISHED leaves the pathspec — the owner's mid-run edit to it stays theirs", async () => {
     await withHermeticGitEnv(async () => {
       initGovernedGitTarget()
       writeSkillsCliStub(repo, "relative")
-      // The exact temp name the atomic publish builds for CLAUDE.md; a directory sitting there fails the write after the record is taken.
       mkdirSync(resolve(repo, `.vivicy-tmp.${process.pid}.CLAUDE.md`, "not-vivicy's"), { recursive: true })
 
       const report = await installSkills({
         repoRoot: repo,
         ids: ["acme/pack@spreadsheets"],
         fetchAudit: fakeAudits(),
-        // Fires mid-run, after the pre-stage snapshot: the owner is mid-edit in the document the stage is about to fail on.
         runInstall: (args) => {
           writeFileSync(resolve(repo, "CLAUDE.md"), `${OWNER_CLAUDE_MD}\nA paragraph the owner added while the stage ran.\n`)
           return runStubSkillsCli(args)
@@ -2524,7 +2480,6 @@ describe("absorption + worktree delivery (real git target, real skills-CLI seam)
     })
   })
 
-  // The withdrawal has to name the key the record took: through a symlink that key is the RESOLVED target, so withdrawing the link's name would leave the target in the pathspec and commit whatever the owner does to it.
   it("a symlinked document whose write could not be published withdraws the RESOLVED path, not the link's name", async () => {
     await withHermeticGitEnv(async () => {
       initGovernedGitTarget()
@@ -2535,7 +2490,6 @@ describe("absorption + worktree delivery (real git target, real skills-CLI seam)
       symlinkSync("docs/agent-notes.md", resolve(repo, "AGENTS.md"))
       git(repo, ["add", "-A"])
       git(repo, ["-c", "user.email=owner@local", "-c", "user.name=Owner", "commit", "-qm", "owner: my guide, linked as AGENTS.md"])
-      // The temp the atomic publish builds BESIDE the resolved file; a directory there fails the write after the causal record is taken.
       mkdirSync(resolve(repo, "docs", `.vivicy-tmp.${process.pid}.agent-notes.md`, "not-vivicy's"), { recursive: true })
 
       const report = await installSkills({
@@ -2559,7 +2513,6 @@ describe("absorption + worktree delivery (real git target, real skills-CLI seam)
     })
   })
 
-  // The pre-stage snapshot and the causal record must read ONE key space: a document symlinked to another in-repo file is dirty under the TARGET's name, and a snapshot that only knows the link's name would let the owner's uncommitted bytes there ride the absorption commit.
   it("owner dirt in a symlinked document's target is seen by the snapshot and left uncommitted", async () => {
     await withHermeticGitEnv(async () => {
       initGovernedGitTarget()
@@ -2570,7 +2523,6 @@ describe("absorption + worktree delivery (real git target, real skills-CLI seam)
       symlinkSync("docs/agent-notes.md", resolve(repo, "CLAUDE.md"))
       git(repo, ["add", "-A"])
       git(repo, ["-c", "user.email=owner@local", "-c", "user.name=Owner", "commit", "-qm", "owner: my guide, linked as CLAUDE.md"])
-      // Already uncommitted when the run opens: their manuscript, whatever Vivicy writes into the same file afterwards.
       writeFileSync(
         resolve(repo, "docs/agent-notes.md"),
         "# Agent notes\n\nThe owner keeps their Claude guide here.\n\nA half-written paragraph.\n"
@@ -2589,7 +2541,6 @@ describe("absorption + worktree delivery (real git target, real skills-CLI seam)
     })
   })
 
-  // The record follows the bytes: a managed document that is a symlink publishes into the file it points at, and a pathspec naming the unchanged link would leave the real write dirty.
   it("a symlinked document absorbs the file the bytes landed in, not the link", async () => {
     await withHermeticGitEnv(async () => {
       initGovernedGitTarget()
@@ -2611,7 +2562,6 @@ describe("absorption + worktree delivery (real git target, real skills-CLI seam)
     })
   })
 
-  // CLAUDE.md is a document the stage now writes AND a document an owner edits, so it has to be in the pre-stage snapshot's reading: without it, the stage's own write to their half-finished file would carry their bytes into Vivicy's commit.
   it("an owner's uncommitted CLAUDE.md is theirs — the stage's block write to it is left uncommitted with their edit", async () => {
     await withHermeticGitEnv(async () => {
       initGovernedGitTarget()
@@ -2640,7 +2590,6 @@ describe("absorption + worktree delivery (real git target, real skills-CLI seam)
         repoRoot: repo,
         ids: ["acme/pack@spreadsheets"],
         fetchAudit: fakeAudits(),
-        // The stage runs detached while the owner keeps working: this fires mid-run, after the pre-stage snapshot was taken, so only the causal pathspec can exclude it.
         runInstall: (args) => {
           mkdirSync(resolve(repo, ".claude/skills/owner-mid-run"), { recursive: true })
           writeFileSync(resolve(repo, ".claude/skills/owner-mid-run/SKILL.md"), "written while the install ran\n")
@@ -2743,7 +2692,6 @@ describe("absorption + worktree delivery (real git target, real skills-CLI seam)
     })
   })
 
-  // The skipped path used to write nothing but its report; it now converges the block in both documents too, and a stage write left uncommitted is exactly the dirty-tree refusal the absorption exists to close.
   it("a settled re-run that converges the block absorbs that write too — the zero-work path still ends clean", async () => {
     await withHermeticGitEnv(async () => {
       seedBaseline()
@@ -2756,7 +2704,6 @@ describe("absorption + worktree delivery (real git target, real skills-CLI seam)
       })
       assert.equal(git(repo, ["status", "--porcelain"]).stdout.trim(), "")
 
-      // The owner declares a skill they installed themselves: the next settled run must converge the block instead of leaving the two surfaces split.
       const config = readJson("vivicy.json") as Record<string, unknown>
       writeJson("vivicy.json", { ...config, skills: [...(config.skills as unknown[]), { id: "owner/own@handmade" }] })
       git(repo, ["add", "--", "vivicy.json"])
@@ -2830,7 +2777,6 @@ describe("the maintenance pass verifies every pin and self-heals (real git targe
   const SKILL = "spreadsheets"
   const TAMPERED = "print('tampered')\n"
 
-  // The whole layout a governed project really has after one selection: a committed bundle, both managed blocks, a pinned vivicy.json and a warm cache.
   async function governedInstall(): Promise<{ runtimeDir: string; report: SkillsReport; pinnedAt: string }> {
     seedBaseline()
     initGovernedGitTarget()
@@ -2848,7 +2794,6 @@ describe("the maintenance pass verifies every pin and self-heals (real git targe
     return { runtimeDir: resolve(repo, ".vivicy-runtime"), report, pinnedAt: pin.bundle_hash }
   }
 
-  // The runtime dir is where BOTH the cache and the notification log live, so a pass that should say nothing can be proved silent.
   async function inGovernedProject(fn: (ctx: { runtimeDir: string; pinnedAt: string }) => Promise<void>): Promise<void> {
     await withHermeticGitEnv(async () => {
       const runtimeDir = resolve(repo, ".vivicy-runtime")
@@ -2944,7 +2889,6 @@ describe("the maintenance pass verifies every pin and self-heals (real git targe
     })
   })
 
-  // The case where the restore really has bytes to commit: the drift was committed, so putting the pinned bundle back leaves the tree dirty until the stage absorbs it — and a per-issue worktree cut from HEAD then carries the pinned bundle, not the tampered one.
   it("absorbs the restored bundle itself when the drift had been committed", async () => {
     await inGovernedProject(async () => {
       const original = bundleBytes()
@@ -2969,7 +2913,6 @@ describe("the maintenance pass verifies every pin and self-heals (real git targe
     })
   })
 
-  // A heal writes the bundle directory and nothing else, so its causal record names that path alone: anything the owner dirties DURING the pass — the skills CLI lockfile here, which a pre-pass snapshot could not have seen — stays theirs.
   it("records the restored bundle only, so owner work appearing mid-pass is never absorbed", async () => {
     await inGovernedProject(async () => {
       writeFileSync(resolve(bundleDir(SKILL), "scripts/recalc.py"), TAMPERED)
@@ -3012,11 +2955,9 @@ describe("the maintenance pass verifies every pin and self-heals (real git targe
     })
   })
 
-  // The cold-clone shape: the absorption commit means the pinned bytes are in the repository's own history, so a machine that never held the cache still heals offline.
   it("falls back to the repository's own history when the machine has no cache, and warms the cache from it", async () => {
     await inGovernedProject(async ({ runtimeDir, pinnedAt }) => {
       const original = bundleBytes()
-      // The pin does not carry modes, so the rung has to: an executable script that came back 0644 would be a silent degradation.
       chmodSync(resolve(bundleDir(SKILL), "scripts/recalc.py"), 0o755)
       git(repo, ["add", "--", ".agents/skills/spreadsheets/scripts/recalc.py"])
       git(repo, ["-c", "user.email=o@l", "-c", "user.name=O", "commit", "-qm", "owner: mark the script executable"])
@@ -3155,7 +3096,6 @@ describe("the maintenance pass verifies every pin and self-heals (real git targe
     })
   })
 
-  // The pass must always leave a terminal report: a restore that cannot even run is one more reason the bundle is not there, never an exception escaping into the supervisor.
   it("turns a restore that could not even run into the same actionable rejection", async () => {
     await inGovernedProject(async ({ runtimeDir }) => {
       writeFileSync(resolve(bundleDir(SKILL), "SKILL.md"), "# tampered\n")
@@ -3175,7 +3115,6 @@ describe("the maintenance pass verifies every pin and self-heals (real git targe
     })
   })
 
-  // The pass runs at every supervisor start, so a bundle that stays broken must cost ONE commit and ONE notification in total, not one per start — and the re-fetch keeps being retried, because nothing but a retry can ever repair it without a human.
   it("says the same thing only once, however many starts a broken bundle survives", async () => {
     await inGovernedProject(async ({ runtimeDir }) => {
       rmSync(bundleCacheDir(runtimeDir), { recursive: true, force: true })
@@ -3210,11 +3149,9 @@ describe("the maintenance pass verifies every pin and self-heals (real git targe
     })
   })
 
-  // The heal replaces the whole bundle directory, so those bytes are Vivicy's however dirty the path was when the pass opened: leaving them out of the absorption would refuse the owner's next Run for bytes Vivicy wrote AND blame them for it.
   it("absorbs a restore even when the drifted path was already dirty at open", async () => {
     await inGovernedProject(async () => {
       const original = bundleBytes()
-      // HEAD's copy is a tamper (committed), and the working tree carries a second one — so the path is dirty at open AND the restore differs from HEAD.
       writeFileSync(resolve(bundleDir(SKILL), "scripts/recalc.py"), "print('committed tamper')\n")
       git(repo, ["add", "--", ".agents/skills/spreadsheets/scripts/recalc.py"])
       git(repo, ["-c", "user.email=o@l", "-c", "user.name=O", "commit", "-qm", "someone: patch the skill"])
@@ -3233,7 +3170,6 @@ describe("the maintenance pass verifies every pin and self-heals (real git targe
     })
   })
 
-  // A red audit the SELECTION recorded is a standing fact the owner still has to act on; a verification pass writing over the report may not wipe the surface that shows it.
   it("carries the selection's own refusals forward when it publishes over them", async () => {
     await inGovernedProject(async () => {
       const prior = readJson(SKILLS_REPORT_REL) as SkillsReport
@@ -3259,7 +3195,6 @@ describe("the maintenance pass verifies every pin and self-heals (real git targe
     })
   })
 
-  // The IN-FLIGHT write is the dangerous one: a pass killed right after it leaves that report as the next pass's prior, so a standing refusal missing from it is off the record for good.
   it("carries those refusals into the in-flight write too, not just the terminal one", async () => {
     await inGovernedProject(async () => {
       const standing = { id: "evil/pack@miner", reason: "red_audit", detail: "audits [gateseal:fail]" }
@@ -3289,7 +3224,6 @@ describe("the maintenance pass verifies every pin and self-heals (real git targe
     })
   })
 
-  // The cause the owner reads must be the real one: a directory that cannot be READ is not a directory that is GONE, and only one of the two is fixed by re-installing.
   it("names an unreadable bundle as unreadable, never as gone", async () => {
     await inGovernedProject(async ({ runtimeDir }) => {
       rmSync(bundleCacheDir(runtimeDir), { recursive: true, force: true })
@@ -3304,7 +3238,6 @@ describe("the maintenance pass verifies every pin and self-heals (real git targe
     })
   })
 
-  // What is still on disk for a bundle no rung could restore is the DRIFT: committing it would put a tamper in HEAD under a message claiming a restore, destroy the history rung the next pass reads, and ship the tampered skill to every worktree cut from HEAD.
   it("never commits the bytes it failed to restore — HEAD keeps the pin, so the next pass heals from history", async () => {
     await inGovernedProject(async ({ runtimeDir }) => {
       const original = bundleBytes()
@@ -3336,7 +3269,6 @@ describe("the maintenance pass verifies every pin and self-heals (real git targe
         "the drift stays uncommitted where the owner left it"
       )
 
-      // The counterfactual the defect destroyed: with HEAD intact, the very next pass heals offline from history.
       const healed = await maintainSkills({ repoRoot: repo, runInstall: offlineCli })
       assert.equal(healed.phase, "green", healed.summary)
       assert.deepEqual(healed.healed, [ID])
@@ -3345,7 +3277,6 @@ describe("the maintenance pass verifies every pin and self-heals (real git targe
     })
   })
 
-  // Byte-equality may suppress a record that says the same thing, never a phase TRANSITION: a pass that announced `healing` and then said nothing would leave every surface reading work in progress that finished.
   it("always publishes how a pass it announced ended, even when it ended exactly as the last one did", async () => {
     await inGovernedProject(async () => {
       const first = async () => {
@@ -3387,7 +3318,6 @@ describe("the maintenance pass verifies every pin and self-heals (real git targe
     })
   })
 
-  // The verdict is the bundle hash and nothing else: an altered pin makes every rung fail its gate, which is loud, rather than silently unpinning the skill.
   it("bites when the PIN is what changed: no rung can satisfy a hash the bytes never had", async () => {
     await inGovernedProject(async () => {
       const original = bundleBytes()
@@ -3453,7 +3383,7 @@ describe("the maintenance pass verifies every pin and self-heals (real git targe
       writeFileSync(resolve(bundleDir(SKILL), "scripts/recalc.py"), TAMPERED)
       const script = resolve(dirname(fileURLToPath(import.meta.url)), "install-skills.ts")
 
-      // The real CLI path reaches the real `npx` for its one upstream check, so the case runs behind a shim that answers as an offline machine does — a test may never depend on the network to prove a restore — and RECORDS every invocation, which is what makes "asked upstream nothing" provable rather than asserted. It lives outside the target, or the shim itself would be dirt in the tree the pass absorbs.
+      // The real CLI path reaches the real `npx`, so it must stay behind this recording offline shim — no case here may touch the network — and the shim must live OUTSIDE the target, or it is dirt in the tree the pass absorbs.
       const offlineBin = mkdtempSync(join(tmpdir(), "vivicy-offline-bin-"))
       const npx = resolve(offlineBin, "npx")
       const calls = resolve(offlineBin, "calls.log")
@@ -3471,7 +3401,6 @@ describe("the maintenance pass verifies every pin and self-heals (real git targe
       assert.deepEqual(bundleBytes(), original)
       assert.equal(upstreamTouches(), 1, "the full pass restored from the cache and still asked upstream once — the update door")
 
-      // The dev loop's own door: verify and restore, ask upstream nothing. A process start may not cost one network round trip per healthy skill.
       const restoreOnly = spawnSync(process.execPath, [script, "--maintain", "--restore-only"], {
         cwd: repo,
         encoding: "utf8",
@@ -3495,7 +3424,6 @@ describe("the maintenance pass verifies every pin and self-heals (real git targe
     })
   })
 
-  // The creator's own evolution of the same bundle: the probe has no version to read, so what makes it "newer" is that `skills add` serves these bytes instead of the pinned ones.
   describe("the audited update door (a creator's newer version reaches a governed project, or is refused for the owner)", () => {
     const NEWER: Record<string, string> = {
       "SKILL.md": "---\nname: spreadsheets\ndescription: bundle from acme/pack\n---\n\n## Recalculation\n",
@@ -3588,7 +3516,6 @@ describe("the maintenance pass verifies every pin and self-heals (real git targe
         const pass = () => maintainSkills({ repoRoot: repo, runInstall: upstreamServing(NEWER), fetchAudit: audits(passAudit()) })
         assert.deepEqual((await pass()).updated, [ID])
 
-        // Exactly as a repaired bundle settles: the record of work that is over gives way to the steady state ONCE, and never writes again.
         const settling = await pass()
         assert.deepEqual(settling.verified, [ID], "upstream now serves what the project pins, so there is nothing left to take")
         assert.deepEqual(settling.updated, [])
@@ -3690,7 +3617,6 @@ describe("the maintenance pass verifies every pin and self-heals (real git targe
         assert.equal(refused.rejected[0]?.reason, "update_refused")
         assert.equal(notifications(runtimeDir).length, 1)
 
-        // An unrelated fact: the bundle drifts, so the report legitimately publishes again with the SAME refusal still in it.
         writeFileSync(resolve(bundleDir(SKILL), "scripts/recalc.py"), TAMPERED)
         const republished = await maintainSkills({ repoRoot: repo, runInstall: upstreamServing(NEWER), fetchAudit: audits(RED) })
 
@@ -3702,7 +3628,6 @@ describe("the maintenance pass verifies every pin and self-heals (real git targe
           "but the owner is told about a refused candidate ONCE, not again every time anything else moves"
         )
 
-        // Upstream reverts to the very bytes the project pins: the probe re-decides the skill, so the refusal has nothing left to stand on.
         const reverted = await maintainSkills({ repoRoot: repo, runInstall: runStubSkillsCli, fetchAudit: audits(RED) })
 
         assert.deepEqual(reverted.verified, [ID], reverted.summary)
@@ -3713,7 +3638,6 @@ describe("the maintenance pass verifies every pin and self-heals (real git targe
       })
     })
 
-    // The in-flight write is the dangerous one for a carried refusal exactly as it is for a selection's: a pass killed there leaves it as the next pass's prior.
     it("states a carried refusal in the in-flight write too, not only in the terminal one", async () => {
       await inGovernedProject(async () => {
         await maintainSkills({ repoRoot: repo, runInstall: upstreamServing(NEWER), fetchAudit: audits(RED) })
@@ -3736,14 +3660,12 @@ describe("the maintenance pass verifies every pin and self-heals (real git targe
       })
     })
 
-    // The pass's own re-fetch rung is evidence about upstream, not a gap in it: healing FROM it proves upstream serves the pinned bytes, which is precisely what a standing refusal claims is no longer true.
     it("clears a refusal when its own restore proved upstream still serves the pinned bytes", async () => {
       await inGovernedProject(async ({ runtimeDir, pinnedAt }) => {
         const refused = await maintainSkills({ repoRoot: repo, runInstall: upstreamServing(NEWER), fetchAudit: audits(RED) })
         assert.equal(refused.rejected[0]?.reason, "update_refused")
         assert.equal(notifications(runtimeDir).length, 1)
 
-        // The cold-cache, not-its-own-git-root shape: the only rung left is the re-fetch, and upstream now serves exactly the pinned bytes.
         rmSync(bundleCacheDir(runtimeDir), { recursive: true, force: true })
         rmSync(resolve(repo, ".git"), { recursive: true, force: true })
         writeFileSync(resolve(bundleDir(SKILL), "scripts/recalc.py"), TAMPERED)
@@ -3771,7 +3693,6 @@ describe("the maintenance pass verifies every pin and self-heals (real git targe
       })
     })
 
-    // vivicy.json and the report are hand-editable, so a verdict read back from one is data: the owner's sentence may never render a `Record` miss.
     it("never renders an unknown verdict into the owner's warning", async () => {
       await inGovernedProject(async ({ runtimeDir }) => {
         await maintainSkills({ repoRoot: repo, runInstall: upstreamServing(NEWER), fetchAudit: audits(RED) })
@@ -3781,7 +3702,6 @@ describe("the maintenance pass verifies every pin and self-heals (real git targe
           rejected: (stored.rejected ?? []).map((entry) => ({ ...entry, verdict: "constructor" })),
         })
 
-        // An unrelated fact republishes the report, so the hand-edited record is read back and re-stated.
         writeFileSync(resolve(bundleDir(SKILL), "scripts/recalc.py"), TAMPERED)
         const report = await maintainSkills({ repoRoot: repo, runInstall: offlineCli })
 
@@ -3790,7 +3710,7 @@ describe("the maintenance pass verifies every pin and self-heals (real git targe
         assert.equal((readJson(SKILLS_REPORT_REL) as SkillsReport).rejected?.[0].verdict, undefined, "and never written back out")
         assert.equal(notifications(runtimeDir).length, 1, "and the refusal is still the one already told, so it stays silent")
 
-        // The renderer's own half of that guard, since a record can reach it without passing the constructor — and an unknown key is not merely absent: `constructor` and `toString` RESOLVE on a plain object's prototype and would render a function into the owner's sentence.
+        // `constructor` and `toString` are the load-bearing cases: they RESOLVE on a plain object's prototype, so an ordinary unknown key alone would prove nothing here.
         for (const verdict of ["constructor", "toString", "nonsense"]) {
           const direct = skillsNotifications({
             ...report,
@@ -3806,7 +3726,6 @@ describe("the maintenance pass verifies every pin and self-heals (real git targe
       })
     })
 
-    // The one-time opt-in must never become standing consent: the switch is read at the install door and the update door does not have one.
     it("never applies the risk waiver to an update, even for a skill installed under it", async () => {
       await inGovernedProject(async ({ runtimeDir, pinnedAt }) => {
         const prior = readJson(SKILLS_REPORT_REL) as SkillsReport
@@ -3838,7 +3757,6 @@ describe("the maintenance pass verifies every pin and self-heals (real git targe
       })
     })
 
-    // The waiver is about the bytes that are running: once the audited newer version replaces them, the warning the owner sees would be a lie.
     it("a GREEN update clears the waiver flag and refreshes the audit record", async () => {
       await inGovernedProject(async () => {
         const prior = readJson(SKILLS_REPORT_REL) as SkillsReport
@@ -3866,7 +3784,6 @@ describe("the maintenance pass verifies every pin and self-heals (real git targe
       })
     })
 
-    // Changing the contract of a bundle no rung could even restore would publish over a drift nobody has accounted for, on top of a failure the owner is already being asked to fix.
     it("offers no update at all to a bundle it could not restore", async () => {
       await inGovernedProject(async ({ runtimeDir, pinnedAt }) => {
         rmSync(bundleCacheDir(runtimeDir), { recursive: true, force: true })
@@ -3890,7 +3807,6 @@ describe("the maintenance pass verifies every pin and self-heals (real git targe
       })
     })
 
-    // The block's `<bundle>/SKILL.md` line is what every leg reads, so a candidate without one would break the project's own reference on a bundle that works.
     it("never takes a candidate upstream serves without a SKILL.md, and does not bother the owner about it", async () => {
       await inGovernedProject(async ({ runtimeDir, pinnedAt }) => {
         const pinnedBytes = bundleBytes()
@@ -3987,7 +3903,6 @@ describe("the maintenance pass verifies every pin and self-heals (real git targe
       })
     })
 
-    // A project holds up to six skills, so every sentence and every count in this door has to read right for more than one of them.
     describe("a project with two pinned skills", () => {
       const CHARTS = "other/pack@charts"
       const NEWER_CHARTS: Record<string, string> = { "SKILL.md": "---\nname: charts\n---\n\n## Stacked bars\n" }
@@ -4006,7 +3921,7 @@ describe("the maintenance pass verifies every pin and self-heals (real git targe
         )
       }
 
-      // Every probe is observed from INSIDE the fetch, which is the only place a leaked scratch is visible: the pass's own janitorial sweep removes them all at the end, so a probe that never closed its own would still leave nothing behind afterwards.
+      // The scratch count must be read from INSIDE the fetch: the pass's janitorial sweep removes them all at the end, so an observation taken afterwards proves nothing.
       function upstreamPerSkill(bySkill: Record<string, Record<string, string>>, scratchesInFlight: number[] = []) {
         return ({ repoRoot: into, skill }: { repoRoot: string; source: string; skill: string }) => {
           scratchesInFlight.push(readdirSync(resolve(repo, ".vivicy-runtime")).filter((e) => e.startsWith("skill-candidate-")).length)
@@ -4089,7 +4004,6 @@ describe("the maintenance pass verifies every pin and self-heals (real git targe
         })
       })
 
-      // The same "told once" rule the refusal needs, on the event that already existed: a report republished for one skill's news may not re-announce another skill's standing failure.
       it("tells the owner about an unrestorable bundle once, even when another skill's news republishes the report", async () => {
         await inGovernedProject(async ({ runtimeDir }) => {
           await pinBoth()
@@ -4164,14 +4078,12 @@ describe("the maintenance pass verifies every pin and self-heals (real git targe
       })
     })
 
-    // The publish is a temp, a remove and a rename, and the fetch before it takes real time: a failure that finds the bundle no longer where the verify left it may not keep the verify's `verified` claim, which is exactly the lie the pin exists to prevent.
     it("re-derives what is really on disk when its own publish fails, and restores the pin", async () => {
       await inGovernedProject(async ({ runtimeDir, pinnedAt }) => {
         const pinnedBytes = bundleBytes()
         const report = await maintainSkills({
           repoRoot: repo,
           runInstall: upstreamServing(NEWER),
-          // The audit is the one seam BETWEEN the candidate being hashed and it being published: the bundle the verify blessed drifts here, and the staged candidate goes with it, so the publish fails with the tree no longer as the pass found it.
           fetchAudit: async () => {
             writeFileSync(resolve(bundleDir(SKILL), "scripts/recalc.py"), TAMPERED)
             for (const entry of readdirSync(runtimeDir)) {
@@ -4191,14 +4103,12 @@ describe("the maintenance pass verifies every pin and self-heals (real git targe
       })
     })
 
-    // The other half of "landed WHOLE": bytes without a pin are bytes the next pass reverts, so a declaration that refuses the new hash undoes the update instead of leaving the two disagreeing — and a file the owner made unwritable may never take the stage down mid-phase.
     it("reverts its own published bytes when vivicy.json will not take the new pin", async () => {
       await inGovernedProject(async ({ runtimeDir, pinnedAt }) => {
         const pinnedBytes = bundleBytes()
         const report = await maintainSkills({
           repoRoot: repo,
           runInstall: upstreamServing(NEWER),
-          // Read-only between the hash and the publish: `updateProjectConfig` writes a temp beside the target, so the refusal lands exactly where the re-pin happens.
           fetchAudit: async () => {
             chmodSync(repo, 0o500)
             return passAudit()

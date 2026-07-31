@@ -38,13 +38,11 @@ describe("readFencedBlock — the one reader of a directive block", () => {
     expect(readFencedBlock(`\`\`\`${TAG}\nbody\n   \`\`\` and more`, TAG)?.body).toBe("body")
   })
 
-  // The shape a per-occurrence tail rescan is quadratic on: an ordinary markdown list of the tag, never at a line start, never closed. Measured at 4x per doubling before the early refusal — 16.3 s at 800 KB, worse than the regex this scanner replaced.
   it("refuses a reply that repeats the open tag mid-line and never closes it, without rescanning the tail per occurrence", () => {
     const line = `- \`\`\`${TAG}\n`
     const hostile = line.repeat(Math.ceil(200_000 / line.length))
     const started = performance.now()
     expect(readFencedBlock(hostile, TAG)).toBeNull()
-    // Measured on this input: ~1 ms linear against ~960 ms for the per-occurrence rescan, so the budget separates the two by an order of magnitude in both directions.
     expect(performance.now() - started).toBeLessThan(100)
   })
 
@@ -53,7 +51,6 @@ describe("readFencedBlock — the one reader of a directive block", () => {
     expect(readFencedBlock(`${noise}\`\`\`${TAG}\nbody\n\`\`\``, TAG)?.body).toBe("body")
   })
 
-  // The early refusal can only fire when NO closing line exists after the first open, so it can never hide a block: put one anywhere behind the noise and the read still returns one (the first open wins, as it always has).
   it("never refuses a reply that does carry a closing line after its first open", () => {
     const noise = `- \`\`\`${TAG}\n`.repeat(500)
     const block = readFencedBlock(`${noise}\`\`\`${TAG}\nbody\n\`\`\``, TAG)
@@ -61,7 +58,6 @@ describe("readFencedBlock — the one reader of a directive block", () => {
     expect(block?.start).toBe(2)
   })
 
-  // The vice this scanner exists for: the equivalent regex is cubic on this input and wedges the event loop.
   it("stays linear on a hostile unclosed fence followed by a run of whitespace", () => {
     const hostile = `\`\`\`${TAG}\n${"\n".repeat(200_000)}${"x".repeat(200_000)}`
     const started = performance.now()

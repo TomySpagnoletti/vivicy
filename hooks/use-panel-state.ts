@@ -36,14 +36,11 @@ function writeStoredState(state: PanelState): void {
   if (typeof window === "undefined") return
   try {
     window.localStorage.setItem(STORAGE_KEY, state)
-  } catch {
-    // Private mode / disabled storage: persistence is best-effort.
-  }
+  } catch {}
 }
 
-// Lives outside React (not useState+useEffect) so useSyncExternalStore avoids a hydration mismatch: server and first-client render both read the DEFAULT snapshot, and the real value swaps in only after hydration.
 const listeners = new Set<() => void>()
-// Cached: useSyncExternalStore requires a referentially stable snapshot between calls or it loops.
+// Cache the snapshot: useSyncExternalStore loops unless it is referentially stable between calls.
 let snapshot: PanelState | null = null
 
 export function getPanelStateSnapshot(): PanelState {

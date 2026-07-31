@@ -123,7 +123,7 @@ function Proofs({ issues, data }: { issues: string[]; data: ArchitectureMapData 
   )
 }
 
-// Plain mono lines, never Badge chips: a Badge is a fixed-height single-line pill, so a long proof path would be clipped instead of wrapped.
+// Never Badge chips here: a Badge is a fixed-height single-line pill and clips a long proof path instead of wrapping it.
 function ProofPaths({ label, paths }: { label: string; paths: string[] }) {
   if (paths.length === 0) return null
   return (
@@ -180,7 +180,7 @@ function RefBadges({ label, refs }: { label: string; refs: string[] | undefined 
 
 const TRANSCRIPT_TAIL_CHARS = 12
 
-// Sibling transcripts of one graph item differ only by the run id ending the name, so the elision must land in the middle — which CSS gives only as a truncating head plus an unshrinkable tail. Split on code points, never code units: the name is agent-written and a mid-surrogate cut renders replacement characters.
+// Elide in the MIDDLE (a truncating head plus an unshrinkable tail — CSS offers no other), and split on code points, never code units: an agent-written name cut mid-surrogate renders replacement characters.
 function splitTranscriptName(name: string): { head: string; tail: string } {
   const chars = [...name]
   if (chars.length <= TRANSCRIPT_TAIL_CHARS) return { head: "", tail: name }

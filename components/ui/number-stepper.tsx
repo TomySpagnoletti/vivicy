@@ -62,7 +62,7 @@ function NumberStepper({
         aria-describedby={ariaDescribedBy}
         aria-label={ariaLabel}
         className="[appearance:textfield] rounded-none text-center [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
-        // Passes Number(text) unclamped (the caller clamps) so a half-typed value is never eaten mid-edit — only the +/- buttons below clamp to [min, max].
+        // Never clamp on change: it would eat a half-typed value mid-edit; the caller and the +/- buttons clamp instead.
         onChange={(event) => onValueChange(Number(event.target.value))}
       />
       <Button

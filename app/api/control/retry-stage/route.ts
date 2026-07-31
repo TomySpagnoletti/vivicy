@@ -2,11 +2,10 @@ import { ControlError, runExtract, startDocPrep, startSkillsInstall, startSuperv
 import { appendNotification } from "@/lib/notifications"
 import { getSpawner } from "@/lib/spawner"
 
-// The `vivicy retry-stage` CLI dispatches identically (CLI+API parity); spawns a factory script and writes the run-state lock, so Node runtime only.
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 
-// map generation lives inside extraction (no standalone stage); dev is a resume via done/ + the ledger — the CLI's dispatcher matches this list exactly.
+// Keep this set identical to `RETRYABLE_STAGES` in factory/cli.ts — the CLI dispatches the same stages.
 const RETRYABLE_STAGES = ["prepare", "extract", "skills", "dev"] as const
 type RetryableStage = (typeof RETRYABLE_STAGES)[number]
 

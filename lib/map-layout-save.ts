@@ -99,7 +99,7 @@ function validateEdgeLabelLayoutPatch(input: unknown): EdgeLabelLayoutPatch {
   }
 }
 
-// Patches the YAML line-by-line, never re-serialized, so untouched content is preserved byte-for-byte.
+// Patch line-by-line, never re-serialize: untouched content must come back byte-identical.
 export function patchArchitectureMapLayout(source: string, payload: LayoutSavePayload): string {
   assertPatchTargets(source, payload)
   return applyLayoutPatch(source, payload)
@@ -155,7 +155,7 @@ function applyLayoutPatch(source: string, payload: LayoutSavePayload): string {
     throw new LayoutSaveError(`Cannot save layout: node records were not patched: ${missing.join(", ")}`, "patch_failed")
   }
 
-  // Iterate in reverse: node patches never change line count, but a splice here would shift indices for not-yet-processed records if we went forward.
+  // Iterate in reverse: a splice here shifts the line indices of records not yet processed.
   const edgeRecords = getYamlRecords(lines, "edges")
   for (let index = edgeRecords.length - 1; index >= 0; index -= 1) {
     const record = edgeRecords[index]
@@ -352,7 +352,6 @@ export async function applyLayoutSave(options: LayoutSaveOptions): Promise<{ ok:
   try {
     await regenerate(targetRoot)
   } catch (error) {
-    // Roll back: a failed regen must never leave the source map ahead of the served data.
     writeFileSync(mapPath, original)
     throw error instanceof LayoutSaveError
       ? error

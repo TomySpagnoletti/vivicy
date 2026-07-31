@@ -6,7 +6,6 @@ test.describe("Vivicy architecture map viewer", () => {
   test("renders the map and the interactive shadcn sidebar shell", async ({ page }, testInfo) => {
     await page.goto("/")
 
-    // The panel toggle only renders once the map reaches its ready state; wait for a node before opening the panel on mobile.
     const nodes = page.locator(".react-flow__node")
     await expect(nodes.first()).toBeVisible({ timeout: 30_000 })
     expect(await nodes.count()).toBeGreaterThanOrEqual(1)
@@ -22,17 +21,14 @@ test.describe("Vivicy architecture map viewer", () => {
     await expect(infoTrigger).toHaveAttribute("aria-expanded", "true")
     await expect(sidebar.getByText("Status legend")).toBeVisible()
 
-    // shadcn's ToggleGroup renders single-select items as radios (aria-checked).
     await page.getByRole("button", { name: "Filters" }).click()
     const targetBtn = page.getByRole("radio", { name: "Target" })
     const progressBtn = page.getByRole("radio", { name: "Progress" })
     await expect(targetBtn).toHaveAttribute("aria-checked", "true")
-    // The mobile Sheet scrolls, so sibling accordion content can overlap the toggle at rest; clickPastOverlap works around it.
     await clickPastOverlap(progressBtn)
     await expect(progressBtn).toHaveAttribute("aria-checked", "true")
     await expect(targetBtn).toHaveAttribute("aria-checked", "false")
 
-    // The peek/wide/closed width cycle is a desktop-only affordance (it drives the docked sidebar's --sidebar-width); mobile's off-canvas Sheet has no such DOM, so scope these assertions to desktop.
     if (isMobileProject(testInfo)) return
 
     const container = page.locator('[data-slot="sidebar"][data-side="right"]')

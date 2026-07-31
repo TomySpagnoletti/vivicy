@@ -16,7 +16,7 @@ export async function POST(request: Request) {
       return Response.json({ ok: false, error: "a project path is required", code: "not_absolute" }, { status: 400 })
     }
     const project = setCurrentProject(root, { requireGoverned: body?.requireGoverned === true })
-    // After the persist, never before (the renormalization's notifications resolve through the ambient current project), and never able to fail it: the selection is already on disk, so anything raised here would answer an error for an open that succeeded.
+    // Renormalize only AFTER the selection is persisted, and never let it fail the open.
     try {
       renormalizeManagedFiles(project.root)
     } catch {}

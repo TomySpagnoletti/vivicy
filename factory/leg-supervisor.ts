@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Standalone process, not an in-process timer: spawnSync (the dev-loop's sync leg-spawn path) can't do detached/idle-timeout/tree-kill, so both sync and async callers share this one process as the timeout+kill implementation.
+// Never fold this into an in-process timer: the dev-loop's sync spawnSync leg path cannot do detached/idle-timeout/tree-kill.
 import { spawn, type ChildProcess } from "node:child_process"
 import { readFileSync, writeFileSync } from "node:fs"
 
@@ -35,7 +35,7 @@ function readSpec(): Spec {
   return JSON.parse(readFileSync(specPath, "utf8")) as Spec
 }
 
-// Signal the group (-pgid), not the leader: the CLI spawns its own subprocesses, so killing only the leader would orphan them.
+// Signal the process GROUP (-pgid), never the leader alone: the agent CLI spawns its own children and they would be orphaned.
 function killTree(child: ChildProcess, graceMs: number, onKilled?: () => void): void {
   const pgid = child.pid!
   const signalGroup = (signal: NodeJS.Signals) => {
@@ -121,7 +121,7 @@ function main() {
     finish({ status: null, signal: null, timedOut, timeoutReason, spawnError: String((error as Error)?.message ?? error) })
   })
   child.on("close", (code, signal) => {
-    // Report timedOut regardless of exit code: SIGTERM/SIGKILL surface as a signal or a 143/137 code that would otherwise look like a normal exit.
+    // Report timedOut regardless of exit code: a killed leg surfaces as a signal or a 143/137 code that reads like a normal exit.
     if (timedOut) {
       finish({ status: null, signal: signal ?? null, timedOut: true, timeoutReason })
       return

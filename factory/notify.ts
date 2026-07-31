@@ -1,5 +1,3 @@
-// Best-effort JSONL append to .vivicy-runtime/notifications.jsonl (read by lib/notifications.ts and factory/cli.ts); only fires when VIVICY_RUNTIME_DIR is set (never guessed), and a failed append must never fail the run — observability, not state.
-
 import { appendFileSync, existsSync, mkdirSync } from "node:fs"
 import { join } from "node:path"
 

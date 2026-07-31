@@ -126,7 +126,6 @@ export async function applyChangeRequest(args: ApplyChangeRequestArgs = {}): Pro
   if (!found) {
     return terminal(recordReport, "blocked", "resolve", id, { summary: `cr-apply: no CR with id ${id} under .vivicy/change-requests/` })
   }
-  // readChangeRequest returns a bare filename in `file`; normalize to repo-relative so the transcript key and any display show the real path.
   const cr: ChangeRequestRecord = { ...found, file: `${CHANGE_REQUESTS_DIR}/${found.file}` }
   const status = String(cr.fm?.status ?? "")
   if (status !== "accepted_current_build") {
@@ -167,7 +166,6 @@ export async function applyChangeRequest(args: ApplyChangeRequestArgs = {}): Pro
   const newVersion = patchBump(previousVersion)
   const approvedBy = String(cr.fm?.owner_decision_by ?? "owner:cr-apply")
 
-  // Must write before commitApplied below: doc-baseline refuses to freeze a dirty tree, and this report file is tracked — writing it after the commit would re-dirty the tree and fail the freeze.
   recordReport({ phase: "freeze", cr: id, from_version: previousVersion, to_version: newVersion, updated_at: now() })
 
   const committed = commitApplied({ repoRoot, id })
@@ -206,7 +204,6 @@ export async function applyChangeRequest(args: ApplyChangeRequestArgs = {}): Pro
   }
   recordReport({ phase: "stamped", cr: id, baseline, updated_at: now() })
 
-  // Must run before extraction spawns and be committed before it: flips failed spikes to deferred (never re-authors) so the child's gate check doesn't see them as still-failed and block, and so a child freeze doesn't hit a dirty tree.
   const retired = retireAffectedSpikes({ repoRoot, cr })
   if (retired.length > 0) {
     recordReport({ phase: "retire_spikes", cr: id, retired, updated_at: now() })
@@ -220,7 +217,6 @@ export async function applyChangeRequest(args: ApplyChangeRequestArgs = {}): Pro
     }
   }
 
-  // Extraction reopens impacted done issues internally (see extract-issues.ts) — do not reopen here too, or issues double-reopen.
   recordReport({ phase: "extract", cr: id, updated_at: now() })
   const extraction = await runExtraction({ repoRoot })
   if (extraction.status !== "green") {
@@ -286,7 +282,6 @@ function applierContext({ cr, attempt, feedback }: { cr: ChangeRequestRecord; at
   )
 }
 
-// git add -A is safe here: the scaffold .gitignore covers the never-commit set.
 function defaultCommitApplied({ repoRoot, id }: { repoRoot: string; id: string }): CommitResult {
   const add = spawnSync("git", ["add", "-A"], { cwd: repoRoot, encoding: "utf8" })
   if ((add.status ?? 1) !== 0) {
@@ -303,7 +298,7 @@ function defaultCommitApplied({ repoRoot, id }: { repoRoot: string; id: string }
   return { committed: true }
 }
 
-// Shells out to doc-baseline.ts (not imported) so its corpus-policy/git-clean/approval/bump-class guards run exactly as production.
+// Never import doc-baseline.ts here: shelling out is what makes its corpus-policy/git-clean/approval/bump guards run exactly as in production.
 function defaultRunFreeze({ repoRoot, version, previousVersion, approvedBy, approvalRef }: FreezeArgs): Baseline {
   const tool = resolve(FACTORY_DIR, "doc-baseline.ts")
   const baselineId = `baseline-v${version}`
@@ -341,7 +336,7 @@ function defaultRunFreeze({ repoRoot, version, previousVersion, approvedBy, appr
   }
 }
 
-// Shells out to extract-issues.ts (not imported) so the child runs the full real path (freeze reuse, spike gating, commit); reads its terminal state back from the status file the control plane also reads.
+// Never import extract-issues.ts here: the child must run the full real path, and its terminal state is read back from the status file.
 function defaultRunExtraction({ repoRoot }: { repoRoot: string }): Extraction {
   const tool = resolve(FACTORY_DIR, "extract-issues.ts")
   const result = spawnSync("node", [tool], { cwd: repoRoot, env: { ...process.env, VIVICY_TARGET_ROOT: repoRoot }, encoding: "utf8" })

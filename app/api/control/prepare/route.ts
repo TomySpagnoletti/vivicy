@@ -2,7 +2,6 @@ import { ControlError, readDocPrepReport, startDocPrep } from "@/lib/control"
 import { appendNotification } from "@/lib/notifications"
 import { getSpawner } from "@/lib/spawner"
 
-// Launches a detached preparation process — requires the Node runtime, not Edge.
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 

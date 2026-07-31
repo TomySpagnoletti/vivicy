@@ -4,7 +4,7 @@ import { expect, test } from "./browser-issues"
 
 import { ensurePanelOpen, isMobileProject } from "./helpers"
 
-// Non-mutating captures only (open dialogs/panel, never SAVE) — matrix-parallel-safe across browser projects. Panel-onboarding capture instead lives in onboarding.spec's first serial test, which must run before that file's scaffold test mutates the shared on-disk runtime.
+// Never mutate here (open dialogs and panels, never SAVE): these captures run in parallel with every other browser project.
 
 const OUT_DIR = "/tmp/vivicy-xbrowser"
 
@@ -19,7 +19,6 @@ test.describe("cross-browser screenshots — main app (demo shape)", () => {
     await page.goto("/")
 
     await expect(page.locator(".react-flow__node").first()).toBeVisible({ timeout: 30_000 })
-    // Let the fitView animation and minimap settle before the frame.
     await page.waitForTimeout(1_000)
     await page.screenshot({ path: shot(project, "01-map") })
 
@@ -31,7 +30,6 @@ test.describe("cross-browser screenshots — main app (demo shape)", () => {
     await page.waitForTimeout(300)
     await page.screenshot({ path: shot(project, "02-sidebar-expanded") })
 
-    // Close the Sheet on mobile first — the Settings modal must open over the map, not inside it.
     if (isMobileProject(testInfo)) {
       await page.keyboard.press("Escape")
       await expect(page.locator('[data-mobile="true"]')).toBeHidden({ timeout: 10_000 })

@@ -1,4 +1,4 @@
-// Map-only literals: the map surface is deliberately non-shadcn (reads like a domain diagram); never import these into the shadcn-token sidebar.
+// Map-only literals: never import them into the shadcn-token sidebar.
 
 export interface ColorToken {
   bg: string

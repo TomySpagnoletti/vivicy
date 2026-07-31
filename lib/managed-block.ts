@@ -1,4 +1,4 @@
-// Imported directly by factory/dev-loop.ts and factory/install-skills.ts via relative .ts paths (no bundler) AND by the Next app through `@/lib/managed-block`, so it must stay a LEAF: no Next path alias and no relative value import (an extensionless one fails NodeNext, a `.ts` one fails the app program's TS5097). It is server-only — the atomic writer below needs node:fs — so no "use client" component may reach it.
+// Server-only LEAF: loaded by the factory via relative `.ts` paths and by the Next app via `@/lib/managed-block`, so no Next alias, no relative value import, and no "use client" component may reach it.
 
 import {
   accessSync,
@@ -17,11 +17,11 @@ import {
 } from "node:fs"
 import path from "node:path"
 
-// Two CLIs read two documents, so every Vivicy-managed block lands in both; `.gitignore` comes FIRST and that order is load-bearing — it carries the never-commit rules, so writing it last would leave every other managed file's atomic-write temp uncovered on the pass that installs the block.
+// `.gitignore` must stay FIRST: it carries the ignore rules covering every other managed file's atomic-write temp.
 export const MANAGED_MARKDOWN_FILES = ["AGENTS.md", "CLAUDE.md"] as const
 export const MANAGED_GOVERNANCE_FILES = [".gitignore", ...MANAGED_MARKDOWN_FILES] as const
 
-// Basename prefix of every Vivicy artifact published by rename; the managed ignore block excludes `<prefix>*`, so a temp a crash abandoned is never committable.
+// The managed ignore block excludes `<prefix>*` — move one and move the other, or an abandoned temp becomes committable.
 export const MANAGED_TEMP_PREFIX = ".vivicy-tmp."
 
 export type ManagedGovernanceFile = (typeof MANAGED_GOVERNANCE_FILES)[number]
@@ -88,7 +88,7 @@ function soleSpan({ lines, kinds }: Scan): { start: number; end: number } | null
   return { start: lines[begin].start, end: lines[end].start + lines[end].raw.length }
 }
 
-// Vivicy owns exactly two things in an owner's file: a span whose markers are each other's NEAREST counterpart (an end pairs with the closest begin above it, NEVER across an intervening begin), and any marker LINE left unpaired. Everything else is the owner's, byte-preserved — pairing an end with an earlier begin would swallow, and delete, the owner lines sitting between the two begins.
+// An end pairs with the NEAREST begin above it, never across an intervening begin: the wider pairing deletes the owner's own lines between the two begins.
 function withoutManagedLines({ content, lines, kinds }: Scan): string {
   const drop = new Array<boolean>(lines.length).fill(false)
   let open = -1
@@ -128,7 +128,7 @@ export function extractManagedBlock(template: string, markers: MarkerPair): stri
   return template.slice(span.start, span.end)
 }
 
-// latin1 is Node's identity byte codec — one char per byte, every byte round-trips — so the scan and splice run over the owner's raw bytes: a latin-1, UTF-8 or BOM-carrying file is never decoded, never re-encoded, and everything outside the span comes back byte-identical.
+// latin1 is the identity byte codec: never switch it to utf8, or the owner's bytes stop round-tripping outside the span.
 const BYTEWISE = "latin1" as const
 
 function asBytes(text: string): string {
@@ -145,7 +145,7 @@ export function ensureManagedBlock(current: Buffer | null, spec: ManagedSpec): B
   return Buffer.from(next, BYTEWISE)
 }
 
-// Parameter properties are not erasable syntax, and this module is type-checked by the factory program too.
+// Never use parameter properties here: they are not erasable syntax, and the factory program type-checks this module.
 export class ManagedWriteError extends Error {
   readonly code: "unsupported_encoding"
   readonly detail: string
@@ -158,7 +158,7 @@ export class ManagedWriteError extends Error {
   }
 }
 
-// Longest BOM first: a UTF-32LE file opens on the UTF-16LE mark, so the shorter pattern would name the wrong encoding in a refusal the owner acts on. Markers and block are ASCII, so every ASCII-compatible encoding splices byte-safely and only these are refused.
+// Longest BOM first: a UTF-32LE file opens on the UTF-16LE mark, so a reordering names the wrong encoding in the refusal.
 const UNSUPPORTED_BOMS: ReadonlyArray<readonly [string, readonly number[]]> = [
   ["UTF-32BE", [0x00, 0x00, 0xfe, 0xff]],
   ["UTF-32LE", [0xff, 0xfe, 0x00, 0x00]],
@@ -182,7 +182,7 @@ function readManaged(abs: string): Buffer | null {
   }
 }
 
-// The rename must land on the RESOLVED file, or it would replace an owner's symlink (the `CLAUDE.md -> AGENTS.md` convention) with a regular file; a dangling link resolves to where it points, as a plain write did, and the hop bound makes a link cycle degrade instead of hang. Exported because a caller that must reason about WHICH file a managed write touches has to resolve it exactly as the write does — one resolution, never a second implementation.
+// The rename must land on the RESOLVED target, or it replaces an owner's `CLAUDE.md -> AGENTS.md` symlink with a regular file; every caller reasoning about which file a managed write touches resolves it HERE, never a second way.
 export function resolvedManagedTarget(abs: string): string {
   let target = abs
   for (let hop = 0; hop < 32; hop += 1) {
@@ -208,7 +208,7 @@ function syncDirectory(dir: string): void {
   }
 }
 
-// Every step here is load-bearing: a rename ignores the target's own mode, so a read-only file (or directory) must be refused EXPLICITLY; the temp sits beside the resolved file so the rename is one same-filesystem syscall under a name the managed ignore block covers; a stale temp is REMOVED, never opened, since a symlink left there would capture the write and a reused inode would carry its mode into the owner's file; the mode is applied to the fd AFTER the write because the umask masks a create mode; and the fsync precedes the rename, or a power loss leaves the name pointing at nothing.
+// Never simplify this sequence: refuse a read-only target explicitly (a rename ignores its mode), keep the temp beside the resolved file, REMOVE a stale temp rather than open it, chmod the fd after the write (the umask masks a create mode), and fsync before the rename.
 function replaceAtomically(abs: string, next: Buffer): void {
   const target = resolvedManagedTarget(abs)
   const existing = statSync(target, { throwIfNoEntry: false })
@@ -235,7 +235,7 @@ function replaceAtomically(abs: string, next: Buffer): void {
   syncDirectory(path.dirname(target))
 }
 
-// The single seam every managed-block writer reaches. `onWrite` fires once the bytes are known to DIFFER and before they are published, carrying the file the bytes will actually land in (the resolved symlink target) — the hook a caller needs to record the write causally, since a crash between the record and the rename must leave the path staged-and-committable rather than dirty.
+// `onWrite` fires only when the bytes DIFFER and always BEFORE they are published, carrying the resolved target: a crash between the record and the rename must leave the path committable, never dirty.
 export function writeManaged(abs: string, spec: ManagedSpec, onWrite?: (published: string) => void): string | null {
   const current = readManaged(abs)
   const encoding = current && unsupportedEncoding(current)
@@ -251,7 +251,6 @@ export function writeManaged(abs: string, spec: ManagedSpec, onWrite?: (publishe
   return abs
 }
 
-// Node appends ", <syscall> '<path>'" to fs errors: dropped when that path is the file the announcement already names or Vivicy's own temp, kept otherwise — a failure on a Vivicy TEMPLATE would otherwise read as the owner's own file being gone.
 export function managedWriteFailureReason(error: unknown, abs: string): string {
   if (error instanceof ManagedWriteError) return error.detail
   if (!(error instanceof Error)) return String(error)

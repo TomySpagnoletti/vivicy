@@ -23,7 +23,6 @@ export interface AgentIssue {
   issue_path?: string
 }
 
-// The whole transcript taxonomy: every leg family's home under <transcriptsDir>, named ONCE here so two families can never collide and no call site composes a path of its own.
 export const TRANSCRIPT_DIRS = {
   issues: "ISSUES",
   extraction: "EXTRACTION",
@@ -40,7 +39,7 @@ export function issueTranscriptDir(issueId: string): string {
   return `${TRANSCRIPT_DIRS.issues}/${issueId}`
 }
 
-// The one place a work unit's declared home becomes a path: an id or a subpath reaching this function comes from a file an agent leg can write, so traversal dies here rather than one directory deeper.
+// The subpath comes from an agent-writable file and this is its only traversal guard — never weaken it.
 export function transcriptDirRel(transcriptsDir: string, issue: AgentIssue): string {
   const subdir = issue.transcript_dir
   const segments = typeof subdir === "string" ? subdir.split("/") : []
@@ -81,7 +80,6 @@ interface SpawnOptions {
   timeout?: LegTimeoutOptions
 }
 
-// Kills the leg's whole process group (not just the CLI pid) since the CLI spawns children that would otherwise survive a timeout.
 export function spawnTee(command: string, args: string[], options: SpawnOptions = {}): LegResult {
   return spawnLegSync(command, args, { cwd: options.cwd, env: options.env, timeout: options.timeout })
 }
@@ -94,11 +92,10 @@ export function combinedOutput(result: LegResult | null | undefined): string {
   return `${result?.stdout ?? ""}\n${result?.stderr ?? ""}`
 }
 
-// Everything in these namespaces configures the agent CLI, so the machine's copy of it is pollution.
 const AGENT_ENV_ISOLATED_PREFIXES = ["ANTHROPIC_", "CLAUDE_", "CODEX_", "OPENAI_"]
 const AGENT_ENV_ISOLATED_NAMES = new Set(["CLAUDECODE"])
 
-// The auth carve-out, one entry per authentication family the installed CLIs define, each carried WHOLE: a family split in half preserves a credential nothing can reach (a 3P key with no selector, an OIDC identity token with no federation/organization/scope quad — measured: the token alone cannot resolve an auth method, the group performs a real token exchange). Only ANTHROPIC_API_KEY, CLAUDE_CONFIG_DIR and CODEX_HOME are also read by lib/agents-health.ts; every other name is the CLIs' alone, so these lists are measured against their binaries and nothing else vouches for them — and the endpoints among them ARE config overrides, kept because a credential sent to the wrong host is a broken credential.
+// Every family passes through WHOLE, endpoints included: a family split in half preserves a credential nothing can use.
 export const AGENT_ENV_AUTH_FAMILIES: Record<string, readonly string[]> = {
   anthropicFirstParty: [
     "ANTHROPIC_API_KEY",
@@ -164,7 +161,7 @@ export function isolateAgentEnv(source: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   return env
 }
 
-// Deliberately no PROGRESS_* env injected — agents do no self-reporting; the orchestrator writes progress mechanically via its own emit().
+// Never inject progress env here: a leg does no self-reporting, the orchestrator emits progress itself.
 export function agentEnv(): NodeJS.ProcessEnv {
   return isolateAgentEnv(process.env)
 }
@@ -210,7 +207,7 @@ function describeValidRoles(promptsDir: string): string {
   return `Valid roles (one per prompt file under ${promptsDir}): ${roles.join(", ")}.`
 }
 
-// cfg.promptsDir is an absolute factory path, independent of the target project being built.
+// promptsDir is an absolute FACTORY path — never resolve it against the target project.
 export function readPrompt(cfg: LegConfig, role: string): string {
   const promptsDir = cfg.promptsDir
   if (typeof promptsDir !== "string" || promptsDir.trim().length === 0) {
@@ -263,7 +260,7 @@ export function readPrompt(cfg: LegConfig, role: string): string {
   return template
 }
 
-// Loops all project dirs because the CLI's dir-name encoding for a session varies — no direct path is derivable.
+// The CLI's per-session project dir name is not derivable — the scan over every project dir is required.
 export function captureClaudeTranscript(uuid: string, destAbs: string): boolean {
   const projectsDir = resolve(agentHome("CLAUDE_CONFIG_DIR", ".claude"), "projects")
   if (!existsSync(projectsDir)) return false
@@ -271,7 +268,6 @@ export function captureClaudeTranscript(uuid: string, destAbs: string): boolean 
     const candidate = resolve(projectsDir, sub, `${uuid}.jsonl`)
     if (existsSync(candidate)) {
       copyFileSync(candidate, destAbs)
-      // Treat a 0-byte copy (session file not yet flushed) as not captured.
       try {
         return statSync(destAbs).size > 0
       } catch {
@@ -298,7 +294,7 @@ export function findNewestCodexRollout(sinceMs: number, cwdFilter: string | null
     try {
       entries = readdirSync(dir, { withFileTypes: true })
     } catch {
-      return // dir vanished or unreadable mid-walk
+      return
     }
     for (const entry of entries) {
       const full = resolve(dir, entry.name)
@@ -309,7 +305,7 @@ export function findNewestCodexRollout(sinceMs: number, cwdFilter: string | null
         try {
           mtime = statSync(full).mtimeMs
         } catch {
-          continue // file removed between readdir and stat
+          continue
         }
         if (mtime >= sinceMs && mtime > bestMtime && rolloutMatchesCwd(full, cwdFilter)) {
           best = full
@@ -342,9 +338,9 @@ export function rolloutMatchesCwd(rolloutPath: string, cwdFilter: string | null)
       }
     }
   } catch {
-    return true // unreadable => do not exclude (best-effort capture)
+    return true
   }
-  if (recorded === null) return true // no cwd recorded => cannot exclude
+  if (recorded === null) return true
   return resolve(recorded) === resolve(cwdFilter)
 }
 
@@ -352,7 +348,7 @@ export function ensureTranscriptDir(absTranscriptDir: string): void {
   mkdirSync(absTranscriptDir, { recursive: true })
 }
 
-// A leg is a product run, not a run of this machine: these flags are the whole of what keeps the user's CLAUDE.md/AGENTS.md, skills, plugins, hooks, MCP servers, memories and agent listings out of every leg; neither CLI's credential resolution sits on their path (each authenticates identically with and without them, measured with the flag as the only variable), and the target repo's project layer reaches the leg through the explicit AGENTS.md read every role prompt opens with, never through CLI auto-discovery.
+// These flags are the whole boundary keeping the machine's own config, skills, plugins, hooks and MCP servers out of every leg — never drop one.
 export const CLAUDE_ISOLATION_ARGS = ["--safe-mode"]
 export const CODEX_ISOLATION_ARGS = [
   "--ignore-user-config",

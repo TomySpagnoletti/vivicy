@@ -93,7 +93,6 @@ function readDeclaredSkillUsage(repoRoot: string): SkillUsage {
   return deriveSkillUsage({ entries: ledger?.skill_usage, installed: reportedSkillIds(report) })
 }
 
-// Each skill's denominator is its OWN — the issues that declared while it was installed — so a skill added mid-cycle is never reported as ignored by issues that never had it.
 function skillUsageLine(usage: SkillUsage): string {
   const claimed = usage.not_installed.map((entry) => `\`${entry.id}\` on ${countOf(entry.issues, "issue", "issues")}`).join(", ")
   const claimedClause = claimed ? ` Claimed by a leg but not installed, so dropped: ${claimed}.` : ""

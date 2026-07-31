@@ -21,7 +21,6 @@ import { readNotifications } from "@/lib/notifications"
 
 import { GET, POST } from "./route"
 
-// lib/notifications is real (unmocked) and writes under VIVICY_RUNTIME_DIR — pointed at a temp dir here so tests don't pollute the real .vivicy-runtime.
 let runtimeDir: string
 let prevRuntimeEnv: string | undefined
 

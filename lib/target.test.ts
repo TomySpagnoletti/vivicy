@@ -18,7 +18,7 @@ const prevRuntime = process.env.VIVICY_RUNTIME_DIR
 
 beforeEach(() => {
   tmp = mkdtempSync(path.join(tmpdir(), "vivicy-target-"))
-  // Point VIVICY_RUNTIME_DIR at an empty temp dir so readCurrentProjectRoot() returns null — otherwise tests could pick up the developer's real persisted project selection.
+  // An empty runtime dir is required: getTargetRoot() reads the persisted project out of it, so otherwise the developer's own selection decides.
   process.env.VIVICY_RUNTIME_DIR = path.join(tmp, "runtime")
 })
 

@@ -1,7 +1,7 @@
 import type { Rule } from "eslint"
 import type { Comment } from "estree"
 
-// Calibrated to the invariant-only baseline (worst legitimate file ≈4%, small files carry 1-2 one-liners): narration-level commenting must fail the gate, sanctioned invariants must not.
+// Calibrated to the invariant-only baseline (worst legitimate file ≈4%): when a file reds, delete narration — never raise either constant.
 export const FREE_COMMENT_LINES = 5
 export const MAX_COMMENT_RATIO = 0.04
 

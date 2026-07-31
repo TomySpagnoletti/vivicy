@@ -5,7 +5,7 @@ import { expect, test } from "./browser-issues"
 
 import { DEMO_TARGET_ROOT } from "../playwright.config"
 
-// Demo target is a committed git repo; snapshot/restore keeps it pristine. Serial: the test mutates shared files.
+// Never parallelize: the test mutates the shared demo target's files.
 test.describe.configure({ mode: "serial" })
 
 const MAP_YML = path.join(DEMO_TARGET_ROOT, ".vivicy/architecture-map/architecture-map.yml")
@@ -41,7 +41,6 @@ test.describe("Architecture map layout editing", () => {
     await editToggle.click()
     await expect(page.getByRole("button", { name: "Editing layout" })).toBeVisible()
 
-    // Offset must clear the snap grid or the drag registers as a no-op.
     const saveButton = page.getByRole("button", { name: "Save layout" })
     await expect(async () => {
       const before = await firstNode.boundingBox()
@@ -50,8 +49,8 @@ test.describe("Architecture map layout editing", () => {
       const startY = before.y + before.height / 2
       await page.mouse.move(startX, startY)
       await page.mouse.down()
-      // Settle so React Flow registers drag-start before the moves.
       await page.waitForTimeout(50)
+      // The offset must clear the snap grid or the drag registers as a no-op.
       await page.mouse.move(startX + 90, startY + 70, { steps: 12 })
       await page.mouse.up()
       await expect(saveButton).toBeVisible({ timeout: 3_000 })

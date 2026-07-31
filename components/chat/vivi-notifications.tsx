@@ -38,7 +38,7 @@ export function isActionableNotification(notification: Notification): boolean {
   return ACTIONABLE_LEVELS.has(notification.level)
 }
 
-/** Sole visible-list filter; badge counts reuse it too, so it must stay the one source of truth. */
+/** The one visible-list filter: the badge counts read it too. */
 export function visibleNotifications(notifications: Notification[]): Notification[] {
   return notifications
     .filter((n) => !n.dismissed)
@@ -46,7 +46,7 @@ export function visibleNotifications(notifications: Notification[]): Notificatio
     .reverse()
 }
 
-/** Always runs, panel open or closed, so the closed-panel launcher badge stays live; CRs ride the same reload triggers as notifications so neither goes stale behind the other. */
+/** Must stay mounted whether the panel is open or closed — the launcher badge reads it — and CRs must ride the same reload triggers. */
 export function useNotificationsFeed(): {
   notifications: Notification[]
   crs: ChangeRequestSummary[]
@@ -72,7 +72,7 @@ export function useNotificationsFeed(): {
   }, [])
 
   useEffect(() => {
-    // IIFE keeps the setState out of the effect body itself (cascading-render lint); the interval callback below is deferred the same way.
+    // Keep the IIFE: the cascading-render lint refuses a setState reachable straight from the effect body.
     void (async () => {
       await load()
     })()
@@ -299,7 +299,7 @@ interface ChangeRequestSummary {
 
 const PENDING_STATUSES = new Set(["idea", "under_review"])
 
-/** CRs still awaiting a decision — shared so the launcher badge, tab badge, and CR cards all count the same set. */
+/** The one pending-CR filter: the launcher badge, the tab badge and the CR cards must all count this set. */
 export function pendingCrs(crs: ChangeRequestSummary[]): ChangeRequestSummary[] {
   return crs.filter((cr) => PENDING_STATUSES.has(cr.status))
 }
@@ -309,7 +309,7 @@ interface DecisionOutcome {
   text: string
 }
 
-/** Approving a CR runs the server-side docs_applied chain (apply → re-freeze → re-extract) — not visible from this file alone. Both approve and reject require a confirm click since both are sensitive and irreversible. */
+/** Approving fires the server's docs_applied chain (apply → re-freeze → re-extract); both decisions are irreversible and must stay behind a confirm. */
 function CrReviewCards({ crs, onReload, onDecided }: { crs: ChangeRequestSummary[]; onReload: () => void; onDecided: () => void }) {
   const t = useTranslations("crs")
   const tErrors = useTranslations("errors")
@@ -442,7 +442,6 @@ function ConfirmDecision({
 }) {
   const t = useTranslations("crs")
   const approve = decision === "approved"
-  // aria-disabled + guarded open, never native `disabled`: AlertDialog returns focus to its trigger on close, and a natively-disabled trigger can't receive it — focus would drop to <body> after every decision.
   const [dialogOpen, setDialogOpen] = useState(false)
   return (
     <AlertDialog open={dialogOpen} onOpenChange={(next) => setDialogOpen(next && !disabled)}>

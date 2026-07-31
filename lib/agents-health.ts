@@ -1,4 +1,4 @@
-// Server-only: node:fs/node:child_process here must never reach the client bundle (client-safe types live in agents-health-types.ts). Token value is never returned/logged/surfaced.
+// Server-only: never reachable from a client component (client-safe types: agents-health-types.ts); never return, log or surface a token value.
 
 import { execFileSync } from "node:child_process"
 import { existsSync, readFileSync } from "node:fs"
@@ -23,7 +23,7 @@ const KEYCHAIN_TIMEOUT_MS = 2_000
 
 const CLAUDE_API_KEY_PREFIX = "sk-ant-api03-"
 
-// exists=false → confirmed absent; secret=null+exists=true → found but locked; a null return from a probe → unprobeable (not the same as absent).
+// A null probe return is unprobeable, never absent; exists=false is confirmed absent; secret=null+exists=true is locked.
 export interface KeychainResult {
   secret: string | null
   exists: boolean
@@ -51,7 +51,6 @@ export interface HealthProbe {
 export function normalizeVersion(raw: string | null): string | null {
   if (raw == null) return null
   let v = raw.trim()
-  // Trailing ")" is optional: still cleans a truncated/malformed "--version" line like "2.1.191 (Claude Code".
   v = v.replace(/\s*\((?:claude code|claude-code)\)?\s*$/i, "")
   v = v.replace(/^(?:codex-cli|claude-code)\s+/i, "")
   return v.trim()
@@ -124,7 +123,7 @@ function nodeKeychain(service: string): KeychainResult | null {
   if (read.code === 0 && read.stdout.trim().length > 0) {
     return { secret: read.stdout.trim(), exists: true }
   }
-  // No -w here: avoids triggering an interactive Keychain-unlock prompt.
+  // Never add -w here: it triggers an interactive Keychain-unlock prompt.
   const exists = runSecurity(["find-generic-password", "-s", service])
   if (exists.timedOut) return null
   if (exists.code === 0) return { secret: null, exists: true }
@@ -231,7 +230,6 @@ export function detectClaudeAuth(probe: HealthProbe): AuthSignal {
   }
 
   let keychainSaidAbsent = false
-  // darwin only: Windows never uses Credential Manager for Claude creds — the file below is its only store.
   if (probe.platform() === "darwin") {
     const kc = probe.keychain(CLAUDE_KEYCHAIN_SERVICE)
     if (kc !== null) {
@@ -262,7 +260,6 @@ function codexHome(probe: HealthProbe): string {
 function detectCodex(probe: HealthProbe): AgentHealth {
   const present = probe.which("codex") !== null
   const version = present ? normalizeVersion(probe.version("codex")) : null
-  // Codex's keyring/auto credential modes aren't read here — a keyring-only user reads as unauthenticated (honest false-negative, not a bug).
   const authFile = path.join(codexHome(probe), "auth.json")
   const auth = parseCodexAuth(probe.readFile(authFile))
   return { present, version, ...auth }

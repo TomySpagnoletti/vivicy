@@ -574,7 +574,6 @@ describe("runViviTurn — action protocol (the governess loop)", () => {
     expect(legRuns(calls)).toHaveLength(2)
     expect(result.actions).toHaveLength(2)
     expect(result.reply).toContain("✓ crs.list")
-    // The note speaks about the block printed above it — the CLOSING round's results — not about the turn's running total.
     expect(result.reply).toContain("→ action round limit (2) reached this turn; the result above is recorded.")
   })
 
@@ -919,7 +918,6 @@ describe("decision cards (server contracts)", () => {
     await expect(decideCardAction(spawner, { sessionId, cardId: WELCOME_IMPORT_CARD.id, actionId: "import" })).rejects.toThrow(
       /imports documents/
     )
-    // Nothing stamped — the card stays live for the upload path.
     expect(readTranscript(sessionId)[0].decided).toBeUndefined()
   })
 })
@@ -931,7 +929,7 @@ function docEntry(rel: string, text: string): RawEntry {
   return { rel, name: path.basename(rel), bytes: new Uint8Array(Buffer.from(text, "utf8")) }
 }
 
-// The reading turn is dispatched detached (the upload response never waits on the leg); every import test settles it so no background turn outlives the temp target.
+// The reading turn is detached: every import test MUST settle it, or a background turn outlives the temp target.
 async function settleTranscript(sessionId: string, turns: number): Promise<ViviTurn[]> {
   return vi.waitFor(() => {
     const settled = readTranscript(sessionId)
@@ -949,12 +947,11 @@ function viviSessionDir(): string {
   return path.join(getProjectRuntimeDir(runtimeDir, targetRoot), "vivi")
 }
 
-// A pid that is genuinely gone: the child has already exited by the time spawnSync returns.
+// Guaranteed-dead pid: spawnSync returns only after the child is reaped.
 function deadPid(): number {
   return spawnSync(process.execPath, ["-e", ""]).pid
 }
 
-// The on-disk state a process killed mid-read leaves behind.
 function stampReadOnDisk(sessionId: string, batchId: string, read: unknown): void {
   const turns = readTranscript(sessionId).map((turn) =>
     turn.imported?.batchId === batchId ? { ...turn, imported: { ...turn.imported, read } } : turn
@@ -962,7 +959,6 @@ function stampReadOnDisk(sessionId: string, batchId: string, read: unknown): voi
   writeFileSync(path.join(viviSessionDir(), `${sessionId}.jsonl`), `${turns.map((t) => JSON.stringify(t)).join("\n")}\n`)
 }
 
-// What a replayed upload response would hand back to a second dispatch attempt.
 function batchOf(result: SessionImportResult): BatchResult {
   return {
     batchId: result.batchId,
@@ -1266,7 +1262,6 @@ describe("the auto-dispatched reading turn (importing documents IS the request)"
     expect(prompt).toContain("- brief.md")
     expect(prompt).toContain("- notes/extra.md")
     expect(prompt).toMatch(/the import IS the request/i)
-    // The reading RULES stay single-sourced in the persona; the task only points at them.
     expect(prompt).toMatch(/under your document-intake law/i)
     expect(prompt).toMatch(/only the questions the corpus leaves open/i)
     expect(prompt).not.toMatch(/Respond to the user's latest message/)
@@ -1306,7 +1301,6 @@ describe("the auto-dispatched reading turn (importing documents IS the request)"
     expect(replayed).toBe(false)
     expect(viviLegRuns(calls.run)).toBe(1)
     expect(readTranscript(sessionId)).toEqual(turns)
-    // The claim rewrites the transcript whole through a temp+rename; no scratch file may survive it.
     expect(readdirSync(viviSessionDir()).filter((f) => f.endsWith(".tmp"))).toEqual([])
   })
 
@@ -1336,14 +1330,12 @@ describe("the auto-dispatched reading turn (importing documents IS the request)"
     const batch = await importIntoGoverned({ root: targetRoot, entries: [docEntry("cdc.md", IMPORT_ENGLISH)] })
     const sessionId = seedViviWelcome(batch)
 
-    // A claim this very process holds is in flight: nothing recovers it and nothing may re-dispatch it.
     stampReadOnDisk(sessionId, batch.batchId, { status: "pending", pid: process.pid })
     expect(recoverInterruptedReads(spawner, sessionId)).toBe(0)
     expect(await dispatchImportRead(spawner, { sessionId, batch })).toBe(false)
     expect(viviLegRuns(calls.run)).toBe(0)
     expect(readTranscript(sessionId)).toHaveLength(1)
 
-    // The same claim left behind by a process that is gone: settled honestly, then picked straight back up.
     stampReadOnDisk(sessionId, batch.batchId, { status: "pending", pid: deadPid() })
     expect(recoverInterruptedReads(spawner, sessionId)).toBe(1)
     const turns = await settleTranscript(sessionId, 3)
@@ -1356,7 +1348,6 @@ describe("the auto-dispatched reading turn (importing documents IS the request)"
     expect(turns[0].imported?.read).toEqual({ status: "done" })
     expect(viviLegRuns(calls.run)).toBe(1)
 
-    // Once settled, later passes find nothing to recover — the recovery is per CLAIM, not a loop.
     expect(recoverInterruptedReads(spawner, sessionId)).toBe(0)
     expect(await dispatchImportRead(spawner, { sessionId, batch })).toBe(false)
     expect(viviLegRuns(calls.run)).toBe(1)
@@ -1410,7 +1401,7 @@ describe("the auto-dispatched reading turn (importing documents IS the request)"
         const reading = readFileSync(promptFileFrom(options.args), "utf8").includes("the import IS the request")
         const who = reading ? "read" : "message"
         order.push(`${who}:start`)
-        // The reading turn is deliberately the SLOW one: unserialized, the owner's message would finish inside it.
+        // The asymmetric delay is what discriminates: with both legs equal-speed the order assertion would pass unserialized too.
         await new Promise((resolve) => setTimeout(resolve, reading ? 40 : 0))
         order.push(`${who}:end`)
         writeReply(options, reading ? "READ" : "ANSWER")
@@ -1440,7 +1431,6 @@ describe("seedViviWelcome (deterministic first turn)", () => {
     expect(turns[0]).toMatchObject({ role: "vivi", text: VIVI_WELCOME_MESSAGE })
     expect(turns[0].ts).toBeTruthy()
 
-    // Persists like any real transcript message — a fresh read (what rehydration does) returns it.
     expect(readTranscript(sessionId)).toEqual(turns)
     const listed = listViviSessions().find((s) => s.sessionId === sessionId)
     expect(listed?.turns).toBe(1)
@@ -1783,7 +1773,6 @@ describe("question cards — the validated fence becomes a pile in the thread", 
     })
     const { sessionId, stackId } = await stackedSession(spawner)
 
-    // 400 chars — exactly what the card's own input invites — answering the NON-last card, the position most exposed to a length clip.
     const head = "On facture a la main les dix premiers clients, "
     const tail = ", mais seulement quand on depasse trente commandes par jour"
     const long = `${head}${"e".repeat(MAX_OTHER_ANSWER_LENGTH - head.length - tail.length)}${tail}`

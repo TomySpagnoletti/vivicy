@@ -95,7 +95,6 @@ export function ProcessControlBar({ development, onMapRefresh }: { development?:
   const done = status?.issues_done ?? 0
   const percent = total > 0 ? Math.round((done / total) * 100) : 0
 
-  // Extraction is one-shot: once development.issues is non-empty, Extract stays disabled (not re-offered).
   const issueCount = development?.issues?.length ?? 0
   const alreadyExtracted = issueCount > 0
 
@@ -177,7 +176,6 @@ export function ProcessControlBar({ development, onMapRefresh }: { development?:
           )}
 
           {alreadyExtracted ? (
-            // aria-disabled (not disabled) so the button stays focusable — a real disabled button would kill the tooltip's focus trigger.
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button

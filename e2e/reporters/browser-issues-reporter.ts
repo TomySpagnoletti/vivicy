@@ -100,7 +100,7 @@ function formatOccurrence(occurrence: IssueOccurrence): string {
   return `${project}${occurrence.testTitle} (${file}:${occurrence.line})${retry}`
 }
 
-// Platform trap: each browser reports mid-navigation Next-chunk/RSC fetch cancellations in its own dialect; the allowlist below is exhaustive — everything else blocks.
+// Each browser spells a benign mid-navigation Next-chunk/RSC fetch cancellation in its own dialect; never prune one as redundant.
 function isAllowedIssue(issue: BrowserIssue) {
   if (issue.kind === "console" && issue.level === "warning") {
     return /Loading failed for the <script> with source .*\/_next\/static\/chunks\//i.test(issue.text)

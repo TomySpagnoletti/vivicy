@@ -70,7 +70,6 @@ interface AcceptanceReportResponse {
 
 type RetryableStage = NonNullable<(typeof WORKFLOW_STAGES)[number]["retryStage"]>
 
-// Polls /api/control/prepare, /api/control/extract and /api/control/skills — a second read of already-existing state files, never a new source of truth.
 export function WorkflowWidget({ open = false }: { open?: boolean } = {}) {
   const t = useTranslations("workflow")
   const tErrors = useTranslations("errors")
@@ -168,7 +167,7 @@ export function WorkflowWidget({ open = false }: { open?: boolean } = {}) {
   return (
     <div className="pointer-events-auto absolute top-2 left-1/2 z-10 w-fit max-w-[calc(100%-1rem)] -translate-x-1/2" data-workflow-widget>
       <div className="flex flex-col items-center gap-1 rounded-md border border-border bg-card/95 px-2 py-1.5 shadow-sm backdrop-blur-sm">
-        {/* max-w-full is load-bearing: the shrink-0 chips' ~1100px min-content width would otherwise size this flex item past the card (intrinsic sizing ignores descendants' max-width), and on mobile Chromium that overflow expands the layout viewport (412->768), flipping md: into desktop mode. */}
+        {/* Keep max-w-full: intrinsic sizing would otherwise stretch this flex item past the card on the shrink-0 chips, and on mobile that overflow expands the layout viewport into desktop mode. */}
         <div className="max-w-full">
           <div className="flex items-center gap-0.5 overflow-x-auto py-1">
             {WORKFLOW_STAGES.map((stage, index) => {

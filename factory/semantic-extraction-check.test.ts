@@ -121,7 +121,6 @@ test("real repo artifacts: placeholder index passes without writing reports", ()
 test("CLI exits 0 against the real placeholder artifacts", () => {
   const target = makePlaceholderTarget()
   try {
-    // The CLI binds its target root from VIVICY_TARGET_ROOT at module load.
     const run = spawnSync(process.execPath, [checkerPath], {
       encoding: "utf8",
       env: { ...process.env, VIVICY_TARGET_ROOT: target.root },

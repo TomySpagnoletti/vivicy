@@ -14,7 +14,7 @@ import agents from "@/messages/en/agents.json"
 import notifications from "@/messages/en/notifications.json"
 import errors from "@/messages/en/errors.json"
 
-// Intentionally static imports, not fs-globbed, for tree-shaking + type-checking.
+// Never fs-glob these: the static imports are what give tree-shaking and type-checking.
 export default getRequestConfig(async () => ({
   locale: LOCALE,
   messages: {

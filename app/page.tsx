@@ -57,7 +57,6 @@ export default function Page() {
     let cancelled = false
     void (async () => {
       try {
-        // fresh=1 re-probes so a CLI install + reload clears the gate; the server then memoizes for follow-up GETs.
         const res = await fetch("/api/agents/health?fresh=1", { cache: "no-store" })
         const body = (await res.json().catch(() => ({}))) as { agents?: AgentsHealth }
         if (!cancelled) setAgentsHealth(body.agents ?? null)
@@ -80,10 +79,10 @@ export default function Page() {
       }
       if (mountedRef.current) setProject(body.project ?? null)
     } catch {
-      // Deliberate: keep the last known project on a transient fetch failure.
+      // Never clear the project on a transient fetch failure: the last known selection stands.
     }
   }, [])
-  // projectSignal is intentionally a dep with no direct use in the body — bumping it re-triggers this load.
+  // Never drop projectSignal from these deps: it is unused in the body, and bumping it is the only thing that re-triggers this load.
   useEffect(() => {
     void (async () => {
       await loadProject()
@@ -151,7 +150,6 @@ export default function Page() {
           })
           return
         }
-        // blocked = deterministic checks stayed red after the bounded retries (inspect the corpus); otherwise it's transient (just retry).
         if (body.blocked) {
           toast.error(t("extract.blockedTitle"), {
             description: body.summary ?? t("extract.blockedDefaultDescription"),
@@ -187,7 +185,6 @@ export default function Page() {
     void loadMap(true)
   }, [loadMap])
 
-  // Vivi writing files/executing actions changes project state behind the map's back.
   const onViviActivity = onProjectChanged
 
   const lastAgentsWarningRef = useRef<string | null>(null)
@@ -224,12 +221,7 @@ export default function Page() {
         ) : gateBlocked && agentsHealth ? (
           <AgentsGate health={agentsHealth} onHealth={setAgentsHealth} />
         ) : (
-          <SidebarProvider
-            open={panel.open}
-            onOpenChange={panel.setOpen}
-            // Feeds width into shadcn Sidebar's own CSS var (peek vs wide) rather than a custom layout.
-            style={{ "--sidebar-width": panel.width } as React.CSSProperties}
-          >
+          <SidebarProvider open={panel.open} onOpenChange={panel.setOpen} style={{ "--sidebar-width": panel.width } as React.CSSProperties}>
             <SidebarInset className="relative min-w-0">
               <AgentsHealthDialog onWarning={onAgentsWarning} />
 

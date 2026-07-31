@@ -141,7 +141,6 @@ export function runTraceabilityCheck(options: { repoRoot?: string } = {}): Trace
     }
   }
 
-  // Spike verification status is enforced elsewhere (dev-loop readiness gate); a freshly-extracted spike is `pending` here.
   const spikes = readSpikes(root)
   const spikeGateIds = new Set(spikes.map((spike) => spike.gate_id))
   for (const issue of issues) {

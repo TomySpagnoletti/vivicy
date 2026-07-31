@@ -134,7 +134,7 @@ export function parseTranscript(jsonl: string): {
   const isClaude = lines.some((o) => o.type === "assistant" || o.type === "user")
   const format: TranscriptFormat = isCodex ? "codex" : isClaude ? "claude" : "unknown"
   const raw = format === "codex" ? parseCodex(lines) : format === "claude" ? parseClaude(lines) : []
-  // Drop consecutive duplicates (Codex emits user_message twice, etc.).
+  // Codex emits user_message twice: drop consecutive duplicates.
   const entries: TranscriptEntry[] = []
   for (const e of raw) {
     const prev = entries[entries.length - 1]

@@ -31,7 +31,6 @@ let runtimeDir: string
 let prevCwd: string
 
 beforeEach(() => {
-  // getSettingsPath() is relative to cwd; isolate the store per test.
   runtimeDir = mkdtempSync(path.join(tmpdir(), "vivicy-settings-"))
   prevCwd = process.cwd()
   process.chdir(runtimeDir)
@@ -66,7 +65,6 @@ describe("defaults", () => {
   it("each CLI's default model is the first in its curated list", () => {
     expect(MODEL_IDS.claude[0]).toBe("claude-opus-4-8")
     expect(MODEL_IDS.codex[0]).toBe("gpt-5.5")
-    // Last ~4 versions per CLI.
     expect(MODEL_IDS.claude).toHaveLength(4)
     expect(MODEL_IDS.codex).toHaveLength(4)
   })
@@ -113,16 +111,15 @@ describe("effort validation (per model)", () => {
     for (const level of EFFORT_LEVELS.claude) {
       expect(isValidEffort("claude", "claude-opus-4-8", level)).toBe(true)
     }
-    expect(isValidEffort("claude", "claude-opus-4-8", "minimal")).toBe(false) // codex-only
+    expect(isValidEffort("claude", "claude-opus-4-8", "minimal")).toBe(false)
     expect(isValidEffort("claude", "claude-opus-4-8", "extreme")).toBe(false)
     expect(isValidEffort("claude", "claude-opus-4-8", 5)).toBe(false)
 
     for (const level of EFFORT_LEVELS.codex) {
       expect(isValidEffort("codex", "gpt-5.5", level)).toBe(true)
     }
-    expect(isValidEffort("codex", "gpt-5.5", "max")).toBe(false) // claude-only
+    expect(isValidEffort("codex", "gpt-5.5", "max")).toBe(false)
 
-    // Spark has NO reasoning levels: nothing is valid.
     expect(isValidEffort("codex", "gpt-5.3-codex-spark", "high")).toBe(false)
     expect(isValidEffort("codex", "gpt-5.3-codex-spark", "")).toBe(false)
   })
@@ -370,7 +367,6 @@ describe("settingsToEnv", () => {
   })
 
   it("never emits fast '1' for a model that cannot do fast, even if fast is true", () => {
-    // Defence in depth: settingsToEnv re-checks even though normalizeSettings should already repair this upstream.
     const env = settingsToEnv({
       implementer: { provider: "claude", model: "claude-opus-4-5", effort: "high", fast: true },
       reviewer: { provider: "codex", model: "gpt-5.3-codex-spark", effort: "", fast: true },

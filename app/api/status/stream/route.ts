@@ -23,9 +23,7 @@ export async function GET(request: Request) {
         request.signal.removeEventListener("abort", close)
         try {
           controller.close()
-        } catch {
-          // Controller may already be closed on abrupt disconnects.
-        }
+        } catch {}
       }
 
       const enqueue = (chunk: string) => {
@@ -51,7 +49,6 @@ export async function GET(request: Request) {
       }
 
       request.signal.addEventListener("abort", close)
-      // Eager first frame avoids waiting on the first poll tick; periodic comment pings keep idle proxies from dropping the connection.
       enqueue(": connected\n\n")
       heartbeat = setInterval(() => enqueue(": ping\n\n"), POLL_INTERVAL_MS * 5)
       void tick()

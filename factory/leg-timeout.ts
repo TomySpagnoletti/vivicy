@@ -26,7 +26,7 @@ export interface LegResult {
   error?: Error
 }
 
-// Written by leg-supervisor.ts to resultPath as JSON; keep this shape in sync with that writer (no compile-time check across the process boundary).
+// Mirrors what leg-supervisor.ts writes to resultPath — edit both together, nothing checks it across the process boundary.
 interface SupervisorOutcome {
   status: number | null
   signal?: NodeJS.Signals | null
@@ -45,7 +45,7 @@ export { DEFAULT_LEG_CAP_MS } from "../lib/leg-budget.ts"
 export const DEFAULT_LEG_IDLE_MS = 12 * 60 * 1000
 export const DEFAULT_LEG_KILL_GRACE_MS = 10 * 1000
 
-// n=0 is valid and means "disabled" (no cap/idle) — do not treat 0 as falsy/invalid here.
+// 0 is a valid value meaning disabled — never treat it as falsy or invalid here.
 function envMs(name: string, fallback: number): number {
   const raw = process.env[name]
   if (raw === undefined || raw === "") return fallback
@@ -62,7 +62,7 @@ export function resolveLegTimeout(options: LegTimeoutOptions = {}): LegTimeout {
   }
 }
 
-// Writes spec.json read by leg-supervisor.ts; keep field names in sync with that reader (no compile-time check across the process boundary).
+// Field names here are read by leg-supervisor.ts — edit both together, nothing checks it across the process boundary.
 function writeSpec({ command, args, cwd, timeout }: { command: string; args: string[]; cwd?: string; timeout: LegTimeout }): {
   dir: string
   specPath: string
@@ -98,7 +98,7 @@ function toLegResult({
   if (outcome.timedOut) {
     const reason = outcome.timeoutReason || "leg timed out"
     return {
-      status: outcome.status ?? 124, // 124 is the conventional timeout exit code
+      status: outcome.status ?? 124,
       stdout,
       stderr: `${stderr}\n[leg-timeout] ${reason}`.trim(),
       timedOut: true,
@@ -116,7 +116,6 @@ function readOutcome(resultPath: string): SupervisorOutcome | null {
   }
 }
 
-// stdio:["inherit","pipe","pipe"] captures the LEG's output because leg-supervisor.ts relays the leg's stdout/stderr straight through to its own.
 export function spawnLegSync(command: string, args: string[], options: SpawnLegOptions = {}): LegResult {
   const timeout = resolveLegTimeout(options.timeout)
   const { dir, specPath, resultPath } = writeSpec({ command, args, cwd: options.cwd, timeout })
@@ -126,7 +125,7 @@ export function spawnLegSync(command: string, args: string[], options: SpawnLegO
       env: options.env ?? process.env,
       stdio: ["inherit", "pipe", "pipe"],
       encoding: "utf8",
-      // Safety net in case the supervisor itself wedges: cap + grace + margin, independent of the supervisor's own enforcement.
+      // Not redundant with the supervisor's own cap: this is the outer net for a supervisor that wedges.
       timeout: timeout.capMs > 0 ? timeout.capMs + timeout.graceMs + 60_000 : undefined,
       killSignal: "SIGKILL",
     })
@@ -147,7 +146,7 @@ export function spawnLegAsync(command: string, args: string[], options: SpawnLeg
   return new Promise<LegResult>((resolveLeg) => {
     let stdout = ""
     let stderr = ""
-    // done() runs from the supervisor's close/error handlers, OUTSIDE this executor, so a raised removal is not caught into a rejection: with no uncaughtException handler in this process it kills the whole orchestrator over a leg that already finished.
+    // done() runs outside this executor (supervisor close/error handlers), so anything it raises is an uncaught exception that kills the orchestrator.
     const done = (extra: LegResult) => {
       cleanupTree(dir)
       resolveLeg(extra)

@@ -1,4 +1,4 @@
-// Dependency-free: client components import this directly, and factory/retro.ts imports it too — keep it free of node/@ imports so both reach it.
+// Keep free of node/@ imports: client components and factory/retro.ts both import this directly.
 
 export const RETRO_REPORT_FILE = ".vivicy/development/reports/retro-report.json"
 

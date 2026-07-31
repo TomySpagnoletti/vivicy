@@ -6,7 +6,6 @@ import { appendCardTurn, dispatchImportRead, seedViviWelcome, WELCOME_IMPORT_CAR
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 
-// Only codes whose status is NOT the 400 default belong here; every other typed code falls through below.
 const STATUS_BY_CODE: Record<string, number> = {
   already_governed: 409,
   templates_missing: 500,
@@ -31,7 +30,7 @@ export async function POST(request: Request) {
 
     const result = await startGovernance({ targetDir, projectName, entries })
 
-    // Best-effort greeting: a governed project is never failed by a transcript hiccup. With a corpus the welcome carries the import acknowledgment and the reading turn is dispatched detached — the response never waits on the agent leg.
+    // Never fail a governed project on the greeting, and never wait on the reading turn.
     try {
       const sessionId = seedViviWelcome(result.batch)
       if (result.batch) void dispatchImportRead(getSpawner(), { sessionId, batch: result.batch })

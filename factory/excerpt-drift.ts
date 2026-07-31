@@ -43,7 +43,6 @@ export function compareExcerpts(priorSourceMap: SourceMap | null | undefined, ne
   return { unchanged: unchanged.sort(), changed: changed.sort(), added: added.sort(), removed: removed.sort() }
 }
 
-// Mechanical only — split/merged disposition is an agent judgment call made elsewhere.
 export function formatExcerptDrift(drift: ExcerptDrift): string {
   const lines: string[] = []
   if (drift.changed.length) lines.push(`amended (excerpt changed): ${drift.changed.join(", ")}`)

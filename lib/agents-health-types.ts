@@ -1,4 +1,4 @@
-// Client-safe: must never import node:fs/node:child_process (dragged into the client bundle). Server-only detector: agents-health.ts.
+// Client-safe: never import node:fs/node:child_process here (server-only detector: agents-health.ts).
 
 export type AuthMethod = "subscription" | "api_key"
 
@@ -18,7 +18,7 @@ export interface AgentsHealth {
 
 export type AgentKey = "claude" | "codex"
 
-// updateCommand alone is exec'd server-side (POST /api/agents/update, allow-listed + fixed); docsUrl/authCommand/installHint are display/navigation-only, never auto-run.
+// updateCommand alone is exec'd server-side (allow-listed, fixed); docsUrl/authCommand/installHint are display-only, never auto-run.
 export interface AgentGuidance {
   label: string
   docsUrl: string

@@ -229,7 +229,6 @@ export function stampChangeRequestApplied({ repoRoot, id, resulting, now }: Stam
   return { id: id!, path: rel, status: "docs_applied" }
 }
 
-// Active baseline = status:frozen with no superseded marker; must match doc-baseline/extract-issues' definition.
 export interface FrozenBaselineIdentity {
   previous_baseline_id: string
   previous_baseline_version: unknown
@@ -468,9 +467,7 @@ function readBaselineManifestHashes(root: string): Set<string> {
     try {
       const manifest = JSON.parse(readFileSync(join(dirAbs, file), "utf8")) as { manifest_hash?: unknown }
       if (typeof manifest.manifest_hash === "string") hashes.add(manifest.manifest_hash)
-    } catch {
-      // the baseline tool owns manifest validity — not re-validated here
-    }
+    } catch {}
   }
   return hashes
 }
@@ -617,7 +614,6 @@ function renderNewChangeRequest({
   ].join("\n")
 }
 
-// Preserves the file's original CRLF/LF line ending — do not normalize to LF.
 function rewriteFrontmatter(text: string, patch: Record<string, unknown>): string {
   const m = text.match(/^---\r?\n([\s\S]*?)\r?\n---/)
   if (!m) throw new Error("rewriteFrontmatter: no --- frontmatter block")

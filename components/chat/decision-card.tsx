@@ -41,8 +41,7 @@ export function DecisionCard({
     : null
 
   type Outcome = { ok?: boolean; summary?: string; error?: string; code?: string; decided?: ViviCardDecision }
-  // The server's `decided` record is the ONLY thing that locks the buttons: it rides every decided outcome (success, executed-but-failed, already-decided), and the read-check-write claim behind it — not this component — is what makes a second click impossible.
-  // Import family only: of the ControlError codes this card can receive, `missing_target` and `missing_script` carry catalogue copy that is FALSE for the meanings reachable here (unknown card/action, bad session id, script-not-found), and `unknown_cr`/`cr_not_decidable`/`spawn_failed` have accurate copy that is strictly LESS informative than the server's own sentence (which names the CR id, the change-control reason, or the failing last line) — `errorTextAcrossFamilies` resolves per family, not per code, so admitting `control` would trade a true sentence for a false one.
+  // Never widen this family list to `control`: resolution is per family, and that catalogue's copy is false or less informative than the server's own sentence for the codes this card receives.
   const record = (res: Response, body: Outcome, action: ViviCardAction) => {
     const failed = !res.ok || body.ok === false
     if (body.decided) {
@@ -99,7 +98,6 @@ export function DecisionCard({
     }
   }
 
-  // import_docs is a two-phase decision: the click opens a native picker, and the upload — not the click — is what decides the card. Cancelling the picker leaves the card untouched.
   const onActionClick = (action: ViviCardAction) => {
     if (disabled) return
     if (action.action.kind === "import_docs") {
@@ -123,7 +121,6 @@ export function DecisionCard({
 
         <MenuCardActions>
           <div className="flex flex-wrap gap-2">
-            {/* aria-disabled + a guarded onClick, never the native disabled: disabling the focused button on activation would drop keyboard focus to <body> (the panel is DOM-last, so Tab would restart behind the overlay). */}
             {card.actions.map((action) => (
               <Button
                 key={action.id}

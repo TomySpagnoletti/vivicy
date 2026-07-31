@@ -81,7 +81,6 @@ interface CanonicalTarget {
   exts: Set<string>
 }
 
-// One source of truth for canonical placement: the router (upload rel -> target) and the leg-output validator both read it.
 const CANONICAL_TARGETS: CanonicalTarget[] = [
   { marker: "canonical", dir: "canonical", exts: new Set([".md", ".markdown"]) },
   { marker: "architecture-map", dir: "architecture-map", exts: new Set([".yml", ".yaml"]) },
@@ -115,7 +114,6 @@ export function docPrepStageNeeded(repoRoot: string, report: DocPrepReport | nul
   return unconsumedActiveCycleBatches(repoRoot, report).length > 0
 }
 
-// Deterministic router: an upload whose relative path sits under a canonical dir marker with a valid extension is a path-(a) candidate; everything else is path (b).
 export function routeByLocation(rel: string): { targetRel: string } | null {
   const segments = rel.split("/").filter((s) => s.length > 0)
   const ext = extname(rel).toLowerCase()
@@ -204,7 +202,6 @@ export async function prepareDocs(options: PrepareDocsOptions = {}): Promise<Doc
     return report
   }
 
-  // The cycle's language is the project's ALREADY-ESTABLISHED canonical language; until one exists (greenfield), the first batch of the run fixes it.
   let cycleLanguage = establishedCanonicalLanguage(repoRoot)
   report.language = cycleLanguage
   report.summary = `preparing ${countOf(pending.length, "batch", "batches")} for cycle ${cycleId}`
@@ -241,7 +238,6 @@ export async function prepareDocs(options: PrepareDocsOptions = {}): Promise<Doc
   return report
 }
 
-// Only the outcomes of fully-consumed batches persist across runs; a failed or in-flight batch leaves no stale placed/rejected entry to retry against.
 function carryForward<T extends { batch?: string }>(prior: T[] | undefined, consumed: Set<string>): T[] {
   return Array.isArray(prior) ? prior.filter((e) => typeof e.batch === "string" && consumed.has(e.batch)) : []
 }
@@ -256,7 +252,6 @@ async function batchLanguage(batch: Batch, options: PrepareDocsOptions, repoRoot
   return resolution.resolved ? resolution.language : UNDETERMINED
 }
 
-// The dominant language already carried by the placed canonical corpus (weighted by text length); UNDETERMINED when the corpus is empty.
 function establishedCanonicalLanguage(repoRoot: string): string {
   const dir = resolve(repoRoot, ".vivicy", "canonical")
   if (!existsSync(dir)) return UNDETERMINED
@@ -365,7 +360,6 @@ async function prepareBatch(args: {
   const legOutcome = await runLeg({ repoRoot, language: cycleLanguage, inputs: legInputs, spawnLeg })
   if (!legOutcome.ok) {
     clearScratch(repoRoot)
-    // A blocked scratch never let the leg speak for these sources, so recording them as "the leg wrote nothing" would name the wrong culprit; the batch stays unconsumed either way and the summary carries the real cause.
     if (!legOutcome.scratchBlocked) {
       report.rejected.push(
         ...legInputs.map((i) => ({
@@ -443,7 +437,7 @@ async function runLeg({
   const outputDir = resolve(repoRoot, SCRATCH_REL, "output")
   let problems: string[] = []
   for (let attempt = 1; attempt <= 2; attempt += 1) {
-    // The clear must WIN before the leg writes: what survives it would be read back as this run's output and placed into the canonical under this batch's name.
+    // The scratch clear must WIN before the leg writes: a survivor is read back as this run's output and placed into the canonical.
     if (!clearScratch(repoRoot)) {
       return {
         ok: false,
@@ -555,7 +549,6 @@ function legContext({
   )
 }
 
-// A green stage that kept a document out of the canonical, or placed one carrying a possible secret, is the owner's to fix and re-import; a green that placed everything cleanly has nothing for them to do and stays silent. The rich report summary already names what was dropped or flagged.
 export function docPrepNotification(
   report: DocPrepReport
 ): { level: "info" | "success" | "warning" | "error"; stage: string; event: string; message: string } | null {

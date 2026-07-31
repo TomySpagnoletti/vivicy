@@ -1,5 +1,3 @@
-// Server-only gitignored runtime dir (lock/log, agent settings, current project); VIVICY_RUNTIME_DIR overrides the default so each E2E dev server gets its own, unshared.
-
 import path from "node:path"
 
 const RUNTIME_DIR_NAME = ".vivicy-runtime"

@@ -44,7 +44,6 @@ let prevRuntime: string | undefined
 let prevFactoryRoot: string | undefined
 
 beforeEach(() => {
-  // realpathSync is required: macOS symlinks tmpdir, and describeProject canonicalizes roots, so a raw mkdtempSync path would fail root-equality assertions below.
   workDir = realpathSync(mkdtempSync(path.join(tmpdir(), "vivicy-scaffold-")))
   prevCwd = process.cwd()
   prevRuntime = process.env.VIVICY_RUNTIME_DIR
@@ -192,7 +191,7 @@ describe("scaffoldProject — from scratch (lean, language-agnostic)", () => {
     ]) {
       expect(gitignore, `expected .gitignore to ignore ${ignored}`).toContain(ignored)
     }
-    // Line-exact: the re-inclusion lines carry the exclude pattern as a substring, and a trailing slash on `node_modules` would match directories only — so `toContain` alone would pass with the exclude gone, or with the link form left committable.
+    // Line-exact, never substring: the re-include lines carry these patterns, so `toContain` on the whole text would pass with the exclude gone.
     const ignoreLines = gitignore.split("\n")
     for (const line of [
       "node_modules",
@@ -202,7 +201,6 @@ describe("scaffoldProject — from scratch (lean, language-agnostic)", () => {
     ]) {
       expect(ignoreLines, `expected .gitignore to carry the exact line ${line}`).toContain(line)
     }
-    // The secret family is excluded in EVERY shape and re-included NOWHERE — a `!` line below the block would survive only until the first marker repair re-appends the block underneath it, silently flipping the placeholder to ignored forever. `.vivicy-tmp.*` rides the same block because an atomic-write temp a crash abandoned is Vivicy's own uncommittable artifact.
     const blockEnd = ignoreLines.indexOf(GITIGNORE_MARKERS.end)
     for (const line of [".env", ".env.*", ".envrc", ".vivicy-tmp.*"]) {
       expect(
@@ -215,7 +213,6 @@ describe("scaffoldProject — from scratch (lean, language-agnostic)", () => {
       ignoreLines.filter((l) => l.startsWith("!.env")),
       "no env re-include anywhere — greenfield ships a real .env.example and TRACKS it instead"
     ).toEqual([])
-    // node_modules is one ecosystem's generalist hygiene, not a Vivicy artifact, so it stays catalogue content: the block is written into Go, Rust and Python repos too, and a brownfield repo's own rule already covers it.
     expect(ignoreLines.indexOf("node_modules"), "node_modules is catalogue content, never block content").toBeGreaterThan(blockEnd)
     for (const committed of ["architecture-data.json", "source-map.json", "coverage-report"]) {
       expect(gitignore, `expected .gitignore NOT to ignore ${committed}`).not.toContain(committed)
@@ -238,7 +235,7 @@ describe("scaffoldProject — from scratch (lean, language-agnostic)", () => {
     expect(result.written.every((p) => path.isAbsolute(p))).toBe(true)
   })
 
-  // The expectation is an independent literal, never the template re-read: reading it back would pass whatever the template says and pin nothing.
+  // Never re-read the template for the expectation here: an independent literal is what makes this pin anything.
   it("renders the README as the handoff itself — the name substituted, and not one line the homes it points at already own", () => {
     const target = path.join(workDir, "readme-app")
     scaffoldProject({ targetDir: target, projectName: "Acme App" })
@@ -450,7 +447,6 @@ describe("the proof-artifact ignore posture, exercised through real git (both wr
     return git(target, ["ls-files"]).stdout.split("\n").filter(Boolean)
   }
 
-  // A string assertion cannot prove a .gitignore: git's own re-inclusion rules decide, and a trailing-slash directory pattern would make the recipe unrecoverable.
   it("greenfield: git tracks each proof's recipe.txt and NOT one artifact beside it", () => {
     const target = path.join(workDir, "greenfield-proofs")
     scaffoldProject({ targetDir: target, projectName: "Greenfield Proofs" })
@@ -479,7 +475,6 @@ describe("the proof-artifact ignore posture, exercised through real git (both wr
 })
 
 describe("the dependency-install ignore posture, exercised through real git", () => {
-  // A trailing slash restricts the match to directories, and no ecosystem tracks a FILE named node_modules — so the slash buys nothing and fails open on the one shape that is common: a workspace, container or worktree layout whose node_modules is a LINK to an install living elsewhere. The loop runs `git add -A` at every checkpoint, so the fail-open commits a machine-local link into the owner's history.
   it("greenfield: node_modules is ignored as a link to an install outside the repo, not only as a directory", () => {
     const target = path.join(workDir, "greenfield-deps")
     scaffoldProject({ targetDir: target, projectName: "Greenfield Deps" })
@@ -508,7 +503,6 @@ describe("the dependency-install ignore posture, exercised through real git", ()
 })
 
 describe("the secret-file ignore posture, exercised through real git (both writers)", () => {
-  // A string pin on the constant would pass with the patterns ordered wrong; git's own last-match-wins rules are the only oracle. Exit 0 = ignored, 1 = not ignored (128 would be a broken invocation, which either assertion catches) — and git never reports a TRACKED path as ignored, so `--no-index` is what asks the rules alone.
   function expectIgnored(target: string, rels: string[], ignored: boolean): void {
     for (const rel of rels) {
       expect(git(target, ["check-ignore", "-q", rel]).status, `${rel} must be ${ignored ? "ignored" : "committable"}`).toBe(ignored ? 0 : 1)
@@ -557,7 +551,6 @@ describe("the secret-file ignore posture, exercised through real git (both write
     ).toBe(false)
   })
 
-  // The inversion this kills: with the placeholder delivered by a `!` re-include below the block, either damage shape re-appends the block at EOF UNDER that line and flips it to ignored, permanently. A tracked file cannot be flipped.
   const DAMAGE: Array<{ name: string; damage: (gitignore: string) => string }> = [
     {
       name: "the owner deletes the managed block whole",
@@ -618,7 +611,6 @@ describe("the secret-file ignore posture, exercised through real git (both write
 
     scaffoldProject({ targetDir: target, projectName: "Symlinked App" })
 
-    // `resolveTargetDir` only normalizes the owner's input while git always answers `--show-toplevel` with the physical path (darwin's /tmp → /private/tmp, /var → /private/var, or any symlinked project dir), so comparing the raw strings would read the owner's OWN repo as a foreign parent and silently withhold the placeholder.
     expect(git(target, ["rev-parse", "--show-toplevel"]).stdout.trim(), "the two spellings of this repo really do differ").not.toBe(target)
     expect(trackedFiles(target), "physical path identity keeps this on branch (b)").toContain(".env.example")
   })
@@ -642,7 +634,6 @@ describe("the secret-file ignore posture, exercised through real git (both write
       existsSync(path.join(target, ".env.example")),
       "a placeholder that cannot be tracked would be invisible to git forever and its own text would be false — so it is never written"
     ).toBe(false)
-    // `status --porcelain` is the wrong oracle here: the scaffold legitimately leaves untracked files in the parent's work tree. The index is what must be untouched.
     expect(trackedFiles(parent), "the parent's index is not Vivicy's to write").toEqual(["README.md"])
     expect(git(parent, ["diff", "--cached", "--name-only"]).stdout.trim(), "nothing staged in the parent").toBe("")
   })
@@ -722,7 +713,7 @@ afterAll(() => {
   rmSync(HERMETIC_GIT_HOME, { recursive: true, force: true })
 })
 
-// The machine must never decide an ignore verdict: HOME and XDG_CONFIG_HOME are redirected too, because git reads its DEFAULT per-user excludes file ($XDG_CONFIG_HOME/git/ignore, else $HOME/.config/git/ignore) whether or not core.excludesFile is set — neutralizing the CONFIG files alone leaves a machine whose per-user ignore lists node_modules reading green with the rule deleted from every carrier.
+// HOME and XDG_CONFIG_HOME must be redirected too: git reads its per-user excludes from them whatever the GIT_CONFIG_* env says, and a per-user rule can only turn an absence assertion green.
 function git(cwd: string, args: string[]) {
   const r = spawnSync("git", args, {
     cwd,
@@ -829,7 +820,7 @@ function governedRoot(name: string, files: Record<string, string> = {}): string 
     mkdirSync(path.dirname(abs), { recursive: true })
     writeFileSync(abs, contents)
   }
-  // Mirrors the production seam: the root is persisted first, so the renormalization's notifications land in ITS namespace.
+  // Persist the root BEFORE any act: notifications are namespaced by it, so an absence assertion would pass by accident otherwise.
   setCurrentProject(target)
   return target
 }
@@ -881,7 +872,7 @@ describe("renormalizeManagedFiles — the project-open seam (same engine, never 
   it("is a byte-stable no-op on a healthy project: nothing rewritten, no mtime touched, nothing announced", () => {
     const target = path.join(workDir, "open-healthy")
     scaffoldProject({ targetDir: target, projectName: "Open Healthy" })
-    // An explicit past stamp, not the write clock: it makes the no-write claim independent of timestamp resolution.
+    // Backdate first: at coarse mtime resolution a same-tick rewrite is indistinguishable from no write.
     const stamp = new Date(Date.now() - 86_400_000)
     const before = MANAGED.map((rel) => {
       const abs = path.join(target, rel)
@@ -1011,10 +1002,8 @@ describe("renormalizeManagedFiles — the project-open seam (same engine, never 
   })
 })
 
-// One seam serves both call sites: every case here drives the open seam, and the two that can also refuse governance drive `scaffoldProject` too.
 describe("writeManaged — the owner's bytes, their file, and one atomic swap", () => {
   const TEMP_PREFIX = ".vivicy-tmp."
-  // What a lossy decode leaves behind: read as UTF-8, a latin-1 é becomes U+FFFD (EF BF BD) and the owner's line is mutilated for good.
   const REPLACEMENT_CHAR = Buffer.from([0xef, 0xbf, 0xbd])
   const utf16le = (text: string) => Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(text, "utf16le")])
   const REFUSAL =
@@ -1074,7 +1063,6 @@ describe("writeManaged — the owner's bytes, their file, and one atomic swap", 
     expect(notifications[0].message, "one sentence the owner can act on, the file named once").toContain(`.gitignore (${REFUSAL})`)
   })
 
-  // A UTF-32LE file opens on the UTF-16LE mark followed by two zero bytes, so the shorter pattern would send the owner to convert from an encoding their file is not in.
   it("names the encoding it actually found: a UTF-32LE file is not reported as UTF-16LE", () => {
     const target = staleGovernedRoot("open-utf32")
     const abs = path.join(target, ".gitignore")
@@ -1145,7 +1133,6 @@ describe("writeManaged — the owner's bytes, their file, and one atomic swap", 
     )
   })
 
-  // Adjudicated: a link the owner points OUT of the governed root takes its temp with it. Keeping the temp inside the root would make the rename cross filesystems — trading atomicity, the property this whole seam exists for, for an ignore rule Vivicy has no standing to install in someone else's directory. The exposure is one crash window, in a directory the owner chose, under a name that is unmistakably Vivicy's.
   it("a link pointing OUT of the governed root takes its temp with it, rather than trade the atomic rename away", () => {
     const target = governedRoot("open-symlinked-out")
     const elsewhere = path.join(workDir, "dotfiles")
@@ -1165,7 +1152,7 @@ describe("writeManaged — the owner's bytes, their file, and one atomic swap", 
     expect(temps(target), "no temp is ever left in the governed root for a file that does not live there").toEqual([])
   })
 
-  // 0600 is the mode a fresh temp would WIDEN to the umask default; 0664 is the one the umask itself would narrow while creating that temp, so the exact bits have to be set after the write, not asked for during it.
+  // Both modes straddle the umask default a fresh file would land on; a mode equal to it would pass vacuously.
   for (const mode of [0o600, 0o664]) {
     it(`keeps the owner's ${mode.toString(8)} file mode instead of the one a fresh file would land on`, () => {
       const target = staleGovernedRoot(`open-mode-${mode.toString(8)}`)
@@ -1183,7 +1170,6 @@ describe("writeManaged — the owner's bytes, their file, and one atomic swap", 
     const target = staleGovernedRoot("open-temp-blocked")
     const abs = path.join(target, ".gitignore")
     const before = readFileSync(abs)
-    // The exact name the write builds; a directory sitting there is the one way to fail it from the outside, which is also what binds this pin to that name.
     const blocked = path.join(target, `${TEMP_PREFIX}${process.pid}..gitignore`)
     mkdirSync(blocked)
 
@@ -1254,7 +1240,6 @@ describe("writeManaged — the owner's bytes, their file, and one atomic swap", 
     expect(failed?.message).toContain("Fix them and reopen the project to retry.")
   })
 
-  // The consequence cannot be observed after the fact — both orders end with the same three files — so it is pinned where it is decided.
   it("writes .gitignore FIRST, so no other managed file's temp can exist before the rules that keep it out of a commit", () => {
     expect(MANAGED_GOVERNANCE_FILES[0]).toBe(".gitignore")
     expect(new Set(MANAGED_GOVERNANCE_FILES), "and the set itself is unchanged").toEqual(new Set(MANAGED))
@@ -1262,7 +1247,6 @@ describe("writeManaged — the owner's bytes, their file, and one atomic swap", 
 })
 
 describe("a crash-abandoned atomic-write temp is never committable (both writers)", () => {
-  // The shape a SIGKILL between the temp write and the rename leaves behind, at the exact names the write builds — every managed file, since `.gitignore` is written FIRST precisely so the others' temps are already covered.
   function abandonTemps(target: string): string[] {
     return MANAGED_GOVERNANCE_FILES.map((rel) => {
       const temp = `.vivicy-tmp.${process.pid}.${rel}`

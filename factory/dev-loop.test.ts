@@ -1,4 +1,4 @@
-// MUST be the first import: binds VIVICY_TARGET_ROOT before dev-loop.ts binds its target root at module load (see test-target-root.ts for why order matters).
+// MUST be the first import: binds VIVICY_TARGET_ROOT before dev-loop.ts binds its target root at module load.
 import { testTargetRoot as repoRoot } from "./test-target-root.ts"
 import assert from "node:assert/strict"
 import test, { after } from "node:test"
@@ -192,7 +192,7 @@ test("DEFAULT_CONFIG pins the latest models with the documented default thinking
   assert.equal(DEFAULT_CONFIG.reviewer.effort, "high")
 })
 
-// The seam passes several `-c key=value` pairs (the isolation set plus the effort), so the effort is asserted over ALL of them — never by the position of the first `-c`.
+// The effort must be asserted over ALL the `-c key=value` pairs, never by the position of the first `-c`: the seam also passes the isolation set.
 function codexConfigValues(argv: string[]): string[] {
   return argv.filter((arg, index) => index > 0 && argv[index - 1] === "-c")
 }
@@ -638,7 +638,6 @@ test("GATE-COMMAND: while the sentinel stands, the implementer/reviewer prompt c
   }
 })
 
-// The last mile of every injected directive: the prompt declares a slot, `legDeps` fills it, and a key missing from that ONE object literal reaches the leg as the literal `{{name}}` while the orchestrator believes it spoke. One assertion covers all of them, present and future.
 test("DIRECTIVE WIRING: legDeps fills every slot the implementer and reviewer prompts declare — no leg ever receives a literal placeholder", () => {
   const dir = mkdtempSync(resolve(repoRoot, "_tmp-directive-wiring-"))
   try {
@@ -654,7 +653,6 @@ test("DIRECTIVE WIRING: legDeps fills every slot the implementer and reviewer pr
   }
 })
 
-// Which TREE the correction describes is the whole of its honesty: a per-issue worktree is cut from HEAD, so the orchestrator's own root can hold a drift that leg will never read — and the reverse. Two declarations, one per root, is what tells the derivation apart from a convenient `requireRepoRoot()`.
 test("DIRECTIVE WIRING: the absent-skills correction is derived from the leg's OWN exec root, never the orchestrator's target root", () => {
   const worktree = mkdtempSync(resolve(repoRoot, "_tmp-exec-root-"))
   const mainConfig = resolve(repoRoot, "vivicy.json")
@@ -739,7 +737,6 @@ test("a tracked issue's transcript home is the orchestrator's to name: an index-
   try {
     writeFileSync(resolve(dir, "vivicy.json"), JSON.stringify({ gateCommand: "npm test", runCommand: "npm run dev" }))
     const scratchCfg = { execRoot: dir, transcriptsDir: DEFAULT_CONFIG.transcriptsDir } as unknown as Config
-    // The issue index is agent-written, so a rogue transcript_dir reaches the loop as data; legIssue's spread order is what disarms it.
     for (const rogue of [TRANSCRIPT_DIRS.extraction, "../../../etc", "ISSUES/ISSUE-0002"]) {
       const directive = visualReviewDirective(scratchCfg, { id: "ISSUE-0001", transcript_dir: rogue } as unknown as Issue)
       assert.match(
@@ -2242,7 +2239,6 @@ test("PROOFS (parallel): the worktree path shares the same presence seam, and a 
     const producingImplementer = async (issue: Issue, legCfg?: Config) => {
       const result = await steps.runImplementer(issue, legCfg)
       if (issue.id === "ISSUE-C") {
-        // The durable home is main-root anchored on purpose: a worktree-local write would die with the worktree.
         const home = resolve(repoRoot, cfg.proofsDir, issue.id, "cli-report")
         mkdirSync(home, { recursive: true })
         writeFileSync(resolve(home, "observed.log"), "real run output\n")
@@ -2282,7 +2278,6 @@ test("commitDoneMove lands EVERY per-issue checkpoint commit even when a lazily-
     { id: "ISSUE-A", depends_on: [], graph_refs: ["node:a"] },
     { id: "ISSUE-B", depends_on: [], graph_refs: ["node:b"] },
   ]
-  // No issue declares a proof here on purpose: proofsDir is never created, which is exactly the shape that silently killed every done-move commit.
   const { dir, scratchRel, cfg } = buildParallelScratch({ issues })
   const timeline: TimelineEntry[] = []
   try {
@@ -2300,7 +2295,7 @@ test("commitDoneMove lands EVERY per-issue checkpoint commit even when a lazily-
         `${id}'s done-move checkpoint actually landed as a commit`
       )
     }
-    // Scoped to the paths the checkpoint owns: the transient integration lock is gitignored in a real target but not in this in-repo scratch.
+    // Keep this status check scoped to the checkpoint's own paths: the transient integration lock is gitignored in a real target but not in this in-repo scratch.
     const checkpointPaths = [cfg.issuesDir, cfg.doneDir, cfg.issueIndexPath, cfg.progressLedgerPath]
     const dirty = (
       spawnSync("git", ["status", "--porcelain", "--", ...checkpointPaths], { cwd: repoRoot, encoding: "utf8" }).stdout ?? ""
@@ -2323,7 +2318,7 @@ test("CHECKPOINT: a failed done-move commit is CONSUMED — the issue still comp
   const captured: string[] = []
   const realWrite = process.stderr.write.bind(process.stderr)
   try {
-    // A nested .gitignore makes one staged path un-addable (`git add` exits 1 on an explicitly named ignored path) while a file another tool already staged means a bare `git commit` would still SUCCEED — so this isolates the add-status check from the commit-status check.
+    // Both halves are the discriminator: the nested .gitignore makes one staged path un-addable, and another tool's already-staged file keeps a bare `git commit` succeeding — drop either and the add-status check is no longer isolated from the commit-status one.
     writeFileSync(resolve(repoRoot, scratchRel, ".gitignore"), "reports/\n")
     mkdirSync(resolve(repoRoot, cfg.reportsDir), { recursive: true })
     writeFileSync(resolve(repoRoot, cfg.reportsDir, "quota-state.json"), "{}\n")
@@ -2629,7 +2624,7 @@ test("the implementer and reviewer prompts pin the frozen-corpus read-only scope
   }
 })
 
-test("the implementer and reviewer prompts carry the public-API quality bar (the two audit-defect levers)", () => {
+test("the implementer and reviewer prompts carry the public-API quality bar (end-to-end public-path test, type-fuzz, no side-channel, no dead export)", () => {
   const read = (name: string) => readFileSync(fileURLToPath(new URL(`./prompts/${name}`, import.meta.url)), "utf8")
   for (const name of ["implementer.md", "reviewer.md"]) {
     const text = read(name)
@@ -2652,7 +2647,7 @@ test("the implementer and reviewer prompts carry the public-API quality bar (the
   }
 })
 
-test("the extraction-fidelity verifier prompt enforces cross-document consistency (defect #1's root cause)", () => {
+test("the extraction-fidelity verifier prompt enforces cross-document consistency", () => {
   const text = readFileSync(fileURLToPath(new URL(`./prompts/extraction-verifier.md`, import.meta.url)), "utf8")
   assert.match(text, /cross-document consistency/i, "verifier prompt has a cross-document consistency check")
   assert.match(text, /contradict/i, "verifier prompt flags self-contradiction across docs")
@@ -3455,7 +3450,6 @@ test("SKILL USAGE (parallel): the declaration and the installed set are read fro
   rmSync(mainDeclaration, { force: true })
   const worktreeRoots: string[] = []
   try {
-    // Both files exist ONLY in the worktree: reading them from the main root instead finds neither, so the issue never reaches the usage record at all.
     const declaringInWorktree =
       (role: string, ids: string[]) =>
       async (issue: Issue, c?: Config): Promise<{ output: string; result: { status: number } }> => {

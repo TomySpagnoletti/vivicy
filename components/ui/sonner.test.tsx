@@ -32,7 +32,6 @@ describe("Toaster mount", () => {
     expect(style).toContain("--vivicy-panel-width: 24rem")
     expect(style).toContain("translate: calc(var(--vivicy-rail) * -0.5)")
     expect(style).toContain("--width: min(356px, calc(100vw - var(--vivicy-rail) - 6rem))")
-    // The rail is only docked at >= md; below it the shift resolves to zero and sonner's own mobile layout stands.
     expect(el.className).toContain("[--vivicy-rail:0px]")
     expect(el.className).toContain("md:[--vivicy-rail:var(--vivicy-panel-width)]")
   })

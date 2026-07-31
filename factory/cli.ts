@@ -9,11 +9,9 @@ import { getProjectRuntimeDir } from "../lib/project-runtime.ts"
 import { clearSpecCycle, featureCycleOpenRefusal, isSpecCycleOpen, readSpecCycle, writeSpecCycle } from "../lib/spec-cycle.ts"
 import { SKILLS_LOCK_FILE, stageLockHolder } from "../lib/stage-lock.ts"
 
-// cli.ts and lib/control.ts must not import each other — parity comes from both spawning the same factory scripts and reading the same state files, never shared code.
 const cliDir = dirname(fileURLToPath(import.meta.url))
 const appDir = resolve(cliDir, "..")
 
-// Keep symmetric with lib/control.ts's getFactoryRoot — same default/override on both clients.
 function factoryRootDir() {
   const fromEnv = process.env.VIVICY_FACTORY_ROOT
   if (fromEnv && fromEnv.trim().length > 0) return resolve(fromEnv)
@@ -38,13 +36,11 @@ const CR_APPLY_SCRIPT = "cr-apply.ts"
 const SKILLS_SCRIPT = "install-skills.ts"
 const PREPARE_SCRIPT = "prepare-docs.ts"
 
-// Repo-relative state files the app reads too — the CLI reads the SAME ones.
 const EXTRACTION_STATUS_REL = ".vivicy/development/reports/extraction-status.json"
 const SKILLS_REPORT_REL = ".vivicy/development/reports/skills-report.json"
 const DOC_PREP_REPORT_REL = ".vivicy/development/reports/doc-prep-report.json"
 const CHANGE_REQUESTS_DIR = ".vivicy/change-requests"
 const REPORTS_DIR = ".vivicy/development/reports"
-// Notification log format: NDJSON, one { ts, level, stage, event, message, dismissed? } per line; a missing/empty file reads as [] (never an error).
 const NOTIFICATIONS_REL = "notifications.jsonl"
 const NON_CR_FILES = new Set(["cr-template.md", "readme.md"])
 
@@ -85,7 +81,6 @@ interface VivicyError extends Error {
   vivicyCode?: number
 }
 
-// byte-compatible with lib/control.ts's RunState — cross-process lock reads depend on this shape.
 interface RunState {
   pid: number
   started_at?: string
@@ -119,7 +114,6 @@ interface ExtractionStatus {
   summary?: string
 }
 
-// Schema of record is install-skills.ts's writer — this is a partial read-only projection.
 interface SkillsReport {
   phase?: string
   mode?: string
@@ -130,7 +124,6 @@ interface SkillsReport {
   updated_at?: string
 }
 
-// Schema of record is prepare-docs.ts's writer — this is a partial read-only projection.
 interface DocPrepReport {
   phase?: string
   cycle_id?: string | null
@@ -197,7 +190,7 @@ function fail(json: boolean, code: number, message: string, extra: Record<string
   process.exit(code)
 }
 
-// Deliberately not process.cwd() — vivicy may run from anywhere; this default must equal the app's getRuntimeDir() default (both anchor to the package root) so a CLI run and the UI agree on one lock.
+// Never process.cwd(): this default must equal the app's getRuntimeDir() default, or a CLI run and the UI fork the lock.
 function runtimeDir(opts: Opts = {}): string {
   if (opts.runtimeDir) return resolve(opts.runtimeDir)
   const fromEnv = process.env.VIVICY_RUNTIME_DIR
@@ -227,7 +220,6 @@ function readRunState(opts: Opts, target: string): RunState | null {
   }
 }
 
-// Signal 0 probes existence without sending an actual signal (POSIX idiom).
 function isAlive(pid: unknown): boolean {
   if (typeof pid !== "number") return false
   try {
@@ -238,7 +230,6 @@ function isAlive(pid: unknown): boolean {
   }
 }
 
-// Mirrors lib/control.ts's isRunActive — keep both in sync.
 function isRunActive(opts: Opts, target: string): boolean {
   const state = readRunState(opts, target)
   if (!state) return false
@@ -247,7 +238,6 @@ function isRunActive(opts: Opts, target: string): boolean {
   return false
 }
 
-// Target is env/flag only, by design — never the persisted UI project (.vivicy-runtime/current-project.json), or a CLI run could silently act on whatever project the UI last picked.
 function resolveTarget(argv: string[]): string | null {
   const flag = takeFlag(argv, "--dir") ?? takeFlag(argv, "--target")
   if (flag && flag.trim().length > 0) return resolve(flag)
@@ -267,11 +257,11 @@ function scriptPath(name: string): string {
 }
 
 function childEnv(target: string, opts: Opts = {}): NodeJS.ProcessEnv {
-  // Matches lib/control.ts's devEnv — VIVICY_RUNTIME_DIR is project-scoped, not root.
+  // VIVICY_RUNTIME_DIR must be the PROJECT-scoped dir here, exactly as lib/control.ts's devEnv sets it.
   return { ...process.env, VIVICY_TARGET_ROOT: target, VIVICY_RUNTIME_DIR: projectDir(opts, target) }
 }
 
-// Streams child output to OUR stderr only (stdout stays reserved for the final --json object). Factory CLIs may print their JSON result on stdout OR stderr (e.g. change-control's decide errors go to stderr), so callers must parse both.
+// Never relay child output to stdout — it is reserved for the final --json object; a child prints its own JSON on stdout OR stderr, so parse both.
 function runScript(command: string, args: string[], { cwd, env }: { cwd?: string; env?: NodeJS.ProcessEnv } = {}): Promise<ScriptResult> {
   return new Promise((res) => {
     const child = spawn(command, args, {
@@ -304,7 +294,7 @@ function readJsonFile<T>(file: string, fallback: T | null = null): T | null {
   }
 }
 
-// Mirrors lib/control.ts's parseJsonLine exactly — keep both in sync.
+// Hand-synced twin of lib/control.ts's parseJsonLine, no shared import — edit together.
 function parseJsonLine(text: string): Record<string, unknown> | null {
   for (const line of String(text).split("\n")) {
     const trimmed = line.trim()
@@ -328,7 +318,6 @@ function parseJsonBlock(text: string): Record<string, unknown> | null {
   }
 }
 
-// Mirrors lib/control.ts's parseFrontmatter and change-control.ts's parser — keep all three in sync.
 function parseFrontmatter(text: string): Record<string, string> {
   const m = text.match(/^---\r?\n([\s\S]*?)\r?\n---/)
   if (!m) return {}
@@ -376,7 +365,6 @@ async function cmdStatus(argv: string[], opts: Opts): Promise<void> {
       }
     : null
 
-  // Best-effort: an unreadable dev-status degrades to dev: null rather than failing the whole merged view — the lock, extraction, and CR sources are still worth returning.
   let devStatus = null
   try {
     const dev = await runScript(process.execPath, [scriptPath(STATUS_SCRIPT), "--dir", target, "--json"], {
@@ -548,7 +536,6 @@ function startSupervisor(argv: string[], opts: Opts, mode: string): void {
   mkdirSync(projectDir(opts, target), { recursive: true })
   const logFile = logPath(opts, target)
 
-  // Claims the lock (wx exclusive, placeholder pid = ours) BEFORE spawning to close the check-then-spawn TOCTOU window — mirrors lib/control.ts's claimRunLock; a lost race (EEXIST) is a refusal.
   const placeholder = {
     pid: process.pid,
     started_at: new Date().toISOString(),
@@ -608,7 +595,6 @@ function cmdStop(argv: string[], opts: Opts): void {
   if (!state) {
     return fail(json, EXIT_REFUSAL, "no supervised run is recorded", { code: "not_running" })
   }
-  // Negative pid kills the whole process group (so the supervisor's relaunched children die too), falling back to the single pid; same teardown as lib/control.ts stopSupervisor.
   killGroup(state.pid)
   rmSync(runStatePath(opts, target), { force: true })
   note(`vivicy: stopped supervised run pid ${state.pid}`)
@@ -683,7 +669,7 @@ async function cmdCr(argv: string[], opts: Opts): Promise<void> {
 
   const decisionWord = decision === "approve" ? "approved" : "rejected"
 
-  // change-control.ts reads VIVICY_TARGET_ROOT only (no --dir) — target must ride the env.
+  // change-control.ts reads VIVICY_TARGET_ROOT only (no --dir) — the target must ride the env.
   note(`vivicy: recording decision ${decisionWord} on ${id} (by ${by})…`)
   const decideRes = await runScript(
     process.execPath,
@@ -735,7 +721,6 @@ async function cmdCr(argv: string[], opts: Opts): Promise<void> {
   process.exit(applied.ok ? EXIT_OK : EXIT_REFUSAL)
 }
 
-// Codes must match lib/control.ts's equivalent classifier — same machine-readable reasons on both clients.
 function classifyDecisionCode(message: string): string {
   if (/no CR with id/i.test(message)) return "unknown_cr"
   if (/can be decided|no frozen baseline/i.test(message)) return "cr_not_decidable"
@@ -904,12 +889,10 @@ async function cmdPrepareRun(argv: string[], opts: Opts = {}): Promise<void> {
   process.exit(ok ? EXIT_OK : EXIT_REFUSAL)
 }
 
-// The skills stage claims its own lock (factory/install-skills.ts, where the writes are); the CLI only probes it, so a stage already running under the app or the supervisor is an immediate typed refusal here instead of a spawned child that refuses.
 function skillsStageInFlight(opts: Opts, target: string): boolean {
   return stageLockHolder(projectDir(opts, target), SKILLS_LOCK_FILE, isAlive) !== null
 }
 
-// Byte-compatible with lib/control.ts's per-stage lock — both clients write the same shape into the same project runtime dir, so a live stage from either one refuses the other (no cross-client double-spawn).
 function claimCliLock(opts: Opts, target: string, lockFileName: string): (() => void) | null {
   const file = join(projectDir(opts, target), lockFileName)
   mkdirSync(projectDir(opts, target), { recursive: true })
@@ -975,11 +958,11 @@ async function cmdSkillsRemove(argv: string[], opts: Opts = {}): Promise<void> {
   process.exit(ok ? EXIT_OK : EXIT_REFUSAL)
 }
 
-// Only prepare/extract/skills/dev are retryable — map generation lives inside extraction, so there's no standalone map stage; POST /api/control/retry-stage must dispatch the same set.
+// POST /api/control/retry-stage must dispatch this same set.
 const RETRYABLE_STAGES: Record<string, string> = { prepare: "prepare", extract: "extract", skills: "skills", dev: "resume" }
 
 async function cmdRetryStage(argv: string[], opts: Opts): Promise<void> {
-  const json = argv.includes("--json") // peek only — the dispatched sub-verb consumes it via its own takeBool
+  const json = argv.includes("--json") // peek only: the dispatched sub-verb consumes --json with its own takeBool
   const stage = argv[0] && !argv[0].startsWith("--") ? argv.shift() : null
   const action = stage ? RETRYABLE_STAGES[stage] : undefined
   if (!action) {
@@ -994,7 +977,7 @@ async function cmdRetryStage(argv: string[], opts: Opts): Promise<void> {
   return startSupervisor(argv, opts, "resume")
 }
 
-// Extraction closes cycles — never this dispatcher (no "close" action exists here by design).
+// Extraction closes cycles — never add a close action here.
 async function cmdCycle(argv: string[], opts: Opts): Promise<void> {
   const action = argv.shift()
   const json = takeBool(argv, "--json")

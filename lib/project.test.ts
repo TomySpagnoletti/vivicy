@@ -13,14 +13,12 @@ import {
   setCurrentProject,
 } from "@/lib/project"
 
-// The store writes under <cwd>/.vivicy-runtime; tests chdir into a temp cwd to avoid touching the real runtime dir.
 let tmpCwd: string
 let projectDir: string
 let prevCwd: string
 
 beforeEach(() => {
   tmpCwd = mkdtempSync(path.join(tmpdir(), "vivicy-project-cwd-"))
-  // realpath'd: describeProject canonicalizes its result and macOS tmpdir is symlinked, so tests must compare the same resolved spelling.
   projectDir = realpathSync(mkdtempSync(path.join(tmpdir(), "vivicy-project-target-")))
   prevCwd = process.cwd()
   process.chdir(tmpCwd)

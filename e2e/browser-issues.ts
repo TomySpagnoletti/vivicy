@@ -18,7 +18,7 @@ export type BrowserIssue = {
   stack?: string
 }
 
-// Consumed by the browser-issues Playwright reporter, which aggregates it across the run and applies the allowlist — keep the name in sync.
+// Hand-duplicated in e2e/reporters/browser-issues-reporter.ts, which reads the attachment by this name — edit together.
 export const ISSUE_ATTACHMENT_NAME = "browser-issues"
 
 function toNumber(value: unknown): number | undefined {
@@ -53,7 +53,6 @@ function isNavigationAbort(errorText: string) {
   return /ERR_ABORTED|NS_BINDING_ABORTED|NS_ERROR_ABORT|NS_BASE_STREAM_CLOSED|cancelled|canceled/i.test(errorText)
 }
 
-// WebKit fires pageerror for mid-navigation RSC fetch aborts that Next's router already recovers from — not a real failure.
 function isKnownWebKitRscAbort(error: Error) {
   return /Fetch API cannot load[\s\S]*[?&]_rsc=[\s\S]*due to access control checks/i.test(error.message)
 }

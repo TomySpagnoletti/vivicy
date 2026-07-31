@@ -30,7 +30,7 @@ export async function POST(request: Request) {
       optionIndex: typeof body.optionIndex === "number" ? body.optionIndex : undefined,
       other: typeof body.other === "string" ? body.other : undefined,
     })
-    // 409, not 422: a second answer to a card that already carries its line is a lost race, not a bad request — the client resyncs from the thread instead of alarming the owner.
+    // A replayed answer stays 409, never 422: components/chat/question-stack.tsx resyncs on it instead of surfacing an error.
     return Response.json(result, { status: result.ok ? 200 : 409 })
   } catch (error) {
     if (error instanceof ControlError) {

@@ -50,12 +50,11 @@ export function SectionSkills() {
         setUsage(body.usage ?? null)
       }
     } catch {
-      // Best-effort: keep the last known report.
+      // Never clear the last known report on a failed poll.
     }
   }, [])
 
   useEffect(() => {
-    // eslint false positive: load() only setStates after an awaited fetch resolves, never synchronously in the effect body.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     void load()
     const timer = setInterval(() => void load(), POLL_INTERVAL_MS)
@@ -102,7 +101,6 @@ export function SectionSkills() {
         <span className="text-muted-foreground">
           {inFlight ? t("stageInProgress", { phase: report?.phase ?? "" }) : (report?.summary ?? "")}
         </span>
-        {/* aria-disabled + a guarded open, never native `disabled`: AlertDialog returns focus to its trigger on close, and a natively-disabled trigger cannot receive it — confirming a run disables this very button, so focus would drop to <body> every time. */}
         <AlertDialog open={confirmOpen} onOpenChange={(next) => setConfirmOpen(next && !busy)}>
           <AlertDialogTrigger asChild>
             <Button variant="outline" size="sm" aria-disabled={busy} className={cn("shrink-0", busy && "opacity-60")}>

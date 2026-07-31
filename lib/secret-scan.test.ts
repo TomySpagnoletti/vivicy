@@ -11,7 +11,7 @@ import {
   type SecretConfidence,
 } from "@/lib/secret-scan"
 
-// Fixtures are assembled at runtime from fragments so no contiguous provider-key literal ever sits in this source file: the detector receives the joined string, while push-protection scanners find nothing to flag.
+// Never inline a contiguous provider-key literal here: push-protection scanners flag the source file itself.
 const frag = (...parts: string[]): string => parts.join("")
 
 const AWS_KEY = frag("AKIA", "ZQ3RTVWX7YB2NM5P")

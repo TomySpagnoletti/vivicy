@@ -2,7 +2,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import type { DirListing } from "@/lib/project-types"
 
-// listDirectories/getDefaultBrowseRoot are mocked; FsBrowseError stays real so the route's instanceof check still matches.
 const { listDirectories, getDefaultBrowseRoot } = vi.hoisted(() => ({
   listDirectories: vi.fn(),
   getDefaultBrowseRoot: vi.fn(),

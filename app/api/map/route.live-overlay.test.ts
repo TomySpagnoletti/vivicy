@@ -4,7 +4,6 @@ import { dirname, join } from "node:path"
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
-// No module mocks: this exercises the real route + real lib code.
 import { GET } from "./route"
 
 const ARCH_REL = ".vivicy/architecture-map/architecture-data.json"
@@ -89,12 +88,11 @@ async function getMapBody(): Promise<{
 
 beforeEach(() => {
   root = mkdtempSync(join(tmpdir(), "vivicy-overlay-"))
-  // A usable target needs a .vivicy/canonical/ dir (isTargetResolved) and the static map.
   mkdirSync(join(root, ".vivicy", "canonical"), { recursive: true })
   writeJson(ARCH_REL, STATIC_MAP)
   originalEnv = process.env.VIVICY_TARGET_ROOT
   process.env.VIVICY_TARGET_ROOT = root
-  // Persisted current-project.json beats VIVICY_TARGET_ROOT in getTargetRoot; VIVICY_RUNTIME_DIR points at the empty temp root so this stays hermetic.
+  // A persisted current-project.json outranks VIVICY_TARGET_ROOT in getTargetRoot — never drop this VIVICY_RUNTIME_DIR override.
   originalRuntimeDir = process.env.VIVICY_RUNTIME_DIR
   process.env.VIVICY_RUNTIME_DIR = root
   vi.resetModules()

@@ -39,7 +39,6 @@ export async function runViviTurn(options: ViviTurnOptions = {}): Promise<{ repl
     effort: CLI_DEFAULTS.claude.effort,
     fast: false,
   }
-  // Re-roled to "vivi" so the transcript is named for the persona and its bundled prompt resolves.
   const leg: AgentLeg = { ...implementer, role: "vivi" }
 
   const spawnVivi = options.spawnVivi ?? defaultSpawnVivi
@@ -92,9 +91,7 @@ if (cliEntry === fileURLToPath(import.meta.url)) {
       try {
         mkdirSync(dirname(replyFile), { recursive: true })
         writeFileSync(replyFile, `Vivi hit an error this turn: ${message}`)
-      } catch {
-        // best-effort
-      }
+      } catch {}
       console.error(`error: ${message}`)
       process.exit(1)
     })

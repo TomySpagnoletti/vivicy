@@ -13,13 +13,12 @@ const eslintConfig = defineConfig([
     "next-env.d.ts",
     "**/.claude/**",
     "**/.vivicy-worktrees/**",
-    // Per-server dist dirs (VIVICY_DIST_DIR) for parallel E2E dev servers — generated, not source.
+    // Per-server E2E dist dirs (playwright.config's VIVICY_DIST_DIR): Next generates .ts under each, which the gate would lint.
     ".next-e2e-*/**",
-    // Regenerated on every rehearsal run — artifacts, not source.
     "factory/rehearsal/reports/**",
   ]),
   {
-    // Standalone Node ESM tooling with its own tsconfig/tests; must not be linted as React/Next — factory/ gets only the repo-wide comment-density cap below.
+    // Never lint factory/ as React/Next: it is standalone Node ESM tooling with its own tsconfig, and takes only the comment-density cap below.
     files: ["**/*.{ts,tsx,mjs,mts}"],
     ignores: ["factory/**"],
     extends: [nextVitals, nextTs],
@@ -27,7 +26,7 @@ const eslintConfig = defineConfig([
   {
     files: ["e2e/**"],
     rules: {
-      // Playwright's own use() (test-scoped provisioning) is misread as the React `use` hook by this rule.
+      // This rule misreads Playwright's own use() (test-scoped provisioning) as the React `use` hook.
       "react-hooks/rules-of-hooks": "off",
     },
   },

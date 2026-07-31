@@ -7,10 +7,10 @@ import { getTargetRoot } from "@/lib/target"
 
 const NOTIFICATIONS_FILE = "notifications.jsonl"
 
-// The four levels are a wire contract: components/chat/vivi-notifications.tsx maps each to an icon and decides actionability from it, and factory/notify.ts declares the same union for the factory-side writer.
+// factory/notify.ts declares the same union for the factory-side writer — edit together.
 export type NotificationLevel = "info" | "success" | "warning" | "error"
 
-// Wire contract shared with factory/cli.ts's `vivicy notifications` CLI (newline-delimited JSON at getNotificationsPath()); id is the unique key, ts may collide across concurrent writers and is display-only.
+// Cross-process wire contract with factory/cli.ts (newline-delimited JSON): id is the unique key, ts may collide across writers and is display-only.
 export interface Notification {
   id: string
   ts: string
@@ -48,7 +48,6 @@ export function readNotifications(): Notification[] {
   return out
 }
 
-// id = pid+ms+counter (base36): pid separates processes, ms separates a process's lifetimes, counter separates same-ms calls within one process.
 let seq = 0
 
 function nextId(): string {
@@ -56,7 +55,7 @@ function nextId(): string {
   return `${process.pid.toString(36)}-${Date.now().toString(36)}-${seq.toString(36)}`
 }
 
-// A single appendFileSync call is atomic for one line on POSIX (O_APPEND) and Windows alike — this is what keeps concurrent appenders from interleaving or corrupting each other's line.
+// One appendFileSync per line, never an open+write pair: only the single call is atomic against concurrent appenders.
 export function appendNotification(input: NotificationInput): Notification {
   const notification: Notification = { id: nextId(), ts: new Date().toISOString(), ...input }
   const file = getNotificationsPath()

@@ -15,7 +15,6 @@ const NEXT: Record<PanelState, { Icon: typeof PanelRightOpen; labelKey: "openPan
   closed: { Icon: PanelRightClose, labelKey: "closePanel" },
 }
 
-// Below `md` the Sidebar is an off-canvas Sheet with its own `openMobile` state (desktop panel is `hidden` there), so this drives `toggleSidebar()` instead of the desktop width-cycle's `onCycle`.
 export function PanelToggle({
   next,
   open,

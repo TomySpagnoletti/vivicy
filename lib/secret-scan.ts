@@ -72,7 +72,7 @@ export function shannonEntropy(value: string): number {
   return entropy
 }
 
-// Redaction is the hard security invariant of this module: an emitted excerpt is at most the token's first REDACT_HEAD characters (its shape signal) and NEVER the whole token, so the secret value can never reappear in a finding, notification, report, or refusal string.
+// Security invariant: an emitted excerpt is at most the token's first REDACT_HEAD characters, never the whole token.
 export function redactSecret(raw: string): string {
   const head = raw.slice(0, Math.max(1, Math.min(REDACT_HEAD, raw.length - 1)))
   return `${head}…`
@@ -82,7 +82,7 @@ export function describeFinding(finding: SecretFinding): string {
   return `line ${finding.line}: ${finding.detector} (${finding.confidence}, ${finding.redacted} ×${finding.length})`
 }
 
-// Judge the TOKEN, never the surrounding line: a full-length real-shaped key is a leak whatever the prose around it says, so "example"/"sample"/"fake" in the sentence must never suppress a genuine credential.
+// Judge the TOKEN, never the surrounding line: prose saying "example" must never suppress a real credential.
 function looksLikePlaceholder(token: string): boolean {
   if (PLACEHOLDER_RE.test(token)) return true
   if (/(.)\1{5,}/.test(token)) return true

@@ -79,7 +79,6 @@ const MANIFEST_REL = `.vivicy/baselines/${BASELINE_ID}.json`
 const factoryScript = (name: string): string => join(factoryDir, name)
 
 const stages: Stage[] = []
-// A run that dies mid-stage keeps its workspace, exactly like a failed one — the crash report is where its path gets named.
 let liveTempRepo: string | null = null
 function record(name: string, ok: boolean, detail = ""): void {
   stages.push({ name, ok, detail })
@@ -95,11 +94,9 @@ function lastLine(result: SpawnSyncReturns<string>): string {
 function readJson<T = unknown>(path: string): T {
   return JSON.parse(readFileSync(path, "utf8")) as T
 }
-// One prefix for every tree the rehearsal creates, so a leftover announced by cleanupTree is greppable in the OS temp dir.
 function rehearsalTemp(scenario?: string): string {
   return mkdtempSync(join(tmpdir(), `vivicy-rehearsal-${scenario ? `${scenario}-` : ""}`))
 }
-// A fixture is a bundled target project; the marker file is what makes one, so the list never goes stale.
 function availableFixtures(): string[] {
   return readdirSync(FACTORY_REHEARSAL_DIR, { withFileTypes: true })
     .filter((entry) => entry.isDirectory() && existsSync(join(FACTORY_REHEARSAL_DIR, entry.name, "vivicy.json")))
@@ -107,7 +104,6 @@ function availableFixtures(): string[] {
     .sort()
 }
 
-// The fixtures ship gateCommand + runCommand as the `null` sentinel; the dry implementer establishes both on the stack-setup issue exactly as a real one would, exercising the machine-fill path.
 const FIXTURE_GATE_COMMAND = "npm test"
 const FIXTURE_RUN_COMMAND = "npm run dev"
 
@@ -137,7 +133,7 @@ function establishSentinelCommands(root: string): void {
   fillCommandFieldIfSentinel(root, "runCommand", FIXTURE_RUN_COMMAND)
 }
 
-// The dry implementer withholds a declared proof on its FIRST attempt, so the rehearsal exercises the orchestrator's refusal AND its bounded remediation on the next one.
+// The first attempt withholds the proof deliberately — never make the dry implementer always produce it.
 const implementerAttempts = new Map<string, number>()
 
 function produceDeclaredProofs(temp: string, issue: LegIssue): void {
@@ -153,7 +149,7 @@ function produceDeclaredProofs(temp: string, issue: LegIssue): void {
   }
 }
 
-// runIssueCycle (sequential) calls legs synchronously; runIssueCycleAsync (parallel) awaits them — dry legs must match or the sequential path breaks.
+// These two must stay SYNCHRONOUS: runIssueCycle calls legs synchronously, only the parallel path awaits.
 function dryImplementer(temp: string) {
   return (issue: LegIssue) => {
     establishSentinelCommands(temp)
@@ -169,7 +165,7 @@ function dryImplementerParallel(temp: string) {
     await delay(15)
     if (cfg?.execRoot) writeWorktreeMarker(cfg.execRoot, issue, "implementer")
     establishSentinelCommands(cfg?.execRoot ?? temp)
-    // Proofs go to the MAIN root, never the worktree: the evidence home must survive the worktree's removal.
+    // The MAIN root here, never cfg.execRoot: the evidence home must survive the worktree's removal.
     produceDeclaredProofs(temp, issue)
     return writeFakeTranscript(temp, issueTranscriptDir(issue.id), "claude-implementer")
   }
@@ -184,7 +180,6 @@ function dryReviewerParallel(temp: string) {
 function delay(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms))
 }
-// Filename keyed by issue.id so parallel worktree branches never collide on merge.
 function writeWorktreeMarker(execRoot: string, issue: LegIssue, who: string): void {
   const dir = join(execRoot, "src", "generated")
   mkdirSync(dir, { recursive: true })
@@ -214,7 +209,7 @@ async function main(): Promise<void> {
   const keep = process.env.REHEARSAL_KEEP === "1"
   const fixedDir = process.env.REHEARSAL_DIR ? resolve(process.env.REHEARSAL_DIR) : null
 
-  // Refused before a temp tree exists: a mistyped --fixture= must not leave an abandoned workspace behind.
+  // Refuse before any temp tree exists, or a mistyped --fixture= leaves an abandoned workspace.
   if (!existsSync(fixtureDir)) {
     process.stderr.write(`dev-rehearsal: no fixture "${fixtureName}" at ${fixtureDir} — available: ${availableFixtures().join(", ")}\n`)
     process.exit(1)
@@ -271,7 +266,6 @@ async function main(): Promise<void> {
     `${preData?.development?.issues?.length ?? 0} issue(s)`
   )
 
-  // git add -A is safe here only because .gitignore excludes transcripts/runtime/worktrees/node_modules.
   git(["add", "-A"], temp)
   git(["-c", "user.email=rehearsal@local", "-c", "user.name=rehearsal", "commit", "-qm", "extraction: author corpus + map"], temp)
   const corpusClean = (git(["status", "--porcelain"], temp).stdout || "").trim() === ""
@@ -304,8 +298,6 @@ async function main(): Promise<void> {
   const preLoopRunCommand = readCommandField(temp, "runCommand")
   let processed: ProcessedIssue[] = []
   try {
-    // No defaultGateCommand: exercises the real polyglot-gate resolution from the fixture's own vivicy.json.
-    // readiness: false — dry legs don't implement a readiness leg; keeps the rehearsal deterministic.
     processed = await devloop.runLoop({ maxParallel: concurrency, readiness: false }, steps)
   } catch (error) {
     record("dev-loop two-agent run", false, String((error as Error)?.message ?? error))
@@ -343,7 +335,7 @@ async function main(): Promise<void> {
   const verified = processed.filter((p) => p.status === "verified").map((p) => p.id)
   const blocked = processed.filter((p) => p.status === "blocked").map((p) => p.id)
   const totalIssues = preData?.development?.issues?.length ?? 0
-  // doneCount counts done/ (not processed.length): a resumed run only processes the unfinished remainder.
+  // Count done/ on disk, never processed.length: a resumed run only processes the unfinished remainder.
   const doneDir = join(temp, ".vivicy/development/issues/done")
   const doneCount = existsSync(doneDir) ? readdirSync(doneDir).filter((f) => f.endsWith(".md")).length : 0
   record(
@@ -396,7 +388,7 @@ async function main(): Promise<void> {
     proofDirs.length === new Set(artifactProofs.map((p) => p.issue)).size,
     `${artifactProofs.length} artifact proof(s) in ${proofDirs.length} issue dir(s); ${declaredProofs.length - artifactProofs.length} gate-witnessed, zero ritual artifacts`
   )
-  // No vacuous PASS: a fixture whose every obligation is gate-witnessed cannot exercise the withhold-then-produce path, so the stage is not recorded at all rather than reported green.
+  // Never record this stage vacuously: a fixture with no artifact proof cannot exercise the withhold-then-produce path.
   if (artifactProofs.length > 0) {
     const refused = [...implementerAttempts.entries()].filter(([, attempts]) => attempts > 1).map(([id]) => id)
     record(
@@ -449,7 +441,6 @@ async function main(): Promise<void> {
     transcriptsOnDisk && transcriptsCommitted.length === 0,
     `${transcriptsCommitted.length} transcript(s) committed (must be 0); on disk: ${transcriptsOnDisk}`
   )
-  // Read both halves back out of git HEAD, never the working tree: the claim is that what makes a proof replayable survives in history.
   const trackedUnderProofs = [...tracked].filter((p) => p.startsWith(`${PROOFS_DIR}/`))
   const committedArtifacts = trackedUnderProofs.filter((p) => !p.endsWith(`/${PROOF_RECIPE_FILE}`))
   const recipesInHead = artifactProofs.filter(
@@ -524,7 +515,7 @@ function readJsonFromHead(temp: string, relPath: string): unknown {
   }
 }
 
-// Mirrors the /api/map route's read-time overlay logic — keep in sync if that route changes.
+// Mirrors the /api/map route's read-time overlay call — edit together with it.
 async function projectLedgerOntoMap(temp: string, staticMap?: RehearsalMap | null, ledger?: unknown): Promise<RehearsalMap | null> {
   const map =
     staticMap ??
@@ -626,7 +617,6 @@ interface CycleIssueIndex {
   issues: CycleIssueEntry[]
 }
 
-// The FIRST workflow stage on a fresh mixed import batch: a clean canonical doc is placed untouched, a messy non-dominant doc is exploded/translated through the (faked) leg into canonical form, uploads stay immutable.
 async function runDocPrepScenario(): Promise<void> {
   const prep = rehearsalTemp("prep")
   try {
@@ -707,7 +697,6 @@ function writeFrozenBaselineFixture(root: string): void {
   writeFileSync(join(dir, "baseline-v1.0.0.json"), JSON.stringify({ status: "frozen", baseline_id: "baseline-v1.0.0" }, null, 2))
 }
 
-// Batch↔cycle law: an active-cycle prep consumes ALL its unconsumed batches at once; a post-freeze import seeds the NEXT cycle and is never folded into the frozen corpus.
 async function runCycleBatchScenarios(): Promise<void> {
   const prepMod = await import(pathToFileURL(factoryScript("prepare-docs.ts")).href)
   const EN = "The product lets a user manage a catalog of items with search and pagination across the whole dataset."
@@ -768,7 +757,6 @@ async function runCycleBatchScenarios(): Promise<void> {
   }
 }
 
-// The final stage before Done: at done==total the whole-product acceptance leg re-checks the assembled product against the frozen spec. A clean verdict flips Done; a planted cross-issue defect is found, routed to a draft CR, and Done is withheld. Both scenarios run in isolated fixtures with a faked leg (the gate/chain/CR machinery is real).
 function writeAcceptanceFixture(root: string): void {
   const write = (rel: string, content: string): void => {
     const abs = join(root, ...rel.split("/"))
@@ -857,7 +845,6 @@ async function runAcceptanceScenarios(): Promise<void> {
   }
 }
 
-// Observability-class stage running after acceptance green: isolated fixtures with a faked leg (the ≥2-occurrence floor, landing coercion, report write, and the never-blocks guarantee are the real machinery under test).
 function plantRecurringFailures(root: string): void {
   const write = (rel: string, content: string): void => {
     const abs = join(root, ...rel.split("/"))
@@ -1012,7 +999,6 @@ async function runRetroScenarios(): Promise<void> {
   }
 }
 
-// The other run-story path: when the frozen canonical's run-and-ship area STATES the run command, the extractor records it and the orchestrator establishes it from the sentinel — no stack-setup issue needed.
 async function runRunCommandExtractorScenario(): Promise<void> {
   const extract = await import(pathToFileURL(factoryScript("extract-issues.ts")).href)
   const root = rehearsalTemp("runcmd")
@@ -1134,7 +1120,7 @@ function minorBump(version: string): string | null {
   return m ? `${m[1]}.${Number(m[2]) + 1}.0` : null
 }
 
-// Every body line must be auto-excludable (H1/blank) or cited by the issue — the semantic full-line-coverage gate demands it.
+// Every body line must be auto-excludable (H1/blank) or cited by the issue, or the semantic full-line-coverage gate reds.
 function writeCycleAddendumDoc(temp: string): { docRel: string; refs: string[]; title: string } {
   const canonicalDir = join(temp, ".vivicy/canonical")
   const next =
