@@ -97,8 +97,9 @@ export function SectionSkills() {
 
   return (
     <div className="flex flex-col gap-3 text-xs">
-      <div className="flex items-center justify-between gap-2">
-        <span className="text-muted-foreground">
+      <div className="flex items-start justify-between gap-2">
+        {/* min-w-0 + break-words, or a summary carrying one long skill id sets the flex item's min-content width and pushes the shrink-0 action off the panel. */}
+        <span className="min-w-0 break-words text-muted-foreground">
           {inFlight ? t("stageInProgress", { phase: report?.phase ?? "" }) : (report?.summary ?? "")}
         </span>
         <AlertDialog open={confirmOpen} onOpenChange={(next) => setConfirmOpen(next && !busy)}>

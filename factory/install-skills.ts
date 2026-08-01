@@ -63,6 +63,7 @@ import {
   type ManagedSpec,
 } from "../lib/managed-block.ts"
 import { pruneGitkeeps, SKELETON_DIRS } from "../lib/skeleton.ts"
+import { isSkillsPhaseInFlight } from "../lib/skills-report.ts"
 import { claimStageLock, SKILLS_LOCK_FILE, stageLockHolder, type HeldStageLock } from "../lib/stage-lock.ts"
 import type { NotificationInput } from "../lib/notification-events.ts"
 
@@ -81,6 +82,8 @@ const SKILLS_STAGE_PATHS: readonly string[] = [
   ...SKELETON_GITKEEPS,
 ]
 export const MAX_PROJECT_SKILLS = 6
+// Over-selection: the scout ranks more than the project can hold, so an audit refusal backfills from the tail instead of shrinking the set.
+export const MAX_SCOUT_CANDIDATES = 10
 
 // Priority/label only — never a security gate; the audits are the gate.
 export const OFFICIAL_VENDOR_OWNERS: ReadonlySet<string> = new Set([
@@ -149,6 +152,7 @@ export type SkillRejectReason =
   | "red_audit"
   | "too_many_warnings"
   | "unaudited"
+  | "audit_unreachable"
   | "cap_exceeded"
   | "name_collision"
   | "invalid_id"
@@ -157,8 +161,8 @@ export type SkillRejectReason =
   | "remove_failed"
   | "heal_failed"
   | "update_refused"
-type SkillAuditVerdict = "safe" | "red_audit" | "too_many_warnings" | "unaudited"
-export type SkillAuditRefusal = Exclude<SkillAuditVerdict, "safe">
+type SkillAuditVerdict = "safe" | "red_audit" | "too_many_warnings" | "unaudited" | "unreachable"
+export type SkillAuditRefusal = Exclude<SkillAuditVerdict, "safe" | "unreachable">
 export type SkillsPhase = "selecting" | "auditing" | "installing" | "removing" | "healing" | "green" | "failed" | "skipped"
 
 interface SkillCandidate extends SkillRef {
@@ -172,11 +176,9 @@ export interface SkillAuditRecord {
   status: string
 }
 
-// found:false covers both unreachable and 404 alike — the UNVERIFIED gate (and any test fetchAudit double) must treat them identically.
-export interface SkillAuditFetch {
-  found: boolean
-  audits: SkillAuditRecord[]
-}
+// A registry that ANSWERED (`audited`, or `unaudited` for its 404) has DECIDED the skill; `unreachable` is transport and decides nothing — folding the two is how a network blip permanently costs a project a candidate.
+export type SkillAuditFetch =
+  { state: "audited"; audits: SkillAuditRecord[] } | { state: "unaudited" } | { state: "unreachable"; reason: string }
 
 export interface InstalledSkillEntry {
   id: string
@@ -222,6 +224,10 @@ interface SpawnScoutArgs {
   installed: readonly InstalledSkillEntry[]
 }
 
+export type FetchAudit = (args: { source: string; skill: string }) => Promise<SkillAuditFetch>
+export type RunRemove = (args: { repoRoot: string; source: string; skill: string }) => { code: number; output?: string }
+export type Sleep = (ms: number) => Promise<void>
+
 export interface InstallSkillsOptions {
   repoRoot?: string
   ids?: string[]
@@ -229,11 +235,13 @@ export interface InstallSkillsOptions {
   promptsDir?: string
   env?: NodeJS.ProcessEnv
   spawnScout?: (args: SpawnScoutArgs) => Promise<LegResult | void>
-  fetchAudit?: (args: { source: string; skill: string }) => Promise<SkillAuditFetch>
+  fetchAudit?: FetchAudit
   runInstall?: (args: { repoRoot: string; source: string; skill: string }) => { code: number; output?: string }
-  emitReport?: (report: SkillsReport, repoRoot: string) => void
+  runRemove?: RunRemove
+  emitReport?: (report: SkillsReport, repoRoot: string, prior?: Partial<SkillsReport> | null) => void
   findBaseline?: (repoRoot: string) => { manifestPath: string; baselineId: string } | null
   now?: () => Date
+  sleep?: Sleep
 }
 
 const NO_TARGET_MESSAGE =
@@ -262,12 +270,42 @@ function riskWaived(env: NodeJS.ProcessEnv): boolean {
 }
 
 export function auditVerdict(audit: SkillAuditFetch): SkillAuditVerdict {
-  if (!audit.found) return "unaudited"
+  if (audit.state === "unreachable") return "unreachable"
+  // An answer carrying zero audits states the same fact its 404 does: nobody audited this skill.
+  if (audit.state === "unaudited" || audit.audits.length === 0) return "unaudited"
   const fails = audit.audits.filter((a) => a.status === "fail").length
   if (fails > 0) return "red_audit"
   const warns = audit.audits.filter((a) => a.status === "warn").length
   if (warns > 1) return "too_many_warnings"
   return "safe"
+}
+
+function auditRecords(audit: SkillAuditFetch): SkillAuditRecord[] {
+  return audit.state === "audited" ? audit.audits.map((a) => ({ provider: a.provider, status: a.status })) : []
+}
+
+// Bounded retry INSIDE the round: only a transport failure is retried, and a seam that throws is one more transport failure, never a verdict.
+const AUDIT_RETRY_BACKOFF_MS: readonly number[] = [500, 2000]
+
+async function probeAudit(fetchAudit: FetchAudit, ref: SkillRef, sleep: Sleep): Promise<SkillAuditFetch> {
+  const once = async (): Promise<SkillAuditFetch> => {
+    try {
+      return await fetchAudit({ source: ref.source, skill: ref.skill })
+    } catch (error) {
+      return { state: "unreachable", reason: reasonOf(error) }
+    }
+  }
+  let audit = await once()
+  for (const wait of AUDIT_RETRY_BACKOFF_MS) {
+    if (audit.state !== "unreachable") return audit
+    await sleep(wait)
+    audit = await once()
+  }
+  return audit
+}
+
+function defaultSleep(ms: number): Promise<void> {
+  return new Promise((done) => setTimeout(done, ms))
 }
 
 // The ONE derivation of remaining room: the cap, the scout's budget and the sentence it reads must never state different numbers.
@@ -289,6 +327,8 @@ export async function installSkills(options: InstallSkillsOptions = {}): Promise
   const emitReport = options.emitReport ?? defaultEmitReport
   const fetchAudit = options.fetchAudit ?? defaultFetchAudit
   const runInstall = options.runInstall ?? defaultRunInstall
+  const runRemove = options.runRemove ?? defaultRunRemove
+  const sleep = options.sleep ?? defaultSleep
   const findBaseline = options.findBaseline ?? findFrozenManifest
   const explicitIds = (options.ids ?? []).map((s) => s.trim()).filter((s) => s.length > 0)
   const mode: "auto" | "explicit" = explicitIds.length > 0 ? "explicit" : "auto"
@@ -318,9 +358,10 @@ export async function installSkills(options: InstallSkillsOptions = {}): Promise
       summary: "",
       updated_at: "",
     }
+    // The prior rides EVERY emit, or "told once" is a promise no writer keeps: the notification seam decides newness against what the owner was already shown.
     const emit = (): void => {
       report.updated_at = now().toISOString()
-      emitReport(report, repoRoot)
+      emitReport(report, repoRoot, priorReport)
     }
 
     if (mode === "auto" && !skillsStageNeeded(baseline, priorReport)) {
@@ -332,18 +373,14 @@ export async function installSkills(options: InstallSkillsOptions = {}): Promise
       return report
     }
 
-    // This raw id set answers MEMBERSHIP only: every COUNT and every budget reads the installed SET, or an owner typo in the declaration invents a slot.
-    const alreadyInstalled = installedSkillIds(repoRoot, priorReport)
-    const slots = remainingSlots(report.installed)
-    const atCapacity = mode === "auto" && slots === 0
-    report.summary = atCapacity
-      ? `project already holds all ${MAX_PROJECT_SKILLS} skill slots; no selection to run`
-      : mode === "auto"
+    report.summary =
+      mode === "auto"
         ? "scouting project skills from the frozen canonical docs"
         : `validating ${countOf(explicitIds.length, "explicitly requested skill id", "explicitly requested skill ids")}`
     emit()
 
     let candidates: SkillCandidate[]
+    let dropped: Set<string> = new Set()
     if (mode === "explicit") {
       candidates = []
       const seen = new Set<string>()
@@ -357,8 +394,6 @@ export async function installSkills(options: InstallSkillsOptions = {}): Promise
         seen.add(ref.id)
         candidates.push({ ...ref, name: ref.skill, reason: "explicitly requested", official: OFFICIAL_VENDOR_OWNERS.has(ref.owner) })
       }
-    } else if (atCapacity) {
-      candidates = []
     } else {
       const spawnScout = options.spawnScout ?? makeDefaultSpawnScout(options)
       const selection = await runScoutSelection({
@@ -375,89 +410,111 @@ export async function installSkills(options: InstallSkillsOptions = {}): Promise
         return report
       }
       candidates = selection.candidates
-    }
-
-    candidates = candidates.filter((c) => !alreadyInstalled.has(c.id))
-    if (mode === "auto") {
-      candidates = [...candidates.filter((c) => c.official), ...candidates.filter((c) => !c.official)]
-    }
-    candidates = withoutNameCollisions(candidates, report)
-    const accepted = candidates.slice(0, slots)
-    for (const c of candidates.slice(slots)) {
-      report.rejected.push({
-        id: c.id,
-        reason: "cap_exceeded",
-        detail: `project already has ${countOf(report.installed.length, "skill", "skills")}; the installed set may never exceed ${MAX_PROJECT_SKILLS} total`,
-      })
-    }
-
-    report.phase = "auditing"
-    report.summary = `auditing ${countOf(accepted.length, "candidate skill", "candidate skills")} against skills.sh security audits`
-    emit()
-    const toInstall: Array<SkillCandidate & { security_waived: boolean; audits: SkillAuditRecord[]; waiveReason?: SkillRejectReason }> = []
-    for (const c of accepted) {
-      const audit = await fetchAudit({ source: c.source, skill: c.skill })
-      const verdict = auditVerdict(audit)
-      if (verdict === "safe") {
-        toInstall.push({ ...c, security_waived: false, audits: audit.audits })
-      } else if (allowUnsafe) {
-        toInstall.push({ ...c, security_waived: true, audits: audit.audits, waiveReason: verdict })
-      } else {
-        report.rejected.push({ id: c.id, reason: verdict, detail: auditDetail(audit, verdict) })
+      // Drops FIRST: each one frees a slot the ranked additions below may spend, which is what makes the cap a budget instead of a wall.
+      if (selection.drops.length > 0) {
+        report.phase = "removing"
+        report.summary = `retiring ${countOf(selection.drops.length, "skill the project no longer needs", "skills the project no longer needs")}`
+        emit()
+        dropped = await applyRemovals({ tree, report, refs: selection.drops, runRemove, sleep })
+        if (dropped.size > 0) dropSkillDeclarations(tree, dropped)
+        report.installed = projectInstalledSet(repoRoot, priorReport, { removed: dropped })
       }
     }
 
-    report.phase = "installing"
-    report.summary = `installing ${countOf(toInstall.length, "skill", "skills")} at the repository level via the skills CLI`
-    emit()
-    const installedNow: InstalledSkillEntry[] = []
-    const pins: SkillDeclaration[] = []
-    for (const c of toInstall) {
-      recordSkillWrite(tree, c.skill)
-      const r = runInstall({ repoRoot, source: c.source, skill: c.skill })
-      if ((r.code ?? 1) !== 0) {
-        report.rejected.push({ id: c.id, reason: "install_failed", detail: tail(r.output) })
-        continue
-      }
-      // Pin and cache the bytes that just landed, before anything else can touch them, or the skill can only ever self-heal over the network.
-      const pin = hashBundle(resolve(repoRoot, skillBundleRel(c.skill)))
-      if (pin === null || pin.files[SKILL_DOC_FILE] === undefined) {
+    // This raw id set answers MEMBERSHIP only: every COUNT and every budget reads the installed SET, or an owner typo in the declaration invents a slot.
+    const alreadyInstalled = new Set([...installedSkillIds(repoRoot, priorReport)].filter((id) => !dropped.has(id)))
+    const slots = remainingSlots(report.installed)
+    candidates = withoutNameCollisions(
+      candidates.filter((c) => !alreadyInstalled.has(c.id)),
+      report
+    )
+    // Explicit ids are the owner's own ASK, so the ones past the budget are refused to their face; the scout's ranked tail is a RESERVE and is refused nothing.
+    if (mode === "explicit") {
+      for (const c of candidates.slice(slots)) {
         report.rejected.push({
           id: c.id,
-          reason: "install_failed",
-          detail: `the skills CLI reported success but left no ${skillDocRel(c.skill)} in the target project, so there is nothing to pin`,
+          reason: "cap_exceeded",
+          detail: `project already has ${countOf(report.installed.length, "skill", "skills")}; the installed set may never exceed ${MAX_PROJECT_SKILLS} total`,
         })
-        continue
       }
-      cacheBundle(tree.runtimeDir, pin, resolve(repoRoot, skillBundleRel(c.skill)))
-      pins.push({ id: c.id, pin })
-      installedNow.push({
-        id: c.id,
-        source: c.source,
-        skill: c.skill,
-        name: c.name,
-        official: c.official,
-        security_waived: c.security_waived,
-        audits: c.audits.map((a) => ({ provider: a.provider, status: a.status })),
-        reason: c.security_waived ? (c.waiveReason ?? c.reason) : c.reason,
-      })
+      candidates = candidates.slice(0, slots)
+    }
+
+    const installedNow: InstalledSkillEntry[] = []
+    const pins: SkillDeclaration[] = []
+    const undecided: string[] = []
+    let cursor = 0
+    // A candidate an audit could not reach HOLDS its slot: the round leaves the baseline unsettled and the next pass decides it, rather than backfilling over it.
+    const held = (): number => installedNow.length + undecided.length
+    while (held() < slots && cursor < candidates.length) {
+      report.phase = "auditing"
+      report.summary = `auditing ${countOf(Math.min(slots - held(), candidates.length - cursor), "candidate skill", "candidate skills")} against skills.sh security audits`
+      emit()
+      const audited: Array<SkillCandidate & { security_waived: boolean; audits: SkillAuditRecord[]; waiveReason?: SkillRejectReason }> = []
+      while (held() + audited.length < slots && cursor < candidates.length) {
+        const c = candidates[cursor]
+        cursor += 1
+        const audit = await probeAudit(fetchAudit, c, sleep)
+        const verdict = auditVerdict(audit)
+        if (verdict === "unreachable") {
+          undecided.push(c.id)
+          report.rejected.push({ id: c.id, reason: "audit_unreachable", detail: auditUnreachableDetail(audit) })
+        } else if (verdict === "safe") {
+          audited.push({ ...c, security_waived: false, audits: auditRecords(audit) })
+        } else if (allowUnsafe) {
+          audited.push({ ...c, security_waived: true, audits: auditRecords(audit), waiveReason: verdict })
+        } else {
+          report.rejected.push({ id: c.id, reason: verdict, detail: auditDetail(audit, verdict) })
+        }
+      }
+      if (audited.length === 0) break
+
+      report.phase = "installing"
+      report.summary = `installing ${countOf(audited.length, "skill", "skills")} at the repository level via the skills CLI`
+      emit()
+      for (const c of audited) {
+        recordSkillWrite(tree, c.skill)
+        const r = runInstall({ repoRoot, source: c.source, skill: c.skill })
+        if ((r.code ?? 1) !== 0) {
+          report.rejected.push({ id: c.id, reason: "install_failed", detail: tail(r.output) })
+          continue
+        }
+        // Pin and cache the bytes that just landed, before anything else can touch them, or the skill can only ever self-heal over the network.
+        const pin = hashBundle(resolve(repoRoot, skillBundleRel(c.skill)))
+        if (pin === null || pin.files[SKILL_DOC_FILE] === undefined) {
+          report.rejected.push({
+            id: c.id,
+            reason: "install_failed",
+            detail: `the skills CLI reported success but left no ${skillDocRel(c.skill)} in the target project, so there is nothing to pin`,
+          })
+          continue
+        }
+        cacheBundle(tree.runtimeDir, pin, resolve(repoRoot, skillBundleRel(c.skill)))
+        pins.push({ id: c.id, pin })
+        installedNow.push({
+          id: c.id,
+          source: c.source,
+          skill: c.skill,
+          name: c.name,
+          official: c.official,
+          security_waived: c.security_waived,
+          audits: c.audits,
+          reason: c.security_waived ? (c.waiveReason ?? c.reason) : c.reason,
+        })
+      }
     }
 
     report.added = installedNow.map((e) => e.id)
     if (pins.length > 0) mergeSkillPins(tree, pins)
-    report.installed = projectInstalledSet(repoRoot, priorReport, { installed: installedNow })
+    report.installed = projectInstalledSet(repoRoot, priorReport, { installed: installedNow, removed: dropped })
     const failures = writeSkillsBlock(tree, report.installed)
     if (failures.length > 0) return blockWriteFailed(report, failures, emit)
 
+    const unremovable = report.rejected.filter((entry) => entry.reason === "remove_failed").map((entry) => entry.id)
     report.phase = "green"
-    if (mode === "auto") report.selection_baseline_id = baseline!.baselineId
-    report.summary =
-      `skills stage green: ${report.added.length} installed, ${report.rejected.length} rejected this run; project total ${report.installed.length}/${MAX_PROJECT_SKILLS}` +
-      (atCapacity
-        ? " — every slot was already filled, so no selection ran; remove a skill to free one"
-        : report.installed.length === 0 && report.rejected.length === 0
-          ? " (zero skills is a legitimate outcome)"
-          : "")
+    // A round that could not carry out every decision it took does not settle: the next pass re-runs the selection and retries exactly what is left.
+    if (mode === "auto" && undecided.length === 0 && unremovable.length === 0) report.selection_baseline_id = baseline!.baselineId
+    report.summary = selectionSummary(report, { undecided, unremovable, slots })
     emit()
     return report
   } finally {
@@ -465,7 +522,82 @@ export async function installSkills(options: InstallSkillsOptions = {}): Promise
   }
 }
 
-// `.agents/skills/<name>` is the on-disk primary key, so one name holds one skill; order decides the winner, which is why the official-first pass must stay before this one.
+function selectionSummary(
+  report: SkillsReport,
+  { undecided, unremovable, slots }: { undecided: readonly string[]; unremovable: readonly string[]; slots: number }
+): string {
+  const refused = report.rejected.filter((entry) => entry.reason !== "audit_unreachable" && entry.reason !== "remove_failed")
+  const counts = [`${report.added.length} installed`]
+  if (report.removed.length > 0) counts.push(`${report.removed.length} dropped`)
+  counts.push(`${refused.length} rejected`)
+  const head = `skills stage green: ${counts.join(", ")} this run; project total ${report.installed.length}/${MAX_PROJECT_SKILLS}`
+  const retries: string[] = []
+  if (unremovable.length > 0) {
+    retries.push(`${countOf(unremovable.length, "skill", "skills")} could not be removed (${unremovable.join(", ")})`)
+  }
+  if (undecided.length > 0) {
+    retries.push(
+      `the security registry never answered for ${countOf(undecided.length, "candidate", "candidates")} (${undecided.join(", ")})`
+    )
+  }
+  // Only the AUTO path is re-run by anything (`selection_baseline_id` + `skillsStageNeeded`): an explicit install is fire-and-forget, so promising it a retry would be a lie.
+  if (retries.length > 0) {
+    return report.mode === "auto"
+      ? `${head} — ${retries.join(", and ")}; this selection is NOT settled and the next start retries it`
+      : `${head} — ${retries.join(", and ")}; ${countForm(undecided.length, "it was", "they were")} not installed, and an explicit install is never retried automatically — ask for ${countForm(undecided.length, "it", "them")} again once the registry answers`
+  }
+  if (report.mode === "auto" && slots === 0 && report.added.length === 0) {
+    return `${head} — every one of the ${MAX_PROJECT_SKILLS} slots is taken and the scout retired none of them, so nothing new could land`
+  }
+  if (report.installed.length === 0 && report.rejected.length === 0) return `${head} (zero skills is a legitimate outcome)`
+  return head
+}
+
+// Bounded retry inside the round: a bundle directory a just-finished process is still flushing into fails once and goes on the next attempt.
+const REMOVE_RETRY_BACKOFF_MS: readonly number[] = [250, 1000]
+
+// The ONE removal core: the owner's explicit remove and the scout's drop verdict apply through it, so a drop is a normal removal and nothing else.
+async function applyRemovals({
+  tree,
+  report,
+  refs,
+  runRemove,
+  sleep,
+}: {
+  tree: StageTree
+  report: SkillsReport
+  refs: readonly SkillRef[]
+  runRemove: RunRemove
+  sleep: Sleep
+}): Promise<Set<string>> {
+  const attempt = (ref: SkillRef): { code: number; output?: string } => {
+    try {
+      return runRemove({ repoRoot: tree.repoRoot, source: ref.source, skill: ref.skill })
+    } catch (error) {
+      return { code: 1, output: `the remover could not run (${reasonOf(error)})` }
+    }
+  }
+  const removed = new Set<string>()
+  for (const ref of refs) {
+    if (removed.has(ref.id)) continue
+    recordSkillWrite(tree, ref.skill)
+    let outcome = attempt(ref)
+    for (const wait of REMOVE_RETRY_BACKOFF_MS) {
+      if ((outcome.code ?? 1) === 0) break
+      await sleep(wait)
+      outcome = attempt(ref)
+    }
+    if ((outcome.code ?? 1) !== 0) {
+      report.rejected.push({ id: ref.id, reason: "remove_failed", detail: tail(outcome.output) })
+      continue
+    }
+    removed.add(ref.id)
+    report.removed.push(ref.id)
+  }
+  return removed
+}
+
+// `.agents/skills/<name>` is the on-disk primary key, so one name holds one skill; the scout's RANK decides the winner, which is why nothing may reorder the candidates before this pass.
 function withoutNameCollisions(candidates: readonly SkillCandidate[], report: SkillsReport): SkillCandidate[] {
   const holders = new Map<string, string>(report.installed.map((entry) => [entry.skill, entry.id]))
   const kept: SkillCandidate[] = []
@@ -489,9 +621,10 @@ export interface RemoveSkillsOptions {
   repoRoot?: string
   ids?: string[]
   env?: NodeJS.ProcessEnv
-  runRemove?: (args: { repoRoot: string; source: string; skill: string }) => { code: number; output?: string }
+  runRemove?: RunRemove
   emitReport?: (report: SkillsReport, repoRoot: string) => void
   now?: () => Date
+  sleep?: Sleep
 }
 
 export async function removeSkills(options: RemoveSkillsOptions = {}): Promise<SkillsReport> {
@@ -504,6 +637,7 @@ export async function removeSkills(options: RemoveSkillsOptions = {}): Promise<S
   const now = options.now ?? (() => new Date())
   const emitReport = options.emitReport ?? defaultEmitReport
   const runRemove = options.runRemove ?? defaultRunRemove
+  const sleep = options.sleep ?? defaultSleep
 
   const tree = openStageTree(repoRoot, "remove", options.env ?? process.env)
   try {
@@ -530,14 +664,16 @@ export async function removeSkills(options: RemoveSkillsOptions = {}): Promise<S
     }
     emit()
 
-    const toDrop = new Set<string>()
+    const refs: SkillRef[] = []
+    const seen = new Set<string>()
     for (const raw of ids) {
       const ref = normalizeSkillId(raw)
       if (!ref) {
         report.rejected.push({ id: raw, reason: "invalid_id", detail: "expected owner/repo@skill or https://skills.sh/owner/repo/skill" })
         continue
       }
-      if (toDrop.has(ref.id)) continue
+      if (seen.has(ref.id)) continue
+      seen.add(ref.id)
       if (!installedIds.has(ref.id)) {
         report.rejected.push({
           id: ref.id,
@@ -546,15 +682,9 @@ export async function removeSkills(options: RemoveSkillsOptions = {}): Promise<S
         })
         continue
       }
-      recordSkillWrite(tree, ref.skill)
-      const r = runRemove({ repoRoot, source: ref.source, skill: ref.skill })
-      if ((r.code ?? 1) !== 0) {
-        report.rejected.push({ id: ref.id, reason: "remove_failed", detail: tail(r.output) })
-        continue
-      }
-      toDrop.add(ref.id)
-      report.removed.push(ref.id)
+      refs.push(ref)
     }
+    const toDrop = await applyRemovals({ tree, report, refs, runRemove, sleep })
 
     if (toDrop.size > 0) dropSkillDeclarations(tree, toDrop)
     report.installed = projectInstalledSet(repoRoot, priorReport, { removed: toDrop })
@@ -577,9 +707,10 @@ export interface MaintainSkillsOptions {
   runInstall?: RunInstall
   git?: GitSeam
   heal?: (args: HealBundleArgs) => HealOutcome
-  fetchAudit?: (args: { source: string; skill: string }) => Promise<SkillAuditFetch>
+  fetchAudit?: FetchAudit
   emitReport?: (report: SkillsReport, repoRoot: string, prior?: Partial<SkillsReport> | null) => void
   now?: () => Date
+  sleep?: Sleep
 }
 
 export async function maintainSkills(options: MaintainSkillsOptions = {}): Promise<SkillsReport> {
@@ -590,6 +721,7 @@ export async function maintainSkills(options: MaintainSkillsOptions = {}): Promi
   const emitReport = options.emitReport ?? defaultEmitReport
   const runInstall = options.runInstall ?? defaultRunInstall
   const fetchAudit = options.fetchAudit ?? defaultFetchAudit
+  const sleep = options.sleep ?? defaultSleep
   const heal = options.heal ?? healBundle
 
   const report: SkillsReport = {
@@ -680,7 +812,7 @@ export async function maintainSkills(options: MaintainSkillsOptions = {}): Promi
     const matchesItsPin = new Set([...report.verified, ...healedFrom.keys()])
     const updatable =
       options.offerUpdates === false ? [] : pinnedNow.filter(({ ref }) => matchesItsPin.has(ref.id) && !provedCurrentByHeal.has(ref.id))
-    const updates = await runUpstreamUpdates({ repoRoot, tree, updatable, fetchAudit, runInstall, report, restore })
+    const updates = await runUpstreamUpdates({ repoRoot, tree, updatable, fetchAudit, sleep, runInstall, report, restore })
 
     if (updates.entries.length > 0) report.installed = projectInstalledSet(repoRoot, priorReport, { installed: updates.entries })
     const carried = new Map(priorRejections(priorReport).flatMap((entry) => (entry.reason === "update_refused" ? [[entry.id, entry]] : [])))
@@ -737,6 +869,7 @@ async function runUpstreamUpdates({
   tree,
   updatable,
   fetchAudit,
+  sleep,
   runInstall,
   report,
   restore,
@@ -744,7 +877,8 @@ async function runUpstreamUpdates({
   repoRoot: string
   tree: StageTree
   updatable: readonly PinnedBundle[]
-  fetchAudit: (args: { source: string; skill: string }) => Promise<SkillAuditFetch>
+  fetchAudit: FetchAudit
+  sleep: Sleep
   runInstall: RunInstall
   report: SkillsReport
   restore: (ref: SkillRef, pin: SkillBundlePin, drift: BundleDrift, abs: string) => HealRung | null
@@ -758,10 +892,15 @@ async function runUpstreamUpdates({
   for (const { ref, pin } of updatable) {
     await withUpstreamCandidate({ ref, pin, runtimeDir: tree.runtimeDir, runInstall }, async (candidate) => {
       if (candidate.state === "unavailable") return
-      updates.decided.add(ref.id)
-      if (candidate.state === "current") return
-      const audit = await fetchAudit({ source: ref.source, skill: ref.skill })
+      if (candidate.state === "current") {
+        updates.decided.add(ref.id)
+        return
+      }
+      const audit = await probeAudit(fetchAudit, ref, sleep)
       const verdict = auditVerdict(audit)
+      // An audit that never answered decides nothing either: a standing refusal stays standing and the pin is kept, exactly as an unavailable probe leaves it.
+      if (verdict === "unreachable") return
+      updates.decided.add(ref.id)
       if (verdict !== "safe") {
         updates.refusals.set(
           ref.id,
@@ -808,7 +947,7 @@ function updatedInstalledEntry(installed: readonly InstalledSkillEntry[], ref: S
   return {
     ...(installed.find((entry) => entry.id === ref.id) ?? skillEntryFromRef(ref)),
     security_waived: false,
-    audits: audit.audits.map((a) => ({ provider: a.provider, status: a.status })),
+    audits: auditRecords(audit),
   }
 }
 
@@ -820,9 +959,10 @@ const UPDATE_REFUSAL_CAUSE: Record<SkillAuditRefusal, string> = {
 
 // Never point this detail at the risk switch: it is read at install and never on an update.
 function updateRefusedDetail(audit: SkillAuditFetch, verdict: SkillAuditRefusal): string {
-  const counts = audit.audits.map((a) => `${a.provider}:${a.status}`).join(", ")
-  const evidence =
-    verdict === "unaudited" ? "no audit is published for it (endpoint unreachable or the skill is unaudited)" : `audits [${counts}]`
+  const counts = auditRecords(audit)
+    .map((a) => `${a.provider}:${a.status}`)
+    .join(", ")
+  const evidence = verdict === "unaudited" ? "the registry publishes no audit for it" : `audits [${counts}]`
   return `a newer version is available upstream but ${UPDATE_REFUSAL_CAUSE[verdict]} — ${evidence}; the project keeps the version it pinned, and the install-time risk waiver is never read on an update`
 }
 
@@ -902,8 +1042,10 @@ function defaultRunRemove({ repoRoot, source, skill }: { repoRoot: string; sourc
     return { code: 0, output: `${viaCli.stdout ?? ""}\n${viaCli.stderr ?? ""}`.trim() }
   }
   const skillDir = resolve(repoRoot, skillBundleRel(skill))
+  // A bundle that is not there is a removal already done — the declaration is what this drop is really taking away, and calling that a failure would leave the round retrying forever.
   if (!existsSync(skillDir)) {
-    return { code: 1, output: `skills CLI could not remove "${skill}" (${source}) and ${skillDir} does not exist` }
+    pruneDanglingSkillLinks(repoRoot)
+    return { code: 0, output: `no ${skillDir} on disk; the declaration is what was dropped` }
   }
   try {
     rmSync(skillDir, { recursive: true, force: true })
@@ -938,7 +1080,7 @@ type StageMode = "install" | "remove" | "maintain"
 const STAGE_COMMIT_MESSAGE: Record<StageMode, string> = {
   install:
     "skills: absorb the project-skills stage writes\n\n" +
-    "What this run wrote — the stage report, and for each skill it installed the bundle, its per-agent links, the pinned vivicy.json skills entry and the skills block in AGENTS.md and CLAUDE.md — " +
+    "What this run wrote — the stage report; for each skill it installed the bundle, its per-agent links and the pinned vivicy.json skills entry; for each skill the scout retired the deleted bundle and per-agent links and the shrunken vivicy.json skills declaration; and the skills block in AGENTS.md and CLAUDE.md — " +
     "committed mechanically so the dev loop starts on a clean tree and every per-issue worktree, cut from HEAD, carries the skills. No human git step.",
   remove:
     "skills: absorb the project-skills removal\n\n" +
@@ -1153,6 +1295,11 @@ function dropSkillDeclarations(tree: StageTree, drop: Set<string>): void {
   if (!writeSkillDeclarations(tree.repoRoot, kept)) forgetWrite(tree, PROJECT_CONFIG_FILENAME)
 }
 
+interface ScoutSelection {
+  candidates: SkillCandidate[]
+  drops: SkillRef[]
+}
+
 async function runScoutSelection({
   repoRoot,
   spawnScout,
@@ -1165,7 +1312,7 @@ async function runScoutSelection({
   manifestPath: string
   baselineId: string
   installed: readonly InstalledSkillEntry[]
-}): Promise<{ ok: true; candidates: SkillCandidate[] } | { ok: false; problems: string[] }> {
+}): Promise<({ ok: true } & ScoutSelection) | { ok: false; problems: string[] }> {
   let feedback: string | null = null
   let problems: string[] = []
   for (let attempt = 1; attempt <= 2; attempt += 1) {
@@ -1173,7 +1320,7 @@ async function runScoutSelection({
     await spawnScout({ repoRoot, manifestPath, baselineId, resultRel: SCOUT_RESULT_REL, attempt, feedback, installed })
     const raw = readJsonOrNull(resolve(repoRoot, SCOUT_RESULT_REL))
     clearScoutResult(repoRoot)
-    const validated = validateScoutResult(raw)
+    const validated = validateScoutResult(raw, installed)
     if (validated.ok) return validated
     problems = validated.problems
     feedback = problems.join("; ")
@@ -1181,39 +1328,95 @@ async function runScoutSelection({
   return { ok: false, problems }
 }
 
-function validateScoutResult(raw: unknown): { ok: true; candidates: SkillCandidate[] } | { ok: false; problems: string[] } {
+// The scout answers for the set the project SHOULD have: a verdict for every skill it already holds, plus a RANKED reserve of additions.
+function validateScoutResult(
+  raw: unknown,
+  installed: readonly InstalledSkillEntry[]
+): ({ ok: true } & ScoutSelection) | { ok: false; problems: string[] } {
   if (raw === null || typeof raw !== "object") {
-    return { ok: false, problems: [`no valid JSON result file was written (expected { "skills": [...] } at ${SCOUT_RESULT_REL})`] }
-  }
-  const skills = (raw as { skills?: unknown }).skills
-  if (!Array.isArray(skills)) {
-    return { ok: false, problems: ['the result JSON has no "skills" array'] }
-  }
-  if (skills.length > MAX_PROJECT_SKILLS) {
-    return { ok: false, problems: [`${skills.length} skills proposed; the maximum is ${MAX_PROJECT_SKILLS} (fewer is better)`] }
+    return {
+      ok: false,
+      problems: [`no valid JSON result file was written (expected { "add": [...], "installed": [...] } at ${SCOUT_RESULT_REL})`],
+    }
   }
   const problems: string[] = []
-  const candidates: SkillCandidate[] = []
-  const seen = new Set<string>()
-  for (const entry of skills) {
-    const id = entry && typeof entry === "object" ? (entry as { id?: unknown }).id : undefined
-    const ref = typeof id === "string" ? parseSkillId(id.trim()) : null
-    if (!ref) {
-      problems.push(`invalid skill id ${JSON.stringify(id)} (must be owner/repo@skill, exactly as seen in \`npx skills find\` output)`)
-      continue
+  const drops: SkillRef[] = []
+  const held = new Set(installed.map((entry) => entry.id))
+  const verdicts = (raw as { installed?: unknown }).installed
+  if (!Array.isArray(verdicts)) {
+    problems.push(
+      held.size === 0
+        ? 'the result JSON has no "installed" array — a project holding no skills still answers with "installed": []'
+        : `the result JSON has no "installed" array — every skill this project already holds needs its own "keep" or "drop" verdict (${[...held].join(", ")})`
+    )
+  } else {
+    const decided = new Set<string>()
+    for (const entry of verdicts) {
+      const record = (entry && typeof entry === "object" ? entry : {}) as { id?: unknown; verdict?: unknown; reason?: unknown }
+      const id = typeof record.id === "string" ? record.id.trim() : ""
+      if (!held.has(id)) {
+        problems.push(
+          `"installed" names ${JSON.stringify(record.id)}, which this project does not hold — verdict only the ids listed to you`
+        )
+        continue
+      }
+      if (decided.has(id)) {
+        problems.push(`${id} carries two verdicts — each installed skill takes exactly one`)
+        continue
+      }
+      decided.add(id)
+      if (record.verdict === "keep") continue
+      if (record.verdict !== "drop") {
+        problems.push(`${id} has verdict ${JSON.stringify(record.verdict)} — it must be exactly "keep" or "drop"`)
+        continue
+      }
+      if (String(record.reason ?? "").trim().length === 0) {
+        problems.push(`${id} is dropped with an empty "reason" — a removal must state in one line why the project no longer needs it`)
+        continue
+      }
+      const ref = parseSkillId(id)
+      if (ref !== null) drops.push(ref)
     }
-    if (seen.has(ref.id)) continue
-    seen.add(ref.id)
-    const name = String((entry as { name?: unknown }).name ?? ref.skill).trim() || ref.skill
-    const reason = String((entry as { reason?: unknown }).reason ?? "").trim()
-    if (reason.length === 0) {
-      problems.push(`${ref.id} has an empty "reason" — every skill must state the project need it covers, in one line`)
-      continue
+    const missing = [...held].filter((id) => !decided.has(id))
+    if (missing.length > 0) {
+      problems.push(`no keep/drop verdict for ${missing.join(", ")} — every skill the project holds needs one, in the "installed" array`)
     }
-    candidates.push({ ...ref, name, reason, official: OFFICIAL_VENDOR_OWNERS.has(ref.owner) })
   }
+
+  const additions = (raw as { add?: unknown }).add
+  const candidates: SkillCandidate[] = []
+  if (!Array.isArray(additions)) {
+    problems.push('the result JSON has no "add" array (write "add": [] to propose nothing)')
+  } else if (additions.length > MAX_SCOUT_CANDIDATES) {
+    problems.push(`${additions.length} skills proposed in "add"; the maximum is ${MAX_SCOUT_CANDIDATES}`)
+  } else {
+    const dropped = new Set(drops.map((ref) => ref.id))
+    const seen = new Set<string>()
+    for (const entry of additions) {
+      const id = entry && typeof entry === "object" ? (entry as { id?: unknown }).id : undefined
+      const ref = typeof id === "string" ? parseSkillId(id.trim()) : null
+      if (!ref) {
+        problems.push(`invalid skill id ${JSON.stringify(id)} (must be owner/repo@skill, exactly as seen in \`npx skills find\` output)`)
+        continue
+      }
+      if (seen.has(ref.id)) continue
+      seen.add(ref.id)
+      if (dropped.has(ref.id)) {
+        problems.push(`${ref.id} is both dropped and proposed for install — keep it or retire it, never both`)
+        continue
+      }
+      const name = String((entry as { name?: unknown }).name ?? ref.skill).trim() || ref.skill
+      const reason = String((entry as { reason?: unknown }).reason ?? "").trim()
+      if (reason.length === 0) {
+        problems.push(`${ref.id} has an empty "reason" — every skill must state the project need it covers, in one line`)
+        continue
+      }
+      candidates.push({ ...ref, name, reason, official: OFFICIAL_VENDOR_OWNERS.has(ref.owner) })
+    }
+  }
+
   if (problems.length > 0) return { ok: false, problems }
-  return { ok: true, candidates }
+  return { ok: true, candidates, drops }
 }
 
 function clearScoutResult(repoRoot: string): void {
@@ -1270,11 +1473,12 @@ export function scoutContext({
     `- Frozen baseline manifest: \`${manifestPath}\` (baseline_id \`${baselineId}\`). The canonical corpus it pins under \`.vivicy/canonical/**\` is your ONLY source of truth about the project.\n` +
     `- Write your JSON result — and nothing else — to \`${resultRel}\`.\n` +
     (installed.length === 0
-      ? `- This project has NO skills installed yet: all ${MAX_PROJECT_SKILLS} slots are free.\n`
-      : `- Already installed (${installed.length}/${MAX_PROJECT_SKILLS} slots taken): ${installed.map((entry) => `\`${entry.id}\``).join(", ")}. Never propose one of these again — a re-proposal is discarded — and never propose a different vendor's skill whose name (the part after \`@\`) matches one of theirs: \`${AGENT_SKILLS_DIR}/<name>\` holds ONE skill, so the orchestrator refuses a name collision.\n`) +
-    `- Propose AT MOST ${countOf(remainingSlots(installed), "skill", "skills")}: ${MAX_PROJECT_SKILLS} is the project TOTAL across every run, not a per-run budget, and ${countOf(installed.length, "slot is", "slots are")} already taken. Fewer is better; zero is valid.\n` +
+      ? `- This project has NO skills installed yet: all ${MAX_PROJECT_SKILLS} slots are free, and your \`installed\` verdict array is empty.\n`
+      : `- Already installed (${installed.length}/${MAX_PROJECT_SKILLS} slots taken): ${installed.map((entry) => `\`${entry.id}\``).join(", ")}. Give EACH of them its own \`keep\` or \`drop\` verdict in the \`installed\` array — a missing verdict invalidates your whole result. Drop the ones this canonical no longer justifies: a project that pivoted keeps paying for a skill nobody needs, in a slot and in every leg's instructions. Never propose one of these under \`add\` — a re-proposal is discarded — and never propose a different vendor's skill whose name (the part after \`@\`) matches one of theirs: \`${AGENT_SKILLS_DIR}/<name>\` holds ONE skill, so the orchestrator refuses a name collision.\n`) +
+    `- ${MAX_PROJECT_SKILLS} is the project TOTAL across every run, not a per-run budget: ${countOf(installed.length, "slot is", "slots are")} already taken, which leaves ${countOf(remainingSlots(installed), "free slot", "free slots")} — and every skill you drop frees one more.\n` +
+    `- \`add\` is a RANKED list, best first, of AT MOST ${MAX_SCOUT_CANDIDATES} skills. The orchestrator walks it from the top and installs as many as the budget allows; what sits below that line is the reserve that backfills a candidate the security audit refuses. Never pad it — every entry may well be installed, so propose only what a real canonical need justifies. Zero is valid.\n` +
     `- Every skill you propose is then checked against the skills.sh security audits and REFUSED — never installed — when any audit fails, more than one warns, or no audit exists at all. Prefer skills that a first-party vendor publishes and that the registry actually audits; a skill nobody audited is a skill this project will not get.\n` +
-    `- Every entry needs a non-empty one-line \`reason\` naming the canonical need it covers; one missing reason invalidates your whole result.\n` +
+    `- Every \`add\` entry and every \`drop\` verdict needs a non-empty one-line \`reason\`; one missing reason invalidates your whole result.\n` +
     `- Attempt: ${attempt}.\n` +
     (feedback
       ? `\n### What was INVALID last time\n\nYour previous result was rejected by the orchestrator's strict validation. Fix exactly this and rewrite the result file:\n\n\`\`\`text\n${feedback}\n\`\`\`\n`
@@ -1282,22 +1486,30 @@ export function scoutContext({
   )
 }
 
+// Only the registry's own 404 is the "nobody audited it" DECISION; every other outcome — no route to the host, a timeout, a 5xx, a body that is not the contract — is transport.
 async function defaultFetchAudit({ source, skill }: { source: string; skill: string }): Promise<SkillAuditFetch> {
+  let res: Response
   try {
-    const res = await fetch(`https://skills.sh/api/v1/skills/audit/${source}/${skill}`, {
+    res = await fetch(`https://skills.sh/api/v1/skills/audit/${source}/${skill}`, {
       headers: { accept: "application/json" },
       signal: AbortSignal.timeout(20_000),
     })
-    if (!res.ok) return { found: false, audits: [] }
+  } catch (error) {
+    return { state: "unreachable", reason: reasonOf(error) }
+  }
+  if (res.status === 404) return { state: "unaudited" }
+  if (!res.ok) return { state: "unreachable", reason: `the audit endpoint answered HTTP ${res.status}` }
+  try {
     const body = (await res.json()) as { audits?: unknown }
-    const audits = Array.isArray(body?.audits)
-      ? body.audits
-          .filter((a): a is Record<string, unknown> => Boolean(a) && typeof a === "object")
-          .map((a) => ({ provider: String(a.provider ?? "unknown"), status: String(a.status ?? "") }))
-      : []
-    return { found: true, audits }
-  } catch {
-    return { found: false, audits: [] }
+    if (!Array.isArray(body?.audits)) return { state: "unaudited" }
+    return {
+      state: "audited",
+      audits: body.audits
+        .filter((a): a is Record<string, unknown> => Boolean(a) && typeof a === "object")
+        .map((a) => ({ provider: String(a.provider ?? "unknown"), status: String(a.status ?? "") })),
+    }
+  } catch (error) {
+    return { state: "unreachable", reason: `the audit endpoint answered ${res.status} with a body that is not JSON (${reasonOf(error)})` }
   }
 }
 
@@ -1340,7 +1552,17 @@ export function skillsNotifications(report: SkillsReport, prior?: Partial<Skills
   const rejected = report.rejected ?? []
   const unhealable = rejected.filter((entry) => entry.reason === "heal_failed")
   const refused = rejected.filter((entry) => entry.reason === "update_refused")
-  const findings = rejected.filter((entry) => entry.reason !== "heal_failed" && entry.reason !== "update_refused")
+  // A drop the scout decided is self-maintenance and stays silent; a bundle that REFUSED to go is the owner's to unblock. An owner-driven removal answers in its own response and is told nothing twice, and an IN-FLIGHT report announces nothing at all — only the terminal one has the run's whole account.
+  const unremovable =
+    report.mode === "auto" && !isSkillsPhaseInFlight(report.phase) ? rejected.filter((entry) => entry.reason === "remove_failed") : []
+  // The AUTO path retries a transport failure by itself, so it asks the owner for nothing; an EXPLICIT install is fire-and-forget and is never retried, so there the same row IS the owner's to act on.
+  const findings = rejected.filter(
+    (entry) =>
+      entry.reason !== "heal_failed" &&
+      entry.reason !== "update_refused" &&
+      entry.reason !== "remove_failed" &&
+      !(entry.reason === "audit_unreachable" && report.mode === "auto")
+  )
   if (unhealable.length > 0) {
     const ids = unhealable.map((entry) => entry.id)
     if (unhealable.some(isNew)) {
@@ -1367,6 +1589,18 @@ export function skillsNotifications(report: SkillsReport, prior?: Partial<Skills
       stage: "SK",
       event: "skills_findings",
       message: report.summary || "the skills stage kept a candidate skill out of the project",
+    })
+  }
+  if (unremovable.length > 0 && unremovable.some(isNew)) {
+    const ids = unremovable.map((entry) => entry.id)
+    notifications.push({
+      level: "error",
+      stage: "SK",
+      event: "drop_failed",
+      message:
+        `Vivicy retired ${countForm(ids.length, "a project skill this project no longer needs", `${ids.length} project skills this project no longer needs`)} ` +
+        `but could not remove ${countForm(ids.length, "its bundle", "their bundles")} (${ids.join(", ")}) — ` +
+        `free ${countForm(ids.length, "it", "them")} under ${AGENT_SKILLS_DIR}/ (a read-only file or directory is the usual cause); the next start retries the removal on its own`,
     })
   }
   if (refused.length > 0 && refused.some(isNew)) {
@@ -1592,9 +1826,16 @@ function installedSkillIds(repoRoot: string, priorReport: Partial<SkillsReport> 
 
 function auditDetail(audit: SkillAuditFetch, verdict: string): string {
   if (verdict === "unaudited")
-    return "no security audit is available for this skill (endpoint unreachable or skill not audited); set VIVICY_ALLOW_UNSAFE_SKILLS=1 to install anyway (flagged security_waived)"
-  const counts = audit.audits.map((a) => `${a.provider}:${a.status}`).join(", ")
+    return "the skills.sh registry answered, and no security audit covers this skill; set VIVICY_ALLOW_UNSAFE_SKILLS=1 to install anyway (flagged security_waived)"
+  const counts = auditRecords(audit)
+    .map((a) => `${a.provider}:${a.status}`)
+    .join(", ")
   return `audits [${counts}]; the rule is: zero "fail" and at most one "warn"; set VIVICY_ALLOW_UNSAFE_SKILLS=1 to install anyway (flagged security_waived)`
+}
+
+function auditUnreachableDetail(audit: SkillAuditFetch): string {
+  const reason = audit.state === "unreachable" ? audit.reason : "no answer"
+  return `the skills.sh audit endpoint never answered, over ${AUDIT_RETRY_BACKOFF_MS.length + 1} attempts (${reason}) — a transport failure is not a verdict, so this candidate keeps its slot and the next selection pass decides it`
 }
 
 function readJsonOrNull(abs: string): unknown {

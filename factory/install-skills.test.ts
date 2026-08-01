@@ -25,6 +25,7 @@ import {
   maintainSkills,
   removeSkills,
   MAX_PROJECT_SKILLS,
+  MAX_SCOUT_CANDIDATES,
   OFFICIAL_VENDOR_OWNERS,
   scoutContext,
   SkillsConfigError,
@@ -105,19 +106,71 @@ interface FakeInstallCall {
   skill: string
 }
 
+// A fixture that states no verdicts KEEPS the whole installed set: the keep/drop half is the subject of its own cases, never an obligation every other case must restate.
+function keepAll(result: unknown, installed: readonly { id: string }[]): unknown {
+  if (result === null || typeof result !== "object" || "installed" in result) return result
+  return { ...result, installed: installed.map((entry) => ({ id: entry.id, verdict: "keep", reason: "the canonical still needs it" })) }
+}
+
 function fakeScout(resultsByAttempt: Array<unknown | string>, calls: Array<{ attempt: number; feedback: string | null }> = []) {
-  return async ({ repoRoot, attempt, feedback }: { repoRoot: string; attempt: number; feedback: string | null }) => {
+  return async ({
+    repoRoot,
+    attempt,
+    feedback,
+    installed,
+  }: {
+    repoRoot: string
+    attempt: number
+    feedback: string | null
+    installed: readonly { id: string }[]
+  }) => {
     calls.push({ attempt, feedback })
     const result = resultsByAttempt[attempt - 1]
     if (result === undefined) return
     const abs = resolve(repoRoot, SCOUT_RESULT_REL)
     mkdirSync(dirname(abs), { recursive: true })
-    writeFileSync(abs, typeof result === "string" ? result : JSON.stringify(result))
+    writeFileSync(abs, typeof result === "string" ? result : JSON.stringify(keepAll(result, installed)))
+  }
+}
+
+function drops(id: string): { id: string; verdict: string; reason: string } {
+  return { id, verdict: "drop", reason: "the project pivoted away from it" }
+}
+
+// Read what the stage really WROTE: skillsNotifications called by hand cannot see the prior report the writer threads, so only this proves "told once".
+function notifications(runtimeDir: string): Array<{ level: string; event: string; message: string }> {
+  const file = join(runtimeDir, "notifications.jsonl")
+  if (!existsSync(file)) return []
+  return readFileSync(file, "utf8")
+    .trim()
+    .split("\n")
+    .filter((line) => line.length > 0)
+    .map((line) => JSON.parse(line))
+}
+
+// The stage's notify seam reads process.env, never the injected env, so a case that wants the real rows has to own that variable.
+async function withRuntimeNotifications<T>(runtimeDir: string, fn: () => Promise<T>): Promise<T> {
+  const previous = process.env.VIVICY_RUNTIME_DIR
+  process.env.VIVICY_RUNTIME_DIR = runtimeDir
+  try {
+    return await fn()
+  } finally {
+    if (previous === undefined) delete process.env.VIVICY_RUNTIME_DIR
+    else process.env.VIVICY_RUNTIME_DIR = previous
   }
 }
 
 function passAudit(): SkillAuditFetch {
-  return { found: true, audits: [{ provider: "gateseal", status: "pass" }] }
+  return { state: "audited", audits: [{ provider: "gateseal", status: "pass" }] }
+}
+
+const UNREACHABLE: SkillAuditFetch = { state: "unreachable", reason: "getaddrinfo ENOTFOUND skills.sh" }
+
+// Never let a case actually wait out the backoff: the schedule is the subject of its own assertion, never every other case's cost.
+function instantSleep(waits: number[] = []) {
+  return async (ms: number): Promise<void> => {
+    waits.push(ms)
+  }
 }
 
 function fakeAudits(bySkill: Record<string, SkillAuditFetch> = {}) {
@@ -174,11 +227,11 @@ describe("normalizeSkillId", () => {
 
 describe("auditVerdict", () => {
   it("is safe iff zero fails and at most one warn; unaudited when not found", () => {
-    assert.equal(auditVerdict({ found: true, audits: [{ provider: "a", status: "pass" }] }), "safe")
-    assert.equal(auditVerdict({ found: true, audits: [{ provider: "a", status: "warn" }] }), "safe")
+    assert.equal(auditVerdict({ state: "audited", audits: [{ provider: "a", status: "pass" }] }), "safe")
+    assert.equal(auditVerdict({ state: "audited", audits: [{ provider: "a", status: "warn" }] }), "safe")
     assert.equal(
       auditVerdict({
-        found: true,
+        state: "audited",
         audits: [
           { provider: "a", status: "warn" },
           { provider: "b", status: "warn" },
@@ -188,7 +241,7 @@ describe("auditVerdict", () => {
     )
     assert.equal(
       auditVerdict({
-        found: true,
+        state: "audited",
         audits: [
           { provider: "a", status: "pass" },
           { provider: "b", status: "fail" },
@@ -196,7 +249,17 @@ describe("auditVerdict", () => {
       }),
       "red_audit"
     )
-    assert.equal(auditVerdict({ found: false, audits: [] }), "unaudited")
+    assert.equal(auditVerdict({ state: "unaudited" }), "unaudited")
+  })
+
+  it("separates a registry that ANSWERED from one that never did", () => {
+    assert.equal(auditVerdict({ state: "unaudited" }), "unaudited", "the registry's own 404 is a decision about the skill")
+    assert.equal(
+      auditVerdict({ state: "audited", audits: [] }),
+      "unaudited",
+      "and an answer carrying zero audits states the same fact — never `safe` by absence of a failing one"
+    )
+    assert.equal(auditVerdict(UNREACHABLE), "unreachable", "no answer at all is transport, and decides nothing")
   })
 })
 
@@ -348,7 +411,7 @@ describe("auto mode", () => {
       repoRoot: repo,
       spawnScout: fakeScout([
         {
-          skills: [
+          add: [
             { id: "supabase/agent-skills@postgres", name: "Supabase Postgres", reason: "spec uses Supabase" },
             { id: "somebody/community@helper", name: "Helper", reason: "no official option" },
           ],
@@ -408,7 +471,7 @@ describe("auto mode", () => {
     const installs: FakeInstallCall[] = []
     const report = await installSkills({
       repoRoot: repo,
-      spawnScout: fakeScout([{ skills: [] }]),
+      spawnScout: fakeScout([{ add: [] }]),
       fetchAudit: fakeAudits(),
       runInstall: fakeInstaller(installs),
     })
@@ -458,7 +521,7 @@ describe("auto mode", () => {
     rmSync(resolve(repo, `.vivicy/baselines/${BASELINE_ID}.json`))
     const rerun = await installSkills({
       repoRoot: repo,
-      spawnScout: fakeScout([{ skills: [] }], scoutCalls),
+      spawnScout: fakeScout([{ add: [] }], scoutCalls),
       fetchAudit: fakeAudits(),
       runInstall: fakeInstaller([]),
     })
@@ -473,7 +536,7 @@ describe("auto mode", () => {
     const phases: string[] = []
     const report = await installSkills({
       repoRoot: repo,
-      spawnScout: fakeScout(["not json at all", { skills: [{ id: "invented-without-find" }] }], scoutCalls),
+      spawnScout: fakeScout(["not json at all", { add: [{ id: "invented-without-find" }] }], scoutCalls),
       fetchAudit: fakeAudits(),
       runInstall: fakeInstaller([]),
       emitReport: (r) => phases.push(r.phase),
@@ -486,21 +549,33 @@ describe("auto mode", () => {
     assert.deepEqual(phases, ["selecting", "failed"])
   })
 
-  it("more than 6 proposed skills is invalid scout output (re-prompted, then failed)", async () => {
+  it("more ranked candidates than the over-selection bound is invalid scout output (re-prompted, then failed)", async () => {
     seedBaseline()
-    const seven = { skills: Array.from({ length: 7 }, (_, i) => ({ id: `owner/repo@skill-${i}`, reason: "the spec needs it" })) }
+    const eleven = { add: Array.from({ length: 11 }, (_, i) => ({ id: `owner/repo@skill-${i}`, reason: "the spec needs it" })) }
     const report = await installSkills({
       repoRoot: repo,
-      spawnScout: fakeScout([seven, seven]),
+      spawnScout: fakeScout([eleven, eleven]),
       fetchAudit: fakeAudits(),
       runInstall: fakeInstaller([]),
       emitReport: () => {},
     })
     assert.equal(report.phase, "failed")
-    assert.match(report.summary, /maximum is 6/)
+    assert.match(report.summary, new RegExp(`11 skills proposed in "add"; the maximum is ${MAX_SCOUT_CANDIDATES}`))
+
+    rmSync(resolve(repo, SKILLS_REPORT_REL), { force: true })
+    const ten = { add: Array.from({ length: MAX_SCOUT_CANDIDATES }, (_, i) => ({ id: `owner/repo@ok-${i}`, reason: "the spec needs it" })) }
+    const accepted = await installSkills({
+      repoRoot: repo,
+      spawnScout: fakeScout([ten]),
+      fetchAudit: fakeAudits(),
+      runInstall: fakeInstaller([]),
+      emitReport: () => {},
+    })
+    assert.equal(accepted.phase, "green", "ten ranked candidates for six slots is exactly what over-selection is for")
+    assert.equal(accepted.added.length, MAX_PROJECT_SKILLS)
   })
 
-  it("enforces the 6-total cap official-first over already-installed skills", async () => {
+  it("fills the budget from the top of the ranking, and the tail below it is reserve rather than a refusal", async () => {
     seedBaseline()
     writeJson("vivicy.json", { gateCommand: "npm test", skills: declared(["a/b@one", "a/b@two", "a/b@three", "a/b@four"]) })
     const installs: FakeInstallCall[] = []
@@ -508,7 +583,7 @@ describe("auto mode", () => {
       repoRoot: repo,
       spawnScout: fakeScout([
         {
-          skills: [
+          add: [
             { id: "somebody/community@first", reason: "no official option" },
             { id: "stripe/agent-skills@payments", reason: "the spec takes payments" },
             { id: "supabase/agent-skills@auth", reason: "the spec authenticates users" },
@@ -520,19 +595,14 @@ describe("auto mode", () => {
       runInstall: fakeInstaller(installs),
       emitReport: () => {},
     })
-    assert.deepEqual(report.added, ["stripe/agent-skills@payments", "supabase/agent-skills@auth"])
+    assert.deepEqual(report.added, ["somebody/community@first", "stripe/agent-skills@payments"], "the scout's rank is the priority order")
     assert.deepEqual(
       report.installed.map((e) => e.id),
-      ["a/b@one", "a/b@two", "a/b@three", "a/b@four", "stripe/agent-skills@payments", "supabase/agent-skills@auth"],
+      ["a/b@one", "a/b@two", "a/b@three", "a/b@four", "somebody/community@first", "stripe/agent-skills@payments"],
       "installed is the project's whole set — the four it already had plus the two this run added"
     )
-    assert.deepEqual(report.rejected, [
-      {
-        id: "somebody/community@first",
-        reason: "cap_exceeded",
-        detail: `project already has 4 skills; the installed set may never exceed ${MAX_PROJECT_SKILLS} total`,
-      },
-    ])
+    assert.deepEqual(report.rejected, [], "a candidate the budget never reached was refused nothing — it is next round's reserve")
+    assert.deepEqual(installs.length, 2, "and it never reached the installer either")
     const config = readJson("vivicy.json") as { skills: { id: string }[] }
     assert.equal(config.skills.length, 6)
   })
@@ -560,30 +630,33 @@ describe("the scout is told the constraints it will be judged by", () => {
     }
   }
 
-  it("names the installed set, the remaining slots, the collision rule, the audit gate and the reason requirement", () => {
+  it("names the installed set, the verdict it owes on each, the budget, the collision rule, the audit gate and the reason requirement", () => {
     const context = scoutContext({
       ...BASE,
       installed: [entry("supabase/agent-skills@postgres", "postgres"), entry("stripe/agent-skills@payments", "payments")],
     })
     assert.match(context, /Already installed \(2\/6 slots taken\): `supabase\/agent-skills@postgres`, `stripe\/agent-skills@payments`/)
-    assert.match(context, /Never propose one of these again/)
+    assert.match(context, /Give EACH of them its own `keep` or `drop` verdict/, "the lifecycle verdict is asked for, never inferred")
+    assert.match(context, /a missing verdict invalidates your whole result/)
+    assert.match(context, /Never propose one of these under `add`/)
     assert.match(context, /name \(the part after `@`\) matches one of theirs/, "the collision refusal is stated, not discovered")
     assert.match(context, /`\.agents\/skills\/<name>` holds ONE skill/)
     assert.match(
       context,
-      /Propose AT MOST 4 skills: 6 is the project TOTAL across every run, not a per-run budget, and 2 slots are already taken/
+      /6 is the project TOTAL across every run, not a per-run budget: 2 slots are already taken, which leaves 4 free slots — and every skill you drop frees one more\./
     )
+    assert.match(context, new RegExp(`\`add\` is a RANKED list, best first, of AT MOST ${MAX_SCOUT_CANDIDATES} skills`))
+    assert.match(context, /reserve that backfills a candidate the security audit refuses/)
     assert.match(context, /REFUSED — never installed — when any audit fails, more than one warns, or no audit exists at all/)
     assert.match(context, /non-empty one-line `reason`/)
-    assert.doesNotMatch(context, /Select AT MOST 6 skills/, "the stale flat cap is gone — the per-run bound is the remaining slots")
   })
 
   it("tells an empty project all six slots are free, without an empty list", () => {
     const context = scoutContext({ ...BASE, installed: [] })
-    assert.match(context, /This project has NO skills installed yet: all 6 slots are free\./)
+    assert.match(context, /This project has NO skills installed yet: all 6 slots are free, and your `installed` verdict array is empty\./)
     assert.match(
       context,
-      /Propose AT MOST 6 skills: 6 is the project TOTAL across every run, not a per-run budget, and 0 slots are already taken\./
+      /6 is the project TOTAL across every run, not a per-run budget: 0 slots are already taken, which leaves 6 free slots/
     )
     assert.doesNotMatch(context, /Already installed/)
   })
@@ -591,19 +664,19 @@ describe("the scout is told the constraints it will be judged by", () => {
   it("one slot left reads in the singular", () => {
     const context = scoutContext({ ...BASE, installed: [entry("a/b@one", "one")] })
     assert.match(context, /Already installed \(1\/6 slots taken\)/)
-    assert.match(context, /and 1 slot is already taken/)
+    assert.match(context, /: 1 slot is already taken, which leaves 5 free slots/)
     const five = Array.from({ length: 5 }, (_, i) => entry(`a/b@s${i}`, `s${i}`))
-    assert.match(scoutContext({ ...BASE, installed: five }), /Propose AT MOST 1 skill:/)
+    assert.match(scoutContext({ ...BASE, installed: five }), /which leaves 1 free slot —/)
   })
 
   it("the printed set and the stated budget always add up to the cap", () => {
     for (let taken = 0; taken <= MAX_PROJECT_SKILLS; taken += 1) {
       const context = scoutContext({ ...BASE, installed: Array.from({ length: taken }, (_, i) => entry(`a/b@s${i}`, `s${i}`)) })
-      const budget = Number(/Propose AT MOST (\d+) skills?:/.exec(context)?.[1])
+      const budget = Number(/which leaves (\d+) free slots?/.exec(context)?.[1])
       const printed = taken === 0 ? 0 : Number(/Already installed \((\d+)\/6 slots taken\)/.exec(context)?.[1])
       assert.equal(printed, taken, `context at ${taken} installed printed the wrong set size`)
       assert.equal(printed + budget, MAX_PROJECT_SKILLS, `context at ${taken} installed states ${printed} taken and ${budget} free`)
-      assert.match(context, new RegExp(`and ${taken} slots? (is|are) already taken`), `the taken tail is stated at ${taken} too`)
+      assert.match(context, new RegExp(`: ${taken} slots? (is|are) already taken`), `the taken tail is stated at ${taken} too`)
     }
   })
 
@@ -616,23 +689,26 @@ describe("the scout is told the constraints it will be judged by", () => {
       spawnScout: async (args) => {
         seen.push({
           installed: args.installed.map((e) => e.id),
-          budget: /Propose AT MOST (\d+ skills?):/.exec(scoutContext({ ...BASE, ...args }))?.[1],
+          budget: /which leaves (\d+ free slots?)/.exec(scoutContext({ ...BASE, ...args }))?.[1],
         })
         mkdirSync(dirname(resolve(repo, SCOUT_RESULT_REL)), { recursive: true })
-        writeFileSync(resolve(repo, SCOUT_RESULT_REL), JSON.stringify({ skills: [] }))
+        writeFileSync(
+          resolve(repo, SCOUT_RESULT_REL),
+          JSON.stringify({ add: [], installed: args.installed.map((e) => ({ id: e.id, verdict: "keep", reason: "still needed" })) })
+        )
       },
       fetchAudit: fakeAudits(),
       runInstall: fakeInstaller([]),
       emitReport: () => {},
     })
-    assert.deepEqual(seen, [{ installed: ["a/b@one", "a/b@two"], budget: "4 skills" }])
+    assert.deepEqual(seen, [{ installed: ["a/b@one", "a/b@two"], budget: "4 free slots" }])
   })
 
   it("re-prompts a candidate with an empty reason, naming it, and fails when it comes back the same", async () => {
     seedBaseline()
     const calls: Array<{ attempt: number; feedback: string | null }> = []
     const proposal = {
-      skills: [
+      add: [
         { id: "supabase/agent-skills@postgres", name: "Supabase Postgres", reason: "the spec uses Supabase" },
         { id: "somebody/community@helper", name: "Helper" },
       ],
@@ -655,7 +731,7 @@ describe("the scout is told the constraints it will be judged by", () => {
     seedBaseline()
     const report = await installSkills({
       repoRoot: repo,
-      spawnScout: fakeScout([{ skills: [{ id: "a/b@one", reason: "   \n  " }] }]),
+      spawnScout: fakeScout([{ add: [{ id: "a/b@one", reason: "   \n  " }] }]),
       fetchAudit: fakeAudits(),
       runInstall: fakeInstaller([]),
       emitReport: () => {},
@@ -678,10 +754,11 @@ describe("the scout is told the constraints it will be judged by", () => {
         writeFileSync(
           resolve(repo, SCOUT_RESULT_REL),
           JSON.stringify({
-            skills: [
+            add: [
               { id: "stripe/agent-skills@payments", reason: "the spec takes payments" },
               { id: "anthropics/skills@pdf", reason: "the spec emails PDF invoices" },
             ],
+            installed: args.installed.map((e) => ({ id: e.id, verdict: "keep", reason: "still needed" })),
           })
         )
       },
@@ -697,56 +774,60 @@ describe("the scout is told the constraints it will be judged by", () => {
       "the id that names no skill is not in the set"
     )
     assert.match(seen[0].context, /Already installed \(5\/6 slots taken\)/)
-    assert.match(
-      seen[0].context,
-      /Propose AT MOST 1 skill: 6 is the project TOTAL across every run, not a per-run budget, and 5 slots are already taken/
-    )
+    assert.match(seen[0].context, /: 5 slots are already taken, which leaves 1 free slot/)
     assert.ok(!seen[0].context.includes("anthropics/skills"), "an id no skill answers to is never named to the leg")
 
     assert.deepEqual(report.added, ["stripe/agent-skills@payments"], "the free slot was really free")
     assert.equal(report.installed.length, 6)
-    assert.deepEqual(
-      report.rejected,
-      [
-        {
-          id: "anthropics/skills@pdf",
-          reason: "cap_exceeded",
-          detail: `project already has 5 skills; the installed set may never exceed ${MAX_PROJECT_SKILLS} total`,
-        },
-      ],
-      "the cap detail counts the SET the owner can see, never the raw declared ids"
-    )
-    assert.doesNotMatch(report.summary, /every slot was already filled/, "the at-capacity sentence may never contradict its own count")
+    assert.deepEqual(report.rejected, [], "the second-ranked candidate simply never reached the budget — nothing refused it")
+    assert.doesNotMatch(report.summary, /every one of the 6 slots is taken/, "the at-capacity sentence may never contradict its own count")
     assert.match(report.summary, /project total 6\/6$/)
   })
 
-  it("a project already at the cap spawns NO leg at all, and settles the baseline anyway", async () => {
+  it("a project already at the cap still scouts — the verdicts are what free a slot — and settles the baseline", async () => {
     seedBaseline()
-    writeJson("vivicy.json", {
-      gateCommand: "npm test",
-      skills: declared(["a/b@one", "a/b@two", "a/b@three", "a/b@four", "a/b@five", "a/b@six"]),
-    })
+    const six = ["a/b@one", "a/b@two", "a/b@three", "a/b@four", "a/b@five", "a/b@six"]
+    writeJson("vivicy.json", { gateCommand: "npm test", skills: declared(six) })
     const summaries: string[] = []
     const report = await installSkills({
       repoRoot: repo,
-      spawnScout: async () => {
-        throw new Error("a project at capacity has nothing to scout")
-      },
+      spawnScout: fakeScout([{ add: [{ id: "stripe/agent-skills@payments", reason: "the spec takes payments" }] }]),
       fetchAudit: fakeAudits(),
       runInstall: fakeInstaller([]),
+      runRemove: () => ({ code: 0, output: "removed" }),
       emitReport: (r) => summaries.push(r.summary),
     })
     assert.equal(report.phase, "green")
-    assert.deepEqual(report.added, [])
-    assert.deepEqual(report.rejected, [], "the owner is told once why nothing ran, never with six cap_exceeded rows")
+    assert.deepEqual(report.added, [], "the scout kept all six, so its ranked proposal had nowhere to land")
+    assert.deepEqual(report.removed, [])
+    assert.deepEqual(report.rejected, [], "the owner is told once why nothing landed, never with a cap_exceeded row per candidate")
     assert.equal(report.installed.length, MAX_PROJECT_SKILLS)
     assert.equal(report.selection_baseline_id, BASELINE_ID, "the baseline is settled, so the supervisor stops re-spawning the stage")
-    assert.match(report.summary, /every slot was already filled, so no selection ran; remove a skill to free one/)
-    assert.ok(
-      summaries.includes("project already holds all 6 skill slots; no selection to run"),
-      `the in-flight phase says it too: ${summaries.join(" | ")}`
-    )
+    assert.match(report.summary, /every one of the 6 slots is taken and the scout retired none of them, so nothing new could land$/)
     assert.deepEqual(skillsNotifications(report), [], "and it asks the owner for nothing")
+
+    rmSync(resolve(repo, `.vivicy/baselines/${BASELINE_ID}.json`))
+    seedBaseline("baseline-v1.1.0")
+    const pivot = await installSkills({
+      repoRoot: repo,
+      spawnScout: fakeScout([
+        {
+          add: [{ id: "stripe/agent-skills@payments", reason: "the spec takes payments" }],
+          installed: [drops("a/b@six"), ...six.slice(0, 5).map((id) => ({ id, verdict: "keep", reason: "still needed" }))],
+        },
+      ]),
+      fetchAudit: fakeAudits(),
+      runInstall: fakeInstaller([]),
+      runRemove: () => ({ code: 0, output: "removed" }),
+      emitReport: () => {},
+    })
+    assert.deepEqual(pivot.removed, ["a/b@six"], "a fossil no longer saturates the cap")
+    assert.deepEqual(pivot.added, ["stripe/agent-skills@payments"], "and the slot it freed is spent in the very same round")
+    assert.deepEqual(
+      pivot.installed.map((e) => e.id),
+      ["a/b@one", "a/b@two", "a/b@three", "a/b@four", "a/b@five", "stripe/agent-skills@payments"]
+    )
+    assert.match(pivot.summary, /^skills stage green: 1 installed, 1 dropped, 0 rejected this run; project total 6\/6$/)
   })
 })
 
@@ -759,7 +840,7 @@ describe("the skill NAME is the on-disk primary key", () => {
       repoRoot: repo,
       spawnScout: fakeScout([
         {
-          skills: [
+          add: [
             { id: "other/pack@postgres", name: "Other Postgres", reason: "the spec uses Postgres" },
             { id: "stripe/agent-skills@payments", name: "Payments", reason: "the spec takes card payments" },
           ],
@@ -794,9 +875,9 @@ describe("the skill NAME is the on-disk primary key", () => {
       repoRoot: repo,
       spawnScout: fakeScout([
         {
-          skills: [
-            { id: "somebody/community@postgres", name: "Community Postgres", reason: "no official option found" },
+          add: [
             { id: "supabase/agent-skills@postgres", name: "Supabase Postgres", reason: "the spec uses Supabase" },
+            { id: "somebody/community@postgres", name: "Community Postgres", reason: "no official option found" },
           ],
         },
       ]),
@@ -805,7 +886,11 @@ describe("the skill NAME is the on-disk primary key", () => {
       emitReport: () => {},
     })
 
-    assert.deepEqual(installs, [{ source: "supabase/agent-skills", skill: "postgres" }], "official-first decides who keeps the name")
+    assert.deepEqual(
+      installs,
+      [{ source: "supabase/agent-skills", skill: "postgres" }],
+      "the scout's RANK decides who keeps the name — nothing re-sorts its list behind its back"
+    )
     assert.deepEqual(
       report.rejected.map((r) => ({ id: r.id, reason: r.reason })),
       [{ id: "somebody/community@postgres", reason: "name_collision" }]
@@ -877,7 +962,7 @@ describe("the skill NAME is the on-disk primary key", () => {
 })
 
 describe("security audits", () => {
-  const scoutOne = () => fakeScout([{ skills: [{ id: "somebody/repo@risky", name: "Risky", reason: "why not" }] }])
+  const scoutOne = () => fakeScout([{ add: [{ id: "somebody/repo@risky", name: "Risky", reason: "why not" }] }])
 
   it("rejects a red audit without the env flag, never installing", async () => {
     seedBaseline()
@@ -885,7 +970,7 @@ describe("security audits", () => {
     const report = await installSkills({
       repoRoot: repo,
       spawnScout: scoutOne(),
-      fetchAudit: fakeAudits({ "somebody/repo@risky": { found: true, audits: [{ provider: "gateseal", status: "fail" }] } }),
+      fetchAudit: fakeAudits({ "somebody/repo@risky": { state: "audited", audits: [{ provider: "gateseal", status: "fail" }] } }),
       runInstall: fakeInstaller(installs),
       env: {},
     })
@@ -939,7 +1024,7 @@ describe("security audits", () => {
     const report = await installSkills({
       repoRoot: repo,
       spawnScout: scoutOne(),
-      fetchAudit: fakeAudits({ "somebody/repo@risky": { found: true, audits: [{ provider: "gateseal", status: "fail" }] } }),
+      fetchAudit: fakeAudits({ "somebody/repo@risky": { state: "audited", audits: [{ provider: "gateseal", status: "fail" }] } }),
       runInstall: fakeInstaller(installs),
       env: { VIVICY_ALLOW_UNSAFE_SKILLS: "1" },
     })
@@ -952,7 +1037,7 @@ describe("security audits", () => {
   it("rejects on more than one warn; exactly one warn is safe", async () => {
     seedBaseline()
     const twoWarns: SkillAuditFetch = {
-      found: true,
+      state: "audited",
       audits: [
         { provider: "a", status: "warn" },
         { provider: "b", status: "warn" },
@@ -969,7 +1054,7 @@ describe("security audits", () => {
     assert.equal(rejectedRun.rejected[0].reason, "too_many_warnings")
 
     rmSync(resolve(repo, SKILLS_REPORT_REL), { force: true })
-    const oneWarn: SkillAuditFetch = { found: true, audits: [{ provider: "a", status: "warn" }] }
+    const oneWarn: SkillAuditFetch = { state: "audited", audits: [{ provider: "a", status: "warn" }] }
     const safeRun = await installSkills({
       repoRoot: repo,
       spawnScout: scoutOne(),
@@ -984,7 +1069,7 @@ describe("security audits", () => {
 
   it("treats an unreachable/absent audit as unverified: rejected without the flag, waived with it", async () => {
     seedBaseline()
-    const unaudited: SkillAuditFetch = { found: false, audits: [] }
+    const unaudited: SkillAuditFetch = { state: "unaudited" }
     const rejectedRun = await installSkills({
       repoRoot: repo,
       spawnScout: scoutOne(),
@@ -1008,6 +1093,491 @@ describe("security audits", () => {
     })
     assert.equal(waivedRun.installed[0].security_waived, true)
     assert.equal(waivedRun.installed[0].reason, "unaudited")
+  })
+})
+
+describe("a transport failure is not a verdict (the round is retried, never settled over it)", () => {
+  const RISKY = "somebody/repo@risky"
+  const scoutOne = () => fakeScout([{ add: [{ id: RISKY, name: "Risky", reason: "the canonical needs it" }] }])
+
+  it("retries the audit with a bounded backoff inside the round, and a candidate that answers late still installs", async () => {
+    seedBaseline()
+    const waits: number[] = []
+    const answers: SkillAuditFetch[] = [UNREACHABLE, UNREACHABLE, passAudit()]
+    const installs: FakeInstallCall[] = []
+    const report = await installSkills({
+      repoRoot: repo,
+      spawnScout: scoutOne(),
+      fetchAudit: async () => answers.shift() ?? passAudit(),
+      runInstall: fakeInstaller(installs),
+      sleep: instantSleep(waits),
+      emitReport: () => {},
+    })
+    assert.deepEqual(waits, [500, 2000], "the backoff grows between attempts and the round holds only for those two waits")
+    assert.deepEqual(report.added, [RISKY], "the blip cost the candidate nothing")
+    assert.deepEqual(installs, [{ source: "somebody/repo", skill: "risky" }])
+    assert.equal(report.selection_baseline_id, BASELINE_ID, "and the round decided everything, so it settles")
+  })
+
+  it("a candidate the registry never answers for keeps its slot: unsettled, silent, and converged by the next pass", async () => {
+    seedBaseline()
+    const installs: FakeInstallCall[] = []
+    const blip = await installSkills({
+      repoRoot: repo,
+      spawnScout: scoutOne(),
+      fetchAudit: async () => UNREACHABLE,
+      runInstall: fakeInstaller(installs),
+      sleep: instantSleep(),
+    })
+
+    assert.equal(blip.phase, "green", "a network blip is not a red stage")
+    assert.deepEqual(installs, [], "nothing unaudited is ever installed")
+    assert.deepEqual(
+      blip.rejected.map((r) => r.reason),
+      ["audit_unreachable"],
+      "and it is NOT folded into `unaudited`, which would have refused the skill on the registry's behalf"
+    )
+    assert.match(blip.rejected[0].detail ?? "", /never answered, over 3 attempts \(getaddrinfo ENOTFOUND skills\.sh\)/)
+    assert.equal(blip.selection_baseline_id, null, "the round is UNSETTLED — that is the whole retry signal")
+    assert.equal(skillsStageNeeded({ baselineId: BASELINE_ID }, readJson(SKILLS_REPORT_REL) as SkillsReport), true)
+    assert.match(blip.summary, /the security registry never answered for 1 candidate \(somebody\/repo@risky\)/)
+    assert.match(blip.summary, /this selection is NOT settled and the next start retries it$/)
+    assert.deepEqual(skillsNotifications(blip), [], "the machine retries it by itself, so there is nothing to ask the owner")
+
+    const healthy = await installSkills({
+      repoRoot: repo,
+      spawnScout: scoutOne(),
+      fetchAudit: fakeAudits(),
+      runInstall: fakeInstaller(installs),
+      sleep: instantSleep(),
+    })
+    assert.deepEqual(healthy.added, [RISKY], "the next pass converges on the very candidate the blip could not decide")
+    assert.equal(healthy.selection_baseline_id, BASELINE_ID)
+    assert.deepEqual(healthy.rejected, [], "and the transport row does not survive the round that decided it")
+    assert.equal(skillsStageNeeded({ baselineId: BASELINE_ID }, readJson(SKILLS_REPORT_REL) as SkillsReport), false)
+  })
+
+  it("an undecided candidate HOLDS its slot — the ranked tail never takes it while it is still owed", async () => {
+    seedBaseline()
+    writeJson("vivicy.json", { gateCommand: "npm test", skills: declared(["a/b@one", "a/b@two", "a/b@three", "a/b@four", "a/b@five"]) })
+    const installs: FakeInstallCall[] = []
+    const report = await installSkills({
+      repoRoot: repo,
+      spawnScout: fakeScout([
+        {
+          add: [
+            { id: "x/y@first", reason: "the canonical needs it most" },
+            { id: "x/y@second", reason: "the canonical needs it too" },
+          ],
+        },
+      ]),
+      fetchAudit: fakeAudits({ "x/y@first": UNREACHABLE }),
+      runInstall: fakeInstaller(installs),
+      sleep: instantSleep(),
+      emitReport: () => {},
+    })
+    assert.deepEqual(installs, [], "the one free slot belongs to the candidate the registry still owes an answer about")
+    assert.deepEqual(
+      report.rejected.map((r) => r.id),
+      ["x/y@first"]
+    )
+    assert.equal(report.selection_baseline_id, null)
+  })
+
+  // The unsettled/retry semantics are the AUTO path's alone (`selection_baseline_id` + `skillsStageNeeded`); an explicit install is fire-and-forget, so silence there loses the fact for good.
+  it("an EXPLICIT install promises no retry it cannot make, and keeps the blip actionable", async () => {
+    const runtimeDir = resolve(repo, "runtime")
+    const installs: FakeInstallCall[] = []
+    const report = await withRuntimeNotifications(runtimeDir, () =>
+      installSkills({
+        repoRoot: repo,
+        ids: [RISKY],
+        fetchAudit: async () => UNREACHABLE,
+        runInstall: fakeInstaller(installs),
+        sleep: instantSleep(),
+      })
+    )
+
+    assert.equal(report.mode, "explicit")
+    assert.deepEqual(installs, [])
+    assert.equal(report.rejected[0]?.reason, "audit_unreachable")
+    assert.doesNotMatch(
+      report.summary,
+      /NOT settled|the next start retries it/,
+      "nothing re-runs an explicit install, so its summary may never promise one"
+    )
+    assert.match(
+      report.summary,
+      /it was not installed, and an explicit install is never retried automatically — ask for it again once the registry answers$/
+    )
+
+    const rows = notifications(runtimeDir)
+    assert.equal(rows.length, 1, `the owner keeps the actionable warning the blip raised before: ${rows.map((r) => r.event).join(", ")}`)
+    assert.equal(rows[0].event, "skills_findings")
+    assert.equal(rows[0].level, "warning")
+    assert.equal(rows[0].message, report.summary)
+  })
+
+  it("a seam that throws is one more transport failure, never a stage that dies mid-phase", async () => {
+    seedBaseline()
+    const report = await installSkills({
+      repoRoot: repo,
+      spawnScout: scoutOne(),
+      fetchAudit: async () => {
+        throw new Error("socket hang up")
+      },
+      runInstall: fakeInstaller([]),
+      sleep: instantSleep(),
+      emitReport: () => {},
+    })
+    assert.equal(report.phase, "green")
+    assert.equal(report.rejected[0].reason, "audit_unreachable")
+    assert.match(report.rejected[0].detail ?? "", /socket hang up/)
+    assert.equal(report.selection_baseline_id, null)
+  })
+})
+
+describe("an audit rejection backfills from the ranked tail", () => {
+  const RANKED = ["x/y@first", "x/y@second", "x/y@third", "x/y@fourth"]
+
+  async function selectInto(free: number, audits: Record<string, SkillAuditFetch>, order = RANKED): Promise<SkillsReport> {
+    seedBaseline()
+    const taken = Array.from({ length: MAX_PROJECT_SKILLS - free }, (_, i) => `a/b@taken-${i}`)
+    if (taken.length > 0) writeJson("vivicy.json", { gateCommand: "npm test", skills: declared(taken) })
+    return installSkills({
+      repoRoot: repo,
+      spawnScout: fakeScout([{ add: order.map((id) => ({ id, reason: "the canonical needs it" })) }]),
+      fetchAudit: fakeAudits(audits),
+      runInstall: fakeInstaller([]),
+      sleep: instantSleep(),
+      emitReport: () => {},
+    })
+  }
+
+  it("moves the cap slice down the list, one place per rejection, and never past the cap", async () => {
+    const report = await selectInto(2, { "x/y@first": { state: "audited", audits: [{ provider: "gateseal", status: "fail" }] } })
+    assert.deepEqual(report.added, ["x/y@second", "x/y@third"], "the refused head is replaced from the tail, in rank order")
+    assert.equal(report.installed.length, MAX_PROJECT_SKILLS, "and the budget is filled exactly, never exceeded")
+    assert.deepEqual(
+      report.rejected.map((r) => ({ id: r.id, reason: r.reason })),
+      [{ id: "x/y@first", reason: "red_audit" }],
+      "only the candidate a verdict really refused is named"
+    )
+  })
+
+  it("honors the ranking whatever order the scout hands down", async () => {
+    for (const order of [RANKED, [...RANKED].reverse(), ["x/y@third", "x/y@first", "x/y@fourth", "x/y@second"]]) {
+      rmSync(repo, { recursive: true, force: true })
+      mkdirSync(repo, { recursive: true })
+      const report = await selectInto(2, { [order[0]]: { state: "unaudited" } }, order)
+      assert.deepEqual(
+        report.added,
+        [order[1], order[2]],
+        `with the scout ranking ${order.join(" > ")}, the two survivors are its next two, never a re-sort of its list`
+      )
+    }
+  })
+
+  it("backfills a slot an installer lost too, so one broken bundle never shrinks the set", async () => {
+    seedBaseline()
+    const installs: FakeInstallCall[] = []
+    const report = await installSkills({
+      repoRoot: repo,
+      spawnScout: fakeScout([{ add: RANKED.map((id) => ({ id, reason: "the canonical needs it" })) }]),
+      fetchAudit: fakeAudits(),
+      runInstall: fakeInstaller(installs, new Set(["x/y@first", "x/y@second"])),
+      sleep: instantSleep(),
+      emitReport: () => {},
+    })
+    assert.deepEqual(report.added, ["x/y@third", "x/y@fourth"], "the round kept walking the list until the reserve ran out")
+    assert.deepEqual(
+      installs.map((c) => c.skill),
+      ["first", "second", "third", "fourth"]
+    )
+    assert.deepEqual(
+      report.rejected.map((r) => r.reason),
+      ["install_failed", "install_failed"]
+    )
+  })
+
+  it("audits nothing past the budget: a healthy head leaves the tail untouched", async () => {
+    seedBaseline()
+    const asked: string[] = []
+    const report = await installSkills({
+      repoRoot: repo,
+      spawnScout: fakeScout([
+        { add: Array.from({ length: MAX_SCOUT_CANDIDATES }, (_, i) => ({ id: `x/y@s${i}`, reason: "the canonical needs it" })) },
+      ]),
+      fetchAudit: async ({ skill }) => {
+        asked.push(skill)
+        return passAudit()
+      },
+      runInstall: fakeInstaller([]),
+      sleep: instantSleep(),
+      emitReport: () => {},
+    })
+    assert.equal(asked.length, MAX_PROJECT_SKILLS, "the reserve costs the registry nothing while the budget is met from the top")
+    assert.deepEqual(report.rejected, [])
+    assert.equal(report.added.length, MAX_PROJECT_SKILLS)
+  })
+})
+
+describe("the scout's keep/drop verdicts are the project's skill lifecycle", () => {
+  const FOSSIL = "old/pack@jquery"
+  const KEPT = "supabase/agent-skills@postgres"
+
+  async function projectWithBoth(): Promise<void> {
+    seedBaseline()
+    await installSkills({
+      repoRoot: repo,
+      spawnScout: fakeScout([
+        {
+          add: [
+            { id: FOSSIL, name: "jQuery", reason: "the spec used jQuery" },
+            { id: KEPT, name: "Supabase Postgres", reason: "the spec uses Supabase" },
+          ],
+        },
+      ]),
+      fetchAudit: fakeAudits(),
+      runInstall: fakeInstaller([]),
+      emitReport: () => {},
+    })
+    rmSync(resolve(repo, `.vivicy/baselines/${BASELINE_ID}.json`))
+    seedBaseline("baseline-v1.1.0")
+  }
+
+  it("a pivot drops the fossil end to end: report, vivicy.json and both governance blocks shrink together", async () => {
+    await projectWithBoth()
+    assert.ok(existsSync(bundleDir("jquery")), "the fossil is really on disk before the pivot")
+    const removals: FakeInstallCall[] = []
+    const phases: string[] = []
+    const report = await installSkills({
+      repoRoot: repo,
+      spawnScout: fakeScout([
+        {
+          add: [],
+          installed: [drops(FOSSIL), { id: KEPT, verdict: "keep", reason: "the spec still uses Supabase" }],
+        },
+      ]),
+      fetchAudit: fakeAudits(),
+      runInstall: fakeInstaller([]),
+      runRemove: ({ repoRoot: root, source, skill }) => {
+        removals.push({ source, skill })
+        rmSync(resolve(root, ".agents/skills", skill), { recursive: true, force: true })
+        return { code: 0, output: "removed" }
+      },
+      sleep: instantSleep(),
+      emitReport: (r) => phases.push(r.phase),
+    })
+
+    assert.equal(report.phase, "green")
+    assert.equal(report.mode, "auto", "a drop rides the auto path — no owner clicked anything")
+    assert.deepEqual(report.removed, [FOSSIL])
+    assert.deepEqual(removals, [{ source: "old/pack", skill: "jquery" }])
+    assert.ok(phases.includes("removing"), `the in-flight phase names the removal: ${phases.join(" | ")}`)
+    assert.deepEqual(
+      report.installed.map((e) => e.id),
+      [KEPT]
+    )
+    assert.deepEqual(declaredIds(), [KEPT], "the pin left vivicy.json with the declaration")
+    assert.ok(!existsSync(bundleDir("jquery")), "and the bundle left the disk")
+    assertReportAgreesWithSkillsBlock(report)
+    assert.equal(report.selection_baseline_id, "baseline-v1.1.0", "the round carried out every decision it took, so it settles")
+    assert.deepEqual(skillsNotifications(report), [], "self-maintenance the scout decided asks the owner for nothing")
+  })
+
+  it("every drop frees a slot the same round can spend, so a saturated project still evolves", async () => {
+    await projectWithBoth()
+    const report = await installSkills({
+      repoRoot: repo,
+      spawnScout: fakeScout([
+        {
+          add: [{ id: "stripe/agent-skills@payments", name: "Payments", reason: "the spec takes payments" }],
+          installed: [drops(FOSSIL), { id: KEPT, verdict: "keep", reason: "the spec still uses Supabase" }],
+        },
+      ]),
+      fetchAudit: fakeAudits(),
+      runInstall: fakeInstaller([]),
+      runRemove: () => ({ code: 0, output: "removed" }),
+      sleep: instantSleep(),
+      emitReport: () => {},
+    })
+    assert.deepEqual(report.removed, [FOSSIL])
+    assert.deepEqual(report.added, ["stripe/agent-skills@payments"])
+    assert.match(report.summary, /^skills stage green: 1 installed, 1 dropped, 0 rejected this run; project total 2\/6$/)
+  })
+
+  // No `emitReport` stub and no hand-called `skillsNotifications`: the told-once wiring lives in the REAL emit (it is the writer that hands the prior over), so a case that fakes either half proves nothing about it.
+  it("a bundle that refuses to go leaves the round unsettled and is the one drop the owner hears about — once, not once per start", async () => {
+    await projectWithBoth()
+    const attempts: FakeInstallCall[] = []
+    const waits: number[] = []
+    const runtimeDir = resolve(repo, "runtime")
+    // The round must keep WORKING after the failed drop — an auditing and an installing emit both carry the rejection, and each one is a chance to announce it a second and a third time.
+    const refusingRound = () =>
+      installSkills({
+        repoRoot: repo,
+        spawnScout: async ({ repoRoot: root, installed }) => {
+          const abs = resolve(root, SCOUT_RESULT_REL)
+          mkdirSync(dirname(abs), { recursive: true })
+          writeFileSync(
+            abs,
+            JSON.stringify({
+              add: [{ id: "stripe/agent-skills@payments", name: "Payments", reason: "the spec takes payments" }],
+              installed: installed.map((entry) =>
+                entry.id === FOSSIL ? drops(FOSSIL) : { id: entry.id, verdict: "keep", reason: "the canonical still needs it" }
+              ),
+            })
+          )
+        },
+        fetchAudit: fakeAudits(),
+        runInstall: fakeInstaller([]),
+        runRemove: ({ source, skill }) => {
+          attempts.push({ source, skill })
+          return { code: 1, output: "EACCES: permission denied" }
+        },
+        sleep: instantSleep(waits),
+      })
+
+    const report = await withRuntimeNotifications(runtimeDir, refusingRound)
+
+    assert.equal(attempts.length, 3, "the removal is retried inside the round before it is called a failure")
+    assert.deepEqual(waits, [250, 1000])
+    assert.deepEqual(report.removed, [])
+    assert.deepEqual(
+      report.rejected.map((r) => ({ id: r.id, reason: r.reason })),
+      [{ id: FOSSIL, reason: "remove_failed" }]
+    )
+    assert.deepEqual(
+      report.installed.map((e) => e.id),
+      [FOSSIL, KEPT, "stripe/agent-skills@payments"],
+      "the skill is still installed, because it really is — the projection never lies to free a slot"
+    )
+    assert.equal(report.selection_baseline_id, null, "so the slot is not consumed forever: the next pass re-decides and retries")
+    assert.match(report.summary, /1 skill could not be removed \(old\/pack@jquery\); this selection is NOT settled/)
+
+    const rows = notifications(runtimeDir)
+    assert.equal(rows.length, 1, `ONE row for the whole round — every in-flight emit is silent: ${rows.map((r) => r.event).join(", ")}`)
+    assert.equal(rows[0].event, "drop_failed")
+    assert.equal(rows[0].level, "error")
+    assert.match(rows[0].message, /could not remove its bundle \(old\/pack@jquery\)/)
+    assert.match(rows[0].message, /the next start retries the removal on its own$/)
+
+    await withRuntimeNotifications(runtimeDir, refusingRound)
+
+    assert.equal(
+      notifications(runtimeDir).length,
+      1,
+      "and the next start, which re-decides and retries the very same removal, says it no second time"
+    )
+  })
+
+  it("an owner-driven removal that fails answers in its own response, never twice", async () => {
+    await projectWithBoth()
+    const report = await removeSkills({
+      repoRoot: repo,
+      ids: [FOSSIL],
+      runRemove: () => ({ code: 1, output: "EACCES: permission denied" }),
+      sleep: instantSleep(),
+      emitReport: () => {},
+    })
+    assert.equal(report.rejected[0].reason, "remove_failed")
+    assert.deepEqual(
+      skillsNotifications(report),
+      [],
+      "the click that asked for it gets the report back — a notification would be a receipt"
+    )
+  })
+
+  it("a removal that fails once and takes on the retry is a plain success", async () => {
+    await projectWithBoth()
+    let calls = 0
+    const report = await removeSkills({
+      repoRoot: repo,
+      ids: [FOSSIL],
+      runRemove: () => {
+        calls += 1
+        return calls === 1 ? { code: 1, output: "EBUSY" } : { code: 0, output: "removed" }
+      },
+      sleep: instantSleep(),
+      emitReport: () => {},
+    })
+    assert.equal(calls, 2)
+    assert.deepEqual(report.removed, [FOSSIL])
+    assert.deepEqual(report.rejected, [])
+  })
+
+  it("refuses a verdict set that does not answer for exactly the installed skills", async () => {
+    const cases: Array<[string, unknown, RegExp]> = [
+      [
+        "a missing verdict",
+        { add: [], installed: [{ id: KEPT, verdict: "keep", reason: "r" }] },
+        /no keep\/drop verdict for old\/pack@jquery/,
+      ],
+      [
+        "no verdict array at all",
+        JSON.stringify({ add: [] }),
+        /every skill this project already holds needs its own "keep" or "drop" verdict/,
+      ],
+      [
+        "an id the project does not hold",
+        { add: [], installed: [{ id: "ghost/x@y", verdict: "drop", reason: "r" }] },
+        /"installed" names "ghost\/x@y", which this project does not hold/,
+      ],
+      [
+        "a verdict that is neither",
+        {
+          add: [],
+          installed: [
+            { id: FOSSIL, verdict: "maybe" },
+            { id: KEPT, verdict: "keep" },
+          ],
+        },
+        /has verdict "maybe" — it must be exactly "keep" or "drop"/,
+      ],
+      [
+        "a drop with no reason",
+        {
+          add: [],
+          installed: [
+            { id: FOSSIL, verdict: "drop" },
+            { id: KEPT, verdict: "keep" },
+          ],
+        },
+        /is dropped with an empty "reason"/,
+      ],
+      [
+        "the same skill dropped and re-proposed",
+        {
+          add: [{ id: FOSSIL, reason: "on second thought" }],
+          installed: [drops(FOSSIL), { id: KEPT, verdict: "keep", reason: "r" }],
+        },
+        /is both dropped and proposed for install — keep it or retire it, never both/,
+      ],
+      ["no add array at all", { installed: [drops(FOSSIL), { id: KEPT, verdict: "keep", reason: "r" }] }, /has no "add" array/],
+    ]
+    for (const [name, result, expected] of cases) {
+      rmSync(repo, { recursive: true, force: true })
+      mkdirSync(repo, { recursive: true })
+      await projectWithBoth()
+      const removals: FakeInstallCall[] = []
+      const report = await installSkills({
+        repoRoot: repo,
+        spawnScout: fakeScout([result, result]),
+        fetchAudit: fakeAudits(),
+        runInstall: fakeInstaller([]),
+        runRemove: ({ source, skill }) => {
+          removals.push({ source, skill })
+          return { code: 0 }
+        },
+        sleep: instantSleep(),
+        emitReport: () => {},
+      })
+      assert.equal(report.phase, "failed", `${name} must not pass validation`)
+      assert.match(report.summary, expected, name)
+      assert.deepEqual(removals, [], `${name}: not one skill is removed on a result the orchestrator rejected whole`)
+      assert.equal(report.selection_baseline_id, null, `${name}: a failed selection never settles`)
+    }
   })
 })
 
@@ -1064,7 +1634,7 @@ describe("install failures", () => {
       repoRoot: repo,
       spawnScout: fakeScout([
         {
-          skills: [
+          add: [
             { id: "good/repo@fine", reason: "the spec needs it" },
             { id: "bad/repo@broken", reason: "the spec needs it too" },
           ],
@@ -1402,7 +1972,7 @@ describe("the skills block rides the managed-block engine, in both governance do
     seedBaseline()
     await installSkills({
       repoRoot: repo,
-      spawnScout: fakeScout([{ skills: [{ id: "supabase/agent-skills@postgres", name: "Supabase Postgres", reason: "database" }] }]),
+      spawnScout: fakeScout([{ add: [{ id: "supabase/agent-skills@postgres", name: "Supabase Postgres", reason: "database" }] }]),
       fetchAudit: fakeAudits(),
       runInstall: fakeInstaller([]),
     })
@@ -1429,7 +1999,7 @@ describe("the skills block rides the managed-block engine, in both governance do
     seedBaseline()
     await installSkills({
       repoRoot: repo,
-      spawnScout: fakeScout([{ skills: [{ id: "supabase/agent-skills@postgres", name: "Supabase Postgres", reason: "database" }] }]),
+      spawnScout: fakeScout([{ add: [{ id: "supabase/agent-skills@postgres", name: "Supabase Postgres", reason: "database" }] }]),
       fetchAudit: fakeAudits(),
       runInstall: fakeInstaller([]),
     })
@@ -1487,7 +2057,7 @@ describe("supervisor hook decision (skillsStageNeeded)", () => {
 
     const auto = await installSkills({
       repoRoot: repo,
-      spawnScout: fakeScout([{ skills: [{ id: "stripe/agent-skills@payments", reason: "the spec takes payments" }] }]),
+      spawnScout: fakeScout([{ add: [{ id: "stripe/agent-skills@payments", reason: "the spec takes payments" }] }]),
       fetchAudit: fakeAudits(),
       runInstall: fakeInstaller([]),
     })
@@ -1522,7 +2092,7 @@ describe("the report tells the truth about the project's whole installed set", (
     seedBaseline()
     const first = await installSkills({
       repoRoot: repo,
-      spawnScout: fakeScout([{ skills: [{ id: "supabase/agent-skills@postgres", name: "Supabase Postgres", reason: "database" }] }]),
+      spawnScout: fakeScout([{ add: [{ id: "supabase/agent-skills@postgres", name: "Supabase Postgres", reason: "database" }] }]),
       fetchAudit: fakeAudits(),
       runInstall: fakeInstaller([]),
     })
@@ -1532,7 +2102,7 @@ describe("the report tells the truth about the project's whole installed set", (
     seedBaseline("baseline-v1.1.0")
     const second = await installSkills({
       repoRoot: repo,
-      spawnScout: fakeScout([{ skills: [{ id: "stripe/agent-skills@payments", name: "Stripe", reason: "payments" }] }]),
+      spawnScout: fakeScout([{ add: [{ id: "stripe/agent-skills@payments", name: "Stripe", reason: "payments" }] }]),
       fetchAudit: fakeAudits(),
       runInstall: fakeInstaller([]),
     })
@@ -1549,7 +2119,7 @@ describe("the report tells the truth about the project's whole installed set", (
     seedBaseline()
     await installSkills({
       repoRoot: repo,
-      spawnScout: fakeScout([{ skills: [{ id: "supabase/agent-skills@postgres", name: "Supabase Postgres", reason: "database" }] }]),
+      spawnScout: fakeScout([{ add: [{ id: "supabase/agent-skills@postgres", name: "Supabase Postgres", reason: "database" }] }]),
       fetchAudit: fakeAudits(),
       runInstall: fakeInstaller([]),
     })
@@ -1586,7 +2156,7 @@ describe("the report tells the truth about the project's whole installed set", (
     const seen: string[][] = []
     await installSkills({
       repoRoot: repo,
-      spawnScout: fakeScout([{ skills: [{ id: "stripe/agent-skills@payments", reason: "the spec takes payments" }] }]),
+      spawnScout: fakeScout([{ add: [{ id: "stripe/agent-skills@payments", reason: "the spec takes payments" }] }]),
       fetchAudit: fakeAudits(),
       runInstall: fakeInstaller([]),
       emitReport: (r) => seen.push(r.installed.map((e) => e.id)),
@@ -1602,7 +2172,7 @@ describe("the report tells the truth about the project's whole installed set", (
     seedBaseline()
     await installSkills({
       repoRoot: repo,
-      spawnScout: fakeScout([{ skills: [{ id: "supabase/agent-skills@postgres", name: "Supabase Postgres", reason: "database" }] }]),
+      spawnScout: fakeScout([{ add: [{ id: "supabase/agent-skills@postgres", name: "Supabase Postgres", reason: "database" }] }]),
       fetchAudit: fakeAudits(),
       runInstall: fakeInstaller([]),
     })
@@ -1867,6 +2437,49 @@ describe("removeSkills (deterministic uninstall)", () => {
     await assert.rejects(() => removeSkills({ ids: ["a/b@c"] }), SkillsConfigError)
     await assert.rejects(() => removeSkills({ repoRoot: repo, ids: [] }), SkillsConfigError)
   })
+
+  // The default remover is the one path a drop verdict reaches in production; a fake `npx` on PATH is what makes its CLI-less fallback provable offline.
+  describe("the default remover's fallback when the skills CLI cannot answer", () => {
+    let restorePath: string | undefined
+
+    beforeEach(() => {
+      const bin = resolve(repo, "fake-bin")
+      mkdirSync(bin, { recursive: true })
+      writeFileSync(resolve(bin, "npx"), "#!/bin/sh\necho 'no registry here' >&2\nexit 1\n")
+      chmodSync(resolve(bin, "npx"), 0o755)
+      restorePath = process.env.PATH
+      process.env.PATH = bin
+    })
+
+    afterEach(() => {
+      process.env.PATH = restorePath
+    })
+
+    it("deletes the bundle and its per-agent links itself", async () => {
+      seedInstalledState()
+      writeBundle(repo, "pdf")
+      mkdirSync(resolve(repo, ".claude/skills"), { recursive: true })
+      symlinkSync(resolve(repo, ".agents/skills/pdf"), resolve(repo, ".claude/skills/pdf"))
+
+      const report = await removeSkills({ repoRoot: repo, ids: ["anthropics/skills@pdf"], sleep: instantSleep() })
+
+      assert.deepEqual(report.removed, ["anthropics/skills@pdf"])
+      assert.ok(!existsSync(bundleDir("pdf")), "the bundle is gone")
+      assert.ok(!existsSync(resolve(repo, ".claude/skills/pdf")), "and the link that now points at nothing went with it")
+      assert.deepEqual(declaredIds(), ["acme/repo@scraper"])
+    })
+
+    it("treats a declared skill nothing ever installed as already removed, so a drop can never dead-end the retry", async () => {
+      seedInstalledState()
+      assert.ok(!existsSync(bundleDir("pdf")), "this project declares the id and has no bundle for it")
+
+      const report = await removeSkills({ repoRoot: repo, ids: ["anthropics/skills@pdf"], sleep: instantSleep() })
+
+      assert.deepEqual(report.removed, ["anthropics/skills@pdf"], "the declaration IS what the removal takes away")
+      assert.deepEqual(report.rejected, [], "and an absent bundle is never a remove_failed the next pass would retry forever")
+      assert.deepEqual(declaredIds(), ["acme/repo@scraper"])
+    })
+  })
 })
 
 describe("stage summaries agree in number", () => {
@@ -1875,7 +2488,7 @@ describe("stage summaries agree in number", () => {
     const summaries: string[] = []
     await installSkills({
       repoRoot: repo,
-      spawnScout: fakeScout([{ skills: ids.map((id) => ({ id, reason: "the canonical needs it" })) }]),
+      spawnScout: fakeScout([{ add: ids.map((id) => ({ id, reason: "the canonical needs it" })) }]),
       fetchAudit: fakeAudits(),
       runInstall: fakeInstaller([]),
       emitReport: (r) => summaries.push(r.summary),
@@ -2414,7 +3027,7 @@ describe("absorption + worktree delivery (real git target, real skills-CLI seam)
       seedBaseline()
       initGovernedGitTarget()
       writeSkillsCliStub(repo, "relative")
-      const proposal = { skills: [{ id: "acme/pack@spreadsheets", name: "Spreadsheets", reason: "the spec exports CSV" }] }
+      const proposal = { add: [{ id: "acme/pack@spreadsheets", name: "Spreadsheets", reason: "the spec exports CSV" }] }
       await installSkills({ repoRoot: repo, spawnScout: fakeScout([proposal]), fetchAudit: fakeAudits() })
       assert.equal(git(repo, ["status", "--porcelain"]).stdout.trim(), "")
 
@@ -2626,7 +3239,7 @@ describe("absorption + worktree delivery (real git target, real skills-CLI seam)
       const report = await installSkills({
         repoRoot: repo,
         ids: ["acme/pack@spreadsheets"],
-        fetchAudit: async () => ({ found: true, audits: [{ provider: "gateseal", status: "fail" }] }),
+        fetchAudit: async () => ({ state: "audited", audits: [{ provider: "gateseal", status: "fail" }] }),
       })
       assert.equal(report.phase, "green", report.summary)
       assert.deepEqual(report.installed, [], "the red audit refused the only candidate")
@@ -2704,7 +3317,7 @@ describe("absorption + worktree delivery (real git target, real skills-CLI seam)
       writeSkillsCliStub(repo, "relative")
       await installSkills({
         repoRoot: repo,
-        spawnScout: fakeScout([{ skills: [{ id: "acme/pack@spreadsheets", name: "Spreadsheets", reason: "the spec exports CSV" }] }]),
+        spawnScout: fakeScout([{ add: [{ id: "acme/pack@spreadsheets", name: "Spreadsheets", reason: "the spec exports CSV" }] }]),
         fetchAudit: fakeAudits(),
       })
       assert.equal(git(repo, ["status", "--porcelain"]).stdout.trim(), "")
@@ -2775,6 +3388,44 @@ describe("absorption + worktree delivery (real git target, real skills-CLI seam)
       assert.match(removed, /^D\t\.claude\/skills\/spreadsheets$/m)
     })
   })
+
+  // The install-stage commit now carries DELETIONS too (a scout drop rides the auto path), so its body has to enumerate them — a body claiming only installs over a commit that removed a bundle is the same class of lie as a restore body over an update.
+  it("an install-stage commit that also RETIRED a skill says so in its body, and carries the deletions", async () => {
+    await withHermeticGitEnv(async () => {
+      seedBaseline()
+      initGovernedGitTarget()
+      writeSkillsCliStub(repo, "relative")
+      const seeded = await installSkills({ repoRoot: repo, ids: ["acme/pack@spreadsheets"], fetchAudit: fakeAudits() })
+      assert.equal(seeded.phase, "green", seeded.summary)
+
+      const report = await installSkills({
+        repoRoot: repo,
+        spawnScout: fakeScout([{ add: [], installed: [drops("acme/pack@spreadsheets")] }]),
+        fetchAudit: fakeAudits(),
+        runRemove: ({ skill }) => {
+          rmSync(resolve(repo, ".agents/skills", skill), { recursive: true, force: true })
+          rmSync(resolve(repo, ".claude/skills", skill), { force: true })
+          return { code: 0, output: "removed" }
+        },
+        sleep: instantSleep(),
+      })
+
+      assert.equal(report.phase, "green", report.summary)
+      assert.deepEqual(report.removed, ["acme/pack@spreadsheets"])
+      const body = git(repo, ["log", "-1", "--format=%B"]).stdout
+      assert.match(body, /^skills: absorb the project-skills stage writes\n/)
+      assert.match(
+        body,
+        /for each skill the scout retired the deleted bundle and per-agent links and the shrunken vivicy\.json skills declaration/,
+        "the body enumerates the removals the commit really carries"
+      )
+      const status = git(repo, ["show", "--name-status", "--format=", "HEAD"]).stdout
+      assert.match(status, /^D\t\.agents\/skills\/spreadsheets\/SKILL\.md$/m)
+      assert.match(status, /^D\t\.claude\/skills\/spreadsheets$/m)
+      assert.match(status, /^M\tvivicy\.json$/m)
+      assert.equal(git(repo, ["status", "--porcelain"]).stdout.trim(), "", "and the tree the dev loop starts on is clean")
+    })
+  })
 })
 
 describe("the maintenance pass verifies every pin and self-heals (real git target, real skills-CLI seam)", () => {
@@ -2788,7 +3439,7 @@ describe("the maintenance pass verifies every pin and self-heals (real git targe
     writeSkillsCliStub(repo, "relative")
     const report = await installSkills({
       repoRoot: repo,
-      spawnScout: fakeScout([{ skills: [{ id: ID, name: "Spreadsheets", reason: "the spec exports CSV" }] }]),
+      spawnScout: fakeScout([{ add: [{ id: ID, name: "Spreadsheets", reason: "the spec exports CSV" }] }]),
       fetchAudit: fakeAudits(),
       runInstall: runStubSkillsCli,
     })
@@ -2812,16 +3463,6 @@ describe("the maintenance pass verifies every pin and self-heals (real git targe
         else process.env.VIVICY_RUNTIME_DIR = previous
       }
     })
-  }
-
-  function notifications(runtimeDir: string): Array<{ level: string; event: string; message: string }> {
-    const file = join(runtimeDir, "notifications.jsonl")
-    if (!existsSync(file)) return []
-    return readFileSync(file, "utf8")
-      .trim()
-      .split("\n")
-      .filter((line) => line.length > 0)
-      .map((line) => JSON.parse(line))
   }
 
   function bundleBytes(): Record<string, string> {
@@ -3436,15 +4077,15 @@ describe("the maintenance pass verifies every pin and self-heals (real git targe
       "scripts/recalc.py": "print('recalc, faster')\n",
       "scripts/audit.py": "print('new in this version')\n",
     }
-    const RED: SkillAuditFetch = { found: true, audits: [{ provider: "gateseal", status: "fail" }] }
+    const RED: SkillAuditFetch = { state: "audited", audits: [{ provider: "gateseal", status: "fail" }] }
     const TWO_WARNS: SkillAuditFetch = {
-      found: true,
+      state: "audited",
       audits: [
         { provider: "gateseal", status: "warn" },
         { provider: "socket", status: "warn" },
       ],
     }
-    const UNAUDITED: SkillAuditFetch = { found: false, audits: [] }
+    const UNAUDITED: SkillAuditFetch = { state: "unaudited" }
 
     function audits(fetch: SkillAuditFetch) {
       return fakeAudits({ [`acme/pack@${SKILL}`]: fetch })
@@ -3777,7 +4418,7 @@ describe("the maintenance pass verifies every pin and self-heals (real git targe
         const report = await maintainSkills({
           repoRoot: repo,
           runInstall: upstreamServing(NEWER),
-          fetchAudit: audits({ found: true, audits: [{ provider: "gateseal", status: "pass" }] }),
+          fetchAudit: audits({ state: "audited", audits: [{ provider: "gateseal", status: "pass" }] }),
         })
 
         assert.deepEqual(report.updated, [ID])
@@ -3905,6 +4546,38 @@ describe("the maintenance pass verifies every pin and self-heals (real git targe
         assert.deepEqual(green.rejected, [], "the refusal is gone the moment the pass re-decides it")
         assert.deepEqual((readJson(SKILLS_REPORT_REL) as SkillsReport).rejected, [])
         assert.equal(notifications(runtimeDir).length, 1, "and taking the update announces nothing")
+      })
+    })
+
+    it("an audit that never answers decides nothing either: no refusal is invented, and a standing one is kept", async () => {
+      await inGovernedProject(async ({ runtimeDir, pinnedAt }) => {
+        const waits: number[] = []
+        const blind = await maintainSkills({
+          repoRoot: repo,
+          runInstall: upstreamServing(NEWER),
+          fetchAudit: async () => UNREACHABLE,
+          sleep: instantSleep(waits),
+        })
+
+        assert.deepEqual(waits, [500, 2000], "the same bounded retry the install door uses, and no more")
+        assert.deepEqual(blind.rejected, [], "a network blip never refuses a creator's version on the registry's behalf")
+        assert.deepEqual(blind.updated, [], "and never takes it unaudited either")
+        assert.deepEqual(blind.verified, [ID])
+        assert.equal(pinOf(ID)?.bundle_hash, pinnedAt, "the project keeps running exactly what it pinned")
+        assert.deepEqual(notifications(runtimeDir), [])
+
+        const refused = await maintainSkills({ repoRoot: repo, runInstall: upstreamServing(NEWER), fetchAudit: audits(RED) })
+        assert.equal(refused.rejected[0]?.reason, "update_refused")
+        assert.equal(notifications(runtimeDir).length, 1)
+
+        const again = await maintainSkills({
+          repoRoot: repo,
+          runInstall: upstreamServing(NEWER),
+          fetchAudit: async () => UNREACHABLE,
+          sleep: instantSleep(),
+        })
+        assert.deepEqual(again.rejected, refused.rejected, "a pass that could not re-decide leaves the standing refusal exactly as it was")
+        assert.equal(notifications(runtimeDir).length, 1, "and says it no second time")
       })
     })
 

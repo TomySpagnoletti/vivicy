@@ -128,7 +128,7 @@ describe("SectionSkills — installed list", () => {
     vi.stubGlobal("fetch", stubFetch(GREEN_REPORT))
     renderWithIntl(<SectionSkills />)
 
-    const trigger = await screen.findByRole("button", { name: /1 rejected/ })
+    const trigger = await screen.findByRole("button", { name: /1 finding/ })
     expect(document.querySelector('[data-rejected-skill="evil/skill@x"]')).toBeNull()
 
     await user.click(trigger)
@@ -163,7 +163,7 @@ describe("SectionSkills — installed list", () => {
 
     await waitFor(() => expect(document.querySelectorAll("[data-skill]")).toHaveLength(2))
     expect(screen.getByText(/1 bundle could NOT be restored/)).toBeInTheDocument()
-    await user.click(await screen.findByRole("button", { name: /1 rejected/ }))
+    await user.click(await screen.findByRole("button", { name: /1 finding/ }))
     const row = document.querySelector('[data-rejected-skill="acme/community@scraper"]') as HTMLElement
     expect(row.textContent).toMatch(/heal_failed/)
     expect(row.textContent).toMatch(/1 file differs from the pin \(SKILL\.md\)/)
@@ -198,7 +198,7 @@ describe("SectionSkills — installed list", () => {
     await waitFor(() => expect(document.querySelectorAll("[data-skill]")).toHaveLength(2))
     expect(screen.getByText(/1 newer version refused by the security audit/)).toBeInTheDocument()
     expect(screen.getByText(/1 bundle updated to a newer audited version/)).toBeInTheDocument()
-    await user.click(await screen.findByRole("button", { name: /1 rejected/ }))
+    await user.click(await screen.findByRole("button", { name: /1 finding/ }))
     const row = document.querySelector('[data-rejected-skill="acme/community@scraper"]') as HTMLElement
     expect(row.textContent).toMatch(/update_refused/)
     expect(row.textContent).toMatch(/a security audit fails it/)

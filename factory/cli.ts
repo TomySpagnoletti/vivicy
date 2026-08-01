@@ -119,6 +119,7 @@ interface SkillsReport {
   mode?: string
   installed?: unknown[]
   added?: unknown[]
+  removed?: unknown[]
   rejected?: unknown[]
   summary?: string
   updated_at?: string
@@ -793,6 +794,7 @@ async function cmdSkillsInstall(argv: string[], opts: Opts = {}): Promise<void> 
     mode: report?.mode ?? (ids.length > 0 ? "explicit" : "auto"),
     installed: report?.installed ?? [],
     added: report?.added ?? [],
+    removed: report?.removed ?? [],
     rejected: report?.rejected ?? [],
     summary: report?.summary ?? lastLine(res.stdout) ?? "skills install produced no report",
   })

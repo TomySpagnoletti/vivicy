@@ -295,6 +295,9 @@ function skillInstallOutcome(id: string, outcome: InstallOutcome): RetroSkillIns
   const { report } = outcome
   if (report.added.includes(id)) return { status: "installed", detail: "the skills stage installed it" }
   const rejected = report.rejected.find((entry) => entry.id === id)
+  // A transport failure is not a refusal: the stage decided nothing about this skill, so the proposal stays the owner's to decide rather than reading as vetoed.
+  if (rejected?.reason === "audit_unreachable")
+    return { status: "undecided", detail: rejected.detail ?? "the skills stage could not decide" }
   if (rejected)
     return { status: "refused", detail: `${rejected.reason} — ${rejected.detail ?? "the skills stage kept it out of the project"}` }
   if (report.installed.some((entry) => entry.id === id)) return { status: "installed", detail: "the project already had it installed" }

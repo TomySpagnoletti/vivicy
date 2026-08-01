@@ -38,7 +38,7 @@ export const UNTRANSLATED_NOTIFICATION_EVENTS = {
   S10: ["checkpoint_commit_failed"],
   S12: ["run_finished", "run_blocked", "run_stalled", "run_max_relaunches"],
   SA: ["acceptance_findings", "acceptance_failed"],
-  SK: ["heal_failed", "skills_failed", "skills_findings", "update_refused"],
+  SK: ["drop_failed", "heal_failed", "skills_failed", "skills_findings", "update_refused"],
   SP: ["language_unresolved", "doc_prep_failed", "doc_prep_findings"],
   SR: ["retro_proposals"],
   extract: ["blocked", "blocked_on_unverified_spikes", "failed"],

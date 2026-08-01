@@ -30,7 +30,7 @@
     "retryDialogDescription": {
       "prepare": "Re-runs document preparation over the latest import batch: classify, explode/translate messy docs, place canonical files.",
       "extract": "Re-runs freeze -> author -> validate -> verify from the frozen canonical.",
-      "skills": "Re-runs skill selection from the frozen spec, then security audits and installation.",
+      "skills": "Re-runs skill selection from the frozen spec: retires what the project no longer needs, then security audits and installation.",
       "dev": "Resumes the development-loop supervisor from done/ and the progress ledger."
     },
     "cancelButton": "Cancel",

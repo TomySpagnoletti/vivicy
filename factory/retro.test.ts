@@ -56,7 +56,7 @@ function initGitRepo(root: string): void {
 }
 
 function auditing(status: string): () => Promise<SkillAuditFetch> {
-  return async () => ({ found: true, audits: [{ provider: "gateseal", status }] })
+  return async () => ({ state: "audited", audits: [{ provider: "gateseal", status }] })
 }
 
 function bundleInstaller(calls: string[]) {
