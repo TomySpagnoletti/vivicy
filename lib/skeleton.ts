@@ -1,6 +1,8 @@
 import { existsSync, readdirSync, rmSync } from "node:fs"
 import path from "node:path"
 
+export const VIVICY_DIR = ".vivicy"
+
 export const SKELETON_DIRS = [
   ".vivicy/canonical",
   ".vivicy/baselines",

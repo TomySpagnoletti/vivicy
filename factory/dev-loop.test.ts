@@ -2308,21 +2308,21 @@ test("commitDoneMove lands EVERY per-issue checkpoint commit even when a lazily-
   }
 })
 
-test("CHECKPOINT: a failed done-move commit is CONSUMED — the issue still completes (it is genuinely integrated) and the absent owner is told loudly (CRITICAL + error notification)", async () => {
-  const runtimeDir = mkdtempSync(resolve(repoRoot, "_tmp-checkpoint-"))
-  const prevRuntime = process.env.VIVICY_RUNTIME_DIR
-  process.env.VIVICY_RUNTIME_DIR = runtimeDir
-  const issues = [{ id: "ISSUE-A", depends_on: [], graph_refs: ["node:a"] }]
+test("CHECKPOINT: what was already in the worktree when the issue took it never rides its commit — the leg's own files all do", async () => {
+  const issues = [
+    { id: "ISSUE-A", depends_on: [], graph_refs: ["node:a"] },
+    { id: "ISSUE-B", depends_on: ["ISSUE-A"], graph_refs: ["node:a"] },
+  ]
   const { dir, scratchRel, cfg } = buildParallelScratch({ issues })
   const timeline: TimelineEntry[] = []
   const captured: string[] = []
   const realWrite = process.stderr.write.bind(process.stderr)
   try {
-    // Both halves are the discriminator: the nested .gitignore makes one staged path un-addable, and another tool's already-staged file keeps a bare `git commit` succeeding — drop either and the add-status check is no longer isolated from the commit-status one.
-    writeFileSync(resolve(repoRoot, scratchRel, ".gitignore"), "reports/\n")
-    mkdirSync(resolve(repoRoot, cfg.reportsDir), { recursive: true })
-    writeFileSync(resolve(repoRoot, cfg.reportsDir, "quota-state.json"), "{}\n")
-    const steps = parallelFakeSteps(timeline, scratchRel)
+    // No name here is ignored anywhere in this repo (asserted below), so this proves the PATHSPEC, never an ignore rule doing the work — and the two issues drive both counts of the line that says what was left behind.
+    const plantedById: Record<string, string[]> = {
+      "ISSUE-A": ["vendor-install/left-pad/index.js", "NOTES-FOR-ME.md"],
+      "ISSUE-B": ["NOTES-FOR-ME.md"],
+    }
     process.stderr.write = ((chunk: string | Uint8Array) => {
       captured.push(String(chunk))
       return true
@@ -2330,18 +2330,75 @@ test("CHECKPOINT: a failed done-move commit is CONSUMED — the issue still comp
     const processed = await runLoopParallel(
       { ...cfg, maxParallel: 1, defaultGateCommand: "true" },
       {
-        ...steps,
+        ...parallelFakeSteps(timeline, scratchRel),
         skipWorktreeIgnore: true,
-        runGate: async (iss: Issue, c?: Config) => {
-          const result = await defaultRunGateAsync(iss, (c ?? cfg) as Config)
-          if (!c?.execRoot) {
-            writeFileSync(resolve(repoRoot, scratchRel, "staged-by-another-tool.txt"), "x\n")
-            spawnSync("git", ["add", "--", `${scratchRel}/staged-by-another-tool.txt`], { cwd: repoRoot, encoding: "utf8" })
+        createWorktree: (issue: Issue) => {
+          const handle = defaultCreateWorktree(issue, cfg as Config)
+          const planted = plantedById[issue.id]
+          for (const rel of planted) {
+            mkdirSync(dirname(resolve(handle.worktreeRoot, rel)), { recursive: true })
+            writeFileSync(resolve(handle.worktreeRoot, rel), "not the issue's\n")
           }
-          return result
+          const ignored = spawnSync("git", ["check-ignore", "--", ...planted], { cwd: handle.worktreeRoot, encoding: "utf8" })
+          assert.equal((ignored.stdout ?? "").trim(), "", "the planted paths must be committable, or this test proves nothing")
+          return handle
         },
       }
     )
+    process.stderr.write = realWrite
+    assert.deepEqual(processed, [
+      { id: "ISSUE-A", status: "verified" },
+      { id: "ISSUE-B", status: "verified" },
+    ])
+    const committed = spawnSync("git", ["log", "--pretty=format:", "--name-only", "-20"], { cwd: repoRoot, encoding: "utf8" }).stdout ?? ""
+    for (const rel of new Set(Object.values(plantedById).flat())) {
+      assert.ok(!committed.includes(rel), `${rel} was in the worktree before the issue, so no commit may carry it`)
+    }
+    for (const id of ["ISSUE-A", "ISSUE-B"]) {
+      assert.match(committed, new RegExp(`^${scratchRel}/gen/${id}\\.txt$`, "m"), `every file ${id}'s leg wrote is committed`)
+    }
+    const stderr = captured.join("")
+    assert.match(
+      stderr,
+      /ISSUE-A: left 2 paths uncommitted — they were already dirty when the issue took this tree, so they are the owner's, never the checkpoint's/
+    )
+    assert.match(
+      stderr,
+      /ISSUE-B: left 1 path uncommitted — it was already dirty when the issue took this tree, so it is the owner's, never the checkpoint's/,
+      "the singular is a complete self-agreeing sentence, never the plural with the number swapped"
+    )
+    for (const rel of plantedById["ISSUE-A"]) {
+      assert.ok(stderr.includes(rel), `${rel} is NAMED in the line that says what the checkpoint left behind`)
+    }
+  } finally {
+    process.stderr.write = realWrite
+    rmSync(dir, { recursive: true, force: true })
+    spawnSync("git", ["add", "--", scratchRel], { cwd: repoRoot, encoding: "utf8" })
+    spawnSync("git", ["commit", "-qm", `cleanup ${scratchRel}`], { cwd: repoRoot, encoding: "utf8" })
+  }
+})
+
+test("CHECKPOINT: a failed done-move commit is CONSUMED — the issue still completes (it is genuinely integrated) and the absent owner is told loudly (CRITICAL + error notification)", async () => {
+  const runtimeDir = mkdtempSync(resolve(repoRoot, "_tmp-checkpoint-"))
+  const prevRuntime = process.env.VIVICY_RUNTIME_DIR
+  process.env.VIVICY_RUNTIME_DIR = runtimeDir
+  const issues = [{ id: "ISSUE-A", depends_on: [], graph_refs: ["node:a"] }]
+  const { dir, scratchRel, cfg } = buildParallelScratch({ issues })
+  const unreadable = resolve(repoRoot, cfg.reportsDir, "unreadable-artifact.json")
+  const timeline: TimelineEntry[] = []
+  const captured: string[] = []
+  const realWrite = process.stderr.write.bind(process.stderr)
+  try {
+    // An artifact git can see but not read: the checkpoint's own pathspec carries it, and indexing it fails — the one failure the seam cannot route around.
+    mkdirSync(resolve(repoRoot, cfg.reportsDir), { recursive: true })
+    writeFileSync(unreadable, "{}\n")
+    chmodSync(unreadable, 0o000)
+    const steps = parallelFakeSteps(timeline, scratchRel)
+    process.stderr.write = ((chunk: string | Uint8Array) => {
+      captured.push(String(chunk))
+      return true
+    }) as typeof process.stderr.write
+    const processed = await runLoopParallel({ ...cfg, maxParallel: 1, defaultGateCommand: "true" }, { ...steps, skipWorktreeIgnore: true })
     process.stderr.write = realWrite
 
     assert.deepEqual(
@@ -2353,7 +2410,7 @@ test("CHECKPOINT: a failed done-move commit is CONSUMED — the issue still comp
 
     const stderr = captured.join("")
     assert.match(stderr, /\[parallel\] CRITICAL: ISSUE-A was integrated and moved to done\/ but its checkpoint commit did not land/)
-    assert.match(stderr, /git add exited 1/, "the CRITICAL line quotes git's own failure, never a paraphrase")
+    assert.match(stderr, /Permission denied|adding files failed/i, "the CRITICAL line quotes git's own failure, never a paraphrase")
     assert.match(stderr, /manual intervention required/)
 
     const rows = readFileSync(resolve(runtimeDir, "notifications.jsonl"), "utf8")
@@ -2364,13 +2421,14 @@ test("CHECKPOINT: a failed done-move commit is CONSUMED — the issue still comp
     assert.ok(checkpoint, `expected a checkpoint_commit_failed notification, got ${rows.map((r) => r.event).join(", ")}`)
     assert.equal(checkpoint.level, "error", "an actionable level, so the owner's pill fires on return")
     assert.match(checkpoint.message, /ISSUE-A: integrated and moved to done\//)
-    assert.match(checkpoint.message, /git add exited 1/, "the notification carries the detail, not just a category")
+    assert.match(checkpoint.message, /Permission denied|adding files failed/i, "the notification carries the detail, not just a category")
     assert.match(checkpoint.message, /next run refuses to start until it is committed or reset/)
   } finally {
     process.stderr.write = realWrite
     if (prevRuntime === undefined) delete process.env.VIVICY_RUNTIME_DIR
     else process.env.VIVICY_RUNTIME_DIR = prevRuntime
     rmSync(runtimeDir, { recursive: true, force: true })
+    chmodSync(unreadable, 0o644)
     spawnSync("git", ["reset", "-q", "--", scratchRel], { cwd: repoRoot, encoding: "utf8" })
     rmSync(dir, { recursive: true, force: true })
     spawnSync("git", ["add", "--", scratchRel], { cwd: repoRoot, encoding: "utf8" })
@@ -2519,6 +2577,42 @@ test("defaultResetWorktreeFrozenArtifacts drops a worktree's frozen-artifact edi
 
     const again = defaultResetWorktreeFrozenArtifacts(issues[0], cfg as Config, created.worktreeRoot)
     assert.equal(again, false, "no frozen edit remaining -> guard is a no-op")
+
+    defaultRemoveWorktree(issues[0], cfg as Config, created.worktreeRoot, created.branch)
+  } finally {
+    frozen.cleanup()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test("defaultResetWorktreeFrozenArtifacts commits the frozen paths it restored and NOTHING the leg left staged beside them", () => {
+  const frozenRel = ".vivicy/requirements/catalog.json"
+  const frozen = seedFrozenArtifact(frozenRel, `${JSON.stringify({ requirements: ["R1"] }, null, 2)}\n`)
+  const issues = [{ id: "ISSUE-FZ2", depends_on: [], graph_refs: ["node:fz2"] }]
+  const { dir, scratchRel, cfg } = buildParallelScratch({ issues })
+  try {
+    const created = defaultCreateWorktree(issues[0], cfg as Config)
+    writeFileSync(resolve(created.worktreeRoot, frozenRel), `${JSON.stringify({ requirements: ["R1", "DRIFT"] }, null, 2)}\n`)
+    const stagedRel = `${scratchRel}/gen/leg-staged.txt`
+    mkdirSync(resolve(created.worktreeRoot, scratchRel, "gen"), { recursive: true })
+    writeFileSync(resolve(created.worktreeRoot, stagedRel), "the leg staged this and has not committed it\n")
+    spawnSync("git", ["add", "--", frozenRel], { cwd: created.worktreeRoot, encoding: "utf8" })
+    spawnSync("git", ["commit", "-qm", "ISSUE-FZ2: drift"], { cwd: created.worktreeRoot, encoding: "utf8" })
+    spawnSync("git", ["add", "--", stagedRel], { cwd: created.worktreeRoot, encoding: "utf8" })
+
+    assert.equal(defaultResetWorktreeFrozenArtifacts(issues[0], cfg as Config, created.worktreeRoot), true)
+    const carried = (
+      spawnSync("git", ["show", "--pretty=", "--name-only", "HEAD"], { cwd: created.worktreeRoot, encoding: "utf8" }).stdout ?? ""
+    )
+      .split("\n")
+      .filter(Boolean)
+    assert.deepEqual(carried, [frozenRel], "the drop commit carries the restored frozen path alone")
+    const stillStaged = spawnSync("git", ["diff", "--cached", "--name-only"], { cwd: created.worktreeRoot, encoding: "utf8" }).stdout ?? ""
+    assert.equal(
+      stillStaged.trim(),
+      stagedRel,
+      "what the leg staged is still staged and uncommitted — it is the leg's work, not an out-of-scope edit"
+    )
 
     defaultRemoveWorktree(issues[0], cfg as Config, created.worktreeRoot, created.branch)
   } finally {

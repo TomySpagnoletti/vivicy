@@ -5,7 +5,8 @@ import { dirname, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
 import { countForm, countOf } from "../lib/count-form.ts"
-import { pruneGitkeeps } from "../lib/skeleton.ts"
+import { commitDirty } from "../lib/pathspec-commit.ts"
+import { pruneGitkeeps, VIVICY_DIR } from "../lib/skeleton.ts"
 
 import { runClaudeLeg, runCodexLeg, TRANSCRIPT_DIRS } from "./agent-spawn.ts"
 import type { AgentIssue, AgentLeg, LegConfig } from "./agent-spawn.ts"
@@ -282,17 +283,11 @@ function applierContext({ cr, attempt, feedback }: { cr: ChangeRequestRecord; at
   )
 }
 
+// The applier is told to touch `.vivicy/canonical/**` and this stage writes its report, the CR and the spikes it retires — all inside `.vivicy`. An edit anywhere else is not this CR's and never rides its commit.
 function defaultCommitApplied({ repoRoot, id }: { repoRoot: string; id: string }): CommitResult {
-  const add = spawnSync("git", ["add", "-A"], { cwd: repoRoot, encoding: "utf8" })
-  if ((add.status ?? 1) !== 0) {
-    process.stderr.write(`cr-apply: git add -A failed: ${add.stderr || add.stdout}\n`)
-    return { committed: false }
-  }
-  const message = `change-request: fold ${id} into the canonical`
-  const commit = spawnSync("git", ["commit", "-m", message], { cwd: repoRoot, encoding: "utf8" })
-  const out = `${commit.stdout ?? ""}\n${commit.stderr ?? ""}`
-  if ((commit.status ?? 1) !== 0 && !/nothing to commit/i.test(out)) {
-    process.stderr.write(`cr-apply: applied-edit commit failed: ${out.trim()}\n`)
+  const result = commitDirty(repoRoot, { pathspecs: [VIVICY_DIR], message: `change-request: fold ${id} into the canonical` })
+  if (result.failure) {
+    process.stderr.write(`cr-apply: applied-edit commit failed: ${result.failure}\n`)
     return { committed: false }
   }
   return { committed: true }

@@ -620,6 +620,35 @@ describe("extractIssues — mechanical SPEC-SNAPSHOT commit before the freeze (n
     assert.match(log, /spec snapshot: commit canonical spec before freeze/)
   })
 
+  it("in a repo that HAS history, carries the Vivicy footprint and leaves the owner's own uncommitted work theirs", async () => {
+    cpSync(resolve(FIXTURE, "README.md"), resolve(temp, "README.md"))
+    writeScaffoldGitignore(temp)
+    initRepoWithCommit(temp)
+    // What a governed target looks like when extraction starts: the canonical Vivi wrote, the scaffold's governance files — and the owner mid-edit on their own code.
+    cpSync(resolve(FIXTURE, ".vivicy/canonical"), resolve(temp, ".vivicy/canonical"), { recursive: true })
+    writeFileSync(resolve(temp, "AGENTS.md"), "# Guide\n\n<!-- vivicy:method:begin -->\nmanaged\n<!-- vivicy:method:end -->\n")
+    writeFileSync(resolve(temp, "vivicy.json"), `${JSON.stringify({ gateCommand: null, runCommand: null }, null, 2)}\n`)
+    writeFileSync(resolve(temp, "src-draft.ts"), "export const halfWritten = true\n")
+
+    const base = stubSeams()
+    const { spawnExtractor } = fakeAgent([(ctx) => writeValidCorpus(ctx.repoRoot)])
+    const { spawnVerifier } = alwaysFaithfulVerifier()
+    const result = await extractIssues({ repoRoot: temp, spawnExtractor, spawnVerifier, ...base })
+
+    assert.equal(result.status, "green")
+    const tracked = new Set(
+      git(temp, ["ls-files"])
+        .stdout.split("\n")
+        .map((s) => s.trim())
+        .filter(Boolean)
+    )
+    for (const rel of [".vivicy/canonical/01-architecture.md", "AGENTS.md", "vivicy.json"]) {
+      assert.ok(tracked.has(rel), `${rel} is Vivicy's own footprint and is carried`)
+    }
+    assert.ok(!tracked.has("src-draft.ts"), "the owner's uncommitted source file is theirs — no Vivicy commit may swallow it")
+    assert.match(git(temp, ["status", "--porcelain"]).stdout, /src-draft\.ts/, "and it is still sitting there, uncommitted")
+  })
+
   it("makes NO redundant empty commit when the repo is already clean", async () => {
     cpSync(resolve(FIXTURE, ".vivicy/canonical"), resolve(temp, ".vivicy/canonical"), { recursive: true })
     cpSync(resolve(FIXTURE, "README.md"), resolve(temp, "README.md"))

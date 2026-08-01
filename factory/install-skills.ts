@@ -25,6 +25,7 @@ import type { Leg, LegResult } from "./dev-loop.ts"
 import { ensureLocalGitIdentity, findFrozenManifest } from "./extract-issues.ts"
 import { FACTORY_PROMPTS_DIR, resolveTargetRoot } from "./target-root.ts"
 import { AGENT_SKILLS_DIR, PER_AGENT_SKILL_DIRS, SKILLS_CLI_LOCKFILE } from "../lib/spec-kind.ts"
+import { commitDirty, dirtyPaths } from "../lib/pathspec-commit.ts"
 import { countForm, countOf } from "../lib/count-form.ts"
 import { normalizeSkillId, parseSkillId, SKILL_DOC_FILE, skillBundleRel, skillDocRel, type SkillRef } from "./skill-id.ts"
 import {
@@ -1184,30 +1185,6 @@ function ownsGitRepo(repoRoot: string): boolean {
   return resolved !== null && resolved === realpathOrNull(repoRoot)
 }
 
-// Keep -uall (an untracked DIRECTORY arrives as one entry `git add` re-globs) and -z (a bundle may ship any filename, which plain porcelain quotes).
-function dirtyPaths(repoRoot: string, pathspecs: readonly string[]): string[] {
-  if (pathspecs.length === 0) return []
-  const status = runGit(repoRoot, ["status", "--porcelain", "-z", "--untracked-files=all", "--", ...pathspecs])
-  return status.status === 0 ? porcelainPaths(status.stdout) : []
-}
-
-// Rename and copy entries carry their ORIGIN path in the next NUL field; both sides need staging.
-function porcelainPaths(stdout: string): string[] {
-  const fields = stdout.split("\0")
-  const paths: string[] = []
-  for (let i = 0; i < fields.length; i += 1) {
-    const field = fields[i]
-    if (field.length < 4) continue
-    paths.push(field.slice(3))
-    const state = field.slice(0, 2)
-    if (state.includes("R") || state.includes("C")) {
-      i += 1
-      if (fields[i]) paths.push(fields[i])
-    }
-  }
-  return paths
-}
-
 // An ABSOLUTE link would put this machine's paths in the owner's history: rewrite only the links THIS run wrote, and leave one pointing out of the repo or at nothing alone.
 function relativizeSkillLinks(tree: StageTree): string[] {
   const root = realpathOrNull(tree.repoRoot)
@@ -1255,36 +1232,30 @@ function absorbStageWrites(tree: StageTree): void {
     )
   }
   if (!tree.owns) return
-  const dirty = dirtyPaths(tree.repoRoot, [...tree.written])
-  const mine = dirty.filter((path) => !tree.baseline.has(path))
-  const theirs = dirty.length - mine.length
-  if (theirs > 0) {
-    process.stderr.write(
-      `install-skills: left ${countOf(theirs, "path", "paths")} uncommitted — already modified before this run, so they are the owner's to commit, never the skills stage's\n`
-    )
-  }
-  if (mine.length === 0) return
   ensureLocalGitIdentity(tree.repoRoot)
-  // Pathspec through stdin, never argv (a bundle's file count is unbounded), and never `-A` or a pathspec-less commit (either sweeps in the owner's own staged work).
-  const spec = mine.join("\0")
-  const add = runGit(tree.repoRoot, ["add", "--pathspec-from-file=-", "--pathspec-file-nul"], spec)
-  const message = STAGE_COMMIT_MESSAGE[tree.mode]
-  const commit =
-    add.status === 0
-      ? runGit(tree.repoRoot, ["commit", "--only", "--pathspec-from-file=-", "--pathspec-file-nul", "-m", message], spec)
-      : null
-  const empty = commit !== null && commit.status !== 0 && /nothing to commit|no changes added/i.test(`${commit.stdout}\n${commit.stderr}`)
-  const failed = add.status !== 0 ? add : commit !== null && commit.status !== 0 && !empty ? commit : null
-  if (failed) {
+  const absorbed = commitDirty(tree.repoRoot, {
+    pathspecs: [...tree.written],
+    exclude: tree.baseline,
+    message: STAGE_COMMIT_MESSAGE[tree.mode],
+  })
+  if (absorbed.excluded.length > 0) {
+    const left = countForm(
+      absorbed.excluded.length,
+      "path uncommitted — it was already modified before this run, so it is the owner's to commit, never the skills stage's",
+      "paths uncommitted — they were already modified before this run, so they are the owner's to commit, never the skills stage's"
+    )
+    process.stderr.write(`install-skills: left ${absorbed.excluded.length} ${left}\n`)
+  }
+  if (absorbed.failure) {
     process.stderr.write(
-      `install-skills: could not absorb the project-skills stage writes (${countOf(mine.length, "path", "paths")}); the dev loop will refuse this dirty tree: ${`${failed.stderr}\n${failed.stdout}`.trim()}\n`
+      `install-skills: could not absorb the project-skills stage writes (${countOf(absorbed.paths.length, "path", "paths")}); the dev loop will refuse this dirty tree: ${absorbed.failure}\n`
     )
     return
   }
-  if (empty) return
-  const roots = [...new Set(mine.map((path) => path.split("/")[0]))].sort()
+  if (!absorbed.committed) return
+  const roots = [...new Set(absorbed.paths.map((path) => path.split("/")[0]))].sort()
   process.stderr.write(
-    `install-skills: absorbed ${countOf(mine.length, "path", "paths")} of the project-skills stage into one commit (${roots.join(", ")})\n`
+    `install-skills: absorbed ${countOf(absorbed.paths.length, "path", "paths")} of the project-skills stage into one commit (${roots.join(", ")})\n`
   )
 }
 

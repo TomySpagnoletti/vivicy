@@ -22,7 +22,7 @@ import { DEFAULT_VIVI_ACTION_ROUNDS, MAX_VIVI_ACTION_ROUNDS } from "@/lib/leg-bu
 import { getProjectRuntimeDir } from "@/lib/project-runtime"
 import { getRuntimeDir } from "@/lib/runtime-dir"
 import { settingsToEnv } from "@/lib/settings"
-import { pruneGitkeeps } from "@/lib/skeleton"
+import { pruneGitkeeps, VIVICY_DIR } from "@/lib/skeleton"
 import { isCanonicalFrozen, type BatchCycleBinding } from "@/lib/spec-cycle"
 import { detectSpecKind } from "@/lib/spec-kind"
 import { readSettings } from "@/lib/settings-store"
@@ -49,8 +49,6 @@ const CANONICAL_DIRS = [path.join(".vivicy", "canonical"), path.join(".vivicy", 
 
 const CHANGE_REQUESTS_DIR = path.join(".vivicy", "change-requests")
 const POST_FREEZE_DIRS = [CHANGE_REQUESTS_DIR] as const
-
-const VIVICY_DIR = ".vivicy"
 
 const UPLOADS_DIR_POSIX = UPLOADS_DIR.split(path.sep).join("/")
 

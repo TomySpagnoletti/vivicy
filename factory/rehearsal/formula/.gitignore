@@ -1,5 +1,5 @@
 # The COMPLETE never-commit set, and ONLY that set, so the orchestrator can
-# `git add -A` safely every checkpoint and end with a clean tree. Everything else
+# commit safely at every checkpoint and end with a clean tree. Everything else
 # the factory produces (the progress ledger, gate evidence, reports, the static
 # architecture-map data, source-map, coverage report, catalog/traceability JSON)
 # IS committed. The architecture map is a STATIC graph generated once at
@@ -10,7 +10,7 @@ dist/
 *.log
 .DS_Store
 
-# SECRETS ARE NEVER COMMITTED — `git add -A` at every checkpoint would commit and push real values, dotenv's and direnv's alike. The whole family is ignored and re-included NOWHERE: the managed block is appended at EOF, so the first marker repair would land it below any `!` line and flip that line for good. The placeholder template `.env.example` is in history because scaffold TRACKS it (git add -f), which no ignore rule can undo.
+# SECRETS ARE NEVER COMMITTED — the loop commits and pushes at every checkpoint, which would carry real values, dotenv's and direnv's alike. The whole family is ignored and re-included NOWHERE: the managed block is appended at EOF, so the first marker repair would land it below any `!` line and flip that line for good. The placeholder template `.env.example` is in history because scaffold TRACKS it (git add -f), which no ignore rule can undo.
 .env
 .env.*
 .envrc

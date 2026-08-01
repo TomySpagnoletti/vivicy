@@ -121,7 +121,7 @@ describe("the repo's own .gitignore covers node_modules in every form git can se
     git(root, ["add", "-A"])
     git(root, ["commit", "-m", "seed"])
     expect(git(root, ["ls-files"]).stdout.split("\n").filter(Boolean)).toEqual([".gitignore", "install/eslint/index.js", "lib/thing.ts"])
-    expect(git(root, ["status", "--porcelain"]).stdout.trim(), "nothing of either form is left for a later add -A").toBe("")
+    expect(git(root, ["status", "--porcelain"]).stdout.trim(), "nothing of either form is left for a later commit to pick up").toBe("")
   })
 
   it("prettier never descends a symlinked directory, so its ignore rules are never consulted for one", () => {

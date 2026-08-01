@@ -571,7 +571,7 @@ test("leg failure: no output after the bounded re-prompt -> phase failed, source
     assert.equal(
       existsSync(join(root, ".vivicy/development/reports/doc-prep-scratch")),
       false,
-      "the failure path must clear the leg scratch dir (no leftover for extraction's git add -A)"
+      "the failure path must clear the leg scratch dir (no leftover inside the territory extraction's commit carries)"
     )
   } finally {
     rmSync(root, { recursive: true, force: true })

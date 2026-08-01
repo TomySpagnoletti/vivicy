@@ -498,7 +498,7 @@ describe("the dependency-install ignore posture, exercised through real git", ()
       "neither form reaches the index"
     ).toEqual([])
     expect(tracked, "and the owner's own workspace source still does").toContain("packages/api/index.js")
-    expect(git(target, ["status", "--porcelain"]).stdout.trim(), "nothing is left for a later add -A either").toBe("")
+    expect(git(target, ["status", "--porcelain"]).stdout.trim(), "nothing is left for a later commit to pick up either").toBe("")
   })
 })
 
@@ -671,7 +671,7 @@ describe("the secret-file ignore posture, exercised through real git (both write
     git(target, ["commit", "-qm", "post-repair"])
     expect(
       git(target, ["ls-files"]).stdout.split("\n").filter(Boolean),
-      "the loop's git add -A must not stage the owner's secret"
+      "no commit of the loop's may stage the owner's secret"
     ).not.toContain("secrets/config.json")
   })
 })
@@ -1263,7 +1263,7 @@ describe("a crash-abandoned atomic-write temp is never committable (both writers
     return git(target, ["ls-files"]).stdout.split("\n").filter(Boolean)
   }
 
-  it("greenfield: the block Vivicy wrote covers its own temps, so git add -A cannot pick them up", () => {
+  it("greenfield: the block Vivicy wrote covers its own temps, so no commit can pick them up", () => {
     const target = path.join(workDir, "greenfield-temp")
     scaffoldProject({ targetDir: target, projectName: "Greenfield Temp" })
     const temps = abandonTemps(target)

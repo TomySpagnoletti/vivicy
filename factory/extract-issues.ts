@@ -23,7 +23,9 @@ import { formatMapReviewFix, mapReviewLensContext, mapReviewReportRel, runMapRev
 import type { MapReviewLens, MapReviewResult as LensFindings, TaggedFinding } from "./map-review.ts"
 import { FACTORY_DIR, FACTORY_PROMPTS_DIR, resolveTargetRoot } from "./target-root.ts"
 import { countForm, countOf } from "../lib/count-form.ts"
-import { pruneGitkeeps } from "../lib/skeleton.ts"
+import { MANAGED_GOVERNANCE_FILES } from "../lib/managed-block.ts"
+import { commitDirty, dirtyPaths } from "../lib/pathspec-commit.ts"
+import { pruneGitkeeps, VIVICY_DIR } from "../lib/skeleton.ts"
 import { clearSpecCycle, readSpecCycle } from "../lib/spec-cycle.ts"
 import type { NotificationInput } from "../lib/notification-events.ts"
 import type { SpecKind } from "../lib/spec-kind.ts"
@@ -33,6 +35,7 @@ import {
   loadProjectConfig,
   normalizeGateCommand,
   normalizeRunCommand,
+  PROJECT_CONFIG_FILENAME,
   setGateCommand,
   setRunCommand,
   type ProjectConfig,
@@ -889,19 +892,31 @@ function defaultCommitCorpus({ repoRoot, baselineId }: { repoRoot: string; basel
   ensureGitRepo(repoRoot)
   ensureLocalGitIdentity(repoRoot)
   pruneGitkeeps(repoRoot)
-  const add = spawnSync("git", ["add", "-A"], { cwd: repoRoot, encoding: "utf8" })
-  if ((add.status ?? 1) !== 0) {
-    process.stderr.write(`extract-issues: git add -A failed: ${add.stderr || add.stdout}\n`)
-    return { committed: false }
-  }
   const message = `extraction: author corpus from frozen baseline ${baselineId}\n\nFrozen baseline + issues + catalog/matrix/index + architecture map; deterministic checks pass, fidelity verified.`
-  const commit = spawnSync("git", ["commit", "-m", message], { cwd: repoRoot, encoding: "utf8" })
-  const out = `${commit.stdout ?? ""}\n${commit.stderr ?? ""}`
-  if ((commit.status ?? 1) !== 0 && !/nothing to commit/i.test(out)) {
-    process.stderr.write(`extract-issues: corpus commit failed: ${out.trim()}\n`)
+  const result = commitDirty(repoRoot, { pathspecs: EXTRACTION_CORPUS_PATHS, message })
+  if (result.failure) {
+    process.stderr.write(`extract-issues: corpus commit failed: ${result.failure}\n`)
     return { committed: false }
   }
+  reportUncarriedDirt(repoRoot, "the extraction corpus commit", EXTRACTION_CORPUS_PATHS)
   return { committed: true }
+}
+
+// Everything the extraction chain writes lives here: the corpus and the gate/run command it records. What a leg wrote ANYWHERE else is not the corpus and never rides this commit.
+const EXTRACTION_CORPUS_PATHS = [VIVICY_DIR, PROJECT_CONFIG_FILENAME] as const
+
+// The pre-freeze snapshot additionally carries what SCAFFOLDING wrote into the target and nobody has committed yet — the freeze refuses a dirty tree, and `.env.example` is staged-but-uncommitted by design.
+const VIVICY_SCAFFOLD_PATHS = [...EXTRACTION_CORPUS_PATHS, ...MANAGED_GOVERNANCE_FILES, "README.md", ".env.example"] as const
+
+// The freeze and the dev loop both refuse a dirty tree, so what this stage deliberately did not carry must be named where it happened, never discovered three stages later.
+function reportUncarriedDirt(repoRoot: string, what: string, carried: readonly string[]): void {
+  if (carried.includes(".")) return
+  const left = dirtyPaths(repoRoot, ["."]).filter((path) => !carried.some((dir) => path === dir || path.startsWith(`${dir}/`)))
+  if (left.length === 0) return
+  const they = countForm(left.length, "it is", "they are")
+  process.stderr.write(
+    `extract-issues: ${countOf(left.length, "path", "paths")} outside ${what} stayed uncommitted — ${they} the owner's, and the freeze and the dev loop both refuse a dirty tree until ${they} committed or ignored: ${left.join(", ")}\n`
+  )
 }
 
 function runGit(repoRoot: string, args: string[]): { status: number; stdout: string; stderr: string } {
@@ -929,25 +944,19 @@ function defaultCommitSpecSnapshot({ repoRoot }: { repoRoot: string }): { commit
     return { committed: false }
   }
   ensureLocalGitIdentity(repoRoot)
-  const add = runGit(repoRoot, ["add", "-A"])
-  if (add.status !== 0) {
-    process.stderr.write(`extract-issues: spec-snapshot git add -A failed: ${add.stderr || add.stdout}\n`)
-    return { committed: false }
-  }
-  if (runGit(repoRoot, ["diff", "--cached", "--quiet"]).status === 0) {
-    return { committed: false }
-  }
   const message =
     "spec snapshot: commit canonical spec before freeze\n\n" +
     "Owner-authored .vivicy/canonical/** (+ any skeleton additions) committed mechanically " +
     "so the doc-baseline freeze sees a clean, committed tree. No human git step."
-  const commit = runGit(repoRoot, ["commit", "-m", message])
-  const out = `${commit.stdout}\n${commit.stderr}`
-  if (commit.status !== 0 && !/nothing to commit/i.test(out)) {
-    process.stderr.write(`extract-issues: spec-snapshot commit failed: ${out.trim()}\n`)
+  // A repo with a HISTORY keeps its own: only the Vivicy footprint rides, everything else there being the owner's to commit or to leave. A repo with no commit at all is one Vivicy just initialized around their files — its first commit is that tree as it stood, bounded by the ignore catalogue the scaffold wrote.
+  const pathspecs = runGit(repoRoot, ["rev-parse", "--verify", "HEAD"]).status === 0 ? VIVICY_SCAFFOLD_PATHS : ["."]
+  const result = commitDirty(repoRoot, { pathspecs, message })
+  if (result.failure) {
+    process.stderr.write(`extract-issues: spec-snapshot commit failed: ${result.failure}\n`)
     return { committed: false }
   }
-  return { committed: true }
+  reportUncarriedDirt(repoRoot, "the Vivicy footprint", pathspecs)
+  return { committed: result.committed }
 }
 
 export function findFrozenManifest(repoRoot: string): FrozenBaseline | null {

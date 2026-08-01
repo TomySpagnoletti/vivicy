@@ -228,7 +228,7 @@ async function main(): Promise<void> {
     if (fixedDir) mkdirSync(fixedDir, { recursive: true })
     cpSync(fixtureDir, temp, { recursive: true })
     git(["init", "-q"], temp)
-    git(["add", "-A"], temp)
+    git(["add", "--", ...readdirSync(temp).filter((entry) => entry !== ".git")], temp)
     git(["-c", "user.email=rehearsal@local", "-c", "user.name=rehearsal", "commit", "-qm", "rehearsal fixture"], temp)
     record("materialize isolated temp repo", existsSync(join(temp, ".git")), temp)
   }
@@ -266,7 +266,8 @@ async function main(): Promise<void> {
     `${preData?.development?.issues?.length ?? 0} issue(s)`
   )
 
-  git(["add", "-A"], temp)
+  // Mirrors extraction's own pathspec: the rehearsal stands in for the corpus commit, so it may carry no more than that commit could.
+  git(["add", "--", ".vivicy", "vivicy.json"], temp)
   git(["-c", "user.email=rehearsal@local", "-c", "user.name=rehearsal", "commit", "-qm", "extraction: author corpus + map"], temp)
   const corpusClean = (git(["status", "--porcelain"], temp).stdout || "").trim() === ""
   const mapCommittedPreLoop = git(["ls-files", ".vivicy/architecture-map/architecture-data.json"], temp).stdout.trim().length > 0
@@ -1044,7 +1045,8 @@ async function runFeatureCycleStages(temp: string): Promise<void> {
   const priorVersion = prior ? (readJsonIn<CycleManifest>(prior.manifestPath).version ?? null) : null
 
   const doc = writeCycleAddendumDoc(temp)
-  git(["add", "-A"])
+  // The spec evolution is the new doc plus the cycle state that opened it — `.vivicy`, the same territory the real snapshot commit carries.
+  git(["add", "--", ".vivicy"])
   git([
     "-c",
     "user.email=rehearsal@local",

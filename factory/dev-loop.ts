@@ -26,8 +26,9 @@ import { recordProgressEvent } from "./progress-ledger.ts"
 import type { ProgressEvent } from "./progress-ledger.ts"
 import { preflightSkills, skillsDirective } from "./dev-preflight.ts"
 import { pruneGitkeeps } from "../lib/skeleton.ts"
-import { countOf } from "../lib/count-form.ts"
+import { countForm, countOf } from "../lib/count-form.ts"
 import { MANAGED_GOVERNANCE_FILES } from "../lib/managed-block.ts"
+import { commitDirty, dirtyPaths } from "../lib/pathspec-commit.ts"
 import type { NotificationInput } from "../lib/notification-events.ts"
 import { commandServesHttp } from "../lib/product-run.ts"
 import { SKILLS_REPORT_FILE } from "../lib/skills-report.ts"
@@ -288,6 +289,7 @@ export interface Config {
   quotaPatterns?: RegExp[]
   baselineId?: string
   execRoot?: string
+  preIssueDirt?: readonly string[]
   deferVerified?: boolean
   now?: () => number
   sleep?: (ms: number) => void
@@ -1534,13 +1536,31 @@ function readIndexBaselineId(cfg: Config): string {
   }
 }
 
+// Snapshot ONCE, when the issue takes the tree — never per attempt: a file attempt 1 wrote and attempt 2 left alone would drop out of the checkpoint.
+export function snapshotPreIssueDirt(root: string): string[] {
+  return dirtyPaths(root, ["."])
+}
+
 function defaultCommit(issue: Issue, cfg: Config) {
   const root = execRootOf(cfg)
   pruneGitkeeps(root)
-  // -A is safe: .gitignore covers the full never-commit set (transcripts, runtime, worktrees, node_modules).
-  spawnSync("git", ["add", "-A"], { cwd: root, encoding: "utf8" })
   const message = `${issue.id}: ${issue.title ?? "implement vertical slice"}\n\nGate green; reviewed by ${cfg.reviewer.actor}.`
-  return spawnSync("git", ["commit", "-m", message], { cwd: root, encoding: "utf8" })
+  const result = commitDirty(root, { pathspecs: ["."], exclude: new Set(cfg.preIssueDirt ?? []), message })
+  if (result.excluded.length > 0) {
+    const left = countForm(
+      result.excluded.length,
+      "path uncommitted — it was already dirty when the issue took this tree, so it is the owner's, never the checkpoint's",
+      "paths uncommitted — they were already dirty when the issue took this tree, so they are the owner's, never the checkpoint's"
+    )
+    process.stderr.write(`${issue.id}: left ${result.excluded.length} ${left} (${result.excluded.join(", ")})\n`)
+  }
+  if (result.failure) {
+    process.stderr.write(`${issue.id}: checkpoint commit failed: ${result.failure}\n`)
+  } else if (result.committed) {
+    const roots = [...new Set(result.paths.map((path) => path.split("/")[0]))].sort()
+    process.stderr.write(`${issue.id}: checkpoint committed ${countOf(result.paths.length, "path", "paths")} (${roots.join(", ")})\n`)
+  }
+  return result
 }
 
 export function findFrozenManifestRel(cfg: Config): { manifestRel: string; baselineId: string } | null {
@@ -1655,20 +1675,16 @@ export function defaultResetWorktreeFrozenArtifacts(issue: Issue, cfg: Config, w
   for (const path of paths) {
     spawnSync("git", ["checkout", base, "--", path], { cwd: worktreeRoot, encoding: "utf8" })
   }
-  const staged = spawnSync("git", ["diff", "--cached", "--name-only"], {
-    cwd: worktreeRoot,
-    encoding: "utf8",
+  // Scoped to the frozen paths the checkout just restored: anything else the leg staged is its own work and is NOT what this commit drops.
+  const dropped = commitDirty(worktreeRoot, {
+    pathspecs: paths,
+    message: `${issue.id}: drop out-of-scope frozen-artifact edits before integration`,
   })
-  const changed = (staged.stdout ?? "").trim()
-  if (changed.length === 0) {
+  if (!dropped.committed) {
     return false
   }
-  spawnSync("git", ["commit", "-m", `${issue.id}: drop out-of-scope frozen-artifact edits before integration`], {
-    cwd: worktreeRoot,
-    encoding: "utf8",
-  })
   process.stderr.write(
-    `[parallel] ${issue.id}: discarded out-of-scope frozen-artifact edits before integration:\n  ${changed.split("\n").join("\n  ")}\n`
+    `[parallel] ${issue.id}: discarded out-of-scope frozen-artifact edits before integration:\n  ${dropped.paths.join("\n  ")}\n`
   )
   return true
 }
@@ -1710,7 +1726,6 @@ export function defaultRemoveWorktree(issue: Issue, cfg: Config, worktreeRoot: s
   if (branch) spawnSync("git", ["branch", "-D", branch], { cwd: root, encoding: "utf8" })
 }
 
-// `git add -- <a> <b>` aborts WHOLESALE on a pathspec matching neither worktree nor index, and several of these paths are written lazily.
 function commitDoneMove(issue: Issue, cfg: Config): { ok: boolean; detail: string } {
   const root = requireRepoRoot()
   const paths = [
@@ -1721,20 +1736,15 @@ function commitDoneMove(issue: Issue, cfg: Config): { ok: boolean; detail: strin
     cfg.gatesDir,
     cfg.proofsDir,
     cfg.reportsDir,
-  ].filter((p): p is string => typeof p === "string" && p.length > 0 && existsSync(resolve(root, p)))
+  ].filter((p): p is string => typeof p === "string" && p.length > 0)
   pruneGitkeeps(root)
-  const add = spawnSync("git", ["add", "--", ...paths], { cwd: root, encoding: "utf8" })
-  if ((add.status ?? 1) !== 0) {
-    return failedDoneMoveCommit(issue, "git add", add)
-  }
-  const commit = spawnSync("git", ["commit", "-m", `${issue.id}: move to done/ (integrated; live progress in ledger)`], {
-    cwd: root,
-    encoding: "utf8",
+  const result = commitDirty(root, {
+    pathspecs: paths,
+    message: `${issue.id}: move to done/ (integrated; live progress in ledger)`,
   })
-  if ((commit.status ?? 1) !== 0) {
-    return failedDoneMoveCommit(issue, "git commit", commit)
-  }
-  return { ok: true, detail: (commit.stdout ?? "").trim() }
+  if (result.failure) return failedDoneMoveCommit(issue, result.failure)
+  if (!result.committed) return failedDoneMoveCommit(issue, "nothing to commit — the move to done/ left no trace on disk")
+  return { ok: true, detail: result.paths.join(", ") }
 }
 
 function notifyCheckpointFailure(issue: Issue, detail: string): void {
@@ -1746,12 +1756,7 @@ function notifyCheckpointFailure(issue: Issue, detail: string): void {
   })
 }
 
-function failedDoneMoveCommit(
-  issue: Issue,
-  step: string,
-  result: { status?: number | null; stdout?: string; stderr?: string }
-): { ok: boolean; detail: string } {
-  const detail = `${step} exited ${result.status ?? "null"}: ${`${result.stdout ?? ""}\n${result.stderr ?? ""}`.trim()}`
+function failedDoneMoveCommit(issue: Issue, detail: string): { ok: boolean; detail: string } {
   process.stderr.write(
     `[parallel] CRITICAL: ${issue.id} was integrated and moved to done/ but its checkpoint commit did not land (${detail}); the tree is left dirty and the next run's clean-tree gate will refuse — manual intervention required\n`
   )
@@ -1780,27 +1785,19 @@ const GOVERNANCE_REFRESH_COMMIT_MESSAGE =
   "chore: refresh the Vivicy-managed governance blocks\n\nWritten by Vivicy when the project was opened; committed here so the run starts on a clean tree."
 
 function absorbManagedGovernanceRefresh(root: string): string[] {
-  const status = spawnSync("git", ["status", "--porcelain"], { cwd: root, encoding: "utf8" })
-  if ((status.status ?? 1) !== 0) return []
-  const dirty = (status.stdout ?? "")
-    .split("\n")
-    .filter((line) => line.trim().length > 0)
-    .map((line) => line.replace(/\r$/, "").slice(3))
+  const dirty = dirtyPaths(root, ["."])
   if (dirty.length === 0) return []
   if (!dirty.every((entry) => (MANAGED_GOVERNANCE_FILES as readonly string[]).includes(entry))) return []
-  // Exact pathspec, never -A: a file the owner touches between the status read and the add must not be swallowed into Vivicy's commit.
-  const add = spawnSync("git", ["add", "--", ...dirty], { cwd: root, encoding: "utf8" })
-  const commit =
-    (add.status ?? 1) === 0 ? spawnSync("git", ["commit", "-m", GOVERNANCE_REFRESH_COMMIT_MESSAGE], { cwd: root, encoding: "utf8" }) : null
-  if ((commit?.status ?? 1) !== 0) {
-    const failed = commit ?? add
+  // Exact pathspec, never the whole tree: a file the owner touches between the status read and the commit must not be swallowed into Vivicy's.
+  const result = commitDirty(root, { pathspecs: MANAGED_GOVERNANCE_FILES, message: GOVERNANCE_REFRESH_COMMIT_MESSAGE })
+  if (!result.committed) {
     process.stderr.write(
-      `dev-loop preflight: could not absorb the Vivicy-managed governance refresh (${dirty.join(", ")}): ${`${failed.stderr ?? ""}\n${failed.stdout ?? ""}`.trim()}\n`
+      `dev-loop preflight: could not absorb the Vivicy-managed governance refresh (${dirty.join(", ")}): ${result.failure ?? "nothing to commit"}\n`
     )
     return []
   }
-  process.stderr.write(`dev-loop preflight: absorbed the Vivicy-managed governance refresh (${dirty.join(", ")}) into one commit\n`)
-  return dirty
+  process.stderr.write(`dev-loop preflight: absorbed the Vivicy-managed governance refresh (${result.paths.join(", ")}) into one commit\n`)
+  return result.paths
 }
 
 function assertCleanTree(root: string): void {
@@ -2519,7 +2516,7 @@ export function runLoop(userConfig: Partial<Config> = {}, steps: LoopSteps = {})
     ) => LegStepReturn,
     runReviewer: (steps.runReviewer ?? ((issue) => defaultRunReviewer(issue, cfg))) as (issue: Issue, cfg: Config) => LegStepReturn,
     runGate: (steps.runGate ?? ((issue) => defaultRunGate(issue, cfg))) as (issue: Issue, cfg: Config) => GateResult,
-    commit: steps.commit ?? ((issue: Issue) => defaultCommit(issue, cfg)),
+    commit: steps.commit ?? ((issue: Issue, c?: Config) => defaultCommit(issue, c ?? cfg)),
     verifyBaseline: steps.verifyBaseline ?? (() => defaultVerifyBaseline(cfg)),
     verifyTraceability: steps.verifyTraceability ?? (() => defaultVerifyTraceability(cfg)),
     verifySpike: steps.verifySpike ?? (() => defaultVerifySpike(cfg)),
@@ -2548,11 +2545,12 @@ export function runLoop(userConfig: Partial<Config> = {}, steps: LoopSteps = {})
       }
     }
 
+    const preIssueDirt = snapshotPreIssueDirt(execRootOf(cfg))
     const result = runIssueCycle(issue, cfg, resolvedSteps)
     if (result.status === "verified") {
       // Persist the move BEFORE the commit: a crash between the two must never leave an issue committed but absent from done/.
       moveIssueToDone(issue, cfg)
-      resolvedSteps.commit(issue, cfg)
+      resolvedSteps.commit(issue, { ...cfg, preIssueDirt })
       processed.push({ id: issue.id, status: "verified" })
       continue
     }
@@ -2609,7 +2607,12 @@ export async function runLoopParallel(userConfig: Partial<Config> = {}, steps: L
       writeIntegrationBlock(issue, cfg, `worktree setup failed: ${(error as Error)?.message ?? error}`)
       return { id: issue.id, status: "blocked" }
     }
-    const issueCfg: Config = { ...cfg, execRoot: created.worktreeRoot, deferVerified: true }
+    const issueCfg: Config = {
+      ...cfg,
+      execRoot: created.worktreeRoot,
+      deferVerified: true,
+      preIssueDirt: snapshotPreIssueDirt(created.worktreeRoot),
+    }
     const integrationCfg: Config = { ...cfg, deferVerified: true }
     const issueSteps = {
       runImplementer: steps.runImplementer ?? ((iss: Issue, c?: Config) => defaultRunImplementerAsync(iss, c ?? issueCfg)),

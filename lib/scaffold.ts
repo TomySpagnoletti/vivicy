@@ -20,6 +20,7 @@ import {
   type MarkerPair,
 } from "@/lib/managed-block"
 import { appendNotification } from "@/lib/notifications"
+import { commitDirty } from "@/lib/pathspec-commit"
 import { isGovernedRoot, setCurrentProject } from "@/lib/project"
 import { PROOF_RECIPE_FILE, PROOFS_DIR } from "@/lib/proofs"
 import type { CurrentProject } from "@/lib/project-types"
@@ -120,7 +121,7 @@ export function detectGateCommand(targetRoot: string): string | null {
 }
 
 // Appended at EOF of an owner's .gitignore, so a `!` line here overrides their rules above: keep it EXCLUDES-only apart from the proofs recipe, and never add a superfluous entry.
-const VIVICY_ESSENTIAL_IGNORES = `# Secrets: dotenv (.env, .env.*) and direnv (.envrc) hold real values, and the loop runs git add -A at every checkpoint, so anything here would be committed and pushed. Keep a placeholder template in history by tracking it once (git add -f .env.example), never by re-including it here.
+const VIVICY_ESSENTIAL_IGNORES = `# Secrets: dotenv (.env, .env.*) and direnv (.envrc) hold real values, and the loop commits and pushes at every checkpoint, so anything here would be committed and pushed. Keep a placeholder template in history by tracking it once (git add -f .env.example), never by re-including it here.
 .env
 .env.*
 .envrc
@@ -310,7 +311,7 @@ function ensureLocalGitIdentity(cwd: string): void {
   }
 }
 
-function initFromScratchRepo(target: string, placeholderWritten: boolean): { initialized: boolean; committed: boolean } {
+function initFromScratchRepo(target: string, written: string[], placeholderWritten: boolean): { initialized: boolean; committed: boolean } {
   const trackPlaceholder = () => {
     if (placeholderWritten) git(target, ["add", "-f", "--", ENV_EXAMPLE_FILENAME])
   }
@@ -321,10 +322,13 @@ function initFromScratchRepo(target: string, placeholderWritten: boolean): { ini
   }
   if (git(target, ["init"]).status !== 0) return { initialized: false, committed: false }
   ensureLocalGitIdentity(target)
-  if (git(target, ["add", "-A"]).status !== 0) return { initialized: true, committed: false }
+  // The scaffold's own writes, named one by one: whatever else sits in the directory Vivicy was pointed at is not Vivicy's to put in the owner's first commit.
   trackPlaceholder()
-  const commit = git(target, ["commit", "-m", "Vivicy: scaffold skeleton"])
-  return { initialized: true, committed: commit.status === 0 }
+  const commit = commitDirty(target, {
+    pathspecs: written.map((abs) => path.relative(target, abs)),
+    message: "Vivicy: scaffold skeleton",
+  })
+  return { initialized: true, committed: commit.committed }
 }
 
 export interface ScaffoldResult {
@@ -450,8 +454,8 @@ export function scaffoldProject(input: { targetDir: unknown; projectName: unknow
     if (w) written.push(w)
   }
 
-  // Must run AFTER .gitignore is written above, or this `git add -A` picks up node_modules and runtime noise.
-  const gitResult = mode === "from_scratch" ? initFromScratchRepo(target, placeholder) : { initialized: false, committed: false }
+  // Must run AFTER .gitignore is written above: an ignored path is invisible to the status the commit's pathspec is read from, and only then is runtime noise unstageable.
+  const gitResult = mode === "from_scratch" ? initFromScratchRepo(target, written, placeholder) : { initialized: false, committed: false }
 
   const project = setCurrentProject(target)
 
