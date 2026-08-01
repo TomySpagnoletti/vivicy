@@ -16,12 +16,21 @@ export interface RetroRecurringClass {
   evidence?: string[]
 }
 
+export type RetroSkillInstallStatus = "installed" | "refused" | "undecided"
+
+export interface RetroSkillInstall {
+  status: RetroSkillInstallStatus
+  detail: string
+}
+
 export interface RetroProposal {
   landing?: RetroLanding | string
   title?: string
   rationale?: string
   detail?: string
   addresses?: string[]
+  skill_id?: string
+  skill_install?: RetroSkillInstall
 }
 
 export interface RetroReport {

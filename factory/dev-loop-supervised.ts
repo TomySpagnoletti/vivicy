@@ -101,19 +101,16 @@ function runAcceptanceStage(scriptDir: string, repoRoot: string): "green" | "fin
 function runRetroStage(scriptDir: string, repoRoot: string): void {
   process.stdout.write("supervisor: running the post-cycle retro stage (retro.ts) — observability, never blocks the close\n")
   spawnSync("node", [join(scriptDir, "retro.ts")], { cwd: repoRoot, stdio: "inherit", env: process.env })
-  let phase: unknown
+  let report: { phase?: unknown; summary?: unknown } = {}
   try {
-    phase = (JSON.parse(readFileSync(join(repoRoot, RETRO_REPORT_FILE), "utf8")) as { phase?: unknown }).phase
-  } catch {
-    phase = undefined
-  }
+    report = JSON.parse(readFileSync(join(repoRoot, RETRO_REPORT_FILE), "utf8")) as { phase?: unknown; summary?: unknown }
+  } catch {}
+  // Print the report's OWN summary; never re-derive a note from the phase, which cannot say what a proposed skill installed.
   const note =
-    phase === "proposals"
-      ? "method amendments proposed for the owner to decide"
-      : phase === "quiet"
-        ? "no recurring failure classes this cycle"
-        : "retro did not complete (non-blocking; see the report)"
-  process.stdout.write(`supervisor: retro ${String(phase ?? "failed")} — ${note}; the cycle close is not affected\n`)
+    typeof report.summary === "string" && report.summary.trim().length > 0
+      ? report.summary.trim()
+      : "retro did not complete (non-blocking; see the report)"
+  process.stdout.write(`supervisor: retro ${String(report.phase ?? "failed")} — ${note}; the cycle close is not affected\n`)
 }
 
 function main() {

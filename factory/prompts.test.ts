@@ -480,17 +480,31 @@ test("reviewer.md and acceptance.md judge the build against the spec's stated am
   )
 })
 
-test("vivi.md points at the post-cycle retro report and routes each proposal through its existing owner surface (P2 — owner-decided, never self-applied)", () => {
+test("vivi.md points at the post-cycle retro report, routes each owner-decided proposal through its existing surface, and settles only what the skills stage actually ran", () => {
   const text = readPrompt("vivi.md")
   assert.match(text, /retro-report\.json/, "vivi.md must point at the retro report")
   assert.match(text, /recurring failure classes/i, "vivi.md must name what the retro records")
-  assert.match(text, /skills\.install/, "vivi.md must route a skill proposal through skills.install")
   assert.match(text, /settings dialog/i, "vivi.md must route a settings proposal to the settings dialog")
   assert.match(text, /Change Request you draft/i, "vivi.md must route a method-block/canonical proposal through the CR flow (§3)")
   assert.match(
     text,
     /never applying a proposal yourself|owner-decided data until they click/i,
-    "vivi.md must keep retro proposals owner-decided, never self-applied"
+    "vivi.md must keep the owner-decided landings owner-decided, never self-applied"
+  )
+  assert.match(
+    text,
+    /carrying a recorded `skill_install` outcome/,
+    "vivi.md must key 'already settled' to the RECORDED outcome, never to the landing"
+  )
+  assert.match(
+    text,
+    /Every proposal WITHOUT that outcome[^.]*is still owner-decided/,
+    "vivi.md must keep every proposal the stage did not run owner-decided"
+  )
+  assert.match(
+    text,
+    /never to re-run what the stage already decided/i,
+    "vivi.md must stop Vivi re-running skills.install over a proposal the skills stage already decided"
   )
 })
 
@@ -513,8 +527,35 @@ test("retro.md carries the post-cycle retro method (fresh-context, recurring-cla
   assert.match(text, /recorded seam/i, "retro.md must record the cross-cycle-arc seam (this cycle only)")
   assert.match(
     text,
-    /You edit no file and you decide nothing|propose only|never self-apply|Nothing you write is ever applied automatically/i,
-    "retro.md must be propose-only (P5): nothing is applied automatically"
+    /You edit no file and you decide nothing|propose only|never self-apply/i,
+    "retro.md must be propose-only (P5): the leg applies nothing itself"
+  )
+  assert.match(text, /`skill_id`/, "retro.md must order the structured skill_id field")
+  assert.match(text, /owner\/repo@skill/, "retro.md must pin the id grammar the boundary parses")
+  assert.match(
+    text,
+    /INSTALL ORDER/,
+    "retro.md must state that skill_id is acted on autonomously, never a suggestion the owner has to carry"
+  )
+  assert.match(
+    text,
+    /security audit, cap and name-collision gates every install passes/,
+    "retro.md must name the gates a proposed install still passes"
+  )
+  assert.match(
+    text,
+    /refused at the boundary and the proposal degrades to a text suggestion/,
+    "retro.md must state what an unparseable id degrades to"
+  )
+  assert.match(
+    text,
+    /removal.*carries NO `skill_id`|nothing removes a skill automatically/i,
+    "retro.md must keep removals text-only (no keep/drop lifecycle exists to act on)"
+  )
+  assert.match(
+    text,
+    /an id sitting on any other landing is ignored and that proposal stays owner-decided/,
+    "retro.md must state the parser's own rule: a skill_id binds only on a skill proposal"
   )
 })
 
