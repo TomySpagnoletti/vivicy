@@ -1,6 +1,6 @@
 # Vivicy — exhaustive test matrix
 
-Reconciled fingerprint: `2458c5e987eb47581e6986eb311c4dca02d2c2003c003c81cf73c5128f05c2e8` @ commit `82629372ccbdff39094080f4298f309cc895f8ec`
+Reconciled fingerprint: `00d1c04b060cc7bdb61d774e1cb5371c5e47f7c8e3995b879160da7e42846360` @ commit `3cff473d41cf0d3ab0bdd30ca425aa44681be21a`
 
 
 This file is the exhaustive, always-current inventory of every test case for Vivicy — every behavior the system has, whether it is covered by a test today or is a known GAP. It is **committed and machine-guarded**: the `Reconciled fingerprint` line above hashes the behavior-bearing source tree and records the HEAD commit at reconciliation time, and `scripts/test-matrix.test.ts` fails the vitest suite when code changes without this file being reconciled and re-stamped (`npm run matrix:stamp`). `git log test/TEST-MATRIX.md` is the audit trail of reconciliations. It is the single source of truth for "what should be tested" across the app (`app/`, `components/`, `lib/`) and the factory (`factory/`). It was assembled from a full per-area audit pass plus three adversarial cross-matrices (user journeys, parallel/merge chaos, process/crash chaos).
@@ -18,7 +18,7 @@ This file is the exhaustive, always-current inventory of every test case for Viv
 |---|---:|---:|---:|
 | app-shell-sidebar-ui-kit | 411 | 266 | 145 |
 | baselines-change-requests | 262 | 197 | 65 |
-| cli-supervisor-process-infra | 629 | 221 | 408 |
+| cli-supervisor-process-infra | 630 | 221 | 409 |
 | control-plane-api-routes | 491 | 217 | 274 |
 | dev-loop-worktrees-merge | 394 | 130 | 264 |
 | e2e-test-infra-rehearsal | 327 | 102 | 225 |
@@ -30,7 +30,7 @@ This file is the exhaustive, always-current inventory of every test case for Viv
 | cross-journeys | 80 | 62 | 18 |
 | cross-chaos-parallel-merge | 47 | 32 | 15 |
 | cross-chaos-process | 45 | 42 | 3 |
-| **TOTAL** | **4276** | **2073** | **2203** |
+| **TOTAL** | **4277** | **2073** | **2204** |
 
 ---
 
@@ -1256,6 +1256,7 @@ Every file below was read in full, line by line.
 - [cli-supervisor-process-infra.627] Every sentence and count in the update door reads right in the plural: two refused skills give one notification naming each id with its own cause, and one summary clause counting both | `2 newer versions refused by the security audit (a, b)`, and "Vivicy refused newer versions of 2 project skills … a (a security audit fails it), b (no security audit covers it)" | integration (real git target) | install-skills.test.ts ("reads in the plural when both skills are held back, and names each one's own cause")
 - [cli-supervisor-process-infra.628] A `verdict` read back from the report is agent-independent data, not a promise: ONE guard (`refusalCause`, `Object.hasOwn` — `in` would admit `constructor`/`toString`, which RESOLVE on a plain object's prototype and would render a function into the owner's sentence) is asked both where every rejection record is built and where the notification names the cause, so an unknown verdict is dropped at the boundary and can never be indexed if a record reaches the renderer another way | a hand-edited `verdict` is absent from the rebuilt record and from the report written back out, and `constructor`/`toString`/`nonsense` each fall through to the id-only branch of the warning | unit, boundary, invariant (the sibling reader of that same file re-derives rather than trusts) | install-skills.test.ts ("never renders an unknown verdict into the owner's warning")
 - [cli-supervisor-process-infra.524] vivicy.json is the OWNER's file: an unparseable one is never rewritten (`writeSkillDeclarations` refuses it, and `mergeSkillPins` withdraws its own causal record so the refused write leaves the absorption pathspec — the withdrawal itself is not driven by this case, the sibling row below records it), which is precisely why the reported set cannot be read back from that file alone — this run's own installs are added to the id set directly, so a broken declaration costs the owner nothing but a fix | the file is byte-identical afterwards; `added` and `installed` both name the installed skill and the block lists it | unit, boundary | install-skills.test.ts ("an unparseable vivicy.json is left untouched and the report still lists what was installed")
+- [cli-supervisor-process-infra.662] The scout's default binder resolves its leg from the CALLER's env (`options.env ?? process.env` — the same fallback `installSkills` already applies to the runtime dir and the unsafe-skills waiver, and the twin binder in `prepare-docs.ts` to its own leg), never from `process.env` alone: an injected env deciding the stage's lock and its waiver while the ambient one decides which CLI, model and effort scouts the project is one stage reading two environments | this is the ONE case reaching the real binder (every other scout case injects `spawnScout`): with `VIVICY_IMPLEMENTER_CLI: "codex"` + `VIVICY_CODEX_MODEL: "gpt-shim"` injected while the ambient env names `claude`, the shimmed CLI that runs is `codex -m gpt-shim` and the stage goes green; injecting no env at all spawns whatever the ambient env names | unit, invariant (the four hand-rolled binders resolve one env, never two) | install-skills.test.ts ("spawns the CLI the INJECTED env names, never the ambient one" + "falls back to process.env when the caller injects none")
 
 ### factory/install-skills.ts (stage absorption + worktree delivery)
 

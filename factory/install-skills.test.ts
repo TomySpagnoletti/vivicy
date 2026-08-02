@@ -608,6 +608,92 @@ describe("auto mode", () => {
   })
 })
 
+describe("the default scout binder resolves its leg from the caller's env", () => {
+  interface ShimCall {
+    name: string
+    argv: string[]
+  }
+
+  async function withShimmedClis(run: (spawned: () => ShimCall[]) => Promise<void>): Promise<void> {
+    const shimDir = mkdtempSync(join(tmpdir(), "vivicy-scout-shim-"))
+    const out = resolve(shimDir, "spawned.jsonl")
+    const shim = (name: string): string =>
+      `#!/usr/bin/env node\n` +
+      `import { appendFileSync, mkdirSync, writeFileSync } from "node:fs";\n` +
+      `import { dirname, resolve } from "node:path";\n` +
+      `appendFileSync(process.env.SCOUT_SHIM_OUT, JSON.stringify({ name: ${JSON.stringify(name)}, argv: process.argv.slice(2) }) + "\\n");\n` +
+      `const result = resolve(process.cwd(), ${JSON.stringify(SCOUT_RESULT_REL)});\n` +
+      `mkdirSync(dirname(result), { recursive: true });\n` +
+      `writeFileSync(result, JSON.stringify({ add: [], installed: [] }));\n`
+    for (const name of ["claude", "codex"]) writeFileSync(resolve(shimDir, name), shim(name), { mode: 0o755 })
+
+    const previous = {
+      PATH: process.env.PATH,
+      SCOUT_SHIM_OUT: process.env.SCOUT_SHIM_OUT,
+      CLAUDE_CONFIG_DIR: process.env.CLAUDE_CONFIG_DIR,
+      CODEX_HOME: process.env.CODEX_HOME,
+      VIVICY_RUNTIME_DIR: process.env.VIVICY_RUNTIME_DIR,
+      VIVICY_IMPLEMENTER_CLI: process.env.VIVICY_IMPLEMENTER_CLI,
+    }
+    process.env.PATH = `${shimDir}:${previous.PATH ?? ""}`
+    process.env.SCOUT_SHIM_OUT = out
+    // The transcript capture reads these homes: point them at an absent directory so no leg here can touch the machine's own agent state.
+    process.env.CLAUDE_CONFIG_DIR = resolve(shimDir, "absent")
+    process.env.CODEX_HOME = resolve(shimDir, "absent")
+    process.env.VIVICY_RUNTIME_DIR = resolve(repo, ".vivicy-runtime")
+    try {
+      await run(() =>
+        existsSync(out)
+          ? readFileSync(out, "utf8")
+              .trim()
+              .split("\n")
+              .map((line) => JSON.parse(line) as ShimCall)
+          : []
+      )
+    } finally {
+      for (const [name, value] of Object.entries(previous)) {
+        if (value === undefined) delete process.env[name]
+        else process.env[name] = value
+      }
+      rmSync(shimDir, { recursive: true, force: true })
+    }
+  }
+
+  it("spawns the CLI the INJECTED env names, never the ambient one", async () => {
+    seedBaseline()
+    await withShimmedClis(async (spawned) => {
+      process.env.VIVICY_IMPLEMENTER_CLI = "claude"
+      const report = await installSkills({
+        repoRoot: repo,
+        env: { VIVICY_RUNTIME_DIR: resolve(repo, ".vivicy-runtime"), VIVICY_IMPLEMENTER_CLI: "codex", VIVICY_CODEX_MODEL: "gpt-shim" },
+        emitReport: () => {},
+      })
+      assert.equal(report.phase, "green", report.summary)
+      const calls = spawned()
+      assert.deepEqual(
+        calls.map((call) => call.name),
+        ["codex"],
+        "the injected env picked the leg's CLI"
+      )
+      const model = calls[0].argv.indexOf("-m")
+      assert.ok(model !== -1 && calls[0].argv[model + 1] === "gpt-shim", "and its model, so the WHOLE leg comes from that env")
+    })
+  })
+
+  it("falls back to process.env when the caller injects none", async () => {
+    seedBaseline()
+    await withShimmedClis(async (spawned) => {
+      process.env.VIVICY_IMPLEMENTER_CLI = "codex"
+      const report = await installSkills({ repoRoot: repo, emitReport: () => {} })
+      assert.equal(report.phase, "green", report.summary)
+      assert.deepEqual(
+        spawned().map((call) => call.name),
+        ["codex"]
+      )
+    })
+  })
+})
+
 describe("the scout is told the constraints it will be judged by", () => {
   const BASE = {
     manifestPath: "/t/.vivicy/baselines/b.json",

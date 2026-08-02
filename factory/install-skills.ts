@@ -1397,7 +1397,7 @@ function clearScoutResult(repoRoot: string): void {
 function makeDefaultSpawnScout(options: InstallSkillsOptions): (args: SpawnScoutArgs) => Promise<LegResult | void> {
   const promptsDir = options.promptsDir ?? FACTORY_PROMPTS_DIR
   const cfg: Record<string, unknown> = { ...DEFAULT_CONFIG, ...(options.cfg ?? {}) }
-  const legs = resolveAgentLegs(process.env)
+  const legs = resolveAgentLegs(options.env ?? process.env)
   const implementer: Leg = legs?.implementer ?? {
     actor: "claude",
     role: "implementer",
