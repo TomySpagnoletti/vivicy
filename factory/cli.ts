@@ -1,11 +1,11 @@
 #!/usr/bin/env node
 import { spawn, spawnSync } from "node:child_process"
-import { existsSync, mkdirSync, openSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs"
+import { existsSync, openSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs"
 import { dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
 import { countOf } from "../lib/count-form.ts"
-import { getProjectRuntimeDir } from "../lib/project-runtime.ts"
+import { ensureProjectRuntimeDir, getProjectRuntimeDir } from "../lib/project-runtime.ts"
 import { clearSpecCycle, featureCycleOpenRefusal, isSpecCycleOpen, readSpecCycle, writeSpecCycle } from "../lib/spec-cycle.ts"
 import { SKILLS_LOCK_FILE, stageLockHolder } from "../lib/stage-lock.ts"
 
@@ -26,7 +26,6 @@ const EXIT_UNEXPECTED = 3
 
 const RUN_STATE_FILE = "run-state.json"
 const LOG_FILE = "supervisor.log"
-const RUNTIME_DIR_NAME = ".vivicy-runtime"
 
 const SUPERVISOR_SCRIPT = "dev-loop-supervised.ts"
 const STATUS_SCRIPT = "dev-status.ts"
@@ -191,16 +190,10 @@ function fail(json: boolean, code: number, message: string, extra: Record<string
   process.exit(code)
 }
 
-// Never process.cwd(): this default must equal the app's getRuntimeDir() default, or a CLI run and the UI fork the lock.
-function runtimeDir(opts: Opts = {}): string {
-  if (opts.runtimeDir) return resolve(opts.runtimeDir)
-  const fromEnv = process.env.VIVICY_RUNTIME_DIR
-  if (fromEnv && fromEnv.trim().length > 0) return resolve(fromEnv)
-  return join(appDir, RUNTIME_DIR_NAME)
-}
-
+// Derive only through lib/project-runtime.ts: lib/control.ts uses the same module, which is what puts a CLI- and a UI-started run on one lock.
 function projectDir(opts: Opts, target: string): string {
-  return getProjectRuntimeDir(runtimeDir(opts), target)
+  if (opts.runtimeDir) return resolve(opts.runtimeDir)
+  return getProjectRuntimeDir(target)
 }
 
 function runStatePath(opts: Opts, target: string): string {
@@ -534,7 +527,7 @@ function startSupervisor(argv: string[], opts: Opts, mode: string): void {
   }
 
   const command = scriptPath(SUPERVISOR_SCRIPT)
-  mkdirSync(projectDir(opts, target), { recursive: true })
+  ensureProjectRuntimeDir(projectDir(opts, target))
   const logFile = logPath(opts, target)
 
   const placeholder = {
@@ -896,8 +889,7 @@ function skillsStageInFlight(opts: Opts, target: string): boolean {
 }
 
 function claimCliLock(opts: Opts, target: string, lockFileName: string): (() => void) | null {
-  const file = join(projectDir(opts, target), lockFileName)
-  mkdirSync(projectDir(opts, target), { recursive: true })
+  const file = join(ensureProjectRuntimeDir(projectDir(opts, target)), lockFileName)
   const body = `${JSON.stringify({ pid: process.pid, started_at: new Date().toISOString() }, null, 2)}\n`
   const tryClaim = (): boolean => {
     try {
@@ -1066,7 +1058,12 @@ function activeFrozenManifestRel(target: string): string | null {
 function cmdNotifications(argv: string[], opts: Opts): void {
   const json = takeBool(argv, "--json")
   const target = resolveTarget(argv)
-  const file = target ? join(projectDir(opts, target), NOTIFICATIONS_REL) : join(runtimeDir(opts), NOTIFICATIONS_REL)
+  if (!target) {
+    return fail(json, EXIT_USAGE, "no target project — pass --dir <path> or set VIVICY_TARGET_ROOT", {
+      code: "missing_target",
+    })
+  }
+  const file = join(projectDir(opts, target), NOTIFICATIONS_REL)
   const notifications: Notification[] = []
   if (existsSync(file)) {
     for (const line of readFileSync(file, "utf8").split("\n")) {

@@ -184,7 +184,7 @@ describe("scaffoldProject — from scratch (lean, language-agnostic)", () => {
     const gitignore = readFileSync(path.join(target, ".gitignore"), "utf8")
     for (const ignored of [
       ".DS_Store",
-      ".vivicy-runtime/",
+      ".vivicy/runtime/",
       ".vivicy-worktrees/",
       ".vivicy/development/transcripts/",
       ".vivicy/development/gates/.integration.lock",
@@ -297,7 +297,7 @@ describe("scaffoldProject — existing project (shared files get a managed block
     const gitignore = readFileSync(path.join(target, ".gitignore"), "utf8")
     expect(gitignore.startsWith(ownerGitignore), "owner .gitignore text stays byte-intact at the head").toBe(true)
     expect(count(gitignore, GITIGNORE_MARKERS.begin)).toBe(1)
-    expect(gitignore).toContain(".vivicy-runtime/")
+    expect(gitignore).toContain(".vivicy/runtime/")
     expect(gitignore).toContain(".vivicy/development/transcripts/")
     expect(gitignore.endsWith(`${GITIGNORE_MARKERS.end}\n`)).toBe(true)
     expect(gitignore, "the brownfield block is the essentials only, not the generalist comfort rules").not.toContain("__pycache__/")
@@ -348,7 +348,7 @@ describe("scaffoldProject — existing project (shared files get a managed block
 
     scaffoldProject({ targetDir: target, projectName: "My Repo" })
     const restored = readFileSync(gitignorePath, "utf8")
-    expect(restored).toContain(".vivicy-runtime/")
+    expect(restored).toContain(".vivicy/runtime/")
     expect(restored, "the essentials the owner deleted are restored").toContain(".vivicy/development/transcripts/")
     for (const line of [".vivicy/development/proofs/**", "!.vivicy/development/proofs/**/recipe.txt"]) {
       expect(restored.split("\n"), `restored block must carry the exact line ${line}`).toContain(line)
@@ -364,7 +364,7 @@ describe("scaffoldProject — existing project (shared files get a managed block
     git(target, ["init", "-q", "."])
     const ownerHead = "node_modules/\nmy-own-ignore/\n\n"
     const ownerTail = "\n# my own tail rule\nbuild-cache/\n"
-    const staleBlock = `${GITIGNORE_MARKERS.begin}\n.vivicy-runtime/\n.vivicy-worktrees/\n.vivicy/development/transcripts/\n${GITIGNORE_MARKERS.end}`
+    const staleBlock = `${GITIGNORE_MARKERS.begin}\n.vivicy/runtime/\n.vivicy-worktrees/\n.vivicy/development/transcripts/\n${GITIGNORE_MARKERS.end}`
     writeFileSync(path.join(target, ".gitignore"), `${ownerHead}${staleBlock}${ownerTail}`)
 
     scaffoldProject({ targetDir: target, projectName: "Governed Pre Env" })
@@ -654,7 +654,7 @@ describe("the secret-file ignore posture, exercised through real git (both write
     git(target, ["init", "-q", "."])
     writeFileSync(
       path.join(target, ".gitignore"),
-      `node_modules/\n${GITIGNORE_MARKERS.begin}\nsecrets/config.json\n${GITIGNORE_MARKERS.begin}\n.vivicy-runtime/\n${GITIGNORE_MARKERS.end}\n`
+      `node_modules/\n${GITIGNORE_MARKERS.begin}\nsecrets/config.json\n${GITIGNORE_MARKERS.begin}\n.vivicy/runtime/\n${GITIGNORE_MARKERS.end}\n`
     )
     mkdirSync(path.join(target, "secrets"), { recursive: true })
     writeFileSync(path.join(target, "secrets", "config.json"), '{"token":"real"}\n')
@@ -757,7 +757,7 @@ describe("scaffoldProject — from-scratch git lifecycle (mechanical, no human g
     expect(tracked.has(".vivicy/canonical/.gitkeep")).toBe(true)
     expect(tracked.has(".gitignore")).toBe(true)
     for (const t of tracked) {
-      expect(t.startsWith(".vivicy-runtime/"), `runtime must not be committed: ${t}`).toBe(false)
+      expect(t.startsWith(".vivicy/runtime/"), `runtime must not be committed: ${t}`).toBe(false)
     }
   })
 
@@ -806,7 +806,7 @@ const ownerHead = "# My guide\n\nHouse rules the owner wrote above the managed b
 const ownerTail = "\n## My own appendix\n\nOwner prose after the managed block, kept verbatim.\n"
 const staleMethodBlock = `${METHOD_MARKERS.begin}\n## Working under Vivicy\n\nA thinner method contract from the governance pass that laid this repo down.\n${METHOD_MARKERS.end}`
 const ownerIgnoreHead = "node_modules/\nmy-own-ignore/\n"
-const staleIgnoreBlock = `${GITIGNORE_MARKERS.begin}\n.vivicy-runtime/\n.vivicy-worktrees/\n${GITIGNORE_MARKERS.end}\n`
+const staleIgnoreBlock = `${GITIGNORE_MARKERS.begin}\n.vivicy/runtime/\n.vivicy-worktrees/\n${GITIGNORE_MARKERS.end}\n`
 
 function canonicalClaude(): string {
   return readFileSync(path.join(getTemplatesRoot(), "CLAUDE.md"), "utf8")

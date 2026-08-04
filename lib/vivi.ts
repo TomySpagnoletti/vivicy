@@ -19,8 +19,7 @@ import { importIntoGoverned, UPLOADS_DIR, type BatchResult, type ManifestFile, t
 import type { SecretFileFinding } from "@/lib/secret-scan"
 import { languageDisplayName } from "@/lib/language"
 import { DEFAULT_VIVI_ACTION_ROUNDS, MAX_VIVI_ACTION_ROUNDS } from "@/lib/leg-budget"
-import { getProjectRuntimeDir } from "@/lib/project-runtime"
-import { getRuntimeDir } from "@/lib/runtime-dir"
+import { ensureProjectRuntimeDir, getProjectRuntimeDir, PROJECT_RUNTIME_SEGMENTS } from "@/lib/project-runtime"
 import { settingsToEnv } from "@/lib/settings"
 import { pruneGitkeeps, VIVICY_DIR } from "@/lib/skeleton"
 import { isCanonicalFrozen, type BatchCycleBinding } from "@/lib/spec-cycle"
@@ -53,7 +52,7 @@ const POST_FREEZE_DIRS = [CHANGE_REQUESTS_DIR] as const
 const UPLOADS_DIR_POSIX = UPLOADS_DIR.split(path.sep).join("/")
 
 // Excluded from every .vivicy snapshot/diff/rollback: the leg writes its own transcript here mid-turn, and the runtime subtree is orchestrator-owned operational state written under Vivi's own feet.
-const IGNORED_SUBTREES = new Set([path.join(".vivicy", "development", "transcripts"), path.join(".vivicy", "runtime")])
+const IGNORED_SUBTREES = new Set([path.join(".vivicy", "development", "transcripts"), path.join(...PROJECT_RUNTIME_SEGMENTS)])
 
 // A card action fires only on the owner's click — nothing ever self-fires.
 export interface ViviCardAction {
@@ -121,17 +120,30 @@ interface FileState {
 
 type Snapshot = Map<string, FileState>
 
-function viviRuntimeDir(): string {
+const VIVI_STORE_SUBDIR = "vivi"
+
+function viviStoreDirOf(targetRoot: string): string {
+  return path.join(getProjectRuntimeDir(targetRoot), VIVI_STORE_SUBDIR)
+}
+
+function ensureViviStoreDir(targetRoot: string): string {
+  ensureProjectRuntimeDir(getProjectRuntimeDir(targetRoot))
+  const dir = viviStoreDirOf(targetRoot)
+  mkdirSync(dir, { recursive: true })
+  return dir
+}
+
+// The conversation lives with the project it is about: reads over no project are empty, writes go through resolveTarget's own refusal.
+function viviStoreDir(): string | null {
   const targetRoot = getTargetRoot()
-  if (targetRoot === null) return path.join(getRuntimeDir(), "vivi")
-  return path.join(getProjectRuntimeDir(getRuntimeDir(), targetRoot), "vivi")
+  return targetRoot === null ? null : viviStoreDirOf(targetRoot)
 }
 
-function transcriptPath(sessionId: string): string {
-  return path.join(viviRuntimeDir(), `${sessionId}.jsonl`)
+function transcriptIn(dir: string, sessionId: string): string {
+  return path.join(dir, `${sessionId}.jsonl`)
 }
 
-// transcriptPath interpolates the session id into a file path unsanitized: refuse anything but our own minted UUID.
+// transcriptIn interpolates the session id into a file path unsanitized: refuse anything but our own minted UUID.
 function assertSessionId(sessionId: string): void {
   if (!/^[0-9a-fA-F-]{36}$/.test(sessionId)) {
     throw new ControlError(`invalid vivi session id: ${sessionId}`, "missing_target")
@@ -139,8 +151,9 @@ function assertSessionId(sessionId: string): void {
 }
 
 export function readTranscript(sessionId: string): ViviTurn[] {
-  const file = transcriptPath(sessionId)
-  if (!existsSync(file)) return []
+  const dir = viviStoreDir()
+  const file = dir === null ? null : transcriptIn(dir, sessionId)
+  if (file === null || !existsSync(file)) return []
   const out: ViviTurn[] = []
   for (const line of readFileSync(file, "utf8").split("\n")) {
     const trimmed = line.trim()
@@ -153,8 +166,7 @@ export function readTranscript(sessionId: string): ViviTurn[] {
 }
 
 function appendTurn(sessionId: string, turn: ViviTurn): void {
-  const file = transcriptPath(sessionId)
-  mkdirSync(path.dirname(file), { recursive: true })
+  const file = transcriptIn(ensureViviStoreDir(resolveTarget()), sessionId)
   const line = `${JSON.stringify(turn)}\n`
   writeFileSync(file, line, { flag: "a" })
 }
@@ -234,8 +246,8 @@ export interface ViviSessionSummary {
 }
 
 export function listViviSessions(): ViviSessionSummary[] {
-  const dir = viviRuntimeDir()
-  if (!existsSync(dir)) return []
+  const dir = viviStoreDir()
+  if (dir === null || !existsSync(dir)) return []
   const out: ViviSessionSummary[] = []
   for (const entry of readdirSync(dir)) {
     const m = entry.match(/^([0-9a-fA-F-]{36})\.jsonl$/)
@@ -255,7 +267,7 @@ export function listViviSessions(): ViviSessionSummary[] {
 
 // Publish by temp-then-rename (this file is the conversation's only copy), and keep the temp name outside the session-id shape listViviSessions matches.
 function rewriteTranscript(sessionId: string, turns: ViviTurn[]): void {
-  const file = transcriptPath(sessionId)
+  const file = transcriptIn(ensureViviStoreDir(resolveTarget()), sessionId)
   const tmp = `${file}.${randomUUID()}.tmp`
   try {
     writeFileSync(tmp, turns.map((t) => JSON.stringify(t)).join("\n") + (turns.length > 0 ? "\n" : ""))
@@ -1437,10 +1449,9 @@ async function spawnViviLeg(
 ): Promise<string> {
   const { command, targetRoot, sessionId, prompt, frozen } = opts
   const turnToken = randomUUID()
-  const viviDir = viviRuntimeDir()
+  const viviDir = ensureViviStoreDir(targetRoot)
   const promptFile = path.join(viviDir, `${sessionId}.${turnToken}.prompt.txt`)
   const replyFile = path.join(viviDir, `${sessionId}.${turnToken}.reply.txt`)
-  mkdirSync(viviDir, { recursive: true })
   writeFileSync(promptFile, prompt)
 
   let result

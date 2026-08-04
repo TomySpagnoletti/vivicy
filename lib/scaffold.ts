@@ -22,6 +22,7 @@ import {
 import { appendNotification } from "@/lib/notifications"
 import { commitDirty } from "@/lib/pathspec-commit"
 import { isGovernedRoot, setCurrentProject } from "@/lib/project"
+import { PROJECT_RUNTIME_SEGMENTS } from "@/lib/project-runtime"
 import { PROOF_RECIPE_FILE, PROOFS_DIR } from "@/lib/proofs"
 import type { CurrentProject } from "@/lib/project-types"
 import { SKELETON_DIRS } from "@/lib/skeleton"
@@ -125,8 +126,8 @@ const VIVICY_ESSENTIAL_IGNORES = `# Secrets: dotenv (.env, .env.*) and direnv (.
 .env
 .env.*
 .envrc
-# Factory runtime: lock, logs, settings, current-project selection.
-.vivicy-runtime/
+# This project's operational state: run/product locks, supervisor and stage logs, the Vivi conversation store, the skill-bundle cache.
+${PROJECT_RUNTIME_SEGMENTS.join("/")}/
 # Per-issue parallel worktrees; content integrates onto main, the dir itself never lands in history.
 .vivicy-worktrees/
 # Transient integration mutex, created and removed during a merge.

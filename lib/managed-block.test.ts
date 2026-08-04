@@ -241,8 +241,8 @@ describe("ensureManagedBlock — real marker idioms", () => {
     }
     const giSpec: ManagedSpec = {
       markers: GITIGNORE_MARKERS,
-      block: `${GITIGNORE_MARKERS.begin}\n.vivicy-runtime/\n${GITIGNORE_MARKERS.end}`,
-      template: `node_modules/\n${GITIGNORE_MARKERS.begin}\n.vivicy-runtime/\n${GITIGNORE_MARKERS.end}\n`,
+      block: `${GITIGNORE_MARKERS.begin}\n.vivicy/runtime/\n${GITIGNORE_MARKERS.end}`,
+      template: `node_modules/\n${GITIGNORE_MARKERS.begin}\n.vivicy/runtime/\n${GITIGNORE_MARKERS.end}\n`,
     }
     expect(METHOD_MARKERS.begin).not.toBe(GITIGNORE_MARKERS.begin)
     const md = apply("# owner\n", mdSpec)

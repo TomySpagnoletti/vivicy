@@ -577,7 +577,7 @@ function initRepoWithCommit(root: string) {
 function writeScaffoldGitignore(root: string) {
   writeFileSync(
     resolve(root, ".gitignore"),
-    "node_modules\n.DS_Store\n.vivicy-runtime/\n.vivicy-worktrees/\n.vivicy/development/transcripts/\n"
+    "node_modules\n.DS_Store\n.vivicy/runtime/\n.vivicy-worktrees/\n.vivicy/development/transcripts/\n"
   )
 }
 
@@ -1247,13 +1247,14 @@ describe("scaffold + fixture gitignore the COMPLETE never-commit set, and ONLY t
     ".envrc",
     "node_modules",
     ".DS_Store",
-    ".vivicy-runtime/",
+    ".vivicy/runtime/",
     ".vivicy-worktrees/",
     ".vivicy/development/transcripts/",
     ".vivicy-tmp.*",
   ]
   const NEVER_RE_INCLUDED = ["!.env.example", "!.env.sample"]
-  const EMITTED_FROM_A_CONSTANT = new Set([".vivicy-tmp.*"])
+  // Interpolated from a shared constant in scaffold.ts, so the line-exact pin on the RENDERED block lives in lib/scaffold.test.ts instead.
+  const EMITTED_FROM_A_CONSTANT = new Set([".vivicy-tmp.*", ".vivicy/runtime/"])
   const MUST_STAY_TRACKED = [
     "architecture-data.json",
     "source-map.json",

@@ -37,6 +37,7 @@ import {
 import type { SkillAuditFetch, SkillsReport } from "./install-skills.ts"
 import { normalizeSkillId } from "./skill-id.ts"
 import { bundleDrift, hashBundle, maintenanceNeeded, manifestHash, readSkillDeclarations } from "./skill-pin.ts"
+import { ensureProjectRuntimeDir } from "../lib/project-runtime.ts"
 import { isSkillsPhaseInFlight } from "../lib/skills-report.ts"
 import { bundleCacheDir, healBundle } from "./skill-heal.ts"
 
@@ -640,7 +641,7 @@ describe("the default scout binder resolves its leg from the caller's env", () =
     // The transcript capture reads these homes: point them at an absent directory so no leg here can touch the machine's own agent state.
     process.env.CLAUDE_CONFIG_DIR = resolve(shimDir, "absent")
     process.env.CODEX_HOME = resolve(shimDir, "absent")
-    process.env.VIVICY_RUNTIME_DIR = resolve(repo, ".vivicy-runtime")
+    process.env.VIVICY_RUNTIME_DIR = resolve(repo, ".vivicy", "runtime")
     try {
       await run(() =>
         existsSync(out)
@@ -665,7 +666,7 @@ describe("the default scout binder resolves its leg from the caller's env", () =
       process.env.VIVICY_IMPLEMENTER_CLI = "claude"
       const report = await installSkills({
         repoRoot: repo,
-        env: { VIVICY_RUNTIME_DIR: resolve(repo, ".vivicy-runtime"), VIVICY_IMPLEMENTER_CLI: "codex", VIVICY_CODEX_MODEL: "gpt-shim" },
+        env: { VIVICY_RUNTIME_DIR: resolve(repo, ".vivicy", "runtime"), VIVICY_IMPLEMENTER_CLI: "codex", VIVICY_CODEX_MODEL: "gpt-shim" },
         emitReport: () => {},
       })
       assert.equal(report.phase, "green", report.summary)
@@ -2803,7 +2804,7 @@ describe("the stage lock (one skills stage per project, claimed where the writes
 
   it("falls back to the project's own gitignored runtime dir when no runtime dir is handed in", async () => {
     seedBaseline()
-    const abs = resolve(repo, ".vivicy-runtime", SKILLS_LOCK_FILE)
+    const abs = resolve(repo, ".vivicy", "runtime", SKILLS_LOCK_FILE)
     let heldDuringRun: number | null = null
     await installSkills({
       repoRoot: repo,
@@ -2917,8 +2918,9 @@ function runStubSkillsCli({ repoRoot, source, skill }: { repoRoot: string; sourc
   return { code: r.status ?? 1, output: `${r.stdout ?? ""}\n${r.stderr ?? ""}`.trim() }
 }
 
-function initGovernedGitTarget(): void {
-  writeFileSync(resolve(repo, ".gitignore"), "node_modules\n.vivicy-tmp.*\n.vivicy-runtime/\n.vivicy/development/transcripts/\n")
+function initGovernedGitTarget({ ignoresRuntime = true }: { ignoresRuntime?: boolean } = {}): void {
+  const runtimeRule = ignoresRuntime ? ".vivicy/runtime/\n" : ""
+  writeFileSync(resolve(repo, ".gitignore"), `node_modules\n.vivicy-tmp.*\n${runtimeRule}.vivicy/development/transcripts/\n`)
   writeFileSync(resolve(repo, "AGENTS.md"), OWNER_AGENTS_MD)
   writeFileSync(resolve(repo, "CLAUDE.md"), OWNER_CLAUDE_MD)
   writeJson("vivicy.json", { gateCommand: "npm test" })
@@ -3017,6 +3019,45 @@ describe("absorption + worktree delivery (real git target, real skills-CLI seam)
         git(repo, ["worktree", "remove", "--force", worktree])
         rmSync(worktreeParent, { recursive: true, force: true })
       }
+    })
+  })
+
+  it("ends clean on a project whose managed ignore block predates the runtime dir: the dir hides itself from git", async () => {
+    await withHermeticGitEnv(async () => {
+      initGovernedGitTarget({ ignoresRuntime: false })
+      writeSkillsCliStub(repo, "relative")
+      assert.equal(git(repo, ["status", "--porcelain"]).stdout.trim(), "", "precondition: the owner's tree is clean")
+
+      const report = await installSkills({ repoRoot: repo, ids: ["acme/pack@spreadsheets"], fetchAudit: fakeAudits() })
+      assert.equal(report.phase, "green", report.summary)
+
+      assert.ok(existsSync(resolve(repo, ".vivicy/runtime/skill-bundles")), "the stage really did write under the target's runtime dir")
+      assert.equal(readFileSync(resolve(repo, ".vivicy/runtime/.gitignore"), "utf8"), "*\n")
+      assert.equal(
+        git(repo, ["status", "--porcelain", "--untracked-files=all"]).stdout.trim(),
+        "",
+        "no runtime file reaches the tree the clean-tree gate reads, with no help from the root .gitignore"
+      )
+      assert.ok(
+        !git(repo, ["show", "--name-only", "--format=", "HEAD"]).stdout.includes(".vivicy/runtime"),
+        "and none of it rides the absorption commit"
+      )
+
+      // A publish killed between its open and its write leaves an EMPTY marker: the dir must not stay visible to git for good.
+      writeFileSync(resolve(repo, ".vivicy/runtime/.gitignore"), "")
+      assert.match(
+        git(repo, ["status", "--porcelain", "--untracked-files=all"]).stdout,
+        /\.vivicy\/runtime\//,
+        "non-vacuity: an emptied marker really does expose the whole runtime subtree"
+      )
+
+      ensureProjectRuntimeDir(resolve(repo, ".vivicy/runtime"))
+      assert.equal(readFileSync(resolve(repo, ".vivicy/runtime/.gitignore"), "utf8"), "*\n")
+      assert.equal(
+        git(repo, ["status", "--porcelain", "--untracked-files=all"]).stdout.trim(),
+        "",
+        "the next ensure repairs the marker and git goes blind again"
+      )
     })
   })
 
@@ -3533,12 +3574,12 @@ describe("the maintenance pass verifies every pin and self-heals (real git targe
     assert.equal(git(repo, ["status", "--porcelain"]).stdout.trim(), "", "the install absorbs its own writes")
     const pin = pinOf(ID)
     assert.ok(pin, "the install pinned the bundle")
-    return { runtimeDir: resolve(repo, ".vivicy-runtime"), report, pinnedAt: pin.bundle_hash }
+    return { runtimeDir: resolve(repo, ".vivicy", "runtime"), report, pinnedAt: pin.bundle_hash }
   }
 
   async function inGovernedProject(fn: (ctx: { runtimeDir: string; pinnedAt: string }) => Promise<void>): Promise<void> {
     await withHermeticGitEnv(async () => {
-      const runtimeDir = resolve(repo, ".vivicy-runtime")
+      const runtimeDir = resolve(repo, ".vivicy", "runtime")
       const previous = process.env.VIVICY_RUNTIME_DIR
       process.env.VIVICY_RUNTIME_DIR = runtimeDir
       try {
@@ -4105,7 +4146,10 @@ describe("the maintenance pass verifies every pin and self-heals (real git targe
     const report = await maintainSkills({ repoRoot: repo, runInstall: () => assert.fail("nothing to verify, nothing to check upstream") })
     assert.match(report.summary, /^no pinned skill bundles to verify — vivicy\.json#skills declares none$/)
     assert.ok(!existsSync(resolve(repo, SKILLS_REPORT_REL)), "and it writes no report to say so")
-    assert.ok(!existsSync(resolve(repo, ".vivicy-runtime/skills-install.lock")), "and claims no lock: it never opens a stage tree at all")
+    assert.ok(
+      !existsSync(resolve(repo, ".vivicy", "runtime", "skills-install.lock")),
+      "and claims no lock: it never opens a stage tree at all"
+    )
     await assert.rejects(() => maintainSkills({}), SkillsConfigError)
   })
 
@@ -4688,7 +4732,7 @@ describe("the maintenance pass verifies every pin and self-heals (real git targe
       // The scratch count must be read from INSIDE the fetch: the pass's janitorial sweep removes them all at the end, so an observation taken afterwards proves nothing.
       function upstreamPerSkill(bySkill: Record<string, Record<string, string>>, scratchesInFlight: number[] = []) {
         return ({ repoRoot: into, skill }: { repoRoot: string; source: string; skill: string }) => {
-          scratchesInFlight.push(readdirSync(resolve(repo, ".vivicy-runtime")).filter((e) => e.startsWith("skill-candidate-")).length)
+          scratchesInFlight.push(readdirSync(resolve(repo, ".vivicy", "runtime")).filter((e) => e.startsWith("skill-candidate-")).length)
           writeBundle(into, skill, bySkill[skill])
           return { code: 0, output: "installed" }
         }

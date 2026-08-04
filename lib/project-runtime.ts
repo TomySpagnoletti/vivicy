@@ -1,23 +1,39 @@
-import { createHash } from "node:crypto"
+import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs"
 import path from "node:path"
 
 // Imported by factory/cli.ts via a relative `.ts` path (no bundler): keep free of Next path aliases and Next-only imports.
-export const PROJECTS_SUBDIR = "projects"
+export const PROJECT_RUNTIME_SEGMENTS = [".vivicy", "runtime"] as const
 
-// Never change this derivation: it orphans every already-created project folder on disk.
-export function projectRuntimeKey(targetRoot: string): string {
-  const abs = path.resolve(targetRoot)
-  const slug =
-    path
-      .basename(abs)
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-+|-+$/g, "")
-      .slice(0, 40) || "project"
-  const hash = createHash("sha256").update(abs).digest("hex").slice(0, 8)
-  return `${slug}-${hash}`
+const SELF_IGNORE_FILE = ".gitignore"
+const SELF_IGNORE_BYTES = "*\n"
+
+export function getProjectRuntimeDir(targetRoot: string, env: Record<string, string | undefined> = process.env): string {
+  const override = env.VIVICY_RUNTIME_DIR
+  if (override && override.trim().length > 0) return path.resolve(override)
+  return path.join(path.resolve(targetRoot), ...PROJECT_RUNTIME_SEGMENTS)
 }
 
-export function getProjectRuntimeDir(runtimeRoot: string, targetRoot: string): string {
-  return path.join(runtimeRoot, PROJECTS_SUBDIR, projectRuntimeKey(targetRoot))
+// Bytes to a per-process temp then ONE rename — never an exclusive create, which is an open plus a write whose interruption leaves an empty marker no later create can repair.
+function publishSelfIgnore(marker: string): void {
+  const temp = `${marker}.new.${process.pid}`
+  try {
+    rmSync(temp, { force: true })
+    writeFileSync(temp, SELF_IGNORE_BYTES, { flag: "wx" })
+    renameSync(temp, marker)
+  } catch {
+  } finally {
+    rmSync(temp, { force: true })
+  }
+}
+
+// The dir ignores ITSELF: git must stay blind to this subtree in a governed project whose managed .gitignore block predates the entry, so the marker is re-published whenever what is on disk is not exactly its bytes, and a healthy dir stays a zero-write no-op.
+export function ensureProjectRuntimeDir(runtimeDir: string): string {
+  mkdirSync(runtimeDir, { recursive: true })
+  const marker = path.join(runtimeDir, SELF_IGNORE_FILE)
+  let current: string | null = null
+  try {
+    current = readFileSync(marker, "utf8")
+  } catch {}
+  if (current !== SELF_IGNORE_BYTES) publishSelfIgnore(marker)
+  return runtimeDir
 }

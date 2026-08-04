@@ -100,12 +100,12 @@ describe("MapEmptyState — guidance per empty reason", () => {
         reason="no_map"
         onExtract={vi.fn()}
         extractError={{
-          message: "canonical is empty (only the scaffold README) — import or write docs first",
+          message: "canonical holds no spec document — import or write docs first",
           code: "empty_canonical",
         }}
       />
     )
-    expect(screen.getByText(/canonical is empty \(only the scaffold README\)/)).toBeInTheDocument()
+    expect(screen.getByText(/canonical holds no spec document/)).toBeInTheDocument()
     expect(screen.getByRole("button", { name: /Import docs/ })).toHaveAttribute("data-variant", "default")
     expect(screen.getByRole("button", { name: "Extract from docs" })).toHaveAttribute("data-variant", "outline")
   })

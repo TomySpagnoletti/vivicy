@@ -26,6 +26,7 @@ import { ensureLocalGitIdentity, findFrozenManifest } from "./extract-issues.ts"
 import { FACTORY_PROMPTS_DIR, resolveTargetRoot } from "./target-root.ts"
 import { AGENT_SKILLS_DIR, PER_AGENT_SKILL_DIRS, SKILLS_CLI_LOCKFILE } from "../lib/spec-kind.ts"
 import { commitDirty, dirtyPaths } from "../lib/pathspec-commit.ts"
+import { ensureProjectRuntimeDir, getProjectRuntimeDir } from "../lib/project-runtime.ts"
 import { countForm, countOf } from "../lib/count-form.ts"
 import { normalizeSkillId, parseSkillId, SKILL_DOC_FILE, skillBundleRel, skillDocRel, type SkillRef } from "./skill-id.ts"
 import {
@@ -257,12 +258,6 @@ function claimSkillsStage(runtimeDir: string): HeldStageLock {
   if (lock) return lock
   const holder = stageLockHolder(runtimeDir, SKILLS_LOCK_FILE)
   throw new SkillsLockError(`a skills install is already in flight${holder === null ? "" : ` (pid ${holder})`}`)
-}
-
-// Never derive this from cwd: a supervisor started in the target and an app started in its own root would then fork the lock file.
-function stageRuntimeDir(repoRoot: string, env: NodeJS.ProcessEnv): string {
-  const fromEnv = env.VIVICY_RUNTIME_DIR
-  return fromEnv && fromEnv.trim().length > 0 ? resolve(fromEnv) : resolve(repoRoot, ".vivicy-runtime")
 }
 
 // Read at the INSTALL door and NOWHERE else: a one-time opt-in must never become standing consent.
@@ -1107,7 +1102,7 @@ interface StageTree {
 
 // Claim before the pre-stage snapshot; a claim whose tree never opens is released here, since no `finally` covers it yet.
 function openStageTree(repoRoot: string, mode: StageMode, env: NodeJS.ProcessEnv): StageTree {
-  const runtimeDir = stageRuntimeDir(repoRoot, env)
+  const runtimeDir = ensureProjectRuntimeDir(getProjectRuntimeDir(repoRoot, env))
   const lock = claimSkillsStage(runtimeDir)
   try {
     const owns = ownsGitRepo(repoRoot)

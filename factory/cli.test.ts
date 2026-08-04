@@ -10,17 +10,14 @@ import { getProjectRuntimeDir } from "../lib/project-runtime.ts"
 
 const CLI = join(dirname(fileURLToPath(import.meta.url)), "cli.ts")
 
-// runCli must keep injecting VIVICY_RUNTIME_DIR: without it the locking verbs write into the repo's real .vivicy-runtime.
-const isolatedRuntimeRoot = mkdtempSync(join(tmpdir(), "vivicy-cli-rt-"))
-after(() => rmSync(isolatedRuntimeRoot, { recursive: true, force: true }))
-
+// Never drop the blank VIVICY_RUNTIME_DIR: an inherited one would pull every verb's state out of the temp target these assertions read.
 function runCli(
   args: string[],
   { env = {} }: { env?: NodeJS.ProcessEnv } = {}
 ): { code: number | null; out: string; err: string; json: any } {
   const res = spawnSync(process.execPath, [CLI, ...args], {
     encoding: "utf8",
-    env: { ...process.env, VIVICY_RUNTIME_DIR: isolatedRuntimeRoot, ...env },
+    env: { ...process.env, VIVICY_RUNTIME_DIR: "", ...env },
   })
   let json = null
   const stdout = res.stdout ?? ""
@@ -115,7 +112,7 @@ describe("status --json", () => {
       source: "agent",
     })
 
-    const r = runCli(["status", "--dir", target, "--runtime-dir", runtimeDir, "--json"])
+    const r = runCli(["status", "--dir", target, "--json"])
 
     assert.equal(r.code, 0)
     assert.ok(r.json, "stdout must be one JSON object")
@@ -140,14 +137,14 @@ describe("status --json", () => {
       summary: "the extraction was still not green after 4 attempts. Checks still red.",
     })
 
-    const r = runCli(["status", "--dir", target, "--runtime-dir", runtimeDir, "--json"])
+    const r = runCli(["status", "--dir", target, "--json"])
 
     assert.equal(r.code, 0)
     assert.equal(r.json.extraction.phase, "extraction_blocked")
   })
 
   test("missing target is a usage error (exit 2)", () => {
-    const r = runCli(["status", "--runtime-dir", runtimeDir, "--json"], {
+    const r = runCli(["status", "--json"], {
       env: { VIVICY_TARGET_ROOT: "" },
     })
     assert.equal(r.code, 2)
@@ -159,7 +156,7 @@ describe("status --json", () => {
     const stub = mkdtempSync(join(tmpdir(), "vivicy-nostatus-"))
     writeExtractionStatus(target, { phase: "green", summary: "green" })
     try {
-      const r = runCli(["status", "--dir", target, "--runtime-dir", runtimeDir, "--json"], {
+      const r = runCli(["status", "--dir", target, "--json"], {
         env: { VIVICY_FACTORY_ROOT: stub },
       })
       assert.equal(r.code, 0)
@@ -227,7 +224,7 @@ describe("crs --json", () => {
 describe("cr approve", () => {
   test("unknown id is an actionable refusal (exit 1, unknown_cr)", () => {
     writeCanonical(target)
-    const r = runCli(["cr", "approve", "CR-9999", "--by", "tester", "--dir", target, "--runtime-dir", runtimeDir, "--json"])
+    const r = runCli(["cr", "approve", "CR-9999", "--by", "tester", "--dir", target, "--json"])
     assert.equal(r.code, 1)
     assert.equal(r.json.ok, false)
     assert.equal(r.json.code, "unknown_cr")
@@ -263,14 +260,22 @@ describe("retry-stage", () => {
 
 describe("notifications --json", () => {
   test("missing log => empty list, exit 0", () => {
-    const r = runCli(["notifications", "--runtime-dir", runtimeDir, "--json"])
+    const r = runCli(["notifications", "--dir", target, "--json"])
     assert.equal(r.code, 0)
     assert.deepEqual(r.json, { ok: true, notifications: [] })
   })
 
+  test("no target is a usage error: the log lives with the project", () => {
+    const r = runCli(["notifications", "--json"], { env: { VIVICY_TARGET_ROOT: "" } })
+    assert.equal(r.code, 2)
+    assert.equal(r.json.code, "missing_target")
+  })
+
   test("reads well-formed lines and skips malformed ones", () => {
+    const projectRuntime = getProjectRuntimeDir(target)
+    mkdirSync(projectRuntime, { recursive: true })
     writeFileSync(
-      join(runtimeDir, "notifications.jsonl"),
+      join(projectRuntime, "notifications.jsonl"),
       [
         JSON.stringify({ ts: "2026-07-02T10:00:00Z", level: "error", stage: "extract", event: "blocked", message: "still red" }),
         "not json — a partial write",
@@ -285,7 +290,7 @@ describe("notifications --json", () => {
         "",
       ].join("\n")
     )
-    const r = runCli(["notifications", "--runtime-dir", runtimeDir, "--json"])
+    const r = runCli(["notifications", "--dir", target, "--json"])
     assert.equal(r.code, 0)
     assert.equal(r.json.notifications.length, 2)
     assert.equal(r.json.notifications[0].event, "blocked")
@@ -420,7 +425,7 @@ describe("prepare verbs", () => {
     })
 
     test("a live doc-prep lock refuses a second prepare run (already_running)", () => {
-      const projectRuntime = getProjectRuntimeDir(isolatedRuntimeRoot, target)
+      const projectRuntime = getProjectRuntimeDir(target)
       mkdirSync(projectRuntime, { recursive: true })
       writeFileSync(join(projectRuntime, "doc-prep.lock"), JSON.stringify({ pid: process.pid, started_at: new Date().toISOString() }))
       const r = runCli(["prepare", "run", "--dir", target, "--json"], {
@@ -565,7 +570,7 @@ describe("skills verbs", () => {
     })
 
     test("a live stage lock refuses an install AND a removal (already_running), leaving the holder's lock alone", () => {
-      const projectRuntime = getProjectRuntimeDir(isolatedRuntimeRoot, target)
+      const projectRuntime = getProjectRuntimeDir(target)
       mkdirSync(projectRuntime, { recursive: true })
       const lock = join(projectRuntime, "skills-install.lock")
       const body = `${JSON.stringify({ pid: process.pid, started_at: new Date().toISOString() }, null, 2)}\n`
@@ -665,37 +670,49 @@ describe("start/stop lock lifecycle (byte-compatible run-state)", () => {
     writeCanonical(target)
     const env = { VIVICY_FACTORY_ROOT: stubFactory }
 
-    const start = runCli(["start", "--dir", target, "--runtime-dir", runtimeDir, "--json"], { env })
+    const start = runCli(["start", "--dir", target, "--json"], { env })
     assert.equal(start.code, 0)
     assert.equal(start.json.ok, true)
     assert.ok(start.json.run.pid > 0)
     assert.equal(start.json.run.mode, "start")
-    const lockFile = join(getProjectRuntimeDir(runtimeDir, target), "run-state.json")
+    const lockFile = join(target, ".vivicy", "runtime", "run-state.json")
+    assert.equal(lockFile, join(getProjectRuntimeDir(target), "run-state.json"))
+    assert.equal(readFileSync(join(target, ".vivicy", "runtime", ".gitignore"), "utf8"), "*\n")
     const lockRaw = JSON.parse(readFileSync(lockFile, "utf8"))
     assert.equal(lockRaw.pid, start.json.run.pid)
     assert.equal(lockRaw.target_root, target)
     assert.equal(lockRaw.mode, "start")
 
-    const again = runCli(["start", "--dir", target, "--runtime-dir", runtimeDir, "--json"], { env })
+    const again = runCli(["start", "--dir", target, "--json"], { env })
     assert.equal(again.code, 1)
     assert.equal(again.json.code, "already_running")
 
-    const stop = runCli(["stop", "--dir", target, "--runtime-dir", runtimeDir, "--json"])
+    const stop = runCli(["stop", "--dir", target, "--json"])
     assert.equal(stop.code, 0)
     assert.equal(stop.json.stopped.pid, start.json.run.pid)
     assert.equal(existsSync(lockFile), false)
   })
 
   test("stop with no recorded run is an actionable refusal (exit 1, not_running)", () => {
-    const r = runCli(["stop", "--dir", target, "--runtime-dir", runtimeDir, "--json"])
+    const r = runCli(["stop", "--dir", target, "--json"])
     assert.equal(r.code, 1)
     assert.equal(r.json.code, "not_running")
   })
 
   test("stop without a target is a usage error (the lock is per project)", () => {
-    const r = runCli(["stop", "--runtime-dir", runtimeDir, "--json"], { env: { VIVICY_TARGET_ROOT: "" } })
+    const r = runCli(["stop", "--json"], { env: { VIVICY_TARGET_ROOT: "" } })
     assert.equal(r.code, 2)
     assert.equal(r.json.code, "missing_target")
+  })
+
+  test("--runtime-dir relocates the lock away from the target default", () => {
+    writeCanonical(target)
+    const start = runCli(["start", "--dir", target, "--runtime-dir", runtimeDir, "--json"], { env: { VIVICY_FACTORY_ROOT: stubFactory } })
+    assert.equal(start.code, 0)
+    assert.equal(existsSync(join(runtimeDir, "run-state.json")), true)
+    assert.equal(existsSync(join(target, ".vivicy", "runtime", "run-state.json")), false)
+    const stop = runCli(["stop", "--dir", target, "--runtime-dir", runtimeDir, "--json"])
+    assert.equal(stop.code, 0)
   })
 })
 
@@ -717,7 +734,7 @@ describe("cycle verbs (open/cancel/status, guards mirrored from the app)", () =>
   }
 
   test("open refuses without a frozen baseline (pre-freeze IS drafting)", () => {
-    const r = runCli(["cycle", "open", "--dir", target, "--runtime-dir", runtimeDir, "--json"])
+    const r = runCli(["cycle", "open", "--dir", target, "--json"])
     assert.equal(r.code, 1)
     assert.equal(r.json.code, "cycle_state")
   })
@@ -726,26 +743,26 @@ describe("cycle verbs (open/cancel/status, guards mirrored from the app)", () =>
     seedFrozenBaseline()
     const env = { VIVICY_FACTORY_ROOT: stubFactory }
 
-    const open = runCli(["cycle", "open", "--dir", target, "--runtime-dir", runtimeDir, "--json"], { env })
+    const open = runCli(["cycle", "open", "--dir", target, "--json"], { env })
     assert.equal(open.code, 0, open.err)
     assert.equal(open.json.cycle.status, "drafting")
     assert.equal(open.json.cycle.opened_by, "owner:cli")
     assert.ok(existsSync(join(target, ".vivicy/development/reports/spec-cycle.json")))
 
-    const again = runCli(["cycle", "open", "--dir", target, "--runtime-dir", runtimeDir, "--json"], { env })
+    const again = runCli(["cycle", "open", "--dir", target, "--json"], { env })
     assert.equal(again.code, 1)
     assert.equal(again.json.code, "cycle_state")
 
-    const status = runCli(["cycle", "status", "--dir", target, "--runtime-dir", runtimeDir, "--json"])
+    const status = runCli(["cycle", "status", "--dir", target, "--json"])
     assert.equal(status.code, 0)
     assert.equal(status.json.cycle.id, open.json.cycle.id)
 
     writeCanonical(target)
-    const start = runCli(["start", "--dir", target, "--runtime-dir", runtimeDir, "--json"], { env })
+    const start = runCli(["start", "--dir", target, "--json"], { env })
     assert.equal(start.code, 1)
     assert.equal(start.json.code, "cycle_state")
 
-    const cancel = runCli(["cycle", "cancel", "--dir", target, "--runtime-dir", runtimeDir, "--json"], { env })
+    const cancel = runCli(["cycle", "cancel", "--dir", target, "--json"], { env })
     assert.equal(cancel.code, 0, cancel.err)
     assert.equal(cancel.json.cancelled, open.json.cycle.id)
     assert.equal(existsSync(join(target, ".vivicy/development/reports/spec-cycle.json")), false)
@@ -757,9 +774,9 @@ describe("cycle verbs (open/cancel/status, guards mirrored from the app)", () =>
     try {
       writeFileSync(join(driftedStub, "doc-baseline.ts"), "console.error('changed: 01-a.md'); process.exit(1);\n")
       const env = { VIVICY_FACTORY_ROOT: driftedStub }
-      const open = runCli(["cycle", "open", "--dir", target, "--runtime-dir", runtimeDir, "--json"], { env })
+      const open = runCli(["cycle", "open", "--dir", target, "--json"], { env })
       assert.equal(open.code, 0, open.err)
-      const cancel = runCli(["cycle", "cancel", "--dir", target, "--runtime-dir", runtimeDir, "--json"], { env })
+      const cancel = runCli(["cycle", "cancel", "--dir", target, "--json"], { env })
       assert.equal(cancel.code, 1)
       assert.equal(cancel.json.code, "cycle_state")
       assert.ok(existsSync(join(target, ".vivicy/development/reports/spec-cycle.json")), "the cycle stays open")

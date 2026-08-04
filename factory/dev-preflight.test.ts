@@ -344,7 +344,7 @@ after(() => {
 
 // HOME and XDG_CONFIG_HOME must stay redirected (git reads its per-user excludes whatever core.excludesFile says, and one inherited ignore turns the clean-tree assertions green) and process.env itself must be what is mutated: the pass spawns git and the skills CLI with the inherited environment.
 function withRealTarget(fn: (ctx: { runtimeDir: string }) => void): void {
-  const runtimeDir = resolve(repo, ".vivicy-runtime")
+  const runtimeDir = resolve(repo, ".vivicy", "runtime")
   rmSync(UPSTREAM_CALLS, { force: true })
   const overrides: Record<string, string | undefined> = {
     HOME: HERMETIC_HOME,
@@ -389,14 +389,14 @@ function notifications(runtimeDir: string): Array<{ level: string; event: string
 }
 
 function governedTarget({ warmCache = true } = {}): void {
-  writeFileSync(resolve(repo, ".gitignore"), ".vivicy-runtime/\n.vivicy-tmp.*\n")
+  writeFileSync(resolve(repo, ".gitignore"), ".vivicy/runtime/\n.vivicy-tmp.*\n")
   writeFileSync(resolve(repo, "AGENTS.md"), "# Agent instructions\n")
   const dir = writeBundle()
   writeJson("vivicy.json", { gateCommand: "npm test" })
   pin()
   const bundle = hashBundle(dir)
   assert.ok(bundle)
-  if (warmCache) assert.ok(cacheBundle(resolve(repo, ".vivicy-runtime"), bundle, dir))
+  if (warmCache) assert.ok(cacheBundle(resolve(repo, ".vivicy", "runtime"), bundle, dir))
   git(["init", "-q"])
   git(["add", "-A"])
   git(["-c", "user.email=owner@local", "-c", "user.name=Owner", "commit", "-qm", "owner: a governed project with one pinned skill"])

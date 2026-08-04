@@ -15,8 +15,8 @@ dist/
 .env.*
 .envrc
 
-# Vivicy factory runtime + per-issue parallel worktrees.
-.vivicy-runtime/
+# This project's operational state + per-issue parallel worktrees.
+.vivicy/runtime/
 .vivicy-worktrees/
 
 # The parallel loop's transient integration mutex — created/removed during a merge,

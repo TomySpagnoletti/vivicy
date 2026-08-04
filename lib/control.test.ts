@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import path from "node:path"
 
@@ -33,7 +33,6 @@ import {
   type Spawner,
 } from "@/lib/control"
 import { getProjectRuntimeDir } from "@/lib/project-runtime"
-import { getRuntimeDir } from "@/lib/runtime-dir"
 import { SKILLS_IN_FLIGHT_PHASES } from "@/lib/skills-report"
 
 function makeFakeSpawner(overrides: Partial<Spawner> = {}) {
@@ -68,7 +67,7 @@ function makeFakeSpawner(overrides: Partial<Spawner> = {}) {
 
 let factoryRoot: string
 let targetRoot: string
-let runtimeDir: string
+let appCwd: string
 let prevCwd: string
 
 function scaffoldFactory(root: string) {
@@ -90,7 +89,7 @@ function scaffoldFactory(root: string) {
 beforeEach(() => {
   factoryRoot = mkdtempSync(path.join(tmpdir(), "vivicy-factory-"))
   targetRoot = mkdtempSync(path.join(tmpdir(), "vivicy-target-"))
-  runtimeDir = mkdtempSync(path.join(tmpdir(), "vivicy-cwd-"))
+  appCwd = mkdtempSync(path.join(tmpdir(), "vivicy-cwd-"))
   scaffoldFactory(factoryRoot)
 
   process.env.VIVICY_FACTORY_ROOT = factoryRoot
@@ -98,12 +97,12 @@ beforeEach(() => {
   delete process.env.VIVICY_FAKE_SPAWN
 
   prevCwd = process.cwd()
-  process.chdir(runtimeDir)
+  process.chdir(appCwd)
 })
 
 afterEach(() => {
   process.chdir(prevCwd)
-  for (const dir of [factoryRoot, targetRoot, runtimeDir]) {
+  for (const dir of [factoryRoot, targetRoot, appCwd]) {
     rmSync(dir, { recursive: true, force: true })
   }
   delete process.env.VIVICY_FACTORY_ROOT
@@ -235,7 +234,7 @@ describe("product run (serve the pizza)", () => {
     writeFileSync(path.join(targetRoot, "vivicy.json"), JSON.stringify({ gateCommand: null, runCommand, ...extra }, null, 2))
   }
   function productRunLogPath(): string {
-    return path.join(getProjectRuntimeDir(getRuntimeDir(), targetRoot), "product-run.log")
+    return path.join(getProjectRuntimeDir(targetRoot), "product-run.log")
   }
 
   it("reports not_established while runCommand is the null sentinel, and refuses to start", () => {
@@ -454,10 +453,10 @@ describe("runExtract empty-canonical guard", () => {
     expect(calls.run).toHaveLength(0)
   })
 
-  it("refuses to extract when canonical holds only the scaffold README", async () => {
+  it("refuses to extract when canonical holds no spec document", async () => {
     writeCanonicalDoc("README.md", "# Canonical Documentation — placeholder\n")
     const { spawner, calls } = makeFakeSpawner()
-    await expect(runExtract(spawner)).rejects.toThrow(/only the scaffold README/)
+    await expect(runExtract(spawner)).rejects.toThrow(/canonical holds no spec document/)
     expect(calls.run).toHaveLength(0)
   })
 
@@ -685,7 +684,7 @@ describe("readRetroReport", () => {
 
 describe("startSkillsInstall", () => {
   function skillsStageLockPath(): string {
-    return path.join(getProjectRuntimeDir(getRuntimeDir(), targetRoot), "skills-install.lock")
+    return path.join(getProjectRuntimeDir(targetRoot), "skills-install.lock")
   }
 
   function writeStageLock(pid: number): string {
@@ -899,7 +898,7 @@ describe("startDocPrep", () => {
     expect(call.cwd).toBe(factoryRoot)
     expect(call.env.VIVICY_TARGET_ROOT).toBe(targetRoot)
     expect(call.env.VIVICY_RUNTIME_DIR).toBeTruthy()
-    const lock = path.join(getProjectRuntimeDir(getRuntimeDir(), targetRoot), "doc-prep.lock")
+    const lock = path.join(getProjectRuntimeDir(targetRoot), "doc-prep.lock")
     expect(existsSync(lock)).toBe(true)
   })
 
@@ -942,18 +941,25 @@ describe("startDocPrep", () => {
 })
 
 describe("path safety", () => {
-  it("keeps the lock inside the PROJECT's runtime namespace", () => {
+  it("keeps the lock inside the PROJECT's own runtime dir, and writes nothing under the app's cwd", () => {
     const { spawner } = makeFakeSpawner()
     startSupervisor(spawner)
-    const lock = path.join(getProjectRuntimeDir(getRuntimeDir(), targetRoot), "run-state.json")
+    const lock = path.join(getProjectRuntimeDir(targetRoot), "run-state.json")
     expect(existsSync(lock)).toBe(true)
-    expect(lock.startsWith(getRuntimeDir())).toBe(true)
+    expect(lock.startsWith(path.join(targetRoot, ".vivicy", "runtime"))).toBe(true)
+    expect(readdirSync(appCwd)).toEqual([])
     const other = mkdtempSync(path.join(tmpdir(), "control-other-"))
     try {
-      expect(getProjectRuntimeDir(getRuntimeDir(), other)).not.toBe(getProjectRuntimeDir(getRuntimeDir(), targetRoot))
+      expect(getProjectRuntimeDir(other)).not.toBe(getProjectRuntimeDir(targetRoot))
     } finally {
       rmSync(other, { recursive: true, force: true })
     }
+  })
+
+  it("makes the runtime dir ignore itself so git never sees the lock", () => {
+    const { spawner } = makeFakeSpawner()
+    startSupervisor(spawner)
+    expect(readFileSync(path.join(getProjectRuntimeDir(targetRoot), ".gitignore"), "utf8")).toBe("*\n")
   })
 })
 

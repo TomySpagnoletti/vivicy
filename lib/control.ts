@@ -1,10 +1,9 @@
 // Server-only, and never imports factory/cli.ts: parity is the identical spawned scripts/args and state-file schemas, never shared code.
 
-import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs"
+import { existsSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs"
 import path from "node:path"
 
-import { getProjectRuntimeDir } from "@/lib/project-runtime"
-import { getRuntimeDir } from "@/lib/runtime-dir"
+import { ensureProjectRuntimeDir, getProjectRuntimeDir } from "@/lib/project-runtime"
 import {
   activeCycleId,
   activeCycleKind,
@@ -161,9 +160,9 @@ export function getFactoryRoot(): string {
   return path.resolve(process.cwd(), "factory")
 }
 
-// Derive only through lib/project-runtime.ts: factory/cli.ts uses the same module, which is what keeps CLI- and UI-started state in one namespace.
+// Derive only through lib/project-runtime.ts: factory/cli.ts uses the same module, which is what keeps CLI- and UI-started state in one home.
 function projectRuntimeDir(targetRoot: string): string {
-  return getProjectRuntimeDir(getRuntimeDir(), targetRoot)
+  return getProjectRuntimeDir(targetRoot)
 }
 
 function getRunStatePath(targetRoot: string): string {
@@ -214,7 +213,7 @@ function updateRunState(targetRoot: string, state: RunState): void {
 
 // Claim with wx (exclusive create) BEFORE the spawn, never a plain write: that is the check-then-spawn TOCTOU window.
 function claimRunLock(spawner: Spawner, targetRoot: string, placeholder: RunState): void {
-  mkdirSync(projectRuntimeDir(targetRoot), { recursive: true })
+  ensureProjectRuntimeDir(projectRuntimeDir(targetRoot))
   const file = getRunStatePath(targetRoot)
   const body = `${JSON.stringify(placeholder, null, 2)}\n`
   try {
@@ -547,7 +546,7 @@ function tailLines(text: string | null, count: number): string | null {
 }
 
 function claimProductRunLock(spawner: Spawner, targetRoot: string, state: ProductRunState): void {
-  mkdirSync(projectRuntimeDir(targetRoot), { recursive: true })
+  ensureProjectRuntimeDir(projectRuntimeDir(targetRoot))
   const file = productRunStatePath(targetRoot)
   const body = `${JSON.stringify(state, null, 2)}\n`
   try {
@@ -750,7 +749,7 @@ function assertRealCanonical(targetRoot: string): void {
   }
   if (!canonicalHasSpecDoc(targetRoot)) {
     throw new ControlError(
-      "canonical is empty (only the scaffold README) — write or import canonical docs (01-<area>.md, ...) before extracting",
+      "canonical holds no spec document — write or import canonical docs (01-<area>.md, ...) before extracting",
       "empty_canonical"
     )
   }
@@ -843,7 +842,7 @@ export function startSkillsInstall(spawner: Spawner, opts: { ids?: string[] } = 
   }
   refuseWhileSkillsStageHolds(spawner, targetRoot)
   const command = resolveScript(factoryRoot, SKILLS_SCRIPT)
-  const logFile = path.join(projectRuntimeDir(targetRoot), SKILLS_LOG_FILE)
+  const logFile = path.join(ensureProjectRuntimeDir(projectRuntimeDir(targetRoot)), SKILLS_LOG_FILE)
 
   let handle: DetachedHandle
   try {
@@ -993,7 +992,7 @@ function isDocPrepLockLive(spawner: Spawner, targetRoot: string): boolean {
 }
 
 function claimDocPrepLock(spawner: Spawner, targetRoot: string): void {
-  mkdirSync(path.dirname(docPrepLockPath(targetRoot)), { recursive: true })
+  ensureProjectRuntimeDir(projectRuntimeDir(targetRoot))
   const body = `${JSON.stringify({ pid: process.pid, started_at: new Date().toISOString() }, null, 2)}\n`
   try {
     writeFileSync(docPrepLockPath(targetRoot), body, { flag: "wx" })

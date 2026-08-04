@@ -114,7 +114,7 @@ function writeInTarget(targetRoot: string, rel: string, body: string): void {
 
 let factoryRoot: string
 let targetRoot: string
-let runtimeDir: string
+let appCwd: string
 let prevCwd: string
 
 function scaffoldFactory(root: string) {
@@ -143,7 +143,7 @@ function gitCommitFile(root: string, rel: string, body: string): void {
 beforeEach(() => {
   factoryRoot = mkdtempSync(path.join(tmpdir(), "vivi-factory-"))
   targetRoot = mkdtempSync(path.join(tmpdir(), "vivi-target-"))
-  runtimeDir = mkdtempSync(path.join(tmpdir(), "vivi-runtime-"))
+  appCwd = mkdtempSync(path.join(tmpdir(), "vivi-app-cwd-"))
   scaffoldFactory(factoryRoot)
   mkdirSync(path.join(targetRoot, ".vivicy", "canonical"), { recursive: true })
   mkdirSync(path.join(targetRoot, ".vivicy", "development", "spikes"), { recursive: true })
@@ -151,15 +151,15 @@ beforeEach(() => {
 
   process.env.VIVICY_FACTORY_ROOT = factoryRoot
   process.env.VIVICY_TARGET_ROOT = targetRoot
-  process.env.VIVICY_RUNTIME_DIR = runtimeDir
+  delete process.env.VIVICY_RUNTIME_DIR
 
   prevCwd = process.cwd()
-  process.chdir(runtimeDir)
+  process.chdir(appCwd)
 })
 
 afterEach(() => {
   process.chdir(prevCwd)
-  for (const dir of [factoryRoot, targetRoot, runtimeDir]) {
+  for (const dir of [factoryRoot, targetRoot, appCwd]) {
     rmSync(dir, { recursive: true, force: true })
   }
   delete process.env.VIVICY_FACTORY_ROOT
@@ -510,7 +510,7 @@ describe("runViviTurn — post-freeze (Change Requests)", () => {
 describe("runViviTurn — settings plumb-through", () => {
   it("passes the configured CLI + model env and cwd=target to the leg", async () => {
     writeFileSync(
-      path.join(runtimeDir, "settings.json"),
+      appSettingsPath(),
       JSON.stringify({
         implementer: { provider: "codex", model: "gpt-5.5", effort: "high", fast: false },
         reviewer: { provider: "claude", model: "claude-opus-4-8", effort: "xhigh", fast: false },
@@ -1033,7 +1033,14 @@ function viviLegRuns(calls: Array<{ args: string[] }>): number {
 }
 
 function viviSessionDir(): string {
-  return path.join(getProjectRuntimeDir(runtimeDir, targetRoot), "vivi")
+  return path.join(getProjectRuntimeDir(targetRoot), "vivi")
+}
+
+// The settings store is still app-side (F-104 territory), reached here through the isolated cwd.
+function appSettingsPath(): string {
+  const dir = path.join(appCwd, ".vivicy-runtime")
+  mkdirSync(dir, { recursive: true })
+  return path.join(dir, "settings.json")
 }
 
 // Guaranteed-dead pid: spawnSync returns only after the child is reaped.

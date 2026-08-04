@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import path from "node:path"
 
@@ -6,19 +6,61 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest"
 
 import { appendNotification, dismissNotifications, getNotificationsPath, readNotifications } from "@/lib/notifications"
 
-let runtimeDir: string
+let targetRoot: string
+let appCwd: string
 let prevRuntimeEnv: string | undefined
+let prevTargetEnv: string | undefined
+let prevCwd: string
 
+// The log path must come from the TARGET, so the harness leaves VIVICY_RUNTIME_DIR unset and only isolates the cwd the app-side store still reads.
 beforeEach(() => {
-  runtimeDir = mkdtempSync(path.join(tmpdir(), "vivicy-notif-"))
+  targetRoot = mkdtempSync(path.join(tmpdir(), "vivicy-notif-target-"))
+  appCwd = mkdtempSync(path.join(tmpdir(), "vivicy-notif-cwd-"))
   prevRuntimeEnv = process.env.VIVICY_RUNTIME_DIR
-  process.env.VIVICY_RUNTIME_DIR = runtimeDir
+  prevTargetEnv = process.env.VIVICY_TARGET_ROOT
+  prevCwd = process.cwd()
+  delete process.env.VIVICY_RUNTIME_DIR
+  process.env.VIVICY_TARGET_ROOT = targetRoot
+  process.chdir(appCwd)
 })
 
 afterEach(() => {
-  rmSync(runtimeDir, { recursive: true, force: true })
+  process.chdir(prevCwd)
+  for (const dir of [targetRoot, appCwd]) rmSync(dir, { recursive: true, force: true })
   if (prevRuntimeEnv === undefined) delete process.env.VIVICY_RUNTIME_DIR
   else process.env.VIVICY_RUNTIME_DIR = prevRuntimeEnv
+  if (prevTargetEnv === undefined) delete process.env.VIVICY_TARGET_ROOT
+  else process.env.VIVICY_TARGET_ROOT = prevTargetEnv
+})
+
+function logPath(): string {
+  const file = getNotificationsPath()
+  if (file === null) throw new Error("no notifications path")
+  mkdirSync(path.dirname(file), { recursive: true })
+  return file
+}
+
+function write(input: Parameters<typeof appendNotification>[0]) {
+  const written = appendNotification(input)
+  if (written === null) throw new Error("notification was not written")
+  return written
+}
+
+describe("the log lives with the project", () => {
+  it("writes under the target's own runtime dir, and makes that dir ignore itself", () => {
+    write({ level: "error", stage: "extract", event: "blocked", message: "a" })
+    expect(getNotificationsPath()).toBe(path.join(targetRoot, ".vivicy", "runtime", "notifications.jsonl"))
+    expect(readFileSync(path.join(targetRoot, ".vivicy", "runtime", ".gitignore"), "utf8")).toBe("*\n")
+    expect(readdirSync(appCwd)).toEqual([])
+  })
+
+  it("has no log at all when no project is selected: reads are empty and the append is a no-op", () => {
+    delete process.env.VIVICY_TARGET_ROOT
+    expect(getNotificationsPath()).toBeNull()
+    expect(readNotifications()).toEqual([])
+    expect(appendNotification({ level: "error", stage: "extract", event: "blocked", message: "a" })).toBeNull()
+    expect(dismissNotifications()).toBe(0)
+  })
 })
 
 describe("readNotifications (shared read contract)", () => {
@@ -27,13 +69,13 @@ describe("readNotifications (shared read contract)", () => {
   })
 
   it("returns [] when the log is empty", () => {
-    writeFileSync(getNotificationsPath(), "")
+    writeFileSync(logPath(), "")
     expect(readNotifications()).toEqual([])
   })
 
   it("reads well-formed lines oldest-first and skips malformed/blank ones", () => {
     writeFileSync(
-      getNotificationsPath(),
+      logPath(),
       [
         JSON.stringify({
           id: "aaa-1",
@@ -75,7 +117,7 @@ describe("readNotifications (shared read contract)", () => {
 describe("appendNotification (writer)", () => {
   it("creates the runtime dir and log on the first call, stamping id + ts", () => {
     const before = Date.now()
-    const written = appendNotification({
+    const written = write({
       level: "error",
       stage: "extract",
       event: "blocked",
@@ -101,20 +143,20 @@ describe("appendNotification (writer)", () => {
   })
 
   it("appends without disturbing prior lines (one line per call, oldest first)", () => {
-    appendNotification({ level: "error", stage: "extract", event: "blocked", message: "a" })
-    appendNotification({ level: "error", stage: "extract", event: "failed", message: "b" })
-    appendNotification({ level: "error", stage: "S9", event: "issue_blocked", message: "c", params: { id: "ISSUE-0003" } })
+    write({ level: "error", stage: "extract", event: "blocked", message: "a" })
+    write({ level: "error", stage: "extract", event: "failed", message: "b" })
+    write({ level: "error", stage: "S9", event: "issue_blocked", message: "c", params: { id: "ISSUE-0003" } })
 
     const rows = readNotifications()
     expect(rows.map((r) => r.message)).toEqual(["a", "b", "c"])
-    const raw = readFileSync(getNotificationsPath(), "utf8")
+    const raw = readFileSync(logPath(), "utf8")
     expect(raw.endsWith("\n")).toBe(true)
     expect(raw.split("\n").filter((l) => l.trim().length > 0)).toHaveLength(3)
   })
 
   it("same-instant appends get distinct ids — ts may collide, identity never does", () => {
-    const first = appendNotification({ level: "error", stage: "extract", event: "blocked", message: "a" })
-    const second = appendNotification({ level: "error", stage: "extract", event: "failed", message: "b" })
+    const first = write({ level: "error", stage: "extract", event: "blocked", message: "a" })
+    const second = write({ level: "error", stage: "extract", event: "failed", message: "b" })
 
     expect(first.id).not.toBe(second.id)
   })
@@ -122,8 +164,8 @@ describe("appendNotification (writer)", () => {
 
 describe("dismissNotifications (dismissal mechanism: rewrite dismissed in place, keyed on id)", () => {
   it("flips dismissed:true on the referenced id and leaves the rest untouched", () => {
-    const first = appendNotification({ level: "error", stage: "extract", event: "blocked", message: "a" })
-    const second = appendNotification({ level: "error", stage: "extract", event: "failed", message: "b" })
+    const first = write({ level: "error", stage: "extract", event: "blocked", message: "a" })
+    const second = write({ level: "error", stage: "extract", event: "failed", message: "b" })
 
     const changed = dismissNotifications([first.id])
     expect(changed).toBe(1)
@@ -135,7 +177,7 @@ describe("dismissNotifications (dismissal mechanism: rewrite dismissed in place,
 
   it("dismisses exactly one of two rows sharing the same ts (the cross-process same-ms case)", () => {
     writeFileSync(
-      getNotificationsPath(),
+      logPath(),
       [
         JSON.stringify({
           id: "aaa-1",
@@ -164,8 +206,8 @@ describe("dismissNotifications (dismissal mechanism: rewrite dismissed in place,
   })
 
   it("clears all when no refs are given (the sidebar 'clear all')", () => {
-    appendNotification({ level: "error", stage: "extract", event: "blocked", message: "a" })
-    appendNotification({ level: "error", stage: "extract", event: "failed", message: "b" })
+    write({ level: "error", stage: "extract", event: "blocked", message: "a" })
+    write({ level: "error", stage: "extract", event: "failed", message: "b" })
 
     const changed = dismissNotifications()
     expect(changed).toBe(2)
@@ -173,7 +215,7 @@ describe("dismissNotifications (dismissal mechanism: rewrite dismissed in place,
   })
 
   it("is a no-op on an unknown id or an already-dismissed one (idempotent)", () => {
-    const first = appendNotification({ level: "error", stage: "extract", event: "blocked", message: "a" })
+    const first = write({ level: "error", stage: "extract", event: "blocked", message: "a" })
     dismissNotifications([first.id])
 
     expect(dismissNotifications([first.id])).toBe(0)
@@ -187,7 +229,7 @@ describe("dismissNotifications (dismissal mechanism: rewrite dismissed in place,
   })
 
   it("round-trips through readNotifications exactly like a fresh append (writer/reader agree)", () => {
-    const written = appendNotification({
+    const written = write({
       level: "warning",
       stage: "S9",
       event: "gate_failed",

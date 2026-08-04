@@ -31,20 +31,26 @@ function postJson(body: unknown): Request {
   })
 }
 
-let runtimeDir: string
+let targetRoot: string
+let prevTargetEnv: string | undefined
 let prevRuntimeEnv: string | undefined
 
 beforeEach(() => {
   vi.clearAllMocks()
-  runtimeDir = mkdtempSync(path.join(tmpdir(), "vivicy-retry-stage-"))
+  targetRoot = mkdtempSync(path.join(tmpdir(), "vivicy-retry-stage-"))
   prevRuntimeEnv = process.env.VIVICY_RUNTIME_DIR
-  process.env.VIVICY_RUNTIME_DIR = runtimeDir
+  prevTargetEnv = process.env.VIVICY_TARGET_ROOT
+  // The notification log is per-project: pin both the project and its runtime home, or a real selection on this machine would decide where these rows land.
+  process.env.VIVICY_RUNTIME_DIR = path.join(targetRoot, ".vivicy", "runtime")
+  process.env.VIVICY_TARGET_ROOT = targetRoot
 })
 
 afterEach(() => {
-  rmSync(runtimeDir, { recursive: true, force: true })
+  rmSync(targetRoot, { recursive: true, force: true })
   if (prevRuntimeEnv === undefined) delete process.env.VIVICY_RUNTIME_DIR
   else process.env.VIVICY_RUNTIME_DIR = prevRuntimeEnv
+  if (prevTargetEnv === undefined) delete process.env.VIVICY_TARGET_ROOT
+  else process.env.VIVICY_TARGET_ROOT = prevTargetEnv
 })
 
 describe("POST /api/control/retry-stage", () => {

@@ -194,7 +194,7 @@ describe("govern-only (zero documents)", () => {
       readFileSync(path.join(target, "AGENTS.md"), "utf8"),
       "owner prose that merely resembles a marker is preserved verbatim and not treated as a marker"
     ).toContain("We keep a vivicy:method note here by hand — do not touch it.")
-    expect(readFileSync(path.join(target, ".gitignore"), "utf8")).toContain(".vivicy-runtime/")
+    expect(readFileSync(path.join(target, ".gitignore"), "utf8")).toContain(".vivicy/runtime/")
   })
 
   it("second governance pass leaves every managed file byte-identical (idempotent essential block)", async () => {

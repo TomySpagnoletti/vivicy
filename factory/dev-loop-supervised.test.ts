@@ -40,7 +40,7 @@ test("the supervisor spawns its child WITHOUT dirtying committed territory, so t
     mkdirSync(join(root, ".vivicy/development/issues/done"), { recursive: true })
     mkdirSync(runtimeDir, { recursive: true })
     mkdirSync(gitHome, { recursive: true })
-    writeFileSync(join(root, ".gitignore"), ".vivicy-runtime/\n.vivicy-worktrees/\n.vivicy/development/transcripts/\n")
+    writeFileSync(join(root, ".gitignore"), ".vivicy/runtime/\n.vivicy-worktrees/\n.vivicy/development/transcripts/\n")
     writeFileSync(join(root, ".vivicy/development/issue-index.json"), '{ "issues": [] }\n')
     writeFileSync(join(root, "vivicy.json"), '{ "gateCommand": "true" }\n')
 
@@ -86,7 +86,7 @@ test("every supervisor start verifies the pinned skills and restores a drifted b
     mkdirSync(join(bundle, "scripts"), { recursive: true })
     mkdirSync(runtimeDir, { recursive: true })
     mkdirSync(gitHome, { recursive: true })
-    writeFileSync(join(root, ".gitignore"), ".vivicy-runtime/\n.vivicy-worktrees/\n.vivicy/development/transcripts/\n")
+    writeFileSync(join(root, ".gitignore"), ".vivicy/runtime/\n.vivicy-worktrees/\n.vivicy/development/transcripts/\n")
     writeFileSync(join(root, ".vivicy/development/issue-index.json"), '{ "issues": [] }\n')
     writeFileSync(join(bundle, "SKILL.md"), "---\nname: spreadsheets\n---\n")
     const pinnedScript = "print('recalc')\n"
@@ -149,7 +149,7 @@ test("a pinned bundle the supervisor cannot restore is a loud line, never a stop
     mkdirSync(shim, { recursive: true })
     writeFileSync(join(shim, "npx"), "#!/bin/sh\necho 'error: 404 no such skill' >&2\nexit 1\n")
     chmodSync(join(shim, "npx"), 0o755)
-    writeFileSync(join(root, ".gitignore"), ".vivicy-runtime/\n.vivicy-worktrees/\n.vivicy/development/transcripts/\n")
+    writeFileSync(join(root, ".gitignore"), ".vivicy/runtime/\n.vivicy-worktrees/\n.vivicy/development/transcripts/\n")
     writeFileSync(join(root, ".vivicy/development/issue-index.json"), '{ "issues": [] }\n')
     writeFileSync(join(bundle, "SKILL.md"), "---\nname: spreadsheets\n---\n")
     writeFileSync(join(bundle, "scripts/recalc.py"), "print('recalc')\n")

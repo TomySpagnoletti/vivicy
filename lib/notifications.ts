@@ -1,9 +1,8 @@
-import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
+import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs"
 import path from "node:path"
 
 import type { NotificationInput, NotificationLevel, NotificationParamValue } from "@/lib/notification-events"
-import { getProjectRuntimeDir } from "@/lib/project-runtime"
-import { getRuntimeDir } from "@/lib/runtime-dir"
+import { ensureProjectRuntimeDir, getProjectRuntimeDir } from "@/lib/project-runtime"
 import { getTargetRoot } from "@/lib/target"
 
 const NOTIFICATIONS_FILE = "notifications.jsonl"
@@ -22,15 +21,15 @@ export interface Notification {
   dismissed?: boolean
 }
 
-export function getNotificationsPath(): string {
+// The log lives with the project it is about: no project selected means no log to read or append to.
+export function getNotificationsPath(): string | null {
   const targetRoot = getTargetRoot()
-  if (targetRoot === null) return path.join(getRuntimeDir(), NOTIFICATIONS_FILE)
-  return path.join(getProjectRuntimeDir(getRuntimeDir(), targetRoot), NOTIFICATIONS_FILE)
+  return targetRoot === null ? null : path.join(getProjectRuntimeDir(targetRoot), NOTIFICATIONS_FILE)
 }
 
 export function readNotifications(): Notification[] {
   const file = getNotificationsPath()
-  if (!existsSync(file)) return []
+  if (file === null || !existsSync(file)) return []
   const out: Notification[] = []
   for (const line of readFileSync(file, "utf8").split("\n")) {
     const trimmed = line.trim()
@@ -50,17 +49,18 @@ function nextId(): string {
 }
 
 // One appendFileSync per line, never an open+write pair: only the single call is atomic against concurrent appenders.
-export function appendNotification(input: NotificationInput): Notification {
-  const notification: Notification = { id: nextId(), ts: new Date().toISOString(), ...input }
+export function appendNotification(input: NotificationInput): Notification | null {
   const file = getNotificationsPath()
-  mkdirSync(path.dirname(file), { recursive: true })
+  if (file === null) return null
+  const notification: Notification = { id: nextId(), ts: new Date().toISOString(), ...input }
+  ensureProjectRuntimeDir(path.dirname(file))
   appendFileSync(file, `${JSON.stringify(notification)}\n`)
   return notification
 }
 
 export function dismissNotifications(refs?: string[]): number {
   const file = getNotificationsPath()
-  if (!existsSync(file)) return 0
+  if (file === null || !existsSync(file)) return 0
   const target = refs ? new Set(refs) : null
   let changed = 0
   const rows = readNotifications().map((row) => {

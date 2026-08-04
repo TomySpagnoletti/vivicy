@@ -37,7 +37,7 @@ function makeRepo({
     write("AGENTS.md", "# Agent instructions\n\nThe owner's own words.\n")
     write("CLAUDE.md", "# Agent instructions\n\nThe owner's own words.\n")
     write("vivicy.json", `${JSON.stringify({ gateCommand: "npm test" }, null, 2)}\n`)
-    write(".gitignore", ".vivicy-runtime/\n")
+    write(".gitignore", ".vivicy/runtime/\n")
   }
   return root
 }
