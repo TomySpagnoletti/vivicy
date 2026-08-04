@@ -3,6 +3,7 @@
 @import "shadcn/tailwind.css";
 
 @source not "../**/*.{test,spec}.{ts,tsx}";
+@source not "../**/*.md";
 
 /* Vivicy is light-only: re-gating Tailwind's `dark` variant on a `.dark` class nothing ever sets is what keeps every `dark:` utility shadcn ships — present and future — inert under the OS dark preference. */
 @custom-variant dark (&:where(.dark, .dark *));
