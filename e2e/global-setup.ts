@@ -8,6 +8,7 @@ import {
   DEMO_TARGET_ROOT,
   EMPTY_TARGET_ROOT,
   LONG_TARGET_ROOT,
+  MACHINE_HOME,
   onboardScaffoldParent,
   ONBOARD_TARGET_ROOT,
   RUNTIME_DIR,
@@ -51,6 +52,7 @@ export default function globalSetup() {
   for (const shape of SHAPES) {
     for (const browserKey of BROWSER_KEYS) {
       rmSync(RUNTIME_DIR(shape, browserKey), { recursive: true, force: true })
+      rmSync(MACHINE_HOME(shape, browserKey), { recursive: true, force: true })
     }
   }
 

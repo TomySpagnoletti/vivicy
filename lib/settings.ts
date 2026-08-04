@@ -2,6 +2,8 @@ export type Provider = "claude" | "codex"
 
 export type Role = "implementer" | "reviewer"
 
+export const ROLES: readonly Role[] = ["implementer", "reviewer"] as const
+
 export const PROVIDERS: readonly Provider[] = ["claude", "codex"] as const
 
 export const PROVIDER_LABEL: Record<Provider, string> = {
@@ -129,8 +131,13 @@ function defaultAgentFor(provider: Provider): AgentSettings {
   return { provider, model, effort: defaultEffortFor(provider, model), fast: false }
 }
 
+function isReassigned(raw: { provider?: unknown }, provider: Provider): boolean {
+  return isProvider(raw.provider) && raw.provider !== provider
+}
+
 function coerceAgent(input: unknown, provider: Provider): AgentSettings {
   const raw = (input ?? {}) as Partial<AgentSettings>
+  if (isReassigned(raw, provider)) return defaultAgentFor(provider)
   const model = typeof raw.model === "string" && raw.model.trim().length > 0 ? raw.model.trim() : DEFAULT_MODEL[provider]
   const effort = isValidEffort(provider, model, raw.effort) ? raw.effort : defaultEffortFor(provider, model)
   const fast = raw.fast === true && modelSupportsFast(provider, model)
@@ -156,6 +163,100 @@ export function normalizeSettings(input: unknown): AgentsSettings {
     maxParallel: clampMaxParallel(raw.maxParallel),
     allowUnsafeSkills: raw.allowUnsafeSkills === true,
   }
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return typeof value === "object" && value !== null && !Array.isArray(value) ? (value as Record<string, unknown>) : null
+}
+
+function layerAgent(under: unknown, over: unknown): unknown {
+  const base = asRecord(under)
+  const top = asRecord(over)
+  if (top === null) return base ?? undefined
+  if (base === null) return top
+  if (isProvider(base.provider) && isReassigned(top, base.provider)) return top
+  return { ...base, ...top }
+}
+
+export function mergeSettingsLayers(...layers: unknown[]): AgentsSettings {
+  let merged: Record<string, unknown> = {}
+  for (const layer of layers) {
+    const raw = asRecord(layer)
+    if (raw === null) continue
+    merged = {
+      ...merged,
+      ...raw,
+      implementer: layerAgent(merged.implementer, raw.implementer),
+      reviewer: layerAgent(merged.reviewer, raw.reviewer),
+    }
+  }
+  return normalizeSettings(merged)
+}
+
+export type AgentFieldFlags = Record<"provider" | "model" | "effort" | "fast", boolean>
+
+export interface BaselineFlags {
+  agent: Record<Role, AgentFieldFlags>
+  maxParallel: boolean
+  allowUnsafeSkills: boolean
+  all: boolean
+}
+
+export type SettingsScope = "machine" | "project"
+
+export interface SettingsState {
+  settings: AgentsSettings
+  draft: AgentsSettings
+  baseline: AgentsSettings
+  scope: SettingsScope
+}
+
+export interface SettingsOverride {
+  implementer?: AgentSettings
+  reviewer?: AgentSettings
+  maxParallel?: number
+  allowUnsafeSkills?: boolean
+}
+
+function agentAtBaseline(flags: AgentFieldFlags): boolean {
+  return flags.provider && flags.model && flags.effort && flags.fast
+}
+
+export function baselineFlags(draft: AgentsSettings, baseline: AgentsSettings = DEFAULT_SETTINGS): BaselineFlags {
+  const forRole = (role: Role): AgentFieldFlags => {
+    const cur = draft[role]
+    const base = baseline[role]
+    return {
+      provider: cur.provider === base.provider,
+      model: cur.model === base.model,
+      effort: cur.effort === base.effort,
+      fast: cur.fast === base.fast,
+    }
+  }
+  const agent: Record<Role, AgentFieldFlags> = {
+    implementer: forRole("implementer"),
+    reviewer: forRole("reviewer"),
+  }
+  const maxParallel = draft.maxParallel === baseline.maxParallel
+  const allowUnsafeSkills = draft.allowUnsafeSkills === baseline.allowUnsafeSkills
+  return {
+    agent,
+    maxParallel,
+    allowUnsafeSkills,
+    all: maxParallel && allowUnsafeSkills && ROLES.every((role) => agentAtBaseline(agent[role])),
+  }
+}
+
+export function settingsDelta(baseline: AgentsSettings, next: AgentsSettings): SettingsOverride | null {
+  const flags = baselineFlags(next, baseline)
+  if (flags.all) return null
+  const delta: SettingsOverride = {}
+  for (const role of ROLES) {
+    if (!agentAtBaseline(flags.agent[role])) delta[role] = next[role]
+  }
+  if (!flags.maxParallel) delta.maxParallel = next.maxParallel
+  if (!flags.allowUnsafeSkills) delta.allowUnsafeSkills = next.allowUnsafeSkills
+  return delta
 }
 
 export function isDistinctAssignment(settings: AgentsSettings): boolean {

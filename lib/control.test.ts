@@ -940,6 +940,86 @@ describe("startDocPrep", () => {
   })
 })
 
+describe("settings on the spawn seams", () => {
+  let prevHome: string | undefined
+  let prevAmbientModel: string | undefined
+
+  beforeEach(() => {
+    prevHome = process.env.VIVICY_HOME
+    prevAmbientModel = process.env.VIVICY_CLAUDE_MODEL
+    process.env.VIVICY_HOME = path.join(appCwd, "machine-home")
+    mkdirSync(process.env.VIVICY_HOME, { recursive: true })
+    writeFileSync(
+      path.join(process.env.VIVICY_HOME, "settings.json"),
+      JSON.stringify({
+        implementer: { provider: "claude", model: "claude-opus-4-6", effort: "max", fast: true },
+        maxParallel: 5,
+        allowUnsafeSkills: true,
+      })
+    )
+    mkdirSync(path.join(targetRoot, ".vivicy"), { recursive: true })
+    writeFileSync(path.join(targetRoot, ".vivicy", "settings.json"), JSON.stringify({ maxParallel: 2 }))
+  })
+
+  afterEach(() => {
+    if (prevHome === undefined) delete process.env.VIVICY_HOME
+    else process.env.VIVICY_HOME = prevHome
+    if (prevAmbientModel === undefined) delete process.env.VIVICY_CLAUDE_MODEL
+    else process.env.VIVICY_CLAUDE_MODEL = prevAmbientModel
+  })
+
+  it("startSupervisor carries the RESOLVED document: the machine tier under the project's own override", () => {
+    const { spawner, calls } = makeFakeSpawner()
+
+    startSupervisor(spawner)
+
+    expect(calls.spawnDetached[0].env).toMatchObject({
+      VIVICY_IMPLEMENTER_CLI: "claude",
+      VIVICY_REVIEWER_CLI: "codex",
+      VIVICY_CLAUDE_MODEL: "claude-opus-4-6",
+      VIVICY_CLAUDE_EFFORT: "max",
+      VIVICY_CLAUDE_FAST: "1",
+      VIVICY_MAX_PARALLEL: "2",
+      VIVICY_ALLOW_UNSAFE_SKILLS: "1",
+    })
+  })
+
+  it("every seam reads that same resolution — none of them stops at the machine tier", async () => {
+    const { spawner, calls } = makeFakeSpawner()
+    spawner.run = async (options) => {
+      calls.run.push({ args: options.args, env: options.env })
+      writeSkillsReport({
+        phase: "green",
+        mode: "remove",
+        installed: [],
+        added: [],
+        removed: ["acme/a@x"],
+        rejected: [],
+        updated_at: new Date().toISOString(),
+      })
+      return { code: 0, lastLine: "ok", stdout: "ok\n", stderr: "" }
+    }
+
+    startSkillsInstall(spawner)
+    startDocPrep(spawner)
+    await removeSkills(spawner, { ids: ["acme/a@x"] })
+
+    for (const call of [...calls.spawnDetached, ...calls.run]) {
+      expect(call.env.VIVICY_MAX_PARALLEL, call.args.join(" ")).toBe("2")
+      expect(call.env.VIVICY_CLAUDE_MODEL, call.args.join(" ")).toBe("claude-opus-4-6")
+    }
+  })
+
+  it("the resolved files decide, never an ambient VIVICY_* the app process happens to carry", () => {
+    process.env.VIVICY_CLAUDE_MODEL = "ambient-model"
+    const { spawner, calls } = makeFakeSpawner()
+
+    startSupervisor(spawner)
+
+    expect(calls.spawnDetached[0].env.VIVICY_CLAUDE_MODEL).toBe("claude-opus-4-6")
+  })
+})
+
 describe("path safety", () => {
   it("keeps the lock inside the PROJECT's own runtime dir, and writes nothing under the app's cwd", () => {
     const { spawner } = makeFakeSpawner()

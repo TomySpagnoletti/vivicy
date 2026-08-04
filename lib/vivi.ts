@@ -25,7 +25,7 @@ import { settingsToEnv } from "@/lib/settings"
 import { pruneGitkeeps, VIVICY_DIR } from "@/lib/skeleton"
 import { isCanonicalFrozen, type BatchCycleBinding } from "@/lib/spec-cycle"
 import { detectSpecKind } from "@/lib/spec-kind"
-import { readSettings } from "@/lib/settings-store"
+import { resolveSettings } from "@/lib/settings-store"
 import { getTargetRoot } from "@/lib/target"
 import { executeViviActions, parseActionDirective, renderActionResults, stripActionFence, type ViviActionResult } from "@/lib/vivi-actions"
 import {
@@ -1466,7 +1466,7 @@ async function spawnViviLeg(
         ...process.env,
         VIVICY_TARGET_ROOT: targetRoot,
         VIVICY_SPEC_FROZEN: frozen ? "true" : "false",
-        ...settingsToEnv(readSettings()),
+        ...settingsToEnv(resolveSettings(targetRoot)),
       },
     })
     return readReply(replyFile, result.stdout)

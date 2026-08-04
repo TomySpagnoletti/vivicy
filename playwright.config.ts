@@ -26,10 +26,11 @@ const BROWSERS: BrowserShape[] = [
 ]
 
 export const RUNTIME_DIR = (shape: string, browserKey: string) => `/tmp/vivicy-rt-${shape}-${browserKey}`
+export const MACHINE_HOME = (shape: string, browserKey: string) => `/tmp/vivicy-home-${shape}-${browserKey}`
 export const onboardScaffoldParent = (browserKey: string) => `/tmp/vivicy-onboard-scaffold-${browserKey}`
 
-// Keep layout-edit on one browser: it writes the SHARED demo target's architecture-map.yml, which concurrent browsers would race.
-const CHROMIUM_DESKTOP_ONLY = /layout-edit\.spec\.ts/
+// Keep these on one browser: they write the SHARED demo target — its architecture-map.yml, its committed .vivicy/settings.json — which concurrent browsers would race.
+const CHROMIUM_DESKTOP_ONLY = /(layout-edit|settings)\.spec\.ts/
 
 const DEMO_TEST_IGNORE = /(empty-state|onboarding)\.spec\.ts/
 
@@ -80,7 +81,7 @@ function canonicalIfExists(p: string): string {
   }
 }
 
-// Never share one server across browser projects: they would race the on-disk runtime store (current-project, settings, run-lock).
+// Never share one server across browser projects: they would race the on-disk runtime store (current-project, run-lock) and the machine settings home.
 function webServersForShape(shape: ShapeName) {
   return BROWSERS.map((browser, index) => {
     const port = portFor(shape, index)
@@ -95,6 +96,8 @@ function webServersForShape(shape: ShapeName) {
         // One dist dir per server: Next's dev server single-instance-locks on .next/dev, so a shared one collides.
         VIVICY_DIST_DIR: `.next-e2e-${shape}-${browser.key}`,
         VIVICY_RUNTIME_DIR: RUNTIME_DIR(shape, browser.key),
+        // Never let a run reach the developer's own ~/.vivicy: the machine settings tier is per-server too.
+        VIVICY_HOME: MACHINE_HOME(shape, browser.key),
       },
     }
   })

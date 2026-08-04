@@ -1,22 +1,21 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
-import type { AgentsSettings } from "@/lib/settings"
+import { DEFAULT_SETTINGS, type AgentsSettings, type SettingsState } from "@/lib/settings"
 
-const { readSettings, writeSettings } = vi.hoisted(() => ({
-  readSettings: vi.fn(),
-  writeSettings: vi.fn(),
+const { readSettingsState, saveSettings, getTargetRoot } = vi.hoisted(() => ({
+  readSettingsState: vi.fn(),
+  saveSettings: vi.fn(),
+  getTargetRoot: vi.fn(),
 }))
 
-vi.mock("@/lib/settings-store", () => ({ readSettings, writeSettings }))
+vi.mock("@/lib/settings-store", () => ({ readSettingsState, saveSettings }))
+vi.mock("@/lib/target", () => ({ getTargetRoot }))
 
 import { GET, PUT } from "./route"
 
-const NORMALIZED: AgentsSettings = {
-  implementer: { provider: "claude", model: "claude-opus-4-8", effort: "xhigh", fast: false },
-  reviewer: { provider: "codex", model: "gpt-5.5", effort: "high", fast: false },
-  maxParallel: 1,
-  allowUnsafeSkills: false,
-}
+const NORMALIZED: AgentsSettings = DEFAULT_SETTINGS
+
+const STATE: SettingsState = { settings: NORMALIZED, draft: NORMALIZED, baseline: DEFAULT_SETTINGS, scope: "project" }
 
 function putJson(body: unknown): Request {
   return new Request("http://localhost/api/settings", {
@@ -28,37 +27,47 @@ function putJson(body: unknown): Request {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  getTargetRoot.mockReturnValue("/tmp/target")
 })
 
 describe("GET /api/settings", () => {
-  it("returns the current settings (200)", async () => {
-    readSettings.mockReturnValue(NORMALIZED)
+  it("returns the resolved settings with the scope a save would write and the tier below it (200)", async () => {
+    readSettingsState.mockReturnValue(STATE)
 
     const res = await GET()
     expect(res.status).toBe(200)
-    const body = await res.json()
 
-    expect(body).toEqual({ ok: true, settings: NORMALIZED })
+    expect(readSettingsState).toHaveBeenCalledWith("/tmp/target")
+    expect(await res.json()).toEqual({ ok: true, ...STATE })
+  })
+
+  it("passes a null target through, so the machine tier answers on its own", async () => {
+    getTargetRoot.mockReturnValue(null)
+    readSettingsState.mockReturnValue({ ...STATE, scope: "machine" })
+
+    const body = await (await GET()).json()
+    expect(readSettingsState).toHaveBeenCalledWith(null)
+    expect(body.scope).toBe("machine")
   })
 })
 
 describe("PUT /api/settings", () => {
-  it("echoes the VALIDATED document the store returns, not the raw input (200)", async () => {
+  it("echoes the VALIDATED state the store returns, not the raw input (200)", async () => {
     const rawInput = { implementer: { effort: "bogus" }, maxParallel: 9999 }
-    writeSettings.mockReturnValue(NORMALIZED)
+    saveSettings.mockReturnValue(STATE)
 
     const res = await PUT(putJson(rawInput))
     expect(res.status).toBe(200)
     const body = await res.json()
 
-    expect(writeSettings).toHaveBeenCalledWith(rawInput)
-    expect(body).toEqual({ ok: true, settings: NORMALIZED })
+    expect(saveSettings).toHaveBeenCalledWith("/tmp/target", rawInput)
+    expect(body).toEqual({ ok: true, ...STATE })
     expect(body.settings.maxParallel).toBe(1)
     expect(body.settings.implementer.effort).toBe("xhigh")
   })
 
   it("forwards a null body to the store (which normalizes to defaults)", async () => {
-    writeSettings.mockReturnValue(NORMALIZED)
+    saveSettings.mockReturnValue(STATE)
 
     const res = await PUT(
       new Request("http://localhost/api/settings", {
@@ -68,9 +77,8 @@ describe("PUT /api/settings", () => {
       })
     )
     expect(res.status).toBe(200)
-    expect(writeSettings).toHaveBeenCalledWith(null)
-    const body = await res.json()
-    expect(body).toEqual({ ok: true, settings: NORMALIZED })
+    expect(saveSettings).toHaveBeenCalledWith("/tmp/target", null)
+    expect(await res.json()).toEqual({ ok: true, ...STATE })
   })
 
   it("rejects a non-object body (array or primitive) as 400 without writing", async () => {
@@ -80,11 +88,11 @@ describe("PUT /api/settings", () => {
       const body = await res.json()
       expect(body.ok).toBe(false)
     }
-    expect(writeSettings).not.toHaveBeenCalled()
+    expect(saveSettings).not.toHaveBeenCalled()
   })
 
   it("maps a store failure to 500", async () => {
-    writeSettings.mockImplementation(() => {
+    saveSettings.mockImplementation(() => {
       throw new Error("disk full")
     })
 

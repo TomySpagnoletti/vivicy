@@ -209,7 +209,7 @@ function syncDirectory(dir: string): void {
 }
 
 // Never simplify this sequence: refuse a read-only target explicitly (a rename ignores its mode), keep the temp beside the resolved file, REMOVE a stale temp rather than open it, chmod the fd after the write (the umask masks a create mode), and fsync before the rename.
-function replaceAtomically(abs: string, next: Buffer): void {
+export function replaceFileAtomically(abs: string, next: Buffer): void {
   const target = resolvedManagedTarget(abs)
   const existing = statSync(target, { throwIfNoEntry: false })
   if (existing) accessSync(target, constants.W_OK)
@@ -247,7 +247,7 @@ export function writeManaged(abs: string, spec: ManagedSpec, onWrite?: (publishe
   if (current && next.equals(current)) return null
   onWrite?.(resolvedManagedTarget(abs))
   mkdirSync(path.dirname(abs), { recursive: true })
-  replaceAtomically(abs, next)
+  replaceFileAtomically(abs, next)
   return abs
 }
 

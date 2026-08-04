@@ -1,4 +1,5 @@
-import { readSettings, writeSettings } from "@/lib/settings-store"
+import { readSettingsState, saveSettings } from "@/lib/settings-store"
+import { getTargetRoot } from "@/lib/target"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -14,14 +15,14 @@ function parseSettingsBody(body: unknown): object | null {
 }
 
 export async function GET() {
-  return Response.json({ ok: true, settings: readSettings() })
+  return Response.json({ ok: true, ...readSettingsState(getTargetRoot()) })
 }
 
 export async function PUT(request: Request) {
   try {
     const body = await request.json().catch(() => null)
-    const settings = writeSettings(parseSettingsBody(body))
-    return Response.json({ ok: true, settings })
+    const state = saveSettings(getTargetRoot(), parseSettingsBody(body))
+    return Response.json({ ok: true, ...state })
   } catch (error) {
     if (error instanceof SettingsValidationError) {
       return Response.json({ ok: false, error: error.message }, { status: 400 })

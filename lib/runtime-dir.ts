@@ -1,6 +1,6 @@
 import path from "node:path"
 
-// Vivicy's OWN store, holding only what belongs to no single project (the selection, the settings): per-project state goes to lib/project-runtime.ts, never here.
+// Vivicy's OWN store, holding only what belongs to no single project (the selection): per-project state goes to lib/project-runtime.ts and machine-wide settings to lib/settings-store.ts, never here.
 const RUNTIME_DIR_NAME = ".vivicy-runtime"
 
 export function getRuntimeDir(): string {

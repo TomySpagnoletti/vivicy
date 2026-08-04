@@ -5,23 +5,25 @@ import { screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest"
 
-import { recommendedFlags, SettingsDialog } from "@/components/sidebar/settings-dialog"
-import { DEFAULT_SETTINGS, MODEL_IDS, type AgentsSettings } from "@/lib/settings"
+import { SettingsDialog } from "@/components/sidebar/settings-dialog"
+import { DEFAULT_SETTINGS, MODEL_IDS, type AgentsSettings, type SettingsState } from "@/lib/settings"
 import { renderWithIntl } from "@/test/render"
 
 vi.mock("sonner", () => ({
   toast: { success: vi.fn(), error: vi.fn() },
 }))
 
-function stubSettings(settings: AgentsSettings) {
+function stubSettings(settings: AgentsSettings, state: Partial<SettingsState> = {}) {
+  const body: SettingsState = { settings, draft: settings, baseline: DEFAULT_SETTINGS, scope: "machine", ...state }
   vi.stubGlobal(
     "fetch",
     vi.fn(async (url: string, init?: RequestInit) => {
       if (typeof url === "string" && url.includes("/api/settings")) {
         if (init?.method === "PUT") {
-          return new Response(JSON.stringify({ ok: true, settings }), { status: 200 })
+          const saved = JSON.parse(String(init.body))
+          return new Response(JSON.stringify({ ok: true, ...body, settings: saved, draft: saved }), { status: 200 })
         }
-        return new Response(JSON.stringify({ settings }), { status: 200 })
+        return new Response(JSON.stringify({ ok: true, ...body }), { status: 200 })
       }
       return new Response("{}", { status: 200 })
     })
@@ -234,38 +236,6 @@ describe("save guard", () => {
   })
 })
 
-describe("recommendedFlags derivation", () => {
-  test("every knob at DEFAULT_SETTINGS reports recommended", () => {
-    const f = recommendedFlags(DEFAULT_SETTINGS)
-    expect(f.all).toBe(true)
-    expect(f.maxParallel).toBe(true)
-    expect(f.allowUnsafeSkills).toBe(true)
-    for (const role of ["implementer", "reviewer"] as const) {
-      expect(f.agent[role]).toEqual({ provider: true, model: true, effort: true, fast: true })
-    }
-  })
-
-  test("follows a defaults double — mutating a default flips exactly its flag", () => {
-    const doubled: AgentsSettings = { ...DEFAULT_SETTINGS, maxParallel: DEFAULT_SETTINGS.maxParallel + 4 }
-    const f = recommendedFlags(DEFAULT_SETTINGS, doubled)
-    expect(f.maxParallel).toBe(false)
-    expect(f.all).toBe(false)
-    expect(f.allowUnsafeSkills).toBe(true)
-    expect(f.agent.implementer).toEqual({ provider: true, model: true, effort: true, fast: true })
-  })
-
-  test("a mutated per-agent default flips only that agent field", () => {
-    const doubled: AgentsSettings = {
-      ...DEFAULT_SETTINGS,
-      implementer: { ...DEFAULT_SETTINGS.implementer, effort: "not-a-real-default-effort" },
-    }
-    const f = recommendedFlags(DEFAULT_SETTINGS, doubled)
-    expect(f.agent.implementer).toEqual({ provider: true, model: true, effort: false, fast: true })
-    expect(f.agent.reviewer.effort).toBe(true)
-    expect(f.all).toBe(false)
-  })
-})
-
 describe("single source: no restated default literals", () => {
   test("the dialog never inlines a DEFAULT_SETTINGS value literal", () => {
     const src = readFileSync(path.join(process.cwd(), "components/sidebar/settings-dialog.tsx"), "utf8")
@@ -287,7 +257,7 @@ describe("recommended markers and reset affordance", () => {
     renderWithIntl(<SettingsDialog />)
     await openDialog(user)
 
-    expect(screen.getByText(/tuned — change them only if you know why/i)).toBeInTheDocument()
+    expect(screen.getByText(/tuned: change them only if you know why/i)).toBeInTheDocument()
     expect(screen.getAllByText("Recommended")).toHaveLength(10)
     expect(screen.queryByRole("button", { name: "Reset to recommended" })).not.toBeInTheDocument()
   })
@@ -317,6 +287,70 @@ describe("recommended markers and reset affordance", () => {
     const putCall = fetchMock.mock.calls.find(([, init]) => (init as RequestInit | undefined)?.method === "PUT")
     expect(putCall).toBeDefined()
     expect(JSON.parse((putCall![1] as RequestInit).body as string)).toEqual(DEFAULT_SETTINGS)
+  })
+})
+
+describe("the tier a save lands on", () => {
+  const MACHINE: AgentsSettings = { ...DEFAULT_SETTINGS, maxParallel: 5 }
+
+  test("first run: the dialog says these become the machine defaults and marks them recommended", async () => {
+    const user = userEvent.setup()
+    renderWithIntl(<SettingsDialog />)
+    await openDialog(user)
+
+    expect(screen.getByText(/become your defaults on this machine/i)).toBeInTheDocument()
+    expect(screen.getAllByText("Recommended")).toHaveLength(10)
+  })
+
+  test("machine scope over an existing project override: the form holds the MACHINE tier, not what the project resolves to", async () => {
+    const overridden: AgentsSettings = { ...DEFAULT_SETTINGS, maxParallel: 9, allowUnsafeSkills: true }
+    stubSettings(overridden, { draft: DEFAULT_SETTINGS, baseline: DEFAULT_SETTINGS, scope: "machine" })
+    const user = userEvent.setup()
+    renderWithIntl(<SettingsDialog />)
+    await openDialog(user)
+
+    expect(screen.getByLabelText("Max parallel issues")).toHaveValue(DEFAULT_SETTINGS.maxParallel)
+    expect(screen.getByLabelText("Allow risky skills")).toHaveAttribute("data-state", "unchecked")
+    expect(screen.getAllByText("Recommended"), "nothing deviates, so no knob loses its marker").toHaveLength(10)
+    expect(screen.queryByRole("button", { name: "Reset to recommended" }), "and there is nothing to reset").not.toBeInTheDocument()
+  })
+
+  test("project scope: the dialog says the change is project-only and measures against the machine defaults", async () => {
+    stubSettings(MACHINE, { baseline: MACHINE, scope: "project" })
+    const user = userEvent.setup()
+    renderWithIntl(<SettingsDialog />)
+    await openDialog(user)
+
+    expect(screen.getByText(/apply to this project only/i)).toBeInTheDocument()
+    expect(screen.getAllByText("Your default")).toHaveLength(10)
+    expect(screen.queryByText("Recommended")).not.toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "Back to my defaults" })).not.toBeInTheDocument()
+  })
+
+  test("project scope: a knob off the machine default reveals the clear-override affordance and drops that marker", async () => {
+    stubSettings(MACHINE, { baseline: MACHINE, scope: "project" })
+    const user = userEvent.setup()
+    renderWithIntl(<SettingsDialog />)
+    await openDialog(user)
+
+    await user.click(screen.getByRole("button", { name: "Increase" }))
+    expect(screen.getAllByText("Your default")).toHaveLength(9)
+    expect(screen.getByRole("button", { name: "Back to my defaults" })).toBeInTheDocument()
+  })
+
+  test("project scope: clearing the override sends the MACHINE defaults, never the hardcoded ones", async () => {
+    stubSettings(MACHINE, { baseline: MACHINE, scope: "project" })
+    const user = userEvent.setup()
+    renderWithIntl(<SettingsDialog />)
+    await openDialog(user)
+
+    await user.click(screen.getByRole("button", { name: "Increase" }))
+    await user.click(screen.getByRole("button", { name: "Back to my defaults" }))
+
+    await waitFor(() => expect(screen.getAllByText("Your default")).toHaveLength(10))
+    const fetchMock = globalThis.fetch as unknown as ReturnType<typeof vi.fn>
+    const putCall = fetchMock.mock.calls.find(([, init]) => (init as RequestInit | undefined)?.method === "PUT")
+    expect(JSON.parse((putCall![1] as RequestInit).body as string)).toEqual(MACHINE)
   })
 })
 

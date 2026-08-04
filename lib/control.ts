@@ -19,7 +19,7 @@ import {
 import type { ActiveCycle, CyclesView, PastCycle } from "@/lib/cycles"
 import type { CycleKind } from "@/lib/doc-prep-report"
 import { settingsToEnv } from "@/lib/settings"
-import { readSettings } from "@/lib/settings-store"
+import { resolveSettings } from "@/lib/settings-store"
 import { isSkillsPhaseInFlight, SKILLS_REPORT_FILE, type SkillsReport } from "@/lib/skills-report"
 import { SKILLS_LOCK_FILE, stageLockHolder } from "@/lib/stage-lock"
 import { DOC_PREP_IN_FLIGHT_PHASES, DOC_PREP_REPORT_FILE, type DocPrepReport } from "@/lib/doc-prep-report"
@@ -290,7 +290,7 @@ export function startSupervisor(spawner: Spawner, mode: "start" | "resume" = "st
 
   claimRunLock(spawner, targetRoot, state)
 
-  const supervisorEnv = { ...devEnv(targetRoot), ...settingsToEnv(readSettings()) }
+  const supervisorEnv = { ...devEnv(targetRoot), ...settingsToEnv(resolveSettings(targetRoot)) }
 
   let handle: DetachedHandle
   try {
@@ -850,7 +850,7 @@ export function startSkillsInstall(spawner: Spawner, opts: { ids?: string[] } = 
       command: process.execPath,
       args: [command, ...(ids.length > 0 ? ["--ids", ids.join(",")] : [])],
       cwd: factoryRoot,
-      env: { ...devEnv(targetRoot), ...settingsToEnv(readSettings()) },
+      env: { ...devEnv(targetRoot), ...settingsToEnv(resolveSettings(targetRoot)) },
       logFile,
     })
   } catch (error) {
@@ -879,7 +879,7 @@ export async function removeSkills(spawner: Spawner, opts: { ids: string[] }): P
     command: process.execPath,
     args: [command, "--remove", ids.join(","), "--json"],
     cwd: factoryRoot,
-    env: { ...devEnv(targetRoot), ...settingsToEnv(readSettings()) },
+    env: { ...devEnv(targetRoot), ...settingsToEnv(resolveSettings(targetRoot)) },
   })
   const report = readSkillsReportFrom(targetRoot)
   const ours = report !== null && report.updated_at !== priorStamp
@@ -1035,7 +1035,7 @@ export function startDocPrep(spawner: Spawner): DocPrepStart {
       command: process.execPath,
       args: [command],
       cwd: factoryRoot,
-      env: { ...devEnv(targetRoot), ...settingsToEnv(readSettings()) },
+      env: { ...devEnv(targetRoot), ...settingsToEnv(resolveSettings(targetRoot)) },
       logFile,
     })
   } catch (error) {

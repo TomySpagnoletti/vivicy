@@ -9,6 +9,7 @@ import { BRAND, DUO } from "@/lib/brand"
 import { BrandFace } from "@/components/brand/brand-face"
 import {
   agentDefaultsFor,
+  baselineFlags,
   clampMaxParallel,
   DEFAULT_SETTINGS,
   effortsForModel,
@@ -20,11 +21,15 @@ import {
   otherProvider,
   PROVIDER_LABEL,
   PROVIDERS,
+  ROLES,
   withModel,
+  type AgentFieldFlags,
   type AgentSettings,
   type AgentsSettings,
   type Provider,
   type Role,
+  type SettingsScope,
+  type SettingsState,
 } from "@/lib/settings"
 import { Button } from "@/components/ui/button"
 import {
@@ -48,48 +53,13 @@ const OTHER_ROLE: Record<Role, Role> = {
   reviewer: "implementer",
 }
 
-const ROLES: Role[] = ["implementer", "reviewer"]
-
-export type AgentFieldFlags = Record<"provider" | "model" | "effort" | "fast", boolean>
-
-export interface RecommendedFlags {
-  agent: Record<Role, AgentFieldFlags>
-  maxParallel: boolean
-  allowUnsafeSkills: boolean
-  all: boolean
-}
-
-export function recommendedFlags(draft: AgentsSettings, defaults: AgentsSettings = DEFAULT_SETTINGS): RecommendedFlags {
-  const forRole = (role: Role): AgentFieldFlags => {
-    const cur = draft[role]
-    const def = defaults[role]
-    return {
-      provider: cur.provider === def.provider,
-      model: cur.model === def.model,
-      effort: cur.effort === def.effort,
-      fast: cur.fast === def.fast,
-    }
-  }
-  const agent: Record<Role, AgentFieldFlags> = {
-    implementer: forRole("implementer"),
-    reviewer: forRole("reviewer"),
-  }
-  const maxParallel = draft.maxParallel === defaults.maxParallel
-  const allowUnsafeSkills = draft.allowUnsafeSkills === defaults.allowUnsafeSkills
-  const agentsAtDefault = ROLES.every((role) => {
-    const f = agent[role]
-    return f.provider && f.model && f.effort && f.fast
-  })
-  return { agent, maxParallel, allowUnsafeSkills, all: maxParallel && allowUnsafeSkills && agentsAtDefault }
-}
-
-function RecommendedMarker({ show }: { show: boolean }) {
+function BaselineMarker({ show, scope }: { show: boolean; scope: SettingsScope }) {
   const t = useTranslations("sidebar.settings")
   if (!show) return null
   return (
     <span className="inline-flex shrink-0 items-center gap-1 text-[10px] font-medium text-muted-foreground">
       <Check className="size-3" aria-hidden="true" />
-      {t("recommendedBadge")}
+      {scope === "machine" ? t("recommendedBadge") : t("machineDefaultBadge")}
     </span>
   )
 }
@@ -99,6 +69,8 @@ export function SettingsDialog({ onSaved }: { onSaved?: (settings: AgentsSetting
   const t = useTranslations("sidebar.settings")
   const [open, setOpen] = useState(false)
   const [draft, setDraft] = useState<AgentsSettings>(DEFAULT_SETTINGS)
+  const [baseline, setBaseline] = useState<AgentsSettings>(DEFAULT_SETTINGS)
+  const [scope, setScope] = useState<SettingsScope>("machine")
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
 
@@ -109,8 +81,11 @@ export function SettingsDialog({ onSaved }: { onSaved?: (settings: AgentsSetting
       setLoading(true)
       try {
         const res = await fetch("/api/settings", { cache: "no-store" })
-        const body = (await res.json()) as { settings?: AgentsSettings }
-        if (!cancelled && body.settings) setDraft(body.settings)
+        const body = (await res.json()) as Partial<SettingsState>
+        if (cancelled || !body.draft) return
+        setDraft(body.draft)
+        setBaseline(body.baseline ?? DEFAULT_SETTINGS)
+        setScope(body.scope ?? "machine")
       } catch {
         // Never clear the draft on a failed load, and never surface it.
       } finally {
@@ -155,18 +130,16 @@ export function SettingsDialog({ onSaved }: { onSaved?: (settings: AgentsSetting
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(next),
         })
-        const body = (await res.json().catch(() => ({}))) as {
-          ok?: boolean
-          error?: string
-          settings?: AgentsSettings
-        }
-        if (!res.ok || body.ok === false || !body.settings) {
+        const body = (await res.json().catch(() => ({}))) as Partial<SettingsState> & { ok?: boolean; error?: string }
+        if (!res.ok || body.ok === false || !body.settings || !body.draft) {
           toast.error(t("toastSaveFailedTitle"), {
             description: body.error ?? t("toastSaveFailedHttpDescription", { status: res.status }),
           })
           return null
         }
-        setDraft(body.settings)
+        setDraft(body.draft)
+        setBaseline(body.baseline ?? DEFAULT_SETTINGS)
+        setScope(body.scope ?? "machine")
         onSaved?.(body.settings)
         return body.settings
       } catch (error) {
@@ -184,17 +157,20 @@ export function SettingsDialog({ onSaved }: { onSaved?: (settings: AgentsSetting
   const save = useCallback(async () => {
     const saved = await persist(draft)
     if (!saved) return
-    toast.success(t("toastSaveSuccessTitle"), { description: t("toastSaveSuccessDescription") })
+    toast.success(t("toastSaveSuccessTitle"), {
+      description: scope === "machine" ? t("toastSaveSuccessMachineDescription") : t("toastSaveSuccessProjectDescription"),
+    })
     setOpen(false)
-  }, [draft, persist, t])
+  }, [draft, persist, scope, t])
 
-  const resetToRecommended = useCallback(async () => {
-    const saved = await persist(DEFAULT_SETTINGS)
+  const resetToBaseline = useCallback(async () => {
+    const saved = await persist(baseline)
     if (!saved) return
-    toast.success(t("toastResetTitle"), { description: t("toastResetDescription") })
-  }, [persist, t])
+    if (scope === "machine") toast.success(t("toastResetTitle"), { description: t("toastResetDescription") })
+    else toast.success(t("toastClearedTitle"), { description: t("toastClearedDescription") })
+  }, [baseline, persist, scope, t])
 
-  const flags = recommendedFlags(draft)
+  const flags = baselineFlags(draft, baseline)
   const valid = isSettingsValid(draft)
   const distinct = draft.implementer.provider !== draft.reviewer.provider
 
@@ -213,14 +189,15 @@ export function SettingsDialog({ onSaved }: { onSaved?: (settings: AgentsSetting
 
         <TooltipProvider>
           <div className="flex flex-col gap-4">
-            <p className="text-xs text-muted-foreground">{t("tunedDefaultsNote")}</p>
+            <p className="text-xs text-muted-foreground">{scope === "machine" ? t("scopeMachineNote") : t("scopeProjectNote")}</p>
 
             {ROLES.map((role) => (
               <AgentFields
                 key={role}
                 role={role}
                 agent={draft[role]}
-                recommended={flags.agent[role]}
+                atBaseline={flags.agent[role]}
+                scope={scope}
                 disabled={loading || saving}
                 onAssignCli={(provider) => assignCli(role, provider)}
                 onModel={(model) => setModel(role, model)}
@@ -233,7 +210,7 @@ export function SettingsDialog({ onSaved }: { onSaved?: (settings: AgentsSetting
               <div className="flex flex-col gap-1.5">
                 <div className="flex items-center justify-between gap-2">
                   <Label htmlFor="settings-max-parallel">{t("maxParallelLabel")}</Label>
-                  <RecommendedMarker show={flags.maxParallel} />
+                  <BaselineMarker show={flags.maxParallel} scope={scope} />
                 </div>
                 <NumberStepper
                   id="settings-max-parallel"
@@ -261,7 +238,7 @@ export function SettingsDialog({ onSaved }: { onSaved?: (settings: AgentsSetting
                       <ShieldAlert className="size-3.5" aria-hidden="true" />
                       {t("allowRiskySkillsLabel")}
                     </Label>
-                    <RecommendedMarker show={flags.allowUnsafeSkills} />
+                    <BaselineMarker show={flags.allowUnsafeSkills} scope={scope} />
                   </div>
                   <p id="settings-allow-unsafe-skills-help" className="text-xs text-muted-foreground">
                     {t("allowRiskySkillsHelp", { brandName: BRAND.name })}
@@ -283,9 +260,9 @@ export function SettingsDialog({ onSaved }: { onSaved?: (settings: AgentsSetting
 
         <DialogFooter>
           {!flags.all ? (
-            <Button variant="ghost" size="sm" onClick={resetToRecommended} disabled={loading || saving} className="sm:mr-auto">
+            <Button variant="ghost" size="sm" onClick={resetToBaseline} disabled={loading || saving} className="sm:mr-auto">
               <RotateCcw aria-hidden="true" />
-              {t("resetToRecommended")}
+              {scope === "machine" ? t("resetToRecommended") : t("resetToMachineDefaults")}
             </Button>
           ) : null}
           <DialogClose asChild>
@@ -305,7 +282,8 @@ export function SettingsDialog({ onSaved }: { onSaved?: (settings: AgentsSetting
 function AgentFields({
   role,
   agent,
-  recommended,
+  atBaseline,
+  scope,
   disabled,
   onAssignCli,
   onModel,
@@ -313,7 +291,8 @@ function AgentFields({
 }: {
   role: Role
   agent: AgentSettings
-  recommended: AgentFieldFlags
+  atBaseline: AgentFieldFlags
+  scope: SettingsScope
   disabled: boolean
   onAssignCli: (provider: Provider) => void
   onModel: (model: string) => void
@@ -348,7 +327,7 @@ function AgentFields({
       <div className="flex flex-col gap-1.5">
         <div className="flex items-center justify-between gap-2">
           <Label htmlFor={cliId}>{t("agentLabel")}</Label>
-          <RecommendedMarker show={recommended.provider} />
+          <BaselineMarker show={atBaseline.provider} scope={scope} />
         </div>
         <Select value={provider} onValueChange={(value) => onAssignCli(value as Provider)}>
           <SelectTrigger id={cliId} aria-label={t("agentFieldsAriaLabel", { role: roleLabel })}>
@@ -367,7 +346,7 @@ function AgentFields({
       <div className="flex flex-col gap-1.5">
         <div className="flex items-center justify-between gap-2">
           <Label htmlFor={modelId}>{t("modelLabel")}</Label>
-          <RecommendedMarker show={recommended.model} />
+          <BaselineMarker show={atBaseline.model} scope={scope} />
         </div>
         <Select value={agent.model} onValueChange={(value) => onModel(value)}>
           <SelectTrigger id={modelId} aria-label={t("modelFieldsAriaLabel", { role: roleLabel })}>
@@ -388,7 +367,7 @@ function AgentFields({
         <div className="flex flex-col gap-1.5">
           <div className="flex items-center justify-between gap-2">
             <Label htmlFor={effortId}>{t("thinkingLevelLabel")}</Label>
-            <RecommendedMarker show={recommended.effort} />
+            <BaselineMarker show={atBaseline.effort} scope={scope} />
           </div>
           <Select value={agent.effort} onValueChange={(value) => onChange({ effort: value })}>
             <SelectTrigger id={effortId} aria-label={t("effortFieldsAriaLabel", { role: roleLabel })}>
@@ -414,7 +393,7 @@ function AgentFields({
               <Zap className="size-3.5" aria-hidden="true" />
               {t("fastModeLabel")}
             </Label>
-            <RecommendedMarker show={recommended.fast} />
+            <BaselineMarker show={atBaseline.fast} scope={scope} />
           </div>
           <p className="text-xs text-muted-foreground">{t("fastModeHelp")}</p>
         </div>

@@ -1,5 +1,12 @@
 import "@testing-library/jest-dom/vitest"
 
+import { realpathSync } from "node:fs"
+import { tmpdir } from "node:os"
+import path from "node:path"
+
+// No test may reach the developer's real ~/.vivicy: the machine settings tier is redirected to a per-worker temp home unless the test names its own.
+process.env.VIVICY_HOME = path.join(realpathSync(tmpdir()), `vivicy-machine-home-${process.pid}`)
+
 if (typeof globalThis.ResizeObserver === "undefined") {
   class ResizeObserverPolyfill {
     observe() {}

@@ -372,6 +372,19 @@ describe("runViviTurn — allowlist enforcement", () => {
     expect(readFileSync(path.join(targetRoot, RUNTIME, "run-state.json"), "utf8")).toBe('{"phase":"running"}\n')
   })
 
+  it("guards the project's settings override: the owner's surface writes it, a turn never does", async () => {
+    writeInTarget(targetRoot, path.join(".vivicy", "settings.json"), '{"maxParallel":3}\n')
+
+    const { spawner } = makeFakeSpawner((o) => {
+      writeInTarget(targetRoot, path.join(".vivicy", "settings.json"), '{"maxParallel":12}\n')
+      writeReply(o, "I raised your concurrency.")
+    })
+    const result = await runViviTurn(spawner, { message: "go faster" })
+
+    expect(result.rejected).toMatch(/outside its allowlist/)
+    expect(readFileSync(projectSettingsFile(), "utf8")).toBe('{"maxParallel":3}\n')
+  })
+
   it("guards a sibling whose name merely STARTS with an ignored subtree's", async () => {
     const { spawner } = makeFakeSpawner((o) => {
       writeInTarget(targetRoot, path.join(".vivicy", "runtime-notes", "draft.txt"), "not the runtime dir\n")
@@ -579,9 +592,9 @@ describe("runViviTurn — post-freeze (Change Requests)", () => {
 })
 
 describe("runViviTurn — settings plumb-through", () => {
-  it("passes the configured CLI + model env and cwd=target to the leg", async () => {
+  it("passes the CLI + model env the PROJECT's own settings resolve to, and cwd=target, to the leg", async () => {
     writeFileSync(
-      appSettingsPath(),
+      projectSettingsFile(),
       JSON.stringify({
         implementer: { provider: "codex", model: "gpt-5.5", effort: "high", fast: false },
         reviewer: { provider: "claude", model: "claude-opus-4-8", effort: "xhigh", fast: false },
@@ -1107,11 +1120,8 @@ function viviSessionDir(): string {
   return path.join(getProjectRuntimeDir(targetRoot), "vivi")
 }
 
-// The settings store is still app-side (F-104 territory), reached here through the isolated cwd.
-function appSettingsPath(): string {
-  const dir = path.join(appCwd, ".vivicy-runtime")
-  mkdirSync(dir, { recursive: true })
-  return path.join(dir, "settings.json")
+function projectSettingsFile(): string {
+  return path.join(targetRoot, ".vivicy", "settings.json")
 }
 
 // Guaranteed-dead pid: spawnSync returns only after the child is reaped.

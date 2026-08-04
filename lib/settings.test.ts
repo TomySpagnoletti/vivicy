@@ -1,11 +1,8 @@
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
-import { tmpdir } from "node:os"
-import path from "node:path"
-
-import { afterEach, beforeEach, describe, expect, it } from "vitest"
+import { describe, expect, it } from "vitest"
 
 import {
   agentDefaultsFor,
+  baselineFlags,
   clampMaxParallel,
   DEFAULT_SETTINGS,
   effortsForModel,
@@ -20,26 +17,15 @@ import {
   modelSupportsFast,
   MODEL_IDS,
   MODELS,
+  mergeSettingsLayers,
   normalizeSettings,
   resolveAssignment,
+  ROLES,
+  settingsDelta,
   settingsToEnv,
   withModel,
+  type AgentsSettings,
 } from "@/lib/settings"
-import { getSettingsPath, readSettings, writeSettings } from "@/lib/settings-store"
-
-let runtimeDir: string
-let prevCwd: string
-
-beforeEach(() => {
-  runtimeDir = mkdtempSync(path.join(tmpdir(), "vivicy-settings-"))
-  prevCwd = process.cwd()
-  process.chdir(runtimeDir)
-})
-
-afterEach(() => {
-  process.chdir(prevCwd)
-  rmSync(runtimeDir, { recursive: true, force: true })
-})
 
 describe("defaults", () => {
   it("pins the latest models with the documented default thinking levels and fast off", () => {
@@ -55,11 +41,6 @@ describe("defaults", () => {
       effort: "high",
       fast: false,
     })
-  })
-
-  it("readSettings returns the defaults when no file exists", () => {
-    expect(existsSync(getSettingsPath())).toBe(false)
-    expect(readSettings()).toEqual(DEFAULT_SETTINGS)
   })
 
   it("each CLI's default model is the first in its curated list", () => {
@@ -244,6 +225,7 @@ describe("role -> CLI assignment (R12)", () => {
       reviewer: { provider: "claude", model: "claude-opus-4-8", effort: "max" },
     })
     expect(isDistinctAssignment(collided)).toBe(true)
+    expect(collided.reviewer).toEqual(agentDefaultsFor("codex"))
   })
 
   it("exposes the concurrency bounds as [1, 12] and clampMaxParallel honors them", () => {
@@ -297,39 +279,125 @@ describe("allowUnsafeSkills (skills audit-gate waiver)", () => {
     expect(normalizeSettings({ allowUnsafeSkills: 1 }).allowUnsafeSkills).toBe(false)
     expect(normalizeSettings({ allowUnsafeSkills: null }).allowUnsafeSkills).toBe(false)
   })
+})
 
-  it("persists through the settings store round-trip", () => {
-    const written = writeSettings({ ...DEFAULT_SETTINGS, allowUnsafeSkills: true })
-    expect(written.allowUnsafeSkills).toBe(true)
-    expect(readSettings().allowUnsafeSkills).toBe(true)
+describe("mergeSettingsLayers (defaults <- machine <- project)", () => {
+  it("returns the defaults for no layer, an empty layer, and a layer that is not an object", () => {
+    expect(mergeSettingsLayers()).toEqual(DEFAULT_SETTINGS)
+    expect(mergeSettingsLayers({}, null)).toEqual(DEFAULT_SETTINGS)
+    expect(mergeSettingsLayers([1], "settings", 7)).toEqual(DEFAULT_SETTINGS)
+  })
+
+  it("lets the last layer win field by field instead of replacing the document", () => {
+    const merged = mergeSettingsLayers(
+      { maxParallel: 5, allowUnsafeSkills: true, implementer: { provider: "claude", model: "claude-opus-4-6", effort: "max", fast: true } },
+      { maxParallel: 2 }
+    )
+    expect(merged.maxParallel).toBe(2)
+    expect(merged.allowUnsafeSkills).toBe(true)
+    expect(merged.implementer).toEqual({ provider: "claude", model: "claude-opus-4-6", effort: "max", fast: true })
+  })
+
+  it("merges a partial agent onto the agent below it", () => {
+    const merged = mergeSettingsLayers(
+      { implementer: { provider: "claude", model: "claude-opus-4-6", effort: "max", fast: true } },
+      { implementer: { fast: false } }
+    )
+    expect(merged.implementer).toEqual({ provider: "claude", model: "claude-opus-4-6", effort: "max", fast: false })
+  })
+
+  it("drops the layer below whole when the top layer reassigns that role to the other agent", () => {
+    const merged = mergeSettingsLayers(
+      { implementer: { provider: "claude", model: "claude-opus-4-6", effort: "max", fast: true } },
+      { implementer: { provider: "codex" } }
+    )
+    expect(merged.implementer).toEqual(agentDefaultsFor("codex"))
+  })
+
+  it("keeps the assignment distinct by moving the OTHER role to its own defaults, never to a foreign model", () => {
+    const merged = mergeSettingsLayers(
+      {
+        implementer: { provider: "claude", model: "claude-opus-4-6", effort: "max", fast: true },
+        reviewer: { provider: "codex", model: "gpt-5.4", effort: "low", fast: false },
+      },
+      { implementer: { provider: "codex" } }
+    )
+    expect(merged.implementer.provider).toBe("codex")
+    expect(merged.reviewer).toEqual(agentDefaultsFor("claude"))
+  })
+
+  it("normalizes once, over the merged document, so a cross-layer combination is repaired", () => {
+    const merged = mergeSettingsLayers(
+      { implementer: { provider: "claude", model: "claude-opus-4-8", effort: "max", fast: true } },
+      { implementer: { model: "claude-opus-4-5" } }
+    )
+    expect(merged.implementer.model).toBe("claude-opus-4-5")
+    expect(merged.implementer.fast).toBe(false)
+    expect(isSettingsValid(merged)).toBe(true)
   })
 })
 
-describe("persistence round-trip", () => {
-  it("writeSettings normalizes, persists, and readSettings reads it back", () => {
-    const written = writeSettings({
-      implementer: { provider: "claude", model: "claude-opus-4-8", effort: "max", fast: true },
-      reviewer: { provider: "codex", model: "gpt-5.5", effort: "low", fast: false },
+describe("baselineFlags / settingsDelta (what a project override has to carry)", () => {
+  const machine: AgentsSettings = normalizeSettings({
+    implementer: { provider: "claude", model: "claude-opus-4-6", effort: "max", fast: true },
+    reviewer: { provider: "codex", model: "gpt-5.4", effort: "low", fast: false },
+    maxParallel: 5,
+    allowUnsafeSkills: true,
+  })
+
+  it("marks every knob as at-baseline for the baseline itself, and asks for no override", () => {
+    const flags = baselineFlags(machine, machine)
+    expect(flags.all).toBe(true)
+    expect(settingsDelta(machine, machine)).toBeNull()
+  })
+
+  it("defaults the baseline to DEFAULT_SETTINGS", () => {
+    const flags = baselineFlags(DEFAULT_SETTINGS)
+    expect(flags.all).toBe(true)
+    expect(flags.maxParallel).toBe(true)
+    expect(flags.allowUnsafeSkills).toBe(true)
+    for (const role of ROLES) {
+      expect(flags.agent[role]).toEqual({ provider: true, model: true, effort: true, fast: true })
+    }
+    expect(baselineFlags(machine).all).toBe(false)
+  })
+
+  it("moving one baseline knob flips exactly its own flag", () => {
+    const scalar = baselineFlags(DEFAULT_SETTINGS, { ...DEFAULT_SETTINGS, maxParallel: DEFAULT_SETTINGS.maxParallel + 4 })
+    expect(scalar.maxParallel).toBe(false)
+    expect(scalar.allowUnsafeSkills).toBe(true)
+    expect(scalar.all).toBe(false)
+    expect(scalar.agent.implementer).toEqual({ provider: true, model: true, effort: true, fast: true })
+
+    const perAgent = baselineFlags(DEFAULT_SETTINGS, {
+      ...DEFAULT_SETTINGS,
+      implementer: { ...DEFAULT_SETTINGS.implementer, effort: "low" },
     })
-    expect(written.implementer.effort).toBe("max")
-    expect(written.implementer.fast).toBe(true)
-    expect(written.reviewer.effort).toBe("low")
-    expect(existsSync(getSettingsPath())).toBe(true)
-    expect(readSettings()).toEqual(written)
+    expect(perAgent.agent.implementer).toEqual({ provider: true, model: true, effort: false, fast: true })
+    expect(perAgent.agent.reviewer.effort).toBe(true)
+    expect(perAgent.all).toBe(false)
   })
 
-  it("readSettings falls back to defaults on a corrupt file", () => {
-    writeSettings(DEFAULT_SETTINGS)
-    const file = getSettingsPath()
-    writeFileSync(file, "{ not json")
-    expect(readSettings()).toEqual(DEFAULT_SETTINGS)
+  it("carries a scalar knob alone when only it deviates", () => {
+    expect(settingsDelta(machine, { ...machine, maxParallel: 2 })).toEqual({ maxParallel: 2 })
+    expect(settingsDelta(machine, { ...machine, allowUnsafeSkills: false })).toEqual({ allowUnsafeSkills: false })
   })
 
-  it("stores the file inside the gitignored .vivicy-runtime dir", () => {
-    writeSettings(DEFAULT_SETTINGS)
-    const file = getSettingsPath()
-    expect(file.startsWith(process.cwd())).toBe(true)
-    expect(file).toContain(`.vivicy-runtime${path.sep}settings.json`)
+  it("carries a deviating role WHOLE, never a single field of it", () => {
+    const next: AgentsSettings = { ...machine, implementer: { ...machine.implementer, effort: "low" } }
+    expect(settingsDelta(machine, next)).toEqual({
+      implementer: { provider: "claude", model: "claude-opus-4-6", effort: "low", fast: true },
+    })
+  })
+
+  it("round-trips: the delta merged back over the baseline reproduces the saved document", () => {
+    for (const next of [
+      { ...machine, maxParallel: 1 },
+      { ...machine, implementer: { ...machine.implementer, model: "claude-opus-4-8" } },
+      normalizeSettings({ implementer: machine.reviewer, reviewer: machine.implementer, maxParallel: 5, allowUnsafeSkills: true }),
+    ] as AgentsSettings[]) {
+      expect(mergeSettingsLayers(machine, settingsDelta(machine, next))).toEqual(next)
+    }
   })
 })
 

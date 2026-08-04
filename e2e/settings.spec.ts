@@ -1,11 +1,62 @@
+import { existsSync, readFileSync } from "node:fs"
+import path from "node:path"
+
 import { expect, test } from "./browser-issues"
 
+import { DEMO_TARGET_ROOT, MACHINE_HOME } from "../playwright.config"
 import { clickPastOverlap, openSettingsDialog } from "./helpers"
 
-// Never parallelize: the settings store is process-global on disk.
+// Never parallelize: these save, and both settings tiers are files two tests would race.
 test.describe.configure({ mode: "serial" })
 
+const MACHINE_FILE = path.join(MACHINE_HOME("demo", "chromium-desktop"), "settings.json")
+const PROJECT_FILE = path.join(DEMO_TARGET_ROOT, ".vivicy", "settings.json")
+
+function readJson(file: string): Record<string, unknown> {
+  return JSON.parse(readFileSync(file, "utf8"))
+}
+
 test.describe("Vivicy agent settings", () => {
+  test("the first save seeds the machine defaults, the next one overrides this project alone", async ({ page }, testInfo) => {
+    await page.goto("/")
+
+    await openSettingsDialog(page, testInfo)
+    const dialog = page.getByRole("dialog", { name: "Agent settings" })
+    await expect(dialog.getByText(/become your defaults on this machine/i)).toBeVisible()
+    expect(existsSync(MACHINE_FILE), "no machine tier before the owner's first save").toBe(false)
+
+    await clickPastOverlap(dialog.getByRole("button", { name: "Save" }))
+    await expect(page.getByText(/Settings saved/i).first()).toBeVisible({ timeout: 15_000 })
+    await expect(dialog).not.toBeVisible()
+
+    expect(readJson(MACHINE_FILE).maxParallel, "the first save seeds the whole document machine-wide").toBe(1)
+    expect(existsSync(PROJECT_FILE), "the first save has nothing to override yet").toBe(false)
+
+    await page.getByRole("button", { name: "Settings" }).click()
+    const dialog2 = page.getByRole("dialog", { name: "Agent settings" })
+    await expect(dialog2.getByText(/apply to this project only/i)).toBeVisible()
+    await expect(dialog2.getByLabel("Max parallel issues")).toHaveValue("1")
+
+    await dialog2.getByLabel("Max parallel issues").fill("2")
+    await clickPastOverlap(dialog2.getByRole("button", { name: "Save" }))
+    await expect(page.getByText(/Settings saved/i).first()).toBeVisible({ timeout: 15_000 })
+    await expect(dialog2).not.toBeVisible()
+
+    expect(readJson(PROJECT_FILE), "the project file carries the deviation alone").toEqual({ maxParallel: 2 })
+    expect(readJson(MACHINE_FILE).maxParallel, "the machine tier is untouched by a project save").toBe(1)
+
+    await page.getByRole("button", { name: "Settings" }).click()
+    const dialog3 = page.getByRole("dialog", { name: "Agent settings" })
+    await expect(dialog3.getByLabel("Max parallel issues")).toHaveValue("2")
+    await clickPastOverlap(dialog3.getByRole("button", { name: "Back to my defaults" }))
+    await expect(page.getByText(/Project override cleared/i).first()).toBeVisible({ timeout: 15_000 })
+    await expect(dialog3.getByLabel("Max parallel issues")).toHaveValue("1")
+    expect(existsSync(PROJECT_FILE), "clearing the override removes the file, it never freezes a copy").toBe(false)
+
+    await dialog3.getByRole("button", { name: "Cancel" }).click()
+    await expect(dialog3).not.toBeVisible()
+  })
+
   test("open the dialog, change an effort, save, and re-read it", async ({ page }, testInfo) => {
     await page.goto("/")
 
@@ -103,8 +154,7 @@ test.describe("Vivicy agent settings", () => {
     await expect(dialog).not.toBeVisible()
   })
 
-  test("screenshot — model picker, fast toggle, disabled-fast case (1320x820)", async ({ page }, testInfo) => {
-    test.skip(testInfo.project.name.includes("-mobile"), "Fixed-frame desktop documentation screenshot.")
+  test("screenshot — model picker, fast toggle, disabled-fast case (1320x820)", async ({ page }) => {
     await page.setViewportSize({ width: 1320, height: 820 })
     await page.goto("/")
 
@@ -192,8 +242,7 @@ test.describe("Vivicy agent settings", () => {
     await expect(dialog).not.toBeVisible()
   })
 
-  test("screenshot — concurrency 1–12 stepper (1320x820)", async ({ page }, testInfo) => {
-    test.skip(testInfo.project.name.includes("-mobile"), "Fixed-frame desktop documentation screenshot.")
+  test("screenshot — concurrency 1–12 stepper (1320x820)", async ({ page }) => {
     await page.setViewportSize({ width: 1320, height: 820 })
     await page.goto("/")
 
