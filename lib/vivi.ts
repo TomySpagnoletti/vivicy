@@ -720,37 +720,27 @@ function renderQuestionStack(stack: ViviQuestionStack, turns: ViviTurn[]): strin
     .join("\n")
 }
 
+const TRANSCRIPT_SPEAKERS: Record<ViviTurn["role"], string> = {
+  user: "User",
+  vivi: "Vivi",
+  note: "Orchestrator",
+  action: "Tool results",
+  card: "Choice card",
+  questions: "Question cards",
+}
+
 function renderTranscript(turns: ViviTurn[]): string {
   if (turns.length === 0) return "(no prior turns — this is the first message)"
-  const lastIdx = turns.length - 1
-  const lines = turns.map((turn, i) => {
-    const who =
-      turn.role === "user"
-        ? "User"
-        : turn.role === "action"
-          ? "Tool results"
-          : turn.role === "card"
-            ? "Choice card"
-            : turn.role === "questions"
-              ? "Question cards"
-              : turn.role === "note"
-                ? "Orchestrator"
-                : "Vivi"
+  const lines = turns.map((turn) => {
     const cardState =
       turn.role === "card"
         ? turn.decided
           ? ` [decided: ${turn.decided.actionId}${turn.decided.summary ? ` — ${firstLine(turn.decided.summary, 80)}` : ""}]`
           : " [awaiting the owner's choice]"
         : ""
-    // An answered turn is rendered WHOLE, never through firstLine: the clip is spent on the question and eats the owner's answer.
-    const body =
-      turn.role === "questions" && turn.questions
-        ? renderQuestionStack(turn.questions, turns)
-        : turn.answered !== undefined
-          ? turn.text
-          : (i === lastIdx ? turn.text : firstLine(turn.text, 200)) + cardState
+    const body = turn.role === "questions" && turn.questions ? renderQuestionStack(turn.questions, turns) : turn.text
     const wrote = turn.role === "vivi" && turn.wrote && turn.wrote.length > 0 ? ` [wrote: ${turn.wrote.join(", ")}]` : ""
-    return `${who}: ${body}${wrote}`
+    return `${TRANSCRIPT_SPEAKERS[turn.role]}: ${body}${cardState}${wrote}`
   })
   return lines.join("\n\n")
 }

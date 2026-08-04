@@ -29,6 +29,9 @@ import {
 } from "@/lib/vivi"
 import { MAX_OTHER_ANSWER_LENGTH, remainingQuestions } from "@/lib/vivi-questions"
 
+// Captured at module load: every test body runs after beforeEach has chdir'd away from the repo.
+const REPO_ROOT = process.cwd()
+
 function makeFakeSpawner(onRun: (options: RunOptions) => Partial<RunResult> | void = () => {}) {
   const calls = {
     run: [] as Array<{ args: string[]; env: NodeJS.ProcessEnv; cwd: string }>,
@@ -625,6 +628,13 @@ function promptFileFrom(args: string[]): string {
   return args[i + 1]
 }
 
+function transcriptSection(prompt: string): string {
+  const start = prompt.indexOf("## Conversation so far")
+  const end = prompt.indexOf("## Current `.vivicy` state")
+  if (start === -1 || end === -1 || end < start) throw new Error("the composed prompt carries no conversation section")
+  return prompt.slice(start, end)
+}
+
 function failureFileFrom(args: string[]): string {
   const i = args.indexOf("--failure-file")
   return args[i + 1]
@@ -789,7 +799,132 @@ describe("runViviTurn — a leg that never spoke (the orchestrator's note, never
     expect(second.reply).toBe("Eccoci — reprenons.")
     expect(readTranscript(failed.sessionId).map((t) => t.role)).toEqual(["user", "note", "user", "vivi"])
     expect(seenPrompt).toContain("User: un todo app, avec des dates")
-    expect(seenPrompt).toContain("Orchestrator: Vivi's turn could not run")
+    expect(transcriptSection(seenPrompt)).toContain(`Orchestrator: ${failed.reply}`)
+  })
+})
+
+const PLANTED_FACT = "on ne facture jamais apres le 25 du mois"
+
+const OWNER_SYNTHESIS_LENGTH = 2724
+
+function ownerSynthesis(): string {
+  const head = "Allora, ecco la sintesi di quello che ho letto.\n\n"
+  const rule = `Regola non negoziabile : ${PLANTED_FACT}, quoi qu'il arrive.\n\n`
+  const tail = "\n\nEcco — dimmi cosa manca, poi passiamo alle domande."
+  const body = "Chaque commande traverse le meme tunnel : panier, controle du stock, paiement, facture, archivage. ".repeat(40)
+  return `${head}${rule}${body.slice(0, OWNER_SYNTHESIS_LENGTH - head.length - rule.length - tail.length)}${tail}`
+}
+
+const FOUR_QUESTION_CARDS = JSON.stringify([
+  {
+    id: "datastore",
+    question: "Sur quelle base v1 doit-il tourner ?",
+    options: [{ label: "Postgres", recommended: true }, { label: "SQLite" }],
+  },
+  {
+    id: "auth",
+    question: "Comment vos clients se connectent-ils ?",
+    options: [{ label: "Email + mot de passe", recommended: true }, { label: "Lien magique" }],
+  },
+  {
+    id: "billing",
+    question: "Qui declenche la facturation ?",
+    options: [{ label: "Le systeme, chaque nuit", recommended: true }, { label: "Un humain, a la main" }],
+  },
+  {
+    id: "roles",
+    question: "Combien de roles distincts des le depart ?",
+    options: [{ label: "Deux : admin et client", recommended: true }, { label: "Un seul" }],
+  },
+])
+
+describe("the composed prompt carries the WHOLE thread — every turn, never a clip", () => {
+  it("holds the owner's long synthesis and all four questions, and the next leg recalls a fact planted past its first line", async () => {
+    const synthesis = ownerSynthesis()
+    expect(synthesis).toHaveLength(OWNER_SYNTHESIS_LENGTH)
+    expect(synthesis.split("\n", 1)[0]).not.toContain(PLANTED_FACT)
+    let leg = 0
+    let continuationPrompt = ""
+    const { spawner } = makeFakeSpawner((o) => {
+      if (!o.args.some((a) => a.endsWith("vivi-turn.ts"))) return
+      leg += 1
+      if (leg === 1) {
+        writeReply(o, replyWithQuestions(FOUR_QUESTION_CARDS, synthesis))
+        return
+      }
+      continuationPrompt = readFileSync(promptFileFrom(o.args), "utf8")
+      const recalled = transcriptSection(continuationPrompt).includes(PLANTED_FACT)
+      writeReply(o, recalled ? `Confermo : ${PLANTED_FACT}.` : "La regle de facturation n'est plus sous mes yeux.")
+    })
+    const { sessionId, stackId } = await stackedSession(spawner, FOUR_QUESTION_CARDS)
+
+    for (const questionId of ["datastore", "auth", "billing", "roles"]) {
+      answerViviQuestion(spawner, { sessionId, stackId, questionId, optionIndex: 0 })
+    }
+    await settleDispatchedTurn()
+
+    expect(readTranscript(sessionId).at(-1)?.text).toBe(`Confermo : ${PLANTED_FACT}.`)
+    const rendered = transcriptSection(continuationPrompt)
+    expect(rendered).toContain(`Vivi: ${synthesis}`)
+    for (const q of JSON.parse(FOUR_QUESTION_CARDS) as Array<{ question: string }>) {
+      expect(rendered).toContain(`${q.question} [answered above]`)
+    }
+    expect(rendered).not.toContain("…")
+  })
+
+  it("keeps a NON-last Tool results turn's every line and the orchestrator's whole note — neither is its first 200 characters", async () => {
+    const tools = ["status.read", "crs.list", "notifications.read"]
+    let leg = 0
+    let laterPrompt = ""
+    const { spawner } = makeFakeSpawner((o) => {
+      if (!o.args.some((a) => a.endsWith("vivi-turn.ts"))) return
+      leg += 1
+      if (leg === 1) {
+        writeReply(o, replyWithActions(JSON.stringify({ actions: tools.map((tool) => ({ tool })) })))
+        return
+      }
+      if (leg === 2) {
+        writeFailure(o, "the agent CLI exited 1 — killed on the second round")
+        return { code: 1, stdout: "", stderr: "" }
+      }
+      laterPrompt = readFileSync(promptFileFrom(o.args), "utf8")
+      writeReply(o, "Va bene, riprendiamo.")
+    })
+    const failed = await runViviTurn(spawner, { message: "où en est le build ?" })
+    expect(failed.orchestratorNote).toBe(true)
+    expect(failed.reply.length).toBeGreaterThan(200)
+    await runViviTurn(spawner, { sessionId: failed.sessionId, message: "et les CRs ?" })
+
+    expect(readTranscript(failed.sessionId).map((t) => t.role)).toEqual(["user", "vivi", "action", "note", "user", "vivi"])
+    const rendered = transcriptSection(laterPrompt)
+    expect(rendered).toContain("Tool results:")
+    for (const tool of tools) expect(rendered).toMatch(new RegExp(`[✓✗] ${tool.replace(".", "\\.")}:`))
+    expect(rendered).toContain(`Orchestrator: ${failed.reply}`)
+  })
+
+  it("keeps the persona's promise: the shipped vivi.md claims the full running transcript and the prompt delivers one", async () => {
+    const persona = readFileSync(path.join(REPO_ROOT, "factory", "prompts", "vivi.md"), "utf8")
+    expect(persona).toContain("the full running transcript")
+    writeFileSync(path.join(factoryRoot, "prompts", "vivi.md"), persona)
+
+    const synthesis = ownerSynthesis()
+    let leg = 0
+    let seenPrompt = ""
+    const { spawner } = makeFakeSpawner((o) => {
+      if (!o.args.some((a) => a.endsWith("vivi-turn.ts"))) return
+      leg += 1
+      if (leg === 1) {
+        writeReply(o, synthesis)
+        return
+      }
+      seenPrompt = readFileSync(promptFileFrom(o.args), "utf8")
+      writeReply(o, "Va bene.")
+    })
+    const first = await runViviTurn(spawner, { message: "voici mon dossier de facturation" })
+    await runViviTurn(spawner, { sessionId: first.sessionId, message: "et maintenant ?" })
+
+    expect(seenPrompt).toContain("the full running transcript")
+    expect(transcriptSection(seenPrompt)).toContain(`Vivi: ${synthesis}`)
   })
 })
 
@@ -2144,35 +2279,7 @@ describe("question cards — the validated fence becomes a pile in the thread", 
     expect(readTranscript(sessionId).at(-1)?.text).toBe("Perfetto — Postgres e magic link, je note.")
   })
 
-  it("carries a MAX-length free answer into the continuation prompt WHOLE, tail and all", async () => {
-    let leg = 0
-    let continuationPrompt = ""
-    const { spawner } = makeFakeSpawner((o) => {
-      if (!o.args.some((a) => a.endsWith("vivi-turn.ts"))) return
-      leg += 1
-      if (leg === 1) {
-        writeReply(o, replyWithQuestions(QUESTION_CARDS))
-        return
-      }
-      continuationPrompt = readFileSync(promptFileFrom(o.args), "utf8")
-      writeReply(o, "Ricevuto.")
-    })
-    const { sessionId, stackId } = await stackedSession(spawner)
-
-    const head = "On facture a la main les dix premiers clients, "
-    const tail = ", mais seulement quand on depasse trente commandes par jour"
-    const long = `${head}${"e".repeat(MAX_OTHER_ANSWER_LENGTH - head.length - tail.length)}${tail}`
-    expect(long).toHaveLength(MAX_OTHER_ANSWER_LENGTH)
-    answerViviQuestion(spawner, { sessionId, stackId, questionId: "datastore", other: long })
-    answerViviQuestion(spawner, { sessionId, stackId, questionId: "auth", optionIndex: 0 })
-    await settleDispatchedTurn()
-
-    expect(continuationPrompt).toContain(`Which datastore should v1 run on? \u2192 ${long}`)
-    expect(continuationPrompt).toContain(tail.slice(2))
-    expect(continuationPrompt).not.toContain("\u2026")
-  })
-
-  it("carries a MAX-length OPTION answer whole too (question 200 + label 80 exceeds any single-line budget)", async () => {
+  it("carries the owner's own words into the continuation prompt WHOLE — a MAX-length free answer and a 199+79 option line alike", async () => {
     let leg = 0
     let continuationPrompt = ""
     const question = `Quelle est la regle ${"x".repeat(178)}?`
@@ -2180,11 +2287,12 @@ describe("question cards — the validated fence becomes a pile in the thread", 
     expect(question).toHaveLength(199)
     expect(label).toHaveLength(79)
     const cards = JSON.stringify([
-      { id: "rule", question, options: [{ label, recommended: true }, { label: "Jamais" }], allowOther: true },
+      { id: "rule", question, options: [{ label, recommended: true }, { label: "Jamais" }] },
       {
         id: "auth",
         question: "How do people sign in?",
         options: [{ label: "Email + password", recommended: true }, { label: "Magic link" }],
+        allowOther: true,
       },
     ])
     const { spawner } = makeFakeSpawner((o) => {
@@ -2199,11 +2307,18 @@ describe("question cards — the validated fence becomes a pile in the thread", 
     })
     const { sessionId, stackId } = await stackedSession(spawner, cards)
 
+    const head = "On facture a la main les dix premiers clients, "
+    const tail = ", mais seulement quand on depasse trente commandes par jour"
+    const long = `${head}${"e".repeat(MAX_OTHER_ANSWER_LENGTH - head.length - tail.length)}${tail}`
+    expect(long).toHaveLength(MAX_OTHER_ANSWER_LENGTH)
+    answerViviQuestion(spawner, { sessionId, stackId, questionId: "auth", other: long })
     answerViviQuestion(spawner, { sessionId, stackId, questionId: "rule", optionIndex: 0 })
-    answerViviQuestion(spawner, { sessionId, stackId, questionId: "auth", optionIndex: 0 })
     await settleDispatchedTurn()
 
-    expect(continuationPrompt).toContain(`${question} \u2192 ${label}`)
+    const rendered = transcriptSection(continuationPrompt)
+    expect(rendered).toContain(`How do people sign in? \u2192 ${long}`)
+    expect(rendered).toContain(`${question} \u2192 ${label}`)
+    expect(rendered).not.toContain("\u2026")
   })
 
   it("survives a reload mid-stack: the standing pile and the answered lines are exactly what the thread holds", async () => {
