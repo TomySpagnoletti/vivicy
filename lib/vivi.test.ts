@@ -1,5 +1,5 @@
 import { execFileSync, spawnSync } from "node:child_process"
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, utimesSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import path from "node:path"
 
@@ -170,6 +170,7 @@ afterEach(() => {
 const CANONICAL = path.join(".vivicy", "canonical")
 const SPIKES = path.join(".vivicy", "development", "spikes")
 const CHANGE_REQUESTS = path.join(".vivicy", "change-requests")
+const RUNTIME = path.join(".vivicy", "runtime")
 
 describe("runViviTurn — transcript", () => {
   it("appends the user turn then the vivi reply, and replays across turns", async () => {
@@ -267,6 +268,94 @@ describe("runViviTurn — allowlist enforcement", () => {
     expect(result.wrote).toEqual([path.join(SPIKES, "S01-native-argon2id.md")])
     expect(existsSync(path.join(targetRoot, SPIKES, "S01-native-argon2id.md"))).toBe(true)
     expect(existsSync(path.join(targetRoot, ".vivicy", "development", "transcripts", "VIVI", "claude-vivi-abc.jsonl"))).toBe(true)
+  })
+
+  it("leaves the orchestrator's runtime subtree alone: written, modified, never reported, never rolled back", async () => {
+    writeInTarget(targetRoot, path.join(RUNTIME, "skills-cache", "sha256-abc"), "cached\n")
+
+    const { spawner } = makeFakeSpawner((o) => {
+      writeInTarget(targetRoot, path.join(RUNTIME, "skills-cache", "sha256-abc"), "refreshed\n")
+      writeInTarget(targetRoot, path.join(RUNTIME, "vivi", "turn.log"), "line\n")
+      writeInTarget(targetRoot, path.join(CANONICAL, "01-product.md"), "# Product\n")
+      writeReply(o, "Ran the stage.")
+    })
+    const result = await runViviTurn(spawner, { message: "go" })
+
+    expect(result.rejected).toBeUndefined()
+    expect(result.wrote).toEqual([path.join(CANONICAL, "01-product.md")])
+    expect(readFileSync(path.join(targetRoot, RUNTIME, "skills-cache", "sha256-abc"), "utf8")).toBe("refreshed\n")
+    expect(existsSync(path.join(targetRoot, RUNTIME, "vivi", "turn.log"))).toBe(true)
+  })
+
+  it("keeps the runtime subtree's writes when the SAME turn is rejected for a real violation", async () => {
+    const { spawner } = makeFakeSpawner((o) => {
+      writeInTarget(targetRoot, path.join(RUNTIME, "run-state.json"), '{"phase":"running"}\n')
+      writeInTarget(targetRoot, path.join(".vivicy", "development", "issues", "sneaky.md"), "no\n")
+      writeReply(o, "I tried to escape.")
+    })
+    const result = await runViviTurn(spawner, { message: "go" })
+
+    expect(result.rejected).toMatch(/outside its allowlist/)
+    expect(result.rejected).not.toMatch(/runtime/)
+    expect(existsSync(path.join(targetRoot, ".vivicy", "development", "issues", "sneaky.md"))).toBe(false)
+    expect(readFileSync(path.join(targetRoot, RUNTIME, "run-state.json"), "utf8")).toBe('{"phase":"running"}\n')
+  })
+
+  it("guards a sibling whose name merely STARTS with an ignored subtree's", async () => {
+    const { spawner } = makeFakeSpawner((o) => {
+      writeInTarget(targetRoot, path.join(".vivicy", "runtime-notes", "draft.txt"), "not the runtime dir\n")
+      writeReply(o, "oops")
+    })
+    const result = await runViviTurn(spawner, { message: "go" })
+
+    expect(result.rejected).toMatch(/outside its allowlist/)
+    expect(existsSync(path.join(targetRoot, ".vivicy", "runtime-notes", "draft.txt"))).toBe(false)
+  })
+
+  it("judges CONTENT, not the file's stat: an identical rewrite is no write, a same-length edit is", async () => {
+    const guarded = path.join(".vivicy", "development", "issues", "ISSUE-001.md")
+    writeInTarget(targetRoot, guarded, "same length\n")
+
+    const { spawner: rewriter } = makeFakeSpawner((o) => {
+      writeInTarget(targetRoot, guarded, "same length\n")
+      writeReply(o, "touched nothing")
+    })
+    const untouched = await runViviTurn(rewriter, { message: "go" })
+    expect(untouched.rejected).toBeUndefined()
+    expect(untouched.wrote).toEqual([])
+
+    const { spawner: editor } = makeFakeSpawner((o) => {
+      writeInTarget(targetRoot, guarded, "SAME LENGTH\n")
+      writeReply(o, "edited")
+    })
+    const edited = await runViviTurn(editor, { message: "go" })
+    expect(edited.rejected).toMatch(/outside its allowlist/)
+    expect(readFileSync(path.join(targetRoot, guarded), "utf8")).toBe("same length\n")
+  })
+
+  it("catches a leg that rewrites a file and forges its timestamps back to the exact nanosecond", async () => {
+    const guarded = path.join(".vivicy", "development", "issues", "ISSUE-002.md")
+    const abs = path.join(targetRoot, guarded)
+    writeInTarget(targetRoot, guarded, "same length\n")
+    const forged = Math.floor(Date.now() / 1000) - 3600
+    utimesSync(abs, forged, forged)
+
+    // Hold the capture clock past the racy window, so the forged stat identity is the only witness left.
+    const capturedAt = Date.now() + 60_000
+    const clock = vi.spyOn(Date, "now").mockImplementation(() => capturedAt)
+    try {
+      const { spawner } = makeFakeSpawner((o) => {
+        writeInTarget(targetRoot, guarded, "SAME LENGTH\n")
+        utimesSync(abs, forged, forged)
+        writeReply(o, "forged")
+      })
+      const result = await runViviTurn(spawner, { message: "go" })
+
+      expect(result.rejected).toMatch(/outside its allowlist/)
+      expect(readFileSync(abs, "utf8")).toBe("same length\n")
+    } finally {
+      clock.mockRestore()
+    }
   })
 
   it("rejects a write OUTSIDE the allowlist and REMOVES the offending file", async () => {

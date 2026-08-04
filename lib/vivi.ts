@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process"
 import { createHash, randomUUID } from "node:crypto"
-import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs"
 import path from "node:path"
 
 import { countForm } from "@/lib/count-form"
@@ -52,8 +52,8 @@ const POST_FREEZE_DIRS = [CHANGE_REQUESTS_DIR] as const
 
 const UPLOADS_DIR_POSIX = UPLOADS_DIR.split(path.sep).join("/")
 
-// Excluded from every .vivicy snapshot/diff/rollback: the leg writes its own transcript here mid-turn.
-const IGNORED_SUBTREE = path.join(".vivicy", "development", "transcripts")
+// Excluded from every .vivicy snapshot/diff/rollback: the leg writes its own transcript here mid-turn, and the runtime subtree is orchestrator-owned operational state written under Vivi's own feet.
+const IGNORED_SUBTREES = new Set([path.join(".vivicy", "development", "transcripts"), path.join(".vivicy", "runtime")])
 
 // A card action fires only on the owner's click — nothing ever self-fires.
 export interface ViviCardAction {
@@ -113,7 +113,13 @@ export interface ViviReply {
   actions?: ViviActionResult[]
 }
 
-type Snapshot = Map<string, string>
+interface FileState {
+  ident: string
+  bytes: Buffer
+  racy: boolean
+}
+
+type Snapshot = Map<string, FileState>
 
 function viviRuntimeDir(): string {
   const targetRoot = getTargetRoot()
@@ -918,31 +924,49 @@ function buildStatusLine(spawner: Spawner, targetRoot: string, frozen: boolean):
   }
 }
 
-function walkFiles(dir: string): string[] {
-  if (!existsSync(dir)) return []
+// An ignored subtree is pruned at its own directory entry, so its whole depth costs neither a readdir nor a read.
+function walkVivicy(targetRoot: string): string[] {
+  const root = path.join(targetRoot, VIVICY_DIR)
+  if (!existsSync(root)) return []
   const out: string[] = []
-  const stack = [dir]
+  const stack = [root]
   while (stack.length > 0) {
     const current = stack.pop() as string
     for (const entry of readdirSync(current, { withFileTypes: true })) {
       const abs = path.join(current, entry.name)
+      const rel = path.relative(targetRoot, abs)
+      if (IGNORED_SUBTREES.has(rel)) continue
       if (entry.isDirectory()) stack.push(abs)
-      else if (entry.isFile()) out.push(abs)
+      else if (entry.isFile()) out.push(rel)
     }
   }
   return out
 }
 
-function snapshotVivicy(targetRoot: string): Snapshot {
+// Wider than any filesystem's timestamp granularity (FAT's 2s is the coarsest a target can sit on): a capture taken this close to the file's last touch cannot tell a later write apart from it.
+const RACY_CAPTURE_MARGIN_NS = BigInt(2_000_000_000)
+
+// Never narrow this to the allowlist: restoreSnapshot would then DELETE a pre-existing file it never captured.
+function snapshotVivicy(targetRoot: string, prior?: Snapshot): Snapshot {
+  const capturedAtNs = BigInt(Date.now()) * BigInt(1_000_000)
   const snap: Snapshot = new Map()
-  for (const abs of walkFiles(path.join(targetRoot, VIVICY_DIR))) {
-    snap.set(path.relative(targetRoot, abs), hashFile(abs))
+  for (const rel of walkVivicy(targetRoot)) {
+    const abs = path.join(targetRoot, rel)
+    try {
+      const stat = statSync(abs, { bigint: true })
+      const ident = `${stat.size}:${stat.mtimeNs}:${stat.ctimeNs}:${stat.ino}`
+      const before = prior?.get(rel)
+      if (before !== undefined && before.ident === ident && !before.racy) {
+        snap.set(rel, before)
+        continue
+      }
+      snap.set(rel, { ident, bytes: readFileSync(abs), racy: stat.ctimeNs + RACY_CAPTURE_MARGIN_NS >= capturedAtNs })
+    } catch (error) {
+      // Only a file that disappeared under the walk is skipped; anything else must stay loud, or the guard silently stops covering it.
+      if ((error as NodeJS.ErrnoException)?.code !== "ENOENT") throw error
+    }
   }
   return snap
-}
-
-function hashFile(abs: string): string {
-  return createHash("sha256").update(readFileSync(abs)).digest("hex")
 }
 
 function isAllowedWrite(rel: string, allowedDirs: readonly string[]): boolean {
@@ -950,46 +974,34 @@ function isAllowedWrite(rel: string, allowedDirs: readonly string[]): boolean {
   return allowedDirs.some((dir) => rel === dir || rel.startsWith(`${dir}${path.sep}`))
 }
 
-// Never narrow this to the allowlist: restoreSnapshot would then DELETE a pre-existing file it never hashed.
-function snapshotVivicyBytes(targetRoot: string): Map<string, Buffer> {
-  const bytes = new Map<string, Buffer>()
-  for (const abs of walkFiles(path.join(targetRoot, VIVICY_DIR))) {
-    const rel = path.relative(targetRoot, abs)
-    if (rel === IGNORED_SUBTREE || rel.startsWith(`${IGNORED_SUBTREE}${path.sep}`)) continue
-    bytes.set(rel, readFileSync(abs))
-  }
-  return bytes
-}
-
 interface DiffResult {
   allowedWrites: string[]
   violations: string[]
 }
 
-function diffVivicy(targetRoot: string, before: Snapshot, allowedDirs: readonly string[]): DiffResult {
+// Deletions inside .vivicy are not this guard's concern: only additions and content changes are writes.
+function diffVivicy(before: Snapshot, after: Snapshot, allowedDirs: readonly string[]): DiffResult {
   const allowedWrites: string[] = []
   const violations: string[] = []
-  for (const abs of walkFiles(path.join(targetRoot, VIVICY_DIR))) {
-    const rel = path.relative(targetRoot, abs)
-    if (rel === IGNORED_SUBTREE || rel.startsWith(`${IGNORED_SUBTREE}${path.sep}`)) continue
-    const priorHash = before.get(rel)
-    const changed = priorHash === undefined || priorHash !== hashFile(abs)
-    if (!changed) continue
+  for (const [rel, state] of after) {
+    const prior = before.get(rel)
+    if (prior === state) continue
+    if (prior !== undefined && prior.bytes.equals(state.bytes)) continue
     if (isAllowedWrite(rel, allowedDirs)) allowedWrites.push(rel)
     else violations.push(rel)
   }
   return { allowedWrites: allowedWrites.sort(), violations: violations.sort() }
 }
 
-function restoreSnapshot(targetRoot: string, diff: DiffResult, bytesBefore: Map<string, Buffer>): void {
+function restoreSnapshot(targetRoot: string, diff: DiffResult, before: Snapshot): void {
   for (const rel of [...diff.allowedWrites, ...diff.violations]) {
-    const prior = bytesBefore.get(rel)
+    const prior = before.get(rel)
     const abs = path.join(targetRoot, rel)
     if (prior === undefined) {
       rmSync(abs, { force: true })
     } else {
       mkdirSync(path.dirname(abs), { recursive: true })
-      writeFileSync(abs, prior)
+      writeFileSync(abs, prior.bytes)
     }
   }
 }
@@ -1216,7 +1228,8 @@ async function runTurnLocked(
   ctx: { sessionId: string; origin: TurnOrigin; targetRoot: string; factoryRoot: string; command: string }
 ): Promise<ViviReply> {
   const { sessionId, origin, targetRoot, factoryRoot, command } = ctx
-  const bytesBefore = snapshotVivicyBytes(targetRoot)
+  // One capture serves both the rollback target (the owner's pre-turn bytes) and the first round's base.
+  const before = snapshotVivicy(targetRoot)
 
   const preDirty = gitDirtyPaths(targetRoot)
   const preDirtySnapshot = snapshotPreDirty(targetRoot, preDirty)
@@ -1228,7 +1241,7 @@ async function runTurnLocked(
   // Re-derive every round: an action tool can freeze or reopen the baseline mid-turn.
   let frozen = isCanonicalFrozen(targetRoot)
   // Fold each accepted round's writes in, or a later round's stricter allowlist re-judges them.
-  let roundBase = snapshotVivicy(targetRoot)
+  let roundBase = before
 
   const maxRounds = resolveMaxActionRounds(process.env.VIVICY_VIVI_MAX_ROUNDS)
   const allActions: ViviActionResult[] = []
@@ -1243,7 +1256,8 @@ async function runTurnLocked(
     const prompt = composePrompt(factoryRoot, targetRoot, turns, frozen, crId, statusLine, origin)
     const reply = await spawnViviLeg(spawner, { command, targetRoot, sessionId, prompt, frozen })
 
-    const diff = diffVivicy(targetRoot, roundBase, allowedDirs)
+    const after = snapshotVivicy(targetRoot, roundBase)
+    const diff = diffVivicy(roundBase, after, allowedDirs)
 
     if (preDirty !== null) {
       const tampered = detectPreDirtyTampering(targetRoot, preDirtySnapshot)
@@ -1262,7 +1276,7 @@ async function runTurnLocked(
           reply,
           targetRoot,
           rollback,
-          bytesBefore,
+          before,
           withExecutedActionsNote(
             `rejected: Vivi modified your uncommitted work in progress (${tampered.join(", ")}) — code writes are forbidden — the whole turn was rolled back${restoreNote}`,
             allActions
@@ -1284,7 +1298,7 @@ async function runTurnLocked(
           reply,
           targetRoot,
           rollback,
-          bytesBefore,
+          before,
           withExecutedActionsNote(
             `rejected: Vivi wrote outside .vivicy — code writes are forbidden (${codeWrites.join(", ")}) — the whole turn was rolled back${cleanupNote}`,
             allActions
@@ -1304,7 +1318,7 @@ async function runTurnLocked(
         reply,
         targetRoot,
         rollback,
-        bytesBefore,
+        before,
         withExecutedActionsNote(
           `rejected: Vivi wrote outside its allowlist (${diff.violations.join(", ")}) — the whole turn was rolled back`,
           allActions
@@ -1325,7 +1339,7 @@ async function runTurnLocked(
           reply,
           targetRoot,
           rollback,
-          bytesBefore,
+          before,
           withExecutedActionsNote(
             `rejected: Vivi's Change Request did not pass change-control (${invalid}) — the whole turn was rolled back`,
             allActions
@@ -1336,7 +1350,8 @@ async function runTurnLocked(
     }
 
     wrote = [...new Set([...wrote, ...diff.allowedWrites])].sort()
-    roundBase = snapshotVivicy(targetRoot)
+    // Re-capture rather than reuse `after`: change-control ran in between and writes its own state.
+    roundBase = snapshotVivicy(targetRoot, after)
     if (diff.allowedWrites.length > 0) pruneGitkeeps(targetRoot)
 
     const directive = parseActionDirective(reply)
@@ -1375,7 +1390,7 @@ async function runTurnLocked(
     appendPendingCrCards(sessionId, results)
 
     // Fold the actions' own writes in: that state is orchestrator-owned, and the next round's diff would otherwise roll it back.
-    roundBase = snapshotVivicy(targetRoot)
+    roundBase = snapshotVivicy(targetRoot, roundBase)
     if (preDirty !== null) {
       const dirtyNow = gitDirtyPaths(targetRoot)
       if (dirtyNow !== null) {
@@ -1528,11 +1543,11 @@ function rejectTurn(
   reply: string,
   targetRoot: string,
   diff: DiffResult,
-  bytesBefore: Map<string, Buffer>,
+  before: Snapshot,
   rejected: string,
   actions: ViviActionResult[] = []
 ): ViviReply {
-  restoreSnapshot(targetRoot, diff, bytesBefore)
+  restoreSnapshot(targetRoot, diff, before)
   appendTurn(sessionId, { role: "vivi", text: reply, ts: new Date().toISOString(), rejected })
   return { sessionId, reply, wrote: [], rejected, actions: actions.length > 0 ? actions : undefined }
 }
