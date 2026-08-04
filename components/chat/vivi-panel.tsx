@@ -195,6 +195,7 @@ export function ViviPanel({ onActivity }: { onActivity?: () => void }) {
         reply?: string
         wrote?: string[]
         rejected?: string
+        orchestratorNote?: boolean
         actions?: unknown[]
         error?: string
         code?: string
@@ -212,10 +213,10 @@ export function ViviPanel({ onActivity }: { onActivity?: () => void }) {
         setTurns((prev) => [
           ...prev,
           {
-            role: "vivi",
+            role: body.orchestratorNote ? "note" : "vivi",
             text: body.reply as string,
             ts: new Date().toISOString(),
-            wrote: body.wrote ?? [],
+            wrote: body.orchestratorNote ? [] : (body.wrote ?? []),
             rejected: body.rejected,
           },
         ])
@@ -591,6 +592,9 @@ function TurnView({
 
   if (answered) return <AnsweredLine question={answered.question} answer={answered.answer} />
 
+  // The orchestrator's own voice: a marker line like every other machine statement in the thread, never a Vivi bubble.
+  if (turn.role === "note") return <NoteLine text={turn.text} rejected={turn.rejected} />
+
   if (turn.role === "user" || turn.role === "vivi") {
     return (
       <MessageBubble
@@ -622,6 +626,20 @@ function TurnView({
   }
 
   return null
+}
+
+function NoteLine({ text, rejected }: { text: string; rejected?: string }) {
+  return (
+    <Marker className="items-start">
+      <MarkerIcon className="mt-px">
+        <CircleAlert />
+      </MarkerIcon>
+      <MarkerContent className="flex flex-col gap-1">
+        <span>{text}</span>
+        {rejected ? <span className="text-destructive">{rejected}</span> : null}
+      </MarkerContent>
+    </Marker>
+  )
 }
 
 function AnsweredLine({ question, answer }: { question: string; answer: string }) {

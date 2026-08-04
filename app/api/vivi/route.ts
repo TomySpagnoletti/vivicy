@@ -22,6 +22,7 @@ export async function POST(request: Request) {
       sessionId: result.sessionId,
       reply: result.reply,
       wrote: result.wrote,
+      ...(result.orchestratorNote ? { orchestratorNote: true } : {}),
       ...(result.rejected ? { rejected: result.rejected } : {}),
       ...(result.actions?.length ? { actions: result.actions } : {}),
     })

@@ -13,6 +13,7 @@ import {
   isRunActive,
   readSkillsReport,
   startSkillsInstall,
+  type RunResult,
   type Spawner,
 } from "@/lib/control"
 import { importIntoGoverned, UPLOADS_DIR, type BatchResult, type ManifestFile, type RawEntry, type RejectedFile } from "@/lib/import-docs"
@@ -92,7 +93,7 @@ export interface ViviImportEvent {
 }
 
 export interface ViviTurn {
-  role: "user" | "vivi" | "action" | "card" | "questions"
+  role: "user" | "vivi" | "note" | "action" | "card" | "questions"
   text: string
   ts: string
   wrote?: string[]
@@ -111,6 +112,7 @@ export interface ViviReply {
   wrote: string[]
   rejected?: string
   actions?: ViviActionResult[]
+  orchestratorNote?: boolean
 }
 
 interface FileState {
@@ -384,9 +386,10 @@ export async function decideCardAction(
       const sentSummary = `sent: ${firstLine(action.action.message, 80)}`
       stamp(sentSummary)
       const reply = await runViviTurn(spawner, { sessionId: input.sessionId, message: action.action.message })
+      const failed = reply.rejected ?? (reply.orchestratorNote ? reply.reply : null)
       return {
-        ok: !reply.rejected,
-        summary: reply.rejected ?? "message sent to Vivi",
+        ok: failed === null,
+        summary: failed ?? "message sent to Vivi",
         decided: decidedAs(sentSummary),
         reply,
       }
@@ -473,19 +476,11 @@ export function answerViviQuestion(
 
 // Detached and TOTAL: this must never reject — a continuation that cannot run says so in the thread.
 async function dispatchQuestionAnswers(spawner: Spawner, sessionId: string, count: number): Promise<void> {
+  const origin: TurnOrigin = { kind: "question_answers", count }
   try {
-    await runTurn(spawner, sessionId, { kind: "question_answers", count })
+    await runTurn(spawner, sessionId, origin)
   } catch (error) {
-    const reason = error instanceof Error ? error.message : String(error)
-    try {
-      appendTurn(sessionId, {
-        role: "vivi",
-        text:
-          `I could not pick up ${countForm(count, "your answer", "your answers")}: ${reason}. ` +
-          `${countForm(count, "It is", "They are")} safe in the thread — send me a message and I'll carry on from there.`,
-        ts: new Date().toISOString(),
-      })
-    } catch {}
+    noteTurnFailure(sessionId, origin, error)
   }
 }
 
@@ -605,7 +600,7 @@ async function runImportRead(spawner: Spawner, sessionId: string, imported: { ba
     claimed = true
     await runTurn(spawner, sessionId, { kind: "import_read", imported })
   } catch (error) {
-    noteImportReadFailure(sessionId, imported.files.length, error)
+    noteTurnFailure(sessionId, { kind: "import_read", imported }, error)
   }
   try {
     if (claimed) stampImportRead(sessionId, imported.batchId, { status: "done" })
@@ -633,15 +628,15 @@ export function recoverInterruptedReads(spawner: Spawner, sessionId: string): nu
   return recovered
 }
 
-function noteImportReadFailure(sessionId: string, count: number, error: unknown): void {
+// The ONE writer of the orchestrator's own voice in the thread — a turn Vivi never spoke is never attributed to her.
+function appendOrchestratorNote(sessionId: string, text: string): void {
+  appendTurn(sessionId, { role: "note", text, ts: new Date().toISOString() })
+}
+
+function noteTurnFailure(sessionId: string, origin: TurnOrigin, error: unknown): void {
   const reason = error instanceof Error ? error.message : String(error)
-  const them = countForm(count, "it", "them")
   try {
-    appendTurn(sessionId, {
-      role: "vivi",
-      text: `I could not read ${countForm(count, "the document", "the documents")} I just took in: ${reason}. ${countForm(count, "It is", "They are")} safe in the kitchen — ask me to read ${them} and I'll pick ${them} straight up.`,
-      ts: new Date().toISOString(),
-    })
+    appendOrchestratorNote(sessionId, turnFailureNote(origin, reason, [], []))
   } catch {}
 }
 
@@ -738,7 +733,9 @@ function renderTranscript(turns: ViviTurn[]): string {
             ? "Choice card"
             : turn.role === "questions"
               ? "Question cards"
-              : "Vivi"
+              : turn.role === "note"
+                ? "Orchestrator"
+                : "Vivi"
     const cardState =
       turn.role === "card"
         ? turn.decided
@@ -1178,6 +1175,10 @@ function resolveTarget(): string {
 type TurnOrigin =
   { kind: "user"; message: string } | { kind: "import_read"; imported: ViviImportEvent } | { kind: "question_answers"; count: number }
 
+type LegOutcome = { kind: "reply"; text: string } | { kind: "failed"; reason: string }
+
+const MAX_FAILURE_REASON = 240
+
 type TurnQueue = Map<string, Promise<void>>
 
 // Cross-request server state stays process-global, never a module `let` — same trap as lib/spawner.ts.
@@ -1271,7 +1272,8 @@ async function runTurnLocked(
     const statusLine = buildStatusLine(spawner, targetRoot, frozen)
     const turns = readTranscript(sessionId)
     const prompt = composePrompt(factoryRoot, targetRoot, turns, frozen, crId, statusLine, origin)
-    const reply = await spawnViviLeg(spawner, { command, targetRoot, prompt, frozen })
+    const outcome = await spawnViviLeg(spawner, { command, targetRoot, prompt, frozen })
+    const reply = outcome.kind === "reply" ? outcome.text : ""
 
     const after = snapshotVivicy(targetRoot, roundBase)
     const diff = diffVivicy(roundBase, after, allowedDirs)
@@ -1290,7 +1292,8 @@ async function runTurnLocked(
             : " (your in-progress bytes were restored)"
         return rejectTurn(
           sessionId,
-          reply,
+          origin,
+          outcome,
           targetRoot,
           rollback,
           before,
@@ -1312,7 +1315,8 @@ async function runTurnLocked(
         const cleanupNote = cleanupFailed.length > 0 ? `; WARNING: could not clean up: ${cleanupFailed.join(", ")} — remove manually` : ""
         return rejectTurn(
           sessionId,
-          reply,
+          origin,
+          outcome,
           targetRoot,
           rollback,
           before,
@@ -1332,7 +1336,8 @@ async function runTurnLocked(
       }
       return rejectTurn(
         sessionId,
-        reply,
+        origin,
+        outcome,
         targetRoot,
         rollback,
         before,
@@ -1353,7 +1358,8 @@ async function runTurnLocked(
         }
         return rejectTurn(
           sessionId,
-          reply,
+          origin,
+          outcome,
           targetRoot,
           rollback,
           before,
@@ -1370,6 +1376,13 @@ async function runTurnLocked(
     // Re-capture rather than reuse `after`: change-control ran in between and writes its own state.
     roundBase = snapshotVivicy(targetRoot, after)
     if (diff.allowedWrites.length > 0) pruneGitkeeps(targetRoot)
+
+    // A leg that failed never spoke: its streams are evidence for a note, never a reply to parse for directives.
+    if (outcome.kind === "failed") {
+      const text = turnFailureNote(origin, outcome.reason, wrote, allActions)
+      appendOrchestratorNote(sessionId, text)
+      return { sessionId, reply: text, wrote, orchestratorNote: true, actions: allActions.length > 0 ? allActions : undefined }
+    }
 
     const directive = parseActionDirective(reply)
 
@@ -1438,29 +1451,33 @@ function resolveMaxActionRounds(raw: string | undefined): number {
   return Math.max(1, Math.min(MAX_VIVI_ACTION_ROUNDS, parsed))
 }
 
-function withExecutedActionsNote(reason: string, executed: ViviActionResult[]): string {
-  if (executed.length === 0) return reason
-  const note = countForm(
+function executedActionsClause(executed: ViviActionResult[]): string {
+  return countForm(
     executed.length,
     "1 action already executed this turn remains in effect",
     `${executed.length} actions already executed this turn remain in effect`
   )
-  return `${reason}; note: ${note}`
+}
+
+function withExecutedActionsNote(reason: string, executed: ViviActionResult[]): string {
+  if (executed.length === 0) return reason
+  return `${reason}; note: ${executedActionsClause(executed)}`
 }
 
 async function spawnViviLeg(
   spawner: Spawner,
   opts: { command: string; targetRoot: string; prompt: string; frozen: boolean }
-): Promise<string> {
+): Promise<LegOutcome> {
   const { command, targetRoot, prompt, frozen } = opts
   const scratch = openScratchDir(TURN_SCRATCH_PREFIX)
   const promptFile = path.join(scratch, "prompt.txt")
   const replyFile = path.join(scratch, "reply.txt")
+  const failureFile = path.join(scratch, "failure.txt")
   try {
     writeFileSync(promptFile, prompt)
     const result = await spawner.run({
       command: process.execPath,
-      args: [command, "--prompt-file", promptFile, "--reply-file", replyFile, "--target", targetRoot],
+      args: [command, "--prompt-file", promptFile, "--reply-file", replyFile, "--failure-file", failureFile, "--target", targetRoot],
       cwd: targetRoot,
       env: {
         ...process.env,
@@ -1469,7 +1486,10 @@ async function spawnViviLeg(
         ...settingsToEnv(resolveSettings(targetRoot)),
       },
     })
-    return readReply(replyFile, result.stdout)
+    const spoken = readNonEmptyFile(replyFile)
+    if (result.code === 0 && spoken !== null) return { kind: "reply", text: spoken }
+    logLegFailure(result)
+    return { kind: "failed", reason: legFailureReason(failureFile, result) }
   } finally {
     rmSync(scratch, { recursive: true, force: true })
   }
@@ -1548,9 +1568,11 @@ function appendViviReply(sessionId: string, text: string, wrote: string[], quest
   })
 }
 
+// The rollback took every write back, so a failed leg's note names no kept file here.
 function rejectTurn(
   sessionId: string,
-  reply: string,
+  origin: TurnOrigin,
+  outcome: LegOutcome,
   targetRoot: string,
   diff: DiffResult,
   before: Snapshot,
@@ -1558,8 +1580,17 @@ function rejectTurn(
   actions: ViviActionResult[] = []
 ): ViviReply {
   restoreSnapshot(targetRoot, diff, before)
-  appendTurn(sessionId, { role: "vivi", text: reply, ts: new Date().toISOString(), rejected })
-  return { sessionId, reply, wrote: [], rejected, actions: actions.length > 0 ? actions : undefined }
+  const spoke = outcome.kind === "reply"
+  const reply = spoke ? outcome.text : turnFailureNote(origin, outcome.reason, [], actions)
+  appendTurn(sessionId, { role: spoke ? "vivi" : "note", text: reply, ts: new Date().toISOString(), rejected })
+  return {
+    sessionId,
+    reply,
+    wrote: [],
+    rejected,
+    ...(spoke ? {} : { orchestratorNote: true }),
+    actions: actions.length > 0 ? actions : undefined,
+  }
 }
 
 async function validateChangeControlSafely(spawner: Spawner, factoryRoot: string, targetRoot: string): Promise<string | null> {
@@ -1588,13 +1619,67 @@ function resolveViviTurnScript(factoryRoot: string): string {
   return abs
 }
 
-function readReply(replyFile: string, stdout: string): string {
-  if (existsSync(replyFile)) {
-    try {
-      const text = readFileSync(replyFile, "utf8").trim()
-      if (text.length > 0) return text
-    } catch {}
+function readNonEmptyFile(file: string): string | null {
+  try {
+    const text = readFileSync(file, "utf8").trim()
+    return text.length > 0 ? text : null
+  } catch {
+    return null
   }
-  const fallback = stdout.trim()
-  return fallback.length > 0 ? fallback : "Vivi could not produce a reply this turn (the agent leg wrote nothing). Try again."
+}
+
+// The leg's raw stderr belongs to the server log; the thread gets one bounded line of it and nothing more.
+function logLegFailure(result: RunResult): void {
+  const raw = result.stderr.trim()
+  process.stderr.write(`vivi turn: the agent leg failed (exit ${result.code ?? "none"})${raw.length > 0 ? `\n${raw}` : ""}\n`)
+}
+
+function lastNonEmptyLine(text: string): string {
+  const lines = text.split("\n")
+  for (let i = lines.length - 1; i >= 0; i -= 1) {
+    if (lines[i].trim().length > 0) return lines[i]
+  }
+  return ""
+}
+
+function legFailureReason(failureFile: string, result: RunResult): string {
+  const stated = readNonEmptyFile(failureFile)
+  const reason = stated ?? lastNonEmptyLine(result.stderr)
+  if (reason.trim().length > 0) return firstLine(oneLine(reason), MAX_FAILURE_REASON)
+  return result.code === null ? "the turn process died without an exit status" : `the turn process exited ${result.code} in silence`
+}
+
+function turnFailureLead(origin: TurnOrigin, reason: string): string {
+  const tidy = reason.replace(/[\s.]+$/, "")
+  const stop = tidy.endsWith("…") ? "" : "."
+  const what =
+    origin.kind === "import_read"
+      ? `Vivi could not read ${countForm(origin.imported.files.length, "the document", "the documents")} just imported`
+      : origin.kind === "question_answers"
+        ? `Vivi could not pick up ${countForm(origin.count, "your answer", "your answers")}`
+        : "Vivi's turn could not run"
+  return `${what}: ${tidy}${stop}`
+}
+
+// What the owner can actually DO next is not the same per origin: only a message of theirs can be sent again, and an action that already ran must never be invited to run twice.
+function turnFailureStanding(origin: TurnOrigin, executed: ViviActionResult[]): string {
+  if (origin.kind === "import_read") {
+    const them = countForm(origin.imported.files.length, "it", "them")
+    return `${countForm(origin.imported.files.length, "It is", "They are")} safe in the kitchen — ask her to read ${them} and she picks ${them} straight up.`
+  }
+  if (origin.kind === "question_answers") {
+    return `${countForm(origin.count, "It is", "They are")} safe in the thread — send her a message and she carries on from there.`
+  }
+  if (executed.length > 0) {
+    return `Your message is still in the thread, and ${executedActionsClause(executed)} — say what you want next rather than sending it again, which would start the whole turn over.`
+  }
+  return "Your message is still in the thread — send it again to retry."
+}
+
+function turnFailureNote(origin: TurnOrigin, reason: string, wrote: string[], executed: ViviActionResult[]): string {
+  const kept =
+    wrote.length > 0
+      ? ` ${countForm(wrote.length, "The file", "The files")} she had already written ${countForm(wrote.length, "is", "are")} kept: ${wrote.join(", ")}.`
+      : ""
+  return `${turnFailureLead(origin, reason)}${kept} ${turnFailureStanding(origin, executed)}`
 }

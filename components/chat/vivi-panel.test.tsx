@@ -340,6 +340,59 @@ describe("ViviPanel — send flow", () => {
     })
   })
 
+  test("a turn the leg never answered renders as the orchestrator's note line, never a Vivi bubble, and stays retryable", async () => {
+    const note =
+      "Vivi's turn could not run: the agent CLI exited 1 — No conversation found with session ID: 6f1c0f0e. Your message is still in the thread — send it again to retry."
+    const fetchMock = stubFetch({
+      sessions: [],
+      turnsBySession: {
+        [SESSION_B]: [
+          { role: "user", text: "Reprends la conversation.", ts: "2026-07-08T11:00:00Z" },
+          { role: "note", text: note, ts: "2026-07-08T11:01:00Z" },
+        ],
+      },
+      post: () => ({ body: { ok: true, sessionId: SESSION_B, reply: note, wrote: [], orchestratorNote: true } }),
+    })
+    vi.stubGlobal("fetch", fetchMock)
+    const user = userEvent.setup()
+    renderPanel()
+
+    await user.click(screen.getByRole("button", { name: "Open Vivi" }))
+    await user.type(screen.getByLabelText("Message Vivi"), "Reprends la conversation.")
+    await user.click(screen.getByRole("button", { name: "Send message" }))
+
+    const line = await screen.findByText(note)
+    expect(line.closest('[data-slot="marker"]')).not.toBeNull()
+    expect(line.closest('[data-slot="message"]')).toBeNull()
+    expect(screen.queryByText("Vivi is thinking…")).not.toBeInTheDocument()
+    expect(screen.getByText("Reprends la conversation.")).toBeInTheDocument()
+
+    await user.type(screen.getByLabelText("Message Vivi"), "vas-y")
+    expect(screen.getByRole("button", { name: "Send message" })).not.toHaveAttribute("aria-disabled", "true")
+  })
+
+  test("the note keeps its own voice on the offline fallback too, when no session refetch can confirm the thread", async () => {
+    const note =
+      "Vivi's turn could not run: the turn process died without an exit status. Your message is still in the thread — send it again to retry."
+    vi.stubGlobal(
+      "fetch",
+      stubFetch({
+        sessions: [],
+        post: () => ({ body: { ok: true, reply: note, wrote: [], orchestratorNote: true } }),
+      })
+    )
+    const user = userEvent.setup()
+    renderPanel()
+
+    await user.click(screen.getByRole("button", { name: "Open Vivi" }))
+    await user.type(screen.getByLabelText("Message Vivi"), "hello?")
+    await user.click(screen.getByRole("button", { name: "Send message" }))
+
+    const line = await screen.findByText(note)
+    expect(line.closest('[data-slot="marker"]')).not.toBeNull()
+    expect(line.closest('[data-slot="message"]')).toBeNull()
+  })
+
   test("a failed POST surfaces an inline i18n error line — never a crash", async () => {
     vi.stubGlobal(
       "fetch",

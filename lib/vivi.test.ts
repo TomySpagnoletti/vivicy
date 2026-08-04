@@ -625,6 +625,174 @@ function promptFileFrom(args: string[]): string {
   return args[i + 1]
 }
 
+function failureFileFrom(args: string[]): string {
+  const i = args.indexOf("--failure-file")
+  return args[i + 1]
+}
+
+function writeFailure(options: RunOptions, text: string): void {
+  const file = failureFileFrom(options.args)
+  mkdirSync(path.dirname(file), { recursive: true })
+  writeFileSync(file, text)
+}
+
+// The measured shape of a failed `claude --resume`: exit 1, EMPTY stdout, the whole story on stderr.
+const RESUME_FAILURE = "No conversation found with session ID: 6f1c0f0e-6c3a-4a5c-9b2a-3f5a0d2b1c77"
+
+describe("runViviTurn — a leg that never spoke (the orchestrator's note, never Vivi's voice)", () => {
+  it("turns a non-zero leg into a note carrying its reason, and keeps the raw stderr out of the thread", async () => {
+    const { spawner } = makeFakeSpawner((o) => {
+      writeFailure(o, `the agent CLI exited 1 — ${RESUME_FAILURE}`)
+      return { code: 1, stdout: "", stderr: `some earlier chatter\n${RESUME_FAILURE}\n` }
+    })
+
+    const result = await runViviTurn(spawner, { message: "reprends la conversation" })
+
+    expect(result.orchestratorNote).toBe(true)
+    expect(result.wrote).toEqual([])
+    const turns = readTranscript(result.sessionId)
+    expect(turns.map((t) => t.role)).toEqual(["user", "note"])
+    expect(turns[1].text).toBe(result.reply)
+    expect(turns[1].text).toBe(
+      `Vivi's turn could not run: the agent CLI exited 1 — ${RESUME_FAILURE}. Your message is still in the thread — send it again to retry.`
+    )
+    expect(turns[1].text).not.toContain("some earlier chatter")
+    // P9/F-087: the in-chat note IS the surface — a failed turn writes no notification.
+    expect(existsSync(path.join(getProjectRuntimeDir(targetRoot), "notifications.jsonl"))).toBe(false)
+  })
+
+  it("falls back to the leg's own last stderr line, then to the exit code, when no reason was named", async () => {
+    const { spawner: silentReason } = makeFakeSpawner(() => ({ code: 1, stdout: "", stderr: `warming up\n${RESUME_FAILURE}\n` }))
+    const fromStderr = await runViviTurn(silentReason, { message: "go" })
+    expect(fromStderr.reply).toBe(
+      `Vivi's turn could not run: ${RESUME_FAILURE}. Your message is still in the thread — send it again to retry.`
+    )
+
+    const { spawner: mute } = makeFakeSpawner(() => ({ code: 3, stdout: "", stderr: "" }))
+    const fromCode = await runViviTurn(mute, { message: "go" })
+    expect(fromCode.reply).toContain("the turn process exited 3 in silence")
+
+    const { spawner: dead } = makeFakeSpawner(() => ({ code: null, stdout: "", stderr: "" }))
+    const fromDeath = await runViviTurn(dead, { message: "go" })
+    expect(fromDeath.reply).toContain("the turn process died without an exit status")
+  })
+
+  it("answers an empty-reply success with the same honest note, never an empty bubble and never the leg's stdout", async () => {
+    const { spawner } = makeFakeSpawner((o) => {
+      writeFailure(o, "the agent CLI exited 0 without writing a reply")
+      return { code: 1, stdout: "Ciao! I am Vivi and this line lives on stdout.\n", stderr: "" }
+    })
+
+    const result = await runViviTurn(spawner, { message: "hello" })
+
+    expect(result.orchestratorNote).toBe(true)
+    expect(result.reply).toBe(
+      "Vivi's turn could not run: the agent CLI exited 0 without writing a reply. Your message is still in the thread — send it again to retry."
+    )
+    const turns = readTranscript(result.sessionId)
+    expect(turns.map((t) => t.role)).toEqual(["user", "note"])
+    expect(turns.some((t) => t.text.includes("this line lives on stdout"))).toBe(false)
+  })
+
+  it("never trusts a failed leg's own words: the reply file it left is ignored and its fences are never executed", async () => {
+    const { spawner, calls } = makeFakeSpawner((o) => {
+      writeReply(o, replyWithActions('{"actions": [{"tool": "workflow.start"}]}'))
+      writeFailure(o, "the agent CLI exited 1 — killed right after it wrote")
+      return { code: 1, stdout: "", stderr: "" }
+    })
+
+    const result = await runViviTurn(spawner, { message: "go" })
+
+    expect(result.orchestratorNote).toBe(true)
+    expect(result.actions).toBeUndefined()
+    expect(viviLegRuns(calls.run)).toBe(1)
+    expect(calls.spawnDetached).toHaveLength(0)
+    const turns = readTranscript(result.sessionId)
+    expect(turns.map((t) => t.role)).toEqual(["user", "note"])
+    expect(turns[1].text).toBe(
+      "Vivi's turn could not run: the agent CLI exited 1 — killed right after it wrote. Your message is still in the thread — send it again to retry."
+    )
+  })
+
+  it("still judges what a failed leg wrote: the violation is rolled back and the note carries the refusal", async () => {
+    const { spawner } = makeFakeSpawner((o) => {
+      writeInTarget(targetRoot, path.join(".vivicy", "development", "issues", "sneaky.md"), "no\n")
+      writeFailure(o, "the agent CLI exited 1 — killed mid-write")
+      return { code: 1, stdout: "", stderr: "" }
+    })
+
+    const result = await runViviTurn(spawner, { message: "go" })
+
+    expect(result.rejected).toMatch(/wrote outside its allowlist/)
+    expect(result.orchestratorNote).toBe(true)
+    expect(result.wrote).toEqual([])
+    expect(existsSync(path.join(targetRoot, ".vivicy", "development", "issues", "sneaky.md"))).toBe(false)
+    const last = readTranscript(result.sessionId).at(-1)!
+    expect(last.role).toBe("note")
+    expect(last.text).toContain("Vivi's turn could not run: the agent CLI exited 1 — killed mid-write")
+    expect(last.rejected).toBe(result.rejected)
+  })
+
+  it("keeps a failed leg's LEGAL writes and names them in the note, so nothing it changed goes unsaid", async () => {
+    const { spawner } = makeFakeSpawner((o) => {
+      writeInTarget(targetRoot, path.join(CANONICAL, "01-product.md"), "# Product\n")
+      writeFailure(o, "the agent CLI exited 1 — killed right after it wrote")
+      return { code: 1, stdout: "", stderr: "" }
+    })
+
+    const result = await runViviTurn(spawner, { message: "go" })
+
+    expect(result.wrote).toEqual([path.join(CANONICAL, "01-product.md")])
+    expect(existsSync(path.join(targetRoot, CANONICAL, "01-product.md"))).toBe(true)
+    expect(result.reply).toContain(`The file she had already written is kept: ${path.join(CANONICAL, "01-product.md")}.`)
+  })
+
+  it("does not invite a re-send once an action ran: the note names what remains in effect instead", async () => {
+    let leg = 0
+    const { spawner } = makeFakeSpawner((o) => {
+      if (!o.args.some((a) => a.endsWith("vivi-turn.ts"))) return
+      leg += 1
+      if (leg === 1) {
+        writeReply(o, replyWithActions('{"actions": [{"tool": "crs.list"}]}'))
+        return
+      }
+      writeFailure(o, "the agent CLI exited 1 — killed on the second round")
+      return { code: 1, stdout: "", stderr: "" }
+    })
+
+    const result = await runViviTurn(spawner, { message: "où en est le build ?" })
+
+    expect(result.orchestratorNote).toBe(true)
+    expect(result.actions).toHaveLength(1)
+    expect(result.reply).toBe(
+      "Vivi's turn could not run: the agent CLI exited 1 — killed on the second round. Your message is still in the thread, and 1 action already executed this turn remains in effect — say what you want next rather than sending it again, which would start the whole turn over."
+    )
+    expect(readTranscript(result.sessionId).map((t) => t.role)).toEqual(["user", "vivi", "action", "note"])
+  })
+
+  it("leaves the turn retryable: the message is untouched, the queue released, and the next turn carries both", async () => {
+    const { spawner: failing } = makeFakeSpawner((o) => {
+      writeFailure(o, `the agent CLI exited 1 — ${RESUME_FAILURE}`)
+      return { code: 1, stdout: "", stderr: "" }
+    })
+    const failed = await runViviTurn(failing, { message: "un todo app, avec des dates" })
+    expect(isViviTurnRunning(targetRoot)).toBe(false)
+
+    let seenPrompt = ""
+    const { spawner: recovered } = makeFakeSpawner((o) => {
+      seenPrompt = readFileSync(promptFileFrom(o.args), "utf8")
+      writeReply(o, "Eccoci — reprenons.")
+    })
+    const second = await runViviTurn(recovered, { sessionId: failed.sessionId, message: "vas-y" })
+
+    expect(second.orchestratorNote).toBeUndefined()
+    expect(second.reply).toBe("Eccoci — reprenons.")
+    expect(readTranscript(failed.sessionId).map((t) => t.role)).toEqual(["user", "note", "user", "vivi"])
+    expect(seenPrompt).toContain("User: un todo app, avec des dates")
+    expect(seenPrompt).toContain("Orchestrator: Vivi's turn could not run")
+  })
+})
+
 function replyWithDirective(json: string): string {
   return `Sure, I will ask the control plane to install those.\n\n\`\`\`vivicy-skills\n${json}\n\`\`\``
 }
@@ -1056,6 +1224,25 @@ describe("decision cards (server contracts)", () => {
     expect(turns.map((t) => t.role)).toEqual(["card", "user", "vivi"])
     expect(turns[0].decided?.actionId).toBe("go")
     expect(turns[1].text).toBe("I want to start a new project from scratch.")
+  })
+
+  it("vivi_message reports a turn the leg never answered instead of claiming the message landed", async () => {
+    const sessionId = appendCardTurn({
+      id: "card-9",
+      title: "Start from scratch?",
+      actions: [{ id: "go", label: "Start", action: { kind: "vivi_message", message: "I want to start from scratch." } }],
+    })
+    const { spawner } = makeFakeSpawner((o) => {
+      writeFailure(o, `the agent CLI exited 1 — ${RESUME_FAILURE}`)
+      return { code: 1, stdout: "", stderr: "" }
+    })
+
+    const result = await decideCardAction(spawner, { sessionId, cardId: "card-9", actionId: "go" })
+
+    expect(result.ok).toBe(false)
+    expect(result.summary).toContain("Vivi's turn could not run")
+    expect(result.reply?.orchestratorNote).toBe(true)
+    expect(readTranscript(sessionId).map((t) => t.role)).toEqual(["card", "user", "note"])
   })
 
   it("cr_decide records the owner decision as owner:vivi-ui (P2 — the click is the human touchpoint)", async () => {
@@ -1555,7 +1742,7 @@ describe("the auto-dispatched reading turn (importing documents IS the request)"
     expect(readTranscript(sessionId)).toHaveLength(1)
   })
 
-  it("says so in the thread when the reading turn cannot run at all, instead of leaving it silently pending", async () => {
+  it("says so in the thread as the orchestrator's own note when the reading turn cannot run at all, instead of leaving it silently pending", async () => {
     const sessionId = seedViviWelcome()
     const { spawner, calls } = makeFakeSpawner()
     rmSync(path.join(factoryRoot, "vivi-turn.ts"))
@@ -1565,9 +1752,30 @@ describe("the auto-dispatched reading turn (importing documents IS the request)"
 
     expect(viviLegRuns(calls.run)).toBe(0)
     expect(turns[1].imported?.read).toEqual({ status: "done" })
-    expect(turns[2].text).toMatch(/could not read the document I just took in/i)
-    expect(turns[2].text).toMatch(/It is safe in the kitchen — ask me to read it and I'll pick it straight up\.$/)
+    expect(turns[2].role).toBe("note")
+    expect(turns[2].text).toMatch(/^Vivi could not read the document just imported/)
+    expect(turns[2].text).toMatch(/It is safe in the kitchen — ask her to read it and she picks it straight up\.$/)
     expect(turns[2].text).toMatch(/vivi-turn\.ts/)
+  })
+
+  it("words the note for a READING turn whose leg fails: there is no message to re-send, so it says where the documents are", async () => {
+    const sessionId = seedViviWelcome()
+    const { spawner } = makeFakeSpawner((o) => {
+      writeFailure(o, `the agent CLI exited 1 — ${RESUME_FAILURE}`)
+      return { code: 1, stdout: "", stderr: "" }
+    })
+
+    await importDocsIntoSession(spawner, {
+      sessionId,
+      entries: [docEntry("a.md", IMPORT_ENGLISH), docEntry("b.md", IMPORT_ENGLISH)],
+    })
+    const turns = await settleTranscript(sessionId, 3)
+
+    expect(turns[2].role).toBe("note")
+    expect(turns[2].text).toBe(
+      `Vivi could not read the documents just imported: the agent CLI exited 1 — ${RESUME_FAILURE}. They are safe in the kitchen — ask her to read them and she picks them straight up.`
+    )
+    expect(turns[2].text).not.toContain("send it again")
   })
 
   it("serializes turns on one target so a reading turn and the owner's next message never roll each other back", async () => {
@@ -2010,7 +2218,29 @@ describe("question cards — the validated fence becomes a pile in the thread", 
     expect(reloaded.filter((t) => t.answered).map((t) => t.text)).toEqual(["How do people sign in? → Email + password"])
   })
 
-  it("tells the owner in the thread when the continuation cannot run at all", async () => {
+  it("words the note for the ANSWERS continuation when its leg fails: the answers are in the thread, and nothing is re-sendable", async () => {
+    let fail = false
+    const { spawner } = makeFakeSpawner((o) => {
+      if (fail) {
+        writeFailure(o, "the agent CLI exited 1 — killed")
+        return { code: 1, stdout: "", stderr: "" }
+      }
+      writeReply(o, replyWithQuestions(QUESTION_CARDS))
+    })
+    const { sessionId, stackId } = await stackedSession(spawner)
+    answerViviQuestion(spawner, { sessionId, stackId, questionId: "datastore", optionIndex: 0 })
+    fail = true
+    answerViviQuestion(spawner, { sessionId, stackId, questionId: "auth", optionIndex: 0 })
+    await settleDispatchedTurn()
+
+    const last = readTranscript(sessionId).at(-1)!
+    expect(last.role).toBe("note")
+    expect(last.text).toBe(
+      "Vivi could not pick up your answers: the agent CLI exited 1 — killed. They are safe in the thread — send her a message and she carries on from there."
+    )
+  })
+
+  it("tells the owner in the thread when the continuation cannot run at all — as the orchestrator's note, never in Vivi's voice", async () => {
     const { spawner } = makeFakeSpawner((o) => writeReply(o, replyWithQuestions(QUESTION_CARDS)))
     const { sessionId, stackId } = await stackedSession(spawner)
     answerViviQuestion(spawner, { sessionId, stackId, questionId: "datastore", optionIndex: 0 })
@@ -2020,8 +2250,8 @@ describe("question cards — the validated fence becomes a pile in the thread", 
     await settleDispatchedTurn()
 
     const last = readTranscript(sessionId).at(-1)!
-    expect(last.role).toBe("vivi")
-    expect(last.text).toContain("could not pick up your answers")
+    expect(last.role).toBe("note")
+    expect(last.text).toContain("Vivi could not pick up your answers")
     expect(last.text).toContain("vivi-turn.ts")
   })
 })
