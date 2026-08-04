@@ -48,8 +48,11 @@ function docxEntry(rel: string, paragraphs: string[]): RawEntry {
   return { rel, name: path.basename(rel), bytes: docx(paragraphs) }
 }
 
+// Governance runs on the server BOUND to the folder it governs: bind it here too, or every notification assertion passes by writing nowhere.
 function targetPath(name: string): string {
-  return path.join(workDir, name)
+  const target = path.join(workDir, name)
+  process.env.VIVICY_TARGET_ROOT = target
+  return target
 }
 
 function readManifest(root: string, batchId: string): BatchManifest {

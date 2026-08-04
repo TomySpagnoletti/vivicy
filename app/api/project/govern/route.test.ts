@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import type { GovernanceResult } from "@/lib/import-docs"
 
@@ -31,7 +31,7 @@ import { ScaffoldError } from "@/lib/scaffold"
 
 import { POST } from "./route"
 
-const PROJECT = { root: "/abs/new", name: "My App", hasCanonicalSpec: false }
+const PROJECT = { root: "/abs/new", name: "My App", governed: true }
 const GOVERN_ONLY: GovernanceResult = { mode: "from_scratch", project: PROJECT, batch: null }
 const WITH_DOCS: GovernanceResult = {
   mode: "from_scratch",
@@ -58,8 +58,17 @@ function postForm(fields: Record<string, string>, files: Array<{ name: string; c
   return { formData: async () => form } as unknown as Request
 }
 
+let prevTarget: string | undefined
+
 beforeEach(() => {
   vi.clearAllMocks()
+  prevTarget = process.env.VIVICY_TARGET_ROOT
+  process.env.VIVICY_TARGET_ROOT = "/abs/new"
+})
+
+afterEach(() => {
+  if (prevTarget === undefined) delete process.env.VIVICY_TARGET_ROOT
+  else process.env.VIVICY_TARGET_ROOT = prevTarget
 })
 
 describe("POST /api/project/govern", () => {
@@ -67,11 +76,15 @@ describe("POST /api/project/govern", () => {
     startGovernance.mockResolvedValue(GOVERN_ONLY)
     seedViviWelcome.mockReturnValue("session-1")
 
-    const res = await POST(postForm({ targetDir: "/abs/new", projectName: "My App" }))
+    const res = await POST(postForm({ projectName: "My App" }))
     expect(res.status).toBe(200)
     const body = await res.json()
 
-    expect(startGovernance).toHaveBeenCalledWith({ targetDir: "/abs/new", projectName: "My App", entries: [] })
+    expect(startGovernance, "the folder is the server's binding, never a form field").toHaveBeenCalledWith({
+      targetDir: "/abs/new",
+      projectName: "My App",
+      entries: [],
+    })
     expect(body).toEqual({ ok: true, project: PROJECT, mode: "from_scratch", batch: null })
     expect(seedViviWelcome).toHaveBeenCalledTimes(1)
     expect(seedViviWelcome).toHaveBeenCalledWith(null)
@@ -83,7 +96,7 @@ describe("POST /api/project/govern", () => {
     startGovernance.mockResolvedValue(WITH_DOCS)
     seedViviWelcome.mockReturnValue("session-2")
 
-    const res = await POST(postForm({ targetDir: "/abs/new" }, [{ name: "spec.md", content: "hello" }]))
+    const res = await POST(postForm({}, [{ name: "spec.md", content: "hello" }]))
     expect(res.status).toBe(200)
     const body = await res.json()
 
@@ -111,7 +124,7 @@ describe("POST /api/project/govern", () => {
         })
     )
 
-    const res = await POST(postForm({ targetDir: "/abs/new" }, [{ name: "spec.md", content: "hello" }]))
+    const res = await POST(postForm({}, [{ name: "spec.md", content: "hello" }]))
 
     expect(res.status).toBe(200)
     expect((await res.json()).batch).toEqual(WITH_DOCS.batch)
@@ -121,7 +134,7 @@ describe("POST /api/project/govern", () => {
   it("maps already_governed to 409 and never seeds the welcome", async () => {
     startGovernance.mockRejectedValue(new ImportError("already governed", "already_governed"))
 
-    const res = await POST(postForm({ targetDir: "/abs/new" }))
+    const res = await POST(postForm({}))
     expect(res.status).toBe(409)
     const body = await res.json()
     expect(body.code).toBe("already_governed")
@@ -130,13 +143,13 @@ describe("POST /api/project/govern", () => {
 
   it("only non-default statuses are mapped: templates_missing → 500, everything else typed falls through to the 400 default", async () => {
     startGovernance.mockRejectedValueOnce(new ScaffoldError("gone", "templates_missing"))
-    const res = await POST(postForm({ targetDir: "/abs" }))
+    const res = await POST(postForm({}))
     expect(res.status).toBe(500)
     expect((await res.json()).code).toBe("templates_missing")
 
     for (const code of ["not_absolute", "not_a_directory", "invalid_name"] as const) {
       startGovernance.mockRejectedValueOnce(new ScaffoldError("nope", code))
-      const fallen = await POST(postForm({ targetDir: "x" }))
+      const fallen = await POST(postForm({}))
       expect(fallen.status, code).toBe(400)
       expect((await fallen.json()).code).toBe(code)
     }
@@ -144,7 +157,7 @@ describe("POST /api/project/govern", () => {
 
   it("an unmapped typed code still answers 400 with its code — the fallback is the contract, not an accident", async () => {
     startGovernance.mockRejectedValueOnce(new ImportError("nothing usable", "no_supported_files"))
-    const res = await POST(postForm({ targetDir: "/abs" }))
+    const res = await POST(postForm({}))
     expect(res.status).toBe(400)
     expect((await res.json()).code).toBe("no_supported_files")
   })
@@ -155,15 +168,24 @@ describe("POST /api/project/govern", () => {
       throw new Error("no runtime dir")
     })
 
-    const res = await POST(postForm({ targetDir: "/abs/new", projectName: "My App" }))
+    const res = await POST(postForm({ projectName: "My App" }))
     expect(res.status).toBe(200)
     expect((await res.json()).project).toEqual(PROJECT)
+  })
+
+  it("refuses on an unbound server (422 missing_target): a launcher can never govern a folder for someone else", async () => {
+    delete process.env.VIVICY_TARGET_ROOT
+
+    const res = await POST(postForm({ projectName: "My App" }))
+    expect(res.status).toBe(422)
+    expect((await res.json()).code).toBe("missing_target")
+    expect(startGovernance).not.toHaveBeenCalled()
   })
 
   it("maps an unexpected (non-typed) error to 500 (no code)", async () => {
     startGovernance.mockRejectedValue(new Error("ENOSPC: no space left"))
 
-    const res = await POST(postForm({ targetDir: "/abs/new" }))
+    const res = await POST(postForm({}))
     expect(res.status).toBe(500)
     const body = await res.json()
     expect(body.error).toBe("ENOSPC: no space left")

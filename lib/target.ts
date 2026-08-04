@@ -1,12 +1,8 @@
 import { existsSync, readdirSync, statSync } from "node:fs"
 import path from "node:path"
 
-import { readCurrentProjectRoot } from "@/lib/project"
-
-// Persisted roots arrive realpath-canonical from project.ts; the env fallback is used verbatim, never re-resolved.
+// One server governs ONE project, bound at spawn: `VIVICY_TARGET_ROOT` is the whole resolution and no request may repoint it.
 export function getTargetRoot(): string | null {
-  const persisted = readCurrentProjectRoot()
-  if (persisted) return path.resolve(persisted)
   const fromEnv = process.env.VIVICY_TARGET_ROOT
   if (fromEnv && fromEnv.trim().length > 0) {
     return path.resolve(fromEnv)

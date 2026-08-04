@@ -21,10 +21,10 @@ import {
 } from "@/lib/managed-block"
 import { appendNotification } from "@/lib/notifications"
 import { commitDirty } from "@/lib/pathspec-commit"
-import { isGovernedRoot, setCurrentProject } from "@/lib/project"
+import { describeProject, isGovernedRoot } from "@/lib/project"
 import { PROJECT_RUNTIME_SEGMENTS } from "@/lib/project-runtime"
 import { PROOF_RECIPE_FILE, PROOFS_DIR } from "@/lib/proofs"
-import type { CurrentProject } from "@/lib/project-types"
+import type { BoundProject } from "@/lib/project-types"
 import { SKELETON_DIRS } from "@/lib/skeleton"
 
 const PROJECT_NAME_TOKEN = "{{PROJECT_NAME}}"
@@ -333,7 +333,7 @@ function initFromScratchRepo(target: string, written: string[], placeholderWritt
 }
 
 export interface ScaffoldResult {
-  project: CurrentProject
+  project: BoundProject
   mode: ScaffoldMode
   written: string[]
   git: { initialized: boolean; committed: boolean }
@@ -458,7 +458,5 @@ export function scaffoldProject(input: { targetDir: unknown; projectName: unknow
   // Must run AFTER .gitignore is written above: an ignored path is invisible to the status the commit's pathspec is read from, and only then is runtime noise unstageable.
   const gitResult = mode === "from_scratch" ? initFromScratchRepo(target, written, placeholder) : { initialized: false, committed: false }
 
-  const project = setCurrentProject(target)
-
-  return { project, mode, written: written.sort(), git: gitResult }
+  return { project: describeProject(target), mode, written: written.sort(), git: gitResult }
 }

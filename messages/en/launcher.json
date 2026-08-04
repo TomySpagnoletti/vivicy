@@ -1,0 +1,25 @@
+{
+  "heading": "Your projects",
+  "description": "One server per project, so every window stays on its own: runs, notifications and chats never cross.",
+  "browseHeading": "Open another folder",
+  "browseHint": "A repository {brandName} already governs, existing code, or a brand-new folder — governance is laid on arrival.",
+  "empty": "No project yet. Pick a folder below and {brandName} takes it from there.",
+  "status": {
+    "running": "running on port {port}",
+    "stopped": "stopped",
+    "missing": "folder missing"
+  },
+  "action": {
+    "open": "Open",
+    "openFolder": "Open this folder",
+    "focus": "Go to it",
+    "restart": "Restart this project's server",
+    "stop": "Stop this project's server",
+    "forget": "Forget this project — the folder itself is never touched"
+  },
+  "toast": {
+    "errorTitle": "Cannot open the project",
+    "networkError": "network error",
+    "httpError": "HTTP {status}"
+  }
+}

@@ -1,9 +1,6 @@
 import { expect, test, type Locator, type Page } from "./browser-issues"
 
-import { DEMO_TARGET_ROOT, LONG_TARGET_ROOT } from "../playwright.config"
-
-// Never parallelize: these tests swap the process-global current-project on disk.
-test.describe.configure({ mode: "serial" })
+// This file runs on the `long` shape alone: its server is bound to a target buried under three very long path segments, which is what makes every measurement below meaningful.
 
 const TOLERANCE = 2
 
@@ -84,26 +81,9 @@ async function expectNoPageOverflow(page: Page, label: string) {
 }
 
 test.describe("No horizontal overflow anywhere", () => {
-  // Must restore the demo target here, or the long-target switch below leaks into every later spec's run.
-  test.afterAll(async ({ request }) => {
-    const restored = await request.post("/api/project", {
-      data: { root: DEMO_TARGET_ROOT },
-    })
-    expect(restored.ok()).toBe(true)
-  })
-
-  test("demo target: map, Details, Tasks, and transcript modal all fit", async ({ page }) => {
+  test("long target: map, Details, Tasks, and transcript modal all fit", async ({ page }) => {
     await page.setViewportSize({ width: 1320, height: 820 })
     await page.goto("/")
-
-    await expect(page.locator(".react-flow__node").first()).toBeVisible({ timeout: 30_000 })
-    await expectNoPageOverflow(page, "demo map (initial)")
-
-    const switched = await page.request.post("/api/project", {
-      data: { root: LONG_TARGET_ROOT, requireGoverned: true },
-    })
-    expect(switched.ok()).toBe(true)
-    await page.reload()
 
     await expect(page.locator(".react-flow__node").first()).toBeVisible({ timeout: 30_000 })
     await expectNoPageOverflow(page, "long target: map")

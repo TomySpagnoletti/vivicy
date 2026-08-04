@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs"
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import path from "node:path"
 
@@ -14,42 +14,29 @@ import {
 
 let tmp: string
 const prevEnv = process.env.VIVICY_TARGET_ROOT
-const prevRuntime = process.env.VIVICY_RUNTIME_DIR
 
 beforeEach(() => {
   tmp = mkdtempSync(path.join(tmpdir(), "vivicy-target-"))
-  // An empty runtime dir is required: getTargetRoot() reads the persisted project out of it, so otherwise the developer's own selection decides.
-  process.env.VIVICY_RUNTIME_DIR = path.join(tmp, "runtime")
 })
 
 afterEach(() => {
   rmSync(tmp, { recursive: true, force: true })
   if (prevEnv === undefined) delete process.env.VIVICY_TARGET_ROOT
   else process.env.VIVICY_TARGET_ROOT = prevEnv
-  if (prevRuntime === undefined) delete process.env.VIVICY_RUNTIME_DIR
-  else process.env.VIVICY_RUNTIME_DIR = prevRuntime
 })
 
 describe("getTargetRoot", () => {
-  it("resolves VIVICY_TARGET_ROOT when set (verbatim spelling — env servers are single-spelling)", () => {
+  it("resolves the spawn-time binding, normalizing a dotted spelling once", () => {
     process.env.VIVICY_TARGET_ROOT = tmp
+    expect(getTargetRoot()).toBe(path.resolve(tmp))
+    process.env.VIVICY_TARGET_ROOT = path.join(tmp, "a", "..")
     expect(getTargetRoot()).toBe(path.resolve(tmp))
   })
 
-  it("returns a persisted (canonical-by-construction) root verbatim, winning over the env", () => {
-    const real = realpathSync(mkdtempSync(path.join(tmpdir(), "vivicy-target-persisted-")))
-    try {
-      mkdirSync(process.env.VIVICY_RUNTIME_DIR!, { recursive: true })
-      writeFileSync(path.join(process.env.VIVICY_RUNTIME_DIR!, "current-project.json"), JSON.stringify({ root: real }))
-      process.env.VIVICY_TARGET_ROOT = tmp
-      expect(getTargetRoot()).toBe(real)
-    } finally {
-      rmSync(real, { recursive: true, force: true })
-    }
-  })
-
-  it("is null when neither a persisted project nor VIVICY_TARGET_ROOT is set", () => {
+  it("is null when VIVICY_TARGET_ROOT is unset or blank — that process governs no project", () => {
     delete process.env.VIVICY_TARGET_ROOT
+    expect(getTargetRoot()).toBeNull()
+    process.env.VIVICY_TARGET_ROOT = "   "
     expect(getTargetRoot()).toBeNull()
   })
 })

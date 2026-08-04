@@ -1,8 +1,8 @@
 {
   "emptyState": {
     "noTarget": {
-      "title": "No project selected",
-      "body": "Vivicy needs a project whose .vivicy/canonical/ holds the canonical spec. Open Vivi (bottom-left) to set one up."
+      "title": "The canonical folder is missing",
+      "body": "Vivicy governs this folder but its .vivicy/canonical/ is gone. Restore it — that is where the canonical spec lives."
     },
     "noMap": {
       "title": "No issues extracted yet",

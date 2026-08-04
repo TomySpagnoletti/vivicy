@@ -5,6 +5,7 @@ import { LOCALE } from "@/lib/i18n"
 import common from "@/messages/en/common.json"
 import app from "@/messages/en/app.json"
 import project from "@/messages/en/project.json"
+import launcher from "@/messages/en/launcher.json"
 import map from "@/messages/en/map.json"
 import workflow from "@/messages/en/workflow.json"
 import sidebar from "@/messages/en/sidebar.json"
@@ -21,6 +22,7 @@ export default getRequestConfig(async () => ({
     common,
     app,
     project,
+    launcher,
     map,
     workflow,
     sidebar,

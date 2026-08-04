@@ -31,7 +31,6 @@ import { DecisionCard } from "@/components/chat/decision-card"
 import { MessageBubble } from "@/components/chat/message-bubble"
 import { QuestionStack, type QuestionAnswerOutcome } from "@/components/chat/question-stack"
 import { useViviPanel } from "@/components/chat/vivi-panel-context"
-import { ViviOnboarding } from "@/components/chat/vivi-onboarding"
 import { NotificationsFeed, pendingCrs, useNotificationsFeed, visibleNotifications } from "@/components/chat/vivi-notifications"
 
 type PanelTab = "chat" | "notifications"
@@ -81,19 +80,11 @@ async function fetchSessionTurns(sessionId: string): Promise<SessionSnapshot | n
   }
 }
 
-export function ViviPanel({
-  onActivity,
-  hasTarget,
-  projectRoot,
-}: {
-  onActivity?: () => void
-  hasTarget?: boolean
-  projectRoot?: string | null
-}) {
+export function ViviPanel({ onActivity }: { onActivity?: () => void }) {
   const t = useTranslations("chat")
   const tNotifications = useTranslations("notifications")
   const tErrors = useTranslations("errors")
-  const { open, openPanel, togglePanel, closePanel } = useViviPanel()
+  const { open, togglePanel, closePanel } = useViviPanel()
   const titleId = useId()
 
   const [tab, setTab] = useState<PanelTab>("chat")
@@ -112,8 +103,6 @@ export function ViviPanel({
   const closeRef = useRef<HTMLButtonElement | null>(null)
   const hydratedRef = useRef(false)
 
-  // Guard every post-await write on this epoch: it bumps on a thread-identity reset, so a stale in-flight response never lands in the new thread.
-  const epochRef = useRef(0)
   const sessionIdRef = useRef(sessionId)
   useEffect(() => {
     sessionIdRef.current = sessionId
@@ -135,26 +124,13 @@ export function ViviPanel({
   const { notifications, crs, reload: reloadFeed } = useNotificationsFeed()
   const attentionCount = visibleNotifications(notifications).length + pendingCrs(crs).length
 
-  // Sessions are per-project on the server, and the initial undefined→known transition is a resolution, not a switch.
-  const prevRootRef = useRef(projectRoot)
+  // Spend the latch on CLOSE, never on the session: turns land in the transcript from outside this panel (the empty state's import, a detached reading turn), so every OPEN re-reads the server rather than replaying what the last one happened to see.
   useEffect(() => {
-    if (prevRootRef.current === projectRoot) return
-    const prev = prevRootRef.current
-    prevRootRef.current = projectRoot
-    epochRef.current += 1
-    if (prev === undefined) return
-    hydratedRef.current = false
-    setSessionId(undefined)
-    setTurns([])
-    setSendError(null)
-    setImportNote(null)
-    // Reset these two here: the old turn's epoch-guarded finally never will, and the new project would hang "thinking".
-    setSending(false)
-    setImporting(false)
-  }, [projectRoot])
+    if (!open) hydratedRef.current = false
+  }, [open])
 
   useEffect(() => {
-    if (!open || hydratedRef.current || hasTarget === false) return
+    if (!open || hydratedRef.current) return
     let cancelled = false
     void (async () => {
       try {
@@ -181,7 +157,7 @@ export function ViviPanel({
     return () => {
       cancelled = true
     }
-  }, [open, projectRoot, hasTarget])
+  }, [open])
 
   // Focus must follow the panel: `inert` on close otherwise drops it to <body>; the close button is the fallback before the composer exists.
   const prevOpenRef = useRef(open)
@@ -190,16 +166,6 @@ export function ViviPanel({
     else if (prevOpenRef.current) bubbleRef.current?.focus()
     prevOpenRef.current = open
   }, [open])
-
-  const prevHasTargetRef = useRef(hasTarget)
-  useEffect(() => {
-    const prev = prevHasTargetRef.current
-    prevHasTargetRef.current = hasTarget
-    if (prev === false && hasTarget === true && open) {
-      setTab("chat")
-      focusComposer()
-    }
-  }, [hasTarget, open, focusComposer])
 
   const prevSendingRef = useRef(sending)
   useEffect(() => {
@@ -212,7 +178,6 @@ export function ViviPanel({
     const message = draft.trim()
     // Guard inside the action, never only at the callsite: a send racing an import with no session yet mints a SECOND server session and orphans one of the two.
     if (message.length === 0 || sending || importing) return
-    const epoch = epochRef.current
     setDraft("")
     setSendError(null)
     setImportNote(null)
@@ -234,7 +199,6 @@ export function ViviPanel({
         error?: string
         code?: string
       }
-      if (epoch !== epochRef.current) return
       if (!res.ok || body.ok === false || typeof body.reply !== "string") {
         const fallback = body.error ?? t("requestFailed", { status: res.status })
         setSendError(body.code ? errorText(tErrors, `control.${body.code}`, fallback) : fallback)
@@ -242,7 +206,6 @@ export function ViviPanel({
       }
       if (body.sessionId) setSessionId(body.sessionId)
       const restored = body.sessionId ? await fetchSessionTurns(body.sessionId) : null
-      if (epoch !== epochRef.current) return
       if (restored !== null) {
         setTurns(restored.turns)
       } else {
@@ -259,17 +222,15 @@ export function ViviPanel({
       }
       if ((body.wrote?.length ?? 0) > 0 || (body.actions?.length ?? 0) > 0) onActivity?.()
     } catch (error) {
-      if (epoch !== epochRef.current) return
       setSendError(error instanceof Error ? error.message : t("networkError"))
     } finally {
-      if (epoch === epochRef.current) setSending(false)
+      setSending(false)
     }
   }, [draft, sending, importing, sessionId, onActivity, t, tErrors])
 
   const importDocs = useCallback(
     async (files: File[]) => {
       if (files.length === 0 || importing || sending) return
-      const epoch = epochRef.current
       setImporting(true)
       setSendError(null)
       setImportNote(null)
@@ -288,7 +249,6 @@ export function ViviPanel({
           code?: string
           rejected?: { path: string }[]
         }
-        if (epoch !== epochRef.current) return
         if (!res.ok || body.ok === false) {
           const fallback = body.error ?? t("requestFailed", { status: res.status })
           setSendError(body.code ? errorTextAcrossFamilies(tErrors, ["import", "control"], body.code, fallback) : fallback)
@@ -296,7 +256,6 @@ export function ViviPanel({
         }
         if (body.sessionId) setSessionId(body.sessionId)
         const restored = body.sessionId ? await fetchSessionTurns(body.sessionId) : null
-        if (epoch !== epochRef.current) return
         if (restored !== null) setTurns(restored.turns)
         const skipped = body.rejected ?? []
         if (skipped.length > 0) {
@@ -309,10 +268,9 @@ export function ViviPanel({
         }
         onActivity?.()
       } catch (error) {
-        if (epoch !== epochRef.current) return
         setSendError(error instanceof Error ? error.message : t("networkError"))
       } finally {
-        if (epoch === epochRef.current) setImporting(false)
+        setImporting(false)
       }
     },
     [sessionId, importing, sending, onActivity, t, tErrors]
@@ -332,10 +290,9 @@ export function ViviPanel({
     (action: ViviCardAction) => {
       const cardSession = sessionId
       if (cardSession) {
-        const epoch = epochRef.current
         void (async () => {
           const restored = await fetchSessionTurns(cardSession)
-          if (epoch !== epochRef.current || sessionIdRef.current !== cardSession || restored === null) return
+          if (sessionIdRef.current !== cardSession || restored === null) return
           setTurns(restored.turns)
         })()
       }
@@ -351,18 +308,17 @@ export function ViviPanel({
   const lostTurn = lostWait !== null && lostWait === waitKey
   useEffect(() => {
     if (!awaitingReply || !sessionId || !waitKey) return
-    const epoch = epochRef.current
     let polls = 0
     const timer = setInterval(() => {
       polls += 1
       if (polls > RESUME_POLL_MAX) {
         clearInterval(timer)
-        if (epoch === epochRef.current) setLostWait(waitKey)
+        setLostWait(waitKey)
         return
       }
       void (async () => {
         const restored = await fetchSessionTurns(sessionId)
-        if (epoch !== epochRef.current || restored === null) return
+        if (restored === null) return
         if (restored.turns.length > 0 && !awaitingVivi(restored.turns)) {
           setTurns(restored.turns)
           return
@@ -381,10 +337,9 @@ export function ViviPanel({
     ({ remaining, takeFocus }: QuestionAnswerOutcome) => {
       const answerSession = sessionId
       if (!answerSession) return
-      const epoch = epochRef.current
       void (async () => {
         const restored = await fetchSessionTurns(answerSession)
-        if (epoch !== epochRef.current || sessionIdRef.current !== answerSession || restored === null) return
+        if (sessionIdRef.current !== answerSession || restored === null) return
         setTurns(restored.turns)
         if (remaining === 0 && takeFocus) focusComposer()
       })()
@@ -401,46 +356,35 @@ export function ViviPanel({
     [t, focusComposer]
   )
 
-  const onAcquired = useCallback(() => {
-    onActivity?.()
-  }, [onActivity])
-
-  const onGoverned = useCallback(() => {
-    openPanel()
-    onActivity?.()
-  }, [openPanel, onActivity])
-
   return (
     <>
-      {hasTarget !== false ? (
-        <div className="pointer-events-none fixed bottom-4 left-4 z-50">
-          <Button
-            ref={bubbleRef}
-            type="button"
-            size="icon"
-            onClick={togglePanel}
-            inert={open}
-            aria-hidden={open}
-            aria-expanded={open}
-            aria-label={t("openAriaLabel")}
-            className={cn(
-              "size-12 overflow-hidden rounded-full p-1.5 shadow-lg transition-all duration-200",
-              open ? "pointer-events-none scale-75 opacity-0" : "pointer-events-auto scale-100 opacity-100"
-            )}
+      <div className="pointer-events-none fixed bottom-4 left-4 z-50">
+        <Button
+          ref={bubbleRef}
+          type="button"
+          size="icon"
+          onClick={togglePanel}
+          inert={open}
+          aria-hidden={open}
+          aria-expanded={open}
+          aria-label={t("openAriaLabel")}
+          className={cn(
+            "size-12 overflow-hidden rounded-full p-1.5 shadow-lg transition-all duration-200",
+            open ? "pointer-events-none scale-75 opacity-0" : "pointer-events-auto scale-100 opacity-100"
+          )}
+        >
+          <ViviAvatar className="size-full" />
+        </Button>
+        {!open && attentionCount > 0 ? (
+          <Badge
+            variant="destructive"
+            aria-label={t("launcherBadgeAriaLabel", { count: attentionCount })}
+            className="pointer-events-none absolute -top-1 -right-1 h-5 min-w-5 justify-center rounded-full px-1 text-[10px]"
           >
-            <ViviAvatar className="size-full" />
-          </Button>
-          {!open && attentionCount > 0 ? (
-            <Badge
-              variant="destructive"
-              aria-label={t("launcherBadgeAriaLabel", { count: attentionCount })}
-              className="pointer-events-none absolute -top-1 -right-1 h-5 min-w-5 justify-center rounded-full px-1 text-[10px]"
-            >
-              {attentionCount > 9 ? t("launcherBadgeOverflow") : attentionCount}
-            </Badge>
-          ) : null}
-        </div>
-      ) : null}
+            {attentionCount > 9 ? t("launcherBadgeOverflow") : attentionCount}
+          </Badge>
+        ) : null}
+      </div>
 
       <aside
         role="complementary"
@@ -492,128 +436,120 @@ export function ViviPanel({
           </div>
 
           <TabsContent value="chat" className="flex min-h-0 flex-1 flex-col">
-            {hasTarget === false ? (
-              <div className="min-h-0 flex-1 overflow-y-auto">
-                <ViviOnboarding onAcquired={onAcquired} onGoverned={onGoverned} />
-              </div>
-            ) : (
-              <>
-                <MessageScrollerProvider autoScroll>
-                  <MessageScroller className="flex-1">
-                    <MessageScrollerViewport>
-                      <MessageScrollerContent className="gap-3 p-4">
-                        {threadRenderOrder(turns).map((i) => {
-                          const turn = turns[i]
-                          const remaining = turn.questions ? remainingQuestions(turn.questions, turns) : null
-                          if (remaining?.length === 0) return null
-                          return (
-                            <MessageScrollerItem key={i} messageId={String(i)}>
-                              <TurnView
-                                turn={turn}
-                                remaining={remaining}
-                                answered={readAnsweredLine(turns, turn)}
-                                sessionId={sessionId}
-                                onDecided={onCardDecided}
-                                onAnswered={onQuestionAnswered}
-                              />
-                            </MessageScrollerItem>
-                          )
-                        })}
-                        {sending || (awaitingReply && !lostTurn) ? (
-                          <MessageScrollerItem messageId="pending">
-                            <PendingMarker reading={reading} />
-                          </MessageScrollerItem>
-                        ) : null}
-                        {!sending && awaitingReply && lostTurn ? (
-                          <MessageScrollerItem messageId="lost">
-                            <Marker>
-                              <MarkerIcon>
-                                <CircleAlert />
-                              </MarkerIcon>
-                              <MarkerContent>{t(reading ? "readingLost" : "pendingLost")}</MarkerContent>
-                            </Marker>
-                          </MessageScrollerItem>
-                        ) : null}
-                        {importing ? (
-                          <MessageScrollerItem messageId="importing">
-                            <ImportingMarker />
-                          </MessageScrollerItem>
-                        ) : null}
-                        {sendError ? (
-                          <MessageScrollerItem messageId="error">
-                            <Marker className="text-destructive">
-                              <MarkerIcon>
-                                <CircleAlert />
-                              </MarkerIcon>
-                              <MarkerContent>{sendError}</MarkerContent>
-                            </Marker>
-                          </MessageScrollerItem>
-                        ) : null}
-                      </MessageScrollerContent>
-                    </MessageScrollerViewport>
-                    <MessageScrollerButton />
-                  </MessageScroller>
-                </MessageScrollerProvider>
+            <MessageScrollerProvider autoScroll>
+              <MessageScroller className="flex-1">
+                <MessageScrollerViewport>
+                  <MessageScrollerContent className="gap-3 p-4">
+                    {threadRenderOrder(turns).map((i) => {
+                      const turn = turns[i]
+                      const remaining = turn.questions ? remainingQuestions(turn.questions, turns) : null
+                      if (remaining?.length === 0) return null
+                      return (
+                        <MessageScrollerItem key={i} messageId={String(i)}>
+                          <TurnView
+                            turn={turn}
+                            remaining={remaining}
+                            answered={readAnsweredLine(turns, turn)}
+                            sessionId={sessionId}
+                            onDecided={onCardDecided}
+                            onAnswered={onQuestionAnswered}
+                          />
+                        </MessageScrollerItem>
+                      )
+                    })}
+                    {sending || (awaitingReply && !lostTurn) ? (
+                      <MessageScrollerItem messageId="pending">
+                        <PendingMarker reading={reading} />
+                      </MessageScrollerItem>
+                    ) : null}
+                    {!sending && awaitingReply && lostTurn ? (
+                      <MessageScrollerItem messageId="lost">
+                        <Marker>
+                          <MarkerIcon>
+                            <CircleAlert />
+                          </MarkerIcon>
+                          <MarkerContent>{t(reading ? "readingLost" : "pendingLost")}</MarkerContent>
+                        </Marker>
+                      </MessageScrollerItem>
+                    ) : null}
+                    {importing ? (
+                      <MessageScrollerItem messageId="importing">
+                        <ImportingMarker />
+                      </MessageScrollerItem>
+                    ) : null}
+                    {sendError ? (
+                      <MessageScrollerItem messageId="error">
+                        <Marker className="text-destructive">
+                          <MarkerIcon>
+                            <CircleAlert />
+                          </MarkerIcon>
+                          <MarkerContent>{sendError}</MarkerContent>
+                        </Marker>
+                      </MessageScrollerItem>
+                    ) : null}
+                  </MessageScrollerContent>
+                </MessageScrollerViewport>
+                <MessageScrollerButton />
+              </MessageScroller>
+            </MessageScrollerProvider>
 
-                <div className="border-t border-border p-3">
-                  <div className="relative rounded-none border border-input bg-transparent transition-colors focus-within:border-ring focus-within:ring-1 focus-within:ring-ring/50">
-                    <Textarea
-                      ref={composerRef}
-                      value={draft}
-                      onChange={(event) => setDraft(event.target.value)}
-                      onKeyDown={onKeyDown}
-                      placeholder={t("inputPlaceholder")}
-                      aria-label={t("inputAriaLabel")}
-                      className="max-h-40 resize-none border-0 bg-transparent pr-11 pl-11 focus-visible:ring-0"
-                    />
-                    <input
-                      ref={importInputRef}
-                      type="file"
-                      multiple
-                      accept={IMPORT_ACCEPT_ATTR}
-                      className="hidden"
-                      onChange={(event) => {
-                        const files = Array.from(event.target.files ?? [])
-                        event.target.value = ""
-                        if (files.length > 0) void importDocs(files)
-                      }}
-                    />
-                    <TooltipProvider>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon-sm"
-                            onClick={() => {
-                              if (importing || sending) return
-                              importInputRef.current?.click()
-                            }}
-                            aria-disabled={importing || sending}
-                            aria-label={t("attachAriaLabel")}
-                            className={cn("absolute bottom-1.5 left-1.5 text-muted-foreground", (importing || sending) && "opacity-60")}
-                          >
-                            {importing ? <Loader2 className="animate-spin" /> : <Paperclip />}
-                          </Button>
-                        </TooltipTrigger>
-                        <TooltipContent>{t("attachTooltip")}</TooltipContent>
-                      </Tooltip>
-                    </TooltipProvider>
-                    <Button
-                      type="button"
-                      size="icon-sm"
-                      onClick={() => void send()}
-                      aria-disabled={sending || importing || draft.trim().length === 0}
-                      aria-label={t("sendAriaLabel")}
-                      className={cn("absolute right-1.5 bottom-1.5", (sending || importing || draft.trim().length === 0) && "opacity-60")}
-                    >
-                      <SendHorizontal />
-                    </Button>
-                  </div>
-                  {importNote ? <p className="mt-1.5 text-xs text-muted-foreground">{importNote}</p> : null}
-                </div>
-              </>
-            )}
+            <div className="border-t border-border p-3">
+              <div className="relative rounded-none border border-input bg-transparent transition-colors focus-within:border-ring focus-within:ring-1 focus-within:ring-ring/50">
+                <Textarea
+                  ref={composerRef}
+                  value={draft}
+                  onChange={(event) => setDraft(event.target.value)}
+                  onKeyDown={onKeyDown}
+                  placeholder={t("inputPlaceholder")}
+                  aria-label={t("inputAriaLabel")}
+                  className="max-h-40 resize-none border-0 bg-transparent pr-11 pl-11 focus-visible:ring-0"
+                />
+                <input
+                  ref={importInputRef}
+                  type="file"
+                  multiple
+                  accept={IMPORT_ACCEPT_ATTR}
+                  className="hidden"
+                  onChange={(event) => {
+                    const files = Array.from(event.target.files ?? [])
+                    event.target.value = ""
+                    if (files.length > 0) void importDocs(files)
+                  }}
+                />
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon-sm"
+                        onClick={() => {
+                          if (importing || sending) return
+                          importInputRef.current?.click()
+                        }}
+                        aria-disabled={importing || sending}
+                        aria-label={t("attachAriaLabel")}
+                        className={cn("absolute bottom-1.5 left-1.5 text-muted-foreground", (importing || sending) && "opacity-60")}
+                      >
+                        {importing ? <Loader2 className="animate-spin" /> : <Paperclip />}
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>{t("attachTooltip")}</TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+                <Button
+                  type="button"
+                  size="icon-sm"
+                  onClick={() => void send()}
+                  aria-disabled={sending || importing || draft.trim().length === 0}
+                  aria-label={t("sendAriaLabel")}
+                  className={cn("absolute right-1.5 bottom-1.5", (sending || importing || draft.trim().length === 0) && "opacity-60")}
+                >
+                  <SendHorizontal />
+                </Button>
+              </div>
+              {importNote ? <p className="mt-1.5 text-xs text-muted-foreground">{importNote}</p> : null}
+            </div>
           </TabsContent>
 
           <TabsContent value="notifications" className="min-h-0 flex-1 overflow-y-auto">

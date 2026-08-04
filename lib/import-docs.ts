@@ -8,7 +8,7 @@ import { franc } from "franc-min"
 import { countForm, countOf } from "@/lib/count-form"
 import { appendNotification } from "@/lib/notifications"
 import { isGovernedRoot } from "@/lib/project"
-import type { CurrentProject } from "@/lib/project-types"
+import type { BoundProject } from "@/lib/project-types"
 import { deriveProjectName, resolveTargetDir, scaffoldProject, type ScaffoldMode } from "@/lib/scaffold"
 import { dominantLanguage } from "@/lib/dominant-language"
 import { activeCycleBinding, type BatchCycleBinding } from "@/lib/spec-cycle"
@@ -75,7 +75,7 @@ export interface BatchResult {
 
 export interface GovernanceResult {
   mode: ScaffoldMode
-  project: CurrentProject
+  project: BoundProject
   batch: BatchResult | null
 }
 

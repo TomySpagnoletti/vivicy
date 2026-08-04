@@ -22,6 +22,7 @@ import { SectionRun } from "@/components/sidebar/section-run"
 import { SectionSkills } from "@/components/sidebar/section-skills"
 import { SectionTasks } from "@/components/sidebar/section-tasks"
 import { SettingsDialog } from "@/components/sidebar/settings-dialog"
+import { useDeclareRail } from "@/hooks/use-panel-state"
 
 export function VivicySidebar({
   data,
@@ -53,6 +54,8 @@ export function VivicySidebar({
   onMapRefresh?: () => void
 }) {
   const t = useTranslations("sidebar")
+  // This component IS the rail the toast stack must clear (AGENTS.md, `components/ui/sonner.tsx`): declare it here, so a surface that renders no rail can never shift the stack off centre.
+  useDeclareRail()
   const [settings, setSettings] = useState<AgentsSettings>(DEFAULT_SETTINGS)
   useEffect(() => {
     let cancelled = false

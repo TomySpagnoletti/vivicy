@@ -1,22 +1,14 @@
-import { cpSync, existsSync, mkdirSync, realpathSync, rmSync, writeFileSync } from "node:fs"
+import { cpSync, existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
 
 const XBROWSER_SHOTS_DIR = "/tmp/vivicy-xbrowser"
 
-import {
-  DEMO_TARGET_ROOT,
-  EMPTY_TARGET_ROOT,
-  LONG_TARGET_ROOT,
-  MACHINE_HOME,
-  onboardScaffoldParent,
-  ONBOARD_TARGET_ROOT,
-  RUNTIME_DIR,
-} from "../playwright.config"
+import { DEMO_TARGET_ROOT, EMPTY_TARGET_ROOT, LONG_TARGET_ROOT, MACHINE_HOME, ONBOARD_TARGET_ROOT, RUNTIME_DIR } from "../playwright.config"
 
 // Must stay in lock-step with playwright.config's BROWSERS list.
 const BROWSER_KEYS = ["chromium-desktop", "chromium-mobile", "firefox-desktop", "webkit-desktop"] as const
-const SHAPES = ["demo", "empty", "onboarding"] as const
+const SHAPES = ["demo", "empty", "onboarding", "long"] as const
 
 const DEMO_FIXTURE_ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "fixtures", "demo-target")
 
@@ -39,8 +31,12 @@ export default function globalSetup() {
   mkdirSync(emptyCanonicalDir, { recursive: true })
   writeFileSync(path.join(emptyCanonicalDir, "01-overview.md"), "# Overview\n\nA canonical spec with no architecture map generated yet.\n")
 
-  rmSync(ONBOARD_TARGET_ROOT, { recursive: true, force: true })
-  mkdirSync(ONBOARD_TARGET_ROOT, { recursive: true })
+  // One ungoverned folder per browser: a server IS the folder it was started on, and the onboarding spec governs that folder in place.
+  for (const browserKey of BROWSER_KEYS) {
+    const target = ONBOARD_TARGET_ROOT(browserKey)
+    rmSync(target, { recursive: true, force: true })
+    mkdirSync(target, { recursive: true })
+  }
 
   const longRoot = "/tmp/vivicy-long"
   rmSync(longRoot, { recursive: true, force: true })
@@ -54,18 +50,5 @@ export default function globalSetup() {
       rmSync(RUNTIME_DIR(shape, browserKey), { recursive: true, force: true })
       rmSync(MACHINE_HOME(shape, browserKey), { recursive: true, force: true })
     }
-  }
-
-  // Seed a current project for demo alone: /api/project never falls back to VIVICY_TARGET_ROOT, and empty/onboarding must reach no_map/no_target through the env target.
-  const demoRoot = realpathSync(DEMO_TARGET_ROOT)
-  for (const browserKey of BROWSER_KEYS) {
-    const runtimeDir = RUNTIME_DIR("demo", browserKey)
-    mkdirSync(runtimeDir, { recursive: true })
-    writeFileSync(path.join(runtimeDir, "current-project.json"), `${JSON.stringify({ root: demoRoot }, null, 2)}\n`)
-  }
-  for (const browserKey of BROWSER_KEYS) {
-    const parent = onboardScaffoldParent(browserKey)
-    rmSync(parent, { recursive: true, force: true })
-    mkdirSync(parent, { recursive: true })
   }
 }

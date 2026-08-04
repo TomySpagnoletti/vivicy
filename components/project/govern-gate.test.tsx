@@ -3,36 +3,26 @@ import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest"
 import { toast } from "sonner"
 
-import { StartGovernanceForm } from "@/components/project/start-governance-form"
+import type { BoundProject } from "@/lib/project-types"
+import { GovernGate } from "@/components/project/govern-gate"
 import { renderWithIntl } from "@/test/render"
 
 vi.mock("sonner", () => ({
   toast: { error: vi.fn(), success: vi.fn(), warning: vi.fn(), message: vi.fn() },
 }))
 
-const LISTING = {
-  ok: true,
-  path: "/home/dev/target",
-  parent: "/home/dev",
-  crumbs: [
-    { label: "/", path: "/" },
-    { label: "home", path: "/home" },
-    { label: "dev", path: "/home/dev" },
-    { label: "target", path: "/home/dev/target" },
-  ],
-  entries: [],
-}
+const BOUND: BoundProject = { root: "/home/dev/target", name: "target", governed: false }
+const GOVERNED: BoundProject = { root: "/home/dev/target", name: "target", governed: true }
 
-const PROJECT = { root: "/home/dev/target", name: "target", hasCanonicalSpec: false }
+const reload = vi.fn()
 
 function stubFetch(governResponse?: { body: unknown; status?: number }) {
   return vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input)
     void init
 
-    if (url.includes("/api/fs/list")) return json(LISTING)
     if (url.includes("/api/project/govern")) {
-      const r = governResponse ?? { body: { ok: true, project: PROJECT, mode: "from_scratch", batch: null } }
+      const r = governResponse ?? { body: { ok: true, project: GOVERNED, mode: "from_scratch", batch: null } }
       return json(r.body, r.status)
     }
     return json({ ok: true })
@@ -51,25 +41,33 @@ function fileInput(container: HTMLElement): HTMLInputElement {
 
 const md = (name = "spec.md") => new File(["# Product spec\nHello."], name, { type: "text/markdown" })
 
+function deferred(): { promise: Promise<void>; resolve: () => void } {
+  let resolve: () => void = () => {}
+  const promise = new Promise<void>((r) => {
+    resolve = r
+  })
+  return { promise, resolve }
+}
+
 beforeEach(() => {
   vi.mocked(toast.error).mockReset()
   vi.mocked(toast.success).mockReset()
+  reload.mockReset()
+  Object.defineProperty(window, "location", { configurable: true, value: { reload } })
 })
 afterEach(() => {
   vi.unstubAllGlobals()
 })
 
-describe("StartGovernanceForm — one flow, docs optional", () => {
-  test("govern-only: the browsed folder governs with zero docs and reports the project up", async () => {
+describe("GovernGate — the bound folder governs itself, docs optional", () => {
+  test("govern-only: it posts NO folder (the binding is the folder) and reloads into the workspace", async () => {
     const fetchMock = stubFetch()
     vi.stubGlobal("fetch", fetchMock)
-    const onGoverned = vi.fn()
     const user = userEvent.setup()
-    renderWithIntl(<StartGovernanceForm active onGoverned={onGoverned} />)
+    renderWithIntl(<GovernGate project={BOUND} />)
 
-    const submit = screen.getByRole("button", { name: "Start governance" })
-    await waitFor(() => expect(submit).toBeEnabled())
-    await user.click(submit)
+    expect(screen.getByText("/home/dev/target")).toBeInTheDocument()
+    await user.click(screen.getByRole("button", { name: "Start governance" }))
 
     await waitFor(() => {
       const post = fetchMock.mock.calls.find(
@@ -77,38 +75,33 @@ describe("StartGovernanceForm — one flow, docs optional", () => {
       )
       expect(post).toBeDefined()
       const form = (post?.[1] as RequestInit).body as FormData
-      expect(form.get("targetDir")).toBe("/home/dev/target")
+      expect(form.get("targetDir"), "the folder is the server's binding, never a field the browser can choose").toBeNull()
       expect(form.get("projectName")).toBeNull()
       expect(form.getAll("files")).toEqual([])
     })
-    await waitFor(() => expect(onGoverned).toHaveBeenCalledWith(PROJECT))
     expect(vi.mocked(toast.success)).toHaveBeenCalledWith(
       "Governance laid",
-      expect.objectContaining({
-        description: "Your project is ready at /home/dev/target. Talk to Vivi to get grilled.",
-      })
+      expect.objectContaining({ description: "Your project is ready. Talk to Vivi to get grilled." })
     )
+    await waitFor(() => expect(reload).toHaveBeenCalled())
   })
 
   test("with docs: the CTA reflects the count, files are uploaded, and the imported toast names the language", async () => {
     const fetchMock = stubFetch({
       body: {
         ok: true,
-        project: PROJECT,
+        project: GOVERNED,
         mode: "from_scratch",
         batch: { batchId: "b", language: "fra", accepted: [{ path: "spec.md" }], rejected: [] },
       },
     })
     vi.stubGlobal("fetch", fetchMock)
-    const onGoverned = vi.fn()
     const user = userEvent.setup()
-    const { container } = renderWithIntl(<StartGovernanceForm active onGoverned={onGoverned} />)
+    const { container } = renderWithIntl(<GovernGate project={BOUND} />)
 
     await user.upload(fileInput(container), md())
 
-    const submit = await screen.findByRole("button", { name: /Govern & import 1 document/ })
-    await waitFor(() => expect(submit).toBeEnabled())
-    await user.click(submit)
+    await user.click(await screen.findByRole("button", { name: /Govern & import 1 document/ }))
 
     await waitFor(() => {
       const post = fetchMock.mock.calls.find(
@@ -118,7 +111,6 @@ describe("StartGovernanceForm — one flow, docs optional", () => {
       expect(form.getAll("files")).toHaveLength(1)
       expect(form.getAll("paths")).toEqual(["spec.md"])
     })
-    await waitFor(() => expect(onGoverned).toHaveBeenCalledWith(PROJECT))
     expect(vi.mocked(toast.success)).toHaveBeenCalledWith(
       "Governance laid — docs in the kitchen",
       expect.objectContaining({ description: "1 document imported. Detected French." })
@@ -129,12 +121,10 @@ describe("StartGovernanceForm — one flow, docs optional", () => {
     const fetchMock = stubFetch()
     vi.stubGlobal("fetch", fetchMock)
     const user = userEvent.setup()
-    renderWithIntl(<StartGovernanceForm active onGoverned={vi.fn()} />)
+    renderWithIntl(<GovernGate project={BOUND} />)
 
     await user.type(screen.getByLabelText(/Project name/), "Billing API")
-    const submit = screen.getByRole("button", { name: "Start governance" })
-    await waitFor(() => expect(submit).toBeEnabled())
-    await user.click(submit)
+    await user.click(screen.getByRole("button", { name: "Start governance" }))
 
     await waitFor(() => {
       const post = fetchMock.mock.calls.find(
@@ -145,7 +135,7 @@ describe("StartGovernanceForm — one flow, docs optional", () => {
     })
   })
 
-  test("an already-governed refusal keeps the screen and never reports up", async () => {
+  test("an already-governed refusal keeps the screen, reloads nothing, and re-arms the button", async () => {
     vi.stubGlobal(
       "fetch",
       stubFetch({
@@ -153,13 +143,10 @@ describe("StartGovernanceForm — one flow, docs optional", () => {
         body: { ok: false, error: "already governed", code: "already_governed" },
       })
     )
-    const onGoverned = vi.fn()
     const user = userEvent.setup()
-    renderWithIntl(<StartGovernanceForm active onGoverned={onGoverned} />)
+    renderWithIntl(<GovernGate project={BOUND} />)
 
-    const submit = screen.getByRole("button", { name: "Start governance" })
-    await waitFor(() => expect(submit).toBeEnabled())
-    await user.click(submit)
+    await user.click(screen.getByRole("button", { name: "Start governance" }))
 
     await waitFor(() =>
       expect(vi.mocked(toast.error)).toHaveBeenCalledWith(
@@ -169,14 +156,40 @@ describe("StartGovernanceForm — one flow, docs optional", () => {
         })
       )
     )
-    expect(onGoverned).not.toHaveBeenCalled()
-    expect(screen.getByRole("button", { name: "Start governance" })).toBeInTheDocument()
+    expect(reload).not.toHaveBeenCalled()
+    await waitFor(() => expect(screen.getByRole("button", { name: "Start governance" })).toHaveAttribute("aria-disabled", "false"))
   })
 
-  test("the project-name placeholder previews the browsed folder basename", async () => {
-    vi.stubGlobal("fetch", stubFetch())
-    renderWithIntl(<StartGovernanceForm active onGoverned={vi.fn()} />)
+  test("the in-flight CTA stays in the a11y tree as aria-disabled and fires exactly one govern POST", async () => {
+    const gate = deferred()
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input).includes("/api/project/govern")) {
+        await gate.promise
+        return json({ ok: true, project: GOVERNED, mode: "from_scratch", batch: null })
+      }
+      return json({ ok: true })
+    })
+    vi.stubGlobal("fetch", fetchMock)
+    const user = userEvent.setup()
+    renderWithIntl(<GovernGate project={BOUND} />)
 
-    await waitFor(() => expect(screen.getByLabelText(/Project name/)).toHaveAttribute("placeholder", "target"))
+    const submit = screen.getByRole("button", { name: "Start governance" })
+    await user.click(submit)
+
+    const inFlight = screen.getByRole("button", { name: "Laying governance…" })
+    expect(inFlight, "never the native disabled attribute — it drops keyboard focus to <body>").not.toHaveAttribute("disabled")
+    expect(inFlight).toHaveAttribute("aria-disabled", "true")
+    await user.click(inFlight)
+
+    gate.resolve()
+    await waitFor(() => expect(reload).toHaveBeenCalled())
+    expect(fetchMock.mock.calls.filter((c) => String(c[0]).includes("/api/project/govern"))).toHaveLength(1)
+  })
+
+  test("the project-name placeholder previews the bound folder's basename", () => {
+    vi.stubGlobal("fetch", stubFetch())
+    renderWithIntl(<GovernGate project={BOUND} />)
+
+    expect(screen.getByLabelText(/Project name/)).toHaveAttribute("placeholder", "target")
   })
 })

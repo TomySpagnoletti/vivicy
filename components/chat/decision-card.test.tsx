@@ -291,7 +291,7 @@ describe("DecisionCard — import_docs (native file picker)", () => {
     await user.upload(fileInput(), [new File(["# brief"], "brief.md", { type: "text/markdown" })])
 
     expect(await screen.findByText("unknown card welcome-import-docs")).toBeInTheDocument()
-    expect(screen.queryByText("no project selected — choose a target project first")).toBeNull()
+    expect(screen.queryByText("this server governs no project, or its folder is gone — open the project from the launcher")).toBeNull()
   })
 })
 

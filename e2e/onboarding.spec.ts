@@ -1,86 +1,46 @@
-import { rmSync } from "node:fs"
-import path from "node:path"
+import { mkdirSync, rmSync } from "node:fs"
 
 import { expect, test } from "./browser-issues"
 
-import { onboardScaffoldParent, RUNTIME_DIR } from "../playwright.config"
+import { ONBOARD_TARGET_ROOT } from "../playwright.config"
 
-// Never parallelize and never share one scaffold parent across browsers: the scaffold test persists a current-project into this server's runtime dir.
+// Serial and never shared: each browser's server governs its OWN folder, and this file governs it exactly once.
 test.describe.configure({ mode: "serial" })
 
-function browserKeyFor(projectName: string): string {
-  return projectName.replace(/^onboarding-/, "")
-}
-
-function scaffoldTargetFor(projectName: string): string {
-  return path.join(onboardScaffoldParent(browserKeyFor(projectName)), "e2e-scaffolded")
-}
-
-test.describe("Vivicy onboarding (panel-hosted)", () => {
-  // A serial-mode retry re-runs the whole group, so a leftover current-project.json would boot it into the scaffolded state instead of no_target.
-  test.beforeEach(async ({}, testInfo) => {
-    rmSync(path.join(RUNTIME_DIR("onboarding", browserKeyFor(testInfo.project.name)), "current-project.json"), {
-      force: true,
-    })
+test.describe("Vivicy onboarding (the server's own folder governs itself)", () => {
+  // A serial-mode retry re-runs the WHOLE group, so the folder test 2 governed would boot test 1 into the workspace instead of the gate. Restore the pristine ungoverned folder before every attempt; the binding is env-fixed, so nothing else has to move.
+  test.beforeAll(({}, testInfo) => {
+    const target = ONBOARD_TARGET_ROOT(testInfo.project.name.replace(/^onboarding-/, ""))
+    rmSync(target, { recursive: true, force: true })
+    mkdirSync(target, { recursive: true })
   })
 
-  test("no_target keeps the Vivi panel closed until the empty-state CTA opens the start choices", async ({ page }, testInfo) => {
+  test("an ungoverned binding lands on the govern gate — no folder to pick, no Vivi yet", async ({ page }, testInfo) => {
     await page.goto("/")
 
-    await expect(page.getByText(/turns your spec into working software/)).toBeVisible({
-      timeout: 30_000,
-    })
-
-    await expect(page.getByRole("heading", { name: "Start a project" })).toHaveCount(0)
-
+    const gate = page.locator('[data-empty-reason="not_governed"]')
+    await expect(gate).toBeVisible({ timeout: 30_000 })
+    await expect(gate.getByRole("heading", { name: "Set up this project" })).toBeVisible()
+    await expect(gate.getByText("/tmp/vivicy-onboard-target-")).toBeVisible()
+    await expect(page.getByLabel("Current path")).toHaveCount(0)
     await expect(page.getByRole("button", { name: "Open Vivi" })).toHaveCount(0)
-
-    await page.locator('[data-empty-reason="no_target"]').getByRole("button", { name: "Talk to Vivi" }).click()
-
-    await expect(page.getByRole("heading", { name: "Start a project" })).toBeVisible()
-    await expect(page.getByRole("button", { name: /Open a governed project/i })).toBeVisible()
-    await expect(page.getByRole("button", { name: /Start governance/i })).toBeVisible()
-    await expect(page.getByRole("button", { name: /Import documents/i })).toHaveCount(0)
-
     await expect(page.getByLabel("Message Vivi")).toHaveCount(0)
 
-    // This capture must stay in the first test of this serial file: the next one mutates current-project.json.
     await page.waitForTimeout(300)
     await page.screenshot({
       path: `/tmp/vivicy-xbrowser/06-onboarding--${testInfo.project.name}.png`,
     })
   })
 
-  test("start governance (docs optional) creates a new project and lands on the empty-canonical map state", async ({ page }, testInfo) => {
-    const scaffoldTarget = scaffoldTargetFor(testInfo.project.name)
+  test("start governance (docs optional) governs the bound folder and lands on the empty-canonical map state", async ({ page }) => {
     const pageErrors: string[] = []
     page.on("pageerror", (err) => pageErrors.push(err.message))
 
     await page.goto("/")
-    await expect(page.getByText(/turns your spec into working software/)).toBeVisible({
-      timeout: 30_000,
-    })
-    await page.locator('[data-empty-reason="no_target"]').getByRole("button", { name: "Talk to Vivi" }).click()
-    await expect(page.getByRole("button", { name: /Start governance/i })).toBeVisible()
-
-    await page.getByRole("button", { name: /Start governance/i }).click()
-
-    const parentSegments = path.dirname(scaffoldTarget).split("/").filter(Boolean)
-    await page.getByLabel("Current path").getByRole("button", { name: "/" }).click()
-    const folders = page.getByRole("group", { name: "Folders" })
-    for (const segment of parentSegments) {
-      const row = folders.getByRole("button", { name: segment, exact: true })
-      await expect(row).toBeVisible({ timeout: 15_000 })
-      await row.click()
-    }
-    await page.getByRole("button", { name: "New folder", exact: true }).click()
-    await page.getByLabel("New folder name").fill(path.basename(scaffoldTarget))
-    await page.getByRole("button", { name: "Create", exact: true }).click()
+    await expect(page.locator('[data-empty-reason="not_governed"]')).toBeVisible({ timeout: 30_000 })
 
     await page.getByRole("button", { name: "Start governance", exact: true }).click()
-    await expect(page.getByText(/Governance laid/i).first()).toBeVisible({
-      timeout: 30_000,
-    })
+    await expect(page.getByText(/Governance laid/i).first()).toBeVisible({ timeout: 30_000 })
 
     const canonicalHint = page.locator('[data-empty-reason="empty_canonical"]')
     await expect(canonicalHint).toBeVisible({ timeout: 30_000 })

@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useSyncExternalStore } from "react"
+import { useCallback, useEffect, useSyncExternalStore } from "react"
 
 export type PanelState = "peek" | "wide" | "closed"
 
@@ -75,6 +75,47 @@ function setPanelState(next: PanelState): void {
 
 export function __resetPanelStateStoreForTests(): void {
   snapshot = null
+  mountedRails = 0
+  railSnapshot = false
+}
+
+// The rail is mounted by ONE surface (the workspace's ready state) while the toaster lives in the root layout above every surface: presence, not the persisted panel state, is what may push the stack off centre — a launcher or a govern gate has no rail to clear.
+let mountedRails = 0
+let railSnapshot = false
+const railListeners = new Set<() => void>()
+
+function publishRail(): void {
+  const next = mountedRails > 0
+  if (next === railSnapshot) return
+  railSnapshot = next
+  for (const listener of railListeners) listener()
+}
+
+function subscribeRail(listener: () => void): () => void {
+  railListeners.add(listener)
+  return () => {
+    railListeners.delete(listener)
+  }
+}
+
+// Declared by the rail itself, so a surface that renders no rail can never claim one.
+export function useDeclareRail(): void {
+  useEffect(() => {
+    mountedRails += 1
+    publishRail()
+    return () => {
+      mountedRails -= 1
+      publishRail()
+    }
+  }, [])
+}
+
+export function useRailPresent(): boolean {
+  return useSyncExternalStore(
+    subscribeRail,
+    () => railSnapshot,
+    () => false
+  )
 }
 
 export function usePanelState() {

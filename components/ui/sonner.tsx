@@ -3,7 +3,7 @@
 import { Toaster as Sonner, type ToasterProps } from "sonner"
 import { CircleCheckIcon, InfoIcon, TriangleAlertIcon, OctagonXIcon, Loader2Icon } from "lucide-react"
 
-import { usePanelState } from "@/hooks/use-panel-state"
+import { usePanelState, useRailPresent } from "@/hooks/use-panel-state"
 
 const VARIANT_TOKENS = {
   success: "--success",
@@ -22,6 +22,7 @@ const variantColorVars = Object.fromEntries(
 
 const Toaster = ({ ...props }: ToasterProps) => {
   const panel = usePanelState()
+  const rail = useRailPresent()
   return (
     <Sonner
       theme="light"
@@ -40,7 +41,7 @@ const Toaster = ({ ...props }: ToasterProps) => {
       }}
       style={
         {
-          "--vivicy-panel-width": panel.open ? panel.width : "0px",
+          "--vivicy-panel-width": rail && panel.open ? panel.width : "0px",
           // Keep this inline: sonner injects its own stylesheet at runtime and a utility class does not reliably beat it.
           "--width": "min(356px, calc(100vw - var(--vivicy-rail) - 6rem))",
           translate: "calc(var(--vivicy-rail) * -0.5)",

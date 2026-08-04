@@ -1,41 +1,8 @@
 {
-  "onboardingEmptyState": {
-    "description": "{brandName} turns your spec into working software — built and reviewed live on a map. Vivi sets up your project to begin.",
-    "talkToVivi": "Talk to Vivi"
-  },
-  "viviOnboarding": {
-    "heading": "Start a project",
-    "back": "Back",
-    "choices": {
-      "open": {
-        "title": "Open a governed project",
-        "description": "Reopen a repository {brandName} already governs."
-      },
-      "govern": {
-        "title": "Start governance",
-        "description": "Point {brandName} at a folder — new, empty, or existing code. Docs optional; Vivi takes it from there."
-      }
-    }
-  },
-  "openProject": {
-    "selectFolder": {
-      "selecting": "Selecting…",
-      "idle": "Select this folder"
-    },
-    "toast": {
-      "selectErrorTitle": "Cannot select project",
-      "selectedTitle": "Project selected",
-      "selectedNoSpec": "{root} (no docs/ — extract has no spec to read yet)",
-      "networkError": "network error",
-      "httpError": "HTTP {status}"
-    }
-  },
-  "startGovernance": {
-    "targetLabel": "Folder to govern",
-    "targetHint": "Point {brandName} at an empty folder, a new one, or existing code — it governs the folder in place and never overwrites your files.",
-    "targetPreview": "Governs <target>{targetDir}</target>",
+  "governGate": {
+    "heading": "Set up this project",
+    "description": "{brandName} governs this folder in place — nothing of yours is overwritten. Give it a name and hand over any documents you already have.",
     "nameLabel": "Project name",
-    "namePlaceholder": "Named after the folder",
     "optional": "optional",
     "docsLabel": "Documents",
     "docsHint": "Got a brief, notes, a spec, a PDF? Add them and Vivi brings them into the kitchen. Or start empty and build the spec together.",
@@ -47,7 +14,7 @@
     "toast": {
       "errorTitle": "Cannot start governance",
       "governedTitle": "Governance laid",
-      "governedDescription": "Your project is ready at {root}. Talk to Vivi to get grilled.",
+      "governedDescription": "Your project is ready. Talk to Vivi to get grilled.",
       "importedTitle": "Governance laid — docs in the kitchen",
       "importedCount": "{count, plural, one {# document} other {# documents}} imported.",
       "importedLang": "Detected {language}.",
@@ -75,16 +42,7 @@
   },
   "importDocsDialog": {
     "title": "Import your docs",
-    "description": "Add the spec docs you already have. {brandName} stores them under <code>.vivicy/uploads/</code> in the folder you choose and prepares them when the workflow runs — nothing is rewritten, nothing is overwritten.",
-    "step1": {
-      "label": "Add your documents"
-    },
-    "step2": {
-      "label": "Choose the working folder",
-      "hint": "Pick an empty folder, an existing repository, or create a new one — {brandName} will govern it.",
-      "lockedHint": "Add at least one document above to choose where it lands.",
-      "targetPreview": "Imports into <target>{targetDir}</target>"
-    },
+    "description": "Add the spec docs you already have. {brandName} stores them under <code>.vivicy/uploads/</code> in this project and Vivi reads them into the conversation — nothing is rewritten, nothing is overwritten.",
     "submit": {
       "idle": "Import documents",
       "importing": "Importing…"

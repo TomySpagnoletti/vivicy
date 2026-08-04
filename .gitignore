@@ -13,9 +13,6 @@ node_modules
 /test-results
 /playwright-report
 
-# vivicy control-plane runtime (supervisor logs + run-state lock)
-/.vivicy-runtime
-
 # vivicy parallel dev-loop worktrees (one git worktree per concurrently-running
 # issue; created + removed by the loop, never committed)
 /.vivicy-worktrees

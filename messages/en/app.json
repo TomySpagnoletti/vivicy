@@ -13,5 +13,9 @@
     "failedNetworkDescription": "network error",
     "completeTitle": "Extraction complete"
   },
-  "agentsWarningTitle": "Agent setup incomplete"
+  "agentsWarningTitle": "Agent setup incomplete",
+  "missingRoot": {
+    "title": "This project's folder is gone",
+    "body": "The server was started on a folder that no longer exists. Stop it from the launcher, or restore the folder and restart it."
+  }
 }

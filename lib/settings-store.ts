@@ -1,8 +1,8 @@
 import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs"
-import { homedir } from "node:os"
 import path from "node:path"
 
 import { replaceFileAtomically } from "@/lib/managed-block"
+import { vivicyHome } from "@/lib/vivicy-home"
 import {
   DEFAULT_SETTINGS,
   mergeSettingsLayers,
@@ -16,14 +16,11 @@ import {
 
 // Never move this fs I/O into ./settings: that module must stay node:fs-free for the client bundle.
 const SETTINGS_FILE = "settings.json"
-const MACHINE_DIR_NAME = ".vivicy"
 
 const PROJECT_SETTINGS_SEGMENTS = [".vivicy", SETTINGS_FILE] as const
 
 export function machineSettingsPath(): string {
-  const override = process.env.VIVICY_HOME
-  const home = override && override.trim().length > 0 ? path.resolve(override) : path.join(homedir(), MACHINE_DIR_NAME)
-  return path.join(home, SETTINGS_FILE)
+  return path.join(vivicyHome(), SETTINGS_FILE)
 }
 
 export function projectSettingsPath(targetRoot: string): string {

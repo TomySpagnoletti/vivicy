@@ -1,31 +1,29 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import path from "node:path"
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 
-import {
-  describeProject,
-  getCurrentProject,
-  getCurrentProjectPath,
-  ProjectError,
-  readCurrentProjectRoot,
-  setCurrentProject,
-} from "@/lib/project"
+import { describeProject, isGovernedRoot, ProjectError, readProjectBinding } from "@/lib/project"
 
 let tmpCwd: string
 let projectDir: string
 let prevCwd: string
+let prevTarget: string | undefined
 
 beforeEach(() => {
   tmpCwd = mkdtempSync(path.join(tmpdir(), "vivicy-project-cwd-"))
   projectDir = realpathSync(mkdtempSync(path.join(tmpdir(), "vivicy-project-target-")))
   prevCwd = process.cwd()
+  prevTarget = process.env.VIVICY_TARGET_ROOT
+  delete process.env.VIVICY_TARGET_ROOT
   process.chdir(tmpCwd)
 })
 
 afterEach(() => {
   process.chdir(prevCwd)
+  if (prevTarget === undefined) delete process.env.VIVICY_TARGET_ROOT
+  else process.env.VIVICY_TARGET_ROOT = prevTarget
   rmSync(tmpCwd, { recursive: true, force: true })
   rmSync(projectDir, { recursive: true, force: true })
 })
@@ -61,23 +59,24 @@ describe("describeProject (validation)", () => {
     }
   })
 
-  it("describes a valid directory and flags hasCanonicalSpec=false without docs/", () => {
+  it("describes a valid directory and flags governed=false without a .vivicy directory", () => {
     const described = describeProject(projectDir)
     expect(described.root).toBe(projectDir)
     expect(described.name).toBe(path.basename(projectDir))
-    expect(described.hasCanonicalSpec).toBe(false)
+    expect(described.governed).toBe(false)
+    expect(isGovernedRoot(projectDir)).toBe(false)
   })
 
-  it("flags hasCanonicalSpec=true when the directory holds a .vivicy/canonical/ directory", () => {
-    mkdirSync(path.join(projectDir, ".vivicy", "canonical"), { recursive: true })
-    expect(describeProject(projectDir).hasCanonicalSpec).toBe(true)
+  it("flags governed=true when the directory holds a .vivicy/ directory", () => {
+    mkdirSync(path.join(projectDir, ".vivicy"), { recursive: true })
+    expect(describeProject(projectDir).governed).toBe(true)
   })
 
   it("trims surrounding whitespace before validating", () => {
     expect(describeProject(`  ${projectDir}  `).root).toBe(projectDir)
   })
 
-  it("canonicalizes a symlink-spelled root to ONE spelling (the per-project runtime key hashes it)", () => {
+  it("canonicalizes a symlink-spelled root to ONE spelling (the registry keys a project by it)", () => {
     const alias = path.join(tmpCwd, "alias-root")
     symlinkSync(projectDir, alias)
     const described = describeProject(alias)
@@ -86,68 +85,32 @@ describe("describeProject (validation)", () => {
   })
 })
 
-describe("setCurrentProject / readCurrentProjectRoot / getCurrentProject", () => {
-  it("persists a valid project and reads it back", () => {
-    const described = setCurrentProject(projectDir)
-    expect(described.root).toBe(projectDir)
-    expect(existsSync(getCurrentProjectPath())).toBe(true)
-    expect(readCurrentProjectRoot()).toBe(projectDir)
-    expect(getCurrentProject()?.root).toBe(projectDir)
+describe("readProjectBinding", () => {
+  it("is unbound with no VIVICY_TARGET_ROOT — that process is the launcher", () => {
+    expect(readProjectBinding()).toEqual({ kind: "unbound" })
   })
 
-  it("only writes the root key (never the raw request body) to disk", () => {
-    setCurrentProject(projectDir)
-    const onDisk = JSON.parse(readFileSync(getCurrentProjectPath(), "utf8"))
-    expect(Object.keys(onDisk)).toEqual(["root"])
-    expect(onDisk.root).toBe(projectDir)
+  it("is unbound for a blank binding rather than resolving the cwd", () => {
+    process.env.VIVICY_TARGET_ROOT = "   "
+    expect(readProjectBinding()).toEqual({ kind: "unbound" })
   })
 
-  it("does not persist when validation fails", () => {
-    expect(() => setCurrentProject("relative")).toThrow(ProjectError)
-    expect(existsSync(getCurrentProjectPath())).toBe(false)
-  })
-
-  it("returns null when nothing is persisted", () => {
-    expect(readCurrentProjectRoot()).toBe(null)
-    expect(getCurrentProject()).toBe(null)
-  })
-
-  it("returns null from getCurrentProject when the persisted path went stale", () => {
-    setCurrentProject(projectDir)
-    rmSync(projectDir, { recursive: true, force: true })
-    expect(readCurrentProjectRoot()).toBe(projectDir)
-    expect(getCurrentProject()).toBe(null)
-  })
-
-  it("returns null from readCurrentProjectRoot when the file is corrupt", () => {
-    mkdirSync(path.dirname(getCurrentProjectPath()), { recursive: true })
-    writeFileSync(getCurrentProjectPath(), "{ not json")
-    expect(readCurrentProjectRoot()).toBe(null)
-  })
-})
-
-describe("setCurrentProject governance gate (requireGoverned)", () => {
-  it("rejects a folder with no .vivicy directory (not_governed) without persisting", () => {
-    try {
-      setCurrentProject(projectDir, { requireGoverned: true })
-      expect.unreachable("should have thrown")
-    } catch (error) {
-      expect(error).toBeInstanceOf(ProjectError)
-      expect((error as ProjectError).code).toBe("not_governed")
-    }
-    expect(existsSync(getCurrentProjectPath())).toBe(false)
-  })
-
-  it("accepts a folder that holds a .vivicy directory and persists it", () => {
+  it("binds to the spawn-time root and reports whether it is governed", () => {
+    process.env.VIVICY_TARGET_ROOT = projectDir
+    expect(readProjectBinding()).toEqual({
+      kind: "bound",
+      project: { root: projectDir, name: path.basename(projectDir), governed: false },
+    })
     mkdirSync(path.join(projectDir, ".vivicy"), { recursive: true })
-    const described = setCurrentProject(projectDir, { requireGoverned: true })
-    expect(described.root).toBe(projectDir)
-    expect(readCurrentProjectRoot()).toBe(projectDir)
+    expect(readProjectBinding()).toEqual({
+      kind: "bound",
+      project: { root: projectDir, name: path.basename(projectDir), governed: true },
+    })
   })
 
-  it("persists an ungoverned folder when governance is not required", () => {
-    const described = setCurrentProject(projectDir)
-    expect(described.root).toBe(projectDir)
-    expect(readCurrentProjectRoot()).toBe(projectDir)
+  it("reports a bound root that vanished as missing, never as unbound", () => {
+    process.env.VIVICY_TARGET_ROOT = projectDir
+    rmSync(projectDir, { recursive: true, force: true })
+    expect(readProjectBinding()).toEqual({ kind: "missing", root: projectDir })
   })
 })

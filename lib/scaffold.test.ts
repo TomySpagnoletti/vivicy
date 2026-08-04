@@ -23,7 +23,6 @@ import { afterAll, afterEach, beforeEach, describe, expect, it } from "vitest"
 
 import { extractManagedBlock, GITIGNORE_MARKERS, MANAGED_GOVERNANCE_FILES, METHOD_MARKERS } from "@/lib/managed-block"
 import { readNotifications } from "@/lib/notifications"
-import { getCurrentProject, setCurrentProject } from "@/lib/project"
 import {
   detectGateCommand,
   getTemplatesRoot,
@@ -42,14 +41,17 @@ let workDir: string
 let prevCwd: string
 let prevRuntime: string | undefined
 let prevFactoryRoot: string | undefined
+let prevTarget: string | undefined
 
 beforeEach(() => {
   workDir = realpathSync(mkdtempSync(path.join(tmpdir(), "vivicy-scaffold-")))
   prevCwd = process.cwd()
   prevRuntime = process.env.VIVICY_RUNTIME_DIR
   prevFactoryRoot = process.env.VIVICY_FACTORY_ROOT
+  prevTarget = process.env.VIVICY_TARGET_ROOT
   process.env.VIVICY_FACTORY_ROOT = path.resolve(prevCwd, "factory")
   process.env.VIVICY_RUNTIME_DIR = path.join(workDir, ".runtime")
+  delete process.env.VIVICY_TARGET_ROOT
   process.chdir(workDir)
 })
 
@@ -59,6 +61,8 @@ afterEach(() => {
   else process.env.VIVICY_RUNTIME_DIR = prevRuntime
   if (prevFactoryRoot === undefined) delete process.env.VIVICY_FACTORY_ROOT
   else process.env.VIVICY_FACTORY_ROOT = prevFactoryRoot
+  if (prevTarget === undefined) delete process.env.VIVICY_TARGET_ROOT
+  else process.env.VIVICY_TARGET_ROOT = prevTarget
   rmSync(workDir, { recursive: true, force: true })
 })
 
@@ -228,8 +232,7 @@ describe("scaffoldProject — from scratch (lean, language-agnostic)", () => {
 
     expect(result.project.root).toBe(target)
     expect(result.project.name).toBe("acme-app")
-    expect(result.project.hasCanonicalSpec).toBe(true)
-    expect(getCurrentProject()?.root).toBe(target)
+    expect(result.project.governed).toBe(true)
 
     expect(result.written.length).toBeGreaterThan(expectedFiles.length)
     expect(result.written.every((p) => path.isAbsolute(p))).toBe(true)
@@ -820,8 +823,8 @@ function governedRoot(name: string, files: Record<string, string> = {}): string 
     mkdirSync(path.dirname(abs), { recursive: true })
     writeFileSync(abs, contents)
   }
-  // Persist the root BEFORE any act: notifications are namespaced by it, so an absence assertion would pass by accident otherwise.
-  setCurrentProject(target)
+  // Bind the root BEFORE any act: notifications resolve through it, so an absence assertion would pass by accident otherwise.
+  process.env.VIVICY_TARGET_ROOT = target
   return target
 }
 
@@ -975,7 +978,7 @@ describe("renormalizeManagedFiles — the project-open seam (same engine, never 
     const target = path.join(workDir, "not-governed")
     mkdirSync(target, { recursive: true })
     writeFileSync(path.join(target, "README.md"), "the owner's own readme\n")
-    setCurrentProject(target)
+    process.env.VIVICY_TARGET_ROOT = target
 
     expect(renormalizeManagedFiles(target)).toEqual({ written: [], failures: [] })
     expect(readdirSync(target), "no managed file is invented in a folder Vivicy does not govern").toEqual(["README.md"])

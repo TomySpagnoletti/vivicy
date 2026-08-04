@@ -258,7 +258,7 @@ export interface ControlContext {
 function resolveContext(): ControlContext {
   const targetRoot = getTargetRoot()
   if (targetRoot === null) {
-    throw new ControlError("no project selected — choose a target project first", "missing_target")
+    throw new ControlError("this server governs no project, or its folder is gone — open the project from the launcher", "missing_target")
   }
   return { factoryRoot: getFactoryRoot(), targetRoot }
 }

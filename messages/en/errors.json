@@ -3,7 +3,7 @@
     "already_running": "a supervised run is already active",
     "not_running": "no supervised run is recorded",
     "missing_script": "path escapes the factory root",
-    "missing_target": "no project selected — choose a target project first",
+    "missing_target": "this server governs no project, or its folder is gone — open the project from the launcher",
     "empty_canonical": "the canonical spec is empty",
     "spawn_failed": "the script failed to run",
     "unknown_cr": "unknown change request",
@@ -32,15 +32,9 @@
     "invalid_name": "invalid folder name",
     "exists": "a file or folder with that name already exists here"
   },
-  "project": {
-    "not_absolute": "project path must be absolute",
-    "not_found": "path does not exist",
-    "not_a_directory": "path is not a directory",
-    "not_governed": "This folder doesn't seem to be governed by Vivicy — it has no .vivicy directory."
-  },
   "layoutSave": {
     "read_only": "the architecture map is read-only",
-    "no_target": "no project selected — choose a target project first",
+    "no_target": "this project's folder is gone — the layout was not saved; restore the folder and try again",
     "no_map": "no architecture map found",
     "invalid_payload": "the layout save request is malformed",
     "patch_failed": "could not apply the layout patch",
@@ -50,5 +44,16 @@
     "retry_stage_invalid": "stage is not retryable; supported: {supported}",
     "map_not_json": "architecture map is not valid JSON",
     "map_bad_shape": "architecture map has an unexpected shape"
+  },
+  "projects": {
+    "not_absolute": "project path must be absolute",
+    "not_found": "that folder no longer exists",
+    "not_a_directory": "that path is not a folder",
+    "unknown_project": "Vivicy does not know that project — open its folder again.",
+    "registry_busy": "another window is opening a project right now — try again in a moment",
+    "no_free_port": "every port Vivicy reserves for project servers is taken — stop a project first",
+    "not_built": "Vivicy has no production build yet — run npm run build, then open the project again.",
+    "not_ready": "the project's server never answered — check its log and try again",
+    "spawn_failed": "the project's server could not be started"
   }
 }

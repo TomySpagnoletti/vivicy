@@ -1,31 +1,13 @@
-import { existsSync, mkdirSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs"
+import { realpathSync, statSync } from "node:fs"
 import path from "node:path"
 
-import type { CurrentProject } from "@/lib/project-types"
-import { getRuntimeDir } from "@/lib/runtime-dir"
-
-const PROJECT_FILE = "current-project.json"
-
-export function getCurrentProjectPath(): string {
-  return path.join(getRuntimeDir(), PROJECT_FILE)
-}
-
-export function readCurrentProjectRoot(): string | null {
-  const file = getCurrentProjectPath()
-  if (!existsSync(file)) return null
-  try {
-    const parsed = JSON.parse(readFileSync(file, "utf8")) as { root?: unknown }
-    const root = typeof parsed.root === "string" ? parsed.root.trim() : ""
-    return root.length > 0 ? root : null
-  } catch {
-    return null
-  }
-}
+import type { BoundProject, ProjectBinding } from "@/lib/project-types"
+import { getTargetRoot } from "@/lib/target"
 
 export class ProjectError extends Error {
   constructor(
     message: string,
-    readonly code: "not_absolute" | "not_found" | "not_a_directory" | "not_governed"
+    readonly code: "not_absolute" | "not_found" | "not_a_directory"
   ) {
     super(message)
     this.name = "ProjectError"
@@ -40,7 +22,7 @@ export function isGovernedRoot(root: string): boolean {
   }
 }
 
-export function describeProject(candidate: string): CurrentProject {
+export function describeProject(candidate: string): BoundProject {
   let root = candidate.trim()
   if (!path.isAbsolute(root)) {
     throw new ProjectError(`project path must be absolute: ${candidate}`, "not_absolute")
@@ -54,36 +36,20 @@ export function describeProject(candidate: string): CurrentProject {
   if (!stat.isDirectory()) {
     throw new ProjectError(`path is not a directory: ${root}`, "not_a_directory")
   }
-  // Never drop this realpath: the runtime key hashes the string, and macOS /tmp vs /private/tmp forks the namespace.
+  // Never drop this realpath: the registry keys a project by its root, and two spellings of one folder would fork it into two servers.
   try {
     root = realpathSync(root)
   } catch {}
-  const canonicalDir = path.join(root, ".vivicy", "canonical")
-  let hasCanonicalSpec = false
-  try {
-    hasCanonicalSpec = statSync(canonicalDir).isDirectory()
-  } catch {
-    hasCanonicalSpec = false
-  }
-  return { root, name: path.basename(root), hasCanonicalSpec }
+  return { root, name: path.basename(root), governed: isGovernedRoot(root) }
 }
 
-export function setCurrentProject(candidate: string, opts: { requireGoverned?: boolean } = {}): CurrentProject {
-  const described = describeProject(candidate)
-  if (opts.requireGoverned && !isGovernedRoot(described.root)) {
-    throw new ProjectError(`this folder is not governed by Vivicy: no .vivicy directory in ${described.root}`, "not_governed")
-  }
-  mkdirSync(getRuntimeDir(), { recursive: true })
-  writeFileSync(getCurrentProjectPath(), `${JSON.stringify({ root: described.root }, null, 2)}\n`)
-  return described
-}
-
-export function getCurrentProject(): CurrentProject | null {
-  const root = readCurrentProjectRoot()
-  if (!root) return null
+// What this server IS: unbound is the launcher, missing is a bound root that vanished under it.
+export function readProjectBinding(): ProjectBinding {
+  const root = getTargetRoot()
+  if (root === null) return { kind: "unbound" }
   try {
-    return describeProject(root)
+    return { kind: "bound", project: describeProject(root) }
   } catch {
-    return null
+    return { kind: "missing", root }
   }
 }

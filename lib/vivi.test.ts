@@ -219,7 +219,7 @@ describe("runViviTurn — transcript", () => {
     expect(calls.run).toHaveLength(0)
 
     delete process.env.VIVICY_TARGET_ROOT
-    await expect(runViviTurn(spawner, { message: "hi" })).rejects.toThrow(/no project selected/)
+    await expect(runViviTurn(spawner, { message: "hi" })).rejects.toThrow(/governs no project/)
   })
 
   it("uses per-turn scratch files so concurrent turns on one session never collide", async () => {

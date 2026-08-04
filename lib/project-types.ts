@@ -1,9 +1,20 @@
 // Client-safe: never add a filesystem import here.
 
-export interface CurrentProject {
+export interface BoundProject {
   root: string
   name: string
-  hasCanonicalSpec: boolean
+  governed: boolean
+}
+
+export type ProjectBinding = { kind: "unbound" } | { kind: "missing"; root: string } | { kind: "bound"; project: BoundProject }
+
+export interface RegisteredProject {
+  root: string
+  name: string
+  port: number
+  url: string
+  running: boolean
+  missing: boolean
 }
 
 export interface DirEntry {

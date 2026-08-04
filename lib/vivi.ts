@@ -1167,7 +1167,7 @@ function cleanupCodeWrites(targetRoot: string, violations: string[]): string[] {
 function resolveTarget(): string {
   const targetRoot = getTargetRoot()
   if (targetRoot === null) {
-    throw new ControlError("no project selected — choose a target project before talking to Vivi", "missing_target")
+    throw new ControlError("this server governs no project — open one from the launcher before talking to Vivi", "missing_target")
   }
   if (!existsSync(targetRoot)) {
     throw new ControlError(`target root does not exist: ${targetRoot}`, "missing_target")

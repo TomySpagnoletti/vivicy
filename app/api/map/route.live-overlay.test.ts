@@ -92,7 +92,7 @@ beforeEach(() => {
   writeJson(ARCH_REL, STATIC_MAP)
   originalEnv = process.env.VIVICY_TARGET_ROOT
   process.env.VIVICY_TARGET_ROOT = root
-  // A persisted current-project.json outranks VIVICY_TARGET_ROOT in getTargetRoot — never drop this VIVICY_RUNTIME_DIR override.
+  // Never drop this override: it keeps the per-project runtime out of the fixture target this test byte-compares.
   originalRuntimeDir = process.env.VIVICY_RUNTIME_DIR
   process.env.VIVICY_RUNTIME_DIR = root
   vi.resetModules()

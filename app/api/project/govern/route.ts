@@ -1,6 +1,7 @@
 import { ImportError, startGovernance, type RawEntry } from "@/lib/import-docs"
 import { ScaffoldError } from "@/lib/scaffold"
 import { getSpawner } from "@/lib/spawner"
+import { getTargetRoot } from "@/lib/target"
 import { appendCardTurn, dispatchImportRead, seedViviWelcome, WELCOME_IMPORT_CARD } from "@/lib/vivi"
 
 export const runtime = "nodejs"
@@ -13,8 +14,12 @@ const STATUS_BY_CODE: Record<string, number> = {
 
 export async function POST(request: Request) {
   try {
+    // The folder is this server's spawn-time binding, never a form field: governance can only ever lay itself over the project this process was started on.
+    const targetDir = getTargetRoot()
+    if (targetDir === null) {
+      return Response.json({ ok: false, error: "this server governs no project", code: "missing_target" }, { status: 422 })
+    }
     const form = await request.formData()
-    const targetDir = typeof form.get("targetDir") === "string" ? (form.get("targetDir") as string) : ""
     const projectNameRaw = form.get("projectName")
     const projectName = typeof projectNameRaw === "string" ? projectNameRaw : undefined
     const files = form.getAll("files")

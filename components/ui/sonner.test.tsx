@@ -1,11 +1,23 @@
 import { render, waitFor } from "@testing-library/react"
 import { toast } from "sonner"
-import { afterEach, describe, expect, test } from "vitest"
+import { afterEach, beforeEach, describe, expect, test } from "vitest"
 
 import { Toaster } from "@/components/ui/sonner"
+import { useDeclareRail, __resetPanelStateStoreForTests } from "@/hooks/use-panel-state"
+
+// Stands in for the one component that IS the rail (`VivicySidebar`), which declares itself the same way.
+function Rail() {
+  useDeclareRail()
+  return null
+}
+
+beforeEach(() => {
+  __resetPanelStateStoreForTests()
+})
 
 afterEach(() => {
   toast.dismiss()
+  __resetPanelStateStoreForTests()
 })
 
 function findToaster() {
@@ -24,8 +36,13 @@ describe("Toaster mount", () => {
     expect(el.getAttribute("data-sonner-theme")).toBe("light")
   })
 
-  test("shifts the stack by half the live rail width and caps it to the canvas", async () => {
-    render(<Toaster />)
+  test("shifts the stack by half the live rail width and caps it to the canvas — but only where a rail is actually mounted", async () => {
+    render(
+      <>
+        <Rail />
+        <Toaster />
+      </>
+    )
     toast("probe")
     const el = await waitFor(findToaster)
     const style = el.getAttribute("style") ?? ""
@@ -34,6 +51,35 @@ describe("Toaster mount", () => {
     expect(style).toContain("--width: min(356px, calc(100vw - var(--vivicy-rail) - 6rem))")
     expect(el.className).toContain("[--vivicy-rail:0px]")
     expect(el.className).toContain("md:[--vivicy-rail:var(--vivicy-panel-width)]")
+  })
+
+  test("a surface with NO rail (launcher, govern gate, missing-root) centres the stack instead of clearing a phantom rail", async () => {
+    render(<Toaster />)
+    toast("probe")
+    const style = (await waitFor(findToaster)).getAttribute("style") ?? ""
+    expect(
+      style,
+      "the persisted panel state defaults to peek (24rem), which would throw the only error channel these surfaces have 192px off-centre"
+    ).toContain("--vivicy-panel-width: 0px")
+    expect(style, "and the width cap must not subtract a rail that is not there").toContain(
+      "--width: min(356px, calc(100vw - var(--vivicy-rail) - 6rem))"
+    )
+  })
+
+  test("the offset follows the rail's LIFETIME: it is gone the moment the rail unmounts under the same toaster", async () => {
+    // The slot stays put so the Toaster itself is never remounted — only the rail comes and goes, exactly as it does when the workspace leaves its ready state.
+    const Tree = ({ rail }: { rail: boolean }) => (
+      <>
+        {rail ? <Rail /> : null}
+        <Toaster />
+      </>
+    )
+    const view = render(<Tree rail />)
+    toast("probe")
+    expect((await waitFor(findToaster)).getAttribute("style") ?? "").toContain("--vivicy-panel-width: 24rem")
+
+    view.rerender(<Tree rail={false} />)
+    await waitFor(() => expect(findToaster().getAttribute("style") ?? "").toContain("--vivicy-panel-width: 0px"))
   })
 
   test("typed colors derive from the design tokens, not sonner's own palette", async () => {

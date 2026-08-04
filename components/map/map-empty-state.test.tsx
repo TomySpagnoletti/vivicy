@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event"
 import { NextIntlClientProvider } from "next-intl"
 import { describe, expect, test, vi } from "vitest"
 
+import { ViviPanelProvider } from "@/components/chat/vivi-panel-context"
 import { MapEmptyState } from "@/components/map/map-empty-state"
 import map from "@/messages/en/map.json"
 import project from "@/messages/en/project.json"
@@ -10,16 +11,16 @@ import project from "@/messages/en/project.json"
 function renderEmptyState(ui: React.ReactElement) {
   return render(
     <NextIntlClientProvider locale="en" messages={{ map, project }}>
-      {ui}
+      <ViviPanelProvider>{ui}</ViviPanelProvider>
     </NextIntlClientProvider>
   )
 }
 
 describe("MapEmptyState — guidance per empty reason", () => {
-  test("no_target shows the open-Vivi guidance and NO Extract button", () => {
+  test("no_target shows the restore-canonical guidance and NO Extract button", () => {
     renderEmptyState(<MapEmptyState reason="no_target" onExtract={vi.fn()} />)
-    expect(screen.getByText("No project selected")).toBeInTheDocument()
-    expect(screen.getByText(/Open Vivi \(bottom-left\) to set one up/)).toBeInTheDocument()
+    expect(screen.getByText("The canonical folder is missing")).toBeInTheDocument()
+    expect(screen.getByText(/Restore it/)).toBeInTheDocument()
     expect(screen.queryByRole("button", { name: /Extract from docs/ })).not.toBeInTheDocument()
   })
 
