@@ -97,7 +97,7 @@ function makeDeps(overrides: Partial<ViviActionDeps> = {}) {
       record("readNotifications")
       return [
         { id: "a", ts: "2026-07-02T10:00:00Z", level: "error", stage: "extract", event: "blocked", message: "old", dismissed: true },
-        { id: "b", ts: "2026-07-02T10:05:00Z", level: "warning", stage: "S9", event: "gate_failed", message: "fresh", dismissed: false },
+        { id: "b", ts: "2026-07-02T10:05:00Z", level: "warning", stage: "S9", event: "gate_failed", message: "fresh" },
       ]
     },
     applyLayoutSave: (async (opts: unknown) => {
@@ -411,7 +411,6 @@ describe("executeViviActions — registry dispatch", () => {
           stage: "extract",
           event: "blocked",
           message: "m",
-          dismissed: false,
         })),
     })
     const results = await executeViviActions(

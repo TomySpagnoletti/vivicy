@@ -1,14 +1,15 @@
 import { spawnSync } from "node:child_process"
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, renameSync, rmSync } from "node:fs"
+import { cpSync, existsSync, mkdirSync, readdirSync, renameSync, rmSync } from "node:fs"
 import { basename, dirname, resolve } from "node:path"
 
 import { MANAGED_TEMP_PREFIX } from "../lib/managed-block.ts"
+import { openScratchDir } from "../lib/scratch.ts"
 import { AGENT_SKILLS_DIR } from "../lib/spec-kind.ts"
 import { skillBundleRel, skillDocRel, SKILL_DOC_FILE, type SkillRef } from "./skill-id.ts"
 import { hashBundle, type SkillBundlePin } from "./skill-pin.ts"
 
 const CACHE_SUBDIR = "skill-bundles"
-const CANDIDATE_SCRATCH_PREFIX = "skill-candidate-"
+const CANDIDATE_SCRATCH_PREFIX = "vivicy-skill-candidate-"
 
 export function bundleCacheDir(runtimeDir: string): string {
   return resolve(runtimeDir, CACHE_SUBDIR)
@@ -42,7 +43,6 @@ export interface HealBundleArgs {
 interface UpstreamProbeArgs {
   ref: SkillRef
   pin: SkillBundlePin
-  runtimeDir: string
   runInstall: RunInstall
 }
 
@@ -72,16 +72,13 @@ function removeQuietly(abs: string): void {
   } catch {}
 }
 
-// An EMPTY keep-set is never authoritative: an unparseable or absent declaration would read as "cache nothing" and destroy the bytes the next pass heals from.
-export function sweepRuntimeResidue(runtimeDir: string, repoRoot: string, keep: ReadonlySet<string>): void {
-  const cacheDir = bundleCacheDir(runtimeDir)
-  if (keep.size > 0) {
+// A NULL keep-set is the declaration answering nothing (see pinnedBundleHashes): keep every cached bundle rather than destroy the bytes the next pass heals from. An EMPTY one is a real answer — the project pins nothing, so the whole cache goes.
+export function sweepRuntimeResidue(runtimeDir: string, repoRoot: string, keep: ReadonlySet<string> | null): void {
+  if (keep !== null) {
+    const cacheDir = bundleCacheDir(runtimeDir)
     for (const entry of readdirQuietly(cacheDir)) {
       if (!keep.has(entry)) removeQuietly(resolve(cacheDir, entry))
     }
-  }
-  for (const entry of readdirQuietly(runtimeDir)) {
-    if (entry.startsWith(CANDIDATE_SCRATCH_PREFIX)) removeQuietly(resolve(runtimeDir, entry))
   }
   const bundles = resolve(repoRoot, AGENT_SKILLS_DIR)
   for (const entry of readdirQuietly(bundles)) {
@@ -149,16 +146,16 @@ function fetchUpstream(ref: SkillRef, bundleRel: string, scratch: string, runIns
   return { dir: resolve(fetchRoot, bundleRel) }
 }
 
-function openScratch(runtimeDir: string): string {
-  mkdirSync(runtimeDir, { recursive: true })
-  return mkdtempSync(resolve(runtimeDir, CANDIDATE_SCRATCH_PREFIX))
+// Never inside the governed repo: this tree holds a whole alt-worktree checkout plus an npx install, and a hard kill skips the finally that removes it.
+function openScratch(): string {
+  return openScratchDir(CANDIDATE_SCRATCH_PREFIX)
 }
 
 // AT MOST ONE upstream touch per pinned skill, and never throw: a probe that could not run is one more `unavailable`, or the pass leaves no terminal report.
 export async function withUpstreamCandidate<T>(args: UpstreamProbeArgs, use: (candidate: UpstreamCandidate) => Promise<T>): Promise<T> {
   let scratch: string
   try {
-    scratch = openScratch(args.runtimeDir)
+    scratch = openScratch()
   } catch (error) {
     return use({ state: "unavailable", reason: `no scratch tree for the upstream check (${reasonOf(error)})` })
   }
@@ -214,7 +211,7 @@ export function healBundle({ repoRoot, ref, pin, runtimeDir, runInstall, git }: 
   const target = resolve(repoRoot, bundleRel)
   const gitSeam = git ?? defaultGit(repoRoot)
   const attempts: HealAttempt[] = []
-  const scratch = openScratch(runtimeDir)
+  const scratch = openScratch()
   try {
     const rungs: Array<{ rung: HealRung; locate: () => { dir: string } | { reason: string } }> = [
       {

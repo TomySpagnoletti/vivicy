@@ -5,6 +5,7 @@ import { dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
 import { countOf } from "../lib/count-form.ts"
+import { foldNotificationLog, NOTIFICATIONS_FILE } from "../lib/notification-log.ts"
 import { ensureProjectRuntimeDir, getProjectRuntimeDir } from "../lib/project-runtime.ts"
 import { clearSpecCycle, featureCycleOpenRefusal, isSpecCycleOpen, readSpecCycle, writeSpecCycle } from "../lib/spec-cycle.ts"
 import { SKILLS_LOCK_FILE, stageLockHolder } from "../lib/stage-lock.ts"
@@ -40,7 +41,6 @@ const SKILLS_REPORT_REL = ".vivicy/development/reports/skills-report.json"
 const DOC_PREP_REPORT_REL = ".vivicy/development/reports/doc-prep-report.json"
 const CHANGE_REQUESTS_DIR = ".vivicy/change-requests"
 const REPORTS_DIR = ".vivicy/development/reports"
-const NOTIFICATIONS_REL = "notifications.jsonl"
 const NON_CR_FILES = new Set(["cr-template.md", "readme.md"])
 
 const HELP = `Vivicy — a visual autonomous dev factory (agent-drivable control surface).
@@ -142,15 +142,6 @@ interface CrApplyReport {
   phase?: string | null
   summary?: string | null
   updated_at?: string | null
-}
-
-interface Notification {
-  ts: string
-  level: string
-  stage: string
-  event: string
-  message: string
-  dismissed?: boolean
 }
 
 interface EmitObject {
@@ -1063,17 +1054,8 @@ function cmdNotifications(argv: string[], opts: Opts): void {
       code: "missing_target",
     })
   }
-  const file = join(projectDir(opts, target), NOTIFICATIONS_REL)
-  const notifications: Notification[] = []
-  if (existsSync(file)) {
-    for (const line of readFileSync(file, "utf8").split("\n")) {
-      const trimmed = line.trim()
-      if (!trimmed) continue
-      try {
-        notifications.push(JSON.parse(trimmed) as Notification)
-      } catch {}
-    }
-  }
+  const file = join(projectDir(opts, target), NOTIFICATIONS_FILE)
+  const notifications = existsSync(file) ? foldNotificationLog(readFileSync(file, "utf8")) : []
   if (json) {
     emitJson({ ok: true, notifications })
   } else if (notifications.length === 0) {

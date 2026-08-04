@@ -271,22 +271,30 @@ describe("notifications --json", () => {
     assert.equal(r.json.code, "missing_target")
   })
 
-  test("reads well-formed lines and skips malformed ones", () => {
+  test("reads well-formed lines, skips malformed ones, and folds the app's dismissal tombstones", () => {
     const projectRuntime = getProjectRuntimeDir(target)
     mkdirSync(projectRuntime, { recursive: true })
     writeFileSync(
       join(projectRuntime, "notifications.jsonl"),
       [
-        JSON.stringify({ ts: "2026-07-02T10:00:00Z", level: "error", stage: "extract", event: "blocked", message: "still red" }),
+        JSON.stringify({
+          id: "aaa-1",
+          ts: "2026-07-02T10:00:00Z",
+          level: "error",
+          stage: "extract",
+          event: "blocked",
+          message: "still red",
+        }),
         "not json — a partial write",
         JSON.stringify({
+          id: "bbb-2",
           ts: "2026-07-02T10:05:00Z",
           level: "warning",
           stage: "S9",
           event: "gate_failed",
           message: "ISSUE-0001: gate red",
-          dismissed: false,
         }),
+        JSON.stringify({ dismiss: ["aaa-1"] }),
         "",
       ].join("\n")
     )
@@ -294,7 +302,9 @@ describe("notifications --json", () => {
     assert.equal(r.code, 0)
     assert.equal(r.json.notifications.length, 2)
     assert.equal(r.json.notifications[0].event, "blocked")
+    assert.equal(r.json.notifications[0].dismissed, true)
     assert.equal(r.json.notifications[1].stage, "S9")
+    assert.equal(r.json.notifications[1].dismissed, undefined)
   })
 })
 

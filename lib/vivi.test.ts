@@ -1,4 +1,4 @@
-import { execFileSync, spawnSync } from "node:child_process"
+import { execFileSync, spawn, spawnSync } from "node:child_process"
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, utimesSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import path from "node:path"
@@ -106,6 +106,13 @@ function writeReply(options: RunOptions, text: string): void {
   writeFileSync(file, text)
 }
 
+// A pid nothing can be alive under: the child is awaited to its exit before its number is used.
+async function exitedPid(): Promise<number> {
+  const child = spawn(process.execPath, ["-e", ""], { stdio: "ignore" })
+  await new Promise((resolve) => child.on("exit", resolve))
+  return child.pid as number
+}
+
 function writeInTarget(targetRoot: string, rel: string, body: string): void {
   const abs = path.join(targetRoot, rel)
   mkdirSync(path.dirname(abs), { recursive: true })
@@ -115,7 +122,9 @@ function writeInTarget(targetRoot: string, rel: string, body: string): void {
 let factoryRoot: string
 let targetRoot: string
 let appCwd: string
+let scratchRoot: string
 let prevCwd: string
+let prevTmpdir: string | undefined
 
 function scaffoldFactory(root: string) {
   mkdirSync(path.join(root, "prompts"), { recursive: true })
@@ -144,6 +153,9 @@ beforeEach(() => {
   factoryRoot = mkdtempSync(path.join(tmpdir(), "vivi-factory-"))
   targetRoot = mkdtempSync(path.join(tmpdir(), "vivi-target-"))
   appCwd = mkdtempSync(path.join(tmpdir(), "vivi-app-cwd-"))
+  scratchRoot = mkdtempSync(path.join(tmpdir(), "vivi-scratch-root-"))
+  prevTmpdir = process.env.TMPDIR
+  process.env.TMPDIR = scratchRoot
   scaffoldFactory(factoryRoot)
   mkdirSync(path.join(targetRoot, ".vivicy", "canonical"), { recursive: true })
   mkdirSync(path.join(targetRoot, ".vivicy", "development", "spikes"), { recursive: true })
@@ -159,7 +171,9 @@ beforeEach(() => {
 
 afterEach(() => {
   process.chdir(prevCwd)
-  for (const dir of [factoryRoot, targetRoot, appCwd]) {
+  if (prevTmpdir === undefined) delete process.env.TMPDIR
+  else process.env.TMPDIR = prevTmpdir
+  for (const dir of [factoryRoot, targetRoot, appCwd, scratchRoot]) {
     rmSync(dir, { recursive: true, force: true })
   }
   delete process.env.VIVICY_FACTORY_ROOT
@@ -216,7 +230,7 @@ describe("runViviTurn — transcript", () => {
       const replyFile = replyFileFrom(o.args)
       seenPromptFiles.add(promptFileFrom(o.args))
       seenReplyFiles.add(replyFile)
-      writeReply(o, `reply@${path.basename(replyFile)}`)
+      writeReply(o, `reply@${replyFile}`)
     }
     const a = makeFakeSpawner(onRun)
     const b = makeFakeSpawner(onRun)
@@ -228,11 +242,68 @@ describe("runViviTurn — transcript", () => {
 
     expect(seenPromptFiles.size).toBe(2)
     expect(seenReplyFiles.size).toBe(2)
-    expect(ra.reply).toBe(`reply@${path.basename(replyFileFrom(a.calls.run[0].args))}`)
-    expect(rb.reply).toBe(`reply@${path.basename(replyFileFrom(b.calls.run[0].args))}`)
+    expect(ra.reply).toBe(`reply@${replyFileFrom(a.calls.run[0].args)}`)
+    expect(rb.reply).toBe(`reply@${replyFileFrom(b.calls.run[0].args)}`)
     expect(ra.reply).not.toBe(rb.reply)
     expect(ra.sessionId).toBe(sessionId)
     expect(rb.sessionId).toBe(sessionId)
+  })
+
+  it("stages the turn in the OS temp dir, never in the project, and takes it away on the way out", async () => {
+    let scratchDuringTurn = ""
+    const { spawner } = makeFakeSpawner((o) => {
+      const promptFile = promptFileFrom(o.args)
+      scratchDuringTurn = path.dirname(promptFile)
+      expect(path.dirname(scratchDuringTurn)).toBe(scratchRoot)
+      expect(path.dirname(replyFileFrom(o.args))).toBe(scratchDuringTurn)
+      writeReply(o, "Reply one.")
+    })
+
+    const { sessionId } = await runViviTurn(spawner, { message: "I want a todo app." })
+
+    expect(existsSync(scratchDuringTurn)).toBe(false)
+    expect(readdirSync(scratchRoot)).toEqual([])
+    expect(readdirSync(path.join(targetRoot, RUNTIME, "vivi"))).toEqual([`${sessionId}.jsonl`])
+  })
+
+  it("sweeps the turn scratch a KILLED turn left behind, and leaves a live owner's alone", async () => {
+    const dead = await exitedPid()
+    const orphan = path.join(scratchRoot, `vivicy-vivi-turn-${dead}-AbCdEf`)
+    const live = path.join(scratchRoot, `vivicy-vivi-turn-${process.pid}-GhIjKl`)
+    for (const dir of [orphan, live]) {
+      mkdirSync(dir, { recursive: true })
+      writeFileSync(path.join(dir, "prompt.txt"), "a killed turn's argv workaround")
+    }
+
+    const { spawner } = makeFakeSpawner((o) => writeReply(o, "Reply one."))
+    await runViviTurn(spawner, { message: "I want a todo app." })
+
+    expect(existsSync(orphan)).toBe(false)
+    expect(existsSync(live)).toBe(true)
+  })
+
+  it("sweeps the transcript publish temp a KILLED rewrite left beside the conversation", async () => {
+    seedFrozenBaseline(targetRoot)
+    writeInTarget(targetRoot, path.join(CHANGE_REQUESTS, "CR-0001-add-csv.md"), wellFormedCr("CR-0001"))
+    let leg = 0
+    const { spawner } = makeFakeSpawner((o) => {
+      if (!o.args.some((a) => a.endsWith("vivi-turn.ts"))) return
+      leg += 1
+      writeReply(o, leg % 2 === 1 ? replyWithActions('{"actions": [{"tool": "crs.list"}]}') : "Here are your pending CRs.")
+    })
+    const { sessionId } = await runViviTurn(spawner, { message: "des CRs en attente ?" })
+
+    const viviDir = path.join(targetRoot, RUNTIME, "vivi")
+    const dead = await exitedPid()
+    const orphan = path.join(viviDir, `.publish-${dead}-9f3d1c2b-0000-4000-8000-000000000000`)
+    const live = path.join(viviDir, `.publish-${process.pid}-9f3d1c2b-0000-4000-8000-000000000001`)
+    for (const file of [orphan, live]) writeFileSync(file, "half a conversation")
+
+    await decideCardAction(spawner, { sessionId, cardId: "cr-CR-0001", actionId: "later" })
+
+    expect(existsSync(orphan)).toBe(false)
+    expect(existsSync(live)).toBe(true)
+    expect(readTranscript(sessionId).find((t) => t.role === "card")?.decided?.actionId).toBe("later")
   })
 })
 
@@ -1397,7 +1468,8 @@ describe("the auto-dispatched reading turn (importing documents IS the request)"
     expect(replayed).toBe(false)
     expect(viviLegRuns(calls.run)).toBe(1)
     expect(readTranscript(sessionId)).toEqual(turns)
-    expect(readdirSync(viviSessionDir()).filter((f) => f.endsWith(".tmp"))).toEqual([])
+    // The whole directory, never a name filter: a filter keyed on the publish temp's spelling goes vacuous the day that spelling changes.
+    expect(readdirSync(viviSessionDir())).toEqual([`${sessionId}.jsonl`])
   })
 
   it("reads the corpus handed over AT governance: the seeded welcome is claimable, once, and a replay after reload adds nothing", async () => {

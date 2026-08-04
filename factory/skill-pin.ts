@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto"
-import { lstatSync, readdirSync, readFileSync, readlinkSync } from "node:fs"
+import { existsSync, lstatSync, readdirSync, readFileSync, readlinkSync } from "node:fs"
 import { resolve } from "node:path"
 
 import { PROJECT_CONFIG_FILENAME, readProjectConfigObject, updateProjectConfig } from "./project-config.ts"
@@ -112,6 +112,13 @@ function declarationsFromConfig(config: Record<string, unknown> | null): SkillDe
 
 export function readSkillDeclarations(repoRoot: string): SkillDeclaration[] {
   return declarationsFromConfig(readProjectConfigObject(repoRoot))
+}
+
+// The ONE answer to "which cached bundles may a project keep": null means the declaration is THERE and unreadable, so it answers nothing and nothing may be pruned on its word — an empty set is a real answer (this project pins none). Read first, then probe the file, so a config appearing mid-read reads as unreadable rather than as none.
+export function pinnedBundleHashes(repoRoot: string): Set<string> | null {
+  const config = readProjectConfigObject(repoRoot)
+  if (config === null && existsSync(resolve(repoRoot, PROJECT_CONFIG_FILENAME))) return null
+  return new Set(pinnedBundles(declarationsFromConfig(config)).map((entry) => entry.pin.bundle_hash))
 }
 
 export function writeSkillDeclarations(repoRoot: string, declarations: readonly SkillDeclaration[]): boolean {

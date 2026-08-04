@@ -1,3 +1,4 @@
+import { spawn } from "node:child_process"
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import path from "node:path"
@@ -37,6 +38,22 @@ function logPath(): string {
   const file = getNotificationsPath()
   if (file === null) throw new Error("no notifications path")
   mkdirSync(path.dirname(file), { recursive: true })
+  return file
+}
+
+// The concurrent writer is the REAL one: a detached child appending through factory/notify.ts, the other half of the wire contract.
+function childAppenderScript(runtimeDir: string, rows: number): string {
+  const notify = path.resolve(__dirname, "..", "factory", "notify.ts")
+  const file = path.join(appCwd, "appender.ts")
+  writeFileSync(
+    file,
+    [
+      `import { notify } from ${JSON.stringify(notify)}`,
+      `for (let i = 0; i < ${rows}; i += 1) {`,
+      `  notify({ level: "error", stage: "extract", event: "blocked", message: \`row \${i}\` }, { runtimeDir: ${JSON.stringify(runtimeDir)} })`,
+      `}`,
+    ].join("\n")
+  )
   return file
 }
 
@@ -94,7 +111,6 @@ describe("readNotifications (shared read contract)", () => {
           stage: "S9",
           event: "gate_failed",
           message: "idle",
-          dismissed: false,
         }),
       ].join("\n")
     )
@@ -109,8 +125,29 @@ describe("readNotifications (shared read contract)", () => {
       stage: "S9",
       event: "gate_failed",
       message: "idle",
-      dismissed: false,
     })
+  })
+
+  it("skips a line missing a row field, and believes no `dismissed` a line carries — dismissal lives in the tombstones alone", () => {
+    writeFileSync(
+      logPath(),
+      [
+        JSON.stringify({ id: "aaa-1", ts: "2026-07-02T10:00:00Z", level: "error", stage: "extract", message: "no event key" }),
+        JSON.stringify({
+          id: "bbb-2",
+          ts: "2026-07-02T10:05:00Z",
+          level: "warning",
+          stage: "S9",
+          event: "gate_failed",
+          message: "claims its own dismissal",
+          dismissed: true,
+        }),
+      ].join("\n") + "\n"
+    )
+
+    const rows = readNotifications()
+    expect(rows.map((row) => row.id)).toEqual(["bbb-2"])
+    expect(rows[0].dismissed).toBeUndefined()
   })
 })
 
@@ -162,7 +199,7 @@ describe("appendNotification (writer)", () => {
   })
 })
 
-describe("dismissNotifications (dismissal mechanism: rewrite dismissed in place, keyed on id)", () => {
+describe("dismissNotifications (dismissal mechanism: one appended tombstone, keyed on id)", () => {
   it("flips dismissed:true on the referenced id and leaves the rest untouched", () => {
     const first = write({ level: "error", stage: "extract", event: "blocked", message: "a" })
     const second = write({ level: "error", stage: "extract", event: "failed", message: "b" })
@@ -240,5 +277,43 @@ describe("dismissNotifications (dismissal mechanism: rewrite dismissed in place,
 
     const [row] = readNotifications()
     expect(row).toEqual({ ...written, dismissed: true })
+  })
+
+  it("only ever APPENDS: the bytes before a dismissal are a prefix of the bytes after it", () => {
+    write({ level: "error", stage: "extract", event: "blocked", message: "a" })
+    write({ level: "error", stage: "extract", event: "failed", message: "b" })
+    const before = readFileSync(logPath(), "utf8")
+
+    dismissNotifications()
+
+    const after = readFileSync(logPath(), "utf8")
+    expect(after.startsWith(before)).toBe(true)
+    expect(after.slice(before.length).trim().startsWith('{"dismiss":')).toBe(true)
+  })
+
+  it("loses nothing a detached factory child appends while the app dismisses in a loop", async () => {
+    const runtimeDir = path.dirname(logPath())
+    const appended = 200
+    const child = spawn(process.execPath, [childAppenderScript(runtimeDir, appended)], { stdio: "ignore" })
+    const exited = new Promise<number>((resolve) => child.on("exit", (code) => resolve(code ?? 1)))
+
+    let dismissRounds = 0
+    let running = true
+    void exited.then(() => {
+      running = false
+    })
+    while (running) {
+      dismissNotifications()
+      dismissRounds += 1
+      await new Promise((resolve) => setImmediate(resolve))
+    }
+    expect(await exited).toBe(0)
+    dismissNotifications()
+
+    const rows = readNotifications()
+    expect(dismissRounds).toBeGreaterThan(0)
+    expect(rows).toHaveLength(appended)
+    expect(rows.every((row) => row.dismissed === true)).toBe(true)
+    expect(new Set(rows.map((row) => row.id)).size).toBe(appended)
   })
 })

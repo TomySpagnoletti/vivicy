@@ -32,6 +32,7 @@ import { normalizeSkillId, parseSkillId, SKILL_DOC_FILE, skillBundleRel, skillDo
 import {
   bundleDrift,
   hashBundle,
+  pinnedBundleHashes,
   pinnedBundles,
   PROJECT_SKILLS_SOURCE,
   readSkillDeclarations,
@@ -734,12 +735,6 @@ export async function maintainSkills(options: MaintainSkillsOptions = {}): Promi
     summary: "",
     updated_at: "",
   }
-  const pinned = pinnedBundles(readSkillDeclarations(repoRoot))
-  if (pinned.length === 0) {
-    report.summary = `no pinned skill bundles to verify — ${PROJECT_SKILLS_SOURCE} declares none`
-    return report
-  }
-
   let tree: StageTree
   try {
     tree = openStageTree(repoRoot, "maintain", env)
@@ -750,6 +745,13 @@ export async function maintainSkills(options: MaintainSkillsOptions = {}): Promi
     return report
   }
   try {
+    // Read the pins under the lock, and take the nothing-to-verify exit through this same try: settling is what sweeps the runtime residue, and a project that just dropped its last pin is exactly the one whose cache has to go.
+    const pinnedNow = pinnedBundles(readSkillDeclarations(repoRoot))
+    if (pinnedNow.length === 0) {
+      report.summary = `no pinned skill bundles to verify — ${PROJECT_SKILLS_SOURCE} declares none`
+      return report
+    }
+
     const priorReport = readJsonOrNull(resolve(repoRoot, SKILLS_REPORT_REL)) as Partial<SkillsReport> | null
     report.selection_baseline_id = priorSelectionBaselineId(priorReport)
     report.installed = projectInstalledSet(repoRoot, priorReport)
@@ -759,8 +761,6 @@ export async function maintainSkills(options: MaintainSkillsOptions = {}): Promi
       emitReport(report, repoRoot, priorReport)
     }
 
-    // Re-read under the lock: a pin published between the pre-claim read and here would otherwise be healed back to the bytes it just replaced.
-    const pinnedNow = pinnedBundles(readSkillDeclarations(repoRoot))
     const drifted: Array<{ ref: SkillRef; pin: SkillBundlePin; drift: BundleDrift; abs: string }> = []
     for (const { ref, pin } of pinnedNow) {
       const abs = resolve(repoRoot, skillBundleRel(ref.skill))
@@ -886,7 +886,7 @@ async function runUpstreamUpdates({
   }
   const updates: UpstreamUpdates = { entries: [], refusals: new Map(), decided: new Set() }
   for (const { ref, pin } of updatable) {
-    await withUpstreamCandidate({ ref, pin, runtimeDir: tree.runtimeDir, runInstall }, async (candidate) => {
+    await withUpstreamCandidate({ ref, pin, runInstall }, async (candidate) => {
       if (candidate.state === "unavailable") return
       if (candidate.state === "current") {
         updates.decided.add(ref.id)
@@ -1213,10 +1213,6 @@ function settleStageTree(tree: StageTree): void {
     sweepRuntimeResidue(tree.runtimeDir, tree.repoRoot, pinnedBundleHashes(tree.repoRoot))
     tree.lock.release()
   }
-}
-
-function pinnedBundleHashes(repoRoot: string): Set<string> {
-  return new Set(pinnedBundles(readSkillDeclarations(repoRoot)).map((entry) => entry.pin.bundle_hash))
 }
 
 function absorbStageWrites(tree: StageTree): void {

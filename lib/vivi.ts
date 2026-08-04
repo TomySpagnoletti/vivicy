@@ -20,6 +20,7 @@ import type { SecretFileFinding } from "@/lib/secret-scan"
 import { languageDisplayName } from "@/lib/language"
 import { DEFAULT_VIVI_ACTION_ROUNDS, MAX_VIVI_ACTION_ROUNDS } from "@/lib/leg-budget"
 import { ensureProjectRuntimeDir, getProjectRuntimeDir, PROJECT_RUNTIME_SEGMENTS } from "@/lib/project-runtime"
+import { openScratchDir, scratchName, sweepAbandonedScratch } from "@/lib/scratch"
 import { settingsToEnv } from "@/lib/settings"
 import { pruneGitkeeps, VIVICY_DIR } from "@/lib/skeleton"
 import { isCanonicalFrozen, type BatchCycleBinding } from "@/lib/spec-cycle"
@@ -121,6 +122,8 @@ interface FileState {
 type Snapshot = Map<string, FileState>
 
 const VIVI_STORE_SUBDIR = "vivi"
+const TRANSCRIPT_TEMP_PREFIX = ".publish-"
+const TURN_SCRATCH_PREFIX = "vivicy-vivi-turn-"
 
 function viviStoreDirOf(targetRoot: string): string {
   return path.join(getProjectRuntimeDir(targetRoot), VIVI_STORE_SUBDIR)
@@ -265,10 +268,12 @@ export function listViviSessions(): ViviSessionSummary[] {
   return out.sort((a, b) => (a.updated_at < b.updated_at ? 1 : -1))
 }
 
-// Publish by temp-then-rename (this file is the conversation's only copy), and keep the temp name outside the session-id shape listViviSessions matches.
+// Publish by temp-then-rename (this file is the conversation's only copy), and keep the temp name outside the session-id shape listViviSessions matches — the rename forbids the OS temp dir, so the name carries this process and planting one sweeps what a killed publish left.
 function rewriteTranscript(sessionId: string, turns: ViviTurn[]): void {
-  const file = transcriptIn(ensureViviStoreDir(resolveTarget()), sessionId)
-  const tmp = `${file}.${randomUUID()}.tmp`
+  const dir = ensureViviStoreDir(resolveTarget())
+  sweepAbandonedScratch(dir, TRANSCRIPT_TEMP_PREFIX)
+  const file = transcriptIn(dir, sessionId)
+  const tmp = path.join(dir, scratchName(TRANSCRIPT_TEMP_PREFIX))
   try {
     writeFileSync(tmp, turns.map((t) => JSON.stringify(t)).join("\n") + (turns.length > 0 ? "\n" : ""))
     renameSync(tmp, file)
@@ -1266,7 +1271,7 @@ async function runTurnLocked(
     const statusLine = buildStatusLine(spawner, targetRoot, frozen)
     const turns = readTranscript(sessionId)
     const prompt = composePrompt(factoryRoot, targetRoot, turns, frozen, crId, statusLine, origin)
-    const reply = await spawnViviLeg(spawner, { command, targetRoot, sessionId, prompt, frozen })
+    const reply = await spawnViviLeg(spawner, { command, targetRoot, prompt, frozen })
 
     const after = snapshotVivicy(targetRoot, roundBase)
     const diff = diffVivicy(roundBase, after, allowedDirs)
@@ -1445,18 +1450,15 @@ function withExecutedActionsNote(reason: string, executed: ViviActionResult[]): 
 
 async function spawnViviLeg(
   spawner: Spawner,
-  opts: { command: string; targetRoot: string; sessionId: string; prompt: string; frozen: boolean }
+  opts: { command: string; targetRoot: string; prompt: string; frozen: boolean }
 ): Promise<string> {
-  const { command, targetRoot, sessionId, prompt, frozen } = opts
-  const turnToken = randomUUID()
-  const viviDir = ensureViviStoreDir(targetRoot)
-  const promptFile = path.join(viviDir, `${sessionId}.${turnToken}.prompt.txt`)
-  const replyFile = path.join(viviDir, `${sessionId}.${turnToken}.reply.txt`)
-  writeFileSync(promptFile, prompt)
-
-  let result
+  const { command, targetRoot, prompt, frozen } = opts
+  const scratch = openScratchDir(TURN_SCRATCH_PREFIX)
+  const promptFile = path.join(scratch, "prompt.txt")
+  const replyFile = path.join(scratch, "reply.txt")
   try {
-    result = await spawner.run({
+    writeFileSync(promptFile, prompt)
+    const result = await spawner.run({
       command: process.execPath,
       args: [command, "--prompt-file", promptFile, "--reply-file", replyFile, "--target", targetRoot],
       cwd: targetRoot,
@@ -1467,13 +1469,10 @@ async function spawnViviLeg(
         ...settingsToEnv(readSettings()),
       },
     })
+    return readReply(replyFile, result.stdout)
   } finally {
-    rmSync(promptFile, { force: true })
+    rmSync(scratch, { recursive: true, force: true })
   }
-
-  const reply = readReply(replyFile, result.stdout)
-  rmSync(replyFile, { force: true })
-  return reply
 }
 
 const SKILLS_TAG = "vivicy-skills"

@@ -54,14 +54,31 @@ function utf16le(text: string): Buffer {
 }
 
 let repo: string
+let scratchRoot: string
+let prevTmpdir: string | undefined
 
+// The candidate scratch lives in the OS temp dir: point that at a per-test root so what a pass stages there is observable and never touches the machine's own.
 beforeEach(() => {
   repo = mkdtempSync(join(tmpdir(), "vivicy-skills-test-"))
+  scratchRoot = mkdtempSync(join(tmpdir(), "vivicy-skills-scratch-"))
+  prevTmpdir = process.env.TMPDIR
+  process.env.TMPDIR = scratchRoot
 })
 
 afterEach(() => {
-  rmSync(repo, { recursive: true, force: true })
+  if (prevTmpdir === undefined) delete process.env.TMPDIR
+  else process.env.TMPDIR = prevTmpdir
+  for (const dir of [repo, scratchRoot]) rmSync(dir, { recursive: true, force: true })
 })
+
+function candidateScratches(): string[] {
+  return readdirSync(scratchRoot).filter((entry) => entry.startsWith("vivicy-skill-candidate-"))
+}
+
+// A pid nothing can be alive under: spawnSync only returns once the child has exited.
+function exitedPid(): number {
+  return spawnSync(process.execPath, ["-e", ""]).pid as number
+}
 
 function writeJson(rel: string, value: unknown): void {
   const abs = resolve(repo, rel)
@@ -1854,7 +1871,7 @@ describe("every install pins the bytes it landed", () => {
     assert.equal(maintenanceNeeded(repo), false, "nothing declared, nothing to verify")
   })
 
-  it("sweeps cache entries no pin references any more, and never sweeps on an empty declaration", async () => {
+  it("sweeps cache entries no pin references any more, down to the last pin a project drops", async () => {
     const cacheDir = bundleCacheDir(resolve(repo, RUNTIME))
     await installPinned()
     const kept = pinOf("acme/pack@spreadsheets")?.bundle_hash
@@ -1873,22 +1890,66 @@ describe("every install pins the bytes it landed", () => {
     assert.ok(alsoKept)
     assert.deepEqual(readdirSync(cacheDir).sort(), [kept, alsoKept].sort(), "only the entries the declaration pins survive")
 
+    for (const id of ["other/pack@charts", "acme/pack@spreadsheets"]) {
+      await removeSkills({
+        repoRoot: repo,
+        ids: [id],
+        env: { VIVICY_RUNTIME_DIR: resolve(repo, RUNTIME) },
+        runRemove: () => ({ code: 0 }),
+      })
+    }
+    assert.deepEqual(declaredIds(), [])
+    assert.deepEqual(readdirSync(cacheDir), [], "a project that pins nothing keeps no cached bundle: an empty declaration is an ANSWER")
+  })
+
+  it("prunes nothing on a declaration it could not read — an unparseable vivicy.json answers no question", async () => {
+    const cacheDir = bundleCacheDir(resolve(repo, RUNTIME))
+    await installPinned()
+    const kept = pinOf("acme/pack@spreadsheets")?.bundle_hash
+    assert.ok(kept)
+
     writeFileSync(resolve(repo, "vivicy.json"), "{ not json at all\n")
     await removeSkills({
       repoRoot: repo,
-      ids: ["other/pack@charts"],
+      ids: ["acme/pack@spreadsheets"],
       env: { VIVICY_RUNTIME_DIR: resolve(repo, RUNTIME) },
       runRemove: () => ({ code: 0 }),
     })
-    assert.deepEqual(readdirSync(cacheDir).sort(), [kept, alsoKept].sort(), "an unreadable declaration sweeps nothing")
+    assert.deepEqual(readdirSync(cacheDir), [kept], "the bytes the next pass heals from survive a declaration nobody could read")
+  })
+
+  it("sweeps for a project with nothing left to verify: the pass that dropped the last pin is not the only sweeper", async () => {
+    const runtime = resolve(repo, RUNTIME)
+    const cacheDir = bundleCacheDir(runtime)
+    await installPinned()
+    const reportBefore = readFileSync(resolve(repo, SKILLS_REPORT_REL), "utf8")
+    writeJson("vivicy.json", { gateCommand: "npm test", skills: [] })
+    const stray = resolve(cacheDir, "0".repeat(64))
+    const temp = resolve(repo, ".agents/skills", ".vivicy-tmp.999.spreadsheets")
+    for (const dir of [stray, temp]) {
+      mkdirSync(dir, { recursive: true })
+      writeFileSync(resolve(dir, "SKILL.md"), "residue a killed drop left\n")
+    }
+
+    const report = await maintainSkills({ repoRoot: repo, env: { VIVICY_RUNTIME_DIR: runtime }, runInstall: offlineCli })
+
+    assert.match(report.summary, /no pinned skill bundles to verify/)
+    assert.deepEqual(readdirSync(cacheDir), [], "the cache of a project that pins nothing is residue")
+    assert.ok(!existsSync(temp), "and so is a publish temp beside the bundles")
+    assert.equal(
+      readFileSync(resolve(repo, SKILLS_REPORT_REL), "utf8"),
+      reportBefore,
+      "a pass with nothing to verify still publishes nothing"
+    )
   })
 
   it("sweeps the scratch trees and bundle temps a killed restore left behind", async () => {
     const runtime = resolve(repo, RUNTIME)
     await installPinned()
-    const scratch = resolve(runtime, "skill-candidate-abcdef")
+    const orphan = resolve(scratchRoot, `vivicy-skill-candidate-${exitedPid()}-AbCdEf`)
+    const live = resolve(scratchRoot, `vivicy-skill-candidate-${process.pid}-GhIjKl`)
     const temp = resolve(repo, ".agents/skills", `.vivicy-tmp.999.spreadsheets`)
-    for (const dir of [scratch, temp]) {
+    for (const dir of [orphan, live, temp]) {
       mkdirSync(dir, { recursive: true })
       writeFileSync(resolve(dir, "SKILL.md"), "residue\n")
     }
@@ -1896,8 +1957,9 @@ describe("every install pins the bytes it landed", () => {
     const report = await maintainSkills({ repoRoot: repo, env: { VIVICY_RUNTIME_DIR: runtime }, runInstall: offlineCli })
 
     assert.match(report.summary, /verified unchanged/)
-    assert.ok(!existsSync(scratch), "the killed restore's scratch tree is gone")
-    assert.ok(!existsSync(temp), "and so is the temp it left beside the bundles")
+    assert.ok(!existsSync(orphan), "the killed restore's scratch tree is gone")
+    assert.ok(existsSync(live), "while a live owner's stays — this root is shared by every project on the machine")
+    assert.ok(!existsSync(temp), "and the temp beside the bundles is gone")
     assert.ok(existsSync(bundleDir("spreadsheets")), "while the bundle itself is untouched")
   })
 
@@ -4140,7 +4202,7 @@ describe("the maintenance pass verifies every pin and self-heals (real git targe
     })
   })
 
-  it("costs a project with nothing pinned no lock, no process and no report", async () => {
+  it("costs a project with nothing pinned no process and no report, and holds the lock only to sweep", async () => {
     writeJson("vivicy.json", { gateCommand: "npm test", skills: declared(["owner/own@handmade"]) })
     assert.equal(maintenanceNeeded(repo), false, "an unpinned declaration is the owner's intent, not bytes to verify")
     const report = await maintainSkills({ repoRoot: repo, runInstall: () => assert.fail("nothing to verify, nothing to check upstream") })
@@ -4148,7 +4210,7 @@ describe("the maintenance pass verifies every pin and self-heals (real git targe
     assert.ok(!existsSync(resolve(repo, SKILLS_REPORT_REL)), "and it writes no report to say so")
     assert.ok(
       !existsSync(resolve(repo, ".vivicy", "runtime", "skills-install.lock")),
-      "and claims no lock: it never opens a stage tree at all"
+      "and the lock its sweep runs under is released on the way out"
     )
     await assert.rejects(() => maintainSkills({}), SkillsConfigError)
   })
@@ -4649,10 +4711,7 @@ describe("the maintenance pass verifies every pin and self-heals (real git targe
         assert.equal(readFileSync(resolve(repo, SKILLS_REPORT_REL), "utf8"), reportBefore, "no report write")
         assert.equal(git(repo, ["rev-parse", "HEAD"]).stdout.trim(), head, "no commit")
         assert.deepEqual(notifications(runtimeDir), [], "no notification")
-        assert.ok(
-          readdirSync(runtimeDir).every((entry) => !entry.startsWith("skill-candidate-")),
-          "and the scratch the probe opened is gone whatever the probe answered"
-        )
+        assert.deepEqual(candidateScratches(), [], "and the scratch the probe opened is gone whatever the probe answered")
       })
     })
 
@@ -4732,7 +4791,7 @@ describe("the maintenance pass verifies every pin and self-heals (real git targe
       // The scratch count must be read from INSIDE the fetch: the pass's janitorial sweep removes them all at the end, so an observation taken afterwards proves nothing.
       function upstreamPerSkill(bySkill: Record<string, Record<string, string>>, scratchesInFlight: number[] = []) {
         return ({ repoRoot: into, skill }: { repoRoot: string; source: string; skill: string }) => {
-          scratchesInFlight.push(readdirSync(resolve(repo, ".vivicy", "runtime")).filter((e) => e.startsWith("skill-candidate-")).length)
+          scratchesInFlight.push(candidateScratches().length)
           writeBundle(into, skill, bySkill[skill])
           return { code: 0, output: "installed" }
         }
@@ -4894,9 +4953,7 @@ describe("the maintenance pass verifies every pin and self-heals (real git targe
           runInstall: upstreamServing(NEWER),
           fetchAudit: async () => {
             writeFileSync(resolve(bundleDir(SKILL), "scripts/recalc.py"), TAMPERED)
-            for (const entry of readdirSync(runtimeDir)) {
-              if (entry.startsWith("skill-candidate-")) rmSync(resolve(runtimeDir, entry), { recursive: true, force: true })
-            }
+            for (const entry of candidateScratches()) rmSync(resolve(scratchRoot, entry), { recursive: true, force: true })
             return passAudit()
           },
         })
