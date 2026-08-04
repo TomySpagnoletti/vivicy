@@ -63,9 +63,35 @@ import { deriveSkillUsage } from "../lib/skill-usage.ts"
 import { TRANSCRIPT_DIRS } from "./agent-spawn.ts"
 import { nextSupervisorAction } from "./dev-loop-supervised.ts"
 
+const gitHome = mkdtempSync(resolve(tmpdir(), "vivicy-dev-loop-git-home-"))
+
 after(() => {
   rmSync(repoRoot, { recursive: true, force: true })
+  rmSync(gitHome, { recursive: true, force: true })
 })
+
+// The ONE git seam of this file. HOME and XDG_CONFIG_HOME redirected on top of the config vars: git reads its per-user excludes whatever core.excludesFile says, and one inherited ignore rule turns every "not committed" / "tree clean" assertion here green over a tree it never looked at.
+function git(cwd: string, args: string[]): { status: number; stdout: string; stderr: string } {
+  const r = spawnSync("git", args, {
+    cwd,
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      HOME: gitHome,
+      XDG_CONFIG_HOME: gitHome,
+      GIT_CONFIG_GLOBAL: "/dev/null",
+      GIT_CONFIG_SYSTEM: "/dev/null",
+      GIT_CONFIG_NOSYSTEM: "1",
+    },
+  })
+  return { status: r.status ?? 1, stdout: r.stdout ?? "", stderr: r.stderr ?? "" }
+}
+
+function gitOut(cwd: string, args: string[]): string {
+  const r = git(cwd, args)
+  assert.equal(r.status, 0, `git ${args[0]} could not observe the tree, so its output decides nothing: ${r.stderr.trim()}`)
+  return r.stdout
+}
 
 test("dependenciesSatisfied", () => {
   assert.equal(dependenciesSatisfied({ depends_on: ["A"] }, new Set(["A"])), true)
@@ -2059,13 +2085,12 @@ interface TimelineEntry {
 let parallelGitReady = false
 function ensureRepoRootGit() {
   if (parallelGitReady) return
-  const git = (a: string[]) => spawnSync("git", a, { cwd: repoRoot, encoding: "utf8" })
   if (!existsSync(resolve(repoRoot, ".git"))) {
-    git(["init", "-q"])
-    git(["config", "user.email", "t@local"])
-    git(["config", "user.name", "t"])
-    git(["config", "commit.gpgsign", "false"])
-    git(["commit", "--allow-empty", "-qm", "root"])
+    git(repoRoot, ["init", "-q"])
+    git(repoRoot, ["config", "user.email", "t@local"])
+    git(repoRoot, ["config", "user.name", "t"])
+    git(repoRoot, ["config", "commit.gpgsign", "false"])
+    git(repoRoot, ["commit", "--allow-empty", "-qm", "root"])
   }
   parallelGitReady = true
 }
@@ -2106,9 +2131,8 @@ function buildParallelScratch({
     })),
   }
   writeFileSync(resolve(repoRoot, indexRel), `${JSON.stringify(index, null, 2)}\n`)
-  const git = (a: string[]) => spawnSync("git", a, { cwd: repoRoot, encoding: "utf8" })
-  git(["add", "--", scratchRel])
-  git(["commit", "-qm", `scratch ${scratchRel}`])
+  git(repoRoot, ["add", "--", scratchRel])
+  git(repoRoot, ["commit", "-qm", `scratch ${scratchRel}`])
   const cfg = {
     issueIndexPath: indexRel,
     progressLedgerPath: ledgerRel,
@@ -2264,7 +2288,7 @@ test("PROOFS (parallel): the worktree path shares the same presence seam, and a 
       existsSync(resolve(repoRoot, cfg.proofsDir, "ISSUE-C", "cli-report", "observed.log")),
       "the observation outlived the worktree it was produced from"
     )
-    const tracked = spawnSync("git", ["ls-files", "--", `${cfg.proofsDir}/ISSUE-C/cli-report`], { cwd: repoRoot, encoding: "utf8" }).stdout
+    const tracked = gitOut(repoRoot, ["ls-files", "--", `${cfg.proofsDir}/ISSUE-C/cli-report`])
     assert.match(tracked, /recipe\.txt/, "the recipe a worktree leg wrote to the main root is staged by the done-move commit")
     const wtDir = resolve(repoRoot, cfg.worktreesDir)
     assert.deepEqual(existsSync(wtDir) ? readdirSync(wtDir).filter((f) => !f.startsWith(".")) : [], [], "worktrees removed")
@@ -2287,7 +2311,7 @@ test("commitDoneMove lands EVERY per-issue checkpoint commit even when a lazily-
       { ...parallelFakeSteps(timeline, scratchRel), skipWorktreeIgnore: true }
     )
     assert.deepEqual(processed.map((p) => p.status).sort(), ["verified", "verified"], "both issues verified")
-    const subjects = spawnSync("git", ["log", "--format=%s", "-40"], { cwd: repoRoot, encoding: "utf8" }).stdout ?? ""
+    const subjects = gitOut(repoRoot, ["log", "--format=%s", "-40"])
     for (const id of ["ISSUE-A", "ISSUE-B"]) {
       assert.match(
         subjects,
@@ -2297,14 +2321,12 @@ test("commitDoneMove lands EVERY per-issue checkpoint commit even when a lazily-
     }
     // Keep this status check scoped to the checkpoint's own paths: the transient integration lock is gitignored in a real target but not in this in-repo scratch.
     const checkpointPaths = [cfg.issuesDir, cfg.doneDir, cfg.issueIndexPath, cfg.progressLedgerPath]
-    const dirty = (
-      spawnSync("git", ["status", "--porcelain", "--", ...checkpointPaths], { cwd: repoRoot, encoding: "utf8" }).stdout ?? ""
-    ).trim()
+    const dirty = gitOut(repoRoot, ["status", "--porcelain", "--", ...checkpointPaths]).trim()
     assert.equal(dirty, "", `the checkpoint left nothing uncommitted behind:\n${dirty}`)
   } finally {
     rmSync(dir, { recursive: true, force: true })
-    spawnSync("git", ["add", "--", scratchRel], { cwd: repoRoot, encoding: "utf8" })
-    spawnSync("git", ["commit", "-qm", `cleanup ${scratchRel}`], { cwd: repoRoot, encoding: "utf8" })
+    git(repoRoot, ["add", "--", scratchRel])
+    git(repoRoot, ["commit", "-qm", `cleanup ${scratchRel}`])
   }
 })
 
@@ -2339,8 +2361,12 @@ test("CHECKPOINT: what was already in the worktree when the issue took it never 
             mkdirSync(dirname(resolve(handle.worktreeRoot, rel)), { recursive: true })
             writeFileSync(resolve(handle.worktreeRoot, rel), "not the issue's\n")
           }
-          const ignored = spawnSync("git", ["check-ignore", "--", ...planted], { cwd: handle.worktreeRoot, encoding: "utf8" })
-          assert.equal((ignored.stdout ?? "").trim(), "", "the planted paths must be committable, or this test proves nothing")
+          const ignored = git(handle.worktreeRoot, ["check-ignore", "--", ...planted])
+          assert.equal(
+            ignored.status,
+            1,
+            `the planted paths must be committable, or this test proves nothing: ${ignored.stdout.trim() || ignored.stderr.trim()}`
+          )
           return handle
         },
       }
@@ -2350,7 +2376,7 @@ test("CHECKPOINT: what was already in the worktree when the issue took it never 
       { id: "ISSUE-A", status: "verified" },
       { id: "ISSUE-B", status: "verified" },
     ])
-    const committed = spawnSync("git", ["log", "--pretty=format:", "--name-only", "-20"], { cwd: repoRoot, encoding: "utf8" }).stdout ?? ""
+    const committed = gitOut(repoRoot, ["log", "--pretty=format:", "--name-only", "-20"])
     for (const rel of new Set(Object.values(plantedById).flat())) {
       assert.ok(!committed.includes(rel), `${rel} was in the worktree before the issue, so no commit may carry it`)
     }
@@ -2373,8 +2399,8 @@ test("CHECKPOINT: what was already in the worktree when the issue took it never 
   } finally {
     process.stderr.write = realWrite
     rmSync(dir, { recursive: true, force: true })
-    spawnSync("git", ["add", "--", scratchRel], { cwd: repoRoot, encoding: "utf8" })
-    spawnSync("git", ["commit", "-qm", `cleanup ${scratchRel}`], { cwd: repoRoot, encoding: "utf8" })
+    git(repoRoot, ["add", "--", scratchRel])
+    git(repoRoot, ["commit", "-qm", `cleanup ${scratchRel}`])
   }
 })
 
@@ -2429,10 +2455,10 @@ test("CHECKPOINT: a failed done-move commit is CONSUMED — the issue still comp
     else process.env.VIVICY_RUNTIME_DIR = prevRuntime
     rmSync(runtimeDir, { recursive: true, force: true })
     chmodSync(unreadable, 0o644)
-    spawnSync("git", ["reset", "-q", "--", scratchRel], { cwd: repoRoot, encoding: "utf8" })
+    git(repoRoot, ["reset", "-q", "--", scratchRel])
     rmSync(dir, { recursive: true, force: true })
-    spawnSync("git", ["add", "--", scratchRel], { cwd: repoRoot, encoding: "utf8" })
-    spawnSync("git", ["commit", "-qm", `cleanup ${scratchRel}`], { cwd: repoRoot, encoding: "utf8" })
+    git(repoRoot, ["add", "--", scratchRel])
+    git(repoRoot, ["commit", "-qm", `cleanup ${scratchRel}`])
   }
 })
 
@@ -2510,19 +2536,18 @@ test("runLoopParallel keeps the ledger consistent under many concurrent completi
 
 function seedFrozenArtifact(relPath: string, baseline: string) {
   ensureRepoRootGit()
-  const git = (a: string[]) => spawnSync("git", a, { cwd: repoRoot, encoding: "utf8" })
   const abs = resolve(repoRoot, relPath)
   mkdirSync(dirname(abs), { recursive: true })
   writeFileSync(abs, baseline)
-  git(["add", "--", relPath])
-  git(["commit", "-qm", `seed frozen ${relPath}`])
+  git(repoRoot, ["add", "--", relPath])
+  git(repoRoot, ["commit", "-qm", `seed frozen ${relPath}`])
   return {
     relPath,
     baseline,
     headContent: () => readFileSync(abs, "utf8"),
     cleanup: () => {
-      spawnSync("git", ["rm", "-q", "-f", "--", relPath], { cwd: repoRoot, encoding: "utf8" })
-      spawnSync("git", ["commit", "-qm", `unseed frozen ${relPath}`], { cwd: repoRoot, encoding: "utf8" })
+      git(repoRoot, ["rm", "-q", "-f", "--", relPath])
+      git(repoRoot, ["commit", "-qm", `unseed frozen ${relPath}`])
     },
   }
 }
@@ -2561,8 +2586,8 @@ test("defaultResetWorktreeFrozenArtifacts drops a worktree's frozen-artifact edi
     const legitRel = `${scratchRel}/gen/impl.txt`
     mkdirSync(resolve(created.worktreeRoot, scratchRel, "gen"), { recursive: true })
     writeFileSync(resolve(created.worktreeRoot, legitRel), "legit implementation\n")
-    spawnSync("git", ["add", "-A"], { cwd: created.worktreeRoot, encoding: "utf8" })
-    spawnSync("git", ["commit", "-qm", "ISSUE-FZ: work + drift"], { cwd: created.worktreeRoot, encoding: "utf8" })
+    git(created.worktreeRoot, ["add", "-A"])
+    git(created.worktreeRoot, ["commit", "-qm", "ISSUE-FZ: work + drift"])
 
     const didReset = defaultResetWorktreeFrozenArtifacts(issues[0], cfg as Config, created.worktreeRoot)
     assert.equal(didReset, true, "guard reported it neutralized a frozen-artifact edit")
@@ -2572,8 +2597,7 @@ test("defaultResetWorktreeFrozenArtifacts drops a worktree's frozen-artifact edi
       "legit implementation\n",
       "legitimate src change is preserved (not discarded by the guard)"
     )
-    const status = spawnSync("git", ["status", "--porcelain"], { cwd: created.worktreeRoot, encoding: "utf8" })
-    assert.equal((status.stdout ?? "").trim(), "", "guard committed the reset; worktree tree is clean")
+    assert.equal(gitOut(created.worktreeRoot, ["status", "--porcelain"]).trim(), "", "guard committed the reset; worktree tree is clean")
 
     const again = defaultResetWorktreeFrozenArtifacts(issues[0], cfg as Config, created.worktreeRoot)
     assert.equal(again, false, "no frozen edit remaining -> guard is a no-op")
@@ -2596,18 +2620,14 @@ test("defaultResetWorktreeFrozenArtifacts commits the frozen paths it restored a
     const stagedRel = `${scratchRel}/gen/leg-staged.txt`
     mkdirSync(resolve(created.worktreeRoot, scratchRel, "gen"), { recursive: true })
     writeFileSync(resolve(created.worktreeRoot, stagedRel), "the leg staged this and has not committed it\n")
-    spawnSync("git", ["add", "--", frozenRel], { cwd: created.worktreeRoot, encoding: "utf8" })
-    spawnSync("git", ["commit", "-qm", "ISSUE-FZ2: drift"], { cwd: created.worktreeRoot, encoding: "utf8" })
-    spawnSync("git", ["add", "--", stagedRel], { cwd: created.worktreeRoot, encoding: "utf8" })
+    git(created.worktreeRoot, ["add", "--", frozenRel])
+    git(created.worktreeRoot, ["commit", "-qm", "ISSUE-FZ2: drift"])
+    git(created.worktreeRoot, ["add", "--", stagedRel])
 
     assert.equal(defaultResetWorktreeFrozenArtifacts(issues[0], cfg as Config, created.worktreeRoot), true)
-    const carried = (
-      spawnSync("git", ["show", "--pretty=", "--name-only", "HEAD"], { cwd: created.worktreeRoot, encoding: "utf8" }).stdout ?? ""
-    )
-      .split("\n")
-      .filter(Boolean)
+    const carried = gitOut(created.worktreeRoot, ["show", "--pretty=", "--name-only", "HEAD"]).split("\n").filter(Boolean)
     assert.deepEqual(carried, [frozenRel], "the drop commit carries the restored frozen path alone")
-    const stillStaged = spawnSync("git", ["diff", "--cached", "--name-only"], { cwd: created.worktreeRoot, encoding: "utf8" }).stdout ?? ""
+    const stillStaged = gitOut(created.worktreeRoot, ["diff", "--cached", "--name-only"])
     assert.equal(
       stillStaged.trim(),
       stagedRel,
@@ -2649,7 +2669,7 @@ test("WORKTREE: a tree that resists removal never surfaces as a raw filesystem c
     )
   } finally {
     for (const inner of sealed) if (existsSync(inner)) chmodSync(inner, 0o700)
-    spawnSync("git", ["branch", "-D", "vivicy/ISSUE-CREATE"], { cwd: repoRoot, encoding: "utf8" })
+    git(repoRoot, ["branch", "-D", "vivicy/ISSUE-CREATE"])
     rmSync(dir, { recursive: true, force: true })
   }
 })
@@ -3276,36 +3296,26 @@ test("post-merge re-gate RED -> integration reset to pre-merge sha + issue block
   }
 })
 
-function managedRefreshRepo(): {
-  root: string
-  git: (a: string[]) => { stdout: string; stderr: string }
-  status: () => string[]
-  head: () => string
-} {
+function managedRefreshRepo(): { root: string; status: () => string[]; head: () => string } {
   const root = mkdtempSync(resolve(tmpdir(), "vivicy-governance-absorb-"))
-  const git = (a: string[]) => {
-    const r = spawnSync("git", a, { cwd: root, encoding: "utf8" })
-    return { stdout: r.stdout ?? "", stderr: r.stderr ?? "" }
-  }
-  git(["init", "-q"])
-  git(["config", "user.email", "owner@example.com"])
-  git(["config", "user.name", "Owner"])
-  git(["config", "commit.gpgsign", "false"])
+  git(root, ["init", "-q"])
+  git(root, ["config", "user.email", "owner@example.com"])
+  git(root, ["config", "user.name", "Owner"])
+  git(root, ["config", "commit.gpgsign", "false"])
   mkdirSync(resolve(root, "src"), { recursive: true })
   writeFileSync(resolve(root, "AGENTS.md"), "# owner guide\n")
   writeFileSync(resolve(root, ".gitignore"), "node_modules/\n")
   writeFileSync(resolve(root, "src/app.ts"), "export const a = 1;\n")
-  git(["add", "-A"])
-  git(["commit", "-qm", "the owner's own commit"])
+  git(root, ["add", "-A"])
+  git(root, ["commit", "-qm", "the owner's own commit"])
   return {
     root,
-    git,
     status: () =>
-      git(["status", "--porcelain"])
-        .stdout.split("\n")
+      gitOut(root, ["status", "--porcelain"])
+        .split("\n")
         .filter((l) => l.trim().length > 0)
         .sort(),
-    head: () => git(["rev-parse", "HEAD"]).stdout.trim(),
+    head: () => gitOut(root, ["rev-parse", "HEAD"]).trim(),
   }
 }
 
@@ -3323,14 +3333,14 @@ test("ensureCleanTreeForRun absorbs a managed-ONLY dirty set so the owner's run 
     ensureCleanTreeForRun(repo.root)
 
     assert.deepEqual(repo.status(), [], "the tree is clean, so the run proceeds")
-    assert.equal(repo.git(["rev-list", "--count", `${before}..HEAD`]).stdout.trim(), "1", "exactly one commit")
+    assert.equal(gitOut(repo.root, ["rev-list", "--count", `${before}..HEAD`]).trim(), "1", "exactly one commit")
     assert.deepEqual(
-      repo.git(["show", "--name-only", "--format=", "HEAD"]).stdout.split("\n").filter(Boolean).sort(),
+      gitOut(repo.root, ["show", "--name-only", "--format=", "HEAD"]).split("\n").filter(Boolean).sort(),
       [".gitignore", "AGENTS.md", "CLAUDE.md"],
       "the commit carries the managed files — including the untracked recreation — and nothing else"
     )
     assert.match(
-      repo.git(["log", "-1", "--format=%s"]).stdout.trim(),
+      gitOut(repo.root, ["log", "-1", "--format=%s"]).trim(),
       /^chore: refresh the Vivicy-managed governance blocks$/,
       "conventional subject naming the refresh, so the owner reading git log knows Vivicy wrote it"
     )
@@ -3355,7 +3365,7 @@ test("ensureCleanTreeForRun absorbs NOTHING when anything else is dirty — the 
       "a mixed set is never partially absorbed — the owner still owns the refusal"
     )
     assert.equal(repo.head(), before, "no commit")
-    assert.equal(repo.git(["diff", "--cached", "--name-only"]).stdout.trim(), "", "nothing staged either")
+    assert.equal(gitOut(repo.root, ["diff", "--cached", "--name-only"]).trim(), "", "nothing staged either")
     assert.deepEqual(repo.status(), dirtyBefore, "the working tree is exactly the state the gate refused")
   } finally {
     rmSync(repo.root, { recursive: true, force: true })
