@@ -16,15 +16,19 @@ import {
   buildCodexArgs,
   captureClaudeTranscript,
   findNewestCodexRollout,
+  isLegSessionId,
   isolateAgentEnv,
   issueTranscriptDir,
   legRoles,
+  readCodexSessionId,
   readPrompt,
+  readReply,
+  resumeIdOf,
   runClaudeLeg,
   runCodexLeg,
   transcriptDirRel,
 } from "./agent-spawn.ts"
-import type { AgentIssue, LegConfig, LegDeps } from "./agent-spawn.ts"
+import type { AgentIssue, LegConfig, LegDeps, LegRunResult } from "./agent-spawn.ts"
 import { FACTORY_DIR, FACTORY_PROMPTS_DIR } from "./target-root.ts"
 
 function scratchPrompts(): string {
@@ -169,7 +173,7 @@ const LEG_ROLE_LITERAL = new RegExp(`(?:\\brole:\\s*|\\bleg\\()"(${LEG_ROLE_PATT
 test("buildClaudeArgs isolates the leg from the machine's Claude Code layers while keeping the prompt, the session id and the model args", () => {
   const args = buildClaudeArgs({
     prompt: "do the thing",
-    uuid: "0f9e8d7c-6b5a-4321-9876-543210fedcba",
+    sessionId: "0f9e8d7c-6b5a-4321-9876-543210fedcba",
     modelArgs: ["--model", "claude-opus-4-8", "--effort", "xhigh"],
   })
   assert.deepEqual(args, [
@@ -188,6 +192,74 @@ test("buildClaudeArgs isolates the leg from the machine's Claude Code layers whi
     CLAUDE_ISOLATION_ARGS,
     ["--safe-mode"],
     "one flag disables the whole user layer (CLAUDE.md, skills, plugins, hooks, MCP servers, custom agents) and leaves auth resolution alone"
+  )
+})
+
+test("buildClaudeArgs swaps ONLY the session flag to resume the same conversation — the isolation vector rides both modes verbatim", () => {
+  const created = buildClaudeArgs({ prompt: "turn one", sessionId: "0f9e8d7c-6b5a-4321-9876-543210fedcba", modelArgs: ["--model", "m"] })
+  const resumed = buildClaudeArgs({
+    prompt: "turn one",
+    sessionId: "0f9e8d7c-6b5a-4321-9876-543210fedcba",
+    resume: true,
+    modelArgs: ["--model", "m"],
+  })
+  assert.deepEqual(resumed, [
+    "-p",
+    "turn one",
+    "--safe-mode",
+    "--dangerously-skip-permissions",
+    "--resume",
+    "0f9e8d7c-6b5a-4321-9876-543210fedcba",
+    "--model",
+    "m",
+  ])
+  assert.deepEqual(
+    resumed.filter((arg) => arg !== "--resume"),
+    created.filter((arg) => arg !== "--session-id"),
+    "resume changes one token and nothing else — measured: --resume composes with the whole isolation vector"
+  )
+  assert.equal(
+    resumed.includes("--session-id"),
+    false,
+    "measured: the CLI refuses --session-id together with --resume unless --fork-session is set, and refuses a --session-id it already owns"
+  )
+  assert.equal(created.includes("--resume"), false, "a first turn mints its session, never resumes one")
+})
+
+test("buildClaudeArgs adopts --output-format json only where the caller asks for it, leaving the vector otherwise untouched", () => {
+  const plain = buildClaudeArgs({ prompt: "p", sessionId: "0f9e8d7c-6b5a-4321-9876-543210fedcba", modelArgs: ["--model", "m"] })
+  const json = buildClaudeArgs({
+    prompt: "p",
+    sessionId: "0f9e8d7c-6b5a-4321-9876-543210fedcba",
+    jsonReply: true,
+    modelArgs: ["--model", "m"],
+  })
+  assert.equal(plain.includes("--output-format"), false, "every non-vivi leg still reads plain stdout — its argv must not move")
+  assert.deepEqual(json, [
+    "-p",
+    "p",
+    "--safe-mode",
+    "--dangerously-skip-permissions",
+    "--session-id",
+    "0f9e8d7c-6b5a-4321-9876-543210fedcba",
+    "--output-format",
+    "json",
+    "--model",
+    "m",
+  ])
+  assert.deepEqual(
+    buildClaudeArgs({ prompt: "p", sessionId: "0f9e8d7c-6b5a-4321-9876-543210fedcba", resume: true, jsonReply: true, modelArgs: [] }),
+    [
+      "-p",
+      "p",
+      "--safe-mode",
+      "--dangerously-skip-permissions",
+      "--resume",
+      "0f9e8d7c-6b5a-4321-9876-543210fedcba",
+      "--output-format",
+      "json",
+    ],
+    "the json envelope is what carries session_id and usage back, so it must compose with resume too"
   )
 })
 
@@ -221,6 +293,45 @@ test("buildCodexArgs isolates the leg from the machine's Codex layers while keep
     CODEX_ISOLATION_ARGS,
     ["--ignore-user-config", "--ignore-rules", "-c", "skills.include_instructions=false", "--disable", "plugins", "--disable", "apps"],
     "config.toml carries the user's MCP servers, memories and personality, .rules its execpolicy, the skills block its machine-wide SKILL.md roots, and the plugin/app surface its connectors plus the tool that would install more — auth keeps reading CODEX_HOME through all of it"
+  )
+})
+
+test("buildCodexArgs resumes a thread as `exec resume <id> <prompt>` and drops -C, which that subcommand does not take", () => {
+  const args = buildCodexArgs({
+    prompt: "do the thing",
+    root: "/tmp/target",
+    resumeSessionId: "019fced2-d3d6-7902-b9d5-73abcd79c514",
+    modelArgs: ["-m", "gpt-5.5"],
+  })
+  assert.deepEqual(args, [
+    "exec",
+    "resume",
+    "019fced2-d3d6-7902-b9d5-73abcd79c514",
+    "do the thing",
+    "--ignore-user-config",
+    "--ignore-rules",
+    "-c",
+    "skills.include_instructions=false",
+    "--disable",
+    "plugins",
+    "--disable",
+    "apps",
+    "--dangerously-bypass-approvals-and-sandbox",
+    "--skip-git-repo-check",
+    "-m",
+    "gpt-5.5",
+  ])
+  assert.equal(
+    args.includes("-C"),
+    false,
+    "measured: `codex exec resume` rejects -C with exit 2 (`unexpected argument '-C' found`) — the resumed turn takes its cwd from the spawn, which is the same execRoot"
+  )
+  assert.deepEqual(
+    args.filter((arg) => arg !== "resume" && arg !== "019fced2-d3d6-7902-b9d5-73abcd79c514"),
+    buildCodexArgs({ prompt: "do the thing", root: "/tmp/target", modelArgs: ["-m", "gpt-5.5"] }).filter(
+      (arg) => arg !== "-C" && arg !== "/tmp/target"
+    ),
+    "the whole isolation vector rides the resume subcommand verbatim — only the session identity and the cwd flag differ"
   )
 })
 
@@ -435,18 +546,25 @@ test("transcript capture follows the same credential-store overrides the isolati
 interface FakeCliRun {
   argv: string[]
   env: Record<string, string>
+  outcome: LegRunResult
 }
 
-function fakeCliRun(name: string, run: (deps: { cfg: LegConfig; issue: AgentIssue; deps: LegDeps }) => unknown): FakeCliRun {
+function fakeCliRun(
+  name: string,
+  run: (deps: { cfg: LegConfig; issue: AgentIssue; deps: LegDeps; root: string }) => LegRunResult,
+  says = ""
+): FakeCliRun {
   const root = mkdtempSync(join(tmpdir(), "vivicy-fake-cli-"))
   try {
     const bin = join(root, "bin")
     const argvPath = join(root, "argv")
     const envPath = join(root, "env")
+    const saysPath = join(root, "says")
     mkdirSync(bin, { recursive: true })
+    writeFileSync(saysPath, says)
     writeFileSync(
       join(bin, name),
-      `#!/bin/sh\nprintf '%s\\0' "$@" > ${JSON.stringify(argvPath)}\n/usr/bin/env -0 > ${JSON.stringify(envPath)}\n`,
+      `#!/bin/sh\nprintf '%s\\0' "$@" > ${JSON.stringify(argvPath)}\n/usr/bin/env -0 > ${JSON.stringify(envPath)}\ncat ${JSON.stringify(saysPath)}\n`,
       { mode: 0o755 }
     )
     const promptsDir = join(root, "prompts")
@@ -463,7 +581,7 @@ function fakeCliRun(name: string, run: (deps: { cfg: LegConfig; issue: AgentIssu
       execRoot,
       cwdFilter: null,
     }
-    withEnv(
+    const outcome = withEnv(
       {
         PATH: `${bin}:${process.env.PATH ?? ""}`,
         CLAUDE_CODE_PROBE_MARKER: "1",
@@ -476,7 +594,7 @@ function fakeCliRun(name: string, run: (deps: { cfg: LegConfig; issue: AgentIssu
         VIVICY_LEG_TIMEOUT_MS: "60000",
         VIVICY_LEG_IDLE_MS: "60000",
       },
-      () => run({ cfg, issue, deps })
+      () => run({ cfg, issue, deps, root })
     )
     assert.ok(existsSync(argvPath), `the seam never reached the fake ${name} on PATH — nothing was recorded at ${argvPath}`)
     const argv = readFileSync(argvPath, "utf8").split("\0").slice(0, -1)
@@ -485,7 +603,7 @@ function fakeCliRun(name: string, run: (deps: { cfg: LegConfig; issue: AgentIssu
       const eq = entry.indexOf("=")
       if (eq > 0) env[entry.slice(0, eq)] = entry.slice(eq + 1)
     }
-    return { argv, env }
+    return { argv, env, outcome }
   } finally {
     rmSync(root, { recursive: true, force: true })
   }
@@ -523,6 +641,188 @@ test("the spawn seam hands the real CLI the isolation flags and an isolated envi
     assert.ok(run.env.CODEX_HOME, `${provider}: the codex credential store override must survive the seam`)
     assert.ok(run.env.PATH, `${provider}: the leg's toolchain PATH must survive the seam`)
   }
+})
+
+const CLAUDE_JSON_ENVELOPE = JSON.stringify({
+  is_error: false,
+  num_turns: 1,
+  session_id: "17aec720-df8e-4f19-959a-795075b2bbf8",
+  total_cost_usd: 0.0026317,
+  usage: { input_tokens: 10, cache_read_input_tokens: 21317, output_tokens: 88, service_tier: "standard" },
+  modelUsage: { "claude-haiku-4-5": { contextWindow: 200000 } },
+  subtype: "success",
+  result: "BLUE-OTTER-42",
+  type: "result",
+})
+
+test("the claude seam resumes a conversation instead of minting one, and one rollout keeps one transcript file", () => {
+  const resumed = "17aec720-df8e-4f19-959a-795075b2bbf8"
+  const run = fakeCliRun(
+    "claude",
+    ({ cfg, issue, deps, root }) => {
+      const projects = join(root, "claude-config", "projects", "-target")
+      mkdirSync(projects, { recursive: true })
+      writeFileSync(join(projects, `${resumed}.jsonl`), '{"type":"user"}\n')
+      return runClaudeLeg({ actor: "claude", role: "implementer", provider: "claude" }, issue, cfg, deps, {
+        resumeSessionId: resumed,
+        jsonReply: true,
+      })
+    },
+    CLAUDE_JSON_ENVELOPE
+  )
+  assert.ok(run.argv.includes("--resume"), `the resumed leg must carry --resume, got ${JSON.stringify(run.argv)}`)
+  assert.equal(run.argv[run.argv.indexOf("--resume") + 1], resumed)
+  assert.equal(run.argv.includes("--session-id"), false, "the CLI refuses the session id it already owns — a resumed turn never carries it")
+  assert.ok(
+    run.argv.includes("--safe-mode") && run.argv.includes("--dangerously-skip-permissions"),
+    "the isolation vector rides the resume"
+  )
+  assert.equal(
+    run.outcome.transcriptRel,
+    `.vivicy/development/transcripts/ISSUES/ISSUE-1/claude-implementer-${resumed}.jsonl`,
+    "a resumed turn appends to ONE rollout, so its transcript is named after that conversation instead of piling up a file per turn"
+  )
+  assert.equal(run.outcome.reply, "BLUE-OTTER-42", "the reply is the envelope's .result, never the envelope itself")
+  assert.equal(run.outcome.sessionId, resumed)
+  assert.equal(run.outcome.usage?.output_tokens, 88, "the envelope's usage rides back with the turn result")
+})
+
+test("the codex seam resumes by thread id and reads the id codex mints back out of the rollout it captured", () => {
+  const thread = "019fced2-d3d6-7902-b9d5-73abcd79c514"
+  const rolloutLine = JSON.stringify({
+    timestamp: "2026-08-04T22:09:11.325Z",
+    type: "session_meta",
+    payload: { session_id: thread, cwd: "/target", cli_version: "0.146.0" },
+  })
+  const plantRollout = (root: string): void => {
+    const dir = join(root, "codex-home", "sessions", "2026", "08", "05")
+    mkdirSync(dir, { recursive: true })
+    const rollout = join(dir, `rollout-${thread}.jsonl`)
+    writeFileSync(rollout, `${rolloutLine}\n`)
+    const ahead = new Date(Date.now() + 3_600_000)
+    utimesSync(rollout, ahead, ahead)
+  }
+
+  const created = fakeCliRun("codex", ({ cfg, issue, deps, root }) => {
+    plantRollout(root)
+    return runCodexLeg({ actor: "codex", role: "implementer", provider: "codex" }, issue, cfg, deps)
+  })
+  assert.equal(created.argv[0], "exec")
+  assert.equal(created.argv[1], "leg instructions\n", "a first turn is still `exec <prompt>` — nothing about it moves")
+  assert.ok(created.argv.includes("-C"), "a first turn still declares its cwd with -C")
+  assert.equal(created.outcome.sessionId, thread, "codex mints its own id; the rollout's session_meta is where the seam reads it back")
+
+  const resumed = fakeCliRun("codex", ({ cfg, issue, deps, root }) => {
+    plantRollout(root)
+    return runCodexLeg({ actor: "codex", role: "implementer", provider: "codex" }, issue, cfg, deps, { resumeSessionId: thread })
+  })
+  assert.deepEqual(resumed.argv.slice(0, 4), ["exec", "resume", thread, "leg instructions\n"])
+  assert.equal(resumed.argv.includes("-C"), false, "`codex exec resume` takes no -C — the resumed turn runs in the spawn cwd")
+  assert.ok(
+    resumed.argv.includes("--ignore-user-config") && resumed.argv.includes("--ignore-rules"),
+    "the isolation vector rides the resume"
+  )
+  assert.equal(resumed.outcome.sessionId, thread)
+  assert.equal(
+    resumed.outcome.transcriptRel,
+    `.vivicy/development/transcripts/ISSUES/ISSUE-1/codex-implementer-${thread}.jsonl`,
+    "the resumed turn re-captures the one rollout it appended to, under that conversation's name"
+  )
+})
+
+test("readReply is the one reader of what a leg said, in both output modes", () => {
+  assert.deepEqual(readReply("  Ciao!  \n", false), { reply: "Ciao!" }, "plain stdout is the reply, trimmed — no envelope is expected")
+  assert.deepEqual(readReply(`${CLAUDE_JSON_ENVELOPE}\n`, true), {
+    reply: "BLUE-OTTER-42",
+    sessionId: "17aec720-df8e-4f19-959a-795075b2bbf8",
+    usage: { input_tokens: 10, cache_read_input_tokens: 21317, output_tokens: 88, service_tier: "standard" },
+  })
+  for (const [stdout, why] of [
+    ["", "an empty stdout"],
+    ["Ciao!", "a plain sentence where an envelope was asked for"],
+    ['{"type":"result","result":', "a truncated envelope"],
+    ["null", "a JSON null"],
+    ['"a string"', "a JSON scalar"],
+    ['{"type":"result","subtype":"success"}', "an envelope with no result field"],
+    ['{"type":"result","result":42}', "a non-string result"],
+    ['{"type":"result","is_error":true,"result":"Credit balance too low"}', "an envelope the CLI itself marks failed"],
+  ] as const) {
+    assert.equal(
+      readReply(stdout, true).reply,
+      "",
+      `${why} must leave the reply EMPTY, so the orchestrator's honest note speaks instead of the agent — never the raw envelope in Vivi's voice`
+    )
+  }
+  assert.equal(
+    readReply('{"type":"result","result":"hi","session_id":"../../../etc/passwd"}', true).sessionId,
+    undefined,
+    "the session id becomes a transcript filename and a lookup path, so a value that is not the CLI's own uuid is dropped"
+  )
+  for (const usage of ['"lots"', "17", "null", "[10,88]"]) {
+    assert.equal(readReply(`{"type":"result","result":"hi","usage":${usage}}`, true).usage, undefined, `${usage} is not a usage record`)
+  }
+})
+
+test("readCodexSessionId reads the thread id off the rollout's session_meta line and nothing else", () => {
+  const root = mkdtempSync(join(tmpdir(), "vivicy-codex-meta-"))
+  try {
+    const at = (name: string, body: string): string => {
+      const path = join(root, name)
+      writeFileSync(path, body)
+      return path
+    }
+    const thread = "019fced2-d3d6-7902-b9d5-73abcd79c514"
+    assert.equal(
+      readCodexSessionId(
+        at("ok.jsonl", `${JSON.stringify({ type: "session_meta", payload: { session_id: thread } })}\n{"type":"event"}\n`)
+      ),
+      thread
+    )
+    assert.equal(readCodexSessionId(join(root, "absent.jsonl")), undefined, "a rollout that is not there decides nothing")
+    assert.equal(readCodexSessionId(at("empty.jsonl", "")), undefined)
+    assert.equal(readCodexSessionId(at("torn.jsonl", '{"type":"session_meta","payload":{"session')), undefined, "a torn first line")
+    assert.equal(readCodexSessionId(at("nometa.jsonl", '{"type":"event"}\n')), undefined, "the id is read from the FIRST line alone")
+    assert.equal(
+      readCodexSessionId(at("hostile.jsonl", '{"type":"session_meta","payload":{"session_id":"../../escape"}}\n')),
+      undefined,
+      "the id names a transcript file, so anything but the CLI's own uuid is dropped"
+    )
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test("a resume id that is not the CLI's own uuid is refused at the seam, never resolved into a path", () => {
+  const cfg: LegConfig = { promptsDir: FACTORY_PROMPTS_DIR, transcriptsDir: ".vivicy/development/transcripts" }
+  const issue: AgentIssue = { id: "ISSUE-1", transcript_dir: issueTranscriptDir("ISSUE-1") }
+  const deps: LegDeps = {
+    composePrompt: (template) => template,
+    agentCliArgs: () => [],
+    abs: (rel) => resolve("/vivicy-never-written", rel),
+    execRoot: "/vivicy-never-written",
+    cwdFilter: null,
+  }
+  for (const hostile of ["", "   ", "../../etc/passwd", "17AEC720-DF8E-4F19-959A-795075B2BBF8", "17aec720df8e4f19959a795075b2bbf8", "x"]) {
+    assert.equal(isLegSessionId(hostile), false, `${JSON.stringify(hostile)} is not a CLI-minted session id`)
+    for (const [provider, run] of [
+      [
+        "claude",
+        () => runClaudeLeg({ actor: "claude", role: "implementer", provider: "claude" }, issue, cfg, deps, { resumeSessionId: hostile }),
+      ],
+      [
+        "codex",
+        () => runCodexLeg({ actor: "codex", role: "implementer", provider: "codex" }, issue, cfg, deps, { resumeSessionId: hostile }),
+      ],
+    ] as const) {
+      assert.throws(
+        run,
+        /is not a usable session id to resume/,
+        `${provider} must refuse ${JSON.stringify(hostile)} before it spawns anything`
+      )
+    }
+  }
+  assert.equal(resumeIdOf({}), undefined, "no resume id is the ordinary first turn, never a refusal")
+  assert.equal(resumeIdOf({ resumeSessionId: "17aec720-df8e-4f19-959a-795075b2bbf8" }), "17aec720-df8e-4f19-959a-795075b2bbf8")
 })
 
 test("the role set the factory stamps on legs and the prompt-file set are the same set (bidirectional, no hand-list on either side)", () => {

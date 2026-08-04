@@ -72,6 +72,17 @@ export interface LegRunResult {
   result: LegResult
   output: string
   transcriptRel: string | undefined
+  reply: string
+  sessionId: string | undefined
+  usage?: Record<string, unknown>
+}
+
+export interface LegTurn {
+  resumeSessionId?: string
+}
+
+export interface ClaudeLegTurn extends LegTurn {
+  jsonReply?: boolean
 }
 
 interface SpawnOptions {
@@ -318,6 +329,23 @@ export function findNewestCodexRollout(sinceMs: number, cwdFilter: string | null
   return best
 }
 
+export function readCodexSessionId(rolloutPath: string): string | undefined {
+  let first: string
+  try {
+    first = readFileSync(rolloutPath, "utf8").split("\n", 1)[0] ?? ""
+  } catch {
+    return undefined
+  }
+  let line: { payload?: { session_id?: unknown } }
+  try {
+    line = JSON.parse(first) as { payload?: { session_id?: unknown } }
+  } catch {
+    return undefined
+  }
+  const id = line?.payload?.session_id
+  return isLegSessionId(id) ? id : undefined
+}
+
 export function rolloutMatchesCwd(rolloutPath: string, cwdFilter: string | null): boolean {
   if (!cwdFilter) return true
   let recorded: string | null = null
@@ -361,22 +389,101 @@ export const CODEX_ISOLATION_ARGS = [
   "apps",
 ]
 
-export function buildClaudeArgs({ prompt, uuid, modelArgs }: { prompt: string; uuid: string; modelArgs: string[] }): string[] {
-  return ["-p", prompt, ...CLAUDE_ISOLATION_ARGS, "--dangerously-skip-permissions", "--session-id", uuid, ...modelArgs]
+export const LEG_SESSION_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
+
+export function isLegSessionId(value: unknown): value is string {
+  return typeof value === "string" && LEG_SESSION_ID_PATTERN.test(value)
 }
 
-export function buildCodexArgs({ prompt, root, modelArgs }: { prompt: string; root: string; modelArgs: string[] }): string[] {
-  const args = ["exec", prompt, ...CODEX_ISOLATION_ARGS, "--dangerously-bypass-approvals-and-sandbox", "-C", root, "--skip-git-repo-check"]
-  args.push(...modelArgs)
+export function resumeIdOf(turn: LegTurn): string | undefined {
+  const id = turn.resumeSessionId
+  if (id === undefined) return undefined
+  if (!isLegSessionId(id)) {
+    throw new Error(
+      `agent-spawn: "${String(id)}" is not a usable session id to resume — it must be the lowercase-hex uuid the CLI itself minted.`
+    )
+  }
+  return id
+}
+
+export function buildClaudeArgs({
+  prompt,
+  sessionId,
+  resume = false,
+  jsonReply = false,
+  modelArgs,
+}: {
+  prompt: string
+  sessionId: string
+  resume?: boolean
+  jsonReply?: boolean
+  modelArgs: string[]
+}): string[] {
+  return [
+    "-p",
+    prompt,
+    ...CLAUDE_ISOLATION_ARGS,
+    "--dangerously-skip-permissions",
+    resume ? "--resume" : "--session-id",
+    sessionId,
+    ...(jsonReply ? ["--output-format", "json"] : []),
+    ...modelArgs,
+  ]
+}
+
+export function buildCodexArgs({
+  prompt,
+  root,
+  resumeSessionId,
+  modelArgs,
+}: {
+  prompt: string
+  root: string
+  resumeSessionId?: string
+  modelArgs: string[]
+}): string[] {
+  const args = resumeSessionId ? ["exec", "resume", resumeSessionId, prompt] : ["exec", prompt]
+  args.push(...CODEX_ISOLATION_ARGS, "--dangerously-bypass-approvals-and-sandbox")
+  if (!resumeSessionId) args.push("-C", root)
+  args.push("--skip-git-repo-check", ...modelArgs)
   return args
 }
 
-export function runClaudeLeg(leg: AgentLeg, issue: AgentIssue, cfg: LegConfig, deps: LegDeps): LegRunResult {
-  return runClaudeLegWith(leg, issue, cfg, deps, spawnTee, captureClaudeTranscript) as LegRunResult
+export interface SpokenReply {
+  reply: string
+  sessionId?: string
+  usage?: Record<string, unknown>
 }
 
-export async function runClaudeLegAsync(leg: AgentLeg, issue: AgentIssue, cfg: LegConfig, deps: LegDeps): Promise<LegRunResult> {
-  return runClaudeLegWith(leg, issue, cfg, deps, spawnTeeAsync, captureClaudeTranscript, true) as Promise<LegRunResult>
+export function readReply(stdout: string, jsonReply: boolean): SpokenReply {
+  if (!jsonReply) return { reply: stdout.trim() }
+  let envelope: unknown
+  try {
+    envelope = JSON.parse(stdout)
+  } catch {
+    return { reply: "" }
+  }
+  if (envelope === null || typeof envelope !== "object") return { reply: "" }
+  const { is_error: isError, result, session_id: sessionId, usage } = envelope as Record<string, unknown>
+  return {
+    reply: isError !== true && typeof result === "string" ? result.trim() : "",
+    sessionId: isLegSessionId(sessionId) ? sessionId : undefined,
+    usage: usage !== null && typeof usage === "object" && !Array.isArray(usage) ? (usage as Record<string, unknown>) : undefined,
+  }
+}
+
+export function runClaudeLeg(leg: AgentLeg, issue: AgentIssue, cfg: LegConfig, deps: LegDeps, turn: ClaudeLegTurn = {}): LegRunResult {
+  return runClaudeLegWith(leg, issue, cfg, deps, turn, spawnTee, captureClaudeTranscript) as LegRunResult
+}
+
+export async function runClaudeLegAsync(
+  leg: AgentLeg,
+  issue: AgentIssue,
+  cfg: LegConfig,
+  deps: LegDeps,
+  turn: ClaudeLegTurn = {}
+): Promise<LegRunResult> {
+  return runClaudeLegWith(leg, issue, cfg, deps, turn, spawnTeeAsync, captureClaudeTranscript, true) as Promise<LegRunResult>
 }
 
 function runClaudeLegWith(
@@ -384,32 +491,49 @@ function runClaudeLegWith(
   issue: AgentIssue,
   cfg: LegConfig,
   deps: LegDeps,
+  turn: ClaudeLegTurn,
   spawnFn: typeof spawnTee | typeof spawnTeeAsync,
   captureFn: typeof captureClaudeTranscript,
   isAsync = false
 ): LegRunResult | Promise<LegRunResult> {
   const { composePrompt, agentCliArgs, abs, execRoot } = deps
   const prompt = composePrompt(readPrompt(cfg, leg.role), issue)
-  const uuid = randomUUID()
+  const resumeId = resumeIdOf(turn)
+  const sessionId = resumeId ?? randomUUID()
+  const jsonReply = turn.jsonReply === true
   const dirRel = transcriptDirRel(cfg.transcriptsDir!, issue)
-  const transcriptRel = `${dirRel}/claude-${leg.role}-${uuid}.jsonl`
-  const args = buildClaudeArgs({ prompt, uuid, modelArgs: agentCliArgs("claude", leg) })
+  const transcriptRel = `${dirRel}/claude-${leg.role}-${sessionId}.jsonl`
+  const args = buildClaudeArgs({ prompt, sessionId, resume: resumeId !== undefined, jsonReply, modelArgs: agentCliArgs("claude", leg) })
   const options = { cwd: execRoot, env: agentEnv() }
   const finish = (result: LegResult): LegRunResult => {
     ensureTranscriptDir(abs(dirRel))
-    const captured = captureFn(uuid, abs(transcriptRel))
-    return { result, output: combinedOutput(result), transcriptRel: captured ? transcriptRel : undefined }
+    const captured = captureFn(sessionId, abs(transcriptRel))
+    const spoken = readReply(result.stdout, jsonReply)
+    return {
+      result,
+      output: combinedOutput(result),
+      transcriptRel: captured ? transcriptRel : undefined,
+      reply: spoken.reply,
+      sessionId: spoken.sessionId ?? sessionId,
+      usage: spoken.usage,
+    }
   }
   if (isAsync) return (spawnFn as typeof spawnTeeAsync)("claude", args, options).then(finish)
   return finish((spawnFn as typeof spawnTee)("claude", args, options))
 }
 
-export function runCodexLeg(leg: AgentLeg, issue: AgentIssue, cfg: LegConfig, deps: LegDeps): LegRunResult {
-  return runCodexLegWith(leg, issue, cfg, deps, spawnTee, false) as LegRunResult
+export function runCodexLeg(leg: AgentLeg, issue: AgentIssue, cfg: LegConfig, deps: LegDeps, turn: LegTurn = {}): LegRunResult {
+  return runCodexLegWith(leg, issue, cfg, deps, turn, spawnTee, false) as LegRunResult
 }
 
-export async function runCodexLegAsync(leg: AgentLeg, issue: AgentIssue, cfg: LegConfig, deps: LegDeps): Promise<LegRunResult> {
-  return runCodexLegWith(leg, issue, cfg, deps, spawnTeeAsync, true) as Promise<LegRunResult>
+export async function runCodexLegAsync(
+  leg: AgentLeg,
+  issue: AgentIssue,
+  cfg: LegConfig,
+  deps: LegDeps,
+  turn: LegTurn = {}
+): Promise<LegRunResult> {
+  return runCodexLegWith(leg, issue, cfg, deps, turn, spawnTeeAsync, true) as Promise<LegRunResult>
 }
 
 function runCodexLegWith(
@@ -417,25 +541,28 @@ function runCodexLegWith(
   issue: AgentIssue,
   cfg: LegConfig,
   deps: LegDeps,
+  turn: LegTurn,
   spawnFn: typeof spawnTee | typeof spawnTeeAsync,
   isAsync: boolean
 ): LegRunResult | Promise<LegRunResult> {
   const { composePrompt, agentCliArgs, abs, execRoot, cwdFilter } = deps
   const prompt = composePrompt(readPrompt(cfg, leg.role), issue)
+  const resumeId = resumeIdOf(turn)
   const dirRel = transcriptDirRel(cfg.transcriptsDir!, issue)
-  const transcriptRel = `${dirRel}/codex-${leg.role}-${randomUUID()}.jsonl`
-  const args = buildCodexArgs({ prompt, root: execRoot, modelArgs: agentCliArgs("codex", leg) })
+  const transcriptRel = `${dirRel}/codex-${leg.role}-${resumeId ?? randomUUID()}.jsonl`
+  const args = buildCodexArgs({ prompt, root: execRoot, resumeSessionId: resumeId, modelArgs: agentCliArgs("codex", leg) })
   const options = { cwd: execRoot, env: agentEnv() }
   const startMs = Date.now()
   const finish = (result: LegResult): LegRunResult => {
     ensureTranscriptDir(abs(dirRel))
     const output = combinedOutput(result)
+    const reply = readReply(result.stdout, false).reply
     const rollout = findNewestCodexRollout(startMs, cwdFilter ?? null)
     if (rollout) {
       copyFileSync(rollout, abs(transcriptRel))
-      return { result, output, transcriptRel }
+      return { result, output, transcriptRel, reply, sessionId: readCodexSessionId(rollout) ?? resumeId }
     }
-    return { result, output, transcriptRel: undefined }
+    return { result, output, transcriptRel: undefined, reply, sessionId: resumeId }
   }
   if (isAsync) return (spawnFn as typeof spawnTeeAsync)("codex", args, options).then(finish)
   return finish((spawnFn as typeof spawnTee)("codex", args, options))

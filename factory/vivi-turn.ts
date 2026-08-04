@@ -28,6 +28,8 @@ export interface ViviTurnOutcome {
   status: number | null
   stderr: string
   transcriptRel?: string
+  cliSessionId?: string
+  usage?: Record<string, unknown>
 }
 
 export async function runViviTurn(options: ViviTurnOptions = {}): Promise<ViviTurnOutcome> {
@@ -49,8 +51,8 @@ export async function runViviTurn(options: ViviTurnOptions = {}): Promise<ViviTu
   const leg: AgentLeg = { ...implementer, role: "vivi" }
 
   const spawnVivi = options.spawnVivi ?? defaultSpawnVivi
-  const { result, transcriptRel } = await spawnVivi({ promptText, targetRoot, cfg, leg })
-  return { reply: result.stdout.trim(), status: result.status, stderr: result.stderr, transcriptRel }
+  const { result, transcriptRel, reply, sessionId, usage } = await spawnVivi({ promptText, targetRoot, cfg, leg })
+  return { reply, status: result.status, stderr: result.stderr, transcriptRel, cliSessionId: sessionId, usage }
 }
 
 const MAX_LEG_DETAIL = 200
@@ -78,7 +80,7 @@ async function defaultSpawnVivi({ promptText, targetRoot, cfg, leg }: ViviSpawnA
   const execRoot = targetRoot
   const issue = viviIssue()
   const deps = legDepsForVerbatimPrompt(execRoot!, promptText)
-  return leg.provider === "codex" ? runCodexLeg(leg, issue, cfg, deps) : runClaudeLeg(leg, issue, cfg, deps)
+  return leg.provider === "codex" ? runCodexLeg(leg, issue, cfg, deps) : runClaudeLeg(leg, issue, cfg, deps, { jsonReply: true })
 }
 
 function viviIssue(): AgentIssue {
