@@ -110,7 +110,7 @@ export interface ViviSessionRun<T> {
   resumed: boolean
 }
 
-// The ONE fork/recovery path: a moved target, a swapped CLI, a persona that drifted, and a resume the CLI itself refused all land here, and the owner is told nothing — the caller's prompt is the whole render, so a fork reseeds the new conversation with the conversation it lost.
+// The ONE fork/recovery path: a moved target, a swapped CLI, a persona that drifted, and a resume the CLI itself refused all land here, and the owner is told nothing — every create here takes the caller's SEED, so a fork reseeds the new conversation with the conversation it lost.
 export async function runViviLegSession<T>(options: {
   sidecar: string | null
   identity: ViviLegIdentity

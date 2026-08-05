@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { ControlError, type RunOptions, type RunResult, type Spawner } from "@/lib/control"
 import { importIntoGoverned, UPLOADS_DIR, type BatchResult, type RawEntry } from "@/lib/import-docs"
+import { nodeSpawner } from "@/lib/node-spawner"
 import { getProjectRuntimeDir } from "@/lib/project-runtime"
 import {
   answerViviQuestion,
@@ -204,7 +205,7 @@ describe("runViviTurn — transcript", () => {
 
     let seenPrompt = ""
     const second = makeFakeSpawner((o) => {
-      seenPrompt = readFileSync(promptFileFrom(o.args), "utf8")
+      seenPrompt = readFileSync(seedFileFrom(o.args), "utf8")
       writeReply(o, "Reply two.")
     })
     await runViviTurn(second.spawner, { sessionId: first.sessionId, message: "It needs due dates." })
@@ -227,11 +228,11 @@ describe("runViviTurn — transcript", () => {
 
   it("uses per-turn scratch files so concurrent turns on one session never collide", async () => {
     const sessionId = "22222222-2222-2222-2222-222222222222"
-    const seenPromptFiles = new Set<string>()
+    const seenSeedFiles = new Set<string>()
     const seenReplyFiles = new Set<string>()
     const onRun = (o: RunOptions) => {
       const replyFile = replyFileFrom(o.args)
-      seenPromptFiles.add(promptFileFrom(o.args))
+      seenSeedFiles.add(seedFileFrom(o.args))
       seenReplyFiles.add(replyFile)
       writeReply(o, `reply@${replyFile}`)
     }
@@ -243,7 +244,7 @@ describe("runViviTurn — transcript", () => {
       runViviTurn(b.spawner, { sessionId, message: "BETA" }),
     ])
 
-    expect(seenPromptFiles.size).toBe(2)
+    expect(seenSeedFiles.size).toBe(2)
     expect(seenReplyFiles.size).toBe(2)
     expect(ra.reply).toBe(`reply@${replyFileFrom(a.calls.run[0].args)}`)
     expect(rb.reply).toBe(`reply@${replyFileFrom(b.calls.run[0].args)}`)
@@ -255,10 +256,12 @@ describe("runViviTurn — transcript", () => {
   it("stages the turn in the OS temp dir, never in the project, and takes it away on the way out", async () => {
     let scratchDuringTurn = ""
     const { spawner } = makeFakeSpawner((o) => {
-      const promptFile = promptFileFrom(o.args)
-      scratchDuringTurn = path.dirname(promptFile)
+      const seedFile = seedFileFrom(o.args)
+      scratchDuringTurn = path.dirname(seedFile)
       expect(path.dirname(scratchDuringTurn)).toBe(scratchRoot)
-      expect(path.dirname(replyFileFrom(o.args))).toBe(scratchDuringTurn)
+      for (const staged of [incrementFileFrom(o.args), replyFileFrom(o.args), failureFileFrom(o.args)]) {
+        expect(path.dirname(staged)).toBe(scratchDuringTurn)
+      }
       writeReply(o, "Reply one.")
     })
 
@@ -275,7 +278,7 @@ describe("runViviTurn — transcript", () => {
     const live = path.join(scratchRoot, `vivicy-vivi-turn-${process.pid}-GhIjKl`)
     for (const dir of [orphan, live]) {
       mkdirSync(dir, { recursive: true })
-      writeFileSync(path.join(dir, "prompt.txt"), "a killed turn's argv workaround")
+      writeFileSync(path.join(dir, "seed.txt"), "a killed turn's argv workaround")
     }
 
     const { spawner } = makeFakeSpawner((o) => writeReply(o, "Reply one."))
@@ -565,7 +568,7 @@ describe("runViviTurn — post-freeze (Change Requests)", () => {
     let seenPrompt = ""
     const { spawner, calls } = makeFakeSpawner((o) => {
       if (isChangeControlRun(o.args)) return { code: 0 }
-      seenPrompt = readFileSync(promptFileFrom(o.args), "utf8")
+      seenPrompt = readFileSync(seedFileFrom(o.args), "utf8")
       writeReply(o, "ack")
     })
     await runViviTurn(spawner, { message: "hello" })
@@ -579,7 +582,7 @@ describe("runViviTurn — post-freeze (Change Requests)", () => {
   it("pre-freeze threads spec_frozen: false (no baseline) and writes canonical as before", async () => {
     let seenPrompt = ""
     const { spawner, calls } = makeFakeSpawner((o) => {
-      seenPrompt = readFileSync(promptFileFrom(o.args), "utf8")
+      seenPrompt = readFileSync(seedFileFrom(o.args), "utf8")
       writeInTarget(targetRoot, path.join(CANONICAL, "01-product.md"), "# Product\n")
       writeReply(o, "wrote the product doc")
     })
@@ -632,14 +635,23 @@ describe("runViviTurn — settings plumb-through", () => {
   })
 })
 
-function promptFileFrom(args: string[]): string {
-  const i = args.indexOf("--prompt-file")
+function seedFileFrom(args: string[]): string {
+  const i = args.indexOf("--seed-file")
   return args[i + 1]
+}
+
+function incrementFileFrom(args: string[]): string {
+  const i = args.indexOf("--increment-file")
+  return args[i + 1]
+}
+
+function readIncrement(options: RunOptions): string {
+  return readFileSync(incrementFileFrom(options.args), "utf8")
 }
 
 function transcriptSection(prompt: string): string {
   const start = prompt.indexOf("## Conversation so far")
-  const end = prompt.indexOf("## Current `.vivicy` state")
+  const end = prompt.indexOf("## Current state —")
   if (start === -1 || end === -1 || end < start) throw new Error("the composed prompt carries no conversation section")
   return prompt.slice(start, end)
 }
@@ -799,7 +811,7 @@ describe("runViviTurn — a leg that never spoke (the orchestrator's note, never
 
     let seenPrompt = ""
     const { spawner: recovered } = makeFakeSpawner((o) => {
-      seenPrompt = readFileSync(promptFileFrom(o.args), "utf8")
+      seenPrompt = readFileSync(seedFileFrom(o.args), "utf8")
       writeReply(o, "Eccoci — reprenons.")
     })
     const second = await runViviTurn(recovered, { sessionId: failed.sessionId, message: "vas-y" })
@@ -861,7 +873,7 @@ describe("the composed prompt carries the WHOLE thread — every turn, never a c
         writeReply(o, replyWithQuestions(FOUR_QUESTION_CARDS, synthesis))
         return
       }
-      continuationPrompt = readFileSync(promptFileFrom(o.args), "utf8")
+      continuationPrompt = readFileSync(seedFileFrom(o.args), "utf8")
       const recalled = transcriptSection(continuationPrompt).includes(PLANTED_FACT)
       writeReply(o, recalled ? `Confermo : ${PLANTED_FACT}.` : "La regle de facturation n'est plus sous mes yeux.")
     })
@@ -896,7 +908,7 @@ describe("the composed prompt carries the WHOLE thread — every turn, never a c
         writeFailure(o, "the agent CLI exited 1 — killed on the second round")
         return { code: 1, stdout: "", stderr: "" }
       }
-      laterPrompt = readFileSync(promptFileFrom(o.args), "utf8")
+      laterPrompt = readFileSync(seedFileFrom(o.args), "utf8")
       writeReply(o, "Va bene, riprendiamo.")
     })
     const failed = await runViviTurn(spawner, { message: "où en est le build ?" })
@@ -926,7 +938,7 @@ describe("the composed prompt carries the WHOLE thread — every turn, never a c
         writeReply(o, synthesis)
         return
       }
-      seenPrompt = readFileSync(promptFileFrom(o.args), "utf8")
+      seenPrompt = readFileSync(seedFileFrom(o.args), "utf8")
       writeReply(o, "Va bene.")
     })
     const first = await runViviTurn(spawner, { message: "voici mon dossier de facturation" })
@@ -935,6 +947,311 @@ describe("the composed prompt carries the WHOLE thread — every turn, never a c
     expect(seenPrompt).toContain("the full running transcript")
     expect(transcriptSection(seenPrompt)).toContain(`Vivi: ${synthesis}`)
   })
+})
+
+function volatileSection(prompt: string): string {
+  const start = prompt.indexOf("## Current state —")
+  if (start === -1) throw new Error("the composed prompt carries no current-state block")
+  return prompt.slice(start)
+}
+
+function installRealPersona(): string {
+  const persona = readFileSync(path.join(REPO_ROOT, "factory", "prompts", "vivi.md"), "utf8")
+  writeFileSync(path.join(factoryRoot, "prompts", "vivi.md"), persona)
+  return persona
+}
+
+describe("one seed per conversation, one increment per turn (the composition the child chooses between)", () => {
+  it("sends the whole render in the seed and only what is new in the increment — no persona, no re-sent thread", async () => {
+    const persona = installRealPersona()
+    const first = makeFakeSpawner((o) => writeReply(o, "Reply one."))
+    const opened = await runViviTurn(first.spawner, { message: "I want a todo app." })
+
+    let seed = ""
+    let increment = ""
+    const second = makeFakeSpawner((o) => {
+      seed = readFileSync(seedFileFrom(o.args), "utf8")
+      increment = readIncrement(o)
+      writeReply(o, "Reply two.")
+    })
+    await runViviTurn(second.spawner, { sessionId: opened.sessionId, message: "It needs due dates." })
+
+    expect(seed.startsWith(persona)).toBe(true)
+    expect(transcriptSection(seed)).toContain("User: I want a todo app.")
+    expect(transcriptSection(seed)).toContain("Vivi: Reply one.")
+
+    expect(increment).toContain("## New in this thread since your last reply")
+    expect(increment).toContain("User: It needs due dates.")
+    expect(increment).not.toContain("I want a todo app.")
+    expect(increment).not.toContain("Reply one.")
+    expect(increment).not.toContain("## Conversation so far")
+    expect(increment).not.toContain("la Nonna")
+    expect(seed.length - increment.length).toBeGreaterThan(persona.length)
+    expect(increment.length).toBeLessThan(seed.length / 10)
+  })
+
+  it("re-states ONE volatile block in both halves — the phase imperatively, the CR id, the snapshot, the live file list", async () => {
+    seedFrozenBaseline(targetRoot)
+    writeInTarget(targetRoot, path.join(CANONICAL, "01-product.md"), "# Product\n")
+    writeInTarget(targetRoot, path.join(CHANGE_REQUESTS, "CR-0001-first.md"), wellFormedCr("CR-0001"))
+    const first = makeFakeSpawner((o) => {
+      if (isChangeControlRun(o.args)) return { code: 0 }
+      writeReply(o, "Noted.")
+    })
+    const opened = await runViviTurn(first.spawner, { message: "hello" })
+
+    let seed = ""
+    let increment = ""
+    const second = makeFakeSpawner((o) => {
+      if (isChangeControlRun(o.args)) return { code: 0 }
+      seed = readFileSync(seedFileFrom(o.args), "utf8")
+      increment = readIncrement(o)
+      writeReply(o, "Noted again.")
+    })
+    await runViviTurn(second.spawner, { sessionId: opened.sessionId, message: "and now?" })
+
+    expect(volatileSection(increment)).toBe(volatileSection(seed))
+    const block = volatileSection(increment)
+    expect(block).toContain("re-stated every turn, and it OVERRIDES anything older in this conversation")
+    expect(block).toContain("spec_frozen: true")
+    expect(block).toContain("do NOT write or edit anything under `.vivicy/canonical/`")
+    expect(block).toContain("whatever an earlier turn of this conversation told you")
+    expect(block).toContain("Next Change Request id: CR-0002.")
+    expect(block).toContain("Workflow snapshot: run_active=false; extraction=never; skills=never; spec_frozen=true; spec_kind=project.")
+    expect(block).toContain(path.join(CANONICAL, "01-product.md"))
+    expect(block).toContain(path.join(CHANGE_REQUESTS, "CR-0001-first.md"))
+  })
+
+  it("states the pre-freeze phase just as imperatively, and moves the whole block with the phase mid-conversation", async () => {
+    let prefreeze = ""
+    const first = makeFakeSpawner((o) => {
+      prefreeze = readIncrement(o)
+      writeReply(o, "Grilling.")
+    })
+    const opened = await runViviTurn(first.spawner, { message: "start" })
+    expect(prefreeze).toContain("spec_frozen: false")
+    expect(prefreeze).toContain("are yours to write this turn, whatever an earlier turn of this conversation told you")
+
+    seedFrozenBaseline(targetRoot)
+    let frozen = ""
+    const second = makeFakeSpawner((o) => {
+      frozen = readIncrement(o)
+      writeReply(o, "Locked.")
+    })
+    await runViviTurn(second.spawner, { sessionId: opened.sessionId, message: "and now?" })
+
+    expect(frozen).toContain("spec_frozen: true")
+    expect(frozen).not.toContain("spec_frozen: false")
+  })
+
+  it("carries every turn the conversation has not seen: the round's tool results, and an action decided between two turns", async () => {
+    let leg = 0
+    let continuation = ""
+    const { spawner } = makeFakeSpawner((o) => {
+      if (!o.args.some((a) => a.endsWith("vivi-turn.ts"))) return
+      leg += 1
+      if (leg === 1) {
+        writeReply(o, replyWithActions('{"actions": [{"tool": "crs.list"}]}'))
+        return
+      }
+      continuation = readIncrement(o)
+      writeReply(o, "Nothing pending.")
+    })
+    const opened = await runViviTurn(spawner, { message: "où en sont les CRs ?" })
+
+    expect(continuation).toContain("Tool results: ✓ crs.list")
+    expect(continuation).not.toContain("## Conversation so far")
+    expect(continuation).not.toContain("User: où en sont les CRs ?")
+    expect(continuation).toContain("close the loop")
+
+    appendCardTurn(
+      { id: "card-mid", title: "List them", actions: [{ id: "list", label: "List", action: { kind: "control", tool: "crs.list" } }] },
+      opened.sessionId
+    )
+    await decideCardAction(spawner, { sessionId: opened.sessionId, cardId: "card-mid", actionId: "list" })
+
+    let next = ""
+    const third = makeFakeSpawner((o) => {
+      next = readIncrement(o)
+      writeReply(o, "Va bene.")
+    })
+    await runViviTurn(third.spawner, { sessionId: opened.sessionId, message: "et maintenant ?" })
+
+    expect(next).toContain("Choice card: List them [decided: list")
+    expect(next).toContain("Tool results: ✓ crs.list")
+    expect(next).toContain("User: et maintenant ?")
+    expect(next).not.toContain("Nothing pending.")
+  })
+
+  it("re-sends what a leg that never spoke was told: a failed turn moves no watermark", async () => {
+    const opening = makeFakeSpawner((o) => writeReply(o, "Reply one."))
+    const opened = await runViviTurn(opening.spawner, { message: "un todo app" })
+
+    const failing = makeFakeSpawner((o) => {
+      writeFailure(o, "the agent CLI exited 1 — killed")
+      return { code: 1, stdout: "", stderr: "" }
+    })
+    await runViviTurn(failing.spawner, { sessionId: opened.sessionId, message: "avec des dates" })
+
+    let increment = ""
+    const recovered = makeFakeSpawner((o) => {
+      increment = readIncrement(o)
+      writeReply(o, "Eccoci.")
+    })
+    await runViviTurn(recovered.spawner, { sessionId: opened.sessionId, message: "vas-y" })
+
+    expect(increment).toContain("User: avec des dates")
+    expect(increment).toContain("User: vas-y")
+    expect(increment).not.toContain("Reply one.")
+  })
+
+  it("never buries a message the owner sent WHILE a turn was in flight: delivery is the set a prompt carried, not a cut at the last reply", async () => {
+    const sessionId = seedViviWelcome()
+    const increments: string[] = []
+    const spawner: Spawner = {
+      spawnDetached: () => ({ pid: 1 }),
+      run: async (options) => {
+        increments.push(readIncrement(options))
+        const reading = readFileSync(seedFileFrom(options.args), "utf8").includes("the import IS the request")
+        // The owner types while the reading turn is mid-flight: runTurn records their message before the queue wait, so it lands between this prompt and its reply.
+        if (reading) await new Promise((resolve) => setTimeout(resolve, 40))
+        writeReply(options, reading ? "Both read, cover to cover." : "Va bene.")
+        return { code: 0, lastLine: "", stdout: "", stderr: "" }
+      },
+      killGroup: () => true,
+      isAlive: () => false,
+    }
+
+    const reading = importDocsIntoSession(spawner, { sessionId, entries: [docEntry("cdc.md", IMPORT_ENGLISH)] })
+    await new Promise((resolve) => setTimeout(resolve, 5))
+    const answered = runViviTurn(spawner, { sessionId, message: "et les délais de paiement ?" })
+    await reading
+    await answered
+    await settleTranscript(sessionId, 5)
+
+    const roles = readTranscript(sessionId).map((t) => t.role)
+    expect(roles).toEqual(["vivi", "vivi", "user", "vivi", "vivi"])
+    const owners = readTranscript(sessionId).filter((t) => t.role === "user")
+    expect(owners.map((t) => t.text)).toEqual(["et les délais de paiement ?"])
+
+    const last = increments.at(-1) as string
+    expect(last).toContain("User: et les délais de paiement ?")
+    expect(last).toContain("Respond to the user's latest message above")
+    // The reading turn's own reply is the conversation's own output: it records the prefix it answered and is never re-sent.
+    expect(last).not.toContain("Both read, cover to cover.")
+    expect(increments).toHaveLength(2)
+  })
+})
+
+const CLI_CONVERSATION = "8c1d5f2a-3b47-4e69-8f10-2d4c6a8b0e35"
+
+// A scripted agent CLI: it records its argv, obeys the phase the prompt STATES, and takes the CR id from the current-state block — never from anything it was told before.
+function scriptedClaude(): string {
+  return (
+    [
+      "#!/bin/sh",
+      `printf '%s\\0' "$@" >> "$VIVICY_FAKE_ARGV"`,
+      `printf 'END\\0' >> "$VIVICY_FAKE_ARGV"`,
+      "prompt=$2",
+      `say() { printf '{"type":"result","is_error":false,"subtype":"success","session_id":"${CLI_CONVERSATION}","result":"%s"}' "$1"; }`,
+      `case "$prompt" in`,
+      "  *DISOBEY*)",
+      `    printf '# tampered after the freeze\\n' > .vivicy/canonical/01-product.md`,
+      `    say "I rewrote the product doc."`,
+      "    exit 0;;",
+      `  *"spec_frozen: false"*)`,
+      "    mkdir -p .vivicy/canonical",
+      `    printf '# Product\\n' > .vivicy/canonical/01-product.md`,
+      `    say "Wrote .vivicy/canonical/01-product.md. Next Change Request id: CR-0001."`,
+      "    exit 0;;",
+      "esac",
+      `crid=$(printf '%s\\n' "$prompt" | sed -n 's/^Next Change Request id: \\(CR-[0-9][0-9]*\\)\\.$/\\1/p' | head -1)`,
+      `if [ -z "$crid" ]; then say "This turn named no current Change Request id."; exit 0; fi`,
+      "mkdir -p .vivicy/change-requests",
+      `sed "s/__CRID__/$crid/g" "$VIVICY_CR_TEMPLATE" > ".vivicy/change-requests/$crid-add-csv-export.md"`,
+      `say "Drafted .vivicy/change-requests/$crid-add-csv-export.md."`,
+    ].join("\n") + "\n"
+  )
+}
+
+function readInvocations(argvPath: string): string[][] {
+  if (!existsSync(argvPath)) return []
+  const out: string[][] = []
+  let current: string[] = []
+  for (const token of readFileSync(argvPath, "utf8").split("\0").slice(0, -1)) {
+    if (token === "END") {
+      out.push(current)
+      current = []
+    } else {
+      current.push(token)
+    }
+  }
+  return out
+}
+
+describe("driven live across the freeze boundary — the real turn child, a scripted agent CLI, ONE conversation", () => {
+  it("writes canonical pre-freeze, reroutes to the CR id the block names post-freeze, and is rolled back when it ignores the phase", async () => {
+    const bin = mkdtempSync(path.join(tmpdir(), "vivi-bin-"))
+    const argvPath = path.join(bin, "argv")
+    const template = path.join(bin, "cr-template.md")
+    writeFileSync(template, wellFormedCr("__CRID__"))
+    writeFileSync(path.join(bin, "claude"), scriptedClaude(), { mode: 0o755 })
+    const prevPath = process.env.PATH
+    process.env.VIVICY_FACTORY_ROOT = path.join(REPO_ROOT, "factory")
+    process.env.PATH = `${bin}:${prevPath ?? ""}`
+    process.env.VIVICY_FAKE_ARGV = argvPath
+    process.env.VIVICY_CR_TEMPLATE = template
+    try {
+      const prefreeze = await runViviTurn(nodeSpawner, { message: "voici le produit, commence la ricetta" })
+      expect(prefreeze.rejected).toBeUndefined()
+      expect(prefreeze.wrote).toEqual([path.join(CANONICAL, "01-product.md")])
+
+      // The stale id is now in the conversation's own memory (Vivi's turn-one reply names CR-0001) — and CR-0001 exists, so the current id has moved.
+      writeInTarget(targetRoot, path.join(CHANGE_REQUESTS, "CR-0001-first-request.md"), wellFormedCr("CR-0001"))
+      seedFrozenBaseline(targetRoot)
+
+      const rerouted = await runViviTurn(nodeSpawner, { sessionId: prefreeze.sessionId, message: "ajoute l'export CSV" })
+      expect(rerouted.rejected).toBeUndefined()
+      expect(rerouted.wrote).toEqual([path.join(CHANGE_REQUESTS, "CR-0002-add-csv-export.md")])
+      expect(rerouted.reply).toContain("CR-0002-add-csv-export.md")
+      expect(readFileSync(path.join(targetRoot, CANONICAL, "01-product.md"), "utf8")).toBe("# Product\n")
+
+      const disobeyed = await runViviTurn(nodeSpawner, {
+        sessionId: prefreeze.sessionId,
+        message: "DISOBEY: rewrite the product doc anyway",
+      })
+      expect(disobeyed.rejected).toMatch(/outside its allowlist/)
+      expect(disobeyed.wrote).toEqual([])
+      expect(readFileSync(path.join(targetRoot, CANONICAL, "01-product.md"), "utf8")).toBe("# Product\n")
+
+      const invocations = readInvocations(argvPath)
+      expect(invocations).toHaveLength(3)
+      const [opened, resumedFrozen, resumedDisobedient] = invocations
+      expect(opened[4]).toBe("--session-id")
+      expect(opened[1]).toContain("la Nonna")
+      expect(resumedFrozen.slice(4, 6)).toEqual(["--resume", CLI_CONVERSATION])
+      expect(resumedDisobedient.slice(4, 6)).toEqual(["--resume", CLI_CONVERSATION])
+
+      for (const increment of [resumedFrozen[1], resumedDisobedient[1]]) {
+        expect(increment).not.toContain("la Nonna")
+        expect(increment).toContain("spec_frozen: true")
+        expect(increment).toContain("re-stated every turn, and it OVERRIDES anything older in this conversation")
+        expect(increment.length).toBeLessThan(opened[1].length / 10)
+      }
+      // Newest wins, live: the conversation still holds "CR-0001" from its own turn-one reply, and each turn's block states the id that is current THEN.
+      expect(resumedFrozen[1].match(/^Next Change Request id: .*$/gm)).toEqual(["Next Change Request id: CR-0002."])
+      expect(resumedDisobedient[1].match(/^Next Change Request id: .*$/gm)).toEqual(["Next Change Request id: CR-0003."])
+      expect(resumedDisobedient[1]).toContain(path.join(CHANGE_REQUESTS, "CR-0002-add-csv-export.md"))
+      expect(transcriptSection(opened[1])).not.toContain("CR-0001")
+
+      expect(readTranscript(prefreeze.sessionId).map((t) => t.role)).toEqual(["user", "vivi", "user", "vivi", "user", "vivi"])
+    } finally {
+      process.env.PATH = prevPath
+      delete process.env.VIVICY_FAKE_ARGV
+      delete process.env.VIVICY_CR_TEMPLATE
+      rmSync(bin, { recursive: true, force: true })
+    }
+  }, 90_000)
 })
 
 function replyWithDirective(json: string): string {
@@ -1000,7 +1317,7 @@ describe("runViviTurn — action protocol (the governess loop)", () => {
       if (leg === 1) {
         writeReply(o, replyWithActions('{"actions": [{"tool": "crs.list"}]}'))
       } else {
-        continuationPrompt = readFileSync(promptFileFrom(o.args), "utf8")
+        continuationPrompt = readFileSync(seedFileFrom(o.args), "utf8")
         writeReply(o, "No change requests are on file yet — nothing waits on you.")
       }
     })
@@ -1154,7 +1471,7 @@ describe("runViviTurn — action protocol (the governess loop)", () => {
   it("the prompt carries the deterministic workflow snapshot line", async () => {
     let seenPrompt = ""
     const { spawner } = makeFakeSpawner((o) => {
-      seenPrompt = readFileSync(promptFileFrom(o.args), "utf8")
+      seenPrompt = readFileSync(seedFileFrom(o.args), "utf8")
       writeReply(o, "ok")
     })
     await runViviTurn(spawner, { message: "hello" })
@@ -1753,7 +2070,7 @@ describe("the auto-dispatched reading turn (importing documents IS the request)"
     const sessionId = seedViviWelcome()
     const prompts: string[] = []
     const { spawner, calls } = makeFakeSpawner((o) => {
-      prompts.push(readFileSync(promptFileFrom(o.args), "utf8"))
+      prompts.push(readFileSync(seedFileFrom(o.args), "utf8"))
       writeReply(o, "Here is what your two documents say.")
     })
 
@@ -1780,7 +2097,7 @@ describe("the auto-dispatched reading turn (importing documents IS the request)"
     const sessionId = seedViviWelcome()
     const prompts: string[] = []
     const { spawner } = makeFakeSpawner((o) => {
-      prompts.push(readFileSync(promptFileFrom(o.args), "utf8"))
+      prompts.push(readFileSync(seedFileFrom(o.args), "utf8"))
       writeReply(o, "read")
     })
 
@@ -1928,7 +2245,7 @@ describe("the auto-dispatched reading turn (importing documents IS the request)"
     const spawner: Spawner = {
       spawnDetached: () => ({ pid: 1 }),
       run: async (options) => {
-        const reading = readFileSync(promptFileFrom(options.args), "utf8").includes("the import IS the request")
+        const reading = readFileSync(seedFileFrom(options.args), "utf8").includes("the import IS the request")
         const who = reading ? "read" : "message"
         order.push(`${who}:start`)
         // The asymmetric delay is what discriminates: with both legs equal-speed the order assertion would pass unserialized too.
@@ -2025,7 +2342,7 @@ describe("runViviTurn — drafting spec cycle", () => {
     let seenPrompt = ""
     const { spawner, calls } = makeFakeSpawner((o) => {
       if (!o.args.some((a) => a.endsWith("vivi-turn.ts"))) return
-      seenPrompt = readFileSync(promptFileFrom(o.args), "utf8")
+      seenPrompt = readFileSync(seedFileFrom(o.args), "utf8")
       writeInTarget(targetRoot, path.join(CANONICAL, "07-new-feature.md"), "# New feature\n")
       writeReply(o, "Captured the new feature area.")
     })
@@ -2267,7 +2584,7 @@ describe("question cards — the validated fence becomes a pile in the thread", 
         writeReply(o, replyWithQuestions(QUESTION_CARDS))
         return
       }
-      continuationPrompt = readFileSync(promptFileFrom(o.args), "utf8")
+      continuationPrompt = readFileSync(seedFileFrom(o.args), "utf8")
       writeReply(o, "Perfetto — Postgres e magic link, je note.")
     })
     const { sessionId, stackId } = await stackedSession(spawner)
@@ -2311,7 +2628,7 @@ describe("question cards — the validated fence becomes a pile in the thread", 
         writeReply(o, replyWithQuestions(cards))
         return
       }
-      continuationPrompt = readFileSync(promptFileFrom(o.args), "utf8")
+      continuationPrompt = readFileSync(seedFileFrom(o.args), "utf8")
       writeReply(o, "Ricevuto.")
     })
     const { sessionId, stackId } = await stackedSession(spawner, cards)

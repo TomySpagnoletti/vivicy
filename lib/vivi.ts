@@ -92,10 +92,12 @@ export interface ViviImportEvent {
   read?: ViviImportRead
 }
 
+// On a turn the CLI itself produced: how many transcript turns the prompt it answered actually carried. That PREFIX plus this turn is what its conversation holds — never a position relative to the thread's end, which a turn appended mid-flight would falsify. Never set on a turn the server authored in Vivi's voice.
 export interface ViviTurn {
   role: "user" | "vivi" | "note" | "action" | "card" | "questions"
   text: string
   ts: string
+  delivered?: number
   wrote?: string[]
   rejected?: string
   actions?: ViviActionResult[]
@@ -717,7 +719,8 @@ const TRANSCRIPT_SPEAKERS: Record<ViviTurn["role"], string> = {
   questions: "Question cards",
 }
 
-function renderTranscript(turns: ViviTurn[]): string {
+// `all` is the whole thread even when `turns` is a slice of it: a question pile's answered/standing state is read from the thread, never from the slice.
+function renderTranscript(turns: ViviTurn[], all: ViviTurn[] = turns): string {
   if (turns.length === 0) return "(no prior turns — this is the first message)"
   const lines = turns.map((turn) => {
     const cardState =
@@ -726,7 +729,7 @@ function renderTranscript(turns: ViviTurn[]): string {
           ? ` [decided: ${turn.decided.actionId}${turn.decided.summary ? ` — ${firstLine(turn.decided.summary, 80)}` : ""}]`
           : " [awaiting the owner's choice]"
         : ""
-    const body = turn.role === "questions" && turn.questions ? renderQuestionStack(turn.questions, turns) : turn.text
+    const body = turn.role === "questions" && turn.questions ? renderQuestionStack(turn.questions, all) : turn.text
     const wrote = turn.role === "vivi" && turn.wrote && turn.wrote.length > 0 ? ` [wrote: ${turn.wrote.join(", ")}]` : ""
     return `${TRANSCRIPT_SPEAKERS[turn.role]}: ${body}${cardState}${wrote}`
   })
@@ -858,46 +861,85 @@ function questionAnswersTask(count: number, frozen: boolean, crId: string): stri
   )
 }
 
-function composePrompt(
-  factoryRoot: string,
-  targetRoot: string,
-  turns: ViviTurn[],
-  frozen: boolean,
-  crId: string,
-  statusLine: string,
-  origin: TurnOrigin
-): string {
-  const persona = readPersona(factoryRoot)
-  const transcript = renderTranscript(turns)
-  const state = summarizeVivicyState(targetRoot, frozen)
-  const continuation = turns.at(-1)?.role === "action"
-  const phaseLine = frozen
-    ? `spec_frozen: true — the target already has a FROZEN canonical baseline, so the ` + `canonical spec is LOCKED. `
-    : `spec_frozen: false — `
-  const task = continuation
-    ? `${phaseLine}The tool results of the actions you just requested are in the ` +
-      `"Tool results" entry above. Now close the loop for the user: explain plainly what ` +
-      `happened and what it means. Only emit another \`vivicy-action\` block if a further ` +
-      `action is genuinely required to finish what the user asked — never repeat an action ` +
-      `that already succeeded.\n`
-    : origin.kind === "import_read"
-      ? `${phaseLine}${importReadTask(origin.imported, frozen, crId)}`
-      : origin.kind === "question_answers"
-        ? `${phaseLine}${questionAnswersTask(origin.count, frozen, crId)}`
-        : frozen
-          ? `${phaseLine}Respond to the user's latest message above. If it asks ` +
-            `for a change to what the product does, ${crDraftOrder(crId)}. ` +
-            `If the message needs no product change, just answer it and write nothing. Then ` +
-            `tell the user exactly what you did.\n`
-          : `${phaseLine}Respond to the user's latest message above. Ask your next ` +
-            `focused batch of questions and, when an area is settled, ${CANONICAL_WRITE_ORDER}. ` +
-            `Then tell the user exactly which files you wrote.\n`
+function turnTask(turns: ViviTurn[], frozen: boolean, crId: string, origin: TurnOrigin): string {
+  if (turns.at(-1)?.role === "action") {
+    return (
+      `The tool results of the actions you just requested are in the "Tool results" entry ` +
+      `above. Now close the loop for the user: explain plainly what happened and what it ` +
+      `means. Only emit another \`vivicy-action\` block if a further action is genuinely ` +
+      `required to finish what the user asked — never repeat an action that already ` +
+      `succeeded.\n`
+    )
+  }
+  if (origin.kind === "import_read") return importReadTask(origin.imported, frozen, crId)
+  if (origin.kind === "question_answers") return questionAnswersTask(origin.count, frozen, crId)
+  return frozen
+    ? `Respond to the user's latest message above. If it asks for a change to what the ` +
+        `product does, ${crDraftOrder(crId)}. If the message needs no product change, just ` +
+        `answer it and write nothing. Then tell the user exactly what you did.\n`
+    : `Respond to the user's latest message above. Ask your next focused batch of questions ` +
+        `and, when an area is settled, ${CANONICAL_WRITE_ORDER}. Then tell the user exactly ` +
+        `which files you wrote.\n`
+}
+
+// The phase is an ORDER, not a fact to remember: a persistent conversation still holds the opposite instruction verbatim from before the freeze flipped.
+function phaseStatement(frozen: boolean): string {
+  return frozen
+    ? `spec_frozen: true — a canonical baseline is FROZEN, so the canonical spec is LOCKED ` +
+        `right now: do NOT write or edit anything under \`.vivicy/canonical/\` or ` +
+        `\`.vivicy/development/spikes/\` this turn, whatever an earlier turn of this ` +
+        `conversation told you. A Change Request is the only way to change what the product must do.`
+    : `spec_frozen: false — no frozen baseline governs the spec right now, so the canonical ` +
+        `docs under \`.vivicy/canonical/\` and the spikes under \`.vivicy/development/spikes/\` ` +
+        `are yours to write this turn, whatever an earlier turn of this conversation told you.`
+}
+
+// The ONE source of everything that goes stale inside a persistent conversation — it rides the seed and every increment alike, and says so.
+function volatileBlock(targetRoot: string, frozen: boolean, crId: string, statusLine: string): string {
   return (
-    `${persona}\n\n` +
-    `---\n\n## Conversation so far\n\n${transcript}\n\n` +
-    `---\n\n## Current \`.vivicy\` state (file list only)\n\n${state}\n\n${statusLine}\n\n` +
-    `---\n\n## This turn\n\n${task}`
+    `## Current state — re-stated every turn, and it OVERRIDES anything older in this conversation\n\n` +
+    `${phaseStatement(frozen)}\n\n` +
+    `Next Change Request id: ${crId}.\n\n` +
+    `${statusLine}\n\n` +
+    `### The \`.vivicy\` files right now (file list only)\n\n${summarizeVivicyState(targetRoot, frozen)}`
   )
+}
+
+interface TurnContext {
+  factoryRoot: string
+  targetRoot: string
+  turns: ViviTurn[]
+  frozen: boolean
+  crId: string
+  statusLine: string
+  origin: TurnOrigin
+}
+
+interface TurnPrompts {
+  seed: string
+  increment: string
+}
+
+// What a resumed conversation still has to be told is a SET, never a suffix: the owner's message is recorded BEFORE the queue wait, so it can land while another turn is in flight and be followed by a reply whose prompt never carried it. Delivered = every turn inside a recorded prefix, plus the replies that recorded one.
+function undeliveredTurns(turns: ViviTurn[]): ViviTurn[] {
+  let prefix = 0
+  for (const turn of turns) {
+    if (turn.delivered !== undefined && turn.delivered > prefix) prefix = turn.delivered
+  }
+  return turns.filter((turn, index) => index >= prefix && turn.delivered === undefined)
+}
+
+// Two prompts for one turn, because only the child knows whether it resumes: the SEED opens a conversation (persona first message, whole render), the INCREMENT continues one (what is new, nothing else). Both end with the same volatile block and the same order.
+function composeTurnPrompts(ctx: TurnContext): TurnPrompts {
+  const { factoryRoot, targetRoot, turns, frozen, crId, statusLine, origin } = ctx
+  const tail =
+    `${volatileBlock(targetRoot, frozen, crId, statusLine)}\n\n` + `---\n\n## This turn\n\n${turnTask(turns, frozen, crId, origin)}`
+  const fresh = undeliveredTurns(turns)
+  return {
+    seed: `${readPersona(factoryRoot)}\n\n---\n\n## Conversation so far\n\n${renderTranscript(turns)}\n\n---\n\n${tail}`,
+    increment:
+      fresh.length === 0 ? tail : `## New in this thread since your last reply\n\n${renderTranscript(fresh, turns)}\n\n---\n\n${tail}`,
+  }
 }
 
 // Sync reads only, never a spawn: a failing probe reports "unavailable", never a fabricated value.
@@ -1249,8 +1291,10 @@ async function runTurnLocked(
     const crId = nextCrId(targetRoot)
     const statusLine = buildStatusLine(spawner, targetRoot, frozen)
     const turns = readTranscript(sessionId)
-    const prompt = composePrompt(factoryRoot, targetRoot, turns, frozen, crId, statusLine, origin)
-    const outcome = await spawnViviLeg(spawner, { command, targetRoot, sessionId, prompt, frozen })
+    // What this round's prompt carries, captured BEFORE the spawn: a turn appended while the leg runs is not in it and must stay undelivered.
+    const carried = turns.length
+    const prompts = composeTurnPrompts({ factoryRoot, targetRoot, turns, frozen, crId, statusLine, origin })
+    const outcome = await spawnViviLeg(spawner, { command, targetRoot, sessionId, prompts, frozen })
     const reply = outcome.kind === "reply" ? outcome.text : ""
 
     const after = snapshotVivicy(targetRoot, roundBase)
@@ -1279,6 +1323,7 @@ async function runTurnLocked(
             `rejected: Vivi modified your uncommitted work in progress (${tampered.join(", ")}) — code writes are forbidden — the whole turn was rolled back${restoreNote}`,
             allActions
           ),
+          carried,
           allActions
         )
       }
@@ -1302,6 +1347,7 @@ async function runTurnLocked(
             `rejected: Vivi wrote outside .vivicy — code writes are forbidden (${codeWrites.join(", ")}) — the whole turn was rolled back${cleanupNote}`,
             allActions
           ),
+          carried,
           allActions
         )
       }
@@ -1323,6 +1369,7 @@ async function runTurnLocked(
           `rejected: Vivi wrote outside its allowlist (${diff.violations.join(", ")}) — the whole turn was rolled back`,
           allActions
         ),
+        carried,
         allActions
       )
     }
@@ -1345,6 +1392,7 @@ async function runTurnLocked(
             `rejected: Vivi's Change Request did not pass change-control (${invalid}) — the whole turn was rolled back`,
             allActions
           ),
+          carried,
           allActions
         )
       }
@@ -1367,14 +1415,14 @@ async function runTurnLocked(
     if (directive === null) {
       const spoken = takeQuestions(applySkillsDirective(spawner, reply))
       const finalReply = `${spoken.text}${gitNote}`
-      appendViviReply(sessionId, finalReply, diff.allowedWrites, spoken.questions)
+      appendViviReply(sessionId, finalReply, diff.allowedWrites, spoken.questions, carried)
       return { sessionId, reply: finalReply, wrote, actions: allActions.length > 0 ? allActions : undefined }
     }
 
     if ("malformed" in directive) {
       const spoken = takeQuestions(applySkillsDirective(spawner, reply))
       const finalReply = `${spoken.text}\n\n→ no action executed: ${directive.malformed}.${gitNote}`
-      appendViviReply(sessionId, finalReply, diff.allowedWrites, spoken.questions)
+      appendViviReply(sessionId, finalReply, diff.allowedWrites, spoken.questions, carried)
       return { sessionId, reply: finalReply, wrote, actions: allActions.length > 0 ? allActions : undefined }
     }
 
@@ -1384,7 +1432,8 @@ async function runTurnLocked(
       sessionId,
       spokenText.length > 0 ? spokenText : spoken.questions === null ? "(requested actions)" : "",
       diff.allowedWrites,
-      spoken.questions
+      spoken.questions,
+      carried
     )
 
     const results = await executeViviActions(spawner, directive.actions)
@@ -1444,21 +1493,25 @@ function withExecutedActionsNote(reason: string, executed: ViviActionResult[]): 
 
 async function spawnViviLeg(
   spawner: Spawner,
-  opts: { command: string; targetRoot: string; sessionId: string; prompt: string; frozen: boolean }
+  opts: { command: string; targetRoot: string; sessionId: string; prompts: TurnPrompts; frozen: boolean }
 ): Promise<LegOutcome> {
-  const { command, targetRoot, sessionId, prompt, frozen } = opts
+  const { command, targetRoot, sessionId, prompts, frozen } = opts
   const scratch = openScratchDir(TURN_SCRATCH_PREFIX)
-  const promptFile = path.join(scratch, "prompt.txt")
+  const seedFile = path.join(scratch, "seed.txt")
+  const incrementFile = path.join(scratch, "increment.txt")
   const replyFile = path.join(scratch, "reply.txt")
   const failureFile = path.join(scratch, "failure.txt")
   try {
-    writeFileSync(promptFile, prompt)
+    writeFileSync(seedFile, prompts.seed)
+    writeFileSync(incrementFile, prompts.increment)
     const result = await spawner.run({
       command: process.execPath,
       args: [
         command,
-        "--prompt-file",
-        promptFile,
+        "--seed-file",
+        seedFile,
+        "--increment-file",
+        incrementFile,
         "--reply-file",
         replyFile,
         "--failure-file",
@@ -1544,16 +1597,17 @@ function takeQuestions(reply: string): SpokenReply {
   return { text: spoken, questions: directive.questions }
 }
 
-// The stack id is server-minted — the fence never names it — and the stack rides its OWN turn.
-function appendViviReply(sessionId: string, text: string, wrote: string[], questions: ViviQuestion[] | null): void {
+// The stack id is server-minted — the fence never names it — and the stack rides its OWN turn. Both turns are the leg's own words, so both record the prefix its prompt carried.
+function appendViviReply(sessionId: string, text: string, wrote: string[], questions: ViviQuestion[] | null, delivered: number): void {
   if (text.trim().length > 0 || wrote.length > 0 || questions === null) {
-    appendTurn(sessionId, { role: "vivi", text, ts: new Date().toISOString(), wrote })
+    appendTurn(sessionId, { role: "vivi", text, ts: new Date().toISOString(), delivered, wrote })
   }
   if (questions === null) return
   appendTurn(sessionId, {
     role: "questions",
     text: countForm(questions.length, "1 question card", `${questions.length} question cards`),
     ts: new Date().toISOString(),
+    delivered,
     questions: { id: randomUUID(), questions },
   })
 }
@@ -1567,12 +1621,20 @@ function rejectTurn(
   diff: DiffResult,
   before: Snapshot,
   rejected: string,
+  delivered: number,
   actions: ViviActionResult[] = []
 ): ViviReply {
   restoreSnapshot(targetRoot, diff, before)
   const spoke = outcome.kind === "reply"
   const reply = spoke ? outcome.text : turnFailureNote(origin, outcome.reason, [], actions)
-  appendTurn(sessionId, { role: spoke ? "vivi" : "note", text: reply, ts: new Date().toISOString(), rejected })
+  // A leg that spoke was answered: its conversation holds the prefix its prompt carried, rejected turn or not. One that never spoke recorded nothing, and the next turn re-sends what it was told.
+  appendTurn(sessionId, {
+    role: spoke ? "vivi" : "note",
+    text: reply,
+    ts: new Date().toISOString(),
+    ...(spoke ? { delivered } : {}),
+    rejected,
+  })
   return {
     sessionId,
     reply,

@@ -27,6 +27,10 @@ const CHAT_SESSION = "3f2a91be-08c7-4d1e-9c44-6b0e2f7a5d13"
 
 const LEG_MODEL = "vivi-turn-test-model"
 
+// The two halves lib/vivi.ts composes for every turn: the seed opens a conversation, the increment continues one.
+const SEED_PROMPT = "SEED — the persona, the whole render, the state, the order"
+const INCREMENT_PROMPT = "INCREMENT — what is new since your last reply, and the order"
+
 const PERSONA_HASH = createHash("sha256")
   .update(readFileSync(join(FACTORY_PROMPTS_DIR, "vivi.md"), "utf8"))
   .digest("hex")
@@ -34,7 +38,8 @@ const PERSONA_HASH = createHash("sha256")
 function outcome(over: Partial<LegResult>): Promise<ViviTurnOutcome> {
   const result: LegResult = { status: 0, stdout: "", stderr: "", ...over }
   return runViviTurn({
-    promptText: "prompt",
+    seedText: SEED_PROMPT,
+    incrementText: INCREMENT_PROMPT,
     targetRoot: "/vivicy-vivi-turn/target",
     spawnVivi: async () => ({
       result,
@@ -95,7 +100,8 @@ async function resumeAttempt(over: Partial<LegResult>): Promise<{ spawns: number
     })
     let spawns = 0
     const turn = await runViviTurn({
-      promptText: "prompt",
+      seedText: SEED_PROMPT,
+      incrementText: INCREMENT_PROMPT,
       targetRoot: root,
       sessionId: CHAT_SESSION,
       cfg: { promptsDir: FACTORY_PROMPTS_DIR },
@@ -165,11 +171,13 @@ function withCli<T>(body: (harness: CliHarness) => T): T {
   const target = join(root, "target")
   mkdirSync(bin, { recursive: true })
   mkdirSync(target, { recursive: true })
-  const promptFile = join(root, "prompt.txt")
+  const seedFile = join(root, "seed.txt")
+  const incrementFile = join(root, "increment.txt")
   const reply = join(root, "reply.txt")
   const failure = join(root, "failure.txt")
   const argvPath = join(root, "argv")
-  writeFileSync(promptFile, "say something")
+  writeFileSync(seedFile, SEED_PROMPT)
+  writeFileSync(incrementFile, INCREMENT_PROMPT)
   try {
     return body({
       target,
@@ -179,7 +187,20 @@ function withCli<T>(body: (harness: CliHarness) => T): T {
         for (const stale of [argvPath, reply, failure]) rmSync(stale, { force: true })
         const run = spawnSync(
           process.execPath,
-          [VIVI_TURN, "--prompt-file", promptFile, "--target", target, "--reply-file", reply, "--failure-file", failure, ...extra],
+          [
+            VIVI_TURN,
+            "--seed-file",
+            seedFile,
+            "--increment-file",
+            incrementFile,
+            "--target",
+            target,
+            "--reply-file",
+            reply,
+            "--failure-file",
+            failure,
+            ...extra,
+          ],
           {
             encoding: "utf8",
             env: {
@@ -259,8 +280,13 @@ test("a speaking agent CLI writes the reply its json envelope carries to the rep
   assert.equal(run.failure, null, "a turn that spoke names no failure")
   assert.deepEqual(
     run.argv.slice(0, 4),
-    ["-p", "say something", "--safe-mode", "--dangerously-skip-permissions"],
-    "the vivi leg keeps the whole isolation vector"
+    ["-p", SEED_PROMPT, "--safe-mode", "--dangerously-skip-permissions"],
+    "the vivi leg keeps the whole isolation vector, and the persona rides the conversation's first MESSAGE — never a system-prompt flag"
+  )
+  assert.equal(
+    run.argv.some((arg) => arg.includes("system-prompt")),
+    false,
+    "the persona is the first message of the conversation: no --system-prompt / --append-system-prompt, whose interaction with --resume is unmeasured"
   )
   assert.equal(run.argv[4], "--session-id", "a first turn mints its session; only a later one resumes it")
   assert.match(run.argv[5], /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/)
@@ -341,6 +367,36 @@ test("a resume the CLI refuses forks inside the same turn: the owner still gets 
   })
 })
 
+test("one seed per conversation, one increment per later turn — and a fork reseeds instead of continuing on a delta", () => {
+  withCli(({ run }) => {
+    const created = run(fakeClaude(ENVELOPE), ["--session", CHAT_SESSION])
+    assert.equal(created.argv[1], SEED_PROMPT, "the conversation opens on the seed: persona, whole render, state, order")
+    assert.match(created.stdout, new RegExp(`new conversation ${VIVI_SESSION} — seed ${SEED_PROMPT.length} chars`))
+
+    const resumed = run(fakeClaude(ENVELOPE), ["--session", CHAT_SESSION])
+    assert.equal(
+      resumed.argv[1],
+      INCREMENT_PROMPT,
+      "a resumed conversation carries the increment ALONE — the seed's bytes are already in it"
+    )
+    assert.equal(
+      resumed.argv.includes(SEED_PROMPT),
+      false,
+      "re-sending the seed on a resume is the cost regression this split exists to kill"
+    )
+    assert.match(resumed.stdout, new RegExp(`resumed ${VIVI_SESSION} — increment ${INCREMENT_PROMPT.length} chars`))
+
+    const forked = run(fakeClaudeRefusingResume(FORKED_ENVELOPE), ["--session", CHAT_SESSION])
+    assert.equal(forked.invocations[0][1], INCREMENT_PROMPT, "the resume is attempted on the increment")
+    assert.equal(
+      forked.invocations[1][1],
+      SEED_PROMPT,
+      "the fork's create RESEEDS: a new conversation on a delta would start with no persona and no thread"
+    )
+    assert.match(forked.stdout, new RegExp(`forked \\(resume_refused\\) into ${FORKED_SESSION} — seed ${SEED_PROMPT.length} chars`))
+  })
+})
+
 test("a target that moved is caught in the sidecar and forks BEFORE the CLI is asked, never on its ambiguous refusal", () => {
   withCli(({ target, sidecarOf, run }) => {
     run(fakeClaude(ENVELOPE), ["--session", CHAT_SESSION])
@@ -351,6 +407,7 @@ test("a target that moved is caught in the sidecar and forks BEFORE the CLI is a
 
     assert.equal(moved.invocations.length, 1, "the stale conversation is never offered to the CLI at all")
     assert.equal(moved.argv[4], "--session-id")
+    assert.equal(moved.argv[1], SEED_PROMPT, "a drift-driven fork reseeds its new conversation too")
     assert.equal(moved.reply, FORKED_SPOKEN)
     assert.match(moved.stdout, /forked \(cwd_changed\)/)
     assert.equal(sidecarRecord(sidecar).cwd, realpathSync(target), "the record now names where the target actually is")
@@ -369,6 +426,31 @@ test("a turn with no chat session of its own writes no sidecar: only the thread'
       "a hand-run turn leaves the project's conversation store alone"
     )
   })
+})
+
+test("the CLI entry refuses a turn missing a half, and one whose prompt file is not on disk, before it spawns anything", () => {
+  const root = mkdtempSync(join(tmpdir(), "vivicy-vivi-turn-usage-"))
+  try {
+    const seed = join(root, "seed.txt")
+    writeFileSync(seed, SEED_PROMPT)
+    const entry = (args: string[]) => spawnSync(process.execPath, [VIVI_TURN, ...args], { encoding: "utf8" })
+
+    for (const [args, why] of [
+      [["--seed-file", seed, "--reply-file", join(root, "reply.txt")], "no --increment-file"],
+      [["--increment-file", seed, "--reply-file", join(root, "reply.txt")], "no --seed-file"],
+      [["--seed-file", seed, "--increment-file", seed], "no --reply-file"],
+    ] as const) {
+      const run = entry([...args])
+      assert.equal(run.status, 2, `${why}: a usage error is exit 2`)
+      assert.match(run.stderr, /vivi-turn requires --seed-file <abs>, --increment-file <abs> and --reply-file <abs>/)
+    }
+
+    const missing = entry(["--seed-file", seed, "--increment-file", join(root, "gone.txt"), "--reply-file", join(root, "reply.txt")])
+    assert.equal(missing.status, 2)
+    assert.match(missing.stderr, /prompt file not found: .*gone\.txt/)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
 })
 
 test("a chat session id that could name anything but a sidecar is refused outright", () => {

@@ -22,7 +22,8 @@ interface ViviSpawnArgs {
 }
 
 interface ViviTurnOptions {
-  promptText?: string
+  seedText?: string
+  incrementText?: string
   targetRoot?: string | null
   sessionId?: string
   cfg?: Partial<LegConfig>
@@ -43,9 +44,14 @@ export interface ViviTurnOutcome {
 type SpokenTurn = Omit<ViviTurnOutcome, "forked" | "resumed">
 
 export async function runViviTurn(options: ViviTurnOptions = {}): Promise<ViviTurnOutcome> {
-  const promptText = options.promptText
-  if (typeof promptText !== "string" || promptText.length === 0) {
-    throw new Error("vivi-turn: no prompt text (pass --prompt-file <abs> with the composed prompt).")
+  const { seedText, incrementText } = options
+  for (const [text, flag] of [
+    [seedText, "--seed-file"],
+    [incrementText, "--increment-file"],
+  ] as const) {
+    if (typeof text !== "string" || text.length === 0) {
+      throw new Error(`vivi-turn: no prompt text (pass ${flag} <abs>; a turn composes both halves and this process picks one).`)
+    }
   }
   const targetRoot = options.targetRoot ?? resolveTargetRoot()
   const cfg = { ...DEFAULT_CONFIG, promptsDir: FACTORY_PROMPTS_DIR, execRoot: targetRoot, ...(options.cfg ?? {}) }
@@ -64,7 +70,9 @@ export async function runViviTurn(options: ViviTurnOptions = {}): Promise<ViviTu
   const run = await runViviLegSession<SpokenTurn>({
     sidecar: targetRoot === null || options.sessionId === undefined ? null : openViviSidecar(targetRoot, options.sessionId),
     identity: legIdentity(leg, cfg, targetRoot),
+    // The ONE place the split is spent: a conversation being created (or reseeded by a fork) takes the seed, a resumed one takes the increment and nothing else.
     spawn: async (resumeSessionId) => {
+      const promptText = (resumeSessionId === undefined ? seedText : incrementText) as string
       const { result, transcriptRel, reply, sessionId, usage } = await spawnVivi({ promptText, targetRoot, cfg, leg, resumeSessionId })
       const turn: SpokenTurn = { reply, status: result.status, stderr: result.stderr, transcriptRel, cliSessionId: sessionId, usage }
       return {
@@ -127,7 +135,8 @@ function viviIssue(): AgentIssue {
 }
 
 interface ViviTurnArgs {
-  promptFile?: string
+  seedFile?: string
+  incrementFile?: string
   replyFile?: string
   failureFile?: string
   targetRoot?: string
@@ -137,7 +146,8 @@ interface ViviTurnArgs {
 function parseArgs(argv: string[]): ViviTurnArgs {
   const out: ViviTurnArgs = {}
   for (let i = 0; i < argv.length; i += 1) {
-    if (argv[i] === "--prompt-file") out.promptFile = argv[i + 1]
+    if (argv[i] === "--seed-file") out.seedFile = argv[i + 1]
+    else if (argv[i] === "--increment-file") out.incrementFile = argv[i + 1]
     else if (argv[i] === "--reply-file") out.replyFile = argv[i + 1]
     else if (argv[i] === "--failure-file") out.failureFile = argv[i + 1]
     else if (argv[i] === "--target") out.targetRoot = argv[i + 1]
@@ -146,11 +156,13 @@ function parseArgs(argv: string[]): ViviTurnArgs {
   return out
 }
 
-// The conversation the turn ran in is the server log's business and never the owner's: a fork is invisible in the chat by contract.
-function sessionLine(outcome: ViviTurnOutcome): string {
+// The conversation the turn ran in is the server log's business and never the owner's: a fork is invisible in the chat by contract. The half that was sent, and its size, is where the per-turn cost is read off.
+function sessionLine(outcome: ViviTurnOutcome, sent: { seed: string; increment: string }): string {
   const id = outcome.cliSessionId ?? "unrecorded"
-  if (outcome.forked !== null) return `forked (${outcome.forked}) into ${id}`
-  return outcome.resumed ? `resumed ${id}` : `new conversation ${id}`
+  const half = outcome.resumed ? "increment" : "seed"
+  const cost = `${half} ${(outcome.resumed ? sent.increment : sent.seed).length} chars`
+  if (outcome.forked !== null) return `forked (${outcome.forked}) into ${id} — ${cost}`
+  return `${outcome.resumed ? `resumed ${id}` : `new conversation ${id}`} — ${cost}`
 }
 
 function writeFile(file: string, body: string): void {
@@ -165,14 +177,16 @@ function say(fd: 1 | 2, line: string): void {
 
 const cliEntry = process.argv[1] ? resolve(process.argv[1]) : null
 if (cliEntry === fileURLToPath(import.meta.url)) {
-  const { promptFile, replyFile, failureFile, targetRoot, sessionId } = parseArgs(process.argv.slice(2))
-  if (!promptFile || !replyFile) {
-    say(2, "error: vivi-turn requires --prompt-file <abs> and --reply-file <abs>.")
+  const { seedFile, incrementFile, replyFile, failureFile, targetRoot, sessionId } = parseArgs(process.argv.slice(2))
+  if (!seedFile || !incrementFile || !replyFile) {
+    say(2, "error: vivi-turn requires --seed-file <abs>, --increment-file <abs> and --reply-file <abs>.")
     process.exit(2)
   }
-  if (!existsSync(promptFile)) {
-    say(2, `error: prompt file not found: ${promptFile}`)
-    process.exit(2)
+  for (const file of [seedFile, incrementFile]) {
+    if (!existsSync(file)) {
+      say(2, `error: prompt file not found: ${file}`)
+      process.exit(2)
+    }
   }
   // Two channels, one writer each: the reply file carries Vivi's own words and NOTHING else, the failure file the orchestrator's reason.
   const fail = (reason: string): never => {
@@ -184,13 +198,13 @@ if (cliEntry === fileURLToPath(import.meta.url)) {
     say(2, `vivi turn failed: ${reason}`)
     process.exit(1)
   }
-  const promptText = readFileSync(promptFile, "utf8")
-  runViviTurn({ promptText, targetRoot: targetRoot ? resolve(targetRoot) : undefined, sessionId })
+  const sent = { seed: readFileSync(seedFile, "utf8"), increment: readFileSync(incrementFile, "utf8") }
+  runViviTurn({ seedText: sent.seed, incrementText: sent.increment, targetRoot: targetRoot ? resolve(targetRoot) : undefined, sessionId })
     .then((outcome) => {
       const reason = legFailureReason(outcome)
       if (reason !== null) fail(reason)
       writeFile(replyFile, outcome.reply)
-      say(1, `vivi turn: reply ${outcome.reply.length} chars — ${sessionLine(outcome)}`)
+      say(1, `vivi turn: reply ${outcome.reply.length} chars — ${sessionLine(outcome, sent)}`)
       process.exit(0)
     })
     .catch((error) => {
