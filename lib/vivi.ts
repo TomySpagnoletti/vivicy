@@ -19,7 +19,7 @@ import {
 import { importIntoGoverned, UPLOADS_DIR, type BatchResult, type ManifestFile, type RawEntry, type RejectedFile } from "@/lib/import-docs"
 import type { SecretFileFinding } from "@/lib/secret-scan"
 import { languageDisplayName } from "@/lib/language"
-import { DEFAULT_VIVI_ACTION_ROUNDS, MAX_VIVI_ACTION_ROUNDS } from "@/lib/leg-budget"
+import { DEFAULT_VIVI_ACTION_ROUNDS, DEFAULT_VIVI_CONTEXT_CEILING, MAX_VIVI_ACTION_ROUNDS } from "@/lib/leg-budget"
 import { ensureViviStoreDir, getViviStoreDir, PROJECT_RUNTIME_SEGMENTS, VIVI_SESSION_ID_PATTERN } from "@/lib/project-runtime"
 import { openScratchDir, scratchName, sweepAbandonedScratch } from "@/lib/scratch"
 import { settingsToEnv } from "@/lib/settings"
@@ -1200,38 +1200,53 @@ type LegOutcome = { kind: "reply"; text: string } | { kind: "failed"; reason: st
 
 const MAX_FAILURE_REASON = 240
 
-type TurnQueue = Map<string, Promise<void>>
+interface TurnGate {
+  chain: Map<string, Promise<void>>
+  owners: Map<string, number>
+  disarmedCeilings: Set<string>
+}
 
 // Cross-request server state stays process-global, never a module `let` — same trap as lib/spawner.ts.
-const TURN_QUEUE = Symbol.for("vivicy.vivi.turn-queue")
+const TURN_GATE = Symbol.for("vivicy.vivi.turn-gate")
 
-function turnQueue(): TurnQueue {
-  const registry = globalThis as unknown as Record<symbol, TurnQueue | undefined>
-  const existing = registry[TURN_QUEUE]
+function turnGate(): TurnGate {
+  const registry = globalThis as unknown as Record<symbol, TurnGate | undefined>
+  const existing = registry[TURN_GATE]
   if (existing) return existing
-  const created: TurnQueue = new Map()
-  registry[TURN_QUEUE] = created
+  const created: TurnGate = { chain: new Map(), owners: new Map(), disarmedCeilings: new Set() }
+  registry[TURN_GATE] = created
   return created
 }
 
+// The OWNER's liveness alone: the panel reads this to declare a reply lost, and the maintenance work the chain also carries is producing no reply for anyone to wait on.
 export function isViviTurnRunning(targetRoot: string): boolean {
-  return turnQueue().has(targetRoot)
+  return (turnGate().owners.get(targetRoot) ?? 0) > 0
 }
 
-// One turn at a time per TARGET, queued and never refused, released on every path: a concurrent turn's legitimate writes would be wiped by the other's rollback.
-async function withTargetTurnLock<T>(targetRoot: string, run: () => Promise<T>): Promise<T> {
-  const queue = turnQueue()
-  const previous = queue.get(targetRoot)
+// One turn at a time per TARGET, queued and never refused, released on every path: a concurrent turn's legitimate writes would be wiped by the other's rollback, and two processes resuming the one CLI conversation would tear its rollout.
+function serializeOnTarget<T>(targetRoot: string, run: () => Promise<T>): Promise<T> {
+  const { chain } = turnGate()
+  const previous = chain.get(targetRoot)
   const mine = (previous ?? Promise.resolve()).then(run)
   const tail = mine.then(
     () => {},
     () => {}
   )
-  queue.set(targetRoot, tail)
+  chain.set(targetRoot, tail)
+  return mine.finally(() => {
+    if (chain.get(targetRoot) === tail) chain.delete(targetRoot)
+  })
+}
+
+async function withTargetTurnLock<T>(targetRoot: string, run: () => Promise<T>): Promise<T> {
+  const { owners } = turnGate()
+  owners.set(targetRoot, (owners.get(targetRoot) ?? 0) + 1)
   try {
-    return await mine
+    return await serializeOnTarget(targetRoot, run)
   } finally {
-    if (queue.get(targetRoot) === tail) queue.delete(targetRoot)
+    const left = (owners.get(targetRoot) ?? 1) - 1
+    if (left > 0) owners.set(targetRoot, left)
+    else owners.delete(targetRoot)
   }
 }
 
@@ -1259,14 +1274,26 @@ async function runTurn(spawner: Spawner, sessionId: string, origin: TurnOrigin):
   if (origin.kind === "user") {
     appendTurn(sessionId, { role: "user", text: origin.message, ts: new Date().toISOString() })
   }
-  return withTargetTurnLock(targetRoot, () => runTurnLocked(spawner, { sessionId, origin, targetRoot, factoryRoot, command }))
+  // The ceiling is read off the turn that just ran and acted on BETWEEN turns: the reply is already the owner's, and the maintenance leg takes the next slot of the very queue an owner turn takes, so it can never run beside one.
+  const measured: MeasuredTurn = { reading: null }
+  try {
+    return await withTargetTurnLock(targetRoot, () =>
+      runTurnLocked(spawner, { sessionId, origin, targetRoot, factoryRoot, command, measured })
+    )
+  } finally {
+    stewardContextCeiling(spawner, { targetRoot, sessionId, command, reading: measured.reading })
+  }
+}
+
+interface MeasuredTurn {
+  reading: ContextReading | null
 }
 
 async function runTurnLocked(
   spawner: Spawner,
-  ctx: { sessionId: string; origin: TurnOrigin; targetRoot: string; factoryRoot: string; command: string }
+  ctx: { sessionId: string; origin: TurnOrigin; targetRoot: string; factoryRoot: string; command: string; measured: MeasuredTurn }
 ): Promise<ViviReply> {
-  const { sessionId, origin, targetRoot, factoryRoot, command } = ctx
+  const { sessionId, origin, targetRoot, factoryRoot, command, measured } = ctx
   // One capture serves both the rollback target (the owner's pre-turn bytes) and the first round's base.
   const before = snapshotVivicy(targetRoot)
 
@@ -1295,7 +1322,9 @@ async function runTurnLocked(
     // What this round's prompt carries, captured BEFORE the spawn: a turn appended while the leg runs is not in it and must stay undelivered.
     const carried = turns.length
     const prompts = composeTurnPrompts({ factoryRoot, targetRoot, turns, round, frozen, crId, statusLine, origin })
-    const outcome = await spawnViviLeg(spawner, { command, targetRoot, sessionId, prompts, frozen })
+    const spawned = await spawnViviLeg(spawner, { command, targetRoot, sessionId, prompts, frozen })
+    const outcome = spawned.outcome
+    if (spawned.reading !== null) measured.reading = spawned.reading
     const reply = outcome.kind === "reply" ? outcome.text : ""
 
     const after = snapshotVivicy(targetRoot, roundBase)
@@ -1479,6 +1508,52 @@ function resolveMaxActionRounds(raw: string | undefined): number {
   return Math.max(1, Math.min(MAX_VIVI_ACTION_ROUNDS, parsed))
 }
 
+function resolveContextCeiling(raw: string | undefined): number {
+  const parsed = Number.parseFloat(raw ?? "")
+  if (!Number.isFinite(parsed)) return DEFAULT_VIVI_CONTEXT_CEILING
+  return Math.max(0, Math.min(1, parsed))
+}
+
+// The latch belongs to the THREAD, never to the CLI conversation it keeps replacing: maintenance mints a new conversation whenever it reseeds, so re-arming on that identity would make every reseed license the next one, one per turn. Armed is the DEFAULT, so only the threads currently sitting above an unrelieved ceiling are ever held. It re-arms on a measurement that came back UNDER the ceiling — the only witness that the stewardship worked — or on a leg that decided nothing, since a CLI that was briefly unavailable must not strand the ceiling forever. A conversation nothing can relieve then costs exactly one leg instead of one per turn.
+function stewardContextCeiling(
+  spawner: Spawner,
+  ctx: { targetRoot: string; sessionId: string; command: string; reading: ContextReading | null }
+): void {
+  const { targetRoot, sessionId, command, reading } = ctx
+  if (reading === null) return
+  const { disarmedCeilings } = turnGate()
+  const latch = `${targetRoot}\n${sessionId}`
+  if (reading.used / reading.window < resolveContextCeiling(process.env.VIVICY_VIVI_CONTEXT_CEILING)) {
+    disarmedCeilings.delete(latch)
+    return
+  }
+  if (disarmedCeilings.has(latch)) return
+  disarmedCeilings.add(latch)
+  void serializeOnTarget(targetRoot, async () => {
+    const decided = await runMaintenanceLeg(spawner, { targetRoot, sessionId, command })
+    if (!decided) disarmedCeilings.delete(latch)
+  }).catch(() => {})
+}
+
+// Pure stewardship: no notification, no card, no transcript turn — what happened to the conversation is the server log's business alone.
+async function runMaintenanceLeg(spawner: Spawner, ctx: { targetRoot: string; sessionId: string; command: string }): Promise<boolean> {
+  const { targetRoot, sessionId, command } = ctx
+  try {
+    const result = await spawner.run({
+      command: process.execPath,
+      args: [command, "--maintain", "--target", targetRoot, "--session", sessionId],
+      cwd: targetRoot,
+      env: { ...process.env, VIVICY_TARGET_ROOT: targetRoot, ...settingsToEnv(resolveSettings(targetRoot)) },
+    })
+    const said = (result.lastLine || result.stderr || "").trim()
+    process.stderr.write(`vivi context: ${said.length > 0 ? said : `maintenance exited ${result.code ?? "with no status"}`}\n`)
+    return result.code === 0
+  } catch (error) {
+    process.stderr.write(`vivi context: maintenance could not run — ${error instanceof Error ? error.message : String(error)}\n`)
+    return false
+  }
+}
+
 function executedActionsClause(executed: ViviActionResult[]): string {
   return countForm(
     executed.length,
@@ -1495,13 +1570,14 @@ function withExecutedActionsNote(reason: string, executed: ViviActionResult[]): 
 async function spawnViviLeg(
   spawner: Spawner,
   opts: { command: string; targetRoot: string; sessionId: string; prompts: TurnPrompts; frozen: boolean }
-): Promise<LegOutcome> {
+): Promise<{ outcome: LegOutcome; reading: ContextReading | null }> {
   const { command, targetRoot, sessionId, prompts, frozen } = opts
   const scratch = openScratchDir(TURN_SCRATCH_PREFIX)
   const seedFile = path.join(scratch, "seed.txt")
   const incrementFile = path.join(scratch, "increment.txt")
   const replyFile = path.join(scratch, "reply.txt")
   const failureFile = path.join(scratch, "failure.txt")
+  const pressureFile = path.join(scratch, "pressure.json")
   try {
     writeFileSync(seedFile, prompts.seed)
     writeFileSync(incrementFile, prompts.increment)
@@ -1517,6 +1593,8 @@ async function spawnViviLeg(
         replyFile,
         "--failure-file",
         failureFile,
+        "--pressure-file",
+        pressureFile,
         "--target",
         targetRoot,
         "--session",
@@ -1530,13 +1608,33 @@ async function spawnViviLeg(
         ...settingsToEnv(resolveSettings(targetRoot)),
       },
     })
+    const reading = readContextPressure(pressureFile)
     const spoken = readNonEmptyFile(replyFile)
-    if (result.code === 0 && spoken !== null) return { kind: "reply", text: spoken }
+    if (result.code === 0 && spoken !== null) return { outcome: { kind: "reply", text: spoken }, reading }
     logLegFailure(result)
-    return { kind: "failed", reason: legFailureReason(failureFile, result) }
+    return { outcome: { kind: "failed", reason: legFailureReason(failureFile, result) }, reading }
   } finally {
     rmSync(scratch, { recursive: true, force: true })
   }
+}
+
+// How full the CLI conversation the turn ran in now is, as its child measured it.
+interface ContextReading {
+  used: number
+  window: number
+}
+
+function readContextPressure(file: string): ContextReading | null {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(readFileSync(file, "utf8"))
+  } catch {
+    return null
+  }
+  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) return null
+  const { used, window } = parsed as Record<string, unknown>
+  const usable = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value) && value > 0
+  return usable(used) && usable(window) ? { used, window } : null
 }
 
 const SKILLS_TAG = "vivicy-skills"

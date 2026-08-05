@@ -47,7 +47,7 @@ function outcome(over: Partial<LegResult>): Promise<ViviTurnOutcome> {
       transcriptRel: "T/vivi.jsonl",
       reply: readReply(result.stdout, false).reply,
       sessionId: VIVI_SESSION,
-      usage: { output_tokens: 88 },
+      context: { used: 24726, window: 200000 },
     }),
   })
 }
@@ -64,7 +64,7 @@ test("the turn result keeps the leg's streams apart and carries its exit status"
   assert.equal(spoke.reply, "Ciao!", "the reply is what the leg said, trimmed")
   assert.equal(spoke.stderr, "a warning nobody asked for\n")
   assert.equal(spoke.cliSessionId, VIVI_SESSION, "the CLI session the turn ran in rides the outcome — it is what a later turn resumes")
-  assert.deepEqual(spoke.usage, { output_tokens: 88 })
+  assert.deepEqual(spoke.context, { used: 24726, window: 200000 }, "how full the conversation now is rides the outcome beside its identity")
 })
 
 test("legFailureReason is the one verdict on whether the leg spoke", async () => {
@@ -139,6 +139,7 @@ interface CliRun {
   argv: string[]
   reply: string | null
   failure: string | null
+  pressureBody: string | null
 }
 
 const ARGV_RECORD_END = "END"
@@ -162,70 +163,79 @@ function readInvocations(argvPath: string): string[][] {
 interface CliHarness {
   target: string
   sidecarOf: (sessionId: string) => string
+  rolloutOf: (cliSessionId: string) => string
   run: (claudeScript: string, extra?: string[]) => CliRun
+  maintain: (claudeScript: string, extra?: string[]) => CliRun
 }
 
 function withCli<T>(body: (harness: CliHarness) => T): T {
   const root = mkdtempSync(join(tmpdir(), "vivicy-vivi-turn-"))
   const bin = join(root, "bin")
   const target = join(root, "target")
+  const claudeConfig = join(root, "claude-config")
+  const projects = join(claudeConfig, "projects", "-target")
   mkdirSync(bin, { recursive: true })
   mkdirSync(target, { recursive: true })
+  mkdirSync(projects, { recursive: true })
   const seedFile = join(root, "seed.txt")
   const incrementFile = join(root, "increment.txt")
   const reply = join(root, "reply.txt")
   const failure = join(root, "failure.txt")
+  const pressure = join(root, "pressure.json")
   const argvPath = join(root, "argv")
+  const rolloutOf = (cliSessionId: string): string => join(projects, `${cliSessionId}.jsonl`)
   writeFileSync(seedFile, SEED_PROMPT)
   writeFileSync(incrementFile, INCREMENT_PROMPT)
+  const spawnEntry = (claudeScript: string, args: string[]): CliRun => {
+    writeFileSync(join(bin, "claude"), claudeScript, { mode: 0o755 })
+    for (const stale of [argvPath, reply, failure, pressure]) rmSync(stale, { force: true })
+    const run = spawnSync(process.execPath, [VIVI_TURN, "--target", target, ...args], {
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        PATH: `${bin}:${process.env.PATH ?? ""}`,
+        CLAUDE_CONFIG_DIR: claudeConfig,
+        VIVICY_TARGET_ROOT: target,
+        VIVICY_LEG_TIMEOUT_MS: "60000",
+        VIVICY_LEG_IDLE_MS: "60000",
+        VIVICY_FAKE_ARGV: argvPath,
+        VIVICY_FAKE_ROLLOUT_DIR: projects,
+        VIVICY_IMPLEMENTER_CLI: "claude",
+        VIVICY_CLAUDE_MODEL: LEG_MODEL,
+      },
+    })
+    const invocations = readInvocations(argvPath)
+    return {
+      status: run.status,
+      stdout: run.stdout ?? "",
+      stderr: run.stderr ?? "",
+      invocations,
+      argv: invocations[0] ?? [],
+      reply: existsSync(reply) ? readFileSync(reply, "utf8") : null,
+      failure: existsSync(failure) ? readFileSync(failure, "utf8") : null,
+      pressureBody: existsSync(pressure) ? readFileSync(pressure, "utf8") : null,
+    }
+  }
   try {
     return body({
       target,
       sidecarOf: (sessionId) => join(target, ".vivicy", "runtime", "vivi", `${sessionId}.leg.json`),
-      run: (claudeScript, extra = []) => {
-        writeFileSync(join(bin, "claude"), claudeScript, { mode: 0o755 })
-        for (const stale of [argvPath, reply, failure]) rmSync(stale, { force: true })
-        const run = spawnSync(
-          process.execPath,
-          [
-            VIVI_TURN,
-            "--seed-file",
-            seedFile,
-            "--increment-file",
-            incrementFile,
-            "--target",
-            target,
-            "--reply-file",
-            reply,
-            "--failure-file",
-            failure,
-            ...extra,
-          ],
-          {
-            encoding: "utf8",
-            env: {
-              ...process.env,
-              PATH: `${bin}:${process.env.PATH ?? ""}`,
-              VIVICY_TARGET_ROOT: target,
-              VIVICY_LEG_TIMEOUT_MS: "60000",
-              VIVICY_LEG_IDLE_MS: "60000",
-              VIVICY_FAKE_ARGV: argvPath,
-              VIVICY_IMPLEMENTER_CLI: "claude",
-              VIVICY_CLAUDE_MODEL: LEG_MODEL,
-            },
-          }
-        )
-        const invocations = readInvocations(argvPath)
-        return {
-          status: run.status,
-          stdout: run.stdout ?? "",
-          stderr: run.stderr ?? "",
-          invocations,
-          argv: invocations[0] ?? [],
-          reply: existsSync(reply) ? readFileSync(reply, "utf8") : null,
-          failure: existsSync(failure) ? readFileSync(failure, "utf8") : null,
-        }
-      },
+      rolloutOf,
+      run: (claudeScript, extra = []) =>
+        spawnEntry(claudeScript, [
+          "--seed-file",
+          seedFile,
+          "--increment-file",
+          incrementFile,
+          "--reply-file",
+          reply,
+          "--failure-file",
+          failure,
+          "--pressure-file",
+          pressure,
+          ...extra,
+        ]),
+      maintain: (claudeScript, extra = ["--session", CHAT_SESSION]) => spawnEntry(claudeScript, ["--maintain", ...extra]),
     })
   } finally {
     rmSync(root, { recursive: true, force: true })
@@ -247,7 +257,7 @@ test("a failing agent CLI leaves the reply file untouched and names its reason o
 
 const SPOKEN = "Ciao, allora — what are we building?"
 
-// The measured `--output-format json` envelope: the reply lives in .result, and session_id + usage ride beside it.
+// The measured `--output-format json` envelope: the reply lives in .result, and session_id + modelUsage ride beside it.
 const ENVELOPE = JSON.stringify({
   is_error: false,
   session_id: VIVI_SESSION,
@@ -290,7 +300,11 @@ test("a speaking agent CLI writes the reply its json envelope carries to the rep
   )
   assert.equal(run.argv[4], "--session-id", "a first turn mints its session; only a later one resumes it")
   assert.match(run.argv[5], /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/)
-  assert.deepEqual(run.argv.slice(6, 8), ["--output-format", "json"], "the vivi path asks for the envelope that carries session_id + usage")
+  assert.deepEqual(
+    run.argv.slice(6, 8),
+    ["--output-format", "json"],
+    "the vivi path asks for the envelope that carries session_id + the model's context window"
+  )
 })
 
 test("an agent CLI that exits 0 without a usable envelope leaves the reply file untouched instead of speaking JSON as Vivi", () => {
@@ -451,6 +465,180 @@ test("the CLI entry refuses a turn missing a half, and one whose prompt file is 
   } finally {
     rmSync(root, { recursive: true, force: true })
   }
+})
+
+function compactBoundaryLine(trigger: string): string {
+  return JSON.stringify({
+    type: "system",
+    subtype: "compact_boundary",
+    compactMetadata: { trigger, preTokens: 25219, postTokens: 1356 },
+  })
+}
+
+// The rollout a real CLI appends to is the one it was handed: whichever id the invocation carries, created or resumed.
+const RESOLVE_ROLLOUT =
+  `id=""; prev=""; for a in "$@"; do case "$prev" in --session-id|--resume) id="$a";; esac; prev="$a"; done\n` +
+  `ROLLOUT="$VIVICY_FAKE_ROLLOUT_DIR/$id.jsonl"\n`
+
+// A real `/compact` writes its boundary into the SAME rollout and its envelope carries an empty result (measured).
+function fakeClaudeCompacting(trigger: string): string {
+  return `#!/bin/sh\n${RECORD_ARGV}${RESOLVE_ROLLOUT}printf '%s\\n' ${JSON.stringify(compactBoundaryLine(trigger))} >> "$ROLLOUT"\nexit 0\n`
+}
+
+// The measured `codex exec` answer to "/compact": a confident confirmation, and a rollout that compacted nothing.
+const FAKE_CLAUDE_CLAIMING_COMPACTION = `#!/bin/sh\n${RECORD_ARGV}printf 'Context compacted.\\n'\nexit 0\n`
+
+// The measured rollout line: every assistant turn records the exact prompt of the request that produced it.
+const ASSISTANT_LINE = JSON.stringify({
+  type: "assistant",
+  message: {
+    model: "claude-haiku-4-5",
+    usage: { input_tokens: 10, cache_read_input_tokens: 20539, cache_creation_input_tokens: 4177, output_tokens: 279 },
+  },
+})
+
+const MEASURED_ENVELOPE = JSON.stringify({
+  is_error: false,
+  session_id: VIVI_SESSION,
+  modelUsage: { "claude-haiku-4-5": { contextWindow: 200000 } },
+  subtype: "success",
+  result: SPOKEN,
+  type: "result",
+})
+
+test("the turn reports how full its conversation now is on its own channel, joined from the rollout and the envelope", () => {
+  withCli((harness) => {
+    const measuring = `#!/bin/sh\n${RECORD_ARGV}${RESOLVE_ROLLOUT}printf '%s\\n' ${JSON.stringify(ASSISTANT_LINE)} >> "$ROLLOUT"\nprintf '%s' ${JSON.stringify(MEASURED_ENVELOPE)}\nexit 0\n`
+
+    const measured = harness.run(measuring, ["--session", CHAT_SESSION])
+
+    assert.equal(measured.status, 0)
+    assert.equal(measured.reply, SPOKEN, "the measurement never displaces what the leg said")
+    assert.deepEqual(
+      JSON.parse(measured.pressureBody ?? "null"),
+      { used: 24726, window: 200000 },
+      "the channel carries the occupancy and the window — and NOT the conversation id, which maintenance replaces on every reseed"
+    )
+    assert.match(measured.stdout, /context 24726\/200000 \(12%\)/, "the only trace stewardship leaves is the turn's own server-log line")
+
+    const silent = harness.run(fakeClaude(ENVELOPE), ["--session", CHAT_SESSION])
+    assert.equal(silent.pressureBody, null, "a turn whose leg reported no window measures nothing rather than guessing one")
+  })
+})
+
+function openConversation(harness: CliHarness): void {
+  harness.run(fakeClaude(ENVELOPE), ["--session", CHAT_SESSION])
+  writeFileSync(harness.rolloutOf(VIVI_SESSION), '{"type":"user"}\n')
+}
+
+test("the maintenance leg compacts the conversation in place, and the rollout's own boundary — whatever triggered it — is the only evidence it accepts", () => {
+  for (const trigger of ["manual", "auto", "refusal"]) {
+    withCli((harness) => {
+      openConversation(harness)
+
+      const kept = harness.maintain(fakeClaudeCompacting(trigger))
+
+      assert.equal(kept.status, 0, `${trigger}: a relieved conversation is a decided outcome`)
+      assert.match(kept.stdout, /vivi maintenance: compacted/)
+      assert.deepEqual(
+        kept.argv.slice(0, 4),
+        ["-p", "/compact", "--safe-mode", "--dangerously-skip-permissions"],
+        "the maintenance turn is an ordinary isolated leg carrying the compact command and nothing else"
+      )
+      assert.deepEqual(kept.argv.slice(4, 6), ["--resume", VIVI_SESSION], "it compacts the conversation the thread already holds")
+      assert.equal(
+        sidecarRecord(harness.sidecarOf(CHAT_SESSION)).cliSessionId,
+        VIVI_SESSION,
+        `${trigger}: a boundary the CLI wrote relieves the conversation, so it is kept`
+      )
+
+      const next = harness.run(fakeClaude(ENVELOPE), ["--session", CHAT_SESSION])
+      assert.deepEqual(next.argv.slice(4, 6), ["--resume", VIVI_SESSION], "the next owner turn carries on in the compacted conversation")
+      assert.equal(next.argv[1], INCREMENT_PROMPT, "and on the increment alone — compaction is invisible to what the turn sends")
+    })
+  }
+})
+
+test("a compaction nothing in the rollout witnesses drops the conversation instead, so the next owner turn reseeds through the one create path", () => {
+  withCli((harness) => {
+    openConversation(harness)
+
+    const dropped = harness.maintain(FAKE_CLAUDE_CLAIMING_COMPACTION)
+
+    assert.equal(dropped.status, 0)
+    assert.match(dropped.stdout, /vivi maintenance: reseeded/)
+    assert.equal(
+      existsSync(harness.sidecarOf(CHAT_SESSION)),
+      false,
+      "the agent SAYING it compacted is not evidence — an unrelieved conversation is dropped rather than left to fill up"
+    )
+
+    const next = harness.run(fakeClaude(ENVELOPE), ["--session", CHAT_SESSION])
+    assert.equal(next.invocations.length, 1, "the reseed is the ordinary create, never a second mechanism")
+    assert.equal(next.argv[4], "--session-id")
+    assert.equal(next.argv[1], SEED_PROMPT, "and it carries the whole render, exactly as every other fork does")
+  })
+})
+
+test("a resume the CLI refuses reseeds too, while a leg that could not run decides nothing rather than throwing a healthy conversation away", () => {
+  withCli((harness) => {
+    openConversation(harness)
+
+    const refused = harness.maintain(`#!/bin/sh\n${RECORD_ARGV}printf '%s\\n' ${JSON.stringify(RESUME_FAILURE)} >&2\nexit 1\n`)
+
+    assert.equal(refused.status, 0)
+    assert.match(refused.stdout, /vivi maintenance: reseeded/)
+    assert.equal(existsSync(harness.sidecarOf(CHAT_SESSION)), false, "a conversation the CLI no longer holds is not worth keeping")
+  })
+
+  withCli((harness) => {
+    openConversation(harness)
+
+    const undecided = harness.maintain(`#!/bin/sh\n${RECORD_ARGV}kill -9 $$\n`)
+
+    assert.equal(undecided.status, 1, "the caller must be told nothing was decided, or one unavailable CLI strands the ceiling forever")
+    assert.match(undecided.stdout, /vivi maintenance: undecided/)
+    assert.equal(
+      sidecarRecord(harness.sidecarOf(CHAT_SESSION)).cliSessionId,
+      VIVI_SESSION,
+      "a CLI that never answered says nothing about the conversation"
+    )
+  })
+})
+
+test("a codex conversation is never asked to compact — that CLI has none — and a thread with no conversation spawns nothing at all", () => {
+  withCli((harness) => {
+    const sidecar = harness.sidecarOf(CHAT_SESSION)
+    const nothing = harness.maintain(fakeClaudeCompacting("manual"))
+    assert.equal(nothing.status, 0, "nothing to steward is a decided outcome, never a retry")
+    assert.match(nothing.stdout, /vivi maintenance: no_conversation/)
+    assert.equal(nothing.invocations.length, 0)
+
+    publishViviLegSession(openViviSidecar(harness.target, CHAT_SESSION, {}), {
+      provider: "codex",
+      cliSessionId: VIVI_SESSION,
+      cwd: realpathSync(harness.target),
+      personaHash: PERSONA_HASH,
+      model: LEG_MODEL,
+    })
+
+    const codex = harness.maintain(fakeClaudeCompacting("manual"))
+
+    assert.equal(codex.status, 0)
+    assert.match(codex.stdout, /vivi maintenance: reseeded/)
+    assert.equal(
+      codex.invocations.length,
+      0,
+      "`codex exec` answers /compact as a plain message and compacts nothing — it is never spawned for one"
+    )
+    assert.equal(existsSync(sidecar), false, "the ceiling reseeds that conversation instead: one remedy, never a second mechanism")
+  })
+})
+
+test("the maintenance door refuses to run without the thread it is stewarding", () => {
+  const run = spawnSync(process.execPath, [VIVI_TURN, "--maintain", "--target", tmpdir()], { encoding: "utf8" })
+  assert.equal(run.status, 2)
+  assert.match(run.stderr, /vivi-turn --maintain requires --target <abs> and --session <chat session>/)
 })
 
 test("a chat session id that could name anything but a sidecar is refused outright", () => {

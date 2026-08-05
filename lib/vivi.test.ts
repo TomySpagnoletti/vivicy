@@ -313,6 +313,139 @@ describe("runViviTurn — transcript", () => {
   })
 })
 
+describe("runViviTurn — context-ceiling stewardship (the conversation never fills up)", () => {
+  function isMaintenance(args: string[]): boolean {
+    return args.includes("--maintain")
+  }
+
+  function writeMeasured(options: RunOptions, body: string): void {
+    const file = options.args[options.args.indexOf("--pressure-file") + 1]
+    mkdirSync(path.dirname(file), { recursive: true })
+    writeFileSync(file, body)
+  }
+
+  function writePressure(options: RunOptions, used: number, window: number): void {
+    writeMeasured(options, JSON.stringify({ used, window }))
+  }
+
+  // The per-target queue is FIFO, so a turn that RETURNS proves every unit scheduled before it has already run — no sleeping, no polling.
+  function sequence(calls: { run: Array<{ args: string[] }> }): string[] {
+    return calls.run.map((call) => (isMaintenance(call.args) ? "maintain" : "turn"))
+  }
+
+  function ceilingAt<T>(value: string | undefined, body: () => Promise<T>): Promise<T> {
+    const previous = process.env.VIVICY_VIVI_CONTEXT_CEILING
+    if (value === undefined) delete process.env.VIVICY_VIVI_CONTEXT_CEILING
+    else process.env.VIVICY_VIVI_CONTEXT_CEILING = value
+    return body().finally(() => {
+      if (previous === undefined) delete process.env.VIVICY_VIVI_CONTEXT_CEILING
+      else process.env.VIVICY_VIVI_CONTEXT_CEILING = previous
+    })
+  }
+
+  it("compacts BETWEEN two owner turns once the conversation crosses the ceiling — once per crossing, and invisibly", async () => {
+    const { spawner, calls } = makeFakeSpawner((o) => {
+      if (isMaintenance(o.args)) return
+      writePressure(o, 160_000, 200_000)
+      writeReply(o, "Reply.")
+    })
+
+    const first = await runViviTurn(spawner, { message: "one" })
+    await runViviTurn(spawner, { sessionId: first.sessionId, message: "two" })
+
+    expect(sequence(calls)).toEqual(["turn", "maintain", "turn"])
+    const maintenance = calls.run[1]
+    expect(maintenance.args.slice(1)).toEqual(["--maintain", "--target", targetRoot, "--session", first.sessionId])
+    expect(maintenance.env.VIVICY_TARGET_ROOT).toBe(targetRoot)
+    expect(readTranscript(first.sessionId).map((t) => t.role)).toEqual(["user", "vivi", "user", "vivi"])
+    expect(isViviTurnRunning(targetRoot)).toBe(false)
+  })
+
+  it("the ceiling is what decides: under it nothing runs, over it maintenance does", async () => {
+    const under = makeFakeSpawner((o) => {
+      if (isMaintenance(o.args)) return
+      writePressure(o, 198_000, 200_000)
+      writeReply(o, "Reply.")
+    })
+    await ceilingAt("1", async () => {
+      const first = await runViviTurn(under.spawner, { message: "one" })
+      await runViviTurn(under.spawner, { sessionId: first.sessionId, message: "two" })
+    })
+    expect(sequence(under.calls)).toEqual(["turn", "turn"])
+
+    const over = makeFakeSpawner((o) => {
+      if (isMaintenance(o.args)) return
+      writePressure(o, 100_000, 200_000)
+      writeReply(o, "Reply.")
+    })
+    await ceilingAt("0.1", async () => {
+      const first = await runViviTurn(over.spawner, { message: "one" })
+      await runViviTurn(over.spawner, { sessionId: first.sessionId, message: "two" })
+    })
+    expect(sequence(over.calls)).toEqual(["turn", "maintain", "turn"])
+  })
+
+  it("re-arms only on a measurement that came back under the ceiling, or on a leg that decided nothing", async () => {
+    const filling = [160_000, 20_000, 160_000, 20_000]
+    let turn = 0
+    const relieved = makeFakeSpawner((o) => {
+      if (isMaintenance(o.args)) return
+      writePressure(o, filling[turn++], 200_000)
+      writeReply(o, "Reply.")
+    })
+    const first = await runViviTurn(relieved.spawner, { message: "one" })
+    for (const message of ["two", "three", "four"]) {
+      await runViviTurn(relieved.spawner, { sessionId: first.sessionId, message })
+    }
+    expect(sequence(relieved.calls)).toEqual(["turn", "maintain", "turn", "turn", "maintain", "turn"])
+
+    const stranded = [160_000, 160_000, 20_000]
+    let attempt = 0
+    const undecided = makeFakeSpawner((o) => {
+      if (isMaintenance(o.args)) return { code: 1, lastLine: "vivi maintenance: undecided" }
+      writePressure(o, stranded[attempt++], 200_000)
+      writeReply(o, "Reply.")
+    })
+    const session = await runViviTurn(undecided.spawner, { message: "one" })
+    for (const message of ["two", "three"]) {
+      await runViviTurn(undecided.spawner, { sessionId: session.sessionId, message })
+    }
+    expect(sequence(undecided.calls)).toEqual(["turn", "maintain", "turn", "maintain", "turn"])
+  })
+
+  it("each thread carries its own latch: one conversation sitting at the ceiling never mutes another's stewardship", async () => {
+    const filling = [160_000, 160_000, 160_000, 20_000]
+    let turn = 0
+    const { spawner, calls } = makeFakeSpawner((o) => {
+      if (isMaintenance(o.args)) return
+      writePressure(o, filling[turn++], 200_000)
+      writeReply(o, "Reply.")
+    })
+
+    const first = await runViviTurn(spawner, { message: "one" })
+    await runViviTurn(spawner, { sessionId: first.sessionId, message: "two" })
+    const other = await runViviTurn(spawner, { message: "a second thread on the same project" })
+    await runViviTurn(spawner, { sessionId: other.sessionId, message: "and it comes back down" })
+
+    expect(sequence(calls)).toEqual(["turn", "maintain", "turn", "turn", "maintain", "turn"])
+    expect(calls.run[1].args).toContain(first.sessionId)
+    expect(calls.run[4].args).toContain(other.sessionId)
+  })
+
+  it("decides nothing at all on a turn that measured nothing usable", async () => {
+    for (const body of [null, "{", JSON.stringify({ used: 160_000, window: 0 }), JSON.stringify([1, 2]), JSON.stringify({})]) {
+      const { spawner, calls } = makeFakeSpawner((o) => {
+        if (isMaintenance(o.args)) return
+        if (body !== null) writeMeasured(o, body)
+        writeReply(o, "Reply.")
+      })
+      const first = await runViviTurn(spawner, { message: "one" })
+      await runViviTurn(spawner, { sessionId: first.sessionId, message: "two" })
+      expect(sequence(calls), `a ${body === null ? "missing" : "malformed"} measurement must steer nothing`).toEqual(["turn", "turn"])
+    }
+  })
+})
+
 describe("runViviTurn — allowlist enforcement", () => {
   it("reports legit canonical + spike writes in `wrote`", async () => {
     const { spawner } = makeFakeSpawner((o) => {

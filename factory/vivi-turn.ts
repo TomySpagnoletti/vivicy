@@ -1,15 +1,15 @@
 #!/usr/bin/env node
 import { createHash } from "node:crypto"
-import { existsSync, mkdirSync, readFileSync, writeFileSync, writeSync } from "node:fs"
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync, writeSync } from "node:fs"
 import { dirname, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
-import { readPrompt, runClaudeLeg, runCodexLeg, TRANSCRIPT_DIRS } from "./agent-spawn.ts"
-import type { AgentIssue, AgentLeg, LegConfig, LegRunResult } from "./agent-spawn.ts"
+import { claudeRolloutPath, compactBoundaryTriggers, readPrompt, runClaudeLeg, runCodexLeg, TRANSCRIPT_DIRS } from "./agent-spawn.ts"
+import type { AgentIssue, AgentLeg, ContextPressure, LegConfig, LegRunResult } from "./agent-spawn.ts"
 import type { LegResult } from "./leg-timeout.ts"
 import { legDepsForVerbatimPrompt } from "./leg-deps.ts"
 import { CLI_DEFAULTS, DEFAULT_CONFIG, resolveAgentLegs } from "./dev-loop.ts"
-import { openViviSidecar, runViviLegSession, stableCwd } from "./vivi-session.ts"
+import { openViviSidecar, readViviLegSession, runViviLegSession, stableCwd, viviSidecarPath } from "./vivi-session.ts"
 import type { ViviForkReason, ViviLegIdentity } from "./vivi-session.ts"
 import { FACTORY_PROMPTS_DIR, resolveTargetRoot } from "./target-root.ts"
 
@@ -36,7 +36,7 @@ export interface ViviTurnOutcome {
   stderr: string
   transcriptRel?: string
   cliSessionId?: string
-  usage?: Record<string, unknown>
+  context?: ContextPressure
   forked: ViviForkReason | null
   resumed: boolean
 }
@@ -54,7 +54,7 @@ export async function runViviTurn(options: ViviTurnOptions = {}): Promise<ViviTu
     }
   }
   const targetRoot = options.targetRoot ?? resolveTargetRoot()
-  const cfg = { ...DEFAULT_CONFIG, promptsDir: FACTORY_PROMPTS_DIR, execRoot: targetRoot, ...(options.cfg ?? {}) }
+  const cfg = viviLegConfig(options.cfg)
 
   const legs = resolveAgentLegs(process.env)
   const implementer: Omit<AgentLeg, "role"> = legs?.implementer ?? {
@@ -73,8 +73,8 @@ export async function runViviTurn(options: ViviTurnOptions = {}): Promise<ViviTu
     // The ONE place the split is spent: a conversation being created (or reseeded by a fork) takes the seed, a resumed one takes the increment and nothing else.
     spawn: async (resumeSessionId) => {
       const promptText = (resumeSessionId === undefined ? seedText : incrementText) as string
-      const { result, transcriptRel, reply, sessionId, usage } = await spawnVivi({ promptText, targetRoot, cfg, leg, resumeSessionId })
-      const turn: SpokenTurn = { reply, status: result.status, stderr: result.stderr, transcriptRel, cliSessionId: sessionId, usage }
+      const { result, transcriptRel, reply, sessionId, context } = await spawnVivi({ promptText, targetRoot, cfg, leg, resumeSessionId })
+      const turn: SpokenTurn = { reply, status: result.status, stderr: result.stderr, transcriptRel, cliSessionId: sessionId, context }
       return {
         turn,
         cliSessionId: sessionId,
@@ -84,6 +84,11 @@ export async function runViviTurn(options: ViviTurnOptions = {}): Promise<ViviTu
     },
   })
   return { ...run.turn, forked: run.forked, resumed: run.resumed }
+}
+
+// The leg roots itself through its LegDeps, never through the config: only the prompt directory and the transcript home are this seam's business.
+function viviLegConfig(over: Partial<LegConfig> = {}): LegConfig {
+  return { ...DEFAULT_CONFIG, promptsDir: FACTORY_PROMPTS_DIR, ...over }
 }
 
 function legIdentity(leg: AgentLeg, cfg: LegConfig, targetRoot: string | null): ViviLegIdentity {
@@ -126,12 +131,43 @@ async function defaultSpawnVivi({ promptText, targetRoot, cfg, leg, resumeSessio
   const issue = viviIssue()
   const deps = legDepsForVerbatimPrompt(execRoot!, promptText)
   return leg.provider === "codex"
-    ? runCodexLeg(leg, issue, cfg, deps, { resumeSessionId })
-    : runClaudeLeg(leg, issue, cfg, deps, { resumeSessionId, jsonReply: true })
+    ? runCodexLeg(leg, issue, cfg, deps, { resumeSessionId, measureContext: true })
+    : runClaudeLeg(leg, issue, cfg, deps, { resumeSessionId, jsonReply: true, measureContext: true })
 }
 
 function viviIssue(): AgentIssue {
   return { id: TRANSCRIPT_DIRS.vivi, transcript_dir: TRANSCRIPT_DIRS.vivi, graph_refs: ["node:vivi-chat"], path: "" }
+}
+
+export type ViviMaintenanceOutcome = "compacted" | "reseeded" | "no_conversation" | "undecided"
+
+const COMPACT_COMMAND = "/compact"
+
+function compactBoundaryCount(cliSessionId: string): number {
+  const rollout = claudeRolloutPath(cliSessionId)
+  return rollout === null ? 0 : compactBoundaryTriggers(rollout).length
+}
+
+// Stewardship between two owner turns, invisible to the chat: relieve the conversation in place, or drop it so the next turn reseeds through the ONE create path. `codex exec` has no compaction — "/compact" reaches it as a plain user message the model answers "Context compacted." to while the rollout keeps growing (measured, 0.146) — so a non-claude conversation never buys that leg. A leg that could not run decides nothing rather than throwing a healthy conversation away.
+export function runViviMaintenance(options: { targetRoot: string; sessionId: string; cfg?: Partial<LegConfig> }): ViviMaintenanceOutcome {
+  const { targetRoot, sessionId } = options
+  const sidecar = viviSidecarPath(targetRoot, sessionId)
+  const prior = readViviLegSession(sidecar)
+  if (prior === null) return "no_conversation"
+  const reseed = (): ViviMaintenanceOutcome => {
+    rmSync(sidecar, { force: true })
+    return "reseeded"
+  }
+  if (prior.provider !== "claude") return reseed()
+  const before = compactBoundaryCount(prior.cliSessionId)
+  const leg: AgentLeg = { actor: "claude", role: "vivi", provider: "claude", model: prior.model }
+  const deps = legDepsForVerbatimPrompt(targetRoot, COMPACT_COMMAND)
+  const { result } = runClaudeLeg(leg, viviIssue(), viviLegConfig(options.cfg), deps, {
+    resumeSessionId: prior.cliSessionId,
+  })
+  if (result.status === null || result.timedOut === true) return "undecided"
+  if (result.status === 0 && compactBoundaryCount(prior.cliSessionId) > before) return "compacted"
+  return reseed()
 }
 
 interface ViviTurnArgs {
@@ -139,30 +175,39 @@ interface ViviTurnArgs {
   incrementFile?: string
   replyFile?: string
   failureFile?: string
+  pressureFile?: string
   targetRoot?: string
   sessionId?: string
+  maintain: boolean
 }
 
 function parseArgs(argv: string[]): ViviTurnArgs {
-  const out: ViviTurnArgs = {}
+  const out: ViviTurnArgs = { maintain: false }
   for (let i = 0; i < argv.length; i += 1) {
     if (argv[i] === "--seed-file") out.seedFile = argv[i + 1]
     else if (argv[i] === "--increment-file") out.incrementFile = argv[i + 1]
     else if (argv[i] === "--reply-file") out.replyFile = argv[i + 1]
     else if (argv[i] === "--failure-file") out.failureFile = argv[i + 1]
+    else if (argv[i] === "--pressure-file") out.pressureFile = argv[i + 1]
     else if (argv[i] === "--target") out.targetRoot = argv[i + 1]
     else if (argv[i] === "--session") out.sessionId = argv[i + 1]
+    else if (argv[i] === "--maintain") out.maintain = true
   }
   return out
 }
 
-// The conversation the turn ran in is the server log's business and never the owner's: a fork is invisible in the chat by contract. The half that was sent, and its size, is where the per-turn cost is read off.
+// The conversation the turn ran in is the server log's business and never the owner's: a fork is invisible in the chat by contract. The half that was sent, its size, and how full the conversation now is are where the per-turn cost is read off.
 function sessionLine(outcome: ViviTurnOutcome, sent: { seed: string; increment: string }): string {
   const id = outcome.cliSessionId ?? "unrecorded"
   const half = outcome.resumed ? "increment" : "seed"
-  const cost = `${half} ${(outcome.resumed ? sent.increment : sent.seed).length} chars`
+  const cost = `${half} ${(outcome.resumed ? sent.increment : sent.seed).length} chars${contextClause(outcome.context)}`
   if (outcome.forked !== null) return `forked (${outcome.forked}) into ${id} — ${cost}`
   return `${outcome.resumed ? `resumed ${id}` : `new conversation ${id}`} — ${cost}`
+}
+
+function contextClause(context: ContextPressure | undefined): string {
+  if (context === undefined) return ""
+  return `, context ${context.used}/${context.window} (${Math.round((context.used / context.window) * 100)}%)`
 }
 
 function writeFile(file: string, body: string): void {
@@ -177,7 +222,24 @@ function say(fd: 1 | 2, line: string): void {
 
 const cliEntry = process.argv[1] ? resolve(process.argv[1]) : null
 if (cliEntry === fileURLToPath(import.meta.url)) {
-  const { seedFile, incrementFile, replyFile, failureFile, targetRoot, sessionId } = parseArgs(process.argv.slice(2))
+  const { seedFile, incrementFile, replyFile, failureFile, pressureFile, targetRoot, sessionId, maintain } = parseArgs(
+    process.argv.slice(2)
+  )
+  if (maintain) {
+    if (!targetRoot || !sessionId) {
+      say(2, "error: vivi-turn --maintain requires --target <abs> and --session <chat session>.")
+      process.exit(2)
+    }
+    let outcome: ViviMaintenanceOutcome
+    try {
+      outcome = runViviMaintenance({ targetRoot: resolve(targetRoot), sessionId })
+    } catch (error) {
+      say(2, `vivi maintenance failed: ${error instanceof Error ? error.message : String(error)}`)
+      process.exit(1)
+    }
+    say(1, `vivi maintenance: ${outcome}`)
+    process.exit(outcome === "undecided" ? 1 : 0)
+  }
   if (!seedFile || !incrementFile || !replyFile) {
     say(2, "error: vivi-turn requires --seed-file <abs>, --increment-file <abs> and --reply-file <abs>.")
     process.exit(2)
@@ -201,6 +263,12 @@ if (cliEntry === fileURLToPath(import.meta.url)) {
   const sent = { seed: readFileSync(seedFile, "utf8"), increment: readFileSync(incrementFile, "utf8") }
   runViviTurn({ seedText: sent.seed, incrementText: sent.increment, targetRoot: targetRoot ? resolve(targetRoot) : undefined, sessionId })
     .then((outcome) => {
+      // The measurement the ceiling is watched on rides its own channel: the caller decides, this process only reports what the conversation now holds.
+      if (pressureFile && outcome.context !== undefined) {
+        try {
+          writeFile(pressureFile, JSON.stringify(outcome.context))
+        } catch {}
+      }
       const reason = legFailureReason(outcome)
       if (reason !== null) fail(reason)
       writeFile(replyFile, outcome.reply)

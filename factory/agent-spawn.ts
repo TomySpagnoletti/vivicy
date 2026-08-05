@@ -68,17 +68,24 @@ export interface LegDeps {
   cwdFilter?: string | null
 }
 
+// How full the CLI conversation is, normalized across providers: the prompt the last request actually sent, against the model's window.
+export interface ContextPressure {
+  used: number
+  window: number
+}
+
 export interface LegRunResult {
   result: LegResult
   output: string
   transcriptRel: string | undefined
   reply: string
   sessionId: string | undefined
-  usage?: Record<string, unknown>
+  context?: ContextPressure
 }
 
 export interface LegTurn {
   resumeSessionId?: string
+  measureContext?: boolean
 }
 
 export interface ClaudeLegTurn extends LegTurn {
@@ -272,21 +279,25 @@ export function readPrompt(cfg: LegConfig, role: string): string {
 }
 
 // The CLI's per-session project dir name is not derivable — the scan over every project dir is required.
-export function captureClaudeTranscript(uuid: string, destAbs: string): boolean {
+export function claudeRolloutPath(uuid: string): string | null {
   const projectsDir = resolve(agentHome("CLAUDE_CONFIG_DIR", ".claude"), "projects")
-  if (!existsSync(projectsDir)) return false
+  if (!existsSync(projectsDir)) return null
   for (const sub of readdirSync(projectsDir)) {
     const candidate = resolve(projectsDir, sub, `${uuid}.jsonl`)
-    if (existsSync(candidate)) {
-      copyFileSync(candidate, destAbs)
-      try {
-        return statSync(destAbs).size > 0
-      } catch {
-        return false
-      }
-    }
+    if (existsSync(candidate)) return candidate
   }
-  return false
+  return null
+}
+
+export function captureClaudeTranscript(uuid: string, destAbs: string): boolean {
+  const rollout = claudeRolloutPath(uuid)
+  if (rollout === null) return false
+  copyFileSync(rollout, destAbs)
+  try {
+    return statSync(destAbs).size > 0
+  } catch {
+    return false
+  }
 }
 
 type RolloutLine = {
@@ -344,6 +355,76 @@ export function readCodexSessionId(rolloutPath: string): string | undefined {
   }
   const id = line?.payload?.session_id
   return isLegSessionId(id) ? id : undefined
+}
+
+function rolloutLines(rolloutPath: string): string[] {
+  try {
+    return readFileSync(rolloutPath, "utf8").split("\n")
+  } catch {
+    return []
+  }
+}
+
+function positiveInt(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? Math.floor(value) : 0
+}
+
+// The prompt of the rollout's LAST request IS the conversation's current occupancy; the envelope's own `usage` sums a turn's requests and would double what is actually in the window.
+export function readClaudeContextUsed(rolloutPath: string): { tokens: number; model: string } | null {
+  const lines = rolloutLines(rolloutPath)
+  for (let i = lines.length - 1; i >= 0; i -= 1) {
+    if (!lines[i].includes('"usage"')) continue
+    let row: { type?: unknown; message?: { model?: unknown; usage?: Record<string, unknown> } }
+    try {
+      row = JSON.parse(lines[i]) as typeof row
+    } catch {
+      continue
+    }
+    const usage = row?.type === "assistant" ? row.message?.usage : undefined
+    const model = row?.message?.model
+    if (usage === null || typeof usage !== "object" || typeof model !== "string" || model.length === 0) continue
+    const tokens =
+      positiveInt(usage.input_tokens) + positiveInt(usage.cache_read_input_tokens) + positiveInt(usage.cache_creation_input_tokens)
+    if (tokens > 0) return { tokens, model }
+  }
+  return null
+}
+
+// codex keeps its own accounting: the last `token_count` event carries both the prompt that turn sent and the model's window.
+export function readCodexContextPressure(rolloutPath: string): ContextPressure | null {
+  const lines = rolloutLines(rolloutPath)
+  for (let i = lines.length - 1; i >= 0; i -= 1) {
+    if (!lines[i].includes('"token_count"')) continue
+    let row: { payload?: { type?: unknown; info?: { last_token_usage?: { total_tokens?: unknown }; model_context_window?: unknown } } }
+    try {
+      row = JSON.parse(lines[i]) as typeof row
+    } catch {
+      continue
+    }
+    if (row?.payload?.type !== "token_count") continue
+    const used = positiveInt(row.payload.info?.last_token_usage?.total_tokens)
+    const window = positiveInt(row.payload.info?.model_context_window)
+    if (used > 0 && window > 0) return { used, window }
+  }
+  return null
+}
+
+// A compaction is witnessed by the rollout's own boundary and NEVER by what the leg replied — a model asked to compact answers that it did whether or not anything happened (measured on `codex exec`, which has no compaction at all). Every trigger the CLI writes counts: an auto or refusal boundary relieves the conversation exactly as a manual one does.
+export function compactBoundaryTriggers(rolloutPath: string): string[] {
+  const triggers: string[] = []
+  for (const line of rolloutLines(rolloutPath)) {
+    if (!line.includes("compact_boundary")) continue
+    let row: { type?: unknown; subtype?: unknown; compactMetadata?: { trigger?: unknown } }
+    try {
+      row = JSON.parse(line) as typeof row
+    } catch {
+      continue
+    }
+    if (row?.type !== "system" || row?.subtype !== "compact_boundary") continue
+    const trigger = row.compactMetadata?.trigger
+    triggers.push(typeof trigger === "string" && trigger.length > 0 ? trigger : "unknown")
+  }
+  return triggers
 }
 
 export function rolloutMatchesCwd(rolloutPath: string, cwdFilter: string | null): boolean {
@@ -452,7 +533,18 @@ export function buildCodexArgs({
 export interface SpokenReply {
   reply: string
   sessionId?: string
-  usage?: Record<string, unknown>
+  contextWindows?: Map<string, number>
+}
+
+// Keyed by the CLI's own full model id, which is what the rollout's assistant lines name — the window is then a JOIN, never a guess about which model carried the conversation.
+function modelContextWindows(source: unknown): Map<string, number> | undefined {
+  if (source === null || typeof source !== "object" || Array.isArray(source)) return undefined
+  const windows = new Map<string, number>()
+  for (const [model, entry] of Object.entries(source as Record<string, unknown>)) {
+    const window = positiveInt((entry as { contextWindow?: unknown } | null)?.contextWindow)
+    if (window > 0) windows.set(model, window)
+  }
+  return windows.size > 0 ? windows : undefined
 }
 
 export function readReply(stdout: string, jsonReply: boolean): SpokenReply {
@@ -464,12 +556,21 @@ export function readReply(stdout: string, jsonReply: boolean): SpokenReply {
     return { reply: "" }
   }
   if (envelope === null || typeof envelope !== "object") return { reply: "" }
-  const { is_error: isError, result, session_id: sessionId, usage } = envelope as Record<string, unknown>
+  const { is_error: isError, result, session_id: sessionId, modelUsage } = envelope as Record<string, unknown>
   return {
     reply: isError !== true && typeof result === "string" ? result.trim() : "",
     sessionId: isLegSessionId(sessionId) ? sessionId : undefined,
-    usage: usage !== null && typeof usage === "object" && !Array.isArray(usage) ? (usage as Record<string, unknown>) : undefined,
+    contextWindows: modelContextWindows(modelUsage),
   }
+}
+
+function claudeContextPressure(uuid: string, windows: Map<string, number> | undefined): ContextPressure | undefined {
+  if (windows === undefined) return undefined
+  const rollout = claudeRolloutPath(uuid)
+  if (rollout === null) return undefined
+  const used = readClaudeContextUsed(rollout)
+  const window = used === null ? undefined : windows.get(used.model)
+  return used === null || window === undefined ? undefined : { used: used.tokens, window }
 }
 
 export function runClaudeLeg(leg: AgentLeg, issue: AgentIssue, cfg: LegConfig, deps: LegDeps, turn: ClaudeLegTurn = {}): LegRunResult {
@@ -515,7 +616,7 @@ function runClaudeLegWith(
       transcriptRel: captured ? transcriptRel : undefined,
       reply: spoken.reply,
       sessionId: spoken.sessionId ?? sessionId,
-      usage: spoken.usage,
+      context: turn.measureContext === true ? claudeContextPressure(sessionId, spoken.contextWindows) : undefined,
     }
   }
   if (isAsync) return (spawnFn as typeof spawnTeeAsync)("claude", args, options).then(finish)
@@ -560,7 +661,8 @@ function runCodexLegWith(
     const rollout = findNewestCodexRollout(startMs, cwdFilter ?? null)
     if (rollout) {
       copyFileSync(rollout, abs(transcriptRel))
-      return { result, output, transcriptRel, reply, sessionId: readCodexSessionId(rollout) ?? resumeId }
+      const context = turn.measureContext === true ? (readCodexContextPressure(rollout) ?? undefined) : undefined
+      return { result, output, transcriptRel, reply, sessionId: readCodexSessionId(rollout) ?? resumeId, context }
     }
     return { result, output, transcriptRel: undefined, reply, sessionId: resumeId }
   }

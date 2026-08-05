@@ -655,6 +655,22 @@ const CLAUDE_JSON_ENVELOPE = JSON.stringify({
   type: "result",
 })
 
+// The measured rollout shape: every assistant line carries the exact prompt of the request that produced it.
+function claudeAssistantLine(fill: { input: number; cacheRead: number; cacheCreation: number }, model = "claude-haiku-4-5"): string {
+  return JSON.stringify({
+    type: "assistant",
+    message: {
+      model,
+      usage: {
+        input_tokens: fill.input,
+        cache_read_input_tokens: fill.cacheRead,
+        cache_creation_input_tokens: fill.cacheCreation,
+        output_tokens: 279,
+      },
+    },
+  })
+}
+
 test("the claude seam resumes a conversation instead of minting one, and one rollout keeps one transcript file", () => {
   const resumed = "17aec720-df8e-4f19-959a-795075b2bbf8"
   const run = fakeCliRun(
@@ -662,10 +678,14 @@ test("the claude seam resumes a conversation instead of minting one, and one rol
     ({ cfg, issue, deps, root }) => {
       const projects = join(root, "claude-config", "projects", "-target")
       mkdirSync(projects, { recursive: true })
-      writeFileSync(join(projects, `${resumed}.jsonl`), '{"type":"user"}\n')
+      writeFileSync(
+        join(projects, `${resumed}.jsonl`),
+        `{"type":"user"}\n${claudeAssistantLine({ input: 10, cacheRead: 20539, cacheCreation: 4177 })}\n`
+      )
       return runClaudeLeg({ actor: "claude", role: "implementer", provider: "claude" }, issue, cfg, deps, {
         resumeSessionId: resumed,
         jsonReply: true,
+        measureContext: true,
       })
     },
     CLAUDE_JSON_ENVELOPE
@@ -684,7 +704,11 @@ test("the claude seam resumes a conversation instead of minting one, and one rol
   )
   assert.equal(run.outcome.reply, "BLUE-OTTER-42", "the reply is the envelope's .result, never the envelope itself")
   assert.equal(run.outcome.sessionId, resumed)
-  assert.equal(run.outcome.usage?.output_tokens, 88, "the envelope's usage rides back with the turn result")
+  assert.deepEqual(
+    run.outcome.context,
+    { used: 24726, window: 200000 },
+    "the conversation's occupancy is the rollout's last prompt, joined to the window the envelope reports for that very model"
+  )
 })
 
 test("the codex seam resumes by thread id and reads the id codex mints back out of the rollout it captured", () => {
@@ -735,7 +759,7 @@ test("readReply is the one reader of what a leg said, in both output modes", () 
   assert.deepEqual(readReply(`${CLAUDE_JSON_ENVELOPE}\n`, true), {
     reply: "BLUE-OTTER-42",
     sessionId: "17aec720-df8e-4f19-959a-795075b2bbf8",
-    usage: { input_tokens: 10, cache_read_input_tokens: 21317, output_tokens: 88, service_tier: "standard" },
+    contextWindows: new Map([["claude-haiku-4-5", 200000]]),
   })
   for (const [stdout, why] of [
     ["", "an empty stdout"],
@@ -758,9 +782,18 @@ test("readReply is the one reader of what a leg said, in both output modes", () 
     undefined,
     "the session id becomes a transcript filename and a lookup path, so a value that is not the CLI's own uuid is dropped"
   )
-  for (const usage of ['"lots"', "17", "null", "[10,88]"]) {
-    assert.equal(readReply(`{"type":"result","result":"hi","usage":${usage}}`, true).usage, undefined, `${usage} is not a usage record`)
+  for (const modelUsage of ['"lots"', "17", "null", "[10,88]", "{}", '{"m":null}', '{"m":{"contextWindow":0}}', '{"m":{}}']) {
+    assert.equal(
+      readReply(`{"type":"result","result":"hi","modelUsage":${modelUsage}}`, true).contextWindows,
+      undefined,
+      `${modelUsage} carries no usable context window`
+    )
   }
+  assert.deepEqual(
+    [...(readReply(CLAUDE_JSON_ENVELOPE, true).contextWindows ?? new Map())],
+    [["claude-haiku-4-5", 200000]],
+    "the window is keyed by the CLI's own model id, which is what the rollout's assistant lines name"
+  )
 })
 
 test("readCodexSessionId reads the thread id off the rollout's session_meta line and nothing else", () => {
