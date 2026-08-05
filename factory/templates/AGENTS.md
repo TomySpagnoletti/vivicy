@@ -38,6 +38,8 @@ Everything Vivicy owns lives under one directory at the repo root:
 - `.vivicy/development/proofs/<issue-id>/<proof-id>/` — the a-posteriori proofs an issue declared: the observation of the real run (produced on disk, **never committed**) plus the `recipe.txt` that replays it (**committed**, so anyone can reproduce the observation).
 - `.vivicy/change-requests/` — change requests (see below).
 - `.vivicy/uploads/**` — source documents imported as raw spec material, one folder per import batch.
+- `.vivicy/settings.json` — this project's agent-settings override (only what deviates from the machine-wide defaults); machine-written like `vivicy.json`, never hand-edited.
+- `.vivicy/runtime/` — this project's operational state: run locks, orchestrator logs, the Vivi conversation store, machine-local caches. Git-ignored and orchestrator-owned; never read it as truth, never edit or delete it.
 
 ## How the loop drives this repo
 
