@@ -20,7 +20,7 @@ import { importIntoGoverned, UPLOADS_DIR, type BatchResult, type ManifestFile, t
 import type { SecretFileFinding } from "@/lib/secret-scan"
 import { languageDisplayName } from "@/lib/language"
 import { DEFAULT_VIVI_ACTION_ROUNDS, MAX_VIVI_ACTION_ROUNDS } from "@/lib/leg-budget"
-import { ensureProjectRuntimeDir, getProjectRuntimeDir, PROJECT_RUNTIME_SEGMENTS } from "@/lib/project-runtime"
+import { ensureViviStoreDir, getViviStoreDir, PROJECT_RUNTIME_SEGMENTS, VIVI_SESSION_ID_PATTERN } from "@/lib/project-runtime"
 import { openScratchDir, scratchName, sweepAbandonedScratch } from "@/lib/scratch"
 import { settingsToEnv } from "@/lib/settings"
 import { pruneGitkeeps, VIVICY_DIR } from "@/lib/skeleton"
@@ -123,25 +123,13 @@ interface FileState {
 
 type Snapshot = Map<string, FileState>
 
-const VIVI_STORE_SUBDIR = "vivi"
 const TRANSCRIPT_TEMP_PREFIX = ".publish-"
 const TURN_SCRATCH_PREFIX = "vivicy-vivi-turn-"
-
-function viviStoreDirOf(targetRoot: string): string {
-  return path.join(getProjectRuntimeDir(targetRoot), VIVI_STORE_SUBDIR)
-}
-
-function ensureViviStoreDir(targetRoot: string): string {
-  ensureProjectRuntimeDir(getProjectRuntimeDir(targetRoot))
-  const dir = viviStoreDirOf(targetRoot)
-  mkdirSync(dir, { recursive: true })
-  return dir
-}
 
 // The conversation lives with the project it is about: reads over no project are empty, writes go through resolveTarget's own refusal.
 function viviStoreDir(): string | null {
   const targetRoot = getTargetRoot()
-  return targetRoot === null ? null : viviStoreDirOf(targetRoot)
+  return targetRoot === null ? null : getViviStoreDir(targetRoot)
 }
 
 function transcriptIn(dir: string, sessionId: string): string {
@@ -150,7 +138,7 @@ function transcriptIn(dir: string, sessionId: string): string {
 
 // transcriptIn interpolates the session id into a file path unsanitized: refuse anything but our own minted UUID.
 function assertSessionId(sessionId: string): void {
-  if (!/^[0-9a-fA-F-]{36}$/.test(sessionId)) {
+  if (!VIVI_SESSION_ID_PATTERN.test(sessionId)) {
     throw new ControlError(`invalid vivi session id: ${sessionId}`, "missing_target")
   }
 }
@@ -1262,7 +1250,7 @@ async function runTurnLocked(
     const statusLine = buildStatusLine(spawner, targetRoot, frozen)
     const turns = readTranscript(sessionId)
     const prompt = composePrompt(factoryRoot, targetRoot, turns, frozen, crId, statusLine, origin)
-    const outcome = await spawnViviLeg(spawner, { command, targetRoot, prompt, frozen })
+    const outcome = await spawnViviLeg(spawner, { command, targetRoot, sessionId, prompt, frozen })
     const reply = outcome.kind === "reply" ? outcome.text : ""
 
     const after = snapshotVivicy(targetRoot, roundBase)
@@ -1456,9 +1444,9 @@ function withExecutedActionsNote(reason: string, executed: ViviActionResult[]): 
 
 async function spawnViviLeg(
   spawner: Spawner,
-  opts: { command: string; targetRoot: string; prompt: string; frozen: boolean }
+  opts: { command: string; targetRoot: string; sessionId: string; prompt: string; frozen: boolean }
 ): Promise<LegOutcome> {
-  const { command, targetRoot, prompt, frozen } = opts
+  const { command, targetRoot, sessionId, prompt, frozen } = opts
   const scratch = openScratchDir(TURN_SCRATCH_PREFIX)
   const promptFile = path.join(scratch, "prompt.txt")
   const replyFile = path.join(scratch, "reply.txt")
@@ -1467,7 +1455,19 @@ async function spawnViviLeg(
     writeFileSync(promptFile, prompt)
     const result = await spawner.run({
       command: process.execPath,
-      args: [command, "--prompt-file", promptFile, "--reply-file", replyFile, "--failure-file", failureFile, "--target", targetRoot],
+      args: [
+        command,
+        "--prompt-file",
+        promptFile,
+        "--reply-file",
+        replyFile,
+        "--failure-file",
+        failureFile,
+        "--target",
+        targetRoot,
+        "--session",
+        sessionId,
+      ],
       cwd: targetRoot,
       env: {
         ...process.env,

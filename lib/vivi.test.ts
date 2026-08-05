@@ -621,6 +621,15 @@ describe("runViviTurn — settings plumb-through", () => {
     const { spawner } = makeFakeSpawner((o) => writeReply(o, "ok"))
     await expect(runViviTurn(spawner, { message: "hi" })).rejects.toThrow(/not found/)
   })
+
+  it("names the chat session to the leg on every turn of it — the one thing that makes turn two a resume of turn one", async () => {
+    const { spawner, calls } = makeFakeSpawner((o) => writeReply(o, "ok"))
+    const first = await runViviTurn(spawner, { message: "hi" })
+    await runViviTurn(spawner, { sessionId: first.sessionId, message: "again" })
+
+    const sessionArgs = legRuns(calls).map((c) => c.args[c.args.indexOf("--session") + 1])
+    expect(sessionArgs).toEqual([first.sessionId, first.sessionId])
+  })
 })
 
 function promptFileFrom(args: string[]): string {

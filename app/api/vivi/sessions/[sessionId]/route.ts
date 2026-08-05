@@ -1,4 +1,5 @@
 import { ControlError } from "@/lib/control"
+import { VIVI_SESSION_ID_PATTERN } from "@/lib/project-runtime"
 import { getSpawner } from "@/lib/spawner"
 import { getTargetRoot } from "@/lib/target"
 import { isViviTurnRunning, readTranscript, recoverInterruptedReads } from "@/lib/vivi"
@@ -6,11 +7,9 @@ import { isViviTurnRunning, readTranscript, recoverInterruptedReads } from "@/li
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 
-const SESSION_ID_RE = /^[0-9a-fA-F-]{36}$/
-
 export async function GET(_request: Request, { params }: { params: Promise<{ sessionId: string }> }) {
   const { sessionId } = await params
-  if (!SESSION_ID_RE.test(sessionId)) {
+  if (!VIVI_SESSION_ID_PATTERN.test(sessionId)) {
     return Response.json({ ok: false, error: "invalid session id" }, { status: 400 })
   }
   try {

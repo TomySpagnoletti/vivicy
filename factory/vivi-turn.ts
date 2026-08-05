@@ -1,12 +1,16 @@
 #!/usr/bin/env node
+import { createHash } from "node:crypto"
 import { existsSync, mkdirSync, readFileSync, writeFileSync, writeSync } from "node:fs"
 import { dirname, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
-import { runClaudeLeg, runCodexLeg, TRANSCRIPT_DIRS } from "./agent-spawn.ts"
+import { readPrompt, runClaudeLeg, runCodexLeg, TRANSCRIPT_DIRS } from "./agent-spawn.ts"
 import type { AgentIssue, AgentLeg, LegConfig, LegRunResult } from "./agent-spawn.ts"
+import type { LegResult } from "./leg-timeout.ts"
 import { legDepsForVerbatimPrompt } from "./leg-deps.ts"
 import { CLI_DEFAULTS, DEFAULT_CONFIG, resolveAgentLegs } from "./dev-loop.ts"
+import { openViviSidecar, runViviLegSession, stableCwd } from "./vivi-session.ts"
+import type { ViviForkReason, ViviLegIdentity } from "./vivi-session.ts"
 import { FACTORY_PROMPTS_DIR, resolveTargetRoot } from "./target-root.ts"
 
 interface ViviSpawnArgs {
@@ -14,11 +18,13 @@ interface ViviSpawnArgs {
   targetRoot: string | null
   cfg: LegConfig
   leg: AgentLeg
+  resumeSessionId?: string
 }
 
 interface ViviTurnOptions {
   promptText?: string
   targetRoot?: string | null
+  sessionId?: string
   cfg?: Partial<LegConfig>
   spawnVivi?: (args: ViviSpawnArgs) => Promise<LegRunResult>
 }
@@ -30,7 +36,11 @@ export interface ViviTurnOutcome {
   transcriptRel?: string
   cliSessionId?: string
   usage?: Record<string, unknown>
+  forked: ViviForkReason | null
+  resumed: boolean
 }
+
+type SpokenTurn = Omit<ViviTurnOutcome, "forked" | "resumed">
 
 export async function runViviTurn(options: ViviTurnOptions = {}): Promise<ViviTurnOutcome> {
   const promptText = options.promptText
@@ -51,8 +61,35 @@ export async function runViviTurn(options: ViviTurnOptions = {}): Promise<ViviTu
   const leg: AgentLeg = { ...implementer, role: "vivi" }
 
   const spawnVivi = options.spawnVivi ?? defaultSpawnVivi
-  const { result, transcriptRel, reply, sessionId, usage } = await spawnVivi({ promptText, targetRoot, cfg, leg })
-  return { reply, status: result.status, stderr: result.stderr, transcriptRel, cliSessionId: sessionId, usage }
+  const run = await runViviLegSession<SpokenTurn>({
+    sidecar: targetRoot === null || options.sessionId === undefined ? null : openViviSidecar(targetRoot, options.sessionId),
+    identity: legIdentity(leg, cfg, targetRoot),
+    spawn: async (resumeSessionId) => {
+      const { result, transcriptRel, reply, sessionId, usage } = await spawnVivi({ promptText, targetRoot, cfg, leg, resumeSessionId })
+      const turn: SpokenTurn = { reply, status: result.status, stderr: result.stderr, transcriptRel, cliSessionId: sessionId, usage }
+      return {
+        turn,
+        cliSessionId: sessionId,
+        spoke: legFailureReason(turn) === null,
+        resumeRefused: resumeSessionId !== undefined && refusedTheConversation(result),
+      }
+    },
+  })
+  return { ...run.turn, forked: run.forked, resumed: run.resumed }
+}
+
+function legIdentity(leg: AgentLeg, cfg: LegConfig, targetRoot: string | null): ViviLegIdentity {
+  return {
+    provider: leg.provider ?? "claude",
+    model: leg.model ?? "",
+    cwd: stableCwd(targetRoot ?? "."),
+    personaHash: createHash("sha256").update(readPrompt(cfg, leg.role)).digest("hex"),
+  }
+}
+
+// The CLI refusing the conversation is the ONLY resume failure: a leg the watchdog killed, or a CLI that never started, says nothing about the session and must never cost a second spawn.
+function refusedTheConversation(result: LegResult): boolean {
+  return result.status !== null && result.status !== 0 && result.timedOut !== true
 }
 
 const MAX_LEG_DETAIL = 200
@@ -67,7 +104,7 @@ function lastNonEmptyLine(text: string): string {
 }
 
 // The one verdict on whether the leg spoke: a non-zero status or an empty stdout is the orchestrator's to report, never Vivi's to say.
-export function legFailureReason(outcome: ViviTurnOutcome): string | null {
+export function legFailureReason(outcome: Pick<ViviTurnOutcome, "reply" | "status" | "stderr">): string | null {
   const detail = lastNonEmptyLine(outcome.stderr)
   const said = detail.length > 0 ? ` — ${detail}` : ""
   if (outcome.status === null) return `the agent CLI reported no exit status${said}`
@@ -76,26 +113,44 @@ export function legFailureReason(outcome: ViviTurnOutcome): string | null {
   return null
 }
 
-async function defaultSpawnVivi({ promptText, targetRoot, cfg, leg }: ViviSpawnArgs): Promise<LegRunResult> {
+async function defaultSpawnVivi({ promptText, targetRoot, cfg, leg, resumeSessionId }: ViviSpawnArgs): Promise<LegRunResult> {
   const execRoot = targetRoot
   const issue = viviIssue()
   const deps = legDepsForVerbatimPrompt(execRoot!, promptText)
-  return leg.provider === "codex" ? runCodexLeg(leg, issue, cfg, deps) : runClaudeLeg(leg, issue, cfg, deps, { jsonReply: true })
+  return leg.provider === "codex"
+    ? runCodexLeg(leg, issue, cfg, deps, { resumeSessionId })
+    : runClaudeLeg(leg, issue, cfg, deps, { resumeSessionId, jsonReply: true })
 }
 
 function viviIssue(): AgentIssue {
   return { id: TRANSCRIPT_DIRS.vivi, transcript_dir: TRANSCRIPT_DIRS.vivi, graph_refs: ["node:vivi-chat"], path: "" }
 }
 
-function parseArgs(argv: string[]): { promptFile?: string; replyFile?: string; failureFile?: string; targetRoot?: string } {
-  const out: { promptFile?: string; replyFile?: string; failureFile?: string; targetRoot?: string } = {}
+interface ViviTurnArgs {
+  promptFile?: string
+  replyFile?: string
+  failureFile?: string
+  targetRoot?: string
+  sessionId?: string
+}
+
+function parseArgs(argv: string[]): ViviTurnArgs {
+  const out: ViviTurnArgs = {}
   for (let i = 0; i < argv.length; i += 1) {
     if (argv[i] === "--prompt-file") out.promptFile = argv[i + 1]
     else if (argv[i] === "--reply-file") out.replyFile = argv[i + 1]
     else if (argv[i] === "--failure-file") out.failureFile = argv[i + 1]
     else if (argv[i] === "--target") out.targetRoot = argv[i + 1]
+    else if (argv[i] === "--session") out.sessionId = argv[i + 1]
   }
   return out
+}
+
+// The conversation the turn ran in is the server log's business and never the owner's: a fork is invisible in the chat by contract.
+function sessionLine(outcome: ViviTurnOutcome): string {
+  const id = outcome.cliSessionId ?? "unrecorded"
+  if (outcome.forked !== null) return `forked (${outcome.forked}) into ${id}`
+  return outcome.resumed ? `resumed ${id}` : `new conversation ${id}`
 }
 
 function writeFile(file: string, body: string): void {
@@ -110,7 +165,7 @@ function say(fd: 1 | 2, line: string): void {
 
 const cliEntry = process.argv[1] ? resolve(process.argv[1]) : null
 if (cliEntry === fileURLToPath(import.meta.url)) {
-  const { promptFile, replyFile, failureFile, targetRoot } = parseArgs(process.argv.slice(2))
+  const { promptFile, replyFile, failureFile, targetRoot, sessionId } = parseArgs(process.argv.slice(2))
   if (!promptFile || !replyFile) {
     say(2, "error: vivi-turn requires --prompt-file <abs> and --reply-file <abs>.")
     process.exit(2)
@@ -130,12 +185,12 @@ if (cliEntry === fileURLToPath(import.meta.url)) {
     process.exit(1)
   }
   const promptText = readFileSync(promptFile, "utf8")
-  runViviTurn({ promptText, targetRoot: targetRoot ? resolve(targetRoot) : undefined })
+  runViviTurn({ promptText, targetRoot: targetRoot ? resolve(targetRoot) : undefined, sessionId })
     .then((outcome) => {
       const reason = legFailureReason(outcome)
       if (reason !== null) fail(reason)
       writeFile(replyFile, outcome.reply)
-      say(1, `vivi turn: reply ${outcome.reply.length} chars`)
+      say(1, `vivi turn: reply ${outcome.reply.length} chars — ${sessionLine(outcome)}`)
       process.exit(0)
     })
     .catch((error) => {
