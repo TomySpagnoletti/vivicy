@@ -1254,6 +1254,148 @@ describe("driven live across the freeze boundary — the real turn child, a scri
   }, 90_000)
 })
 
+const ROUND_ACTION_REPLY = 'On it.\\n\\n```vivicy-action\\n{\\"actions\\": [{\\"tool\\": \\"crs.list\\"}]}\\n```'
+
+// A scripted agent CLI with a MEMORY: one rollout file per conversation, one line per prompt it was sent. It refuses a resume whose rollout is gone (the CLI's own "No conversation found"), decides from what its conversation holds, and recalls only from lines it was sent BEFORE this one — so a recall can never come from the prompt in its hand.
+function scriptedRoundsClaude(): string {
+  return (
+    [
+      "#!/bin/sh",
+      `printf '%s\\0' "$@" >> "$VIVICY_FAKE_ARGV"`,
+      `printf 'END\\0' >> "$VIVICY_FAKE_ARGV"`,
+      "prompt=$2",
+      "mode=$5",
+      "sid=$6",
+      `rollout="$VIVICY_FAKE_ROLLOUTS/$sid.jsonl"`,
+      `say() { printf '{"type":"result","is_error":false,"subtype":"success","session_id":"%s","result":"%s"}' "$sid" "$1"; }`,
+      `if [ "$mode" = "--resume" ] && [ ! -f "$rollout" ]; then`,
+      `  printf 'No conversation found with session ID: %s\\n' "$sid" >&2`,
+      "  exit 1",
+      "fi",
+      `mkdir -p "$VIVICY_FAKE_ROLLOUTS"`,
+      `printf '%s' "$prompt" | tr '\\n' ' ' >> "$rollout"`,
+      `printf '\\n' >> "$rollout"`,
+      `rounds=$(grep -o 'Tool results:' "$rollout" | wc -l | tr -d ' ')`,
+      `if [ "$rounds" -ge 2 ]; then`,
+      `  if sed '$d' "$rollout" | grep -q "$VIVICY_FAKE_FACT"; then`,
+      `    say "Confermo : $VIVICY_FAKE_FACT."`,
+      "  else",
+      `    say "La regola non e piu sotto i miei occhi."`,
+      "  fi",
+      "else",
+      `  say '${ROUND_ACTION_REPLY}'`,
+      `  [ "$VIVICY_FAKE_LOSE" = "1" ] && [ "$rounds" = "0" ] && rm -f "$rollout"`,
+      "fi",
+      "exit 0",
+    ].join("\n") + "\n"
+  )
+}
+
+interface DrivenRounds {
+  argvPath: string
+  rollouts: string
+}
+
+async function drivenRounds<T>(opts: { lose?: boolean }, body: (ctx: DrivenRounds) => Promise<T>): Promise<T> {
+  const bin = mkdtempSync(path.join(tmpdir(), "vivi-bin-"))
+  const ctx: DrivenRounds = { argvPath: path.join(bin, "argv"), rollouts: path.join(bin, "rollouts") }
+  writeFileSync(path.join(bin, "claude"), scriptedRoundsClaude(), { mode: 0o755 })
+  const prevPath = process.env.PATH
+  process.env.VIVICY_FACTORY_ROOT = path.join(REPO_ROOT, "factory")
+  process.env.PATH = `${bin}:${prevPath ?? ""}`
+  process.env.VIVICY_FAKE_ARGV = ctx.argvPath
+  process.env.VIVICY_FAKE_ROLLOUTS = ctx.rollouts
+  process.env.VIVICY_FAKE_FACT = PLANTED_FACT
+  if (opts.lose) process.env.VIVICY_FAKE_LOSE = "1"
+  try {
+    return await body(ctx)
+  } finally {
+    process.env.PATH = prevPath
+    delete process.env.VIVICY_FAKE_ARGV
+    delete process.env.VIVICY_FAKE_ROLLOUTS
+    delete process.env.VIVICY_FAKE_FACT
+    delete process.env.VIVICY_FAKE_LOSE
+    rmSync(bin, { recursive: true, force: true })
+  }
+}
+
+const ROUNDS_MESSAGE = `où en sont les CRs ? Et retiens bien : ${PLANTED_FACT}.`
+
+const ROUNDS_TRANSCRIPT = ["user", "vivi", "action", "card", "vivi", "action", "vivi"]
+
+const CLOSE_THE_LOOP_ORDER = 'The tool results of the actions you just requested are in the "Tool results" entry'
+
+describe("driven live across three action rounds — the real turn child, a scripted agent CLI with a memory, ONE conversation", () => {
+  beforeEach(() => {
+    writeInTarget(targetRoot, path.join(CHANGE_REQUESTS, "CR-0001-add-csv.md"), wellFormedCr("CR-0001"))
+  })
+
+  it("resumes the turn's own conversation every round, so round three recalls what round one was told and no round re-injects it", async () => {
+    const result = await drivenRounds({}, async ({ argvPath, rollouts }) => {
+      const turn = await runViviTurn(nodeSpawner, { message: ROUNDS_MESSAGE })
+
+      const invocations = readInvocations(argvPath)
+      expect(invocations).toHaveLength(3)
+      const [opened, second, third] = invocations
+      expect(opened[4]).toBe("--session-id")
+      const conversation = opened[5]
+      expect(second.slice(4, 6)).toEqual(["--resume", conversation])
+      expect(third.slice(4, 6)).toEqual(["--resume", conversation])
+      expect(readdirSync(rollouts)).toEqual([`${conversation}.jsonl`])
+      expect(
+        readFileSync(path.join(rollouts, `${conversation}.jsonl`), "utf8")
+          .trim()
+          .split("\n")
+      ).toHaveLength(3)
+
+      expect(opened[1]).toContain(PLANTED_FACT)
+      for (const increment of [second[1], third[1]]) {
+        expect(increment).not.toContain(PLANTED_FACT)
+        expect(increment).not.toContain("la Nonna")
+        expect(increment).toContain("Tool results: ✓ crs.list")
+        expect(increment).toContain(CLOSE_THE_LOOP_ORDER)
+      }
+      expect(second[1]).toContain("Choice card: CR-0001 — Add CSV export [awaiting the owner's choice]")
+      return turn
+    })
+
+    expect(result.rejected).toBeUndefined()
+    expect(result.reply).toBe(`Confermo : ${PLANTED_FACT}.`)
+    expect(result.actions).toHaveLength(2)
+    expect(readTranscript(result.sessionId).map((t) => t.role)).toEqual(ROUNDS_TRANSCRIPT)
+  }, 120_000)
+
+  it("forks MID-TURN on a refused resume and reseeds with the turn's own earlier rounds — one adjudicated path, invisible to the owner", async () => {
+    const result = await drivenRounds({ lose: true }, async ({ argvPath, rollouts }) => {
+      const turn = await runViviTurn(nodeSpawner, { message: ROUNDS_MESSAGE })
+
+      const invocations = readInvocations(argvPath)
+      expect(invocations).toHaveLength(4)
+      const [opened, refused, forked, resumed] = invocations
+      const lost = opened[5]
+      expect(refused.slice(4, 6)).toEqual(["--resume", lost])
+      expect(forked[4]).toBe("--session-id")
+      const conversation = forked[5]
+      expect(conversation).not.toBe(lost)
+      expect(resumed.slice(4, 6)).toEqual(["--resume", conversation])
+      expect(readdirSync(rollouts)).toEqual([`${conversation}.jsonl`])
+
+      expect(forked[1]).toContain("la Nonna")
+      expect(forked[1]).toContain(PLANTED_FACT)
+      expect(forked[1]).toContain("Vivi: On it.")
+      expect(forked[1]).toContain("Tool results: ✓ crs.list")
+      expect(forked[1]).toContain(CLOSE_THE_LOOP_ORDER)
+      return turn
+    })
+
+    expect(result.rejected).toBeUndefined()
+    expect(result.orchestratorNote).toBeUndefined()
+    expect(result.reply).toBe(`Confermo : ${PLANTED_FACT}.`)
+    expect(result.actions).toHaveLength(2)
+    expect(readTranscript(result.sessionId).map((t) => t.role)).toEqual(ROUNDS_TRANSCRIPT)
+  }, 120_000)
+})
+
 function replyWithDirective(json: string): string {
   return `Sure, I will ask the control plane to install those.\n\n\`\`\`vivicy-skills\n${json}\n\`\`\``
 }
@@ -1338,6 +1480,29 @@ describe("runViviTurn — action protocol (the governess loop)", () => {
     expect(turns[1].text).toBe("On it.")
     expect(turns[1].text).not.toContain("vivicy-action")
     expect(turns[2].actions?.[0]).toMatchObject({ tool: "crs.list", ok: true })
+  })
+
+  it("keeps the continuation order when a pending-CR card lands beside the results: the ROUND decides it, never the thread's last role", async () => {
+    writeInTarget(targetRoot, path.join(CHANGE_REQUESTS, "CR-0001-add-csv.md"), wellFormedCr("CR-0001"))
+    let leg = 0
+    let continuation = ""
+    const { spawner } = makeFakeSpawner((o) => {
+      if (!o.args.some((a) => a.endsWith("vivi-turn.ts"))) return
+      leg += 1
+      if (leg === 1) {
+        writeReply(o, replyWithActions('{"actions": [{"tool": "crs.list"}]}'))
+        return
+      }
+      continuation = readIncrement(o)
+      writeReply(o, "Une seule CR t'attend.")
+    })
+    const result = await runViviTurn(spawner, { message: "où en sont les CRs ?" })
+
+    expect(readTranscript(result.sessionId).map((t) => t.role)).toEqual(["user", "vivi", "action", "card", "vivi"])
+    expect(continuation).toContain("Tool results: ✓ crs.list")
+    expect(continuation).toContain("Choice card: CR-0001 — Add CSV export [awaiting the owner's choice]")
+    expect(continuation).toContain('The tool results of the actions you just requested are in the "Tool results" entry')
+    expect(continuation).not.toContain("Respond to the user's latest message above")
   })
 
   it("executes a real control side effect through the SAME spawner (workflow.start)", async () => {
@@ -2384,6 +2549,27 @@ describe("runViviTurn — action side effects are orchestrator state, never Vivi
     const result = await runViviTurn(spawner, { message: "go" })
 
     expect(result.rejected).toMatch(/modified your uncommitted work in progress \(src\/wip\.ts\)/)
+    expect(readFileSync(path.join(targetRoot, "src", "wip.ts"), "utf8")).toBe("export const a = 2 // owner wip\n")
+  })
+
+  it("names the executed actions on a TAMPER rejection too, and still restores the owner's pre-turn bytes from the turn-start capture", async () => {
+    gitCommitFile(targetRoot, path.join("src", "wip.ts"), "export const a = 1\n")
+    writeInTarget(targetRoot, path.join("src", "wip.ts"), "export const a = 2 // owner wip\n")
+    let leg = 0
+    const { spawner } = makeFakeSpawner((o) => {
+      if (!o.args.some((a) => a.endsWith("vivi-turn.ts"))) return
+      leg += 1
+      if (leg === 1) {
+        writeReply(o, replyWithActions('{"actions": [{"tool": "crs.list"}]}'))
+        return
+      }
+      writeInTarget(targetRoot, path.join("src", "wip.ts"), "export const a = 666 // vivi was here\n")
+      writeReply(o, "tidied your work in progress")
+    })
+    const result = await runViviTurn(spawner, { message: "go" })
+
+    expect(result.rejected).toMatch(/modified your uncommitted work in progress \(src\/wip\.ts\)/)
+    expect(result.rejected).toMatch(/1 action already executed this turn remains in effect/)
     expect(readFileSync(path.join(targetRoot, "src", "wip.ts"), "utf8")).toBe("export const a = 2 // owner wip\n")
   })
 

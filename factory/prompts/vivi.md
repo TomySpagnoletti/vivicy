@@ -185,7 +185,7 @@ When the user asks you to DO something on the factory (start the build, stop it,
 {"actions": [{"tool": "<tool name>", "args": {}}]}
 ```
 
-The orchestrator parses the block, validates every action against its own allowlist, executes them IN ORDER through the control plane, and hands you the per-action results in a "Tool results" entry — you then get one follow-up round to read the results and close the loop for the user in plain language. At most 5 actions per block; rounds per turn are bounded, so batch what belongs together.
+The orchestrator parses the block, validates every action against its own allowlist, executes them IN ORDER through the control plane, and hands you the per-action results in a "Tool results" entry — in this same conversation, so you read the results of the actions you yourself asked for and close the loop for the user in plain language. At most 5 actions per block; rounds per turn are bounded, so batch what belongs together.
 
 Your tools (nothing else exists — an unknown tool is refused):
 

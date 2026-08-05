@@ -861,8 +861,8 @@ function questionAnswersTask(count: number, frozen: boolean, crId: string): stri
   )
 }
 
-function turnTask(turns: ViviTurn[], frozen: boolean, crId: string, origin: TurnOrigin): string {
-  if (turns.at(-1)?.role === "action") {
+function turnTask(round: number, frozen: boolean, crId: string, origin: TurnOrigin): string {
+  if (round > 1) {
     return (
       `The tool results of the actions you just requested are in the "Tool results" entry ` +
       `above. Now close the loop for the user: explain plainly what happened and what it ` +
@@ -909,6 +909,7 @@ interface TurnContext {
   factoryRoot: string
   targetRoot: string
   turns: ViviTurn[]
+  round: number
   frozen: boolean
   crId: string
   statusLine: string
@@ -931,9 +932,9 @@ function undeliveredTurns(turns: ViviTurn[]): ViviTurn[] {
 
 // Two prompts for one turn, because only the child knows whether it resumes: the SEED opens a conversation (persona first message, whole render), the INCREMENT continues one (what is new, nothing else). Both end with the same volatile block and the same order.
 function composeTurnPrompts(ctx: TurnContext): TurnPrompts {
-  const { factoryRoot, targetRoot, turns, frozen, crId, statusLine, origin } = ctx
+  const { factoryRoot, targetRoot, turns, round, frozen, crId, statusLine, origin } = ctx
   const tail =
-    `${volatileBlock(targetRoot, frozen, crId, statusLine)}\n\n` + `---\n\n## This turn\n\n${turnTask(turns, frozen, crId, origin)}`
+    `${volatileBlock(targetRoot, frozen, crId, statusLine)}\n\n` + `---\n\n## This turn\n\n${turnTask(round, frozen, crId, origin)}`
   const fresh = undeliveredTurns(turns)
   return {
     seed: `${readPersona(factoryRoot)}\n\n---\n\n## Conversation so far\n\n${renderTranscript(turns)}\n\n---\n\n${tail}`,
@@ -1293,7 +1294,7 @@ async function runTurnLocked(
     const turns = readTranscript(sessionId)
     // What this round's prompt carries, captured BEFORE the spawn: a turn appended while the leg runs is not in it and must stay undelivered.
     const carried = turns.length
-    const prompts = composeTurnPrompts({ factoryRoot, targetRoot, turns, frozen, crId, statusLine, origin })
+    const prompts = composeTurnPrompts({ factoryRoot, targetRoot, turns, round, frozen, crId, statusLine, origin })
     const outcome = await spawnViviLeg(spawner, { command, targetRoot, sessionId, prompts, frozen })
     const reply = outcome.kind === "reply" ? outcome.text : ""
 

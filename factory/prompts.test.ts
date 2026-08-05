@@ -280,6 +280,11 @@ test("vivi.md carries the governess charter (action protocol, no code, no CR dec
   assert.match(text, /You never write code/i, "vivi.md must carry the no-code prohibition")
   assert.match(text, /no `cr\.decide` tool/i, "vivi.md must state the CR decision is never hers")
   assert.match(text, /never repeat a succeeded action/i, "vivi.md must forbid re-issuing succeeded actions")
+  assert.match(
+    text,
+    /in this same conversation, so you read the results of the actions you yourself asked for/i,
+    "vivi.md must state that the action results come back inside the same conversation"
+  )
 })
 
 test("vivi.md serves a question batch as validated cards, and pins every bound the parser enforces", () => {
