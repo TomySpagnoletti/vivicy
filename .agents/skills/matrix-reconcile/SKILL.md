@@ -13,7 +13,7 @@ The work-list is mechanical, the reconciliation is judgment. Never stamp without
    - New behavior → new cases at the next free id in the right area: `- [<area>.<n>] scenario | expected | kind | covered-today or GAP`.
    - Changed behavior → update the affected cases' scenario/expected/covered-today text.
    - Removed behavior → delete the case lines (ids retire, never reused).
-   - A new test covering an existing case → flip its `GAP` to the covering `file ("test name")` reference.
+   - A new test covering an existing case → flip its `GAP` to the covering `file ("test name")` reference. Never cite a line number, in that column or in prose — name the test, the export or the function, or the citation rots at the next landing.
    - Cross-cutting changes (process lifecycle, parallelism, journeys) may also need cases in the `cross-*` matrices.
 4. **Recount the status table** for every touched area (cases = bullets, gaps = lines containing `GAP`, covered = cases − gaps, TOTAL = sums). The guard recounts independently — let it arbitrate: run step 6, fix any mismatch it reports.
 5. **Stamp**: `npm run matrix:stamp`.
