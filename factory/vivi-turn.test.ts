@@ -2,7 +2,7 @@ import assert from "node:assert/strict"
 import test from "node:test"
 import { spawnSync } from "node:child_process"
 import { createHash } from "node:crypto"
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
@@ -44,7 +44,7 @@ function outcome(over: Partial<LegResult>): Promise<ViviTurnOutcome> {
     spawnVivi: async () => ({
       result,
       output: `${result.stdout}\n${result.stderr}`,
-      transcriptRel: "T/vivi.jsonl",
+      transcriptRel: undefined,
       reply: readReply(result.stdout, false).reply,
       sessionId: VIVI_SESSION,
       context: { used: 24726, window: 200000 },
@@ -58,7 +58,6 @@ test("the turn result keeps the leg's streams apart and carries its exit status"
   assert.equal(failed.reply, "", "stderr must never reach the reply — a merged stream is Vivi speaking the CLI's error")
   assert.equal(failed.status, 1)
   assert.equal(failed.stderr, `${RESUME_FAILURE}\n`)
-  assert.equal(failed.transcriptRel, "T/vivi.jsonl")
 
   const spoke = await outcome({ status: 0, stdout: "  Ciao!  \n", stderr: "a warning nobody asked for\n" })
   assert.equal(spoke.reply, "Ciao!", "the reply is what the leg said, trimmed")
@@ -523,6 +522,37 @@ test("the turn reports how full its conversation now is on its own channel, join
 
     const silent = harness.run(fakeClaude(ENVELOPE), ["--session", CHAT_SESSION])
     assert.equal(silent.pressureBody, null, "a turn whose leg reported no window measures nothing rather than guessing one")
+  })
+})
+
+function filesUnder(root: string, prefix = ""): string[] {
+  const out: string[] = []
+  for (const entry of readdirSync(root, { withFileTypes: true })) {
+    const rel = `${prefix}${entry.name}`
+    if (entry.isDirectory()) out.push(...filesUnder(join(root, entry.name), `${rel}/`))
+    else out.push(rel)
+  }
+  return out.sort()
+}
+
+test("the store is the record: the turn copies its CLI rollout nowhere in the governed project", () => {
+  withCli((harness) => {
+    const keepingARollout = `#!/bin/sh\n${RECORD_ARGV}${RESOLVE_ROLLOUT}printf '%s\\n' ${JSON.stringify(ASSISTANT_LINE)} >> "$ROLLOUT"\nprintf '%s' ${JSON.stringify(ENVELOPE)}\nexit 0\n`
+
+    const turn = harness.run(keepingARollout, ["--session", CHAT_SESSION])
+
+    assert.equal(turn.status, 0)
+    assert.equal(turn.reply, SPOKEN)
+    assert.equal(
+      readdirSync(dirname(harness.rolloutOf(VIVI_SESSION))).length,
+      1,
+      "the CLI kept its own rollout in its own store — that machine-local memory is what a copy would have had to read"
+    )
+    assert.deepEqual(
+      filesUnder(harness.target),
+      [".vivicy/runtime/.gitignore", `.vivicy/runtime/vivi/${CHAT_SESSION}.leg.json`],
+      "one sidecar beside the thread's store and NOTHING else: no transcripts tree, no per-turn rollout copy in the project"
+    )
   })
 })
 

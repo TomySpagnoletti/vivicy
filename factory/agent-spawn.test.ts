@@ -878,7 +878,6 @@ test("the ratified transcript taxonomy is the whole namespace, named once", () =
     extraction: "EXTRACTION",
     acceptance: "ACCEPTANCE",
     retro: "RETRO",
-    vivi: "VIVI",
     importDocs: "IMPORT-DOCS",
     autoskills: "AUTOSKILLS",
     changeRequests: "CHANGE-REQUESTS",
@@ -892,7 +891,7 @@ test("every leg family declares its ratified transcript home exactly once, and n
     "extract-issues.ts": "transcript_dir: TRANSCRIPT_DIRS.extraction",
     "acceptance.ts": "transcript_dir: TRANSCRIPT_DIRS.acceptance",
     "retro.ts": "transcript_dir: TRANSCRIPT_DIRS.retro",
-    "vivi-turn.ts": "transcript_dir: TRANSCRIPT_DIRS.vivi",
+    "vivi-turn.ts": "transcript_dir: null",
     "prepare-docs.ts": "transcript_dir: TRANSCRIPT_DIRS.importDocs",
     "detect-language.ts": "transcript_dir: TRANSCRIPT_DIRS.importDocs",
     "install-skills.ts": "transcript_dir: TRANSCRIPT_DIRS.autoskills",
@@ -911,13 +910,13 @@ test("every leg family declares its ratified transcript home exactly once, and n
     assert.ok(homes[name], `${name} declares a transcript home that this taxonomy pin does not know about`)
     assert.ok(
       text.includes(homes[name]),
-      `${name} must declare its home as \`${homes[name]}\` — a hand-written path here is the per-call-site munging the single table exists to forbid`
+      `${name} must declare its home as \`${homes[name]}\` — a hand-written path here is the per-call-site munging the single table exists to forbid, and a family whose own store IS its record declares \`null\` instead of a home`
     )
   }
   assert.deepEqual(
     declaring.sort(),
     Object.keys(homes).sort(),
-    "a family that stopped declaring its home falls back to the ISSUES group silently"
+    "the declaring set IS the leg-family set: a module that starts or stops declaring a home moves this pin with it"
   )
 })
 
@@ -928,7 +927,6 @@ test("transcriptDirRel composes <transcripts>/<declared home> for every family s
   assert.equal(dir(TRANSCRIPT_DIRS.extraction), `${root}/EXTRACTION`)
   assert.equal(dir(TRANSCRIPT_DIRS.acceptance), `${root}/ACCEPTANCE`)
   assert.equal(dir(TRANSCRIPT_DIRS.retro), `${root}/RETRO`)
-  assert.equal(dir(TRANSCRIPT_DIRS.vivi), `${root}/VIVI`)
   assert.equal(dir(TRANSCRIPT_DIRS.importDocs), `${root}/IMPORT-DOCS`)
   assert.equal(dir(TRANSCRIPT_DIRS.autoskills), `${root}/AUTOSKILLS`)
   assert.equal(dir(`${TRANSCRIPT_DIRS.changeRequests}/CR-APPLY-7`), `${root}/CHANGE-REQUESTS/CR-APPLY-7`)
@@ -980,12 +978,13 @@ test("a leg's transcript lands under its family's directory, role-named so two l
       execRoot,
       cwdFilter: null,
     }
-    const landed = (role: string, issue: AgentIssue): string => {
-      const result = withEnv(
+    const spawn = (role: string, issue: AgentIssue): LegRunResult =>
+      withEnv(
         { PATH: `${bin}:${process.env.PATH ?? ""}`, CODEX_HOME: codexHome, VIVICY_LEG_TIMEOUT_MS: "60000", VIVICY_LEG_IDLE_MS: "60000" },
         () => runCodexLeg({ actor: "codex", role, provider: "codex" }, issue, cfg, deps)
       )
-      const rel = result.transcriptRel
+    const landed = (role: string, issue: AgentIssue): string => {
+      const rel = spawn(role, issue).transcriptRel
       assert.ok(rel, `the ${role} leg captured no transcript, so nothing proves where it would have landed`)
       assert.ok(existsSync(deps.abs(rel!)), `the ${role} leg's transcript is not on disk at ${rel}`)
       return rel!
@@ -1015,6 +1014,18 @@ test("a leg's transcript lands under its family's directory, role-named so two l
     assert.match(
       landed("spike-prover", { id: "SPIKE-S01-argon2id", transcript_dir: `${TRANSCRIPT_DIRS.spikes}/SPIKE-S01-argon2id` }),
       /^\.vivicy\/development\/transcripts\/SPIKES\/SPIKE-S01-argon2id\/codex-spike-prover-[0-9a-f-]{36}\.jsonl$/
+    )
+
+    const noHome = spawn("vivi", { id: "vivi", transcript_dir: null })
+    assert.equal(
+      noHome.transcriptRel,
+      undefined,
+      "a family that declares NO home keeps no rollout copy — the same seam that landed the four above must land nothing here"
+    )
+    assert.deepEqual(
+      readdirSync(deps.abs(".vivicy/development/transcripts")).sort(),
+      ["CHANGE-REQUESTS", "IMPORT-DOCS", "ISSUES", "SPIKES"],
+      "the copy-less family creates not even an empty directory of its own"
     )
   } finally {
     rmSync(root, { recursive: true, force: true })

@@ -87,7 +87,7 @@ test("legDepsForVerbatimPrompt sends the pre-composed prompt untouched, ignoring
     promptText,
     "no double-composition and no tidying: what lib/vivi.ts wrote, to the byte, is what the leg runs"
   )
-  assert.equal(deps.composePrompt("", { id: "", transcript_dir: "VIVI" }), promptText)
+  assert.equal(deps.composePrompt("", { id: "vivi", transcript_dir: null }), promptText)
 })
 
 test("both bindings share ONE rooting — only the prompt differs", () => {

@@ -53,7 +53,7 @@ const POST_FREEZE_DIRS = [CHANGE_REQUESTS_DIR] as const
 
 const UPLOADS_DIR_POSIX = UPLOADS_DIR.split(path.sep).join("/")
 
-// Excluded from every .vivicy snapshot/diff/rollback: the leg writes its own transcript here mid-turn, and the runtime subtree is orchestrator-owned operational state written under Vivi's own feet.
+// Excluded from every .vivicy snapshot/diff/rollback: a stage an action fires writes its own leg transcripts here mid-turn, and the runtime subtree is orchestrator-owned operational state written under Vivi's own feet.
 const IGNORED_SUBTREES = new Set([path.join(".vivicy", "development", "transcripts"), path.join(...PROJECT_RUNTIME_SEGMENTS)])
 
 // A card action fires only on the owner's click — nothing ever self-fires.

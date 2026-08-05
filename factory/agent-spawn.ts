@@ -17,7 +17,7 @@ export interface AgentLeg {
 
 export interface AgentIssue {
   id: string
-  transcript_dir: string
+  transcript_dir: string | null
   graph_refs?: string[]
   path?: string
   issue_path?: string
@@ -28,7 +28,6 @@ export const TRANSCRIPT_DIRS = {
   extraction: "EXTRACTION",
   acceptance: "ACCEPTANCE",
   retro: "RETRO",
-  vivi: "VIVI",
   importDocs: "IMPORT-DOCS",
   autoskills: "AUTOSKILLS",
   changeRequests: "CHANGE-REQUESTS",
@@ -42,11 +41,10 @@ export function issueTranscriptDir(issueId: string): string {
 // The subpath comes from an agent-writable file and this is its only traversal guard — never weaken it.
 export function transcriptDirRel(transcriptsDir: string, issue: AgentIssue): string {
   const subdir = issue.transcript_dir
-  const segments = typeof subdir === "string" ? subdir.split("/") : []
   if (
-    segments.length === 0 ||
+    typeof subdir !== "string" ||
     subdir.includes("\\") ||
-    segments.some((segment) => segment.length === 0 || segment === "." || segment === "..")
+    subdir.split("/").some((segment) => segment.length === 0 || segment === "." || segment === "..")
   ) {
     throw new Error(
       `agent-spawn: "${String(subdir)}" is not a usable transcript directory for "${String(issue.id)}" — it must be a plain relative subpath of ${transcriptsDir}.`
@@ -457,6 +455,28 @@ export function ensureTranscriptDir(absTranscriptDir: string): void {
   mkdirSync(absTranscriptDir, { recursive: true })
 }
 
+interface TranscriptTarget {
+  dirRel: string
+  fileRel: string
+}
+
+// A family that declares NO home keeps no rollout copy — the CLI's own rollout stays the agent's private machine-local memory and that family's own store is the record.
+function transcriptTarget(cfg: LegConfig, issue: AgentIssue, name: string): TranscriptTarget | null {
+  if (issue.transcript_dir === null) return null
+  const dirRel = transcriptDirRel(cfg.transcriptsDir!, issue)
+  return { dirRel, fileRel: `${dirRel}/${name}` }
+}
+
+function captureInto(
+  target: TranscriptTarget | null,
+  abs: (rel: string) => string,
+  write: (destAbs: string) => boolean
+): string | undefined {
+  if (target === null) return undefined
+  ensureTranscriptDir(abs(target.dirRel))
+  return write(abs(target.fileRel)) ? target.fileRel : undefined
+}
+
 // These flags are the whole boundary keeping the machine's own config, skills, plugins, hooks and MCP servers out of every leg — never drop one.
 export const CLAUDE_ISOLATION_ARGS = ["--safe-mode"]
 export const CODEX_ISOLATION_ARGS = [
@@ -602,18 +622,15 @@ function runClaudeLegWith(
   const resumeId = resumeIdOf(turn)
   const sessionId = resumeId ?? randomUUID()
   const jsonReply = turn.jsonReply === true
-  const dirRel = transcriptDirRel(cfg.transcriptsDir!, issue)
-  const transcriptRel = `${dirRel}/claude-${leg.role}-${sessionId}.jsonl`
+  const target = transcriptTarget(cfg, issue, `claude-${leg.role}-${sessionId}.jsonl`)
   const args = buildClaudeArgs({ prompt, sessionId, resume: resumeId !== undefined, jsonReply, modelArgs: agentCliArgs("claude", leg) })
   const options = { cwd: execRoot, env: agentEnv() }
   const finish = (result: LegResult): LegRunResult => {
-    ensureTranscriptDir(abs(dirRel))
-    const captured = captureFn(sessionId, abs(transcriptRel))
     const spoken = readReply(result.stdout, jsonReply)
     return {
       result,
       output: combinedOutput(result),
-      transcriptRel: captured ? transcriptRel : undefined,
+      transcriptRel: captureInto(target, abs, (destAbs) => captureFn(sessionId, destAbs)),
       reply: spoken.reply,
       sessionId: spoken.sessionId ?? sessionId,
       context: turn.measureContext === true ? claudeContextPressure(sessionId, spoken.contextWindows) : undefined,
@@ -649,18 +666,19 @@ function runCodexLegWith(
   const { composePrompt, agentCliArgs, abs, execRoot, cwdFilter } = deps
   const prompt = composePrompt(readPrompt(cfg, leg.role), issue)
   const resumeId = resumeIdOf(turn)
-  const dirRel = transcriptDirRel(cfg.transcriptsDir!, issue)
-  const transcriptRel = `${dirRel}/codex-${leg.role}-${resumeId ?? randomUUID()}.jsonl`
+  const target = transcriptTarget(cfg, issue, `codex-${leg.role}-${resumeId ?? randomUUID()}.jsonl`)
   const args = buildCodexArgs({ prompt, root: execRoot, resumeSessionId: resumeId, modelArgs: agentCliArgs("codex", leg) })
   const options = { cwd: execRoot, env: agentEnv() }
   const startMs = Date.now()
   const finish = (result: LegResult): LegRunResult => {
-    ensureTranscriptDir(abs(dirRel))
     const output = combinedOutput(result)
     const reply = readReply(result.stdout, false).reply
     const rollout = findNewestCodexRollout(startMs, cwdFilter ?? null)
     if (rollout) {
-      copyFileSync(rollout, abs(transcriptRel))
+      const transcriptRel = captureInto(target, abs, (destAbs) => {
+        copyFileSync(rollout, destAbs)
+        return true
+      })
       const context = turn.measureContext === true ? (readCodexContextPressure(rollout) ?? undefined) : undefined
       return { result, output, transcriptRel, reply, sessionId: readCodexSessionId(rollout) ?? resumeId, context }
     }

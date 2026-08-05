@@ -462,14 +462,11 @@ describe("runViviTurn — allowlist enforcement", () => {
     expect((turns.at(-1) as ViviTurn).wrote).toEqual(result.wrote)
   })
 
-  it("ignores the leg's own transcript write and keeps the legit spike", async () => {
+  it("ignores a stage leg's transcript write and keeps the legit spike", async () => {
+    const stageTranscript = path.join(".vivicy", "development", "transcripts", "AUTOSKILLS", "claude-skill-scout-abc.jsonl")
     const { spawner } = makeFakeSpawner((o) => {
       writeInTarget(targetRoot, path.join(SPIKES, "S01-native-argon2id.md"), "# S01\n")
-      writeInTarget(
-        targetRoot,
-        path.join(".vivicy", "development", "transcripts", "VIVI", "claude-vivi-abc.jsonl"),
-        '{"type":"assistant"}\n'
-      )
+      writeInTarget(targetRoot, stageTranscript, '{"type":"assistant"}\n')
       writeReply(o, "Wrote 3 spikes.")
     })
     const result = await runViviTurn(spawner, { message: "start" })
@@ -477,7 +474,7 @@ describe("runViviTurn — allowlist enforcement", () => {
     expect(result.rejected).toBeUndefined()
     expect(result.wrote).toEqual([path.join(SPIKES, "S01-native-argon2id.md")])
     expect(existsSync(path.join(targetRoot, SPIKES, "S01-native-argon2id.md"))).toBe(true)
-    expect(existsSync(path.join(targetRoot, ".vivicy", "development", "transcripts", "VIVI", "claude-vivi-abc.jsonl"))).toBe(true)
+    expect(existsSync(path.join(targetRoot, stageTranscript))).toBe(true)
   })
 
   it("leaves the orchestrator's runtime subtree alone: written, modified, never reported, never rolled back", async () => {
@@ -1385,6 +1382,69 @@ describe("driven live across the freeze boundary — the real turn child, a scri
       rmSync(bin, { recursive: true, force: true })
     }
   }, 90_000)
+})
+
+function filesUnder(root: string, prefix = ""): string[] {
+  const out: string[] = []
+  for (const entry of readdirSync(root, { withFileTypes: true })) {
+    const rel = `${prefix}${entry.name}`
+    if (entry.isDirectory()) out.push(...filesUnder(path.join(root, entry.name), `${rel}/`))
+    else out.push(rel)
+  }
+  return out.sort()
+}
+
+// A scripted agent CLI that keeps its rollout exactly where a capture would look for one: under its own config store, named by the conversation it was handed.
+function rolloutKeepingClaude(): string {
+  return (
+    [
+      "#!/bin/sh",
+      "sid=$6",
+      `dir="$CLAUDE_CONFIG_DIR/projects/-target"`,
+      `mkdir -p "$dir"`,
+      `printf '{"type":"user","cwd":"%s"}\\n' "$PWD" >> "$dir/$sid.jsonl"`,
+      `printf '{"type":"result","is_error":false,"subtype":"success","session_id":"%s","result":"Allora."}' "$sid"`,
+      "exit 0",
+    ].join("\n") + "\n"
+  )
+}
+
+describe("driven live — the conversation store IS the record", () => {
+  it("leaves ONE store file and ONE sidecar, copies the CLI's rollout nowhere, and never touches a stale transcript residue", async () => {
+    const bin = mkdtempSync(path.join(tmpdir(), "vivi-bin-"))
+    const claudeConfig = mkdtempSync(path.join(tmpdir(), "vivi-claude-config-"))
+    writeFileSync(path.join(bin, "claude"), rolloutKeepingClaude(), { mode: 0o755 })
+    const residue = path.join(".vivicy", "development", "transcripts", "VIVI-CHAT", "claude-vivi-0e6c3a4a.jsonl")
+    writeInTarget(targetRoot, residue, '{"type":"assistant","message":{"model":"whatever ran back then"}}\n')
+    const residueBytes = readFileSync(path.join(targetRoot, residue), "utf8")
+    const prevPath = process.env.PATH
+    const prevClaudeConfig = process.env.CLAUDE_CONFIG_DIR
+    process.env.VIVICY_FACTORY_ROOT = path.join(REPO_ROOT, "factory")
+    process.env.PATH = `${bin}:${prevPath ?? ""}`
+    process.env.CLAUDE_CONFIG_DIR = claudeConfig
+    try {
+      const first = await runViviTurn(nodeSpawner, { message: "on commence la ricetta" })
+      expect(first.reply).toBe("Allora.")
+      const second = await runViviTurn(nodeSpawner, { sessionId: first.sessionId, message: "et la suite ?" })
+
+      expect(second.sessionId).toBe(first.sessionId)
+      expect(readTranscript(first.sessionId).map((t) => t.role)).toEqual(["user", "vivi", "user", "vivi"])
+      expect(filesUnder(path.join(claudeConfig, "projects"))).toHaveLength(1)
+      expect(filesUnder(path.join(targetRoot, ".vivicy"))).toEqual([
+        "development/transcripts/VIVI-CHAT/claude-vivi-0e6c3a4a.jsonl",
+        "runtime/.gitignore",
+        `runtime/vivi/${first.sessionId}.jsonl`,
+        `runtime/vivi/${first.sessionId}.leg.json`,
+      ])
+      expect(readFileSync(path.join(targetRoot, residue), "utf8")).toBe(residueBytes)
+    } finally {
+      process.env.PATH = prevPath
+      if (prevClaudeConfig === undefined) delete process.env.CLAUDE_CONFIG_DIR
+      else process.env.CLAUDE_CONFIG_DIR = prevClaudeConfig
+      rmSync(bin, { recursive: true, force: true })
+      rmSync(claudeConfig, { recursive: true, force: true })
+    }
+  }, 60_000)
 })
 
 const ROUND_ACTION_REPLY = 'On it.\\n\\n```vivicy-action\\n{\\"actions\\": [{\\"tool\\": \\"crs.list\\"}]}\\n```'

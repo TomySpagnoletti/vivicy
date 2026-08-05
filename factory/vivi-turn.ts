@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync, writeSync }
 import { dirname, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
-import { claudeRolloutPath, compactBoundaryTriggers, readPrompt, runClaudeLeg, runCodexLeg, TRANSCRIPT_DIRS } from "./agent-spawn.ts"
+import { claudeRolloutPath, compactBoundaryTriggers, readPrompt, runClaudeLeg, runCodexLeg } from "./agent-spawn.ts"
 import type { AgentIssue, AgentLeg, ContextPressure, LegConfig, LegRunResult } from "./agent-spawn.ts"
 import type { LegResult } from "./leg-timeout.ts"
 import { legDepsForVerbatimPrompt } from "./leg-deps.ts"
@@ -34,7 +34,6 @@ export interface ViviTurnOutcome {
   reply: string
   status: number | null
   stderr: string
-  transcriptRel?: string
   cliSessionId?: string
   context?: ContextPressure
   forked: ViviForkReason | null
@@ -73,8 +72,8 @@ export async function runViviTurn(options: ViviTurnOptions = {}): Promise<ViviTu
     // The ONE place the split is spent: a conversation being created (or reseeded by a fork) takes the seed, a resumed one takes the increment and nothing else.
     spawn: async (resumeSessionId) => {
       const promptText = (resumeSessionId === undefined ? seedText : incrementText) as string
-      const { result, transcriptRel, reply, sessionId, context } = await spawnVivi({ promptText, targetRoot, cfg, leg, resumeSessionId })
-      const turn: SpokenTurn = { reply, status: result.status, stderr: result.stderr, transcriptRel, cliSessionId: sessionId, context }
+      const { result, reply, sessionId, context } = await spawnVivi({ promptText, targetRoot, cfg, leg, resumeSessionId })
+      const turn: SpokenTurn = { reply, status: result.status, stderr: result.stderr, cliSessionId: sessionId, context }
       return {
         turn,
         cliSessionId: sessionId,
@@ -86,7 +85,7 @@ export async function runViviTurn(options: ViviTurnOptions = {}): Promise<ViviTu
   return { ...run.turn, forked: run.forked, resumed: run.resumed }
 }
 
-// The leg roots itself through its LegDeps, never through the config: only the prompt directory and the transcript home are this seam's business.
+// The leg roots itself through its LegDeps, never through the config: the prompt directory is this seam's business.
 function viviLegConfig(over: Partial<LegConfig> = {}): LegConfig {
   return { ...DEFAULT_CONFIG, promptsDir: FACTORY_PROMPTS_DIR, ...over }
 }
@@ -136,7 +135,7 @@ async function defaultSpawnVivi({ promptText, targetRoot, cfg, leg, resumeSessio
 }
 
 function viviIssue(): AgentIssue {
-  return { id: TRANSCRIPT_DIRS.vivi, transcript_dir: TRANSCRIPT_DIRS.vivi, graph_refs: ["node:vivi-chat"], path: "" }
+  return { id: "vivi", transcript_dir: null }
 }
 
 export type ViviMaintenanceOutcome = "compacted" | "reseeded" | "no_conversation" | "undecided"
